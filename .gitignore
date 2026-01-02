@@ -1,0 +1,32 @@
+# Build artifacts
+/target/
+**/target/
+
+# Cargo lock for libraries (optional - can include for reproducible builds)
+# Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test database
+*.db
+*.sqlite
+
+# Coverage reports
+coverage/
+*.profraw
+*.profdata
+lcov.info

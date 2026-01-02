@@ -1,0 +1,29 @@
+[package]
+name = "matric-core"
+description = "Core types, traits, and abstractions for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Async traits
+async-trait.workspace = true
+
+# Vector type (shared with pgvector)
+pgvector.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

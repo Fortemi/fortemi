@@ -1,0 +1,48 @@
+[package]
+name = "matric-db"
+description = "PostgreSQL + pgvector database layer for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Internal
+matric-core.workspace = true
+
+# Database
+sqlx.workspace = true
+pgvector.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Utilities
+sha2.workspace = true
+hex.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[dev-dependencies]
+dotenvy.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+# Enable migrations (optional for consumers who manage schema externally)
+migrations = []

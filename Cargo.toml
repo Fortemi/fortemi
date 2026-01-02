@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/matric-core",
+    "crates/matric-db",
+    "crates/matric-search",
+    "crates/matric-inference",
+    "crates/matric-jobs",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://git.integrolabs.net/roctinam/matric-memory"
+authors = ["roctinam"]
+
+[workspace.dependencies]
+# Internal crates
+matric-core = { path = "crates/matric-core" }
+matric-db = { path = "crates/matric-db" }
+matric-search = { path = "crates/matric-search" }
+matric-inference = { path = "crates/matric-inference" }
+matric-jobs = { path = "crates/matric-jobs" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "macros",
+    "bigdecimal",
+    "migrate"
+]}
+pgvector = { version = "0.4.1", features = ["sqlx", "postgres"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# HTTP client (for inference backends)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+dotenvy = "0.15"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,15 @@
+//! # matric-core
+//!
+//! Core types, traits, and abstractions for the matric-memory library.
+//!
+//! This crate provides the foundational data structures and trait definitions
+//! that other matric-memory crates depend on.
+
+pub mod error;
+pub mod models;
+pub mod traits;
+
+// Re-export commonly used types at crate root
+pub use error::{Error, Result};
+pub use models::*;
+pub use traits::*;
