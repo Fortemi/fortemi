@@ -30,3 +30,4 @@ coverage/
 *.profraw
 *.profdata
 lcov.info
+node_modules/
