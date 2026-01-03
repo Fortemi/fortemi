@@ -1,0 +1,16 @@
+{
+  "name": "@matric/memory-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Matric Memory API",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "matric-memory-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
