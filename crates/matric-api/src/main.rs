@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -82,8 +82,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/links", get(get_note_links))
         // Search
         .route("/api/v1/search", get(search_notes))
+        // Note status shortcut
+        .route("/api/v1/notes/:id/status", patch(update_note_status))
         // Jobs
-        .route("/api/v1/jobs", post(create_job))
+        .route("/api/v1/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/jobs/:id", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
         // Tags
@@ -217,6 +219,25 @@ async fn delete_note(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.db.notes.soft_delete(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateStatusBody {
+    starred: Option<bool>,
+    archived: Option<bool>,
+}
+
+async fn update_note_status(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateStatusBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = UpdateNoteStatusRequest {
+        starred: body.starred,
+        archived: body.archived,
+    };
+    state.db.notes.update_status(id, req).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -383,6 +404,21 @@ async fn get_job(
 async fn pending_jobs_count(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let count = state.db.jobs.pending_count().await?;
     Ok(Json(serde_json::json!({ "pending": count })))
+}
+
+#[derive(Debug, Deserialize)]
+struct ListJobsQuery {
+    status: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn list_jobs(
+    State(state): State<AppState>,
+    Query(query): Query<ListJobsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50);
+    let jobs = state.db.jobs.list_recent(limit).await?;
+    Ok(Json(serde_json::json!({ "jobs": jobs })))
 }
 
 // =============================================================================

@@ -195,6 +195,9 @@ pub trait JobRepository: Send + Sync {
     /// Get pending jobs count.
     async fn pending_count(&self) -> Result<i64>;
 
+    /// List recent jobs.
+    async fn list_recent(&self, limit: i64) -> Result<Vec<Job>>;
+
     /// Clean up old completed/failed jobs.
     async fn cleanup(&self, keep_count: i64) -> Result<i64>;
 }

@@ -361,6 +361,23 @@ impl JobRepository for PgJobRepository {
         Ok(count)
     }
 
+    async fn list_recent(&self, limit: i64) -> Result<Vec<Job>> {
+        let rows = sqlx::query(
+            "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
+                    error_message, progress_percent, progress_message, retry_count, max_retries,
+                    created_at, started_at, completed_at
+             FROM job_queue
+             ORDER BY created_at DESC
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows.into_iter().map(Self::parse_job_row).collect())
+    }
+
     async fn cleanup(&self, keep_count: i64) -> Result<i64> {
         let result = sqlx::query(
             "DELETE FROM job_queue

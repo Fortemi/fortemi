@@ -56,8 +56,9 @@ impl NoteRepository for PgNoteRepository {
 
         // Insert original content
         sqlx::query(
-            "INSERT INTO note_original (note_id, content, hash) VALUES ($1, $2, $3)",
+            "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
         )
+        .bind(Uuid::new_v4())
         .bind(note_id)
         .bind(&req.content)
         .bind(&hash)
@@ -67,10 +68,12 @@ impl NoteRepository for PgNoteRepository {
 
         // Insert initial revised content (same as original)
         sqlx::query(
-            "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, NULL)",
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
         )
+        .bind(Uuid::new_v4())
         .bind(note_id)
         .bind(&req.content)
+        .bind(now)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -213,7 +216,7 @@ impl NoteRepository for PgNoteRepository {
                 archived: note_row.get::<Option<bool>, _>("archived").unwrap_or(false),
                 last_accessed_at: note_row.get("last_accessed_at"),
                 title: note_row.get("title"),
-                metadata: note_row.get("metadata"),
+                metadata: note_row.get::<Option<serde_json::Value>, _>("metadata").unwrap_or_else(|| serde_json::json!({})),
             },
             original: NoteOriginal {
                 content: original_row.get("content"),
@@ -342,7 +345,7 @@ impl NoteRepository for PgNoteRepository {
                     archived: row.get::<Option<bool>, _>("archived").unwrap_or(false),
                     tags,
                     has_revision: revised_content.is_some(),
-                    metadata: row.get("metadata"),
+                    metadata: row.get::<Option<serde_json::Value>, _>("metadata").unwrap_or_else(|| serde_json::json!({})),
                 }
             })
             .collect();

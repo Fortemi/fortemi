@@ -53,4 +53,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            RUST_VERSION=1.83
+            RUST_VERSION=1.85
