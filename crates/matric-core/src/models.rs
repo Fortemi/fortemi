@@ -193,7 +193,7 @@ pub enum JobStatus {
 }
 
 /// Type of job to process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobType {
     /// Generate AI revision of content
@@ -225,7 +225,7 @@ impl JobType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Job {
     pub id: Uuid,
-    pub note_id: Uuid,
+    pub note_id: Option<Uuid>,
     pub job_type: JobType,
     pub status: JobStatus,
     pub priority: i32,
