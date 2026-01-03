@@ -8,9 +8,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Core error type for matric-memory operations.
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Database operation failed
+    /// Database operation failed (wraps sqlx::Error)
     #[error("Database error: {0}")]
-    Database(String),
+    Database(#[from] sqlx::Error),
+
+    /// Resource not found
+    #[error("Not found: {0}")]
+    NotFound(String),
 
     /// Note not found
     #[error("Note not found: {0}")]
@@ -48,6 +52,10 @@ pub enum Error {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    /// HTTP/network request failed
+    #[error("Request error: {0}")]
+    Request(String),
+
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),
@@ -56,5 +64,11 @@ pub enum Error {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::Serialization(e.to_string())
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Request(e.to_string())
     }
 }

@@ -25,5 +25,11 @@ async-trait.workspace = true
 # Vector type (shared with pgvector)
 pgvector.workspace = true
 
+# Database (for error type compatibility)
+sqlx.workspace = true
+
+# HTTP client (for error type compatibility)
+reqwest.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

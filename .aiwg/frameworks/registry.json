@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "created": "2026-01-02T20:10:34.491Z",
+  "frameworks": {
+    "sdlc-complete": {
+      "id": "sdlc-complete",
+      "type": "framework",
+      "version": "1.0.0",
+      "install-date": "2026-01-02T20:10:34.491Z",
+      "repo-path": "frameworks/sdlc-complete/repo",
+      "health": "healthy"
+    }
+  }
+}
