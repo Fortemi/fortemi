@@ -1,0 +1,52 @@
+[package]
+name = "matric-api"
+description = "HTTP API server for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "matric-api"
+path = "src/main.rs"
+
+[dependencies]
+# Internal
+matric-core.workspace = true
+matric-db.workspace = true
+matric-search.workspace = true
+matric-jobs.workspace = true
+matric-inference.workspace = true
+
+# Web framework
+axum = { version = "0.7", features = ["json", "tower-log"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id"] }
+
+# Vector support
+pgvector.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Async
+tokio = { workspace = true, features = ["full"] }
+async-trait.workspace = true
+futures.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+dotenvy = "0.15"

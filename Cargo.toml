@@ -6,6 +6,7 @@ members = [
     "crates/matric-search",
     "crates/matric-inference",
     "crates/matric-jobs",
+    "crates/matric-api",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ matric-db = { path = "crates/matric-db" }
 matric-search = { path = "crates/matric-search" }
 matric-inference = { path = "crates/matric-inference" }
 matric-jobs = { path = "crates/matric-jobs" }
+matric-api = { path = "crates/matric-api" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

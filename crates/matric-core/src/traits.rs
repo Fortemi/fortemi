@@ -4,6 +4,7 @@
 //! must satisfy, enabling pluggable backends and testability.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
@@ -34,7 +35,7 @@ pub struct ListNotesRequest {
 }
 
 /// Response for listing notes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListNotesResponse {
     pub notes: Vec<NoteSummary>,
     pub total: i64,
