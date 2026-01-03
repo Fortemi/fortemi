@@ -1,0 +1,713 @@
+openapi: 3.1.0
+info:
+  title: Matric Memory API
+  description: |
+    AI-enhanced note storage and retrieval system with semantic search.
+
+    ## Features
+    - **Notes**: CRUD operations for markdown notes
+    - **Tags**: Organize notes with tags
+    - **Search**: Full-text and semantic hybrid search
+    - **Links**: Automatic linking between related notes
+    - **Jobs**: Background processing for AI enhancement
+  version: 0.1.0
+  contact:
+    name: Matric Memory Team
+    url: https://git.integrolabs.net/roctinam/matric-memory
+
+servers:
+  - url: https://memory.integrolabs.net
+    description: Production server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: 0.1.0
+
+  /api/v1/notes:
+    get:
+      summary: List notes
+      operationId: listNotes
+      tags: [Notes]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: filter
+          in: query
+          description: Filter expression (starred, archived)
+          schema:
+            type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [created_at_utc, updated_at_utc, title]
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: collection_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of notes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotesListResponse'
+
+    post:
+      summary: Create a note
+      operationId: createNote
+      tags: [Notes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteRequest'
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+
+  /api/v1/notes/{id}:
+    get:
+      summary: Get a note
+      operationId: getNote
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: Full note details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteFull'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      summary: Update a note
+      operationId: updateNote
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+      responses:
+        '204':
+          description: Note updated
+
+    delete:
+      summary: Delete a note (soft delete)
+      operationId: deleteNote
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '204':
+          description: Note deleted
+
+  /api/v1/notes/{id}/status:
+    patch:
+      summary: Update note status
+      operationId: updateNoteStatus
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                starred:
+                  type: boolean
+                archived:
+                  type: boolean
+      responses:
+        '204':
+          description: Status updated
+
+  /api/v1/notes/{id}/restore:
+    post:
+      summary: Restore a deleted note
+      operationId: restoreNote
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '204':
+          description: Note restored
+
+  /api/v1/notes/{id}/tags:
+    get:
+      summary: Get note tags
+      operationId: getNoteTags
+      tags: [Tags]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: List of tag names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+    put:
+      summary: Set note tags
+      operationId: setNoteTags
+      tags: [Tags]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '204':
+          description: Tags updated
+
+  /api/v1/notes/{id}/links:
+    get:
+      summary: Get note links
+      operationId: getNoteLinks
+      tags: [Links]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: Incoming and outgoing links
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outgoing:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Link'
+                  incoming:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Link'
+
+  /api/v1/search:
+    get:
+      summary: Search notes
+      operationId: searchNotes
+      tags: [Search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: mode
+          in: query
+          description: Search mode
+          schema:
+            type: string
+            enum: [hybrid, fts, semantic]
+            default: hybrid
+        - name: filters
+          in: query
+          description: Filter expression
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /api/v1/tags:
+    get:
+      summary: List all tags
+      operationId: listTags
+      tags: [Tags]
+      responses:
+        '200':
+          description: List of tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+
+  /api/v1/jobs:
+    get:
+      summary: List recent jobs
+      operationId: listJobs
+      tags: [Jobs]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+
+    post:
+      summary: Create a job
+      operationId: createJob
+      tags: [Jobs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+
+  /api/v1/jobs/{id}:
+    get:
+      summary: Get job status
+      operationId: getJob
+      tags: [Jobs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs/pending:
+    get:
+      summary: Get pending jobs count
+      operationId: pendingJobsCount
+      tags: [Jobs]
+      responses:
+        '200':
+          description: Pending count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+
+components:
+  parameters:
+    NoteId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+  schemas:
+    NoteSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        snippet:
+          type: string
+        created_at_utc:
+          type: string
+          format: date-time
+        updated_at_utc:
+          type: string
+          format: date-time
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        has_revision:
+          type: boolean
+        metadata:
+          type: object
+
+    NoteFull:
+      type: object
+      properties:
+        note:
+          $ref: '#/components/schemas/NoteMeta'
+        original:
+          $ref: '#/components/schemas/NoteOriginal'
+        revised:
+          $ref: '#/components/schemas/NoteRevised'
+        tags:
+          type: array
+          items:
+            type: string
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+
+    NoteMeta:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        collection_id:
+          type: string
+          format: uuid
+          nullable: true
+        format:
+          type: string
+        source:
+          type: string
+        created_at_utc:
+          type: string
+          format: date-time
+        updated_at_utc:
+          type: string
+          format: date-time
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+        last_accessed_at:
+          type: string
+          format: date-time
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+
+    NoteOriginal:
+      type: object
+      properties:
+        content:
+          type: string
+        hash:
+          type: string
+        user_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        user_last_edited_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    NoteRevised:
+      type: object
+      properties:
+        content:
+          type: string
+        last_revision_id:
+          type: string
+          format: uuid
+        ai_metadata:
+          type: object
+          nullable: true
+        ai_generated_at:
+          type: string
+          format: date-time
+          nullable: true
+        user_last_edited_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_user_edited:
+          type: boolean
+        generation_count:
+          type: integer
+        model:
+          type: string
+          nullable: true
+
+    NotesListResponse:
+      type: object
+      properties:
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoteSummary'
+        total:
+          type: integer
+
+    CreateNoteRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: Markdown content
+        format:
+          type: string
+          default: markdown
+        source:
+          type: string
+          default: api
+        collection_id:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+
+    UpdateNoteRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+
+    Link:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_note_id:
+          type: string
+          format: uuid
+        to_note_id:
+          type: string
+          format: uuid
+          nullable: true
+        to_url:
+          type: string
+          nullable: true
+        kind:
+          type: string
+        score:
+          type: number
+        created_at_utc:
+          type: string
+          format: date-time
+        snippet:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+
+    Tag:
+      type: object
+      properties:
+        name:
+          type: string
+        created_at_utc:
+          type: string
+          format: date-time
+
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchHit'
+        query:
+          type: string
+        total:
+          type: integer
+
+    SearchHit:
+      type: object
+      properties:
+        note_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+        snippet:
+          type: string
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        note_id:
+          type: string
+          format: uuid
+          nullable: true
+        job_type:
+          type: string
+          enum: [ai_revision, embedding, linking, context_update, title_generation]
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        priority:
+          type: integer
+        payload:
+          type: object
+          nullable: true
+        result:
+          type: object
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        progress_percent:
+          type: integer
+        progress_message:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+        max_retries:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateJobRequest:
+      type: object
+      required: [job_type]
+      properties:
+        note_id:
+          type: string
+          format: uuid
+        job_type:
+          type: string
+          enum: [ai_revision, embedding, linking, context_update, title_generation]
+        priority:
+          type: integer
+        payload:
+          type: object
+
+tags:
+  - name: System
+    description: Health and status endpoints
+  - name: Notes
+    description: Note CRUD operations
+  - name: Tags
+    description: Tag management
+  - name: Links
+    description: Note relationships
+  - name: Search
+    description: Full-text and semantic search
+  - name: Jobs
+    description: Background job management

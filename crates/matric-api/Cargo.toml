@@ -50,3 +50,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Configuration
 dotenvy = "0.15"
+
+# OpenAPI
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }

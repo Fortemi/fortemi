@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     routing::{get, patch, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -31,6 +33,30 @@ use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
 struct AppState {
     db: Database,
     search: Arc<HybridSearchEngine>,
+}
+
+/// OpenAPI documentation
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Matric Memory API",
+        version = "0.1.0",
+        description = "AI-enhanced note storage and retrieval system with semantic search"
+    ),
+    servers((url = "https://memory.integrolabs.net")),
+    tags(
+        (name = "Notes", description = "Note CRUD operations"),
+        (name = "Tags", description = "Tag management"),
+        (name = "Search", description = "Full-text and semantic search"),
+        (name = "Jobs", description = "Background job management")
+    )
+)]
+struct ApiDoc;
+
+/// Serve OpenAPI YAML spec
+async fn openapi_yaml() -> impl IntoResponse {
+    const SPEC: &str = include_str!("openapi.yaml");
+    ([(header::CONTENT_TYPE, "application/yaml")], SPEC)
 }
 
 #[tokio::main]
@@ -71,6 +97,9 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Health check
         .route("/health", get(health_check))
+        // OpenAPI / Swagger UI
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .route("/openapi.yaml", get(openapi_yaml))
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route(
