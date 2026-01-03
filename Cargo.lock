@@ -1090,6 +1090,7 @@ dependencies = [
  "chrono",
  "matric-core",
  "matric-db",
+ "pgvector",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

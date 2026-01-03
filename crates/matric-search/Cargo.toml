@@ -12,6 +12,9 @@ authors.workspace = true
 matric-core.workspace = true
 matric-db.workspace = true
 
+# Vector support
+pgvector.workspace = true
+
 # Serialization
 serde.workspace = true
 serde_json.workspace = true

@@ -6,9 +6,36 @@
 //! - Full-text search using PostgreSQL tsvector/GIN
 //! - Semantic search using pgvector similarity
 //! - Hybrid search with Reciprocal Rank Fusion (RRF)
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use matric_search::{HybridSearchEngine, HybridSearchConfig, SearchRequest};
+//! use matric_db::Database;
+//!
+//! let db = Database::connect("postgres://...").await?;
+//! let engine = HybridSearchEngine::new(db);
+//!
+//! // Simple hybrid search
+//! let results = SearchRequest::new("machine learning")
+//!     .with_embedding(query_vector)
+//!     .with_limit(20)
+//!     .execute(&engine)
+//!     .await?;
+//!
+//! // FTS-only search
+//! let results = SearchRequest::new("rust programming")
+//!     .fts_only()
+//!     .execute(&engine)
+//!     .await?;
+//! ```
 
+pub mod hybrid;
 pub mod rrf;
 
 // Re-export core types
 pub use matric_core::*;
+
+// Re-export search types
+pub use hybrid::{HybridSearch, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 pub use rrf::*;
