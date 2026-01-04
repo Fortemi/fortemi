@@ -373,7 +373,7 @@ if (MCP_TRANSPORT === "http") {
     res.json({ status: "ok", transport: "http", sessions: sessions.size });
   });
 
-  // OAuth discovery endpoint - proxy to main API
+  // OAuth discovery endpoints - proxy to main API
   app.get("/.well-known/oauth-authorization-server", async (req, res) => {
     try {
       const response = await fetch(`${API_BASE}/.well-known/oauth-authorization-server`);
@@ -381,6 +381,17 @@ if (MCP_TRANSPORT === "http") {
       res.json(metadata);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch OAuth metadata" });
+    }
+  });
+
+  // OAuth Protected Resource Metadata (RFC 9728) - required by MCP OAuth clients
+  app.get("/.well-known/oauth-protected-resource", async (req, res) => {
+    try {
+      const response = await fetch(`${API_BASE}/.well-known/oauth-protected-resource`);
+      const metadata = await response.json();
+      res.json(metadata);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch protected resource metadata" });
     }
   });
 

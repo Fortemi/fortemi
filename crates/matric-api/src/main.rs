@@ -128,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/tags", get(list_tags))
         // OAuth2 endpoints
         .route("/.well-known/oauth-authorization-server", get(oauth_discovery))
+        .route("/.well-known/oauth-protected-resource", get(oauth_protected_resource))
         .route("/oauth/authorize", get(oauth_authorize_get).post(oauth_authorize_post))
         .route("/oauth/register", post(oauth_register))
         .route("/oauth/token", post(oauth_token))
@@ -500,6 +501,17 @@ async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
         code_challenge_methods_supported: Some(vec!["S256".to_string(), "plain".to_string()]),
     };
     Json(metadata)
+}
+
+/// OAuth Protected Resource Metadata (RFC 9728).
+/// Required by MCP OAuth clients to discover authorization server.
+async fn oauth_protected_resource(State(state): State<AppState>) -> impl IntoResponse {
+    Json(serde_json::json!({
+        "resource": state.issuer.clone(),
+        "authorization_servers": [format!("{}", state.issuer)],
+        "bearer_methods_supported": ["header"],
+        "scopes_supported": ["read", "write", "delete", "admin", "mcp"],
+    }))
 }
 
 /// OAuth2 Dynamic Client Registration (RFC 7591).
