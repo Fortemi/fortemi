@@ -1,7 +1,7 @@
 # Design Validation Report
 
-**Generated**: 2026-01-03
-**Status**: v0.1.0 Development Phase
+**Generated**: 2026-01-04
+**Status**: v0.1.0 Development Phase (Near Complete)
 
 ## Implementation Status Summary
 
@@ -205,7 +205,9 @@
 
 - Preserves stdio mode for local use (default)
 - HTTP/SSE transport for remote OAuth-authenticated access
-- Environment variables: MCP_TRANSPORT, MCP_PORT, MCP_CLIENT_ID, MCP_CLIENT_SECRET
+- Environment variables: MCP_TRANSPORT, MCP_PORT, MCP_CLIENT_ID, MCP_CLIENT_SECRET, MCP_BASE_PATH
+- MCP_BASE_PATH support for nginx proxy deployments (returns correct SSE endpoint path)
+- Token validation via /oauth/introspect with per-session token context (AsyncLocalStorage)
 
 ### Testing Status
 
@@ -216,20 +218,23 @@
 - [x] Authentication middleware functional
 - [x] MCP server HTTP mode implemented
 - [x] OpenAPI spec updated
-- [ ] End-to-end flow testing (in progress)
+- [x] End-to-end flow testing (OAuth → MCP connection validated)
+- [x] MCP proxy path fix deployed (MCP_BASE_PATH=/mcp)
 - [ ] Documentation update
 
 ## Remaining Work
 
-### v0.1.0 Milestone (5 open issues remaining)
+### v0.1.0 Milestone (4 open issues remaining)
 
-| Issue | Title | Priority |
-|-------|-------|----------|
-| #1 | [EPIC] Core Foundation | Close when children done |
-| #17 | README and Getting Started | HIGH - DONE |
-| #18 | API Reference Documentation | MEDIUM |
-| #19 | Integration Guide | MEDIUM |
-| #20 | CI/CD Pipeline | CRITICAL |
+| Issue | Title | Priority | Status |
+|-------|-------|----------|--------|
+| #1 | [EPIC] Core Foundation | Close when children done | OPEN |
+| #17 | README and Getting Started | HIGH | CLOSED |
+| #18 | API Reference Documentation | MEDIUM | OPEN |
+| #19 | Integration Guide | MEDIUM | OPEN |
+| #20 | CI/CD Pipeline | CRITICAL | OPEN |
+| #41 | MCP Server Authentication | HIGH | COMPLETE (close pending) |
+| #42 | API Key Authentication | HIGH | CLOSED |
 
 ### Recommended Next Steps
 
