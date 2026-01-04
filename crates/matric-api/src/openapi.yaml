@@ -10,6 +10,14 @@ info:
     - **Search**: Full-text and semantic hybrid search
     - **Links**: Automatic linking between related notes
     - **Jobs**: Background processing for AI enhancement
+    - **OAuth2**: Full OAuth2 support with Dynamic Client Registration (RFC 7591)
+
+    ## Authentication
+    The API supports two authentication methods:
+    - **OAuth2**: Authorization Code, Client Credentials, and Refresh Token grants
+    - **API Keys**: Simple Bearer token authentication for trusted integrations
+
+    See the OAuth2 endpoints below for client registration and token management.
   version: 0.1.0
   contact:
     name: Matric Memory Team
@@ -19,7 +27,205 @@ servers:
   - url: https://memory.integrolabs.net
     description: Production server
 
+security:
+  - bearerAuth: []
+  - oauth2: []
+
 paths:
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth2 Authorization Server Metadata
+      description: Returns OAuth2 server metadata per RFC 8414
+      operationId: oauthDiscovery
+      tags: [OAuth]
+      security: []
+      responses:
+        '200':
+          description: Authorization server metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationServerMetadata'
+
+  /oauth/register:
+    post:
+      summary: Register OAuth2 Client
+      description: Dynamic Client Registration per RFC 7591
+      operationId: oauthRegister
+      tags: [OAuth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRegistrationRequest'
+      responses:
+        '201':
+          description: Client registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth/token:
+    post:
+      summary: Request Access Token
+      description: Token endpoint supporting authorization_code, client_credentials, and refresh_token grants
+      operationId: oauthToken
+      tags: [OAuth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '401':
+          description: Invalid client credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth/introspect:
+    post:
+      summary: Introspect Token
+      description: Token introspection per RFC 7662
+      operationId: oauthIntrospect
+      tags: [OAuth]
+      security:
+        - clientCredentials: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: Token to introspect
+                token_type_hint:
+                  type: string
+                  enum: [access_token, refresh_token]
+      responses:
+        '200':
+          description: Token introspection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenIntrospectionResponse'
+
+  /oauth/revoke:
+    post:
+      summary: Revoke Token
+      description: Token revocation per RFC 7009
+      operationId: oauthRevoke
+      tags: [OAuth]
+      security:
+        - clientCredentials: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: Token to revoke
+                token_type_hint:
+                  type: string
+                  enum: [access_token, refresh_token]
+      responses:
+        '200':
+          description: Token revoked (or already revoked)
+
+  /api/v1/api-keys:
+    get:
+      summary: List API Keys
+      description: List all API keys (requires admin scope)
+      operationId: listApiKeys
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKey'
+
+    post:
+      summary: Create API Key
+      description: Create a new API key
+      operationId: createApiKey
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateApiKeyResponse'
+
+  /api/v1/api-keys/{id}:
+    delete:
+      summary: Revoke API Key
+      description: Revoke an API key
+      operationId: revokeApiKey
+      tags: [API Keys]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: API key revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /health:
     get:
       summary: Health check
@@ -698,7 +904,313 @@ components:
         payload:
           type: object
 
+    # OAuth2 Schemas
+    AuthorizationServerMetadata:
+      type: object
+      properties:
+        issuer:
+          type: string
+        authorization_endpoint:
+          type: string
+        token_endpoint:
+          type: string
+        registration_endpoint:
+          type: string
+        introspection_endpoint:
+          type: string
+        revocation_endpoint:
+          type: string
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+
+    ClientRegistrationRequest:
+      type: object
+      required: [client_name]
+      properties:
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        grant_types:
+          type: array
+          items:
+            type: string
+            enum: [authorization_code, client_credentials, refresh_token]
+        response_types:
+          type: array
+          items:
+            type: string
+            enum: [code, token]
+        scope:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        client_uri:
+          type: string
+        logo_uri:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: string
+        policy_uri:
+          type: string
+        tos_uri:
+          type: string
+        software_id:
+          type: string
+        software_version:
+          type: string
+        software_statement:
+          type: string
+          description: JWT containing client metadata
+
+    ClientRegistrationResponse:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_id_issued_at:
+          type: integer
+        client_secret_expires_at:
+          type: integer
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        grant_types:
+          type: array
+          items:
+            type: string
+        response_types:
+          type: array
+          items:
+            type: string
+        scope:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+        registration_access_token:
+          type: string
+        registration_client_uri:
+          type: string
+
+    TokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code, client_credentials, refresh_token]
+        code:
+          type: string
+          description: Required for authorization_code grant
+        redirect_uri:
+          type: string
+          description: Required for authorization_code grant
+        refresh_token:
+          type: string
+          description: Required for refresh_token grant
+        scope:
+          type: string
+        code_verifier:
+          type: string
+          description: PKCE code verifier
+        client_id:
+          type: string
+          description: For client_secret_post auth
+        client_secret:
+          type: string
+          description: For client_secret_post auth
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+        refresh_token:
+          type: string
+        scope:
+          type: string
+
+    TokenIntrospectionResponse:
+      type: object
+      properties:
+        active:
+          type: boolean
+        scope:
+          type: string
+        client_id:
+          type: string
+        username:
+          type: string
+        token_type:
+          type: string
+        exp:
+          type: integer
+        iat:
+          type: integer
+        sub:
+          type: string
+        aud:
+          type: string
+        iss:
+          type: string
+
+    OAuthError:
+      type: object
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+            - invalid_scope
+            - server_error
+        error_description:
+          type: string
+        error_uri:
+          type: string
+
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key_prefix:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        scope:
+          type: string
+        rate_limit_per_minute:
+          type: integer
+        rate_limit_per_hour:
+          type: integer
+        last_used_at:
+          type: string
+          format: date-time
+        use_count:
+          type: integer
+        is_active:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        scope:
+          type: string
+          default: read
+        expires_in_days:
+          type: integer
+
+    CreateApiKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        api_key:
+          type: string
+          description: The full API key (only shown once)
+        key_prefix:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token (OAuth2 access token or API key)
+
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /oauth/token
+          scopes:
+            read: Read access to notes, tags, and search
+            write: Create and update notes and tags
+            delete: Delete notes
+            admin: Administrative access
+            mcp: MCP server access (includes read and write)
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          scopes:
+            read: Read access to notes, tags, and search
+            write: Create and update notes and tags
+            delete: Delete notes
+            admin: Administrative access
+            mcp: MCP server access (includes read and write)
+
+    clientCredentials:
+      type: http
+      scheme: basic
+      description: Client credentials (client_id:client_secret)
+
 tags:
+  - name: OAuth
+    description: OAuth2 authentication endpoints
+  - name: API Keys
+    description: API key management
   - name: System
     description: Health and status endpoints
   - name: Notes

@@ -34,6 +34,7 @@ pub mod embeddings;
 pub mod jobs;
 pub mod links;
 pub mod notes;
+pub mod oauth;
 pub mod pool;
 pub mod search;
 pub mod tags;
@@ -46,6 +47,7 @@ pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
 pub use jobs::PgJobRepository;
 pub use links::PgLinkRepository;
 pub use notes::PgNoteRepository;
+pub use oauth::PgOAuthRepository;
 pub use pool::{create_pool, create_pool_with_config, PoolConfig};
 pub use search::PgFtsSearch;
 pub use tags::PgTagRepository;
@@ -66,6 +68,8 @@ pub struct Database {
     pub jobs: PgJobRepository,
     /// Full-text search provider.
     pub search: PgFtsSearch,
+    /// OAuth2 and API key repository.
+    pub oauth: PgOAuthRepository,
 }
 
 impl Database {
@@ -78,6 +82,7 @@ impl Database {
             tags: PgTagRepository::new(pool.clone()),
             jobs: PgJobRepository::new(pool.clone()),
             search: PgFtsSearch::new(pool.clone()),
+            oauth: PgOAuthRepository::new(pool.clone()),
             pool,
         }
     }

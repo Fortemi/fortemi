@@ -307,6 +307,380 @@ pub struct RevisionNode {
 }
 
 // =============================================================================
+// OAUTH2 TYPES
+// =============================================================================
+
+/// OAuth2 grant types supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthGrantType {
+    AuthorizationCode,
+    ClientCredentials,
+    RefreshToken,
+}
+
+/// OAuth2 response types supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthResponseType {
+    Code,
+    Token,
+}
+
+/// Token endpoint authentication methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenAuthMethod {
+    ClientSecretBasic,
+    ClientSecretPost,
+    None,
+}
+
+impl Default for TokenAuthMethod {
+    fn default() -> Self {
+        TokenAuthMethod::ClientSecretBasic
+    }
+}
+
+/// OAuth2 client registration (RFC 7591).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthClient {
+    pub id: Uuid,
+    pub client_id: String,
+    pub client_name: String,
+    pub client_uri: Option<String>,
+    pub logo_uri: Option<String>,
+    pub redirect_uris: Vec<String>,
+    pub grant_types: Vec<String>,
+    pub response_types: Vec<String>,
+    pub scope: String,
+    pub token_endpoint_auth_method: String,
+    pub software_id: Option<String>,
+    pub software_version: Option<String>,
+    pub contacts: Vec<String>,
+    pub policy_uri: Option<String>,
+    pub tos_uri: Option<String>,
+    pub is_active: bool,
+    pub is_confidential: bool,
+    pub client_id_issued_at: DateTime<Utc>,
+    pub client_secret_expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// OAuth2 client registration request (RFC 7591).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientRegistrationRequest {
+    pub client_name: String,
+    #[serde(default)]
+    pub redirect_uris: Vec<String>,
+    #[serde(default)]
+    pub grant_types: Vec<String>,
+    #[serde(default)]
+    pub response_types: Vec<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub token_endpoint_auth_method: Option<String>,
+    pub client_uri: Option<String>,
+    pub logo_uri: Option<String>,
+    pub contacts: Option<Vec<String>>,
+    pub policy_uri: Option<String>,
+    pub tos_uri: Option<String>,
+    pub software_id: Option<String>,
+    pub software_version: Option<String>,
+    pub software_statement: Option<String>,
+}
+
+/// OAuth2 client registration response (RFC 7591).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientRegistrationResponse {
+    pub client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    pub client_id_issued_at: i64,
+    pub client_secret_expires_at: i64,
+    pub client_name: String,
+    pub redirect_uris: Vec<String>,
+    pub grant_types: Vec<String>,
+    pub response_types: Vec<String>,
+    pub scope: String,
+    pub token_endpoint_auth_method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration_access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration_client_uri: Option<String>,
+}
+
+/// OAuth2 authorization code.
+#[derive(Debug, Clone)]
+pub struct OAuthAuthorizationCode {
+    pub code: String,
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub scope: String,
+    pub state: Option<String>,
+    pub code_challenge: Option<String>,
+    pub code_challenge_method: Option<String>,
+    pub user_id: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// OAuth2 token.
+#[derive(Debug, Clone)]
+pub struct OAuthToken {
+    pub id: Uuid,
+    pub access_token_hash: String,
+    pub refresh_token_hash: Option<String>,
+    pub token_type: String,
+    pub scope: String,
+    pub client_id: String,
+    pub user_id: Option<String>,
+    pub access_token_expires_at: DateTime<Utc>,
+    pub refresh_token_expires_at: Option<DateTime<Utc>>,
+    pub revoked: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// OAuth2 token request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenRequest {
+    pub grant_type: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub code_verifier: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub client_secret: Option<String>,
+}
+
+/// OAuth2 token response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+}
+
+/// OAuth2 token introspection response (RFC 7662).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenIntrospectionResponse {
+    pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exp: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iat: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aud: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iss: Option<String>,
+}
+
+/// OAuth2 error response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthError {
+    pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_uri: Option<String>,
+}
+
+impl OAuthError {
+    pub fn invalid_request(description: &str) -> Self {
+        Self {
+            error: "invalid_request".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn invalid_client(description: &str) -> Self {
+        Self {
+            error: "invalid_client".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn invalid_grant(description: &str) -> Self {
+        Self {
+            error: "invalid_grant".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn unauthorized_client(description: &str) -> Self {
+        Self {
+            error: "unauthorized_client".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn unsupported_grant_type(description: &str) -> Self {
+        Self {
+            error: "unsupported_grant_type".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn invalid_scope(description: &str) -> Self {
+        Self {
+            error: "invalid_scope".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn unsupported_response_type(description: &str) -> Self {
+        Self {
+            error: "unsupported_response_type".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+
+    pub fn server_error(description: &str) -> Self {
+        Self {
+            error: "server_error".to_string(),
+            error_description: Some(description.to_string()),
+            error_uri: None,
+        }
+    }
+}
+
+/// OAuth2 authorization server metadata (RFC 8414).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizationServerMetadata {
+    pub issuer: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub introspection_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revocation_endpoint: Option<String>,
+    pub response_types_supported: Vec<String>,
+    pub grant_types_supported: Vec<String>,
+    pub token_endpoint_auth_methods_supported: Vec<String>,
+    pub scopes_supported: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_challenge_methods_supported: Option<Vec<String>>,
+}
+
+/// API key for simpler authentication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub id: Uuid,
+    pub key_prefix: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub scope: String,
+    pub rate_limit_per_minute: Option<i32>,
+    pub rate_limit_per_hour: Option<i32>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub use_count: i64,
+    pub is_active: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// API key creation request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default = "default_scope")]
+    pub scope: String,
+    pub expires_in_days: Option<i32>,
+}
+
+fn default_scope() -> String {
+    "read".to_string()
+}
+
+/// API key creation response (includes the actual key, shown only once).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateApiKeyResponse {
+    pub id: Uuid,
+    pub api_key: String, // Full key, only shown once
+    pub key_prefix: String,
+    pub name: String,
+    pub scope: String,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Authenticated principal (either OAuth client or API key).
+#[derive(Debug, Clone)]
+pub enum AuthPrincipal {
+    OAuthClient {
+        client_id: String,
+        scope: String,
+        user_id: Option<String>,
+    },
+    ApiKey {
+        key_id: Uuid,
+        scope: String,
+    },
+    Anonymous,
+}
+
+impl AuthPrincipal {
+    /// Check if the principal has the required scope.
+    pub fn has_scope(&self, required: &str) -> bool {
+        let scope = match self {
+            AuthPrincipal::OAuthClient { scope, .. } => scope,
+            AuthPrincipal::ApiKey { scope, .. } => scope,
+            AuthPrincipal::Anonymous => return false,
+        };
+
+        // Admin has all permissions
+        if scope.contains("admin") {
+            return true;
+        }
+
+        // MCP scope includes read and write
+        if scope.contains("mcp") && (required == "read" || required == "write") {
+            return true;
+        }
+
+        scope.split_whitespace().any(|s| s == required)
+    }
+
+    /// Check if the principal is authenticated.
+    pub fn is_authenticated(&self) -> bool {
+        !matches!(self, AuthPrincipal::Anonymous)
+    }
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 

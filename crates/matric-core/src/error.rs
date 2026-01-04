@@ -59,6 +59,14 @@ pub enum Error {
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Authentication/authorization failed
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    /// Forbidden (authenticated but not authorized)
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 }
 
 impl From<serde_json::Error> for Error {

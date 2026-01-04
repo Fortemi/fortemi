@@ -98,6 +98,27 @@ HotM currently contains tightly-coupled backend API and embedding management cod
 - Automated testing (unit + integration)
 - Crate build and validation
 
+**Authentication & Authorization** (added post-initial intake - Issue #41):
+
+**OAuth2 Authorization Server**:
+- Dynamic Client Registration (RFC 7591)
+- Authorization Code with PKCE (RFC 7636)
+- Client Credentials Grant (RFC 6749)
+- Token Introspection (RFC 7662)
+- Token Revocation (RFC 7009)
+- Discovery endpoint (RFC 8414)
+
+**API Authentication**:
+- Bearer token authentication (OAuth2 access tokens)
+- API key authentication (simple integrations)
+- Scope-based authorization (read, write, admin, mcp)
+- Authentication middleware with optional bypass for public endpoints
+
+**MCP Server Authentication**:
+- HTTP/SSE transport mode for remote OAuth access
+- Token validation via introspection endpoint
+- Preserves stdio mode for local use
+
 **Out-of-Scope** (explicitly excluded for v0.1.0, may revisit in v0.2.0+):
 - Publishing to crates.io (deferred until API stabilizes)
 - Multi-tenant isolation (HotM and initial consumers are single-user)
@@ -247,13 +268,16 @@ HotM currently contains tightly-coupled backend API and embedding management cod
 
 **Security Controls** (required):
 
-**Authentication**:
-- Not applicable (library crate, no network-facing auth)
-- Consumer applications (like HotM) handle user authentication
+**Authentication** (updated with Issue #41 implementation):
+- OAuth2 Authorization Server with Dynamic Client Registration (RFC 7591)
+- Bearer token authentication for API access
+- API key authentication for simple integrations
+- Optional authentication (public endpoints remain accessible)
 
 **Authorization**:
+- Scope-based access control (read, write, admin, mcp)
 - Collection-level access control (future, API supports passing user context)
-- Currently: trust boundary is the consuming application
+- Consumer applications (like HotM) can add additional user-level auth
 
 **Data Protection**:
 - **Encryption at rest**: PostgreSQL database encryption (via LUKS or cloud provider)

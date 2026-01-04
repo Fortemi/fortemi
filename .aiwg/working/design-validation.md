@@ -20,6 +20,9 @@
 | CI/CD | Gitea Actions | .gitea/workflows/ | IN PROGRESS |
 | Integration Guide | Consumer docs | docs/integration.md | PENDING |
 | API Reference | Rustdoc | cargo doc | PENDING |
+| OAuth2 Server | RFC 6749, 7591 | matric-api + matric-db | COMPLETE |
+| Authentication Middleware | Bearer + API Key | matric-api | COMPLETE |
+| OpenAPI OAuth Spec | Security schemes | openapi.yaml | COMPLETE |
 
 ## Requirements Traceability
 
@@ -111,6 +114,13 @@
 | /api/v1/jobs/pending | GET | WORKING | API tested |
 | /docs | GET | WORKING | Swagger UI |
 | /openapi.yaml | GET | WORKING | Spec served |
+| /.well-known/oauth-authorization-server | GET | WORKING | OAuth discovery |
+| /oauth/register | POST | WORKING | Dynamic client registration |
+| /oauth/token | POST | WORKING | Token endpoint |
+| /oauth/introspect | POST | WORKING | Token introspection |
+| /oauth/revoke | POST | WORKING | Token revocation |
+| /api/v1/api-keys | GET, POST | WORKING | API key management |
+| /api/v1/api-keys/:id | DELETE | WORKING | API key revocation |
 
 ## Database Schema Validation
 
@@ -128,6 +138,10 @@
 | link | Note relationships | CREATED |
 | job_queue | Background jobs | CREATED |
 | collection | Note collections | CREATED |
+| oauth_client | OAuth2 clients | CREATED |
+| oauth_authorization_code | Auth codes (PKCE) | CREATED |
+| oauth_token | Access/refresh tokens | CREATED |
+| api_key | API key credentials | CREATED |
 
 ### Indexes Created
 
@@ -155,6 +169,55 @@
 | Search latency (10k docs) | <200ms | TBD | NEEDS BENCHMARK |
 | API response (CRUD) | <100ms | TBD | NEEDS BENCHMARK |
 | Health check | <50ms | ~10ms | PASSING |
+
+## Issue #41: MCP Server Authentication
+
+### Implementation Summary
+
+| Component | RFC | Status | Implementation |
+|-----------|-----|--------|----------------|
+| OAuth2 Authorization Server | RFC 6749 | DONE | matric-api OAuth endpoints |
+| Dynamic Client Registration | RFC 7591 | DONE | POST /oauth/register |
+| Token Introspection | RFC 7662 | DONE | POST /oauth/introspect |
+| Token Revocation | RFC 7009 | DONE | POST /oauth/revoke |
+| Authorization Code + PKCE | RFC 7636 | DONE | Database schema ready |
+| Client Credentials Grant | RFC 6749 | DONE | POST /oauth/token |
+| API Key Authentication | - | DONE | /api/v1/api-keys |
+| MCP HTTP Transport | - | DONE | mcp-server/index.js |
+
+### Database Schema (002_oauth.sql)
+
+```sql
+-- oauth_client: Registered OAuth2 clients
+-- oauth_authorization_code: PKCE-enabled authorization codes
+-- oauth_token: Access and refresh tokens with scopes
+-- api_key: Simple API key authentication
+```
+
+### Authentication Middleware
+
+- Bearer token authentication (OAuth2 access tokens)
+- API key authentication (X-API-Key header or Authorization: ApiKey)
+- Scope-based authorization (read, write, admin, mcp)
+- Optional authentication for public endpoints
+
+### MCP Server Updates
+
+- Preserves stdio mode for local use (default)
+- HTTP/SSE transport for remote OAuth-authenticated access
+- Environment variables: MCP_TRANSPORT, MCP_PORT, MCP_CLIENT_ID, MCP_CLIENT_SECRET
+
+### Testing Status
+
+- [x] Database schema created
+- [x] OAuth types defined in matric-core
+- [x] OAuth repository in matric-db
+- [x] OAuth endpoints in matric-api
+- [x] Authentication middleware functional
+- [x] MCP server HTTP mode implemented
+- [x] OpenAPI spec updated
+- [ ] End-to-end flow testing (in progress)
+- [ ] Documentation update
 
 ## Remaining Work
 

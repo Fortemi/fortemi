@@ -35,6 +35,10 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 
+# Utilities
+base64.workspace = true
+urlencoding = "2.1"
+
 # Error handling
 thiserror.workspace = true
 anyhow.workspace = true
