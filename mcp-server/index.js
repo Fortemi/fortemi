@@ -2,23 +2,39 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 const API_BASE = process.env.MATRIC_MEMORY_URL || "https://memory.integrolabs.net";
+const API_KEY = process.env.MATRIC_MEMORY_API_KEY || null;
+const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
+const MCP_PORT = parseInt(process.env.MCP_PORT || "3001", 10);
 
-// Helper to make API requests
+// AsyncLocalStorage for per-request token context
+const tokenStorage = new AsyncLocalStorage();
+
+// Helper to make API requests (uses session token in HTTP mode, API_KEY in stdio mode)
 async function apiRequest(method, path, body = null) {
   const url = `${API_BASE}${path}`;
-  const options = {
-    method,
-    headers: { "Content-Type": "application/json" },
-  };
+  const headers = { "Content-Type": "application/json" };
+
+  // Get token from async context (HTTP mode) or use API_KEY (stdio mode)
+  const sessionToken = tokenStorage.getStore()?.token;
+  if (sessionToken) {
+    headers["Authorization"] = `Bearer ${sessionToken}`;
+  } else if (API_KEY) {
+    headers["Authorization"] = `Bearer ${API_KEY}`;
+  }
+
+  const options = { method, headers };
   if (body) {
     options.body = JSON.stringify(body);
   }
+
   const response = await fetch(url, options);
   if (!response.ok) {
     const error = await response.text();
@@ -255,6 +271,126 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start server
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// Start server based on transport mode
+if (MCP_TRANSPORT === "http") {
+  // HTTP/SSE transport for remote access with OAuth
+  const express = (await import("express")).default;
+  const cors = (await import("cors")).default;
+
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  // Store active sessions with their tokens
+  const sessions = new Map();
+
+  // OAuth token validation middleware
+  async function validateToken(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing or invalid Authorization header" });
+    }
+
+    const token = authHeader.slice(7);
+
+    // Validate token against the API's introspection endpoint
+    try {
+      const response = await fetch(`${API_BASE}/oauth/introspect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": `Basic ${Buffer.from(`${process.env.MCP_CLIENT_ID}:${process.env.MCP_CLIENT_SECRET}`).toString("base64")}`,
+        },
+        body: `token=${encodeURIComponent(token)}`,
+      });
+
+      if (!response.ok) {
+        return res.status(401).json({ error: "Token validation failed" });
+      }
+
+      const introspection = await response.json();
+      if (!introspection.active) {
+        return res.status(401).json({ error: "Token is not active" });
+      }
+
+      // Check for MCP or read scope
+      const scopes = (introspection.scope || "").split(" ");
+      if (!scopes.includes("mcp") && !scopes.includes("read")) {
+        return res.status(403).json({ error: "Insufficient scope" });
+      }
+
+      // Store token in request for session association
+      req.accessToken = token;
+      next();
+    } catch (error) {
+      console.error("Token validation error:", error);
+      return res.status(500).json({ error: "Token validation error" });
+    }
+  }
+
+  // SSE endpoint for MCP connections
+  app.get("/sse", validateToken, async (req, res) => {
+    console.log("New SSE connection with token");
+
+    // Use full path since we're behind /mcp/ proxy
+    const messagesPath = process.env.MCP_BASE_PATH ? `${process.env.MCP_BASE_PATH}/messages` : "/messages";
+    const transport = new SSEServerTransport(messagesPath, res);
+    const sessionId = transport.sessionId;
+
+    // Store the token for this session
+    sessions.set(sessionId, { transport, token: req.accessToken });
+    console.log(`Session ${sessionId} created with token`);
+
+    res.on("close", () => {
+      console.log(`SSE connection closed for session ${sessionId}`);
+      sessions.delete(sessionId);
+    });
+
+    // Connect with token context
+    await tokenStorage.run({ token: req.accessToken }, async () => {
+      await server.connect(transport);
+    });
+  });
+
+  // Messages endpoint for SSE transport
+  app.post("/messages", validateToken, async (req, res) => {
+    const sessionId = req.query.sessionId;
+    const session = sessions.get(sessionId);
+
+    if (!session) {
+      console.error(`Session not found: ${sessionId}`);
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    // Execute the message handler with the session's token context
+    await tokenStorage.run({ token: session.token }, async () => {
+      await session.transport.handlePostMessage(req, res);
+    });
+  });
+
+  // Health check
+  app.get("/health", (req, res) => {
+    res.json({ status: "ok", transport: "http", sessions: sessions.size });
+  });
+
+  // OAuth discovery endpoint - proxy to main API
+  app.get("/.well-known/oauth-authorization-server", async (req, res) => {
+    try {
+      const response = await fetch(`${API_BASE}/.well-known/oauth-authorization-server`);
+      const metadata = await response.json();
+      res.json(metadata);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch OAuth metadata" });
+    }
+  });
+
+  app.listen(MCP_PORT, () => {
+    console.log(`MCP HTTP server listening on port ${MCP_PORT}`);
+    console.log(`SSE endpoint: http://localhost:${MCP_PORT}/sse`);
+    console.log(`OAuth discovery: http://localhost:${MCP_PORT}/.well-known/oauth-authorization-server`);
+  });
+} else {
+  // Stdio transport for local use (default)
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
