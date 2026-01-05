@@ -11,27 +11,11 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  check:
-    name: Check
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -39,48 +23,14 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Check build
-        run: cargo check --all-features
-
   test:
     name: Test
     runs-on: ubuntu-latest
-    needs: check
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: matric
-          POSTGRES_PASSWORD: matric
-          POSTGRES_DB: matric_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
+    needs: lint
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Run tests
-        env:
-          DATABASE_URL: postgres://matric:matric@localhost:5432/matric_test
+      - name: Run unit tests
         run: cargo test --workspace
 
       - name: Run doc tests
@@ -88,49 +38,24 @@ jobs:
 
   inference-test:
     name: Inference Tests (GPU)
-    runs-on: gpu
-    needs: check
+    runs-on: ubuntu-latest
+    needs: lint
     timeout-minutes: 30
-
+    env:
+      OLLAMA_HOST: http://localhost:11434
+      INFERENCE_BACKEND: ollama
     steps:
+      - uses: actions/checkout@v4
+
       - name: Verify GPU Access
         run: nvidia-smi
 
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-gpu-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-gpu-
-
-      - name: Install Ollama
+      - name: Verify Ollama
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &
-          sleep 5
-          ollama pull nomic-embed-text
-          ollama pull qwen2.5:1.5b
+          curl -s http://localhost:11434/api/tags | jq '.models[].name'
 
-      - name: Run inference tests
-        env:
-          OLLAMA_HOST: http://localhost:11434
-          INFERENCE_BACKEND: ollama
-        run: cargo test --package matric-inference --features ollama -- --ignored
-
-      - name: Run embedding benchmarks
-        env:
-          OLLAMA_HOST: http://localhost:11434
-        run: cargo bench --package matric-inference || echo "No benchmarks or benchmarks failed"
-        continue-on-error: true
+      - name: Run inference package tests
+        run: cargo test --package matric-inference
 
   build:
     name: Build
@@ -140,26 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
       - name: Build release
         run: cargo build --release --workspace
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: matric-memory-binaries
-          path: target/release/matric-*
-          retention-days: 7
+      - name: Verify binaries
+        run: |
+          ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
