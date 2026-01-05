@@ -3,16 +3,19 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import crypto from "node:crypto";
 
 const API_BASE = process.env.MATRIC_MEMORY_URL || "https://memory.integrolabs.net";
 const API_KEY = process.env.MATRIC_MEMORY_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_PORT = parseInt(process.env.MCP_PORT || "3001", 10);
+const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 
 // AsyncLocalStorage for per-request token context
 const tokenStorage = new AsyncLocalStorage();
@@ -44,18 +47,117 @@ async function apiRequest(method, path, body = null) {
   return response.json();
 }
 
-// Create MCP server
-const server = new Server(
-  {
-    name: "matric-memory",
-    version: "0.1.0",
-  },
-  {
-    capabilities: {
-      tools: {},
+/**
+ * Create a new MCP server instance.
+ * Each connection gets its own server (required for proper session isolation).
+ */
+function createMcpServer() {
+  const mcpServer = new Server(
+    {
+      name: "matric-memory",
+      version: "0.1.0",
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  // Handle list tools request
+  mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+    return { tools };
+  });
+
+  // Handle tool calls
+  mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    try {
+      let result;
+
+      switch (name) {
+        case "list_notes": {
+          const params = new URLSearchParams();
+          if (args.limit) params.set("limit", args.limit);
+          if (args.offset) params.set("offset", args.offset);
+          if (args.filter) params.set("filter", args.filter);
+          result = await apiRequest("GET", `/api/v1/notes?${params}`);
+          break;
+        }
+
+        case "get_note":
+          result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
+          break;
+
+        case "create_note":
+          result = await apiRequest("POST", "/api/v1/notes", {
+            content: args.content,
+            tags: args.tags,
+          });
+          break;
+
+        case "update_note": {
+          const body = {};
+          if (args.content !== undefined) body.content = args.content;
+          if (args.starred !== undefined) body.starred = args.starred;
+          if (args.archived !== undefined) body.archived = args.archived;
+          await apiRequest("PATCH", `/api/v1/notes/${args.id}`, body);
+          result = { success: true };
+          break;
+        }
+
+        case "delete_note":
+          await apiRequest("DELETE", `/api/v1/notes/${args.id}`);
+          result = { success: true };
+          break;
+
+        case "search_notes": {
+          const params = new URLSearchParams({ q: args.query });
+          if (args.limit) params.set("limit", args.limit);
+          if (args.mode) params.set("mode", args.mode);
+          result = await apiRequest("GET", `/api/v1/search?${params}`);
+          break;
+        }
+
+        case "list_tags":
+          result = await apiRequest("GET", "/api/v1/tags");
+          break;
+
+        case "set_note_tags":
+          await apiRequest("PUT", `/api/v1/notes/${args.id}/tags`, { tags: args.tags });
+          result = { success: true };
+          break;
+
+        case "get_note_links":
+          result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
+          break;
+
+        case "create_job":
+          result = await apiRequest("POST", "/api/v1/jobs", {
+            note_id: args.note_id,
+            job_type: args.job_type,
+            priority: args.priority,
+          });
+          break;
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error: ${error.message}` }],
+        isError: true,
+      };
+    }
+  });
+
+  return mcpServer;
+}
 
 // Define available tools
 const tools = [
@@ -179,98 +281,6 @@ const tools = [
   },
 ];
 
-// Handle list tools request
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
-
-// Handle tool calls
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    let result;
-
-    switch (name) {
-      case "list_notes": {
-        const params = new URLSearchParams();
-        if (args.limit) params.set("limit", args.limit);
-        if (args.offset) params.set("offset", args.offset);
-        if (args.filter) params.set("filter", args.filter);
-        result = await apiRequest("GET", `/api/v1/notes?${params}`);
-        break;
-      }
-
-      case "get_note":
-        result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
-        break;
-
-      case "create_note":
-        result = await apiRequest("POST", "/api/v1/notes", {
-          content: args.content,
-          tags: args.tags,
-        });
-        break;
-
-      case "update_note": {
-        const body = {};
-        if (args.content !== undefined) body.content = args.content;
-        if (args.starred !== undefined) body.starred = args.starred;
-        if (args.archived !== undefined) body.archived = args.archived;
-        await apiRequest("PATCH", `/api/v1/notes/${args.id}`, body);
-        result = { success: true };
-        break;
-      }
-
-      case "delete_note":
-        await apiRequest("DELETE", `/api/v1/notes/${args.id}`);
-        result = { success: true };
-        break;
-
-      case "search_notes": {
-        const params = new URLSearchParams({ q: args.query });
-        if (args.limit) params.set("limit", args.limit);
-        if (args.mode) params.set("mode", args.mode);
-        result = await apiRequest("GET", `/api/v1/search?${params}`);
-        break;
-      }
-
-      case "list_tags":
-        result = await apiRequest("GET", "/api/v1/tags");
-        break;
-
-      case "set_note_tags":
-        await apiRequest("PUT", `/api/v1/notes/${args.id}/tags`, { tags: args.tags });
-        result = { success: true };
-        break;
-
-      case "get_note_links":
-        result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
-        break;
-
-      case "create_job":
-        result = await apiRequest("POST", "/api/v1/jobs", {
-          note_id: args.note_id,
-          job_type: args.job_type,
-          priority: args.priority,
-        });
-        break;
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
-  } catch (error) {
-    return {
-      content: [{ type: "text", text: `Error: ${error.message}` }],
-      isError: true,
-    };
-  }
-});
-
 // Start server based on transport mode
 if (MCP_TRANSPORT === "http") {
   // HTTP/SSE transport for remote access with OAuth
@@ -278,22 +288,44 @@ if (MCP_TRANSPORT === "http") {
   const cors = (await import("cors")).default;
 
   const app = express();
-  app.use(cors());
-  app.use(express.json());
 
-  // Store active sessions with their tokens
-  const sessions = new Map();
+  // CORS with MCP-Session-Id header support (required for StreamableHTTP transport)
+  app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'MCP-Session-Id'],
+    exposedHeaders: ['MCP-Session-Id'],
+  }));
 
-  // OAuth token validation middleware
-  async function validateToken(req, res, next) {
-    const authHeader = req.headers.authorization;
+  // IMPORTANT: Only use express.json() for routes that need pre-parsed body.
+  // StreamableHTTPServerTransport reads the raw body itself, so we must NOT
+  // use express.json() on the root path. Apply JSON parsing only to /messages.
+  app.use('/messages', express.json());
+
+  // Store active transports by session ID
+  const transports = new Map();
+
+  /**
+   * Send 401 with RFC 9728 compliant WWW-Authenticate header.
+   * This helps MCP OAuth clients discover the authorization server.
+   */
+  function send401(res, message) {
+    res.status(401)
+      .set('WWW-Authenticate', `Bearer realm="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .json({ error: "unauthorized", error_description: message });
+  }
+
+  /**
+   * Validate bearer token from Authorization header.
+   * Returns { valid: true, token } or { valid: false }.
+   */
+  async function validateBearerToken(authHeader) {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Missing or invalid Authorization header" });
+      return { valid: false };
     }
 
     const token = authHeader.slice(7);
 
-    // Validate token against the API's introspection endpoint
     try {
       const response = await fetch(`${API_BASE}/oauth/introspect`, {
         method: "POST",
@@ -305,72 +337,175 @@ if (MCP_TRANSPORT === "http") {
       });
 
       if (!response.ok) {
-        return res.status(401).json({ error: "Token validation failed" });
+        return { valid: false };
       }
 
       const introspection = await response.json();
       if (!introspection.active) {
-        return res.status(401).json({ error: "Token is not active" });
+        return { valid: false };
       }
 
       // Check for MCP or read scope
       const scopes = (introspection.scope || "").split(" ");
       if (!scopes.includes("mcp") && !scopes.includes("read")) {
-        return res.status(403).json({ error: "Insufficient scope" });
+        return { valid: false };
       }
 
-      // Store token in request for session association
-      req.accessToken = token;
-      next();
+      return { valid: true, token };
     } catch (error) {
       console.error("Token validation error:", error);
-      return res.status(500).json({ error: "Token validation error" });
+      return { valid: false };
     }
   }
 
-  // SSE endpoint for MCP connections
+  // OAuth token validation middleware
+  async function validateToken(req, res, next) {
+    const result = await validateBearerToken(req.headers.authorization);
+    if (!result.valid) {
+      return send401(res, "Valid bearer token required");
+    }
+    req.accessToken = result.token;
+    next();
+  }
+
+  // SSE endpoint for MCP connections (legacy SSE transport)
   app.get("/sse", validateToken, async (req, res) => {
-    console.log("New SSE connection with token");
+    console.log("[sse] New SSE connection");
 
     // Use full path since we're behind /mcp/ proxy
     const messagesPath = process.env.MCP_BASE_PATH ? `${process.env.MCP_BASE_PATH}/messages` : "/messages";
     const transport = new SSEServerTransport(messagesPath, res);
     const sessionId = transport.sessionId;
 
-    // Store the token for this session
-    sessions.set(sessionId, { transport, token: req.accessToken });
-    console.log(`Session ${sessionId} created with token`);
+    console.log(`[sse] Transport created with sessionId: ${sessionId}`);
+    transports.set(sessionId, { transport, token: req.accessToken, type: 'sse' });
 
     res.on("close", () => {
-      console.log(`SSE connection closed for session ${sessionId}`);
-      sessions.delete(sessionId);
+      console.log(`[sse] Connection closed for session ${sessionId}`);
+      transports.delete(sessionId);
     });
 
-    // Connect with token context
+    // Create a new MCP server for this connection and connect
+    const mcpServer = createMcpServer();
     await tokenStorage.run({ token: req.accessToken }, async () => {
-      await server.connect(transport);
+      await mcpServer.connect(transport);
     });
+    console.log(`[sse] MCP server connected for session ${sessionId}`);
   });
 
   // Messages endpoint for SSE transport
   app.post("/messages", validateToken, async (req, res) => {
     const sessionId = req.query.sessionId;
-    const session = sessions.get(sessionId);
+    console.log(`[messages] POST with sessionId: ${sessionId}`);
 
-    if (!session) {
-      console.error(`Session not found: ${sessionId}`);
-      return res.status(404).json({ error: "Session not found" });
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId parameter" });
+    }
+
+    const session = transports.get(sessionId);
+    if (!session || session.type !== 'sse') {
+      console.error(`[messages] No SSE transport found for session ${sessionId}`);
+      return res.status(400).json({ error: "No SSE transport found for sessionId" });
     }
 
     // Execute the message handler with the session's token context
+    console.log(`[messages] Handling message for session ${sessionId}`);
     await tokenStorage.run({ token: session.token }, async () => {
-      await session.transport.handlePostMessage(req, res);
+      await session.transport.handlePostMessage(req, res, req.body);
     });
+  });
+
+  // StreamableHTTP transport on root path (newer transport, POST to initialize/send, GET to receive)
+  app.post("/", validateToken, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'];
+    console.log(`[mcp] POST, sessionId from header: ${sessionId || 'none'}`);
+
+    const existingSession = sessionId ? transports.get(sessionId) : undefined;
+
+    let transport;
+    if (existingSession && existingSession.type === 'streamable') {
+      // Reuse existing transport for this session
+      console.log(`[mcp] Reusing existing transport for session ${sessionId}`);
+      transport = existingSession.transport;
+    } else {
+      // Create new StreamableHTTP transport
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+      });
+
+      // Create and connect new MCP server for this transport
+      const mcpServer = createMcpServer();
+      await mcpServer.connect(transport);
+      console.log(`[mcp] Transport connected (sessionId set after handleRequest)`);
+
+      // Set up cleanup on close
+      transport.onclose = () => {
+        console.log(`[mcp] Transport closed: ${transport?.sessionId}`);
+        if (transport?.sessionId) {
+          transports.delete(transport.sessionId);
+        }
+      };
+    }
+
+    // Handle the request with token context
+    try {
+      await tokenStorage.run({ token: req.accessToken }, async () => {
+        await transport.handleRequest(req, res);
+      });
+
+      // Store transport AFTER handleRequest - sessionId is only set after first request
+      if (transport.sessionId && !transports.has(transport.sessionId)) {
+        console.log(`[mcp] Storing transport with sessionId: ${transport.sessionId}`);
+        transports.set(transport.sessionId, { transport, token: req.accessToken, type: 'streamable' });
+      }
+    } catch (error) {
+      console.error(`[mcp] Error handling request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    }
+  });
+
+  // GET on root for StreamableHTTP (server-to-client messages/SSE stream)
+  app.get("/", validateToken, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'];
+    console.log(`[mcp] GET, sessionId: ${sessionId || 'none'}`);
+
+    const session = sessionId ? transports.get(sessionId) : undefined;
+
+    if (!session || session.type !== 'streamable') {
+      return res.status(400).json({
+        error: "Bad Request: No valid session. POST to initialize first, or use /sse for SSE transport."
+      });
+    }
+
+    await tokenStorage.run({ token: session.token }, async () => {
+      await session.transport.handleRequest(req, res);
+    });
+  });
+
+  // DELETE on root for StreamableHTTP session termination
+  app.delete("/", validateToken, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'];
+    const session = sessionId ? transports.get(sessionId) : undefined;
+
+    if (session && session.type === 'streamable') {
+      await session.transport.close();
+      transports.delete(sessionId);
+    }
+
+    res.status(200).end();
   });
 
   // Health check
   app.get("/health", (req, res) => {
-    res.json({ status: "ok", transport: "http", sessions: sessions.size });
+    const sseCount = [...transports.values()].filter(s => s.type === 'sse').length;
+    const streamableCount = [...transports.values()].filter(s => s.type === 'streamable').length;
+    res.json({
+      status: "ok",
+      transport: "http",
+      sessions: { sse: sseCount, streamable: streamableCount, total: transports.size }
+    });
   });
 
   // OAuth discovery endpoints - proxy to main API
@@ -385,23 +520,27 @@ if (MCP_TRANSPORT === "http") {
   });
 
   // OAuth Protected Resource Metadata (RFC 9728) - required by MCP OAuth clients
-  app.get("/.well-known/oauth-protected-resource", async (req, res) => {
-    try {
-      const response = await fetch(`${API_BASE}/.well-known/oauth-protected-resource`);
-      const metadata = await response.json();
-      res.json(metadata);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch protected resource metadata" });
-    }
+  // Returns this MCP server as the resource, with authorization_servers pointing to main API
+  app.get("/.well-known/oauth-protected-resource", (req, res) => {
+    res.json({
+      resource: MCP_BASE_URL,
+      authorization_servers: [API_BASE.replace('http://127.0.0.1:3000', 'https://memory.integrolabs.net')],
+      bearer_methods_supported: ["header"],
+      scopes_supported: ["mcp", "read"],
+    });
   });
 
   app.listen(MCP_PORT, () => {
     console.log(`MCP HTTP server listening on port ${MCP_PORT}`);
-    console.log(`SSE endpoint: http://localhost:${MCP_PORT}/sse`);
-    console.log(`OAuth discovery: http://localhost:${MCP_PORT}/.well-known/oauth-authorization-server`);
+    console.log(`Endpoints:`);
+    console.log(`  StreamableHTTP: POST/GET ${MCP_BASE_URL}/`);
+    console.log(`  SSE: GET ${MCP_BASE_URL}/sse + POST ${MCP_BASE_URL}/messages`);
+    console.log(`  OAuth: ${MCP_BASE_URL}/.well-known/oauth-authorization-server`);
+    console.log(`  Resource: ${MCP_BASE_URL}/.well-known/oauth-protected-resource`);
   });
 } else {
   // Stdio transport for local use (default)
+  const mcpServer = createMcpServer();
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await mcpServer.connect(transport);
 }

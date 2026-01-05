@@ -1,7 +1,8 @@
 # Design Validation Report
 
 **Generated**: 2026-01-04
-**Status**: v0.1.0 Development Phase (Near Complete)
+**Updated**: 2026-01-05
+**Status**: v0.1.0 Development Phase (MCP Integration Complete)
 
 ## Implementation Status Summary
 
@@ -204,10 +205,16 @@
 ### MCP Server Updates
 
 - Preserves stdio mode for local use (default)
-- HTTP/SSE transport for remote OAuth-authenticated access
-- Environment variables: MCP_TRANSPORT, MCP_PORT, MCP_CLIENT_ID, MCP_CLIENT_SECRET, MCP_BASE_PATH
+- HTTP transport for remote OAuth-authenticated access
+- **StreamableHTTP transport** (POST/GET/DELETE /) with MCP-Session-Id header - modern transport
+- **SSE transport** (GET /sse + POST /messages) - legacy transport support
+- RFC 9728 compliant WWW-Authenticate headers with resource_metadata pointer
+- Per-connection MCP server instances for session isolation
+- Environment variables: MCP_TRANSPORT, MCP_PORT, MCP_BASE_URL, MCP_CLIENT_ID, MCP_CLIENT_SECRET, MCP_BASE_PATH
 - MCP_BASE_PATH support for nginx proxy deployments (returns correct SSE endpoint path)
 - Token validation via /oauth/introspect with per-session token context (AsyncLocalStorage)
+- CORS headers include MCP-Session-Id for StreamableHTTP transport
+- **Critical fix**: `express.json()` middleware must NOT be applied to StreamableHTTP routes (transport reads raw body)
 
 ### Testing Status
 
@@ -220,7 +227,37 @@
 - [x] OpenAPI spec updated
 - [x] End-to-end flow testing (OAuth → MCP connection validated)
 - [x] MCP proxy path fix deployed (MCP_BASE_PATH=/mcp)
-- [ ] Documentation update
+- [x] Documentation update (README.md updated with transport modes)
+- [x] StreamableHTTP body parsing fix (express.json() excluded from root path)
+- [x] nginx trailing slash fix (exact match location for /mcp)
+- [x] Claude Code MCP connection verified (2026-01-05)
+
+## MCP Integration Feedback (Claude Code Roast)
+
+**Rating**: Solid Mid - "works, but..."
+
+### What Works Well
+- CRUD operations: Clean, responsive, proper UUIDs
+- Markdown preservation: Code blocks, headers, lists intact
+- Tag system: Set/replace works, filtering by starred/archived solid
+- Response schema: Well-structured original vs revised content
+- Soft delete: Good design choice for recovery
+
+### Issues Identified
+| Issue | Description | Priority |
+|-------|-------------|----------|
+| Semantic search empty | Returns nothing for fresh notes, needs embedding pipeline | HIGH |
+| Hybrid search degradation | mode=hybrid should gracefully degrade to FTS | HIGH |
+| Title inconsistency | null in note object but populated in list response | MEDIUM |
+| Link detection | [[wiki-style]] links not auto-parsed | MEDIUM |
+| Job visibility | No list_jobs or get_job_status in MCP | HIGH |
+
+### Missing from MCP Surface
+- Job queue status/monitoring tools
+- Bulk operations (tag multiple, batch delete)
+- Collection management (field exists but no CRUD)
+- Search within tags
+- Note history/versions
 
 ## Remaining Work
 
@@ -233,7 +270,7 @@
 | #18 | API Reference Documentation | MEDIUM | OPEN |
 | #19 | Integration Guide | MEDIUM | OPEN |
 | #20 | CI/CD Pipeline | CRITICAL | OPEN |
-| #41 | MCP Server Authentication | HIGH | COMPLETE (close pending) |
+| #41 | MCP Server Authentication | HIGH | COMPLETE (StreamableHTTP + SSE transport, RFC 9728 compliant) |
 | #42 | API Key Authentication | HIGH | CLOSED |
 
 ### Recommended Next Steps
