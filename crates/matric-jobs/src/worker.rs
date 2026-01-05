@@ -206,7 +206,9 @@ impl JobWorker {
 
         info!(?job_id, ?job_type, "Processing job");
 
-        let _ = self.event_tx.send(WorkerEvent::JobStarted { job_id, job_type });
+        let _ = self
+            .event_tx
+            .send(WorkerEvent::JobStarted { job_id, job_type });
 
         // Find a handler for this job type
         let handler = {
@@ -242,7 +244,9 @@ impl JobWorker {
                     error!(error = ?e, ?job_id, "Failed to mark job as completed");
                 } else {
                     info!(?job_id, ?job_type, "Job completed successfully");
-                    let _ = self.event_tx.send(WorkerEvent::JobCompleted { job_id, job_type });
+                    let _ = self
+                        .event_tx
+                        .send(WorkerEvent::JobCompleted { job_id, job_type });
                 }
             }
             JobResult::Failed(error) | JobResult::Retry(error) => {

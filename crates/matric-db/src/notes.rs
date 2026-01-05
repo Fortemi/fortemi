@@ -122,12 +122,14 @@ impl NoteRepository for PgNoteRepository {
 
     async fn fetch(&self, id: Uuid) -> Result<NoteFull> {
         // Update last accessed timestamp
-        sqlx::query("UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2")
-            .bind(Utc::now())
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2",
+        )
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
 
         // Fetch note metadata
         let note_row = sqlx::query(
@@ -216,7 +218,9 @@ impl NoteRepository for PgNoteRepository {
                 archived: note_row.get::<Option<bool>, _>("archived").unwrap_or(false),
                 last_accessed_at: note_row.get("last_accessed_at"),
                 title: note_row.get("title"),
-                metadata: note_row.get::<Option<serde_json::Value>, _>("metadata").unwrap_or_else(|| serde_json::json!({})),
+                metadata: note_row
+                    .get::<Option<serde_json::Value>, _>("metadata")
+                    .unwrap_or_else(|| serde_json::json!({})),
             },
             original: NoteOriginal {
                 content: original_row.get("content"),
@@ -250,7 +254,9 @@ impl NoteRepository for PgNoteRepository {
         let filter_clause = match filter {
             "starred" => "AND n.starred = true AND n.archived = false AND n.deleted_at IS NULL",
             "archived" => "AND n.archived = true AND n.deleted_at IS NULL",
-            "recent" => "AND n.last_accessed_at IS NOT NULL AND n.archived = false AND n.deleted_at IS NULL",
+            "recent" => {
+                "AND n.last_accessed_at IS NOT NULL AND n.archived = false AND n.deleted_at IS NULL"
+            }
             "deleted" | "trash" => "AND n.deleted_at IS NOT NULL",
             _ => "AND n.deleted_at IS NULL",
         };
@@ -258,7 +264,10 @@ impl NoteRepository for PgNoteRepository {
         // Build order clause
         let order_clause = match sort_by {
             "updated_at" => format!("n.updated_at_utc {}", sort_order),
-            "accessed_at" => format!("COALESCE(n.last_accessed_at, n.created_at_utc) {}", sort_order),
+            "accessed_at" => format!(
+                "COALESCE(n.last_accessed_at, n.created_at_utc) {}",
+                sort_order
+            ),
             _ => format!("n.created_at_utc {}", sort_order),
         };
 
@@ -345,7 +354,9 @@ impl NoteRepository for PgNoteRepository {
                     archived: row.get::<Option<bool>, _>("archived").unwrap_or(false),
                     tags,
                     has_revision: revised_content.is_some(),
-                    metadata: row.get::<Option<serde_json::Value>, _>("metadata").unwrap_or_else(|| serde_json::json!({})),
+                    metadata: row
+                        .get::<Option<serde_json::Value>, _>("metadata")
+                        .unwrap_or_else(|| serde_json::json!({})),
                 }
             })
             .collect();
@@ -364,10 +375,7 @@ impl NoteRepository for PgNoteRepository {
             updates.push("archived = $4");
         }
 
-        let query = format!(
-            "UPDATE note SET {} WHERE id = $2",
-            updates.join(", ")
-        );
+        let query = format!("UPDATE note SET {} WHERE id = $2", updates.join(", "));
 
         let mut q = sqlx::query(&query).bind(now).bind(id);
         if let Some(starred) = req.starred {
@@ -420,7 +428,12 @@ impl NoteRepository for PgNoteRepository {
         Ok(())
     }
 
-    async fn update_revised(&self, id: Uuid, content: &str, rationale: Option<&str>) -> Result<Uuid> {
+    async fn update_revised(
+        &self,
+        id: Uuid,
+        content: &str,
+        rationale: Option<&str>,
+    ) -> Result<Uuid> {
         let now = Utc::now();
         let revision_id = Uuid::new_v4();
 

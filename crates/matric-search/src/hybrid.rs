@@ -164,7 +164,10 @@ impl HybridSearch for HybridSearchEngine {
                     .await?;
 
                 if !semantic_results.is_empty() {
-                    ranked_lists.push(Self::apply_weights(semantic_results, config.semantic_weight));
+                    ranked_lists.push(Self::apply_weights(
+                        semantic_results,
+                        config.semantic_weight,
+                    ));
                 }
             }
         }
@@ -218,7 +221,10 @@ impl HybridSearch for HybridSearchEngine {
                     .await?;
 
                 if !semantic_results.is_empty() {
-                    ranked_lists.push(Self::apply_weights(semantic_results, config.semantic_weight));
+                    ranked_lists.push(Self::apply_weights(
+                        semantic_results,
+                        config.semantic_weight,
+                    ));
                 }
             }
         }
@@ -325,7 +331,12 @@ impl SearchRequest {
                 .await
         } else {
             engine
-                .search(&self.query, self.embedding.as_ref(), self.limit, &self.config)
+                .search(
+                    &self.query,
+                    self.embedding.as_ref(),
+                    self.limit,
+                    &self.config,
+                )
                 .await
         }
     }

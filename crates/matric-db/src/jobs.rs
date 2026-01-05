@@ -102,14 +102,13 @@ impl JobRepository for PgJobRepository {
         let job_type_str = Self::job_type_to_str(job_type);
 
         // Get estimated duration
-        let estimated_duration: Option<i32> = sqlx::query_scalar(
-            "SELECT estimate_job_duration($1::job_type, NULL)",
-        )
-        .bind(job_type_str)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?
-        .flatten();
+        let estimated_duration: Option<i32> =
+            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                .bind(job_type_str)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?
+                .flatten();
 
         sqlx::query(
             "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at)
@@ -188,7 +187,12 @@ impl JobRepository for PgJobRepository {
         Ok(row.map(Self::parse_job_row))
     }
 
-    async fn update_progress(&self, job_id: Uuid, percent: i32, message: Option<&str>) -> Result<()> {
+    async fn update_progress(
+        &self,
+        job_id: Uuid,
+        percent: i32,
+        message: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE job_queue SET progress_percent = $1, progress_message = $2 WHERE id = $3",
         )
@@ -207,13 +211,12 @@ impl JobRepository for PgJobRepository {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         // Get job info for history
-        let job_row = sqlx::query(
-            "SELECT job_type::text, payload, started_at FROM job_queue WHERE id = $1",
-        )
-        .bind(job_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+        let job_row =
+            sqlx::query("SELECT job_type::text, payload, started_at FROM job_queue WHERE id = $1")
+                .bind(job_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
 
         let job_type: String = job_row.get("job_type");
         let started_at: Option<chrono::DateTime<Utc>> = job_row.get("started_at");
@@ -259,13 +262,12 @@ impl JobRepository for PgJobRepository {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         // Get current retry count
-        let (retry_count, max_retries): (i32, i32) = sqlx::query_as(
-            "SELECT retry_count, max_retries FROM job_queue WHERE id = $1",
-        )
-        .bind(job_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+        let (retry_count, max_retries): (i32, i32) =
+            sqlx::query_as("SELECT retry_count, max_retries FROM job_queue WHERE id = $1")
+                .bind(job_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
 
         if retry_count < max_retries {
             // Retry: reset to pending with incremented retry count
@@ -296,13 +298,12 @@ impl JobRepository for PgJobRepository {
             .map_err(Error::Database)?;
 
             // Record failure in history
-            let job_type: String = sqlx::query_scalar(
-                "SELECT job_type::text FROM job_queue WHERE id = $1",
-            )
-            .bind(job_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
+            let job_type: String =
+                sqlx::query_scalar("SELECT job_type::text FROM job_queue WHERE id = $1")
+                    .bind(job_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(Error::Database)?;
 
             sqlx::query(
                 "INSERT INTO job_history (id, job_type, duration_ms, payload_size, success, created_at)

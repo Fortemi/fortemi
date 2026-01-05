@@ -6,12 +6,15 @@ use uuid::Uuid;
 
 use matric_core::{Job, JobType};
 
+/// Progress callback type for job handlers.
+pub type ProgressCallback = Box<dyn Fn(i32, Option<&str>) + Send + Sync>;
+
 /// Context provided to job handlers.
 pub struct JobContext {
     /// The job being processed.
     pub job: Job,
     /// Progress callback for updating job progress.
-    progress_callback: Option<Box<dyn Fn(i32, Option<&str>) + Send + Sync>>,
+    progress_callback: Option<ProgressCallback>,
 }
 
 impl JobContext {

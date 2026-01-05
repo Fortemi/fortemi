@@ -93,11 +93,12 @@ impl TagRepository for PgTagRepository {
     }
 
     async fn get_for_note(&self, note_id: Uuid) -> Result<Vec<String>> {
-        let rows = sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1 ORDER BY tag_name")
-            .bind(note_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let rows =
+            sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1 ORDER BY tag_name")
+                .bind(note_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         let tags = rows.into_iter().map(|row| row.get("tag_name")).collect();
         Ok(tags)
@@ -128,15 +129,13 @@ impl TagRepository for PgTagRepository {
             .map_err(Error::Database)?;
 
             // Link tag to note
-            sqlx::query(
-                "INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)",
-            )
-            .bind(note_id)
-            .bind(&tag_name)
-            .bind(source)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
+            sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
+                .bind(note_id)
+                .bind(&tag_name)
+                .bind(source)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
         }
 
         tx.commit().await.map_err(Error::Database)?;

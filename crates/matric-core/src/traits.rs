@@ -77,7 +77,12 @@ pub trait NoteRepository: Send + Sync {
     async fn update_original(&self, id: Uuid, content: &str) -> Result<()>;
 
     /// Update revised content with optional rationale.
-    async fn update_revised(&self, id: Uuid, content: &str, rationale: Option<&str>) -> Result<Uuid>;
+    async fn update_revised(
+        &self,
+        id: Uuid,
+        content: &str,
+        rationale: Option<&str>,
+    ) -> Result<Uuid>;
 
     /// Soft-delete a note.
     async fn soft_delete(&self, id: Uuid) -> Result<()>;
@@ -109,7 +114,12 @@ pub trait EmbeddingRepository: Send + Sync {
     async fn delete_for_note(&self, note_id: Uuid) -> Result<()>;
 
     /// Find similar notes by vector.
-    async fn find_similar(&self, query_vec: &Vector, limit: i64, exclude_archived: bool) -> Result<Vec<SearchHit>>;
+    async fn find_similar(
+        &self,
+        query_vec: &Vector,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>>;
 }
 
 // =============================================================================
@@ -120,10 +130,24 @@ pub trait EmbeddingRepository: Send + Sync {
 #[async_trait]
 pub trait LinkRepository: Send + Sync {
     /// Create a link between notes.
-    async fn create(&self, from_note_id: Uuid, to_note_id: Uuid, kind: &str, score: f32, metadata: Option<JsonValue>) -> Result<Uuid>;
+    async fn create(
+        &self,
+        from_note_id: Uuid,
+        to_note_id: Uuid,
+        kind: &str,
+        score: f32,
+        metadata: Option<JsonValue>,
+    ) -> Result<Uuid>;
 
     /// Create reciprocal links (bidirectional).
-    async fn create_reciprocal(&self, note_a: Uuid, note_b: Uuid, kind: &str, score: f32, metadata: Option<JsonValue>) -> Result<()>;
+    async fn create_reciprocal(
+        &self,
+        note_a: Uuid,
+        note_b: Uuid,
+        kind: &str,
+        score: f32,
+        metadata: Option<JsonValue>,
+    ) -> Result<()>;
 
     /// Get all outgoing links from a note.
     async fn get_outgoing(&self, note_id: Uuid) -> Result<Vec<Link>>;
@@ -169,16 +193,33 @@ pub trait TagRepository: Send + Sync {
 #[async_trait]
 pub trait JobRepository: Send + Sync {
     /// Queue a new job.
-    async fn queue(&self, note_id: Option<Uuid>, job_type: JobType, priority: i32, payload: Option<JsonValue>) -> Result<Uuid>;
+    async fn queue(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+    ) -> Result<Uuid>;
 
     /// Queue a job with deduplication (skip if same type+note pending).
-    async fn queue_deduplicated(&self, note_id: Option<Uuid>, job_type: JobType, priority: i32, payload: Option<JsonValue>) -> Result<Option<Uuid>>;
+    async fn queue_deduplicated(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+    ) -> Result<Option<Uuid>>;
 
     /// Claim the next pending job for processing.
     async fn claim_next(&self) -> Result<Option<Job>>;
 
     /// Update job progress.
-    async fn update_progress(&self, job_id: Uuid, percent: i32, message: Option<&str>) -> Result<()>;
+    async fn update_progress(
+        &self,
+        job_id: Uuid,
+        percent: i32,
+        message: Option<&str>,
+    ) -> Result<()>;
 
     /// Mark job as completed.
     async fn complete(&self, job_id: Uuid, result: Option<JsonValue>) -> Result<()>;

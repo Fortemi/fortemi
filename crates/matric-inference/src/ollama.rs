@@ -127,7 +127,11 @@ impl EmbeddingBackend for OllamaBackend {
             return Ok(vec![]);
         }
 
-        debug!("Embedding {} texts with model {}", texts.len(), self.embed_model);
+        debug!(
+            "Embedding {} texts with model {}",
+            texts.len(),
+            self.embed_model
+        );
 
         let request = EmbeddingRequest {
             model: self.embed_model.clone(),
@@ -157,11 +161,7 @@ impl EmbeddingBackend for OllamaBackend {
             .await
             .map_err(|e| Error::Embedding(format!("Failed to parse response: {}", e)))?;
 
-        let vectors: Vec<Vector> = result
-            .embeddings
-            .into_iter()
-            .map(Vector::from)
-            .collect();
+        let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
 
         debug!("Generated {} embeddings", vectors.len());
         Ok(vectors)
@@ -223,7 +223,10 @@ impl GenerationBackend for OllamaBackend {
             .await
             .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
 
-        debug!("Generation complete, response length: {}", result.response.len());
+        debug!(
+            "Generation complete, response length: {}",
+            result.response.len()
+        );
         Ok(result.response)
     }
 

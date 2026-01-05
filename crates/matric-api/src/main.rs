@@ -11,20 +11,20 @@ use axum::{
     Form, Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, ClientRegistrationRequest, CreateApiKeyRequest,
-    CreateNoteRequest, JobRepository, JobType, LinkRepository, ListNotesRequest,
-    NoteRepository, OAuthError, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    CreateNoteRequest, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
+    OAuthError, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::Database;
 use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
@@ -77,8 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Get configuration from environment
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/matric".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/matric".to_string());
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
@@ -94,8 +94,8 @@ async fn main() -> anyhow::Result<()> {
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
 
     // Get issuer URL from environment
-    let issuer = std::env::var("ISSUER_URL")
-        .unwrap_or_else(|_| format!("http://{}:{}", host, port));
+    let issuer =
+        std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
     // Create app state
     let state = AppState { db, search, issuer };
@@ -114,7 +114,10 @@ async fn main() -> anyhow::Result<()> {
             get(get_note).patch(update_note).delete(delete_note),
         )
         .route("/api/v1/notes/:id/restore", post(restore_note))
-        .route("/api/v1/notes/:id/tags", get(get_note_tags).put(set_note_tags))
+        .route(
+            "/api/v1/notes/:id/tags",
+            get(get_note_tags).put(set_note_tags),
+        )
         .route("/api/v1/notes/:id/links", get(get_note_links))
         // Search
         .route("/api/v1/search", get(search_notes))
@@ -127,9 +130,18 @@ async fn main() -> anyhow::Result<()> {
         // Tags
         .route("/api/v1/tags", get(list_tags))
         // OAuth2 endpoints
-        .route("/.well-known/oauth-authorization-server", get(oauth_discovery))
-        .route("/.well-known/oauth-protected-resource", get(oauth_protected_resource))
-        .route("/oauth/authorize", get(oauth_authorize_get).post(oauth_authorize_post))
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth_discovery),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(oauth_protected_resource),
+        )
+        .route(
+            "/oauth/authorize",
+            get(oauth_authorize_get).post(oauth_authorize_post),
+        )
         .route("/oauth/register", post(oauth_register))
         .route("/oauth/token", post(oauth_token))
         .route("/oauth/introspect", post(oauth_introspect))
@@ -221,7 +233,10 @@ async fn create_note(
     };
 
     let note_id = state.db.notes.insert(req).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": note_id }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": note_id })),
+    ))
 }
 
 async fn get_note(
@@ -432,7 +447,10 @@ async fn create_job(
         .queue(body.note_id, job_type, priority, body.payload)
         .await?;
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": job_id }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": job_id })),
+    ))
 }
 
 async fn get_job(
@@ -455,6 +473,7 @@ async fn pending_jobs_count(State(state): State<AppState>) -> Result<impl IntoRe
 
 #[derive(Debug, Deserialize)]
 struct ListJobsQuery {
+    #[allow(dead_code)]
     status: Option<String>,
     limit: Option<i64>,
 }
@@ -577,10 +596,16 @@ async fn oauth_token(
         req.client_id.as_deref(),
         req.client_secret.as_deref(),
     )
-    .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials")))?;
+    .ok_or_else(|| {
+        OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials"))
+    })?;
 
     // Validate client credentials
-    let valid = state.db.oauth.validate_client(&client_id, &client_secret).await?;
+    let valid = state
+        .db
+        .oauth
+        .validate_client(&client_id, &client_secret)
+        .await?;
     if !valid {
         return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
             "Invalid client credentials",
@@ -590,15 +615,26 @@ async fn oauth_token(
     match req.grant_type.as_str() {
         "client_credentials" => {
             // Check if client supports this grant type
-            if !state.db.oauth.client_supports_grant(&client_id, "client_credentials").await? {
+            if !state
+                .db
+                .oauth
+                .client_supports_grant(&client_id, "client_credentials")
+                .await?
+            {
                 return Err(OAuthApiError::OAuth(OAuthError::unauthorized_client(
                     "Client not authorized for client_credentials grant",
                 )));
             }
 
             // Get client to determine scope
-            let client = state.db.oauth.get_client(&client_id).await?
-                .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Client not found")))?;
+            let client = state
+                .db
+                .oauth
+                .get_client(&client_id)
+                .await?
+                .ok_or_else(|| {
+                    OAuthApiError::OAuth(OAuthError::invalid_client("Client not found"))
+                })?;
 
             let scope = req.scope.unwrap_or(client.scope);
             let (access_token, _, token) = state
@@ -618,24 +654,41 @@ async fn oauth_token(
         }
 
         "authorization_code" => {
-            let code = req.code.as_deref()
+            let code = req
+                .code
+                .as_deref()
                 .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_request("Missing code")))?;
-            let redirect_uri = req.redirect_uri.as_deref()
-                .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_request("Missing redirect_uri")))?;
+            let redirect_uri = req.redirect_uri.as_deref().ok_or_else(|| {
+                OAuthApiError::OAuth(OAuthError::invalid_request("Missing redirect_uri"))
+            })?;
 
             // Consume the authorization code
             let auth_code = state
                 .db
                 .oauth
-                .consume_authorization_code(code, &client_id, redirect_uri, req.code_verifier.as_deref())
+                .consume_authorization_code(
+                    code,
+                    &client_id,
+                    redirect_uri,
+                    req.code_verifier.as_deref(),
+                )
                 .await
-                .map_err(|_| OAuthApiError::OAuth(OAuthError::invalid_grant("Invalid or expired authorization code")))?;
+                .map_err(|_| {
+                    OAuthApiError::OAuth(OAuthError::invalid_grant(
+                        "Invalid or expired authorization code",
+                    ))
+                })?;
 
             // Create tokens
             let (access_token, refresh_token, token) = state
                 .db
                 .oauth
-                .create_token(&client_id, &auth_code.scope, auth_code.user_id.as_deref(), true)
+                .create_token(
+                    &client_id,
+                    &auth_code.scope,
+                    auth_code.user_id.as_deref(),
+                    true,
+                )
                 .await?;
 
             let response = matric_core::TokenResponse {
@@ -649,15 +702,18 @@ async fn oauth_token(
         }
 
         "refresh_token" => {
-            let refresh_token = req.refresh_token.as_deref()
-                .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_request("Missing refresh_token")))?;
+            let refresh_token = req.refresh_token.as_deref().ok_or_else(|| {
+                OAuthApiError::OAuth(OAuthError::invalid_request("Missing refresh_token"))
+            })?;
 
             let (access_token, new_refresh_token, token) = state
                 .db
                 .oauth
                 .refresh_access_token(refresh_token, &client_id)
                 .await
-                .map_err(|_| OAuthApiError::OAuth(OAuthError::invalid_grant("Invalid refresh token")))?;
+                .map_err(|_| {
+                    OAuthApiError::OAuth(OAuthError::invalid_grant("Invalid refresh token"))
+                })?;
 
             let response = matric_core::TokenResponse {
                 access_token,
@@ -680,6 +736,7 @@ async fn oauth_token(
 struct IntrospectRequest {
     token: String,
     #[serde(default)]
+    #[allow(dead_code)]
     token_type_hint: Option<String>,
 }
 
@@ -690,10 +747,16 @@ async fn oauth_introspect(
     Form(req): Form<IntrospectRequest>,
 ) -> Result<impl IntoResponse, OAuthApiError> {
     // Introspection requires client authentication
-    let (client_id, client_secret) = parse_client_credentials(&headers, None, None)
-        .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials")))?;
+    let (client_id, client_secret) =
+        parse_client_credentials(&headers, None, None).ok_or_else(|| {
+            OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials"))
+        })?;
 
-    let valid = state.db.oauth.validate_client(&client_id, &client_secret).await?;
+    let valid = state
+        .db
+        .oauth
+        .validate_client(&client_id, &client_secret)
+        .await?;
     if !valid {
         return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
             "Invalid client credentials",
@@ -721,10 +784,16 @@ async fn oauth_revoke(
     Form(req): Form<RevokeRequest>,
 ) -> Result<impl IntoResponse, OAuthApiError> {
     // Revocation requires client authentication
-    let (client_id, client_secret) = parse_client_credentials(&headers, None, None)
-        .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials")))?;
+    let (client_id, client_secret) =
+        parse_client_credentials(&headers, None, None).ok_or_else(|| {
+            OAuthApiError::OAuth(OAuthError::invalid_client("Missing client credentials"))
+        })?;
 
-    let valid = state.db.oauth.validate_client(&client_id, &client_secret).await?;
+    let valid = state
+        .db
+        .oauth
+        .validate_client(&client_id, &client_secret)
+        .await?;
     if !valid {
         return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
             "Invalid client credentials",
@@ -732,7 +801,11 @@ async fn oauth_revoke(
     }
 
     // Revoke the token (always returns 200 per RFC 7009)
-    let _ = state.db.oauth.revoke_token(&req.token, req.token_type_hint.as_deref()).await;
+    let _ = state
+        .db
+        .oauth
+        .revoke_token(&req.token, req.token_type_hint.as_deref())
+        .await;
 
     Ok(StatusCode::OK)
 }
@@ -778,7 +851,9 @@ async fn oauth_authorize_get(
         .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Client not found")))?;
 
     if !client.is_active {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_client("Client is not active")));
+        return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
+            "Client is not active",
+        )));
     }
 
     // Validate redirect_uri (with flexible localhost port matching)
@@ -981,7 +1056,8 @@ async fn oauth_authorize_get(
         state = html_escape(req.state.as_deref().unwrap_or("")),
         code_challenge = html_escape(req.code_challenge.as_deref().unwrap_or("")),
         code_challenge_method = html_escape(req.code_challenge_method.as_deref().unwrap_or("")),
-        scope_badges = scope.split_whitespace()
+        scope_badges = scope
+            .split_whitespace()
             .map(|s| format!(r#"<span class="scope-badge">{}</span>"#, html_escape(s)))
             .collect::<Vec<_>>()
             .join(""),
@@ -1040,7 +1116,9 @@ async fn oauth_authorize_post(
         .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Client not found")))?;
 
     if !client.is_active {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_client("Client is not active")));
+        return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
+            "Client is not active",
+        )));
     }
 
     // Validate redirect_uri (with flexible localhost port matching)
@@ -1069,8 +1147,17 @@ async fn oauth_authorize_post(
         .await?;
 
     // Build redirect URL with code and state
-    let sep = if req.redirect_uri.contains('?') { '&' } else { '?' };
-    let mut redirect_url = format!("{}{}code={}", req.redirect_uri, sep, urlencoding::encode(&code));
+    let sep = if req.redirect_uri.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
+    let mut redirect_url = format!(
+        "{}{}code={}",
+        req.redirect_uri,
+        sep,
+        urlencoding::encode(&code)
+    );
     if let Some(s) = &req.state {
         redirect_url.push_str(&format!("&state={}", urlencoding::encode(s)));
     }
@@ -1079,7 +1166,12 @@ async fn oauth_authorize_post(
 }
 
 /// Build an error redirect URL.
-fn build_error_redirect(redirect_uri: &str, error: &str, description: &str, state: Option<&str>) -> String {
+fn build_error_redirect(
+    redirect_uri: &str,
+    error: &str,
+    description: &str,
+    state: Option<&str>,
+) -> String {
     let sep = if redirect_uri.contains('?') { '&' } else { '?' };
     let mut url = format!(
         "{}{}error={}&error_description={}",
@@ -1112,7 +1204,9 @@ fn validate_redirect_uri(redirect_uri: &str, registered_uris: &[String]) -> bool
     }
 
     // For localhost URIs, allow any port if a localhost URI is registered
-    if redirect_uri.starts_with("http://localhost:") || redirect_uri.starts_with("http://127.0.0.1:") {
+    if redirect_uri.starts_with("http://localhost:")
+        || redirect_uri.starts_with("http://127.0.0.1:")
+    {
         // Extract path from redirect_uri
         let uri_parts: Vec<&str> = redirect_uri.splitn(4, '/').collect();
         let path = if uri_parts.len() >= 4 {
@@ -1124,7 +1218,9 @@ fn validate_redirect_uri(redirect_uri: &str, registered_uris: &[String]) -> bool
         };
 
         for registered in registered_uris {
-            if registered.starts_with("http://localhost:") || registered.starts_with("http://127.0.0.1:") {
+            if registered.starts_with("http://localhost:")
+                || registered.starts_with("http://127.0.0.1:")
+            {
                 // Extract path from registered URI
                 let reg_parts: Vec<&str> = registered.splitn(4, '/').collect();
                 let reg_path = if reg_parts.len() >= 4 {
@@ -1151,9 +1247,7 @@ fn validate_redirect_uri(redirect_uri: &str, registered_uris: &[String]) -> bool
 // =============================================================================
 
 /// List all API keys (requires admin scope).
-async fn list_api_keys(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+async fn list_api_keys(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let keys = state.db.oauth.list_api_keys().await?;
     Ok(Json(serde_json::json!({ "api_keys": keys })))
 }
@@ -1313,17 +1407,22 @@ impl FromRequestParts<AppState> for RequireAuth {
         let auth = Auth::from_request_parts(parts, state).await?;
 
         if !auth.principal.is_authenticated() {
-            return Err(ApiError::Unauthorized("Authentication required".to_string()));
+            return Err(ApiError::Unauthorized(
+                "Authentication required".to_string(),
+            ));
         }
 
-        Ok(RequireAuth { principal: auth.principal })
+        Ok(RequireAuth {
+            principal: auth.principal,
+        })
     }
 }
 
 /// Helper trait for requiring specific scopes in handlers.
 impl RequireAuth {
     /// Check if the authenticated principal has the required scope.
-    pub fn require_scope(&self, scope: &str) -> Result<(), ApiError> {
+    #[allow(dead_code)]
+    fn require_scope(&self, scope: &str) -> Result<(), ApiError> {
         if !self.principal.has_scope(scope) {
             return Err(ApiError::Forbidden(format!(
                 "Missing required scope: {}",
@@ -1339,6 +1438,7 @@ impl RequireAuth {
 // =============================================================================
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ApiError {
     Database(matric_core::Error),
     Unauthorized(String),

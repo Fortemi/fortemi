@@ -22,12 +22,7 @@ impl PgEmbeddingRepository {
 
 #[async_trait]
 impl EmbeddingRepository for PgEmbeddingRepository {
-    async fn store(
-        &self,
-        note_id: Uuid,
-        chunks: Vec<(String, Vector)>,
-        model: &str,
-    ) -> Result<()> {
+    async fn store(&self, note_id: Uuid, chunks: Vec<(String, Vector)>, model: &str) -> Result<()> {
         // Delete existing embeddings
         sqlx::query("DELETE FROM embedding WHERE note_id = $1")
             .bind(note_id)

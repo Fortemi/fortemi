@@ -118,7 +118,7 @@ pub struct SemanticResponse {
 }
 
 /// Search mode for queries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
     /// Full-text search only
@@ -126,13 +126,8 @@ pub enum SearchMode {
     /// Vector/semantic search only
     Vector,
     /// Hybrid: combines FTS and vector with RRF
+    #[default]
     Hybrid,
-}
-
-impl Default for SearchMode {
-    fn default() -> Self {
-        SearchMode::Hybrid
-    }
 }
 
 // =============================================================================
@@ -328,18 +323,13 @@ pub enum OAuthResponseType {
 }
 
 /// Token endpoint authentication methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenAuthMethod {
+    #[default]
     ClientSecretBasic,
     ClientSecretPost,
     None,
-}
-
-impl Default for TokenAuthMethod {
-    fn default() -> Self {
-        TokenAuthMethod::ClientSecretBasic
-    }
 }
 
 /// OAuth2 client registration (RFC 7591).

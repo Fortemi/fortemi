@@ -67,7 +67,10 @@ impl PgOAuthRepository {
 
         // Default grant types if not specified
         let grant_types = if req.grant_types.is_empty() {
-            vec!["authorization_code".to_string(), "refresh_token".to_string()]
+            vec![
+                "authorization_code".to_string(),
+                "refresh_token".to_string(),
+            ]
         } else {
             req.grant_types
         };
@@ -170,7 +173,9 @@ impl PgOAuthRepository {
             token_endpoint_auth_method: r.get("token_endpoint_auth_method"),
             software_id: r.get("software_id"),
             software_version: r.get("software_version"),
-            contacts: r.get::<Option<Vec<String>>, _>("contacts").unwrap_or_default(),
+            contacts: r
+                .get::<Option<Vec<String>>, _>("contacts")
+                .unwrap_or_default(),
             policy_uri: r.get("policy_uri"),
             tos_uri: r.get("tos_uri"),
             is_active: r.get("is_active"),
@@ -217,12 +222,14 @@ impl PgOAuthRepository {
 
     /// Deactivate a client.
     pub async fn deactivate_client(&self, client_id: &str) -> Result<()> {
-        sqlx::query("UPDATE oauth_client SET is_active = false, updated_at = $1 WHERE client_id = $2")
-            .bind(Utc::now())
-            .bind(client_id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "UPDATE oauth_client SET is_active = false, updated_at = $1 WHERE client_id = $2",
+        )
+        .bind(Utc::now())
+        .bind(client_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
         Ok(())
     }
 
@@ -231,6 +238,7 @@ impl PgOAuthRepository {
     // =========================================================================
 
     /// Create an authorization code.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_authorization_code(
         &self,
         client_id: &str,
@@ -794,12 +802,13 @@ impl PgOAuthRepository {
         let now = Utc::now();
 
         // Delete expired authorization codes
-        let codes_deleted = sqlx::query("DELETE FROM oauth_authorization_code WHERE expires_at < $1")
-            .bind(now)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?
-            .rows_affected();
+        let codes_deleted =
+            sqlx::query("DELETE FROM oauth_authorization_code WHERE expires_at < $1")
+                .bind(now)
+                .execute(&self.pool)
+                .await
+                .map_err(Error::Database)?
+                .rows_affected();
 
         // Delete very old revoked tokens (keep for 30 days for audit)
         let audit_cutoff = now - Duration::days(30);
