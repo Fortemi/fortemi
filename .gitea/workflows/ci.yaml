@@ -20,6 +20,9 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Install Rust components
+        run: rustup component add rustfmt clippy
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
