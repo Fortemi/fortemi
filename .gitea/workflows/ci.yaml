@@ -47,7 +47,7 @@ jobs:
 
   inference-test:
     name: Inference Tests (GPU)
-    runs-on: titan
+    runs-on: gpu
     needs: lint
     timeout-minutes: 30
     env:
