@@ -13,7 +13,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: titan
     steps:
       - name: Checkout
         run: |
@@ -28,7 +28,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: titan
     needs: lint
     steps:
       - name: Checkout
@@ -44,7 +44,7 @@ jobs:
 
   inference-test:
     name: Inference Tests (GPU)
-    runs-on: ubuntu-latest
+    runs-on: titan
     needs: lint
     timeout-minutes: 30
     env:
@@ -68,7 +68,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: titan
     needs: [test, inference-test]
     if: always() && needs.test.result == 'success'
     steps:
