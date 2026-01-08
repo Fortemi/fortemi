@@ -36,3 +36,5 @@ wiremock = "0.6"
 default = ["ollama"]
 ollama = []
 openai = []
+# Enable integration tests that require live Ollama server
+integration = []

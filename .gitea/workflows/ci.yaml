@@ -45,8 +45,8 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc
 
-  inference-test:
-    name: Inference Tests (GPU)
+  integration-test:
+    name: Integration Tests (GPU)
     runs-on: gpu
     needs: lint
     timeout-minutes: 30
@@ -66,13 +66,13 @@ jobs:
         run: |
           curl -s http://localhost:11434/api/tags | jq '.models[].name'
 
-      - name: Run inference package tests
-        run: cargo test --package matric-inference
+      - name: Run integration tests
+        run: cargo test --package matric-inference --features integration
 
   build:
     name: Build
     runs-on: titan
-    needs: [test, inference-test]
+    needs: [test, integration-test]
     if: always() && needs.test.result == 'success'
     steps:
       - name: Checkout

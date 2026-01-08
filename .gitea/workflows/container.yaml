@@ -13,44 +13,40 @@ env:
 jobs:
   build-and-push:
     name: Build and Push Container
-    runs-on: ubuntu-latest
+    runs-on: gpu
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Generate image tags
+        id: meta
+        run: |
+          TAGS="${REGISTRY}/${IMAGE_NAME}:${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            TAGS="${TAGS},${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            TAGS="${TAGS},${REGISTRY}/${IMAGE_NAME}:latest"
+          fi
+          TAGS="${TAGS},${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA:0:7}"
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: Log in to Gitea Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ gitea.actor }}
-          password: ${{ secrets.BUILD_REPO_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
+        run: |
+          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Build and push container image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            RUST_VERSION=1.85
+        run: |
+          docker build -t ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA:0:7} .
+
+          # Tag with all generated tags
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            docker tag ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA:0:7} ${tag}
+            docker push ${tag}
+          done

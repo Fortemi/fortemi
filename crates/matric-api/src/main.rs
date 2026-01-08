@@ -233,6 +233,19 @@ async fn create_note(
     };
 
     let note_id = state.db.notes.insert(req).await?;
+
+    // Queue AI processing jobs for the new note
+    let _ = state
+        .db
+        .jobs
+        .queue_deduplicated(
+            Some(note_id),
+            JobType::AiRevision,
+            JobType::AiRevision.default_priority(),
+            None,
+        )
+        .await;
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": note_id })),
@@ -260,6 +273,7 @@ async fn update_note(
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Update content if provided
+    let content_changed = body.content.is_some();
     if let Some(content) = body.content {
         state.db.notes.update_original(id, &content).await?;
     }
@@ -271,6 +285,20 @@ async fn update_note(
             archived: body.archived,
         };
         state.db.notes.update_status(id, req).await?;
+    }
+
+    // Queue AI revision if content changed
+    if content_changed {
+        let _ = state
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(id),
+                JobType::AiRevision,
+                JobType::AiRevision.default_priority(),
+                None,
+            )
+            .await;
     }
 
     Ok(StatusCode::NO_CONTENT)
