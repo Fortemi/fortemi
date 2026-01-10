@@ -14,11 +14,17 @@ jobs:
   build-and-push:
     name: Build and Push Container
     runs-on: gpu
-    permissions:
-      contents: read
-      packages: write
 
     steps:
+      - name: Debug environment
+        run: |
+          echo "Starting container build..."
+          echo "GITHUB_REF_NAME: ${GITHUB_REF_NAME}"
+          echo "GITHUB_SHA: ${GITHUB_SHA}"
+          echo "GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}"
+          docker --version
+          pwd
+
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
