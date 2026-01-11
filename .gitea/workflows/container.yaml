@@ -3,11 +3,31 @@ name: Container Build
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: git.integrolabs.net
+  IMAGE_NAME: roctinam/matric-memory
 
 jobs:
-  test-workflow:
-    name: Test Workflow
+  build-and-push:
+    name: Build and Push Container
     runs-on: titan
     steps:
-      - name: Echo test
-        run: echo "Hello from container workflow"
+      - name: Debug info
+        run: |
+          echo "Starting build..."
+          echo "REF: ${GITHUB_REF_NAME}"
+          docker --version
+
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker build -t ${REGISTRY}/${IMAGE_NAME}:test .
+          echo "Build completed"
