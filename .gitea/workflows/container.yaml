@@ -10,8 +10,7 @@ jobs:
     runs-on: titan
     steps:
       - name: Checkout
-        run: |
-          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+        run: git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
 
       - name: Build
         run: docker build -t test:latest .
