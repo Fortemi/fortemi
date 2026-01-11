@@ -7,10 +7,7 @@ on:
 jobs:
   container:
     name: Container
-    runs-on: titan
+    runs-on: gpu
     steps:
-      - name: Checkout
-        run: git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-
       - name: Docker version
         run: docker --version
