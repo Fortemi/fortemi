@@ -12,5 +12,5 @@ jobs:
       - name: Checkout
         run: git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
 
-      - name: List files
-        run: ls -la
+      - name: Docker version
+        run: docker --version
