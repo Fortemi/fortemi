@@ -3,60 +3,11 @@ name: Container Build
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
-
-env:
-  REGISTRY: git.integrolabs.net
-  IMAGE_NAME: roctinam/matric-memory
 
 jobs:
-  build-and-push:
-    name: Build and Push Container
+  test-workflow:
+    name: Test Workflow
     runs-on: titan
-
     steps:
-      - name: Debug environment
-        run: |
-          echo "Starting container build..."
-          echo "GITHUB_REF_NAME: ${GITHUB_REF_NAME}"
-          echo "GITHUB_SHA: ${GITHUB_SHA}"
-          echo "GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}"
-          docker --version
-          pwd
-
-      - name: Checkout
-        run: |
-          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
-
-      - name: Log in to Gitea Container Registry
-        run: |
-          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
-
-      - name: Build and push container image
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-
-          # Build with BuildKit enabled
-          docker build -t ${IMAGE}:${SHORT_SHA} .
-
-          # Tag and push branch/tag name
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${GITHUB_REF_NAME}
-          docker push ${IMAGE}:${GITHUB_REF_NAME}
-
-          # Tag and push SHA
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:sha-${SHORT_SHA}
-          docker push ${IMAGE}:sha-${SHORT_SHA}
-
-          # For version tags, also add version and latest
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-            docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${VERSION}
-            docker push ${IMAGE}:${VERSION}
-            docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:latest
-            docker push ${IMAGE}:latest
-          fi
+      - name: Echo test
+        run: echo "Hello from container workflow"
