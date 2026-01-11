@@ -5,11 +5,9 @@ on:
     branches: [main]
 
 jobs:
-  build-and-push:
-    name: Build and Push Container
+  container:
+    name: Container
     runs-on: titan
     steps:
-      - name: Debug info
-        run: |
-          echo "Starting build..."
-          docker --version
+      - name: Debug
+        run: echo "test"
