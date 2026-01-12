@@ -87,8 +87,8 @@ jobs:
         run: |
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
-  docker-image:
-    name: Docker Image
+  package:
+    name: Package
     runs-on: gpu
     needs: lint
     timeout-minutes: 30
