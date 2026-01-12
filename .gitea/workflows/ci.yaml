@@ -104,4 +104,4 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t test:latest .
+          /usr/bin/docker build -t test:latest .
