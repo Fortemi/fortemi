@@ -90,7 +90,8 @@ jobs:
   docker-image:
     name: Docker Image
     runs-on: gpu
-    needs: build
+    needs: lint
+    timeout-minutes: 30
     steps:
       - name: Checkout
         run: |
