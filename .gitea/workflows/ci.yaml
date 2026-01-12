@@ -87,21 +87,10 @@ jobs:
         run: |
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
-  package:
-    name: Package
+  publish:
+    name: Publish
     runs-on: gpu
-    needs: lint
-    timeout-minutes: 30
-    env:
-      OLLAMA_HOST: http://localhost:11434
-      INFERENCE_BACKEND: ollama
-      DOCKER_BUILDKIT: 1
+    needs: build
     steps:
-      - name: Checkout
-        run: |
-          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
-
-      - name: Build image
-        run: |
-          /usr/bin/docker build -t test:latest .
+      - run: echo "Starting publish job"
+      - run: docker --version
