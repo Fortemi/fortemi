@@ -102,8 +102,6 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Verify GPU Access
-        run: nvidia-smi
-
       - name: Build image
-        run: docker build -t test:latest .
+        run: |
+          docker build -t test:latest .
