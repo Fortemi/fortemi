@@ -94,7 +94,6 @@ jobs:
     env:
       REGISTRY: git.integrolabs.net
       IMAGE_NAME: roctinam/matric-memory
-      DOCKER_BUILDKIT: 1
     steps:
       - run: echo "Starting publish job"
 

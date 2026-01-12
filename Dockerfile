@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Build stage
 FROM rust:slim-bookworm AS builder
 
@@ -16,9 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
 # Build release binary
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo build --release --package matric-api && \
+RUN cargo build --release --package matric-api && \
     cp target/release/matric-api /app/matric-api
 
 # Runtime stage
