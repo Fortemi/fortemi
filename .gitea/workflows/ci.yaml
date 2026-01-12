@@ -93,16 +93,20 @@ jobs:
     needs: lint
     timeout-minutes: 30
     env:
-      DOCKER_BUILDKIT: 1
+      OLLAMA_HOST: http://localhost:11434
+      INFERENCE_BACKEND: ollama
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Verify GPU Access
+        run: nvidia-smi
+
+      - name: Verify Ollama
+        run: |
+          curl -s http://localhost:11434/api/tags | jq '.models[].name'
+
       - name: Verify Docker
         run: docker --version
-
-      - name: Build
-        run: |
-          docker build -t test:latest .
