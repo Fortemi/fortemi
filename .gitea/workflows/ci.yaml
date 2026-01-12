@@ -91,7 +91,6 @@ jobs:
     name: Docker Image
     runs-on: gpu
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         run: |
