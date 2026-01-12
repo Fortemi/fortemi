@@ -92,29 +92,11 @@ jobs:
     runs-on: gpu
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    env:
-      REGISTRY: git.integrolabs.net
-      IMAGE_NAME: roctinam/matric-memory
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Log in to registry
-        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
-
-      - name: Build and push
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-
-          docker build -t ${IMAGE}:${SHORT_SHA} .
-
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${GITHUB_REF_NAME}
-          docker push ${IMAGE}:${GITHUB_REF_NAME}
-
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:sha-${SHORT_SHA}
-          docker push ${IMAGE}:sha-${SHORT_SHA}
+      - name: Build
+        run: docker build -t test:latest .
