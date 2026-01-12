@@ -95,6 +95,7 @@ jobs:
     env:
       OLLAMA_HOST: http://localhost:11434
       INFERENCE_BACKEND: ollama
+      DOCKER_BUILDKIT: 1
     steps:
       - name: Checkout
         run: |
@@ -104,9 +105,5 @@ jobs:
       - name: Verify GPU Access
         run: nvidia-smi
 
-      - name: Verify Ollama
-        run: |
-          curl -s http://localhost:11434/api/tags | jq '.models[].name'
-
-      - name: Verify Docker
-        run: docker --version
+      - name: Build image
+        run: docker build -t test:latest .
