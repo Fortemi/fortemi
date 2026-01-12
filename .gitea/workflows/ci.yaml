@@ -87,8 +87,8 @@ jobs:
         run: |
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
-  container:
-    name: Container
+  docker-image:
+    name: Docker Image
     runs-on: gpu
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
