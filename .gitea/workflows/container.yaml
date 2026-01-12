@@ -3,12 +3,6 @@ name: Container Build
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
-
-env:
-  REGISTRY: git.integrolabs.net
-  IMAGE_NAME: roctinam/matric-memory
 
 jobs:
   container:
@@ -18,28 +12,5 @@ jobs:
       - name: Checkout
         run: git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
 
-      - name: Log in to registry
-        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
-
-      - name: Build and push
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-
-          docker build -t ${IMAGE}:${SHORT_SHA} .
-
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${GITHUB_REF_NAME}
-          docker push ${IMAGE}:${GITHUB_REF_NAME}
-
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:sha-${SHORT_SHA}
-          docker push ${IMAGE}:sha-${SHORT_SHA}
-
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-            docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${VERSION}
-            docker push ${IMAGE}:${VERSION}
-            docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:latest
-            docker push ${IMAGE}:latest
-          fi
+      - name: Build image
+        run: docker build -t test:latest .
