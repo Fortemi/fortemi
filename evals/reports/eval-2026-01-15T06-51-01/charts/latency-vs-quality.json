@@ -16,58 +16,58 @@
   "data": {
     "values": [
       {
+        "model": "qwen2.5:7b",
+        "latency": 223,
+        "quality": 10.185215924052326,
+        "parameters": 7,
+        "category": "small"
+      },
+      {
         "model": "qwen2.5:14b",
-        "latency": 324.05,
-        "quality": 10.184630808120724,
+        "latency": 289.8,
+        "quality": 10.18278268340711,
         "parameters": 14,
         "category": "medium"
       },
       {
         "model": "gpt-oss:20b",
-        "latency": 4064.65,
-        "quality": 10.18035089760397,
+        "latency": 4264.75,
+        "quality": 10.180189103090145,
         "parameters": 20,
         "category": "medium"
       },
       {
-        "model": "qwen2.5:7b",
-        "latency": 239.9,
-        "quality": 10.179245053058894,
-        "parameters": 7,
-        "category": "small"
-      },
-      {
         "model": "command-r7b:latest",
-        "latency": 1304.1,
-        "quality": 10.176475856077165,
+        "latency": 1251.5,
+        "quality": 10.180152773855976,
         "parameters": 7,
         "category": "small"
       },
       {
         "model": "llama3.1:8b",
-        "latency": 1530.65,
-        "quality": 10.176475608173511,
+        "latency": 1470.6,
+        "quality": 10.175255864678986,
         "parameters": 8,
         "category": "small"
       },
       {
         "model": "cogito:8b",
-        "latency": 1510.55,
-        "quality": 10.167751320699045,
+        "latency": 1444.95,
+        "quality": 10.171217470549072,
         "parameters": 8,
         "category": "small"
       },
       {
         "model": "hermes3:8b",
-        "latency": 1482.5,
-        "quality": 10.166106087893752,
+        "latency": 1528.45,
+        "quality": 10.147360133625579,
         "parameters": 8,
         "category": "small"
       },
       {
         "model": "mistral:latest",
-        "latency": 245.2,
-        "quality": 10.128273250877939,
+        "latency": 215,
+        "quality": 10.131780850956966,
         "parameters": 7,
         "category": "small"
       }

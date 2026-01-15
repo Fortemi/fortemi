@@ -1,9 +1,16 @@
 /**
  * Markdown reporter for evaluation results
  * Design parity with matric-cli benchmark reports
+ * Includes embedded SVG charts
  */
 
 import type { EvaluationReport, EmbeddingEvalResult } from '../models/types.js';
+import {
+  generateSummaryDashboard,
+  generateEmbeddingCharts,
+  generateLLMCharts,
+  svgToMarkdownImage,
+} from './svg-charts.js';
 
 // Model size tiers based on parameter count
 type ModelTier = 'micro' | 'small' | 'medium' | 'large' | 'xlarge';
@@ -65,6 +72,7 @@ export function generateMarkdownReport(results: EvaluationReport): string {
 
   sections.push(generateHeader(results));
   sections.push(generateExecutiveSummary(results));
+  sections.push(generateVisualizations(results));
   sections.push(generateEmbeddingResults(results));
   sections.push(generateLLMResults(results));
   sections.push(generateCategoryDeepDive(results));
@@ -73,6 +81,51 @@ export function generateMarkdownReport(results: EvaluationReport): string {
   sections.push(generateMethodology());
 
   return sections.join('\n');
+}
+
+/**
+ * Generate visualizations section with embedded SVG charts
+ */
+function generateVisualizations(results: EvaluationReport): string {
+  const lines: string[] = ['## Visualizations\n'];
+
+  const embeddingModels = Object.values(results.embeddingResults);
+  const llmModels = Object.values(results.llmResults);
+
+  // Summary dashboard
+  const bestEmbedding = embeddingModels.length > 0
+    ? embeddingModels.reduce((a, b) => a.overallScore > b.overallScore ? a : b)
+    : null;
+  const bestLLM = llmModels.length > 0
+    ? llmModels.reduce((a, b) => b.dimensions.titleQuality > a.dimensions.titleQuality ? b : a)
+    : null;
+
+  const dashboard = generateSummaryDashboard(bestEmbedding, bestLLM, embeddingModels.length, llmModels.length);
+  lines.push(svgToMarkdownImage(dashboard, 'Evaluation Summary Dashboard'));
+  lines.push('');
+
+  // Embedding charts
+  if (embeddingModels.length > 0) {
+    lines.push('### Embedding Model Performance\n');
+    const embeddingCharts = generateEmbeddingCharts(embeddingModels);
+    lines.push(svgToMarkdownImage(embeddingCharts.ranking, 'Embedding Model Rankings'));
+    lines.push('');
+    lines.push(svgToMarkdownImage(embeddingCharts.metrics, 'Retrieval Metrics Comparison'));
+    lines.push('');
+  }
+
+  // LLM charts
+  if (llmModels.length > 0) {
+    lines.push('### LLM Model Performance\n');
+    const llmCharts = generateLLMCharts(llmModels);
+    lines.push(svgToMarkdownImage(llmCharts.ranking, 'LLM Title Quality Rankings'));
+    lines.push('');
+    lines.push(svgToMarkdownImage(llmCharts.scatter, 'Latency vs Quality Tradeoff'));
+    lines.push('');
+  }
+
+  lines.push('---\n');
+  return lines.join('\n');
 }
 
 /**

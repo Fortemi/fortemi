@@ -16,6 +16,31 @@
   "data": {
     "values": [
       {
+        "model": "qwen2.5:7b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "titleQuality",
+        "score": 0.9260796202616275
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
         "model": "qwen2.5:14b",
         "dimension": "revisionQuality",
         "score": 0
@@ -23,7 +48,7 @@
       {
         "model": "qwen2.5:14b",
         "dimension": "titleQuality",
-        "score": 0.9231540406036225
+        "score": 0.9139134170355516
       },
       {
         "model": "qwen2.5:14b",
@@ -48,7 +73,7 @@
       {
         "model": "gpt-oss:20b",
         "dimension": "titleQuality",
-        "score": 0.9017544880198516
+        "score": 0.900945515450726
       },
       {
         "model": "gpt-oss:20b",
@@ -62,31 +87,6 @@
       },
       {
         "model": "gpt-oss:20b",
-        "dimension": "efficiency",
-        "score": 50
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "revisionQuality",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "titleQuality",
-        "score": 0.896225265294472
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "contextQuality",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "instructionFollowing",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
         "dimension": "efficiency",
         "score": 50
       },
@@ -98,7 +98,7 @@
       {
         "model": "command-r7b:latest",
         "dimension": "titleQuality",
-        "score": 0.8823792803858217
+        "score": 0.9007638692798834
       },
       {
         "model": "command-r7b:latest",
@@ -123,7 +123,7 @@
       {
         "model": "llama3.1:8b",
         "dimension": "titleQuality",
-        "score": 0.8823780408675583
+        "score": 0.8762793233949331
       },
       {
         "model": "llama3.1:8b",

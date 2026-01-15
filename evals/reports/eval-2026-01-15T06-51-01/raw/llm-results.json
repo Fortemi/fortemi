@@ -1,0 +1,186 @@
+{
+  "qwen2.5:7b": {
+    "modelName": "qwen2.5:7b",
+    "overallScore": 10.185215924052326,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.9260796202616275,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 146.5,
+        "p95": 260.70000000000107,
+        "p99": 1426.5399999999981,
+        "mean": 223,
+        "min": 102,
+        "max": 1718
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:46:05.283Z"
+  },
+  "qwen2.5:14b": {
+    "modelName": "qwen2.5:14b",
+    "overallScore": 10.18278268340711,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.9139134170355516,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 178,
+        "p95": 558.3000000000011,
+        "p99": 1748.4599999999982,
+        "mean": 289.8,
+        "min": 143,
+        "max": 2046
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:46:12.090Z"
+  },
+  "mistral:latest": {
+    "modelName": "mistral:latest",
+    "overallScore": 10.131780850956966,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.6589042547848305,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 115,
+        "p95": 541.6500000000005,
+        "p99": 1159.529999999999,
+        "mean": 215,
+        "min": 89,
+        "max": 1314
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:46:17.462Z"
+  },
+  "llama3.1:8b": {
+    "modelName": "llama3.1:8b",
+    "overallScore": 10.175255864678986,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.8762793233949331,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 1468,
+        "p95": 1517.45,
+        "p99": 1524.29,
+        "mean": 1470.6,
+        "min": 1436,
+        "max": 1526
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:47:05.145Z"
+  },
+  "hermes3:8b": {
+    "modelName": "hermes3:8b",
+    "overallScore": 10.147360133625579,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.7368006681278993,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 1483,
+        "p95": 1674.6500000000003,
+        "p99": 2170.9299999999994,
+        "mean": 1528.45,
+        "min": 1440,
+        "max": 2295
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:47:54.373Z"
+  },
+  "gpt-oss:20b": {
+    "modelName": "gpt-oss:20b",
+    "overallScore": 10.180189103090145,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.900945515450726,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 4219.5,
+        "p95": 5020,
+        "p99": 5476,
+        "mean": 4264.75,
+        "min": 3284,
+        "max": 5590
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:49:38.170Z"
+  },
+  "cogito:8b": {
+    "modelName": "cogito:8b",
+    "overallScore": 10.171217470549072,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.8560873527453617,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 1442,
+        "p95": 1487.25,
+        "p99": 1506.25,
+        "mean": 1444.95,
+        "min": 1396,
+        "max": 1511
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:50:25.511Z"
+  },
+  "command-r7b:latest": {
+    "modelName": "command-r7b:latest",
+    "overallScore": 10.180152773855976,
+    "dimensions": {
+      "revisionQuality": 0,
+      "titleQuality": 0.9007638692798834,
+      "contextQuality": 0,
+      "instructionFollowing": 0,
+      "efficiency": 50
+    },
+    "metrics": {
+      "latency": {
+        "p50": 1823.5,
+        "p95": 1884.25,
+        "p99": 1918.45,
+        "mean": 1251.5,
+        "min": 148,
+        "max": 1927
+      },
+      "tokensPerSecond": 0
+    },
+    "timestamp": "2026-01-15T06:51:01.972Z"
+  }
+}

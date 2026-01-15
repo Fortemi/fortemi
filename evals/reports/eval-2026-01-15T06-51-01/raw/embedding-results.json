@@ -1,7 +1,7 @@
 {
   "nomic-embed-text:latest": {
     "modelName": "nomic-embed-text:latest",
-    "overallScore": 83.44,
+    "overallScore": 83.39,
     "metrics": {
       "retrieval": {
         "precisionAt5": 0.8333333333333333,
@@ -15,16 +15,16 @@
         "accuracy": 0.5166666666666667
       },
       "latency": {
-        "p50": 718,
-        "p95": 991.05,
-        "p99": 1007,
-        "mean": 553.1,
-        "min": 48,
-        "max": 1007
+        "p50": 742,
+        "p95": 1119.1499999999999,
+        "p99": 1143.01,
+        "mean": 612.755,
+        "min": 36,
+        "max": 1146
       },
-      "throughput": 145.87892049598833
+      "throughput": 131.83915622940012
     },
-    "timestamp": "2026-01-15T06:15:07.379Z"
+    "timestamp": "2026-01-15T06:45:54.383Z"
   },
   "mxbai-embed-large:latest": {
     "modelName": "mxbai-embed-large:latest",
@@ -42,16 +42,16 @@
         "accuracy": 0.9
       },
       "latency": {
-        "p50": 783,
-        "p95": 1385.2,
-        "p99": 1430.02,
-        "mean": 714.105,
-        "min": 47,
-        "max": 1440
+        "p50": 740.5,
+        "p95": 1286.05,
+        "p99": 1315.04,
+        "mean": 670.84,
+        "min": 38,
+        "max": 1338
       },
-      "throughput": 99.95002498750624
+      "throughput": 111.48272017837235
     },
-    "timestamp": "2026-01-15T06:15:09.382Z"
+    "timestamp": "2026-01-15T06:45:56.177Z"
   },
   "snowflake-arctic-embed:335m": {
     "modelName": "snowflake-arctic-embed:335m",
@@ -69,16 +69,16 @@
         "accuracy": 0.5
       },
       "latency": {
-        "p50": 769.5,
-        "p95": 1367.5499999999997,
-        "p99": 1420.1299999999999,
-        "mean": 706.605,
+        "p50": 775,
+        "p95": 1385.05,
+        "p99": 1432.08,
+        "mean": 724.835,
         "min": 42,
-        "max": 1433
+        "max": 1445
       },
-      "throughput": 100
+      "throughput": 98.81422924901186
     },
-    "timestamp": "2026-01-15T06:15:11.382Z"
+    "timestamp": "2026-01-15T06:45:58.201Z"
   },
   "all-minilm:l6-v2": {
     "modelName": "all-minilm:l6-v2",
@@ -96,15 +96,15 @@
         "accuracy": 0.85
       },
       "latency": {
-        "p50": 1020.5,
-        "p95": 1311.1,
-        "p99": 1324.02,
-        "mean": 734.185,
-        "min": 45,
-        "max": 1328
+        "p50": 985,
+        "p95": 1253.1,
+        "p99": 1271.06,
+        "mean": 701.43,
+        "min": 51,
+        "max": 1278
       },
-      "throughput": 123.76237623762376
+      "throughput": 129.78585334198573
     },
-    "timestamp": "2026-01-15T06:15:12.998Z"
+    "timestamp": "2026-01-15T06:45:59.742Z"
   }
 }
