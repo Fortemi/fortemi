@@ -1,0 +1,110 @@
+{
+  "nomic-embed-text:latest": {
+    "modelName": "nomic-embed-text:latest",
+    "overallScore": 83.39,
+    "metrics": {
+      "retrieval": {
+        "precisionAt5": 0.8333333333333333,
+        "precisionAt10": 0.8333333333333333,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 0.975,
+        "ndcgAt10": 0.9736813066645824
+      },
+      "similarity": {
+        "accuracy": 0.5166666666666667
+      },
+      "latency": {
+        "p50": 784.5,
+        "p95": 1122.1,
+        "p99": 1156.04,
+        "mean": 628.49,
+        "min": 45,
+        "max": 1166
+      },
+      "throughput": 124.14649286157666
+    },
+    "timestamp": "2026-01-15T05:22:54.140Z"
+  },
+  "mxbai-embed-large:latest": {
+    "modelName": "mxbai-embed-large:latest",
+    "overallScore": 89.93,
+    "metrics": {
+      "retrieval": {
+        "precisionAt5": 0.8333333333333333,
+        "precisionAt10": 0.8333333333333333,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 1,
+        "ndcgAt10": 0.9882029964432387
+      },
+      "similarity": {
+        "accuracy": 0.9
+      },
+      "latency": {
+        "p50": 778,
+        "p95": 1299.25,
+        "p99": 1339.02,
+        "mean": 681.37,
+        "min": 43,
+        "max": 1346
+      },
+      "throughput": 109.70927043335162
+    },
+    "timestamp": "2026-01-15T05:22:55.964Z"
+  },
+  "snowflake-arctic-embed:335m": {
+    "modelName": "snowflake-arctic-embed:335m",
+    "overallScore": 81.59,
+    "metrics": {
+      "retrieval": {
+        "precisionAt5": 0.8333333333333333,
+        "precisionAt10": 0.8333333333333333,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 0.925,
+        "ndcgAt10": 0.9461761481632974
+      },
+      "similarity": {
+        "accuracy": 0.5
+      },
+      "latency": {
+        "p50": 705.5,
+        "p95": 1329.2,
+        "p99": 1358,
+        "mean": 673.02,
+        "min": 40,
+        "max": 1361
+      },
+      "throughput": 105.70824524312897
+    },
+    "timestamp": "2026-01-15T05:22:57.856Z"
+  },
+  "all-minilm:l6-v2": {
+    "modelName": "all-minilm:l6-v2",
+    "overallScore": 89.07,
+    "metrics": {
+      "retrieval": {
+        "precisionAt5": 0.8333333333333333,
+        "precisionAt10": 0.8333333333333333,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 1,
+        "ndcgAt10": 0.9826435881979279
+      },
+      "similarity": {
+        "accuracy": 0.85
+      },
+      "latency": {
+        "p50": 1043,
+        "p95": 1307.0500000000002,
+        "p99": 1327,
+        "mean": 738.005,
+        "min": 42,
+        "max": 1332
+      },
+      "throughput": 123.30456226880395
+    },
+    "timestamp": "2026-01-15T05:22:59.478Z"
+  }
+}

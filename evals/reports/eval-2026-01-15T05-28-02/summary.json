@@ -1,0 +1,310 @@
+{
+  "meta": {
+    "timestamp": "2026-01-15T05:28:02.068Z",
+    "durationMs": 309560,
+    "modelsTested": 12,
+    "scenariosRun": 0
+  },
+  "embeddingResults": {
+    "nomic-embed-text:latest": {
+      "modelName": "nomic-embed-text:latest",
+      "overallScore": 83.39,
+      "metrics": {
+        "retrieval": {
+          "precisionAt5": 0.8333333333333333,
+          "precisionAt10": 0.8333333333333333,
+          "recallAt5": 1,
+          "recallAt10": 1,
+          "mrr": 0.975,
+          "ndcgAt10": 0.9736813066645824
+        },
+        "similarity": {
+          "accuracy": 0.5166666666666667
+        },
+        "latency": {
+          "p50": 784.5,
+          "p95": 1122.1,
+          "p99": 1156.04,
+          "mean": 628.49,
+          "min": 45,
+          "max": 1166
+        },
+        "throughput": 124.14649286157666
+      },
+      "timestamp": "2026-01-15T05:22:54.140Z"
+    },
+    "mxbai-embed-large:latest": {
+      "modelName": "mxbai-embed-large:latest",
+      "overallScore": 89.93,
+      "metrics": {
+        "retrieval": {
+          "precisionAt5": 0.8333333333333333,
+          "precisionAt10": 0.8333333333333333,
+          "recallAt5": 1,
+          "recallAt10": 1,
+          "mrr": 1,
+          "ndcgAt10": 0.9882029964432387
+        },
+        "similarity": {
+          "accuracy": 0.9
+        },
+        "latency": {
+          "p50": 778,
+          "p95": 1299.25,
+          "p99": 1339.02,
+          "mean": 681.37,
+          "min": 43,
+          "max": 1346
+        },
+        "throughput": 109.70927043335162
+      },
+      "timestamp": "2026-01-15T05:22:55.964Z"
+    },
+    "snowflake-arctic-embed:335m": {
+      "modelName": "snowflake-arctic-embed:335m",
+      "overallScore": 81.59,
+      "metrics": {
+        "retrieval": {
+          "precisionAt5": 0.8333333333333333,
+          "precisionAt10": 0.8333333333333333,
+          "recallAt5": 1,
+          "recallAt10": 1,
+          "mrr": 0.925,
+          "ndcgAt10": 0.9461761481632974
+        },
+        "similarity": {
+          "accuracy": 0.5
+        },
+        "latency": {
+          "p50": 705.5,
+          "p95": 1329.2,
+          "p99": 1358,
+          "mean": 673.02,
+          "min": 40,
+          "max": 1361
+        },
+        "throughput": 105.70824524312897
+      },
+      "timestamp": "2026-01-15T05:22:57.856Z"
+    },
+    "all-minilm:l6-v2": {
+      "modelName": "all-minilm:l6-v2",
+      "overallScore": 89.07,
+      "metrics": {
+        "retrieval": {
+          "precisionAt5": 0.8333333333333333,
+          "precisionAt10": 0.8333333333333333,
+          "recallAt5": 1,
+          "recallAt10": 1,
+          "mrr": 1,
+          "ndcgAt10": 0.9826435881979279
+        },
+        "similarity": {
+          "accuracy": 0.85
+        },
+        "latency": {
+          "p50": 1043,
+          "p95": 1307.0500000000002,
+          "p99": 1327,
+          "mean": 738.005,
+          "min": 42,
+          "max": 1332
+        },
+        "throughput": 123.30456226880395
+      },
+      "timestamp": "2026-01-15T05:22:59.478Z"
+    }
+  },
+  "llmResults": {
+    "qwen2.5:7b": {
+      "modelName": "qwen2.5:7b",
+      "overallScore": 10.180763052427034,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.9038152621351665,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 141,
+          "p95": 259.9000000000013,
+          "p99": 1641.5799999999977,
+          "mean": 228.6,
+          "min": 103,
+          "max": 1987
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:23:04.993Z"
+    },
+    "qwen2.5:14b": {
+      "modelName": "qwen2.5:14b",
+      "overallScore": 10.185589192625105,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.9279459631255231,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 184,
+          "p95": 383.650000000002,
+          "p99": 2506.3299999999963,
+          "mean": 327.9,
+          "min": 156,
+          "max": 3037
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:23:12.624Z"
+    },
+    "mistral:latest": {
+      "modelName": "mistral:latest",
+      "overallScore": 10.122517512631093,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.6125875631554654,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 128.5,
+          "p95": 320.5000000000008,
+          "p99": 1148.8999999999987,
+          "mean": 195.45,
+          "min": 86,
+          "max": 1356
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:23:17.475Z"
+    },
+    "llama3.1:8b": {
+      "modelName": "llama3.1:8b",
+      "overallScore": 10.181207395777369,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.9060369788868436,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 1483,
+          "p95": 1546.9500000000003,
+          "p99": 1926.1899999999994,
+          "mean": 1503.05,
+          "min": 1437,
+          "max": 2021
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:24:05.949Z"
+    },
+    "hermes3:8b": {
+      "modelName": "hermes3:8b",
+      "overallScore": 10.1554266563104,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.7771332815519962,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 1484.5,
+          "p95": 1621.400000000001,
+          "p99": 2524.2799999999984,
+          "mean": 1548.5,
+          "min": 1441,
+          "max": 2750
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:24:55.491Z"
+    },
+    "gpt-oss:20b": {
+      "modelName": "gpt-oss:20b",
+      "overallScore": 10.182912860728655,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.9145643036432685,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 3956,
+          "p95": 4891.299999999999,
+          "p99": 4895.86,
+          "mean": 4119.6,
+          "min": 3226,
+          "max": 4897
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:26:36.428Z"
+    },
+    "cogito:8b": {
+      "modelName": "cogito:8b",
+      "overallScore": 10.177301302643448,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.8865065132172387,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 1457.5,
+          "p95": 1558.500000000001,
+          "p99": 2326.0999999999985,
+          "mean": 1510.1,
+          "min": 1412,
+          "max": 2518
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:27:25.461Z"
+    },
+    "command-r7b:latest": {
+      "modelName": "command-r7b:latest",
+      "overallScore": 10.181653294680869,
+      "dimensions": {
+        "revisionQuality": 0,
+        "titleQuality": 0.9082664734043404,
+        "contextQuality": 0,
+        "instructionFollowing": 0,
+        "efficiency": 50
+      },
+      "metrics": {
+        "latency": {
+          "p50": 1836,
+          "p95": 2063.900000000001,
+          "p99": 3126.3799999999983,
+          "mean": 1264.15,
+          "min": 144,
+          "max": 3392
+        },
+        "tokensPerSecond": 0
+      },
+      "timestamp": "2026-01-15T05:28:02.067Z"
+    }
+  },
+  "recommendations": {
+    "bestEmbedding": "mxbai-embed-large:latest",
+    "bestLLMQuality": "qwen2.5:14b",
+    "bestLLMBalanced": "qwen2.5:7b",
+    "bestLLMSpeed": "qwen2.5:7b"
+  }
+}

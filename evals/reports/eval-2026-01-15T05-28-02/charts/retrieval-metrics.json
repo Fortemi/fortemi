@@ -1,0 +1,193 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Retrieval Metrics Comparison",
+  "width": 600,
+  "height": 400,
+  "config": {
+    "axis": {
+      "labelFontSize": 11,
+      "titleFontSize": 13
+    },
+    "legend": {
+      "labelFontSize": 11,
+      "titleFontSize": 12
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "P@5",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "P@10",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "R@5",
+        "value": 100
+      },
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "R@10",
+        "value": 100
+      },
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "MRR",
+        "value": 97.5
+      },
+      {
+        "model": "nomic-embed-text:latest",
+        "metric": "NDCG@10",
+        "value": 97.36813066645824
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "P@5",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "P@10",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "R@5",
+        "value": 100
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "R@10",
+        "value": 100
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "MRR",
+        "value": 100
+      },
+      {
+        "model": "mxbai-embed-large:latest",
+        "metric": "NDCG@10",
+        "value": 98.82029964432387
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "P@5",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "P@10",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "R@5",
+        "value": 100
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "R@10",
+        "value": 100
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "MRR",
+        "value": 92.5
+      },
+      {
+        "model": "snowflake-arctic-embed:335m",
+        "metric": "NDCG@10",
+        "value": 94.61761481632975
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "P@5",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "P@10",
+        "value": 83.33333333333333
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "R@5",
+        "value": 100
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "R@10",
+        "value": 100
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "MRR",
+        "value": 100
+      },
+      {
+        "model": "all-minilm:l6-v2",
+        "metric": "NDCG@10",
+        "value": 98.26435881979279
+      }
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": {
+      "field": "metric",
+      "type": "nominal",
+      "axis": {
+        "title": "Metric",
+        "labelAngle": 0
+      }
+    },
+    "y": {
+      "field": "value",
+      "type": "quantitative",
+      "axis": {
+        "title": "Score (%)"
+      },
+      "scale": {
+        "domain": [
+          0,
+          100
+        ]
+      }
+    },
+    "color": {
+      "field": "model",
+      "type": "nominal",
+      "legend": {
+        "title": "Embedding Model"
+      }
+    },
+    "xOffset": {
+      "field": "model",
+      "type": "nominal"
+    },
+    "tooltip": [
+      {
+        "field": "model",
+        "type": "nominal",
+        "title": "Model"
+      },
+      {
+        "field": "metric",
+        "type": "nominal",
+        "title": "Metric"
+      },
+      {
+        "field": "value",
+        "type": "quantitative",
+        "title": "Score",
+        "format": ".1f"
+      }
+    ]
+  }
+}

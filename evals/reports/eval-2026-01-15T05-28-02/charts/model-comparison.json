@@ -1,0 +1,126 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Model Comparison: Overall Scores",
+  "width": 600,
+  "height": 400,
+  "config": {
+    "axis": {
+      "labelFontSize": 11,
+      "titleFontSize": 13
+    },
+    "legend": {
+      "labelFontSize": 11,
+      "titleFontSize": 12
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "model": "qwen2.5:7b",
+        "score": 10.180763052427034,
+        "category": "small"
+      },
+      {
+        "model": "qwen2.5:14b",
+        "score": 10.185589192625105,
+        "category": "medium"
+      },
+      {
+        "model": "mistral:latest",
+        "score": 10.122517512631093,
+        "category": "small"
+      },
+      {
+        "model": "llama3.1:8b",
+        "score": 10.181207395777369,
+        "category": "small"
+      },
+      {
+        "model": "hermes3:8b",
+        "score": 10.1554266563104,
+        "category": "small"
+      },
+      {
+        "model": "gpt-oss:20b",
+        "score": 10.182912860728655,
+        "category": "medium"
+      },
+      {
+        "model": "cogito:8b",
+        "score": 10.177301302643448,
+        "category": "small"
+      },
+      {
+        "model": "command-r7b:latest",
+        "score": 10.181653294680869,
+        "category": "small"
+      }
+    ]
+  },
+  "mark": "bar",
+  "encoding": {
+    "x": {
+      "field": "model",
+      "type": "nominal",
+      "axis": {
+        "labelAngle": -45,
+        "title": "Model"
+      },
+      "sort": "-y"
+    },
+    "y": {
+      "field": "score",
+      "type": "quantitative",
+      "axis": {
+        "title": "Overall Score (0-100)"
+      },
+      "scale": {
+        "domain": [
+          0,
+          100
+        ]
+      }
+    },
+    "color": {
+      "field": "category",
+      "type": "nominal",
+      "legend": {
+        "title": "Model Size"
+      },
+      "scale": {
+        "domain": [
+          "micro",
+          "tiny",
+          "small",
+          "medium",
+          "large"
+        ],
+        "range": [
+          "#f59e0b",
+          "#10b981",
+          "#3b82f6",
+          "#8b5cf6",
+          "#ef4444"
+        ]
+      }
+    },
+    "tooltip": [
+      {
+        "field": "model",
+        "type": "nominal",
+        "title": "Model"
+      },
+      {
+        "field": "score",
+        "type": "quantitative",
+        "title": "Score",
+        "format": ".1f"
+      },
+      {
+        "field": "category",
+        "type": "nominal",
+        "title": "Category"
+      }
+    ]
+  }
+}

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Matric-Memory Model Evaluation Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+  <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --text-primary: #c9d1d9;
+      --text-secondary: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-yellow: #d29922;
+      --accent-red: #f85149;
+      --border-color: #30363d;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 2rem 0 1rem;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.2rem;
+      font-weight: 500;
+      margin: 1.5rem 0 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .meta {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .summary-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+
+    .summary-card .label {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .summary-card .value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--accent-blue);
+    }
+
+    .summary-card.best .value {
+      color: var(--accent-green);
+    }
+
+    .chart-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+    }
+
+    .chart-title {
+      font-size: 1rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+    }
+
+    .chart {
+      width: 100%;
+      min-height: 300px;
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 1.5rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    tr:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .score-high {
+      color: var(--accent-green);
+      font-weight: 600;
+    }
+
+    .score-medium {
+      color: var(--accent-yellow);
+      font-weight: 500;
+    }
+
+    .score-low {
+      color: var(--accent-red);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .badge-best {
+      background: rgba(63, 185, 80, 0.2);
+      color: var(--accent-green);
+    }
+
+    .badge-recommended {
+      background: rgba(88, 166, 255, 0.2);
+      color: var(--accent-blue);
+    }
+
+    .recommendations {
+      background: linear-gradient(135deg, rgba(88, 166, 255, 0.1), rgba(63, 185, 80, 0.1));
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+    }
+
+    .recommendations h3 {
+      margin-top: 0;
+      color: var(--accent-blue);
+    }
+
+    .recommendation-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .recommendation-item:last-child {
+      border-bottom: none;
+    }
+
+    .recommendation-label {
+      color: var(--text-secondary);
+    }
+
+    .recommendation-value {
+      font-weight: 600;
+      color: var(--accent-green);
+    }
+
+    .methodology {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .methodology ul {
+      padding-left: 1.5rem;
+      color: var(--text-secondary);
+    }
+
+    .methodology li {
+      margin: 0.5rem 0;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Matric-Memory Model Evaluation</h1>
+    <p class="meta">
+      Generated: 1/15/2026, 12:28:02 AM |
+      Duration: 309.6s |
+      Models Tested: 12
+    </p>
+  </header>
+
+  <section class="recommendations">
+    <h3>Recommendations</h3>
+    <div class="recommendation-item">
+      <span class="recommendation-label">Best Embedding Model</span>
+      <span class="recommendation-value">mxbai-embed-large:latest</span>
+    </div>
+    <div class="recommendation-item">
+      <span class="recommendation-label">Best LLM (Quality)</span>
+      <span class="recommendation-value">qwen2.5:14b</span>
+    </div>
+    <div class="recommendation-item">
+      <span class="recommendation-label">Best LLM (Balanced)</span>
+      <span class="recommendation-value">qwen2.5:7b</span>
+    </div>
+    <div class="recommendation-item">
+      <span class="recommendation-label">Fastest LLM</span>
+      <span class="recommendation-value">qwen2.5:7b</span>
+    </div>
+  </section>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Embedding Models</div>
+      <div class="value">4</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">LLM Models</div>
+      <div class="value">8</div>
+    </div>
+    <div class="summary-card best">
+      <div class="label">Top Embedding Score</div>
+      <div class="value">89.9</div>
+    </div>
+    <div class="summary-card best">
+      <div class="label">Top LLM Title Score</div>
+      <div class="value">0.9</div>
+    </div>
+  </div>
+
+  <h2>Visualizations</h2>
+  <div class="charts-grid">
+    <div class="chart-container">
+      <div class="chart-title">Model Score Comparison</div>
+      <div id="chart-comparison" class="chart"></div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-title">Retrieval Metrics by Embedding Model</div>
+      <div id="chart-retrieval" class="chart"></div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-title">Latency vs Quality Trade-off</div>
+      <div id="chart-latency" class="chart"></div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-title">LLM Dimension Radar</div>
+      <div id="chart-radar" class="chart"></div>
+    </div>
+  </div>
+
+  <h2>Embedding Model Results</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Score</th>
+        <th>P@5</th>
+        <th>MRR</th>
+        <th>NDCG@10</th>
+        <th>Similarity</th>
+        <th>Latency (p95)</th>
+        <th>Throughput</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr>
+          <td>mxbai-embed-large:latest <span class="badge badge-best">BEST</span></td>
+          <td class="score-high">89.9</td>
+          <td>83.3%</td>
+          <td>100.0%</td>
+          <td>98.8%</td>
+          <td>90.0%</td>
+          <td>1299ms</td>
+          <td>109.7/s</td>
+        </tr>
+      
+        <tr>
+          <td>all-minilm:l6-v2 </td>
+          <td class="score-high">89.1</td>
+          <td>83.3%</td>
+          <td>100.0%</td>
+          <td>98.3%</td>
+          <td>85.0%</td>
+          <td>1307ms</td>
+          <td>123.3/s</td>
+        </tr>
+      
+        <tr>
+          <td>nomic-embed-text:latest </td>
+          <td class="score-medium">83.4</td>
+          <td>83.3%</td>
+          <td>97.5%</td>
+          <td>97.4%</td>
+          <td>51.7%</td>
+          <td>1122ms</td>
+          <td>124.1/s</td>
+        </tr>
+      
+        <tr>
+          <td>snowflake-arctic-embed:335m </td>
+          <td class="score-medium">81.6</td>
+          <td>83.3%</td>
+          <td>92.5%</td>
+          <td>94.6%</td>
+          <td>50.0%</td>
+          <td>1329ms</td>
+          <td>105.7/s</td>
+        </tr>
+      
+    </tbody>
+  </table>
+
+  <h2>LLM Model Results</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Title Score</th>
+        <th>Revision</th>
+        <th>Context</th>
+        <th>Instruction</th>
+        <th>Efficiency</th>
+        <th>Latency (p95)</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr>
+          <td>qwen2.5:14b <span class="badge badge-best">BEST</span></td>
+          <td class="score-high">92.8%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>384ms</td>
+        </tr>
+      
+        <tr>
+          <td>gpt-oss:20b </td>
+          <td class="score-high">91.5%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>4891ms</td>
+        </tr>
+      
+        <tr>
+          <td>command-r7b:latest </td>
+          <td class="score-high">90.8%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>2064ms</td>
+        </tr>
+      
+        <tr>
+          <td>llama3.1:8b </td>
+          <td class="score-high">90.6%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>1547ms</td>
+        </tr>
+      
+        <tr>
+          <td>qwen2.5:7b </td>
+          <td class="score-high">90.4%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>260ms</td>
+        </tr>
+      
+        <tr>
+          <td>cogito:8b </td>
+          <td class="score-high">88.7%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>1559ms</td>
+        </tr>
+      
+        <tr>
+          <td>hermes3:8b </td>
+          <td class="score-medium">77.7%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>1621ms</td>
+        </tr>
+      
+        <tr>
+          <td>mistral:latest </td>
+          <td class="score-low">61.3%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>321ms</td>
+        </tr>
+      
+    </tbody>
+  </table>
+
+  <div class="methodology">
+    <h3>Methodology</h3>
+    <h4>Embedding Model Scoring Weights</h4>
+    <ul>
+      <li>Precision@5: 20%</li>
+      <li>Recall@10: 15%</li>
+      <li>MRR (Mean Reciprocal Rank): 20%</li>
+      <li>NDCG@10: 20%</li>
+      <li>Semantic Accuracy: 15%</li>
+      <li>Latency: 5%</li>
+      <li>Throughput: 5%</li>
+    </ul>
+    <h4>LLM Evaluation Dimensions</h4>
+    <ul>
+      <li>Title Generation: Semantic similarity to ideal titles + format compliance</li>
+      <li>Revision Quality: Information preservation, structure, no hallucination (pending)</li>
+      <li>Context Understanding: Summary accuracy of linked notes (pending)</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Matric-Memory Model Evaluation System | Generated by evals framework</p>
+  </footer>
+
+  <script>
+    // Chart specifications with dark theme
+    const darkTheme = {
+      config: {
+        background: '#161b22',
+        title: { color: '#c9d1d9' },
+        axis: {
+          domainColor: '#30363d',
+          gridColor: '#21262d',
+          tickColor: '#30363d',
+          labelColor: '#8b949e',
+          titleColor: '#c9d1d9'
+        },
+        legend: {
+          labelColor: '#c9d1d9',
+          titleColor: '#c9d1d9'
+        },
+        view: { stroke: 'transparent' }
+      }
+    };
+
+    const comparisonSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Model Comparison: Overall Scores","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:7b","score":10.180763052427034,"category":"small"},{"model":"qwen2.5:14b","score":10.185589192625105,"category":"medium"},{"model":"mistral:latest","score":10.122517512631093,"category":"small"},{"model":"llama3.1:8b","score":10.181207395777369,"category":"small"},{"model":"hermes3:8b","score":10.1554266563104,"category":"small"},{"model":"gpt-oss:20b","score":10.182912860728655,"category":"medium"},{"model":"cogito:8b","score":10.177301302643448,"category":"small"},{"model":"command-r7b:latest","score":10.181653294680869,"category":"small"}]},"mark":"bar","encoding":{"x":{"field":"model","type":"nominal","axis":{"labelAngle":-45,"title":"Model"},"sort":"-y"},"y":{"field":"score","type":"quantitative","axis":{"title":"Overall Score (0-100)"},"scale":{"domain":[0,100]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"score","type":"quantitative","title":"Score","format":".1f"},{"field":"category","type":"nominal","title":"Category"}]}};
+    const retrievalSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Retrieval Metrics Comparison","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"nomic-embed-text:latest","metric":"P@5","value":83.33333333333333},{"model":"nomic-embed-text:latest","metric":"P@10","value":83.33333333333333},{"model":"nomic-embed-text:latest","metric":"R@5","value":100},{"model":"nomic-embed-text:latest","metric":"R@10","value":100},{"model":"nomic-embed-text:latest","metric":"MRR","value":97.5},{"model":"nomic-embed-text:latest","metric":"NDCG@10","value":97.36813066645824},{"model":"mxbai-embed-large:latest","metric":"P@5","value":83.33333333333333},{"model":"mxbai-embed-large:latest","metric":"P@10","value":83.33333333333333},{"model":"mxbai-embed-large:latest","metric":"R@5","value":100},{"model":"mxbai-embed-large:latest","metric":"R@10","value":100},{"model":"mxbai-embed-large:latest","metric":"MRR","value":100},{"model":"mxbai-embed-large:latest","metric":"NDCG@10","value":98.82029964432387},{"model":"snowflake-arctic-embed:335m","metric":"P@5","value":83.33333333333333},{"model":"snowflake-arctic-embed:335m","metric":"P@10","value":83.33333333333333},{"model":"snowflake-arctic-embed:335m","metric":"R@5","value":100},{"model":"snowflake-arctic-embed:335m","metric":"R@10","value":100},{"model":"snowflake-arctic-embed:335m","metric":"MRR","value":92.5},{"model":"snowflake-arctic-embed:335m","metric":"NDCG@10","value":94.61761481632975},{"model":"all-minilm:l6-v2","metric":"P@5","value":83.33333333333333},{"model":"all-minilm:l6-v2","metric":"P@10","value":83.33333333333333},{"model":"all-minilm:l6-v2","metric":"R@5","value":100},{"model":"all-minilm:l6-v2","metric":"R@10","value":100},{"model":"all-minilm:l6-v2","metric":"MRR","value":100},{"model":"all-minilm:l6-v2","metric":"NDCG@10","value":98.26435881979279}]},"mark":"bar","encoding":{"x":{"field":"metric","type":"nominal","axis":{"title":"Metric","labelAngle":0}},"y":{"field":"value","type":"quantitative","axis":{"title":"Score (%)"},"scale":{"domain":[0,100]}},"color":{"field":"model","type":"nominal","legend":{"title":"Embedding Model"}},"xOffset":{"field":"model","type":"nominal"},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"metric","type":"nominal","title":"Metric"},{"field":"value","type":"quantitative","title":"Score","format":".1f"}]}};
+    const latencySpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Latency vs Quality Tradeoff","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","latency":327.9,"quality":10.185589192625105,"parameters":14,"category":"medium"},{"model":"gpt-oss:20b","latency":4119.6,"quality":10.182912860728655,"parameters":20,"category":"medium"},{"model":"command-r7b:latest","latency":1264.15,"quality":10.181653294680869,"parameters":7,"category":"small"},{"model":"llama3.1:8b","latency":1503.05,"quality":10.181207395777369,"parameters":8,"category":"small"},{"model":"qwen2.5:7b","latency":228.6,"quality":10.180763052427034,"parameters":7,"category":"small"},{"model":"cogito:8b","latency":1510.1,"quality":10.177301302643448,"parameters":8,"category":"small"},{"model":"hermes3:8b","latency":1548.5,"quality":10.1554266563104,"parameters":8,"category":"small"},{"model":"mistral:latest","latency":195.45,"quality":10.122517512631093,"parameters":7,"category":"small"}]},"mark":{"type":"point","filled":true},"encoding":{"x":{"field":"latency","type":"quantitative","axis":{"title":"Average Latency (ms)"},"scale":{"zero":false}},"y":{"field":"quality","type":"quantitative","axis":{"title":"Overall Quality Score (0-100)"},"scale":{"domain":[0,100]}},"size":{"field":"parameters","type":"quantitative","legend":{"title":"Parameters (B)"},"scale":{"range":[100,1000]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"quality","type":"quantitative","title":"Quality","format":".1f"},{"field":"latency","type":"quantitative","title":"Latency (ms)","format":".0f"},{"field":"parameters","type":"quantitative","title":"Parameters (B)","format":".1f"}]}};
+    const radarSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Performance Radar: Top 5 Models","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:14b","dimension":"titleQuality","score":0.9279459631255231},{"model":"qwen2.5:14b","dimension":"contextQuality","score":0},{"model":"qwen2.5:14b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:14b","dimension":"efficiency","score":50},{"model":"gpt-oss:20b","dimension":"revisionQuality","score":0},{"model":"gpt-oss:20b","dimension":"titleQuality","score":0.9145643036432685},{"model":"gpt-oss:20b","dimension":"contextQuality","score":0},{"model":"gpt-oss:20b","dimension":"instructionFollowing","score":0},{"model":"gpt-oss:20b","dimension":"efficiency","score":50},{"model":"command-r7b:latest","dimension":"revisionQuality","score":0},{"model":"command-r7b:latest","dimension":"titleQuality","score":0.9082664734043404},{"model":"command-r7b:latest","dimension":"contextQuality","score":0},{"model":"command-r7b:latest","dimension":"instructionFollowing","score":0},{"model":"command-r7b:latest","dimension":"efficiency","score":50},{"model":"llama3.1:8b","dimension":"revisionQuality","score":0},{"model":"llama3.1:8b","dimension":"titleQuality","score":0.9060369788868436},{"model":"llama3.1:8b","dimension":"contextQuality","score":0},{"model":"llama3.1:8b","dimension":"instructionFollowing","score":0},{"model":"llama3.1:8b","dimension":"efficiency","score":50},{"model":"qwen2.5:7b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:7b","dimension":"titleQuality","score":0.9038152621351665},{"model":"qwen2.5:7b","dimension":"contextQuality","score":0},{"model":"qwen2.5:7b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:7b","dimension":"efficiency","score":50}]},"layer":[{"mark":{"type":"line","point":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null,"scale":{"domain":null}},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal","legend":{"title":"Model"}},"tooltip":[{"field":"model","type":"nominal"},{"field":"dimension","type":"nominal"},{"field":"score","type":"quantitative","format":".1f"}]}},{"mark":{"type":"point","size":50,"filled":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal"}}}]};
+
+    // Merge dark theme with specs
+    Object.assign(comparisonSpec, darkTheme);
+    Object.assign(retrievalSpec, darkTheme);
+    Object.assign(latencySpec, darkTheme);
+    Object.assign(radarSpec, darkTheme);
+
+    // Render charts
+    vegaEmbed('#chart-comparison', comparisonSpec, { actions: false });
+    vegaEmbed('#chart-retrieval', retrievalSpec, { actions: false });
+    vegaEmbed('#chart-latency', latencySpec, { actions: false });
+    vegaEmbed('#chart-radar', radarSpec, { actions: false });
+  </script>
+</body>
+</html>

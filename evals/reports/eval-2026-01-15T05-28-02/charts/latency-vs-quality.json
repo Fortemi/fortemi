@@ -1,0 +1,166 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Latency vs Quality Tradeoff",
+  "width": 600,
+  "height": 400,
+  "config": {
+    "axis": {
+      "labelFontSize": 11,
+      "titleFontSize": 13
+    },
+    "legend": {
+      "labelFontSize": 11,
+      "titleFontSize": 12
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "model": "qwen2.5:14b",
+        "latency": 327.9,
+        "quality": 10.185589192625105,
+        "parameters": 14,
+        "category": "medium"
+      },
+      {
+        "model": "gpt-oss:20b",
+        "latency": 4119.6,
+        "quality": 10.182912860728655,
+        "parameters": 20,
+        "category": "medium"
+      },
+      {
+        "model": "command-r7b:latest",
+        "latency": 1264.15,
+        "quality": 10.181653294680869,
+        "parameters": 7,
+        "category": "small"
+      },
+      {
+        "model": "llama3.1:8b",
+        "latency": 1503.05,
+        "quality": 10.181207395777369,
+        "parameters": 8,
+        "category": "small"
+      },
+      {
+        "model": "qwen2.5:7b",
+        "latency": 228.6,
+        "quality": 10.180763052427034,
+        "parameters": 7,
+        "category": "small"
+      },
+      {
+        "model": "cogito:8b",
+        "latency": 1510.1,
+        "quality": 10.177301302643448,
+        "parameters": 8,
+        "category": "small"
+      },
+      {
+        "model": "hermes3:8b",
+        "latency": 1548.5,
+        "quality": 10.1554266563104,
+        "parameters": 8,
+        "category": "small"
+      },
+      {
+        "model": "mistral:latest",
+        "latency": 195.45,
+        "quality": 10.122517512631093,
+        "parameters": 7,
+        "category": "small"
+      }
+    ]
+  },
+  "mark": {
+    "type": "point",
+    "filled": true
+  },
+  "encoding": {
+    "x": {
+      "field": "latency",
+      "type": "quantitative",
+      "axis": {
+        "title": "Average Latency (ms)"
+      },
+      "scale": {
+        "zero": false
+      }
+    },
+    "y": {
+      "field": "quality",
+      "type": "quantitative",
+      "axis": {
+        "title": "Overall Quality Score (0-100)"
+      },
+      "scale": {
+        "domain": [
+          0,
+          100
+        ]
+      }
+    },
+    "size": {
+      "field": "parameters",
+      "type": "quantitative",
+      "legend": {
+        "title": "Parameters (B)"
+      },
+      "scale": {
+        "range": [
+          100,
+          1000
+        ]
+      }
+    },
+    "color": {
+      "field": "category",
+      "type": "nominal",
+      "legend": {
+        "title": "Model Size"
+      },
+      "scale": {
+        "domain": [
+          "micro",
+          "tiny",
+          "small",
+          "medium",
+          "large"
+        ],
+        "range": [
+          "#f59e0b",
+          "#10b981",
+          "#3b82f6",
+          "#8b5cf6",
+          "#ef4444"
+        ]
+      }
+    },
+    "tooltip": [
+      {
+        "field": "model",
+        "type": "nominal",
+        "title": "Model"
+      },
+      {
+        "field": "quality",
+        "type": "quantitative",
+        "title": "Quality",
+        "format": ".1f"
+      },
+      {
+        "field": "latency",
+        "type": "quantitative",
+        "title": "Latency (ms)",
+        "format": ".0f"
+      },
+      {
+        "field": "parameters",
+        "type": "quantitative",
+        "title": "Parameters (B)",
+        "format": ".1f"
+      }
+    ]
+  }
+}

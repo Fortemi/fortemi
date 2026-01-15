@@ -9,6 +9,7 @@ import { evaluateEmbeddingModel, loadEmbeddingDatasets } from './evaluators/embe
 import { evaluateTitle } from './evaluators/title.js';
 import { OllamaEmbeddingModel, OllamaGenerationModel, listOllamaModels } from './models/ollama.js';
 import { generateMarkdownReport } from './reporters/markdown.js';
+import { generateHTMLReport } from './reporters/html.js';
 import { generateAllCharts } from './reporters/charts.js';
 import type { EvaluationReport, EmbeddingEvalResult, LLMEvalResult } from './models/types.js';
 
@@ -161,6 +162,11 @@ async function main() {
   // Generate and save markdown report
   const markdownReport = generateMarkdownReport(report);
   fs.writeFileSync(path.join(outputDir, 'report.md'), markdownReport);
+
+  // Generate and save HTML report with embedded charts
+  const htmlReport = generateHTMLReport(report);
+  fs.writeFileSync(path.join(outputDir, 'report.html'), htmlReport);
+  console.log('HTML report generated with embedded charts');
 
   // Generate charts
   try {

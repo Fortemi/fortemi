@@ -1,0 +1,265 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Score Distribution by Model",
+  "width": 600,
+  "height": 400,
+  "config": {
+    "axis": {
+      "labelFontSize": 11,
+      "titleFontSize": 13
+    },
+    "legend": {
+      "labelFontSize": 11,
+      "titleFontSize": 12
+    }
+  },
+  "data": {
+    "values": [
+      {
+        "model": "qwen2.5:14b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:14b",
+        "dimension": "titleQuality",
+        "score": 0.9279459631255231
+      },
+      {
+        "model": "qwen2.5:14b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:14b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:14b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "gpt-oss:20b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "gpt-oss:20b",
+        "dimension": "titleQuality",
+        "score": 0.9145643036432685
+      },
+      {
+        "model": "gpt-oss:20b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "gpt-oss:20b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "gpt-oss:20b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "command-r7b:latest",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "command-r7b:latest",
+        "dimension": "titleQuality",
+        "score": 0.9082664734043404
+      },
+      {
+        "model": "command-r7b:latest",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "command-r7b:latest",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "command-r7b:latest",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "llama3.1:8b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "llama3.1:8b",
+        "dimension": "titleQuality",
+        "score": 0.9060369788868436
+      },
+      {
+        "model": "llama3.1:8b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "llama3.1:8b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "llama3.1:8b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "titleQuality",
+        "score": 0.9038152621351665
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "cogito:8b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "cogito:8b",
+        "dimension": "titleQuality",
+        "score": 0.8865065132172387
+      },
+      {
+        "model": "cogito:8b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "cogito:8b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "cogito:8b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "hermes3:8b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "hermes3:8b",
+        "dimension": "titleQuality",
+        "score": 0.7771332815519962
+      },
+      {
+        "model": "hermes3:8b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "hermes3:8b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "hermes3:8b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
+        "model": "mistral:latest",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "mistral:latest",
+        "dimension": "titleQuality",
+        "score": 0.6125875631554654
+      },
+      {
+        "model": "mistral:latest",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "mistral:latest",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "mistral:latest",
+        "dimension": "efficiency",
+        "score": 50
+      }
+    ]
+  },
+  "mark": {
+    "type": "boxplot",
+    "extent": "min-max"
+  },
+  "encoding": {
+    "x": {
+      "field": "model",
+      "type": "nominal",
+      "axis": {
+        "title": "Model",
+        "labelAngle": -45
+      }
+    },
+    "y": {
+      "field": "score",
+      "type": "quantitative",
+      "axis": {
+        "title": "Dimension Scores (0-100)"
+      },
+      "scale": {
+        "domain": [
+          0,
+          100
+        ]
+      }
+    },
+    "color": {
+      "field": "model",
+      "type": "nominal",
+      "legend": null
+    },
+    "tooltip": [
+      {
+        "field": "model",
+        "type": "nominal",
+        "title": "Model"
+      },
+      {
+        "field": "score",
+        "type": "quantitative",
+        "title": "Score",
+        "format": ".1f"
+      }
+    ]
+  }
+}
