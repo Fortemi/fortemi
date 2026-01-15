@@ -1,14 +1,14 @@
 {
   "meta": {
-    "timestamp": "2026-01-15T05:28:02.068Z",
-    "durationMs": 309560,
+    "timestamp": "2026-01-15T06:20:15.541Z",
+    "durationMs": 309582,
     "modelsTested": 12,
     "scenariosRun": 0
   },
   "embeddingResults": {
     "nomic-embed-text:latest": {
       "modelName": "nomic-embed-text:latest",
-      "overallScore": 83.39,
+      "overallScore": 83.44,
       "metrics": {
         "retrieval": {
           "precisionAt5": 0.8333333333333333,
@@ -22,16 +22,16 @@
           "accuracy": 0.5166666666666667
         },
         "latency": {
-          "p50": 784.5,
-          "p95": 1122.1,
-          "p99": 1156.04,
-          "mean": 628.49,
-          "min": 45,
-          "max": 1166
+          "p50": 718,
+          "p95": 991.05,
+          "p99": 1007,
+          "mean": 553.1,
+          "min": 48,
+          "max": 1007
         },
-        "throughput": 124.14649286157666
+        "throughput": 145.87892049598833
       },
-      "timestamp": "2026-01-15T05:22:54.140Z"
+      "timestamp": "2026-01-15T06:15:07.379Z"
     },
     "mxbai-embed-large:latest": {
       "modelName": "mxbai-embed-large:latest",
@@ -49,16 +49,16 @@
           "accuracy": 0.9
         },
         "latency": {
-          "p50": 778,
-          "p95": 1299.25,
-          "p99": 1339.02,
-          "mean": 681.37,
-          "min": 43,
-          "max": 1346
+          "p50": 783,
+          "p95": 1385.2,
+          "p99": 1430.02,
+          "mean": 714.105,
+          "min": 47,
+          "max": 1440
         },
-        "throughput": 109.70927043335162
+        "throughput": 99.95002498750624
       },
-      "timestamp": "2026-01-15T05:22:55.964Z"
+      "timestamp": "2026-01-15T06:15:09.382Z"
     },
     "snowflake-arctic-embed:335m": {
       "modelName": "snowflake-arctic-embed:335m",
@@ -76,16 +76,16 @@
           "accuracy": 0.5
         },
         "latency": {
-          "p50": 705.5,
-          "p95": 1329.2,
-          "p99": 1358,
-          "mean": 673.02,
-          "min": 40,
-          "max": 1361
+          "p50": 769.5,
+          "p95": 1367.5499999999997,
+          "p99": 1420.1299999999999,
+          "mean": 706.605,
+          "min": 42,
+          "max": 1433
         },
-        "throughput": 105.70824524312897
+        "throughput": 100
       },
-      "timestamp": "2026-01-15T05:22:57.856Z"
+      "timestamp": "2026-01-15T06:15:11.382Z"
     },
     "all-minilm:l6-v2": {
       "modelName": "all-minilm:l6-v2",
@@ -103,202 +103,202 @@
           "accuracy": 0.85
         },
         "latency": {
-          "p50": 1043,
-          "p95": 1307.0500000000002,
-          "p99": 1327,
-          "mean": 738.005,
-          "min": 42,
-          "max": 1332
+          "p50": 1020.5,
+          "p95": 1311.1,
+          "p99": 1324.02,
+          "mean": 734.185,
+          "min": 45,
+          "max": 1328
         },
-        "throughput": 123.30456226880395
+        "throughput": 123.76237623762376
       },
-      "timestamp": "2026-01-15T05:22:59.478Z"
+      "timestamp": "2026-01-15T06:15:12.998Z"
     }
   },
   "llmResults": {
     "qwen2.5:7b": {
       "modelName": "qwen2.5:7b",
-      "overallScore": 10.180763052427034,
+      "overallScore": 10.179245053058894,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.9038152621351665,
+        "titleQuality": 0.896225265294472,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 141,
-          "p95": 259.9000000000013,
-          "p99": 1641.5799999999977,
-          "mean": 228.6,
-          "min": 103,
-          "max": 1987
+          "p50": 147.5,
+          "p95": 271.6000000000013,
+          "p99": 1648.7199999999978,
+          "mean": 239.9,
+          "min": 126,
+          "max": 1993
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:23:04.993Z"
+      "timestamp": "2026-01-15T06:15:18.813Z"
     },
     "qwen2.5:14b": {
       "modelName": "qwen2.5:14b",
-      "overallScore": 10.185589192625105,
+      "overallScore": 10.184630808120724,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.9279459631255231,
+        "titleQuality": 0.9231540406036225,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 184,
-          "p95": 383.650000000002,
-          "p99": 2506.3299999999963,
-          "mean": 327.9,
-          "min": 156,
-          "max": 3037
+          "p50": 166.5,
+          "p95": 408.20000000000203,
+          "p99": 2569.6399999999962,
+          "mean": 324.05,
+          "min": 145,
+          "max": 3110
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:23:12.624Z"
+      "timestamp": "2026-01-15T06:15:26.379Z"
     },
     "mistral:latest": {
       "modelName": "mistral:latest",
-      "overallScore": 10.122517512631093,
+      "overallScore": 10.128273250877939,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.6125875631554654,
+        "titleQuality": 0.6413662543896919,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 128.5,
-          "p95": 320.5000000000008,
-          "p99": 1148.8999999999987,
-          "mean": 195.45,
-          "min": 86,
-          "max": 1356
+          "p50": 123.5,
+          "p95": 482.950000000001,
+          "p99": 1576.5899999999983,
+          "mean": 245.2,
+          "min": 82,
+          "max": 1850
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:23:17.475Z"
+      "timestamp": "2026-01-15T06:15:32.343Z"
     },
     "llama3.1:8b": {
       "modelName": "llama3.1:8b",
-      "overallScore": 10.181207395777369,
+      "overallScore": 10.176475608173511,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.9060369788868436,
+        "titleQuality": 0.8823780408675583,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 1483,
-          "p95": 1546.9500000000003,
-          "p99": 1926.1899999999994,
-          "mean": 1503.05,
-          "min": 1437,
-          "max": 2021
+          "p50": 1477.5,
+          "p95": 1568.9500000000007,
+          "p99": 2358.589999999999,
+          "mean": 1530.65,
+          "min": 1439,
+          "max": 2556
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:24:05.949Z"
+      "timestamp": "2026-01-15T06:16:21.193Z"
     },
     "hermes3:8b": {
       "modelName": "hermes3:8b",
-      "overallScore": 10.1554266563104,
+      "overallScore": 10.166106087893752,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.7771332815519962,
+        "titleQuality": 0.8305304394687629,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 1484.5,
-          "p95": 1621.400000000001,
-          "p99": 2524.2799999999984,
-          "mean": 1548.5,
-          "min": 1441,
-          "max": 2750
+          "p50": 1460,
+          "p95": 1539.05,
+          "p99": 1691.8099999999997,
+          "mean": 1482.5,
+          "min": 1433,
+          "max": 1730
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:24:55.491Z"
+      "timestamp": "2026-01-15T06:17:09.014Z"
     },
     "gpt-oss:20b": {
       "modelName": "gpt-oss:20b",
-      "overallScore": 10.182912860728655,
+      "overallScore": 10.18035089760397,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.9145643036432685,
+        "titleQuality": 0.9017544880198516,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 3956,
-          "p95": 4891.299999999999,
-          "p99": 4895.86,
-          "mean": 4119.6,
-          "min": 3226,
-          "max": 4897
+          "p50": 3988,
+          "p95": 4541.5,
+          "p99": 4640.3,
+          "mean": 4064.65,
+          "min": 3583,
+          "max": 4665
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:26:36.428Z"
+      "timestamp": "2026-01-15T06:18:48.848Z"
     },
     "cogito:8b": {
       "modelName": "cogito:8b",
-      "overallScore": 10.177301302643448,
+      "overallScore": 10.167751320699045,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.8865065132172387,
+        "titleQuality": 0.8387566034952258,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 1457.5,
-          "p95": 1558.500000000001,
-          "p99": 2326.0999999999985,
-          "mean": 1510.1,
-          "min": 1412,
-          "max": 2518
+          "p50": 1466,
+          "p95": 1619.0000000000005,
+          "p99": 2166.199999999999,
+          "mean": 1510.55,
+          "min": 1421,
+          "max": 2303
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:27:25.461Z"
+      "timestamp": "2026-01-15T06:19:37.620Z"
     },
     "command-r7b:latest": {
       "modelName": "command-r7b:latest",
-      "overallScore": 10.181653294680869,
+      "overallScore": 10.176475856077165,
       "dimensions": {
         "revisionQuality": 0,
-        "titleQuality": 0.9082664734043404,
+        "titleQuality": 0.8823792803858217,
         "contextQuality": 0,
         "instructionFollowing": 0,
         "efficiency": 50
       },
       "metrics": {
         "latency": {
-          "p50": 1836,
-          "p95": 2063.900000000001,
-          "p99": 3126.3799999999983,
-          "mean": 1264.15,
+          "p50": 1809,
+          "p95": 1941.3500000000008,
+          "p99": 2767.469999999999,
+          "mean": 1304.1,
           "min": 144,
-          "max": 3392
+          "max": 2974
         },
         "tokensPerSecond": 0
       },
-      "timestamp": "2026-01-15T05:28:02.067Z"
+      "timestamp": "2026-01-15T06:20:15.541Z"
     }
   },
   "recommendations": {

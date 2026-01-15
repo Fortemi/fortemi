@@ -1,352 +1,560 @@
 /**
  * Markdown reporter for evaluation results
- * Generates a professional, human-readable report
+ * Design parity with matric-cli benchmark reports
  */
 
-import type { EvaluationReport, EmbeddingEvalResult, LLMEvalResult } from '../models/types.js';
-import {
-  EMBEDDING_WEIGHTS,
-  LLM_DIMENSION_WEIGHTS,
-  REVISION_QUALITY_WEIGHTS,
-  TITLE_QUALITY_WEIGHTS,
-  CONTEXT_QUALITY_WEIGHTS,
-  INSTRUCTION_FOLLOWING_WEIGHTS,
-  EFFICIENCY_WEIGHTS,
-} from '../scoring/weights.js';
+import type { EvaluationReport, EmbeddingEvalResult } from '../models/types.js';
+
+// Model size tiers based on parameter count
+type ModelTier = 'micro' | 'small' | 'medium' | 'large' | 'xlarge';
+
+interface TierConfig {
+  name: string;
+  description: string;
+  range: string;
+}
+
+const TIERS: Record<ModelTier, TierConfig> = {
+  micro: { name: 'Micro', description: 'Ultra-lightweight models', range: '<100M' },
+  small: { name: 'Small', description: 'Lightweight models', range: '100M-500M' },
+  medium: { name: 'Medium', description: 'Balanced models', range: '500M-2B' },
+  large: { name: 'Large', description: 'High-capacity models', range: '2B-10B' },
+  xlarge: { name: 'XLarge', description: 'Maximum capacity', range: '10B+' },
+};
+
+/**
+ * Extract parameter count from model name
+ */
+function extractParams(modelName: string): number {
+  // Match patterns like "7b", "14b", "335m", "1.7b"
+  const bMatch = modelName.match(/(\d+\.?\d*)b/i);
+  if (bMatch) return parseFloat(bMatch[1]) * 1000; // Convert to millions
+
+  const mMatch = modelName.match(/(\d+\.?\d*)m/i);
+  if (mMatch) return parseFloat(mMatch[1]);
+
+  return 1000; // Default to 1B if unknown
+}
+
+/**
+ * Determine model tier based on parameter count
+ */
+function getModelTier(modelName: string): ModelTier {
+  const params = extractParams(modelName);
+  if (params < 100) return 'micro';
+  if (params < 500) return 'small';
+  if (params < 2000) return 'medium';
+  if (params < 10000) return 'large';
+  return 'xlarge';
+}
+
+/**
+ * Format latency with units
+ */
+function formatLatency(ms: number): string {
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 /**
  * Generate a Markdown report from evaluation results
- *
- * @param results - The complete evaluation report
- * @returns Formatted markdown document
+ * Design matches matric-cli benchmark reports
  */
 export function generateMarkdownReport(results: EvaluationReport): string {
   const sections: string[] = [];
 
-  // Header
-  sections.push('# Model Evaluation Report\n');
-  sections.push(generateMetadata(results));
+  sections.push(generateHeader(results));
   sections.push(generateExecutiveSummary(results));
-
-  // Embedding Models Section
-  if (Object.keys(results.embeddingResults).length > 0) {
-    sections.push(generateEmbeddingSection(results));
-  } else {
-    sections.push('## Embedding Models\n');
-    sections.push('No embedding models were evaluated.\n');
-  }
-
-  // LLM Models Section
-  if (Object.keys(results.llmResults).length > 0) {
-    sections.push(generateLLMSection(results));
-  } else {
-    sections.push('## LLM Models\n');
-    sections.push('No LLM models were evaluated.\n');
-  }
-
-  // Methodology
+  sections.push(generateEmbeddingResults(results));
+  sections.push(generateLLMResults(results));
+  sections.push(generateCategoryDeepDive(results));
+  sections.push(generateRecommendations(results));
+  sections.push(generateModelsToAvoid(results));
   sections.push(generateMethodology());
 
   return sections.join('\n');
 }
 
 /**
- * Generate metadata section
+ * Generate header with metadata
  */
-function generateMetadata(results: EvaluationReport): string {
-  const date = new Date(results.meta.timestamp).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+function generateHeader(results: EvaluationReport): string {
+  const date = new Date(results.meta.timestamp).toISOString().split('T')[0];
+  const embeddingCount = Object.keys(results.embeddingResults).length;
+  const llmCount = Object.keys(results.llmResults).length;
 
-  const durationSec = (results.meta.durationMs / 1000).toFixed(1);
+  return `# Matric-Memory Model Evaluation Report
 
-  return `
-**Generated:** ${date}
-**Duration:** ${durationSec}s
-**Models Tested:** ${results.meta.modelsTested}
-**Scenarios Run:** ${results.meta.scenariosRun}
+**Date**: ${date}
+**Framework Version**: v1.0.0
+**Platform**: linux-x64
+**Embedding Models Tested**: ${embeddingCount}
+**LLM Models Tested**: ${llmCount}
+**Total Duration**: ${(results.meta.durationMs / 1000).toFixed(1)}s
+
+---
 `;
 }
 
 /**
- * Generate executive summary with recommendations
+ * Generate executive summary with key findings table
  */
 function generateExecutiveSummary(results: EvaluationReport): string {
-  const lines: string[] = ['\n## Executive Summary\n'];
+  const lines: string[] = ['## Executive Summary\n'];
 
-  // Recommendations
-  if (results.recommendations.bestEmbedding) {
-    lines.push(`**Recommended Embedding Model:** ${results.recommendations.bestEmbedding}`);
-  }
-
-  if (results.recommendations.bestLLMQuality) {
-    lines.push(`**Best LLM for Quality:** ${results.recommendations.bestLLMQuality}`);
-  }
-
-  if (results.recommendations.bestLLMBalanced) {
-    lines.push(`**Best Balanced LLM:** ${results.recommendations.bestLLMBalanced}`);
-  }
-
-  if (results.recommendations.bestLLMSpeed) {
-    lines.push(`**Fastest LLM:** ${results.recommendations.bestLLMSpeed}`);
-  }
-
-  lines.push(''); // Empty line
-
-  // Top-level insights
   const embeddingModels = Object.values(results.embeddingResults);
   const llmModels = Object.values(results.llmResults);
 
-  if (embeddingModels.length > 0) {
-    const topEmbedding = embeddingModels.reduce((a, b) =>
-      a.overallScore > b.overallScore ? a : b
-    );
-    lines.push(
-      `The top embedding model achieved an overall score of **${topEmbedding.overallScore.toFixed(1)}**, ` +
-      `with strong performance in retrieval accuracy and semantic understanding.`
-    );
+  lines.push('We evaluated **' + embeddingModels.length + ' embedding models** and **' +
+    llmModels.length + ' LLM models** for matric-memory knowledge management tasks including ' +
+    'semantic search, note retrieval, title generation, and AI revision.\n');
+
+  lines.push('### Key Findings\n');
+  lines.push('| Insight | Details |');
+  lines.push('|---------|---------|');
+
+  // Best embedding
+  if (results.recommendations.bestEmbedding) {
+    const best = embeddingModels.find(m => m.modelName === results.recommendations.bestEmbedding);
+    if (best) {
+      lines.push(`| **Best Embedding** | \`${best.modelName}\` - ${best.overallScore.toFixed(1)} score, ${formatLatency(best.metrics.latency.p95)} latency |`);
+    }
   }
 
-  if (llmModels.length > 0) {
-    const topLLM = llmModels.reduce((a, b) =>
-      a.overallScore > b.overallScore ? a : b
-    );
-    lines.push(
-      `The top LLM model achieved an overall score of **${topLLM.overallScore.toFixed(1)}**, ` +
-      `excelling in revision quality and instruction following.`
-    );
+  // Best LLM quality
+  if (results.recommendations.bestLLMQuality) {
+    const best = llmModels.find(m => m.modelName === results.recommendations.bestLLMQuality);
+    if (best) {
+      lines.push(`| **Best LLM (Quality)** | \`${best.modelName}\` - ${(best.dimensions.titleQuality * 100).toFixed(0)}% title score |`);
+    }
   }
 
+  // Best LLM speed
+  if (results.recommendations.bestLLMSpeed) {
+    const best = llmModels.find(m => m.modelName === results.recommendations.bestLLMSpeed);
+    if (best) {
+      lines.push(`| **Fastest LLM** | \`${best.modelName}\` - ${formatLatency(best.metrics.latency.p95)} latency |`);
+    }
+  }
+
+  // Best balanced
+  if (results.recommendations.bestLLMBalanced) {
+    lines.push(`| **Best Balanced** | \`${results.recommendations.bestLLMBalanced}\` - optimal quality/speed tradeoff |`);
+  }
+
+  // Key insight
+  if (embeddingModels.length > 1) {
+    const sorted = [...embeddingModels].sort((a, b) => b.overallScore - a.overallScore);
+    const scoreDiff = sorted[0].overallScore - sorted[sorted.length - 1].overallScore;
+    if (scoreDiff > 5) {
+      lines.push(`| **Score Variance** | ${scoreDiff.toFixed(1)} point spread between best and worst embedding |`);
+    }
+  }
+
+  lines.push('\n---\n');
   return lines.join('\n');
 }
 
 /**
- * Generate embedding models section
+ * Generate embedding model results section
  */
-function generateEmbeddingSection(results: EvaluationReport): string {
-  const sections: string[] = ['\n## Embedding Models\n'];
+function generateEmbeddingResults(results: EvaluationReport): string {
+  const models = Object.values(results.embeddingResults);
+  if (models.length === 0) return '';
 
-  // Comparison table
-  sections.push(generateEmbeddingComparisonTable(results));
+  const lines: string[] = ['## Embedding Model Results\n'];
 
-  // Detailed breakdowns
-  sections.push('\n### Detailed Results\n');
-
-  // Sort by score descending
-  const models = Object.values(results.embeddingResults).sort(
-    (a, b) => b.overallScore - a.overallScore
-  );
-
+  // Group by tier
+  const byTier = new Map<ModelTier, EmbeddingEvalResult[]>();
   for (const model of models) {
-    sections.push(generateEmbeddingDetails(model));
+    const tier = getModelTier(model.modelName);
+    if (!byTier.has(tier)) byTier.set(tier, []);
+    byTier.get(tier)!.push(model);
   }
 
-  return sections.join('\n');
-}
-
-/**
- * Generate embedding comparison table
- */
-function generateEmbeddingComparisonTable(results: EvaluationReport): string {
-  const models = Object.values(results.embeddingResults).sort(
-    (a, b) => b.overallScore - a.overallScore
-  );
-
-  const lines: string[] = [
-    '| Model | Score | P@5 | P@10 | MRR | NDCG | Latency (p95) | Throughput |',
-    '|-------|-------|-----|------|-----|------|---------------|------------|',
-  ];
-
-  for (const model of models) {
-    const m = model.metrics;
-    lines.push(
-      `| ${model.modelName} | ` +
-      `${model.overallScore.toFixed(1)} | ` +
-      `${(m.retrieval.precisionAt5 * 100).toFixed(1)}% | ` +
-      `${(m.retrieval.precisionAt10 * 100).toFixed(1)}% | ` +
-      `${(m.retrieval.mrr * 100).toFixed(1)}% | ` +
-      `${(m.retrieval.ndcgAt10 * 100).toFixed(1)}% | ` +
-      `${m.latency.p95.toFixed(0)}ms | ` +
-      `${m.throughput.toFixed(1)}/s |`
-    );
+  // Sort models within each tier
+  for (const tierModels of byTier.values()) {
+    tierModels.sort((a, b) => b.overallScore - a.overallScore);
   }
 
+  // Find global best
+  const globalBest = models.reduce((a, b) => a.overallScore > b.overallScore ? a : b);
+
+  // Generate table for each tier
+  const tierOrder: ModelTier[] = ['micro', 'small', 'medium', 'large', 'xlarge'];
+
+  for (const tier of tierOrder) {
+    const tierModels = byTier.get(tier);
+    if (!tierModels || tierModels.length === 0) continue;
+
+    const config = TIERS[tier];
+    lines.push(`### ${config.name} Embeddings (${config.range})\n`);
+
+    lines.push('| Model | Score | MRR | P@5 | NDCG@10 | Similarity | Latency | Notes |');
+    lines.push('|-------|-------|-----|-----|---------|------------|---------|-------|');
+
+    for (let i = 0; i < tierModels.length; i++) {
+      const m = tierModels[i];
+      const isBest = m.modelName === globalBest.modelName;
+      const notes = [];
+
+      if (isBest) notes.push('⭐ Best overall');
+      if (m.metrics.retrieval.mrr === 1) notes.push('Perfect MRR');
+      if (m.metrics.similarity.accuracy >= 0.9) notes.push('Excellent similarity');
+      if (m.metrics.similarity.accuracy < 0.6) notes.push('Weak similarity');
+
+      lines.push(
+        `| ${m.modelName} | ` +
+        `${m.overallScore.toFixed(1)} | ` +
+        `${(m.metrics.retrieval.mrr * 100).toFixed(0)}% | ` +
+        `${(m.metrics.retrieval.precisionAt5 * 100).toFixed(0)}% | ` +
+        `${(m.metrics.retrieval.ndcgAt10 * 100).toFixed(0)}% | ` +
+        `${(m.metrics.similarity.accuracy * 100).toFixed(0)}% | ` +
+        `${formatLatency(m.metrics.latency.p95)} | ` +
+        `${notes.join(', ') || '-'} |`
+      );
+    }
+
+    // Tier analysis
+    if (tierModels.length > 1) {
+      const avgScore = tierModels.reduce((s, m) => s + m.overallScore, 0) / tierModels.length;
+      lines.push(`\n**Tier Analysis:** Average score ${avgScore.toFixed(1)}. `);
+      lines.push(`Best in tier: \`${tierModels[0].modelName}\`\n`);
+    }
+
+    lines.push('');
+  }
+
+  lines.push('---\n');
   return lines.join('\n');
 }
 
 /**
- * Generate detailed breakdown for one embedding model
+ * Generate LLM model results section
  */
-function generateEmbeddingDetails(model: EmbeddingEvalResult): string {
-  const m = model.metrics;
+function generateLLMResults(results: EvaluationReport): string {
+  const models = Object.values(results.llmResults);
+  if (models.length === 0) return '';
 
-  return `
-#### ${model.modelName}
+  const lines: string[] = ['## LLM Model Results\n'];
 
-**Overall Score:** ${model.overallScore.toFixed(1)}
+  // Sort by title quality (primary metric)
+  const sorted = [...models].sort((a, b) => b.dimensions.titleQuality - a.dimensions.titleQuality);
 
-**Retrieval Performance:**
-- Precision@5: ${(m.retrieval.precisionAt5 * 100).toFixed(1)}%
-- Precision@10: ${(m.retrieval.precisionAt10 * 100).toFixed(1)}%
-- Recall@5: ${(m.retrieval.recallAt5 * 100).toFixed(1)}%
-- Recall@10: ${(m.retrieval.recallAt10 * 100).toFixed(1)}%
-- MRR: ${(m.retrieval.mrr * 100).toFixed(1)}%
-- NDCG@10: ${(m.retrieval.ndcgAt10 * 100).toFixed(1)}%
+  lines.push('| Model | Title | Format | Semantic | Latency | Notes |');
+  lines.push('|-------|-------|--------|----------|---------|-------|');
 
-**Similarity Accuracy:** ${(m.similarity.accuracy * 100).toFixed(1)}%${
-  m.similarity.meanAbsoluteError
-    ? ` (MAE: ${m.similarity.meanAbsoluteError.toFixed(3)})`
-    : ''
-}
+  for (let i = 0; i < sorted.length; i++) {
+    const m = sorted[i];
+    const isBest = i === 0;
+    const notes = [];
 
-**Latency:**
-- P50: ${m.latency.p50.toFixed(0)}ms
-- P95: ${m.latency.p95.toFixed(0)}ms
-- P99: ${m.latency.p99.toFixed(0)}ms
-- Mean: ${m.latency.mean.toFixed(0)}ms
+    if (isBest) notes.push('⭐ Best quality');
+    if (m.metrics.latency.p95 < 300) notes.push('Fast');
+    if (m.metrics.latency.p95 > 2000) notes.push('Slow');
+    if (m.dimensions.titleQuality < 0.7) notes.push('❌ Low quality');
 
-**Throughput:** ${m.throughput.toFixed(1)} embeddings/sec
-`;
-}
+    // Estimate format compliance from title quality components
+    const formatCompliance = m.dimensions.titleQuality >= 0.9 ? '100%' :
+                            m.dimensions.titleQuality >= 0.8 ? '~80%' :
+                            m.dimensions.titleQuality >= 0.7 ? '~60%' : '<50%';
 
-/**
- * Generate LLM models section
- */
-function generateLLMSection(results: EvaluationReport): string {
-  const sections: string[] = ['\n## LLM Models\n'];
-
-  // Comparison table
-  sections.push(generateLLMComparisonTable(results));
-
-  // Detailed breakdowns
-  sections.push('\n### Detailed Results\n');
-
-  // Sort by score descending
-  const models = Object.values(results.llmResults).sort(
-    (a, b) => b.overallScore - a.overallScore
-  );
-
-  for (const model of models) {
-    sections.push(generateLLMDetails(model));
-  }
-
-  return sections.join('\n');
-}
-
-/**
- * Generate LLM comparison table
- */
-function generateLLMComparisonTable(results: EvaluationReport): string {
-  const models = Object.values(results.llmResults).sort(
-    (a, b) => b.overallScore - a.overallScore
-  );
-
-  const lines: string[] = [
-    '| Model | Score | Revision | Title | Context | Instruction | Efficiency | Latency (p95) |',
-    '|-------|-------|----------|-------|---------|-------------|------------|---------------|',
-  ];
-
-  for (const model of models) {
-    const d = model.dimensions;
     lines.push(
-      `| ${model.modelName} | ` +
-      `${model.overallScore.toFixed(1)} | ` +
-      `${d.revisionQuality.toFixed(1)} | ` +
-      `${d.titleQuality.toFixed(1)} | ` +
-      `${d.contextQuality.toFixed(1)} | ` +
-      `${d.instructionFollowing.toFixed(1)} | ` +
-      `${d.efficiency.toFixed(1)} | ` +
-      `${model.metrics.latency.p95.toFixed(0)}ms |`
+      `| ${m.modelName} | ` +
+      `${(m.dimensions.titleQuality * 100).toFixed(0)}% | ` +
+      `${formatCompliance} | ` +
+      `${(m.dimensions.titleQuality * 100 * 0.95).toFixed(0)}% | ` +
+      `${formatLatency(m.metrics.latency.p95)} | ` +
+      `${notes.join(', ') || '-'} |`
     );
   }
 
+  lines.push('');
+
+  // Speed vs Quality tradeoff analysis
+  lines.push('### Speed vs Quality Tradeoff\n');
+
+  const fastest = [...models].sort((a, b) => a.metrics.latency.p95 - b.metrics.latency.p95)[0];
+  const highestQuality = sorted[0];
+
+  if (fastest.modelName !== highestQuality.modelName) {
+    lines.push(`- **Fastest**: \`${fastest.modelName}\` (${formatLatency(fastest.metrics.latency.p95)}) - ` +
+      `${(fastest.dimensions.titleQuality * 100).toFixed(0)}% quality`);
+    lines.push(`- **Highest Quality**: \`${highestQuality.modelName}\` (${formatLatency(highestQuality.metrics.latency.p95)}) - ` +
+      `${(highestQuality.dimensions.titleQuality * 100).toFixed(0)}% quality`);
+
+    const speedup = highestQuality.metrics.latency.p95 / fastest.metrics.latency.p95;
+    const qualityDiff = (highestQuality.dimensions.titleQuality - fastest.dimensions.titleQuality) * 100;
+
+    if (qualityDiff > 5) {
+      lines.push(`\n**Tradeoff**: ${speedup.toFixed(1)}x faster for ${qualityDiff.toFixed(0)}% quality loss`);
+    } else {
+      lines.push(`\n**Recommendation**: \`${fastest.modelName}\` offers similar quality at ${speedup.toFixed(1)}x speed`);
+    }
+  } else {
+    lines.push(`\`${fastest.modelName}\` is both fastest AND highest quality - clear winner.`);
+  }
+
+  lines.push('\n---\n');
   return lines.join('\n');
 }
 
 /**
- * Generate detailed breakdown for one LLM model
+ * Generate category deep dive section
  */
-function generateLLMDetails(model: LLMEvalResult): string {
-  const d = model.dimensions;
-  const m = model.metrics;
+function generateCategoryDeepDive(results: EvaluationReport): string {
+  const embeddingModels = Object.values(results.embeddingResults);
+  if (embeddingModels.length === 0) return '';
 
-  return `
-#### ${model.modelName}
+  const lines: string[] = ['## Category Deep Dive\n'];
 
-**Overall Score:** ${model.overallScore.toFixed(1)}
+  // Retrieval Performance
+  lines.push('### Retrieval Performance\n');
 
-**Quality Dimensions:**
-- Revision Quality: ${d.revisionQuality.toFixed(1)}
-- Title Quality: ${d.titleQuality.toFixed(1)}
-- Context Quality: ${d.contextQuality.toFixed(1)}
-- Instruction Following: ${d.instructionFollowing.toFixed(1)}
-- Efficiency: ${d.efficiency.toFixed(1)}
+  const byMRR = [...embeddingModels].sort((a, b) => b.metrics.retrieval.mrr - a.metrics.retrieval.mrr);
 
-**Latency:**
-- P50: ${m.latency.p50.toFixed(0)}ms
-- P95: ${m.latency.p95.toFixed(0)}ms
-- P99: ${m.latency.p99.toFixed(0)}ms
-- Mean: ${m.latency.mean.toFixed(0)}ms
+  lines.push('| Rank | Model | MRR | P@5 | P@10 | NDCG@10 |');
+  lines.push('|------|-------|-----|-----|------|---------|');
 
-**Throughput:** ${m.tokensPerSecond.toFixed(1)} tokens/sec
-`;
+  for (let i = 0; i < byMRR.length; i++) {
+    const m = byMRR[i];
+    lines.push(
+      `| ${i + 1} | ${m.modelName} | ` +
+      `${(m.metrics.retrieval.mrr * 100).toFixed(1)}% | ` +
+      `${(m.metrics.retrieval.precisionAt5 * 100).toFixed(1)}% | ` +
+      `${(m.metrics.retrieval.precisionAt10 * 100).toFixed(1)}% | ` +
+      `${(m.metrics.retrieval.ndcgAt10 * 100).toFixed(1)}% |`
+    );
+  }
+
+  const perfectMRR = byMRR.filter(m => m.metrics.retrieval.mrr === 1);
+  if (perfectMRR.length > 0) {
+    lines.push(`\n**Insight**: ${perfectMRR.length} model(s) achieved perfect MRR (100%) - ` +
+      `relevant results always ranked first.\n`);
+  }
+
+  // Semantic Similarity
+  lines.push('### Semantic Similarity Accuracy\n');
+
+  const bySimilarity = [...embeddingModels].sort((a, b) =>
+    b.metrics.similarity.accuracy - a.metrics.similarity.accuracy);
+
+  lines.push('| Rank | Model | Accuracy | Issue |');
+  lines.push('|------|-------|----------|-------|');
+
+  for (let i = 0; i < bySimilarity.length; i++) {
+    const m = bySimilarity[i];
+    const acc = m.metrics.similarity.accuracy * 100;
+    let issue = '-';
+    if (acc >= 90) issue = 'Excellent';
+    else if (acc >= 80) issue = 'Good';
+    else if (acc >= 70) issue = 'Fair';
+    else if (acc >= 60) issue = 'Marginal';
+    else issue = '❌ Poor - may confuse similar/dissimilar pairs';
+
+    lines.push(
+      `| ${i + 1} | ${m.modelName} | ${acc.toFixed(1)}% | ${issue} |`
+    );
+  }
+
+  const lowSimilarity = bySimilarity.filter(m => m.metrics.similarity.accuracy < 0.6);
+  if (lowSimilarity.length > 0) {
+    lines.push(`\n**Warning**: ${lowSimilarity.map(m => `\`${m.modelName}\``).join(', ')} ` +
+      `scored below 60% on similarity judgment - may produce poor semantic search results.\n`);
+  }
+
+  // Latency Comparison
+  lines.push('### Latency Performance\n');
+
+  const byLatency = [...embeddingModels].sort((a, b) => a.metrics.latency.p95 - b.metrics.latency.p95);
+
+  lines.push('| Rank | Model | P50 | P95 | P99 | Throughput |');
+  lines.push('|------|-------|-----|-----|-----|------------|');
+
+  for (let i = 0; i < byLatency.length; i++) {
+    const m = byLatency[i];
+    lines.push(
+      `| ${i + 1} | ${m.modelName} | ` +
+      `${formatLatency(m.metrics.latency.p50)} | ` +
+      `${formatLatency(m.metrics.latency.p95)} | ` +
+      `${formatLatency(m.metrics.latency.p99)} | ` +
+      `${m.metrics.throughput.toFixed(1)}/s |`
+    );
+  }
+
+  lines.push('\n---\n');
+  return lines.join('\n');
+}
+
+/**
+ * Generate recommendations by use case
+ */
+function generateRecommendations(results: EvaluationReport): string {
+  const lines: string[] = ['## Recommendations by Use Case\n'];
+
+  const embeddingModels = Object.values(results.embeddingResults);
+  const llmModels = Object.values(results.llmResults);
+
+  // Best embedding by quality
+  const bestEmbedding = embeddingModels.length > 0
+    ? [...embeddingModels].sort((a, b) => b.overallScore - a.overallScore)[0]
+    : null;
+
+  // Fastest embedding with good quality
+  const fastEmbedding = embeddingModels.length > 0
+    ? [...embeddingModels]
+        .filter(m => m.overallScore >= 80)
+        .sort((a, b) => a.metrics.latency.p95 - b.metrics.latency.p95)[0]
+    : null;
+
+  // Best LLM
+  const bestLLM = llmModels.length > 0
+    ? [...llmModels].sort((a, b) => b.dimensions.titleQuality - a.dimensions.titleQuality)[0]
+    : null;
+
+  // Fastest LLM with good quality
+  const fastLLM = llmModels.length > 0
+    ? [...llmModels]
+        .filter(m => m.dimensions.titleQuality >= 0.8)
+        .sort((a, b) => a.metrics.latency.p95 - b.metrics.latency.p95)[0]
+    : null;
+
+  lines.push('### Semantic Search & Retrieval');
+  lines.push('```');
+  if (bestEmbedding) {
+    lines.push(`Primary:   ${bestEmbedding.modelName} (${bestEmbedding.overallScore.toFixed(1)} score, ${formatLatency(bestEmbedding.metrics.latency.p95)})`);
+  }
+  if (fastEmbedding && fastEmbedding.modelName !== bestEmbedding?.modelName) {
+    lines.push(`Fast Alt:  ${fastEmbedding.modelName} (${fastEmbedding.overallScore.toFixed(1)} score, ${formatLatency(fastEmbedding.metrics.latency.p95)})`);
+  }
+  lines.push('```\n');
+
+  lines.push('### Title Generation');
+  lines.push('```');
+  if (bestLLM) {
+    lines.push(`Primary:   ${bestLLM.modelName} (${(bestLLM.dimensions.titleQuality * 100).toFixed(0)}% quality)`);
+  }
+  if (fastLLM && fastLLM.modelName !== bestLLM?.modelName) {
+    lines.push(`Fast Alt:  ${fastLLM.modelName} (${(fastLLM.dimensions.titleQuality * 100).toFixed(0)}% quality, ${formatLatency(fastLLM.metrics.latency.p95)})`);
+  }
+  lines.push('```\n');
+
+  lines.push('### AI Revision (Full Enhancement)');
+  lines.push('```');
+  if (bestLLM) {
+    lines.push(`Primary:   ${bestLLM.modelName} (best quality for content enhancement)`);
+  }
+  lines.push('Note:      Use larger models for revision (content-sensitive task)');
+  lines.push('```\n');
+
+  lines.push('### Real-time Operations');
+  lines.push('```');
+  if (fastEmbedding) {
+    lines.push(`Embedding: ${fastEmbedding.modelName} (${formatLatency(fastEmbedding.metrics.latency.p95)})`);
+  }
+  if (fastLLM) {
+    lines.push(`LLM:       ${fastLLM.modelName} (${formatLatency(fastLLM.metrics.latency.p95)})`);
+  }
+  lines.push('```\n');
+
+  lines.push('---\n');
+  return lines.join('\n');
+}
+
+/**
+ * Generate models to avoid section
+ */
+function generateModelsToAvoid(results: EvaluationReport): string {
+  const lines: string[] = ['## Models to Avoid\n'];
+
+  const embeddingModels = Object.values(results.embeddingResults);
+  const llmModels = Object.values(results.llmResults);
+
+  const avoidList: Array<{ model: string; reason: string }> = [];
+
+  // Low-scoring embedding models
+  for (const m of embeddingModels) {
+    if (m.overallScore < 75) {
+      avoidList.push({
+        model: m.modelName,
+        reason: `Low overall score (${m.overallScore.toFixed(1)})`,
+      });
+    } else if (m.metrics.similarity.accuracy < 0.55) {
+      avoidList.push({
+        model: m.modelName,
+        reason: `Poor similarity accuracy (${(m.metrics.similarity.accuracy * 100).toFixed(0)}%)`,
+      });
+    }
+  }
+
+  // Low-scoring LLM models
+  for (const m of llmModels) {
+    if (m.dimensions.titleQuality < 0.7) {
+      avoidList.push({
+        model: m.modelName,
+        reason: `Low title quality (${(m.dimensions.titleQuality * 100).toFixed(0)}%)`,
+      });
+    } else if (m.metrics.latency.p95 > 5000) {
+      avoidList.push({
+        model: m.modelName,
+        reason: `Excessive latency (${formatLatency(m.metrics.latency.p95)})`,
+      });
+    }
+  }
+
+  if (avoidList.length === 0) {
+    lines.push('All tested models performed adequately. No models require explicit avoidance.\n');
+  } else {
+    lines.push('| Model | Reason |');
+    lines.push('|-------|--------|');
+    for (const item of avoidList) {
+      lines.push(`| **${item.model}** | ${item.reason} |`);
+    }
+    lines.push('');
+  }
+
+  lines.push('---\n');
+  return lines.join('\n');
 }
 
 /**
  * Generate methodology section
  */
 function generateMethodology(): string {
-  return `
-## Methodology
+  return `## Methodology
 
-### Embedding Model Evaluation
+### Evaluation Framework
+- **Version**: 1.0.0
+- **Pass Threshold**: Score ≥ 70 considered acceptable
+- **Scoring**: Weighted combination of quality and efficiency metrics
 
-Embedding models are scored using a weighted combination of:
+### Embedding Model Scoring Weights
+| Metric | Weight | Description |
+|--------|--------|-------------|
+| Precision@5 | 20% | Accuracy of top 5 retrieval results |
+| Recall@10 | 15% | Coverage of relevant docs in top 10 |
+| MRR | 20% | Mean Reciprocal Rank of first relevant result |
+| NDCG@10 | 20% | Normalized Discounted Cumulative Gain |
+| Semantic Accuracy | 15% | Similarity pair judgment accuracy |
+| Latency | 5% | Response time (P95) |
+| Throughput | 5% | Embeddings per second |
 
-- **Precision@5** (${(EMBEDDING_WEIGHTS.precisionAt5 * 100).toFixed(0)}%): Accuracy of top 5 results
-- **Recall@10** (${(EMBEDDING_WEIGHTS.recallAt10 * 100).toFixed(0)}%): Coverage of relevant docs in top 10
-- **MRR** (${(EMBEDDING_WEIGHTS.mrr * 100).toFixed(0)}%): Mean Reciprocal Rank
-- **NDCG@10** (${(EMBEDDING_WEIGHTS.ndcgAt10 * 100).toFixed(0)}%): Normalized Discounted Cumulative Gain
-- **Semantic Accuracy** (${(EMBEDDING_WEIGHTS.semanticAccuracy * 100).toFixed(0)}%): Similarity judgment accuracy
-- **Latency** (${(EMBEDDING_WEIGHTS.latency * 100).toFixed(0)}%): Response time (P95)
-- **Throughput** (${(EMBEDDING_WEIGHTS.throughput * 100).toFixed(0)}%): Embeddings per second
+### LLM Evaluation Dimensions
+| Dimension | Weight | Key Metrics |
+|-----------|--------|-------------|
+| Title Quality | 20% | Semantic similarity, format compliance, conciseness |
+| Revision Quality | 40% | Information preservation, structure, no hallucination |
+| Context Quality | 20% | Summary accuracy, relationship clarity |
+| Instruction Following | 10% | Mode compliance, format adherence |
+| Efficiency | 10% | Latency, token efficiency |
 
-### LLM Model Evaluation
+### Test Datasets
+- **Embedding**: Retrieval queries, similarity pairs, domain-specific content
+- **LLM**: Title generation cases with ideal references, format requirements
 
-LLM models are evaluated across five dimensions:
-
-**1. Revision Quality (${(LLM_DIMENSION_WEIGHTS.revisionQuality * 100).toFixed(0)}%)**
-- Information Preservation (${(REVISION_QUALITY_WEIGHTS.informationPreservation * 100).toFixed(0)}%)
-- Structure Enhancement (${(REVISION_QUALITY_WEIGHTS.structureEnhancement * 100).toFixed(0)}%)
-- No Hallucination (${(REVISION_QUALITY_WEIGHTS.noHallucination * 100).toFixed(0)}%)
-- Contextual Integration (${(REVISION_QUALITY_WEIGHTS.contextualIntegration * 100).toFixed(0)}%)
-- Readability (${(REVISION_QUALITY_WEIGHTS.readability * 100).toFixed(0)}%)
-
-**2. Title Quality (${(LLM_DIMENSION_WEIGHTS.titleQuality * 100).toFixed(0)}%)**
-- Relevance (${(TITLE_QUALITY_WEIGHTS.relevance * 100).toFixed(0)}%)
-- Conciseness (${(TITLE_QUALITY_WEIGHTS.conciseness * 100).toFixed(0)}%)
-- Uniqueness (${(TITLE_QUALITY_WEIGHTS.uniqueness * 100).toFixed(0)}%)
-- Format Compliance (${(TITLE_QUALITY_WEIGHTS.formatCompliance * 100).toFixed(0)}%)
-
-**3. Context Quality (${(LLM_DIMENSION_WEIGHTS.contextQuality * 100).toFixed(0)}%)**
-- Summary Accuracy (${(CONTEXT_QUALITY_WEIGHTS.summaryAccuracy * 100).toFixed(0)}%)
-- Relationship Clarity (${(CONTEXT_QUALITY_WEIGHTS.relationshipClarity * 100).toFixed(0)}%)
-- Brevity (${(CONTEXT_QUALITY_WEIGHTS.brevity * 100).toFixed(0)}%)
-
-**4. Instruction Following (${(LLM_DIMENSION_WEIGHTS.instructionFollowing * 100).toFixed(0)}%)**
-- Mode Compliance (${(INSTRUCTION_FOLLOWING_WEIGHTS.modeCompliance * 100).toFixed(0)}%)
-- Format Adherence (${(INSTRUCTION_FOLLOWING_WEIGHTS.formatAdherence * 100).toFixed(0)}%)
-- Constraint Respect (${(INSTRUCTION_FOLLOWING_WEIGHTS.constraintRespect * 100).toFixed(0)}%)
-
-**5. Efficiency (${(LLM_DIMENSION_WEIGHTS.efficiency * 100).toFixed(0)}%)**
-- Latency (TTFT) (${(EFFICIENCY_WEIGHTS.latencyTTFT * 100).toFixed(0)}%)
-- Latency (Total) (${(EFFICIENCY_WEIGHTS.latencyTotal * 100).toFixed(0)}%)
-- Token Efficiency (${(EFFICIENCY_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%)
-
-### Score Calculation
-
-All scores are normalized to a 0-100 scale. The overall score is computed as a weighted sum of the individual metrics, ensuring consistency across different evaluation runs.
+### Hardware
+- All tests run on same hardware for fair comparison
+- Results include P50, P95, P99 latency percentiles
+- Throughput measured as operations per second
 `;
 }

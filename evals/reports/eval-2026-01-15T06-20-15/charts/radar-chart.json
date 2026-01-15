@@ -23,7 +23,7 @@
       {
         "model": "qwen2.5:14b",
         "dimension": "titleQuality",
-        "score": 0.9279459631255231
+        "score": 0.9231540406036225
       },
       {
         "model": "qwen2.5:14b",
@@ -48,7 +48,7 @@
       {
         "model": "gpt-oss:20b",
         "dimension": "titleQuality",
-        "score": 0.9145643036432685
+        "score": 0.9017544880198516
       },
       {
         "model": "gpt-oss:20b",
@@ -66,6 +66,31 @@
         "score": 50
       },
       {
+        "model": "qwen2.5:7b",
+        "dimension": "revisionQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "titleQuality",
+        "score": 0.896225265294472
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "contextQuality",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "instructionFollowing",
+        "score": 0
+      },
+      {
+        "model": "qwen2.5:7b",
+        "dimension": "efficiency",
+        "score": 50
+      },
+      {
         "model": "command-r7b:latest",
         "dimension": "revisionQuality",
         "score": 0
@@ -73,7 +98,7 @@
       {
         "model": "command-r7b:latest",
         "dimension": "titleQuality",
-        "score": 0.9082664734043404
+        "score": 0.8823792803858217
       },
       {
         "model": "command-r7b:latest",
@@ -98,7 +123,7 @@
       {
         "model": "llama3.1:8b",
         "dimension": "titleQuality",
-        "score": 0.9060369788868436
+        "score": 0.8823780408675583
       },
       {
         "model": "llama3.1:8b",
@@ -112,31 +137,6 @@
       },
       {
         "model": "llama3.1:8b",
-        "dimension": "efficiency",
-        "score": 50
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "revisionQuality",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "titleQuality",
-        "score": 0.9038152621351665
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "contextQuality",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
-        "dimension": "instructionFollowing",
-        "score": 0
-      },
-      {
-        "model": "qwen2.5:7b",
         "dimension": "efficiency",
         "score": 50
       }

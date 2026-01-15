@@ -251,7 +251,7 @@
   <header>
     <h1>Matric-Memory Model Evaluation</h1>
     <p class="meta">
-      Generated: 1/15/2026, 12:28:02 AM |
+      Generated: 1/15/2026, 1:20:15 AM |
       Duration: 309.6s |
       Models Tested: 12
     </p>
@@ -339,8 +339,8 @@
           <td>100.0%</td>
           <td>98.8%</td>
           <td>90.0%</td>
-          <td>1299ms</td>
-          <td>109.7/s</td>
+          <td>1385ms</td>
+          <td>100.0/s</td>
         </tr>
       
         <tr>
@@ -350,8 +350,8 @@
           <td>100.0%</td>
           <td>98.3%</td>
           <td>85.0%</td>
-          <td>1307ms</td>
-          <td>123.3/s</td>
+          <td>1311ms</td>
+          <td>123.8/s</td>
         </tr>
       
         <tr>
@@ -361,8 +361,8 @@
           <td>97.5%</td>
           <td>97.4%</td>
           <td>51.7%</td>
-          <td>1122ms</td>
-          <td>124.1/s</td>
+          <td>991ms</td>
+          <td>145.9/s</td>
         </tr>
       
         <tr>
@@ -372,8 +372,8 @@
           <td>92.5%</td>
           <td>94.6%</td>
           <td>50.0%</td>
-          <td>1329ms</td>
-          <td>105.7/s</td>
+          <td>1368ms</td>
+          <td>100.0/s</td>
         </tr>
       
     </tbody>
@@ -396,82 +396,82 @@
       
         <tr>
           <td>qwen2.5:14b <span class="badge badge-best">BEST</span></td>
-          <td class="score-high">92.8%</td>
+          <td class="score-high">92.3%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>384ms</td>
+          <td>408ms</td>
         </tr>
       
         <tr>
           <td>gpt-oss:20b </td>
-          <td class="score-high">91.5%</td>
+          <td class="score-high">90.2%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>4891ms</td>
-        </tr>
-      
-        <tr>
-          <td>command-r7b:latest </td>
-          <td class="score-high">90.8%</td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>50.0</td>
-          <td>2064ms</td>
-        </tr>
-      
-        <tr>
-          <td>llama3.1:8b </td>
-          <td class="score-high">90.6%</td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>50.0</td>
-          <td>1547ms</td>
+          <td>4542ms</td>
         </tr>
       
         <tr>
           <td>qwen2.5:7b </td>
-          <td class="score-high">90.4%</td>
+          <td class="score-high">89.6%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>260ms</td>
+          <td>272ms</td>
+        </tr>
+      
+        <tr>
+          <td>command-r7b:latest </td>
+          <td class="score-high">88.2%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>1941ms</td>
+        </tr>
+      
+        <tr>
+          <td>llama3.1:8b </td>
+          <td class="score-high">88.2%</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>50.0</td>
+          <td>1569ms</td>
         </tr>
       
         <tr>
           <td>cogito:8b </td>
-          <td class="score-high">88.7%</td>
+          <td class="score-medium">83.9%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>1559ms</td>
+          <td>1619ms</td>
         </tr>
       
         <tr>
           <td>hermes3:8b </td>
-          <td class="score-medium">77.7%</td>
+          <td class="score-medium">83.1%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>1621ms</td>
+          <td>1539ms</td>
         </tr>
       
         <tr>
           <td>mistral:latest </td>
-          <td class="score-low">61.3%</td>
+          <td class="score-low">64.1%</td>
           <td>-</td>
           <td>-</td>
           <td>-</td>
           <td>50.0</td>
-          <td>321ms</td>
+          <td>483ms</td>
         </tr>
       
     </tbody>
@@ -522,10 +522,10 @@
       }
     };
 
-    const comparisonSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Model Comparison: Overall Scores","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:7b","score":10.180763052427034,"category":"small"},{"model":"qwen2.5:14b","score":10.185589192625105,"category":"medium"},{"model":"mistral:latest","score":10.122517512631093,"category":"small"},{"model":"llama3.1:8b","score":10.181207395777369,"category":"small"},{"model":"hermes3:8b","score":10.1554266563104,"category":"small"},{"model":"gpt-oss:20b","score":10.182912860728655,"category":"medium"},{"model":"cogito:8b","score":10.177301302643448,"category":"small"},{"model":"command-r7b:latest","score":10.181653294680869,"category":"small"}]},"mark":"bar","encoding":{"x":{"field":"model","type":"nominal","axis":{"labelAngle":-45,"title":"Model"},"sort":"-y"},"y":{"field":"score","type":"quantitative","axis":{"title":"Overall Score (0-100)"},"scale":{"domain":[0,100]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"score","type":"quantitative","title":"Score","format":".1f"},{"field":"category","type":"nominal","title":"Category"}]}};
+    const comparisonSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Model Comparison: Overall Scores","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:7b","score":10.179245053058894,"category":"small"},{"model":"qwen2.5:14b","score":10.184630808120724,"category":"medium"},{"model":"mistral:latest","score":10.128273250877939,"category":"small"},{"model":"llama3.1:8b","score":10.176475608173511,"category":"small"},{"model":"hermes3:8b","score":10.166106087893752,"category":"small"},{"model":"gpt-oss:20b","score":10.18035089760397,"category":"medium"},{"model":"cogito:8b","score":10.167751320699045,"category":"small"},{"model":"command-r7b:latest","score":10.176475856077165,"category":"small"}]},"mark":"bar","encoding":{"x":{"field":"model","type":"nominal","axis":{"labelAngle":-45,"title":"Model"},"sort":"-y"},"y":{"field":"score","type":"quantitative","axis":{"title":"Overall Score (0-100)"},"scale":{"domain":[0,100]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"score","type":"quantitative","title":"Score","format":".1f"},{"field":"category","type":"nominal","title":"Category"}]}};
     const retrievalSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Retrieval Metrics Comparison","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"nomic-embed-text:latest","metric":"P@5","value":83.33333333333333},{"model":"nomic-embed-text:latest","metric":"P@10","value":83.33333333333333},{"model":"nomic-embed-text:latest","metric":"R@5","value":100},{"model":"nomic-embed-text:latest","metric":"R@10","value":100},{"model":"nomic-embed-text:latest","metric":"MRR","value":97.5},{"model":"nomic-embed-text:latest","metric":"NDCG@10","value":97.36813066645824},{"model":"mxbai-embed-large:latest","metric":"P@5","value":83.33333333333333},{"model":"mxbai-embed-large:latest","metric":"P@10","value":83.33333333333333},{"model":"mxbai-embed-large:latest","metric":"R@5","value":100},{"model":"mxbai-embed-large:latest","metric":"R@10","value":100},{"model":"mxbai-embed-large:latest","metric":"MRR","value":100},{"model":"mxbai-embed-large:latest","metric":"NDCG@10","value":98.82029964432387},{"model":"snowflake-arctic-embed:335m","metric":"P@5","value":83.33333333333333},{"model":"snowflake-arctic-embed:335m","metric":"P@10","value":83.33333333333333},{"model":"snowflake-arctic-embed:335m","metric":"R@5","value":100},{"model":"snowflake-arctic-embed:335m","metric":"R@10","value":100},{"model":"snowflake-arctic-embed:335m","metric":"MRR","value":92.5},{"model":"snowflake-arctic-embed:335m","metric":"NDCG@10","value":94.61761481632975},{"model":"all-minilm:l6-v2","metric":"P@5","value":83.33333333333333},{"model":"all-minilm:l6-v2","metric":"P@10","value":83.33333333333333},{"model":"all-minilm:l6-v2","metric":"R@5","value":100},{"model":"all-minilm:l6-v2","metric":"R@10","value":100},{"model":"all-minilm:l6-v2","metric":"MRR","value":100},{"model":"all-minilm:l6-v2","metric":"NDCG@10","value":98.26435881979279}]},"mark":"bar","encoding":{"x":{"field":"metric","type":"nominal","axis":{"title":"Metric","labelAngle":0}},"y":{"field":"value","type":"quantitative","axis":{"title":"Score (%)"},"scale":{"domain":[0,100]}},"color":{"field":"model","type":"nominal","legend":{"title":"Embedding Model"}},"xOffset":{"field":"model","type":"nominal"},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"metric","type":"nominal","title":"Metric"},{"field":"value","type":"quantitative","title":"Score","format":".1f"}]}};
-    const latencySpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Latency vs Quality Tradeoff","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","latency":327.9,"quality":10.185589192625105,"parameters":14,"category":"medium"},{"model":"gpt-oss:20b","latency":4119.6,"quality":10.182912860728655,"parameters":20,"category":"medium"},{"model":"command-r7b:latest","latency":1264.15,"quality":10.181653294680869,"parameters":7,"category":"small"},{"model":"llama3.1:8b","latency":1503.05,"quality":10.181207395777369,"parameters":8,"category":"small"},{"model":"qwen2.5:7b","latency":228.6,"quality":10.180763052427034,"parameters":7,"category":"small"},{"model":"cogito:8b","latency":1510.1,"quality":10.177301302643448,"parameters":8,"category":"small"},{"model":"hermes3:8b","latency":1548.5,"quality":10.1554266563104,"parameters":8,"category":"small"},{"model":"mistral:latest","latency":195.45,"quality":10.122517512631093,"parameters":7,"category":"small"}]},"mark":{"type":"point","filled":true},"encoding":{"x":{"field":"latency","type":"quantitative","axis":{"title":"Average Latency (ms)"},"scale":{"zero":false}},"y":{"field":"quality","type":"quantitative","axis":{"title":"Overall Quality Score (0-100)"},"scale":{"domain":[0,100]}},"size":{"field":"parameters","type":"quantitative","legend":{"title":"Parameters (B)"},"scale":{"range":[100,1000]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"quality","type":"quantitative","title":"Quality","format":".1f"},{"field":"latency","type":"quantitative","title":"Latency (ms)","format":".0f"},{"field":"parameters","type":"quantitative","title":"Parameters (B)","format":".1f"}]}};
-    const radarSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Performance Radar: Top 5 Models","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:14b","dimension":"titleQuality","score":0.9279459631255231},{"model":"qwen2.5:14b","dimension":"contextQuality","score":0},{"model":"qwen2.5:14b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:14b","dimension":"efficiency","score":50},{"model":"gpt-oss:20b","dimension":"revisionQuality","score":0},{"model":"gpt-oss:20b","dimension":"titleQuality","score":0.9145643036432685},{"model":"gpt-oss:20b","dimension":"contextQuality","score":0},{"model":"gpt-oss:20b","dimension":"instructionFollowing","score":0},{"model":"gpt-oss:20b","dimension":"efficiency","score":50},{"model":"command-r7b:latest","dimension":"revisionQuality","score":0},{"model":"command-r7b:latest","dimension":"titleQuality","score":0.9082664734043404},{"model":"command-r7b:latest","dimension":"contextQuality","score":0},{"model":"command-r7b:latest","dimension":"instructionFollowing","score":0},{"model":"command-r7b:latest","dimension":"efficiency","score":50},{"model":"llama3.1:8b","dimension":"revisionQuality","score":0},{"model":"llama3.1:8b","dimension":"titleQuality","score":0.9060369788868436},{"model":"llama3.1:8b","dimension":"contextQuality","score":0},{"model":"llama3.1:8b","dimension":"instructionFollowing","score":0},{"model":"llama3.1:8b","dimension":"efficiency","score":50},{"model":"qwen2.5:7b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:7b","dimension":"titleQuality","score":0.9038152621351665},{"model":"qwen2.5:7b","dimension":"contextQuality","score":0},{"model":"qwen2.5:7b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:7b","dimension":"efficiency","score":50}]},"layer":[{"mark":{"type":"line","point":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null,"scale":{"domain":null}},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal","legend":{"title":"Model"}},"tooltip":[{"field":"model","type":"nominal"},{"field":"dimension","type":"nominal"},{"field":"score","type":"quantitative","format":".1f"}]}},{"mark":{"type":"point","size":50,"filled":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal"}}}]};
+    const latencySpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Latency vs Quality Tradeoff","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","latency":324.05,"quality":10.184630808120724,"parameters":14,"category":"medium"},{"model":"gpt-oss:20b","latency":4064.65,"quality":10.18035089760397,"parameters":20,"category":"medium"},{"model":"qwen2.5:7b","latency":239.9,"quality":10.179245053058894,"parameters":7,"category":"small"},{"model":"command-r7b:latest","latency":1304.1,"quality":10.176475856077165,"parameters":7,"category":"small"},{"model":"llama3.1:8b","latency":1530.65,"quality":10.176475608173511,"parameters":8,"category":"small"},{"model":"cogito:8b","latency":1510.55,"quality":10.167751320699045,"parameters":8,"category":"small"},{"model":"hermes3:8b","latency":1482.5,"quality":10.166106087893752,"parameters":8,"category":"small"},{"model":"mistral:latest","latency":245.2,"quality":10.128273250877939,"parameters":7,"category":"small"}]},"mark":{"type":"point","filled":true},"encoding":{"x":{"field":"latency","type":"quantitative","axis":{"title":"Average Latency (ms)"},"scale":{"zero":false}},"y":{"field":"quality","type":"quantitative","axis":{"title":"Overall Quality Score (0-100)"},"scale":{"domain":[0,100]}},"size":{"field":"parameters","type":"quantitative","legend":{"title":"Parameters (B)"},"scale":{"range":[100,1000]}},"color":{"field":"category","type":"nominal","legend":{"title":"Model Size"},"scale":{"domain":["micro","tiny","small","medium","large"],"range":["#f59e0b","#10b981","#3b82f6","#8b5cf6","#ef4444"]}},"tooltip":[{"field":"model","type":"nominal","title":"Model"},{"field":"quality","type":"quantitative","title":"Quality","format":".1f"},{"field":"latency","type":"quantitative","title":"Latency (ms)","format":".0f"},{"field":"parameters","type":"quantitative","title":"Parameters (B)","format":".1f"}]}};
+    const radarSpec = {"$schema":"https://vega.github.io/schema/vega-lite/v5.json","title":"Performance Radar: Top 5 Models","width":600,"height":400,"config":{"axis":{"labelFontSize":11,"titleFontSize":13},"legend":{"labelFontSize":11,"titleFontSize":12}},"data":{"values":[{"model":"qwen2.5:14b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:14b","dimension":"titleQuality","score":0.9231540406036225},{"model":"qwen2.5:14b","dimension":"contextQuality","score":0},{"model":"qwen2.5:14b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:14b","dimension":"efficiency","score":50},{"model":"gpt-oss:20b","dimension":"revisionQuality","score":0},{"model":"gpt-oss:20b","dimension":"titleQuality","score":0.9017544880198516},{"model":"gpt-oss:20b","dimension":"contextQuality","score":0},{"model":"gpt-oss:20b","dimension":"instructionFollowing","score":0},{"model":"gpt-oss:20b","dimension":"efficiency","score":50},{"model":"qwen2.5:7b","dimension":"revisionQuality","score":0},{"model":"qwen2.5:7b","dimension":"titleQuality","score":0.896225265294472},{"model":"qwen2.5:7b","dimension":"contextQuality","score":0},{"model":"qwen2.5:7b","dimension":"instructionFollowing","score":0},{"model":"qwen2.5:7b","dimension":"efficiency","score":50},{"model":"command-r7b:latest","dimension":"revisionQuality","score":0},{"model":"command-r7b:latest","dimension":"titleQuality","score":0.8823792803858217},{"model":"command-r7b:latest","dimension":"contextQuality","score":0},{"model":"command-r7b:latest","dimension":"instructionFollowing","score":0},{"model":"command-r7b:latest","dimension":"efficiency","score":50},{"model":"llama3.1:8b","dimension":"revisionQuality","score":0},{"model":"llama3.1:8b","dimension":"titleQuality","score":0.8823780408675583},{"model":"llama3.1:8b","dimension":"contextQuality","score":0},{"model":"llama3.1:8b","dimension":"instructionFollowing","score":0},{"model":"llama3.1:8b","dimension":"efficiency","score":50}]},"layer":[{"mark":{"type":"line","point":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null,"scale":{"domain":null}},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal","legend":{"title":"Model"}},"tooltip":[{"field":"model","type":"nominal"},{"field":"dimension","type":"nominal"},{"field":"score","type":"quantitative","format":".1f"}]}},{"mark":{"type":"point","size":50,"filled":true},"encoding":{"theta":{"field":"dimension","type":"nominal","stack":null},"radius":{"field":"score","type":"quantitative","scale":{"domain":[0,100],"zero":true}},"color":{"field":"model","type":"nominal"}}}]};
 
     // Merge dark theme with specs
     Object.assign(comparisonSpec, darkTheme);

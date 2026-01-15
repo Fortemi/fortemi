@@ -17,42 +17,42 @@
     "values": [
       {
         "model": "qwen2.5:7b",
-        "score": 10.180763052427034,
+        "score": 10.179245053058894,
         "category": "small"
       },
       {
         "model": "qwen2.5:14b",
-        "score": 10.185589192625105,
+        "score": 10.184630808120724,
         "category": "medium"
       },
       {
         "model": "mistral:latest",
-        "score": 10.122517512631093,
+        "score": 10.128273250877939,
         "category": "small"
       },
       {
         "model": "llama3.1:8b",
-        "score": 10.181207395777369,
+        "score": 10.176475608173511,
         "category": "small"
       },
       {
         "model": "hermes3:8b",
-        "score": 10.1554266563104,
+        "score": 10.166106087893752,
         "category": "small"
       },
       {
         "model": "gpt-oss:20b",
-        "score": 10.182912860728655,
+        "score": 10.18035089760397,
         "category": "medium"
       },
       {
         "model": "cogito:8b",
-        "score": 10.177301302643448,
+        "score": 10.167751320699045,
         "category": "small"
       },
       {
         "model": "command-r7b:latest",
-        "score": 10.181653294680869,
+        "score": 10.176475856077165,
         "category": "small"
       }
     ]

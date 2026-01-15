@@ -17,57 +17,57 @@
     "values": [
       {
         "model": "qwen2.5:14b",
-        "latency": 327.9,
-        "quality": 10.185589192625105,
+        "latency": 324.05,
+        "quality": 10.184630808120724,
         "parameters": 14,
         "category": "medium"
       },
       {
         "model": "gpt-oss:20b",
-        "latency": 4119.6,
-        "quality": 10.182912860728655,
+        "latency": 4064.65,
+        "quality": 10.18035089760397,
         "parameters": 20,
         "category": "medium"
       },
       {
+        "model": "qwen2.5:7b",
+        "latency": 239.9,
+        "quality": 10.179245053058894,
+        "parameters": 7,
+        "category": "small"
+      },
+      {
         "model": "command-r7b:latest",
-        "latency": 1264.15,
-        "quality": 10.181653294680869,
+        "latency": 1304.1,
+        "quality": 10.176475856077165,
         "parameters": 7,
         "category": "small"
       },
       {
         "model": "llama3.1:8b",
-        "latency": 1503.05,
-        "quality": 10.181207395777369,
+        "latency": 1530.65,
+        "quality": 10.176475608173511,
         "parameters": 8,
         "category": "small"
       },
       {
-        "model": "qwen2.5:7b",
-        "latency": 228.6,
-        "quality": 10.180763052427034,
-        "parameters": 7,
-        "category": "small"
-      },
-      {
         "model": "cogito:8b",
-        "latency": 1510.1,
-        "quality": 10.177301302643448,
+        "latency": 1510.55,
+        "quality": 10.167751320699045,
         "parameters": 8,
         "category": "small"
       },
       {
         "model": "hermes3:8b",
-        "latency": 1548.5,
-        "quality": 10.1554266563104,
+        "latency": 1482.5,
+        "quality": 10.166106087893752,
         "parameters": 8,
         "category": "small"
       },
       {
         "model": "mistral:latest",
-        "latency": 195.45,
-        "quality": 10.122517512631093,
+        "latency": 245.2,
+        "quality": 10.128273250877939,
         "parameters": 7,
         "category": "small"
       }
