@@ -1,0 +1,302 @@
+[
+  {
+    "id": 1,
+    "content": "When working with async Rust and Redis connection pools using deadpool, lifetime management becomes a significant challenge. The borrow checker requires understanding how long references remain valid across await points. After extensive debugging, I found that using Arc<T> for shared ownership instead of references solves most lifetime issues. The key insight is that async functions with references create complex lifetime relationships that are difficult to express. Arc provides 'static lifetime guarantees that satisfy the borrow checker.",
+    "ideal_titles": [
+      "Managing Lifetimes in Async Rust with Deadpool",
+      "Solving Rust Lifetime Issues in Redis Connection Pools",
+      "Arc vs References in Async Rust Applications"
+    ],
+    "bad_titles": [
+      "Rust Programming",
+      "Database Connections",
+      "My Debugging Session Today",
+      "Technical Note #47"
+    ]
+  },
+  {
+    "id": 2,
+    "content": "Spaced repetition research shows that optimal review intervals follow an exponential pattern: 1 day, 3 days, 7 days, 14 days, 30 days. This matches the human forgetting curve discovered by Ebbinghaus. Each successful recall strengthens the memory trace and extends the next review interval. The algorithm can be optimized by adjusting intervals based on recall difficulty ratings, with harder items reviewed more frequently.",
+    "ideal_titles": [
+      "Optimal Spaced Repetition Intervals for Memory Retention",
+      "Exponential Review Scheduling Based on Forgetting Curve",
+      "Implementing Adaptive Spaced Repetition Algorithms"
+    ],
+    "bad_titles": [
+      "Learning and Memory",
+      "Study Techniques",
+      "Research Notes",
+      "Interesting Discovery"
+    ]
+  },
+  {
+    "id": 3,
+    "content": "Our team evaluated GraphQL versus REST for the new API. We chose REST for its simplicity and better caching behavior. Key decisions: URL path versioning (/v1/resources), comprehensive rate limiting using token bucket algorithm, standardized error responses with RFC 7807 problem details format. Authentication will be handled via middleware with JWT tokens. This approach balances flexibility with maintainability for our use case.",
+    "ideal_titles": [
+      "API Design Decision: REST over GraphQL with JWT Auth",
+      "Building a Versioned REST API with Rate Limiting",
+      "REST API Architecture and Design Patterns"
+    ],
+    "bad_titles": [
+      "Meeting Notes",
+      "API Discussion",
+      "Team Decision",
+      "Project Update"
+    ]
+  },
+  {
+    "id": 4,
+    "content": "Docker containers weren't communicating despite being on the same host. The issue was using the default bridge network mode, which isolates containers. Solution: create a custom bridge network and attach both containers to it. The command 'docker network inspect' reveals all network configuration details and helped diagnose the problem. Containers on custom networks can resolve each other by service name automatically.",
+    "ideal_titles": [
+      "Fixing Docker Container Networking Issues",
+      "Custom Bridge Networks for Docker Container Communication",
+      "Debugging Docker Network Connectivity Problems"
+    ],
+    "bad_titles": [
+      "Docker Problems",
+      "Container Issue",
+      "Today's Technical Challenge",
+      "Networking Notes"
+    ]
+  },
+  {
+    "id": 5,
+    "content": "Test-driven development follows the red-green-refactor cycle: write a failing test that defines desired behavior, implement minimal code to make it pass, then refactor while keeping tests green. The initial investment in writing tests first pays dividends through confidence during refactoring and early bug detection. Today's comprehensive test suite caught two regressions that would have reached production otherwise.",
+    "ideal_titles": [
+      "Test-Driven Development: Red-Green-Refactor Workflow",
+      "Benefits of TDD for Code Quality and Confidence",
+      "Implementing TDD Practice in Software Development"
+    ],
+    "bad_titles": [
+      "Testing",
+      "Development Process",
+      "My TDD Experience",
+      "Software Engineering"
+    ]
+  },
+  {
+    "id": 6,
+    "content": "A query on the users table was taking 4 seconds. Running EXPLAIN revealed a full table scan because the email column lacked an index. Adding an index reduced query time to 50ms. This demonstrates the importance of using EXPLAIN to understand query execution plans before attempting optimization. Database performance issues often come down to missing indexes on commonly queried columns.",
+    "ideal_titles": [
+      "Database Query Optimization with Strategic Indexing",
+      "Using EXPLAIN to Diagnose Slow SQL Queries",
+      "Improving Query Performance from 4s to 50ms"
+    ],
+    "bad_titles": [
+      "Database Performance",
+      "SQL Problem",
+      "Optimization Note",
+      "Query Issue"
+    ]
+  },
+  {
+    "id": 7,
+    "content": "The Zettelkasten method organizes knowledge through atomic notes containing single ideas, each with a unique identifier. Notes are written in your own words, which forces deeper understanding. The key practice is creating links between related notes to form a network of knowledge. This requires discipline but creates a second brain where unexpected connections emerge over time. The system becomes more valuable as it grows.",
+    "ideal_titles": [
+      "Implementing the Zettelkasten Note-Taking Method",
+      "Building a Personal Knowledge Base with Atomic Notes",
+      "Zettelkasten: Networked Thinking for Knowledge Management"
+    ],
+    "bad_titles": [
+      "Note-Taking",
+      "Knowledge Organization",
+      "New Method",
+      "Productivity System"
+    ]
+  },
+  {
+    "id": 8,
+    "content": "Rust error handling distinguishes between recoverable errors (Result<T, E>) and programming bugs (panic!). The ? operator elegantly propagates errors up the call stack. For applications, anyhow provides flexible error handling with context. For libraries, thiserror enables defining structured error enums. Production code should avoid unwrap() and expect(), instead handling errors explicitly or propagating them with map_err to add context.",
+    "ideal_titles": [
+      "Rust Error Handling Patterns: Result, Panic, and Crates",
+      "Best Practices for Error Handling in Rust",
+      "Using anyhow and thiserror for Rust Error Management"
+    ],
+    "bad_titles": [
+      "Rust Programming",
+      "Error Handling",
+      "Code Quality",
+      "Programming Notes"
+    ]
+  },
+  {
+    "id": 9,
+    "content": "Microservices communicate through synchronous REST APIs for immediate responses or asynchronous message queues for eventual consistency. Kafka excels at event sourcing with ordered, replayable event streams. Resilience patterns are critical: implement circuit breakers to fail fast when downstream services are degraded, add retries with exponential backoff for transient failures, and set appropriate timeouts to prevent cascading delays.",
+    "ideal_titles": [
+      "Microservices Communication: REST vs Message Queues",
+      "Building Resilient Microservices with Circuit Breakers",
+      "Event-Driven Architecture with Kafka and Resilience Patterns"
+    ],
+    "bad_titles": [
+      "Microservices",
+      "System Architecture",
+      "Service Communication",
+      "Architecture Notes"
+    ]
+  },
+  {
+    "id": 10,
+    "content": "Effective code reviews balance thoroughness with efficiency. Check for: correct logic, handled edge cases, adequate test coverage, performance implications, security vulnerabilities, and maintainability. Keep pull requests under 400 lines for focused review. Automate style concerns with linters so reviewers can focus on architecture and logic. Provide constructive feedback and acknowledge good solutions. Reviews spread knowledge across the team.",
+    "ideal_titles": [
+      "Code Review Best Practices and Checklist",
+      "Effective Pull Request Reviews for Quality Code",
+      "Balancing Thoroughness and Speed in Code Reviews"
+    ],
+    "bad_titles": [
+      "Code Review",
+      "Review Process",
+      "Team Practices",
+      "Development Workflow"
+    ]
+  },
+  {
+    "id": 11,
+    "content": "Vector databases enable semantic search by storing text embeddings in high-dimensional space. Generate embeddings using sentence-transformer models, index them in a vector database like Qdrant, then query by computing similarity between search embedding and stored vectors. This finds semantically related content even without keyword matches. Experimenting with different embedding models (MiniLM, MPNet, E5) can significantly impact search quality for specific domains.",
+    "ideal_titles": [
+      "Semantic Search with Vector Databases and Embeddings",
+      "Building Search with Qdrant and Sentence Transformers",
+      "Vector Database Implementation for Knowledge Retrieval"
+    ],
+    "bad_titles": [
+      "Search System",
+      "Database Technology",
+      "Vector Database",
+      "Search Improvement"
+    ]
+  },
+  {
+    "id": 12,
+    "content": "Our CI/CD pipeline stages: commit triggers build, run tests, deploy to staging, run integration tests, deploy to production. Optimization strategies: cache dependencies between runs, parallelize independent jobs, fail fast on errors. The entire pipeline completes in under 10 minutes, providing rapid feedback. GitHub Actions handles the workflow with matrix builds for multiple environments.",
+    "ideal_titles": [
+      "Optimized CI/CD Pipeline Architecture and Workflow",
+      "Building Fast Feedback Loops with Continuous Integration",
+      "CI/CD Best Practices: Caching, Parallelization, and Fast Failures"
+    ],
+    "bad_titles": [
+      "CI/CD Setup",
+      "Deployment Process",
+      "Pipeline Configuration",
+      "DevOps Notes"
+    ]
+  },
+  {
+    "id": 13,
+    "content": "Rate limiting protects APIs from abuse using algorithms like token bucket, which allows bursts while limiting sustained request rates. Return HTTP 429 (Too Many Requests) with Retry-After header. Implement limiting on both server side (protection) and client side (good citizenship). Clients should respect rate limit headers and implement exponential backoff when rate limited to avoid thundering herd problems.",
+    "ideal_titles": [
+      "API Rate Limiting with Token Bucket Algorithm",
+      "Implementing Client and Server Rate Limiting Strategies",
+      "Rate Limiting Best Practices: 429 Responses and Backoff"
+    ],
+    "bad_titles": [
+      "API Protection",
+      "Rate Limiting",
+      "API Design",
+      "Performance Notes"
+    ]
+  },
+  {
+    "id": 14,
+    "content": "Observability encompasses three pillars: metrics (Prometheus/Grafana), logs (ELK stack), and distributed traces (Jaeger). Instrument applications with OpenTelemetry for standardized telemetry collection. Key metrics: request rate, error rate, latency percentiles (p50, p95, p99). Alert on SLO violations rather than arbitrary thresholds. Distributed tracing reveals bottlenecks in complex service call chains by showing request paths and timing breakdowns.",
+    "ideal_titles": [
+      "Implementing Observability: Metrics, Logs, and Traces",
+      "Building Observable Systems with OpenTelemetry",
+      "Observability Best Practices for Distributed Systems"
+    ],
+    "bad_titles": [
+      "Monitoring",
+      "System Observability",
+      "Metrics and Logging",
+      "DevOps Practice"
+    ]
+  },
+  {
+    "id": 15,
+    "content": "Authentication strategies vary by use case: JWT tokens for stateless API authentication, OAuth2 for third-party authorization, session cookies for traditional web applications. Security essentials: always use HTTPS, hash passwords with bcrypt or Argon2, rotate tokens regularly, implement role-based access control (RBAC). Add multi-factor authentication for sensitive operations. Never implement custom cryptography, use well-audited libraries.",
+    "ideal_titles": [
+      "Authentication and Authorization Patterns: JWT, OAuth2, Sessions",
+      "Secure Authentication Implementation Best Practices",
+      "Building Secure Auth Systems with MFA and RBAC"
+    ],
+    "bad_titles": [
+      "Security",
+      "Authentication",
+      "User Login",
+      "Security Notes"
+    ]
+  },
+  {
+    "id": 16,
+    "content": "Morning routine: 30 minutes of journaling to clarify thoughts and set daily intentions. Free-form writing surfaces priorities that weren't conscious. Review yesterday's accomplishments and lessons learned. Write three goals for today. This practice provides mental clarity and reduces decision fatigue throughout the day. Consistency matters more than perfection.",
+    "ideal_titles": [
+      "Morning Journaling Routine for Clarity and Focus",
+      "Daily Intention Setting Through Morning Pages",
+      "Journaling Practice for Productivity and Self-Awareness"
+    ],
+    "bad_titles": [
+      "Morning Routine",
+      "Journaling",
+      "Personal Practice",
+      "Daily Habits"
+    ]
+  },
+  {
+    "id": 17,
+    "content": "Deep work requires eliminating distractions for sustained focus on cognitively demanding tasks. Block 2-4 hour periods without interruptions: disable notifications, close email, use website blockers. The first 20 minutes feel difficult as the mind resists focus, but then flow state emerges. One deep work session produces more value than an entire day of shallow, fragmented work.",
+    "ideal_titles": [
+      "Deep Work: Achieving Flow Through Focused Time Blocks",
+      "Eliminating Distractions for Cognitively Demanding Work",
+      "Deep Work Practice: From Resistance to Flow State"
+    ],
+    "bad_titles": [
+      "Productivity",
+      "Work Habits",
+      "Focus Techniques",
+      "Time Management"
+    ]
+  },
+  {
+    "id": 18,
+    "content": "Writing clarifies thinking by forcing abstract ideas into concrete language. Vague understanding becomes obvious when you try to explain it in writing. The act of choosing precise words reveals gaps in knowledge. Keep writing even when stuck, the process of struggling with expression deepens comprehension. Editing further refines thinking by questioning each claim and connection.",
+    "ideal_titles": [
+      "Writing as a Tool for Clarifying and Deepening Thought",
+      "How Writing Exposes Gaps in Understanding",
+      "The Cognitive Benefits of Writing to Think"
+    ],
+    "bad_titles": [
+      "Writing Practice",
+      "Thinking Process",
+      "Learning Technique",
+      "Cognitive Skills"
+    ]
+  },
+  {
+    "id": 19,
+    "content": "Cargo workspaces manage multiple related Rust crates with shared dependencies and consistent versioning. Define workspace in root Cargo.toml with members array. Benefits: single target directory saves disk space, commands like 'cargo test' run across all crates, dependency resolution is unified. Use for monorepo setups with library crates and binary crates that depend on them.",
+    "ideal_titles": [
+      "Managing Rust Projects with Cargo Workspaces",
+      "Cargo Workspaces for Multi-Crate Monorepos",
+      "Organizing Related Rust Crates with Shared Dependencies"
+    ],
+    "bad_titles": [
+      "Rust Development",
+      "Cargo Configuration",
+      "Project Structure",
+      "Rust Notes"
+    ]
+  },
+  {
+    "id": 20,
+    "content": "GraphQL allows clients to request exactly the data they need through a flexible query language. Define schema with types and resolvers. Clients construct queries specifying fields to retrieve, avoiding over-fetching and under-fetching problems inherent in REST. Tradeoffs: increased server complexity, caching challenges, potential for expensive queries. Use DataLoader pattern to batch database queries and avoid N+1 problems.",
+    "ideal_titles": [
+      "GraphQL Query Language: Precise Data Fetching for Clients",
+      "GraphQL vs REST: Tradeoffs and Implementation Patterns",
+      "Optimizing GraphQL with DataLoader and Query Batching"
+    ],
+    "bad_titles": [
+      "GraphQL",
+      "API Design",
+      "Backend Technology",
+      "Web APIs"
+    ]
+  }
+]

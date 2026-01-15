@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "text1": "Implementing a Redis connection pool in Rust using deadpool requires careful lifetime management.",
+    "text2": "The best pizza in Naples uses San Marzano tomatoes and buffalo mozzarella from Campania.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 2,
+    "text1": "Machine learning models require large datasets for training to achieve good generalization.",
+    "text2": "My cat prefers sleeping in the cardboard box rather than the expensive cat bed I bought.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 3,
+    "text1": "Docker containers isolate application dependencies using Linux kernel features like cgroups and namespaces.",
+    "text2": "The Renaissance period marked a cultural rebirth in Europe during the 14th to 17th centuries.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 4,
+    "text1": "GraphQL resolvers fetch data from various sources to fulfill client query requirements.",
+    "text2": "Hiking in the mountains requires proper footwear, water, and awareness of weather conditions.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 5,
+    "text1": "Test-driven development improves code quality by writing tests before implementation.",
+    "text2": "Coffee beans from Ethiopia have distinct fruity and floral flavor profiles when lightly roasted.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 6,
+    "text1": "Database normalization reduces redundancy by organizing data into related tables.",
+    "text2": "The Northern Lights occur when solar particles collide with gases in Earth's atmosphere.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 7,
+    "text1": "REST APIs follow stateless client-server architecture with resource-based URLs.",
+    "text2": "Proper soil pH is crucial for growing healthy tomato plants in a home garden.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 8,
+    "text1": "Git branching strategies like GitFlow help teams manage parallel feature development.",
+    "text2": "Classical music from the Baroque period emphasizes ornamental melodies and figured bass.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 9,
+    "text1": "Microservices communicate through APIs, message queues, or service mesh technologies.",
+    "text2": "Marathon training requires gradually increasing weekly mileage over several months.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 10,
+    "text1": "Cognitive load theory explains how working memory limitations affect learning efficiency.",
+    "text2": "The Great Barrier Reef contains thousands of species of fish and coral in complex ecosystems.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 11,
+    "text1": "Spaced repetition algorithms optimize review intervals for long-term memory retention.",
+    "text2": "Medieval castles featured defensive structures like moats, drawbridges, and crenellated walls.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 12,
+    "text1": "Functional programming emphasizes pure functions and immutable data structures.",
+    "text2": "Baking sourdough bread involves maintaining a starter culture of wild yeast and bacteria.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 13,
+    "text1": "Continuous integration pipelines automatically build, test, and deploy code changes.",
+    "text2": "Impressionist painters like Monet used short brushstrokes to capture changing light effects.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 14,
+    "text1": "Event-driven architecture enables loose coupling between system components.",
+    "text2": "Yoga practice combines physical postures, breathing exercises, and meditation techniques.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 15,
+    "text1": "Memory safety in Rust prevents null pointer dereferences and buffer overflows.",
+    "text2": "Ocean currents are driven by wind patterns, temperature differences, and Earth's rotation.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 16,
+    "text1": "API versioning strategies manage backward compatibility as interfaces evolve.",
+    "text2": "Woodworking joints like dovetails and mortise-and-tenon provide strong structural connections.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 17,
+    "text1": "Observability platforms collect metrics, logs, and traces from distributed systems.",
+    "text2": "Monarch butterflies migrate thousands of miles between Mexico and North America annually.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 18,
+    "text1": "Progressive web apps use service workers to enable offline functionality.",
+    "text2": "Ancient Egyptian hieroglyphics combined logographic and alphabetic elements in writing.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 19,
+    "text1": "Database indexing strategies balance query performance with write overhead.",
+    "text2": "Jazz improvisation requires deep understanding of harmony, rhythm, and melodic development.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 20,
+    "text1": "Code review practices improve quality through collaborative peer inspection.",
+    "text2": "Composting transforms organic waste into nutrient-rich soil through microbial decomposition.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 21,
+    "text1": "Vector embeddings represent text semantics in high-dimensional spaces.",
+    "text2": "Professional cycling teams use aerodynamic equipment and strategic drafting in races.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 22,
+    "text1": "Async/await syntax simplifies asynchronous programming in modern languages.",
+    "text2": "Traditional Japanese tea ceremony follows precise ritualized steps and aesthetic principles.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 23,
+    "text1": "SOLID principles guide object-oriented design for maintainable systems.",
+    "text2": "Volcanic eruptions result from magma pressure buildup beneath Earth's crust.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 24,
+    "text1": "Technical debt accumulates when shortcuts are taken in software development.",
+    "text2": "Migratory birds navigate using magnetic fields, stars, and geographic landmarks.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 25,
+    "text1": "Immutable data structures prevent concurrent modification bugs in multi-threaded code.",
+    "text2": "Artisan cheese-making involves controlling temperature, humidity, and aging conditions.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 26,
+    "text1": "Cargo workspaces manage multiple Rust crates with shared dependencies.",
+    "text2": "The water cycle involves evaporation, condensation, precipitation, and collection processes.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 27,
+    "text1": "Rate limiting protects APIs from abuse and ensures fair resource allocation.",
+    "text2": "Abstract expressionism emerged in post-war America emphasizing spontaneous creation.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 28,
+    "text1": "Zettelkasten method creates interconnected atomic notes for knowledge management.",
+    "text2": "Deep-sea creatures have adapted to extreme pressure and complete darkness.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 29,
+    "text1": "Flow state requires balanced challenge and skill for optimal performance.",
+    "text2": "Fermentation preserves food while developing complex flavors through bacterial activity.",
+    "expected_similarity": "low"
+  },
+  {
+    "id": 30,
+    "text1": "Deep work demands extended focus periods without interruption or distraction.",
+    "text2": "Glaciers form from accumulated snowfall compressing into ice over centuries.",
+    "expected_similarity": "low"
+  }
+]

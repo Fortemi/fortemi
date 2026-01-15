@@ -1,0 +1,210 @@
+[
+  {
+    "id": 1,
+    "original_content": "tried using deadpool for redis today. lifetime errors everywhere. spent 3 hours debugging. finally got it working by using Arc instead of references. should document this pattern.",
+    "expected_concepts": [
+      "Rust",
+      "Redis",
+      "deadpool",
+      "lifetime management",
+      "Arc",
+      "async programming",
+      "connection pooling"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 2,
+    "original_content": "interesting idea from that paper - spaced repetition intervals follow exponential curve. 1 day, 3 days, 1 week, 2 weeks, 1 month. seems to match human forgetting curve. could optimize review scheduling algorithm.",
+    "expected_concepts": [
+      "spaced repetition",
+      "memory retention",
+      "forgetting curve",
+      "learning optimization",
+      "review scheduling",
+      "cognitive science"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 3,
+    "original_content": "meeting notes: discussed new API design. consensus on REST over GraphQL for simplicity. versioning via url path. need to add rate limiting and proper error codes. john will handle auth middleware.",
+    "expected_concepts": [
+      "API design",
+      "REST",
+      "GraphQL",
+      "API versioning",
+      "rate limiting",
+      "error handling",
+      "authentication middleware"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 4,
+    "original_content": "docker networking issue - containers couldnt talk to each other. problem was using wrong network mode. switched to bridge and added them to same network. works now. need to remember: docker network inspect shows all the details.",
+    "expected_concepts": [
+      "Docker",
+      "container networking",
+      "network modes",
+      "bridge networks",
+      "troubleshooting",
+      "docker network inspect"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 5,
+    "original_content": "tdd workflow feels slow at first but pays off. write test, watch it fail, implement, refactor. the test suite gives confidence to change things. caught 2 bugs today that would have reached production.",
+    "expected_concepts": [
+      "test-driven development",
+      "TDD workflow",
+      "red-green-refactor",
+      "test coverage",
+      "bug prevention",
+      "code confidence",
+      "software quality"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 6,
+    "original_content": "query taking 4 seconds on users table. explain showed no index on email column. added index, down to 50ms. lesson: always explain slow queries before optimizing.",
+    "expected_concepts": [
+      "database optimization",
+      "query performance",
+      "indexing",
+      "EXPLAIN",
+      "performance tuning",
+      "SQL"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 7,
+    "original_content": "zettelkasten method seems promising. atomic notes with links. each note one idea. use unique ids. write in own words forces understanding. need to be disciplined about creating links.",
+    "expected_concepts": [
+      "Zettelkasten",
+      "note-taking",
+      "atomic notes",
+      "knowledge management",
+      "linking notes",
+      "personal knowledge base"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 8,
+    "original_content": "error handling in rust: Result for recoverable, panic for bugs. ? operator is game changer. anyhow for apps, thiserror for libraries. avoid unwrap in prod code. map_err to add context.",
+    "expected_concepts": [
+      "Rust",
+      "error handling",
+      "Result type",
+      "panic",
+      "anyhow",
+      "thiserror",
+      "error propagation"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 9,
+    "original_content": "microservices talk to each other via rest or message queues. rest for immediate response, queue for async. kafka good for event sourcing. need circuit breakers and retries for resilience.",
+    "expected_concepts": [
+      "microservices",
+      "service communication",
+      "REST",
+      "message queues",
+      "Kafka",
+      "event sourcing",
+      "circuit breakers",
+      "resilience patterns"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 10,
+    "original_content": "code review checklist: logic correct? edge cases handled? tests adequate? performance ok? security issues? maintainable? keep prs small, under 400 lines. automate style stuff with linters.",
+    "expected_concepts": [
+      "code review",
+      "pull requests",
+      "code quality",
+      "testing",
+      "security",
+      "maintainability",
+      "automated linting"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 11,
+    "original_content": "vector db for semantic search. embeddings from sentence transformers. store in qdrant. query returns similar docs. way better than keyword search for finding related notes. need to experiment with different embedding models.",
+    "expected_concepts": [
+      "vector database",
+      "semantic search",
+      "embeddings",
+      "sentence transformers",
+      "Qdrant",
+      "similarity search",
+      "information retrieval"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 12,
+    "original_content": "ci pipeline: commit -> build -> test -> deploy staging -> integration tests -> deploy prod. cache dependencies for speed. parallel jobs when possible. fail fast on errors. whole pipeline under 10 min.",
+    "expected_concepts": [
+      "CI/CD",
+      "continuous integration",
+      "deployment pipeline",
+      "automated testing",
+      "staging environment",
+      "pipeline optimization"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 13,
+    "original_content": "rate limiting with token bucket algorithm. allows bursts but limits sustained rate. return 429 with retry-after header. implement on both client and server. client should backoff exponentially.",
+    "expected_concepts": [
+      "rate limiting",
+      "token bucket algorithm",
+      "API design",
+      "HTTP status codes",
+      "exponential backoff",
+      "client-server architecture"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 14,
+    "original_content": "observability: metrics (prometheus), logs (elk), traces (jaeger). instrument with opentelemetry. track request rate, errors, latency percentiles. alert on slos. distributed tracing shows bottlenecks.",
+    "expected_concepts": [
+      "observability",
+      "metrics",
+      "logging",
+      "distributed tracing",
+      "Prometheus",
+      "OpenTelemetry",
+      "SLOs",
+      "performance monitoring"
+    ],
+    "min_improvement": true
+  },
+  {
+    "id": 15,
+    "original_content": "auth: jwt for stateless api auth. oauth2 for third party. session cookies for web apps. always https. hash passwords with bcrypt. rotate tokens. implement rbac. add mfa for sensitive ops.",
+    "expected_concepts": [
+      "authentication",
+      "authorization",
+      "JWT",
+      "OAuth2",
+      "session management",
+      "password hashing",
+      "RBAC",
+      "MFA",
+      "security"
+    ],
+    "min_improvement": true
+  }
+]

@@ -1,0 +1,422 @@
+[
+  {
+    "id": 1,
+    "query": "How do I handle async Rust with lifetimes?",
+    "documents": [
+      {
+        "id": "doc1",
+        "content": "When working with async Rust, lifetime management becomes crucial. The borrow checker needs to understand how long references remain valid across await points. Use 'static bounds when necessary, or restructure code to avoid complex lifetime relationships.",
+        "relevance": 3
+      },
+      {
+        "id": "doc2",
+        "content": "Async/await in Rust requires careful attention to lifetimes. Consider using owned types instead of references in async functions, or use Arc/Rc for shared ownership across async boundaries.",
+        "relevance": 3
+      },
+      {
+        "id": "doc3",
+        "content": "Python's async/await syntax works differently from Rust because Python doesn't have a borrow checker or compile-time lifetime analysis.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "query": "best practices for API design",
+    "documents": [
+      {
+        "id": "doc4",
+        "content": "REST API design principles: use noun-based resource URLs, leverage HTTP methods appropriately (GET, POST, PUT, DELETE), version your APIs, implement proper error responses with meaningful status codes, and document thoroughly with OpenAPI/Swagger.",
+        "relevance": 3
+      },
+      {
+        "id": "doc5",
+        "content": "API versioning strategies include URL path versioning (/v1/users), header versioning (Accept: application/vnd.api+json;version=1), and query parameter versioning (?version=1). Each has tradeoffs in clarity and caching behavior.",
+        "relevance": 2
+      },
+      {
+        "id": "doc6",
+        "content": "GraphQL provides an alternative to REST where clients specify exactly what data they need, reducing over-fetching and under-fetching problems.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "query": "improving memory retention for learning",
+    "documents": [
+      {
+        "id": "doc7",
+        "content": "Spaced repetition is the most effective technique for long-term retention. Review material at increasing intervals: 1 day, 3 days, 1 week, 2 weeks, 1 month. This leverages the spacing effect discovered in cognitive psychology research.",
+        "relevance": 3
+      },
+      {
+        "id": "doc8",
+        "content": "Active recall testing yourself rather than passive review strengthens memory formation. Generate questions from material and practice retrieving answers without looking.",
+        "relevance": 3
+      },
+      {
+        "id": "doc9",
+        "content": "The human brain stores memories in the hippocampus initially before consolidating them to long-term storage in the cortex during sleep.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "query": "Docker container networking issues",
+    "documents": [
+      {
+        "id": "doc10",
+        "content": "Common Docker networking problems: containers can't reach each other (check network mode and bridge configuration), port conflicts (verify port mappings with docker ps), DNS resolution failures (inspect /etc/resolv.conf in container). Use docker network inspect to diagnose.",
+        "relevance": 3
+      },
+      {
+        "id": "doc11",
+        "content": "Docker compose creates a default network for services to communicate by service name. Override with custom networks for isolation. Use host network mode only when necessary as it reduces container isolation.",
+        "relevance": 2
+      },
+      {
+        "id": "doc12",
+        "content": "Kubernetes networking differs from Docker, using CNI plugins like Calico or Flannel for pod-to-pod communication across nodes.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "query": "writing better commit messages",
+    "documents": [
+      {
+        "id": "doc13",
+        "content": "Good commit messages follow the pattern: imperative mood subject line (50 chars max), blank line, detailed body explaining why not what. Example: 'Add user authentication' not 'Added authentication features'. Include issue references.",
+        "relevance": 3
+      },
+      {
+        "id": "doc14",
+        "content": "Conventional commits format uses prefixes: feat, fix, docs, style, refactor, test, chore. This enables automatic changelog generation and semantic versioning. Example: 'feat: add OAuth2 login support'",
+        "relevance": 3
+      },
+      {
+        "id": "doc15",
+        "content": "Git rebase -i allows editing commit history before pushing. Use this to clean up messy development commits into logical chunks.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "query": "database query optimization techniques",
+    "documents": [
+      {
+        "id": "doc16",
+        "content": "Query optimization strategies: add indexes on frequently queried columns, use EXPLAIN to analyze query plans, avoid SELECT *, leverage covering indexes, denormalize when read performance matters more than writes, partition large tables.",
+        "relevance": 3
+      },
+      {
+        "id": "doc17",
+        "content": "N+1 query problems occur when loading related data in loops. Solution: use joins or eager loading to fetch related records in a single query instead of iterating.",
+        "relevance": 2
+      },
+      {
+        "id": "doc18",
+        "content": "PostgreSQL offers advanced features like partial indexes, expression indexes, and parallel query execution for complex workloads.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "query": "implementing feature flags",
+    "documents": [
+      {
+        "id": "doc19",
+        "content": "Feature flags enable gradual rollouts and A/B testing. Implementation: store flags in config/database, evaluate at runtime, wrap new features in conditionals. Use services like LaunchDarkly or build simple internal system with percentage-based rollouts.",
+        "relevance": 3
+      },
+      {
+        "id": "doc20",
+        "content": "Feature flag antipatterns: leaving old flags in code indefinitely, complex nested flag logic, not tracking flag usage. Clean up flags after full rollout to prevent technical debt accumulation.",
+        "relevance": 2
+      },
+      {
+        "id": "doc21",
+        "content": "Continuous deployment pipelines can automatically deploy on every commit when combined with robust feature flagging and automated testing.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "query": "effective note-taking systems",
+    "documents": [
+      {
+        "id": "doc22",
+        "content": "Zettelkasten method: create atomic notes (one idea per note), use unique IDs, link related concepts bidirectionally, write in your own words. This builds a second brain that makes unexpected connections visible over time.",
+        "relevance": 3
+      },
+      {
+        "id": "doc23",
+        "content": "Progressive summarization: highlight key points on first read, bold the best highlights on second pass, create executive summary on third pass. Balances capture with synthesis.",
+        "relevance": 2
+      },
+      {
+        "id": "doc24",
+        "content": "Cornell note-taking divides pages into cues, notes, and summary sections for structured lecture capture.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "query": "Rust error handling patterns",
+    "documents": [
+      {
+        "id": "doc25",
+        "content": "Rust error handling: use Result<T, E> for recoverable errors, panic! for unrecoverable errors. The ? operator propagates errors up the call stack. Create custom error types with thiserror or anyhow crates. Avoid unwrap() in production code.",
+        "relevance": 3
+      },
+      {
+        "id": "doc26",
+        "content": "The anyhow crate simplifies application error handling with dynamic error types. For libraries, use thiserror to define structured error enums with clear error variants.",
+        "relevance": 3
+      },
+      {
+        "id": "doc27",
+        "content": "JavaScript error handling uses try/catch blocks with Error objects, which differs significantly from Rust's type-safe Result approach.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "query": "microservices communication patterns",
+    "documents": [
+      {
+        "id": "doc28",
+        "content": "Microservice communication: synchronous via REST/gRPC for immediate responses, asynchronous via message queues (RabbitMQ, Kafka) for eventual consistency. Consider circuit breakers, retries, and timeouts for resilience.",
+        "relevance": 3
+      },
+      {
+        "id": "doc29",
+        "content": "Event-driven architecture with message brokers enables loose coupling. Services publish events without knowing consumers. Kafka provides ordered, replayable event streams for complex event sourcing patterns.",
+        "relevance": 2
+      },
+      {
+        "id": "doc30",
+        "content": "Service mesh technologies like Istio handle cross-cutting concerns (tracing, auth, retry logic) at the infrastructure layer rather than in application code.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "query": "managing technical debt",
+    "documents": [
+      {
+        "id": "doc31",
+        "content": "Technical debt quadrant: deliberate vs inadvertent, reckless vs prudent. Track debt in backlog, allocate percentage of sprint capacity to debt reduction, use static analysis tools to detect code smells, refactor incrementally.",
+        "relevance": 3
+      },
+      {
+        "id": "doc32",
+        "content": "Boy Scout rule: leave code better than you found it. Small improvements during feature work compound over time without dedicated refactoring projects.",
+        "relevance": 2
+      },
+      {
+        "id": "doc33",
+        "content": "Code review catches potential debt before merge. Establish team standards for acceptable shortcuts vs code that needs immediate improvement.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "query": "testing strategies for web applications",
+    "documents": [
+      {
+        "id": "doc34",
+        "content": "Testing pyramid: many unit tests (fast, isolated), fewer integration tests (verify component interaction), few E2E tests (slow, brittle). Aim for 70% unit, 20% integration, 10% E2E coverage.",
+        "relevance": 3
+      },
+      {
+        "id": "doc35",
+        "content": "Test-driven development cycle: write failing test, implement minimal code to pass, refactor. Red-green-refactor. This drives better API design and ensures testability.",
+        "relevance": 2
+      },
+      {
+        "id": "doc36",
+        "content": "Mutation testing verifies test quality by introducing bugs to check if tests catch them. Tools like Stryker help identify weak test coverage.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "query": "improving code review effectiveness",
+    "documents": [
+      {
+        "id": "doc37",
+        "content": "Effective code reviews: keep PRs small (<400 lines), provide context in description, use checklists for consistency, balance between nitpicking and rubber stamping, automate style concerns with linters, focus on logic and architecture.",
+        "relevance": 3
+      },
+      {
+        "id": "doc38",
+        "content": "Review for: correctness, edge cases, performance implications, security vulnerabilities, maintainability, test coverage. Ask questions rather than making demands. Acknowledge good solutions.",
+        "relevance": 3
+      },
+      {
+        "id": "doc39",
+        "content": "GitHub's pull request interface provides inline commenting and conversation threads for discussing changes asynchronously.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "query": "vector database for semantic search",
+    "documents": [
+      {
+        "id": "doc40",
+        "content": "Vector databases store embeddings for similarity search. Options: Pinecone (managed), Weaviate (open source), Qdrant (Rust-based). Use approximate nearest neighbor algorithms (HNSW, IVF) for fast retrieval at scale. Key operations: upsert vectors, query by similarity.",
+        "relevance": 3
+      },
+      {
+        "id": "doc41",
+        "content": "Semantic search workflow: generate embeddings with models like sentence-transformers, index in vector DB, query with embedded search terms, retrieve top-k most similar documents. Add metadata filters for hybrid search.",
+        "relevance": 3
+      },
+      {
+        "id": "doc42",
+        "content": "Traditional keyword search uses inverted indexes (Elasticsearch, Solr) which work well for exact matching but miss semantic relationships.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "query": "CI/CD pipeline setup",
+    "documents": [
+      {
+        "id": "doc43",
+        "content": "CI/CD pipeline stages: commit triggers build, run linters and tests, build artifacts, deploy to staging, run integration tests, deploy to production with gradual rollout. Use GitHub Actions, GitLab CI, or Jenkins.",
+        "relevance": 3
+      },
+      {
+        "id": "doc44",
+        "content": "Pipeline optimization: cache dependencies, parallelize independent jobs, fail fast on errors, use matrix builds for multiple environments. Monitor pipeline duration and fix slow tests.",
+        "relevance": 2
+      },
+      {
+        "id": "doc45",
+        "content": "Infrastructure as code with Terraform or Pulumi versions infrastructure changes and enables reproducible deployments.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "query": "handling rate limits in APIs",
+    "documents": [
+      {
+        "id": "doc46",
+        "content": "Rate limiting implementation: token bucket algorithm allows bursts while limiting sustained rate, fixed window (simple but allows bursts at boundaries), sliding window (accurate but complex). Return 429 status with Retry-After header.",
+        "relevance": 3
+      },
+      {
+        "id": "doc47",
+        "content": "Client-side rate limit handling: respect Retry-After headers, implement exponential backoff, use circuit breakers to fail fast when rate limited, queue requests for later. Monitor rate limit headers in responses.",
+        "relevance": 3
+      },
+      {
+        "id": "doc48",
+        "content": "API gateways like Kong or AWS API Gateway provide rate limiting capabilities at the infrastructure level.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "query": "observability and monitoring setup",
+    "documents": [
+      {
+        "id": "doc49",
+        "content": "Observability three pillars: metrics (Prometheus/Grafana for time series), logs (ELK stack for searchable records), traces (Jaeger/Zipkin for request flows). Instrument code with OpenTelemetry for standardized telemetry.",
+        "relevance": 3
+      },
+      {
+        "id": "doc50",
+        "content": "Key metrics to track: request rate, error rate, latency percentiles (p50, p95, p99), saturation (resource utilization). Alert on SLIs derived from SLOs. Use RED method (Rate, Errors, Duration) for services.",
+        "relevance": 2
+      },
+      {
+        "id": "doc51",
+        "content": "Distributed tracing shows request paths through microservices, revealing bottlenecks and failures in complex call chains.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "query": "authentication and authorization patterns",
+    "documents": [
+      {
+        "id": "doc52",
+        "content": "Auth patterns: JWT for stateless authentication (include claims, verify signature), OAuth2 for delegated authorization, session-based for simpler apps. Store refresh tokens securely, rotate access tokens frequently. Implement RBAC or ABAC for authorization.",
+        "relevance": 3
+      },
+      {
+        "id": "doc53",
+        "content": "Security considerations: hash passwords with bcrypt/argon2, enforce HTTPS, use CSRF tokens, implement rate limiting on auth endpoints, add MFA for sensitive operations. Never roll your own crypto.",
+        "relevance": 2
+      },
+      {
+        "id": "doc54",
+        "content": "Auth0 and Keycloak provide managed identity solutions, handling complex auth flows and user management.",
+        "relevance": 2
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "query": "organizing project code structure",
+    "documents": [
+      {
+        "id": "doc55",
+        "content": "Code organization patterns: layered architecture (presentation, business logic, data), hexagonal architecture (ports and adapters), domain-driven design (organized by business domains). Keep modules loosely coupled and highly cohesive.",
+        "relevance": 3
+      },
+      {
+        "id": "doc56",
+        "content": "Rust project structure: src/main.rs or lib.rs as entry points, separate modules for distinct concerns, use workspace for multiple crates. Follow naming conventions: modules snake_case, types PascalCase.",
+        "relevance": 2
+      },
+      {
+        "id": "doc57",
+        "content": "Monorepo vs polyrepo tradeoffs: monorepo simplifies cross-project changes and sharing, but requires tooling (Bazel, Nx). Polyrepo provides clearer boundaries but complicates versioning.",
+        "relevance": 1
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "query": "debugging distributed systems",
+    "documents": [
+      {
+        "id": "doc58",
+        "content": "Distributed debugging strategies: use correlation IDs to trace requests across services, aggregate logs centrally with timestamps, analyze distributed traces for latency bottlenecks, implement health checks and readiness probes, use chaos engineering to uncover failure modes.",
+        "relevance": 3
+      },
+      {
+        "id": "doc59",
+        "content": "Common distributed issues: network partitions, clock skew, cascading failures, eventual consistency bugs. Tools: tcpdump for network analysis, strace for system calls, profilers for performance bottlenecks.",
+        "relevance": 2
+      },
+      {
+        "id": "doc60",
+        "content": "The CAP theorem states distributed systems can only provide two of three: Consistency, Availability, Partition tolerance.",
+        "relevance": 1
+      }
+    ]
+  }
+]

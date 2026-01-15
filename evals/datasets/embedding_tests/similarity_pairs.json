@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "text1": "Implementing a Redis connection pool in Rust using deadpool requires careful lifetime management to avoid borrowing issues.",
+    "text2": "When using deadpool for Redis connections in Rust, you need to properly handle lifetimes to prevent borrow checker errors.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 2,
+    "text1": "The async/await syntax in Rust makes it easier to write concurrent code without callback hell.",
+    "text2": "Rust's async/await pattern simplifies writing asynchronous code by eliminating nested callbacks.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 3,
+    "text1": "Vector embeddings capture semantic meaning by representing text as points in high-dimensional space.",
+    "text2": "Semantic embeddings work by encoding text into vectors in a multi-dimensional space where similar meanings are close together.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 4,
+    "text1": "The SOLID principles help create maintainable object-oriented code through better separation of concerns.",
+    "text2": "Following SOLID design patterns leads to more maintainable OOP systems by properly organizing responsibilities.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 5,
+    "text1": "REST APIs use HTTP methods (GET, POST, PUT, DELETE) to perform CRUD operations on resources.",
+    "text2": "RESTful web services leverage standard HTTP verbs for create, read, update, and delete operations.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 6,
+    "text1": "Docker containers provide isolated environments for running applications with all their dependencies.",
+    "text2": "Containerization with Docker packages applications and dependencies into isolated execution environments.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 7,
+    "text1": "Git rebase rewrites commit history by moving commits to a new base, creating a linear history.",
+    "text2": "Using git rebase changes the commit base, rewriting history to maintain a cleaner linear progression.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 8,
+    "text1": "Machine learning models learn patterns from training data to make predictions on new examples.",
+    "text2": "ML algorithms identify patterns in training datasets and apply those patterns to predict outcomes for unseen data.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 9,
+    "text1": "GraphQL allows clients to request exactly the data they need, avoiding over-fetching problems.",
+    "text2": "With GraphQL APIs, clients specify precise data requirements, eliminating the issue of retrieving unnecessary information.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 10,
+    "text1": "Test-driven development involves writing tests before implementation to guide design decisions.",
+    "text2": "TDD practice means creating test cases first, then writing code to pass those tests, driving better architecture.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 11,
+    "text1": "Microservices architecture decomposes applications into small, independently deployable services.",
+    "text2": "Breaking applications into microservices creates independently maintainable and deployable service components.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 12,
+    "text1": "Database indexing speeds up query performance by creating efficient lookup structures on columns.",
+    "text2": "Adding indexes to database columns improves query speed through optimized data retrieval structures.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 13,
+    "text1": "Cognitive load theory suggests that working memory has limited capacity for processing information.",
+    "text2": "According to cognitive load research, our working memory can only handle a small amount of information at once.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 14,
+    "text1": "Spaced repetition helps long-term memory retention by reviewing information at increasing intervals.",
+    "text2": "The spacing effect improves memory by repeating material at progressively longer time intervals.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 15,
+    "text1": "Note-taking with the Zettelkasten method involves creating atomic notes that link to related concepts.",
+    "text2": "The Zettelkasten approach to notes emphasizes small, focused entries connected through associative links.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 16,
+    "text1": "Flow state occurs when challenge level matches skill level, creating optimal focus and engagement.",
+    "text2": "Achieving flow requires balancing task difficulty with ability, producing deep concentration and involvement.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 17,
+    "text1": "Code review catches bugs early and spreads knowledge across the team through collaborative inspection.",
+    "text2": "Peer code reviews identify defects before production and facilitate knowledge sharing among developers.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 18,
+    "text1": "Continuous integration automatically builds and tests code changes to detect integration issues quickly.",
+    "text2": "CI systems run automated builds and tests on every commit to find integration problems immediately.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 19,
+    "text1": "Function composition combines simple functions to create more complex operations in functional programming.",
+    "text2": "In FP, composing smaller functions together builds sophisticated behavior from basic building blocks.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 20,
+    "text1": "Memory safety in Rust is enforced at compile time through the ownership and borrowing system.",
+    "text2": "Rust's compiler guarantees memory safety via ownership rules and borrow checking without runtime overhead.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 21,
+    "text1": "API rate limiting prevents abuse by restricting the number of requests per time window.",
+    "text2": "Rate limiting controls API usage by enforcing request quotas within specific time periods.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 22,
+    "text1": "Observability in systems includes metrics, logs, and traces to understand internal state and behavior.",
+    "text2": "System observability combines telemetry data (metrics, logging, tracing) to gain insight into operational status.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 23,
+    "text1": "Progressive web apps provide native-like experiences using web technologies with offline capabilities.",
+    "text2": "PWAs deliver app-like functionality through web standards, including working without network connectivity.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 24,
+    "text1": "Event-driven architecture uses message passing between loosely coupled components for scalability.",
+    "text2": "Systems built on event-driven patterns communicate through messages, enabling loose coupling and better scaling.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 25,
+    "text1": "Technical debt accumulates when choosing quick solutions over well-designed implementations.",
+    "text2": "Taking shortcuts instead of proper design creates technical debt that must be addressed later.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 26,
+    "text1": "Immutable data structures prevent bugs by ensuring state cannot be modified after creation.",
+    "text2": "Using immutability eliminates a class of errors by making data unchangeable once initialized.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 27,
+    "text1": "The morning routine of journaling helps clarify thoughts and set intentions for the day ahead.",
+    "text2": "Starting each day with written reflection provides clarity and helps establish daily goals.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 28,
+    "text1": "Deep work requires eliminating distractions to achieve sustained focus on cognitively demanding tasks.",
+    "text2": "Focused work on challenging problems needs distraction-free time blocks for maximum productivity.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 29,
+    "text1": "Writing aids thinking by forcing abstract ideas into concrete, linear expressions.",
+    "text2": "The act of writing clarifies thought by transforming vague concepts into explicit, structured language.",
+    "expected_similarity": "high"
+  },
+  {
+    "id": 30,
+    "text1": "Cargo workspaces in Rust allow managing multiple related packages with shared dependencies.",
+    "text2": "Rust workspaces enable organizing multiple crates together with common dependency resolution.",
+    "expected_similarity": "high"
+  }
+]
