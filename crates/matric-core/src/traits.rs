@@ -95,6 +95,9 @@ pub trait NoteRepository: Send + Sync {
 
     /// Check if a note exists.
     async fn exists(&self, id: Uuid) -> Result<bool>;
+
+    /// Update note title.
+    async fn update_title(&self, id: Uuid, title: &str) -> Result<()>;
 }
 
 // =============================================================================
@@ -238,6 +241,19 @@ pub trait JobRepository: Send + Sync {
 
     /// List recent jobs.
     async fn list_recent(&self, limit: i64) -> Result<Vec<Job>>;
+
+    /// List jobs with filtering.
+    async fn list_filtered(
+        &self,
+        status: Option<&str>,
+        job_type: Option<&str>,
+        note_id: Option<Uuid>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Job>>;
+
+    /// Get queue statistics.
+    async fn queue_stats(&self) -> Result<QueueStats>;
 
     /// Clean up old completed/failed jobs.
     async fn cleanup(&self, keep_count: i64) -> Result<i64>;

@@ -1,5 +1,7 @@
 //! matric-api - HTTP API server for matric-memory
 
+mod handlers;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -24,10 +26,71 @@ use uuid::Uuid;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, ClientRegistrationRequest, CreateApiKeyRequest,
     CreateNoteRequest, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
-    OAuthError, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    OAuthError, RevisionMode, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
+use matric_core::EmbeddingBackend;
 use matric_db::Database;
+
+// =============================================================================
+// NLP PIPELINE HELPER
+// =============================================================================
+
+/// Queue the full NLP pipeline for a note.
+///
+/// This function queues all necessary processing jobs for a note in the correct order:
+/// 1. AI Revision (priority 8) - Enhance content with context
+/// 2. Embedding (priority 5) - Generate vector embeddings for semantic search
+/// 3. Title Generation (priority 2) - Generate descriptive title
+/// 4. Linking (priority 3) - Create semantic links to related notes
+///
+/// The `revision_mode` parameter controls AI revision behavior:
+/// - `Full`: Aggressive expansion with context from related notes (default)
+/// - `Light`: Structure and formatting only, no invented details
+/// - `None`: Skip AI revision entirely, store original as-is
+///
+/// This should be called after:
+/// - Creating a new note
+/// - Updating note content
+/// - Any operation that modifies content requiring re-indexing
+///
+/// Uses deduplicated queuing to prevent duplicate jobs for the same note/type.
+async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: RevisionMode) {
+    // Queue AI revision with mode in payload (unless mode is None)
+    if revision_mode != RevisionMode::None {
+        let payload = serde_json::json!({
+            "revision_mode": revision_mode
+        });
+        let _ = db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::AiRevision,
+                JobType::AiRevision.default_priority(),
+                Some(payload),
+            )
+            .await;
+    }
+
+    // Queue remaining pipeline jobs (always run these)
+    for job_type in [
+        JobType::Embedding,
+        JobType::TitleGeneration,
+        JobType::Linking,
+    ] {
+        let _ = db
+            .jobs
+            .queue_deduplicated(Some(note_id), job_type, job_type.default_priority(), None)
+            .await;
+    }
+}
+use matric_inference::OllamaBackend;
+use matric_jobs::{JobWorker, WorkerConfig};
 use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
+
+use handlers::{
+    AiRevisionHandler, ContextUpdateHandler, EmbeddingHandler, LinkingHandler,
+    TitleGenerationHandler,
+};
 
 /// Application state shared across handlers.
 #[derive(Clone)]
@@ -93,6 +156,47 @@ async fn main() -> anyhow::Result<()> {
     // Create search engine
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
 
+    // Verify inference backend is reachable
+    {
+        let backend = OllamaBackend::from_env();
+        info!(
+            "Inference backend initialized: {}",
+            EmbeddingBackend::model_name(&backend)
+        );
+    }
+
+    // Create and start job worker
+    let worker_enabled = std::env::var("WORKER_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
+    let _worker_handle = if worker_enabled {
+        info!("Starting job worker...");
+        let worker = JobWorker::new(db.clone(), WorkerConfig::default());
+
+        // Register handlers - create separate backend instances
+        worker
+            .register_handler(AiRevisionHandler::new(db.clone(), OllamaBackend::from_env()))
+            .await;
+        worker
+            .register_handler(EmbeddingHandler::new(db.clone(), OllamaBackend::from_env()))
+            .await;
+        worker
+            .register_handler(TitleGenerationHandler::new(db.clone(), OllamaBackend::from_env()))
+            .await;
+        worker.register_handler(LinkingHandler::new(db.clone())).await;
+        worker
+            .register_handler(ContextUpdateHandler::new(db.clone(), OllamaBackend::from_env()))
+            .await;
+
+        let handle = worker.start();
+        info!("Job worker started");
+        Some(handle)
+    } else {
+        info!("Job worker disabled");
+        None
+    };
+
     // Get issuer URL from environment
     let issuer =
         std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
@@ -114,6 +218,7 @@ async fn main() -> anyhow::Result<()> {
             get(get_note).patch(update_note).delete(delete_note),
         )
         .route("/api/v1/notes/:id/restore", post(restore_note))
+        .route("/api/v1/notes/:id/reprocess", post(reprocess_note))
         .route(
             "/api/v1/notes/:id/tags",
             get(get_note_tags).put(set_note_tags),
@@ -127,6 +232,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/jobs/:id", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
+        .route("/api/v1/jobs/stats", get(queue_stats))
         // Tags
         .route("/api/v1/tags", get(list_tags))
         // OAuth2 endpoints
@@ -218,6 +324,9 @@ struct CreateNoteBody {
     source: Option<String>,
     collection_id: Option<Uuid>,
     tags: Option<Vec<String>>,
+    /// AI revision mode: "full" (default), "light", or "none"
+    #[serde(default)]
+    revision_mode: Option<String>,
 }
 
 async fn create_note(
@@ -232,19 +341,26 @@ async fn create_note(
         tags: body.tags,
     };
 
-    let note_id = state.db.notes.insert(req).await?;
+    // Parse revision mode (default to Full)
+    let revision_mode = match body.revision_mode.as_deref() {
+        Some("light") => RevisionMode::Light,
+        Some("none") => RevisionMode::None,
+        _ => RevisionMode::Full, // "full" or unspecified
+    };
 
-    // Queue AI processing jobs for the new note
-    let _ = state
-        .db
-        .jobs
-        .queue_deduplicated(
-            Some(note_id),
-            JobType::AiRevision,
-            JobType::AiRevision.default_priority(),
-            None,
-        )
-        .await;
+    let note_id = state.db.notes.insert(req.clone()).await?;
+
+    // If mode is "none", copy original to revised (so embedding/search works on it)
+    if revision_mode == RevisionMode::None {
+        let _ = state
+            .db
+            .notes
+            .update_revised(note_id, &req.content, Some("Original preserved (no AI revision)"))
+            .await;
+    }
+
+    // Queue NLP pipeline (AI revision only if not "none", but always embedding/title/linking)
+    queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
 
     Ok((
         StatusCode::CREATED,
@@ -265,6 +381,9 @@ struct UpdateNoteBody {
     content: Option<String>,
     starred: Option<bool>,
     archived: Option<bool>,
+    /// AI revision mode: "full" (default), "light", or "none"
+    #[serde(default)]
+    revision_mode: Option<String>,
 }
 
 async fn update_note(
@@ -274,8 +393,8 @@ async fn update_note(
 ) -> Result<impl IntoResponse, ApiError> {
     // Update content if provided
     let content_changed = body.content.is_some();
-    if let Some(content) = body.content {
-        state.db.notes.update_original(id, &content).await?;
+    if let Some(content) = &body.content {
+        state.db.notes.update_original(id, content).await?;
     }
 
     // Update status if provided
@@ -287,18 +406,27 @@ async fn update_note(
         state.db.notes.update_status(id, req).await?;
     }
 
-    // Queue AI revision if content changed
+    // Queue full NLP pipeline if content changed
     if content_changed {
-        let _ = state
-            .db
-            .jobs
-            .queue_deduplicated(
-                Some(id),
-                JobType::AiRevision,
-                JobType::AiRevision.default_priority(),
-                None,
-            )
-            .await;
+        // Parse revision mode (default to Full)
+        let revision_mode = match body.revision_mode.as_deref() {
+            Some("light") => RevisionMode::Light,
+            Some("none") => RevisionMode::None,
+            _ => RevisionMode::Full, // "full" or unspecified
+        };
+
+        // If mode is "none", copy original to revised (so embedding/search works on it)
+        if revision_mode == RevisionMode::None {
+            if let Some(content) = &body.content {
+                let _ = state
+                    .db
+                    .notes
+                    .update_revised(id, content, Some("Original preserved (no AI revision)"))
+                    .await;
+            }
+        }
+
+        queue_nlp_pipeline(&state.db, id, revision_mode).await;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -331,12 +459,70 @@ async fn update_note_status(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+struct RestoreNoteQuery {
+    /// AI revision mode: "full" (default), "light", or "none"
+    revision_mode: Option<String>,
+}
+
 async fn restore_note(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    Query(query): Query<RestoreNoteQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.db.notes.restore(id).await?;
+
+    // Parse revision mode (default to Full)
+    let revision_mode = match query.revision_mode.as_deref() {
+        Some("light") => RevisionMode::Light,
+        Some("none") => RevisionMode::None,
+        _ => RevisionMode::Full,
+    };
+
+    // Re-run NLP pipeline to ensure note is properly indexed
+    queue_nlp_pipeline(&state.db, id, revision_mode).await;
+
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ReprocessNoteBody {
+    /// AI revision mode: "full" (default), "light", or "none"
+    revision_mode: Option<String>,
+}
+
+/// Manually trigger the full NLP pipeline for a note.
+/// Useful for re-processing after model changes or fixing failed jobs.
+async fn reprocess_note(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    body: Option<Json<ReprocessNoteBody>>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify note exists
+    let _ = state.db.notes.fetch(id).await?;
+
+    // Parse revision mode (default to Full)
+    let revision_mode = match body.and_then(|b| b.revision_mode.clone()).as_deref() {
+        Some("light") => RevisionMode::Light,
+        Some("none") => RevisionMode::None,
+        _ => RevisionMode::Full,
+    };
+
+    // Queue full NLP pipeline
+    queue_nlp_pipeline(&state.db, id, revision_mode).await;
+
+    let jobs_queued = if revision_mode == RevisionMode::None {
+        vec!["embedding", "title_generation", "linking"]
+    } else {
+        vec!["ai_revision", "embedding", "title_generation", "linking"]
+    };
+
+    Ok(Json(serde_json::json!({
+        "message": "NLP pipeline queued",
+        "note_id": id,
+        "revision_mode": revision_mode,
+        "jobs_queued": jobs_queued
+    })))
 }
 
 // =============================================================================
@@ -420,12 +606,28 @@ async fn search_notes(
         _ => HybridSearchConfig::default(),
     };
 
+    // Generate query embedding for semantic/hybrid search
+    let query_embedding = if config.semantic_weight > 0.0 && !query.q.trim().is_empty() {
+        let backend = OllamaBackend::from_env();
+        backend
+            .embed_texts(&[query.q.clone()])
+            .await
+            .ok()
+            .and_then(|vecs| vecs.into_iter().next())
+    } else {
+        None
+    };
+
     let mut request = SearchRequest::new(&query.q)
         .with_limit(limit)
         .with_config(config);
 
     if let Some(filters) = &query.filters {
         request = request.with_filters(filters);
+    }
+
+    if let Some(vec) = query_embedding {
+        request = request.with_embedding(vec);
     }
 
     let results = request.execute(&state.search).await?;
@@ -501,9 +703,11 @@ async fn pending_jobs_count(State(state): State<AppState>) -> Result<impl IntoRe
 
 #[derive(Debug, Deserialize)]
 struct ListJobsQuery {
-    #[allow(dead_code)]
     status: Option<String>,
+    job_type: Option<String>,
+    note_id: Option<Uuid>,
     limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 async fn list_jobs(
@@ -511,8 +715,36 @@ async fn list_jobs(
     Query(query): Query<ListJobsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50);
-    let jobs = state.db.jobs.list_recent(limit).await?;
-    Ok(Json(serde_json::json!({ "jobs": jobs })))
+    let offset = query.offset.unwrap_or(0);
+
+    let jobs = state
+        .db
+        .jobs
+        .list_filtered(
+            query.status.as_deref(),
+            query.job_type.as_deref(),
+            query.note_id,
+            limit,
+            offset,
+        )
+        .await?;
+
+    // Get stats for summary
+    let stats = state.db.jobs.queue_stats().await?;
+
+    Ok(Json(serde_json::json!({
+        "jobs": jobs,
+        "total": stats.total,
+        "pending": stats.pending,
+        "processing": stats.processing,
+        "completed_last_hour": stats.completed_last_hour,
+        "failed_last_hour": stats.failed_last_hour
+    })))
+}
+
+async fn queue_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let stats = state.db.jobs.queue_stats().await?;
+    Ok(Json(stats))
 }
 
 // =============================================================================

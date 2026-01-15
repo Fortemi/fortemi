@@ -6,7 +6,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Error, Job, JobRepository, JobStatus, JobType, Result};
+use matric_core::{Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result};
 
 /// PostgreSQL implementation of JobRepository.
 pub struct PgJobRepository {
@@ -377,6 +377,87 @@ impl JobRepository for PgJobRepository {
         .map_err(Error::Database)?;
 
         Ok(rows.into_iter().map(Self::parse_job_row).collect())
+    }
+
+    async fn list_filtered(
+        &self,
+        status: Option<&str>,
+        job_type: Option<&str>,
+        note_id: Option<Uuid>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Job>> {
+        let mut conditions = Vec::new();
+        let mut param_idx = 1;
+
+        if status.is_some() {
+            conditions.push(format!("status::text = ${}", param_idx));
+            param_idx += 1;
+        }
+        if job_type.is_some() {
+            conditions.push(format!("job_type::text = ${}", param_idx));
+            param_idx += 1;
+        }
+        if note_id.is_some() {
+            conditions.push(format!("note_id = ${}", param_idx));
+            param_idx += 1;
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let query = format!(
+            "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
+                    error_message, progress_percent, progress_message, retry_count, max_retries,
+                    created_at, started_at, completed_at
+             FROM job_queue
+             {}
+             ORDER BY created_at DESC
+             LIMIT ${} OFFSET ${}",
+            where_clause, param_idx, param_idx + 1
+        );
+
+        let mut q = sqlx::query(&query);
+        if let Some(s) = status {
+            q = q.bind(s);
+        }
+        if let Some(jt) = job_type {
+            q = q.bind(jt);
+        }
+        if let Some(nid) = note_id {
+            q = q.bind(nid);
+        }
+        q = q.bind(limit).bind(offset);
+
+        let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+        Ok(rows.into_iter().map(Self::parse_job_row).collect())
+    }
+
+    async fn queue_stats(&self) -> Result<QueueStats> {
+        let row = sqlx::query(
+            "SELECT
+                COUNT(*) FILTER (WHERE status = 'pending') as pending,
+                COUNT(*) FILTER (WHERE status = 'running') as processing,
+                COUNT(*) FILTER (WHERE status = 'completed' AND completed_at > NOW() - INTERVAL '1 hour') as completed_last_hour,
+                COUNT(*) FILTER (WHERE status = 'failed' AND completed_at > NOW() - INTERVAL '1 hour') as failed_last_hour,
+                COUNT(*) as total
+             FROM job_queue"
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        use sqlx::Row;
+        Ok(QueueStats {
+            pending: row.get::<i64, _>("pending"),
+            processing: row.get::<i64, _>("processing"),
+            completed_last_hour: row.get::<i64, _>("completed_last_hour"),
+            failed_last_hour: row.get::<i64, _>("failed_last_hour"),
+            total: row.get::<i64, _>("total"),
+        })
     }
 
     async fn cleanup(&self, keep_count: i64) -> Result<i64> {

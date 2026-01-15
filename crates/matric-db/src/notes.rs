@@ -439,30 +439,16 @@ impl NoteRepository for PgNoteRepository {
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Insert revision record
+        // Insert revision record (view note_revised_current automatically shows latest)
         sqlx::query(
-            "INSERT INTO note_revision (id, note_id, parent_revision_id, revision_number, content, type, created_at_utc, rationale)
-             VALUES ($1, $2,
-                     (SELECT last_revision_id FROM note_revised_current WHERE note_id = $2),
-                     COALESCE((SELECT MAX(revision_number) + 1 FROM note_revision WHERE note_id = $2), 1),
-                     $3, 'manual', $4, $5)",
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at)
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(revision_id)
         .bind(id)
         .bind(content)
-        .bind(now)
         .bind(rationale)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Update current revision
-        sqlx::query(
-            "UPDATE note_revised_current SET content = $1, last_revision_id = $2 WHERE note_id = $3",
-        )
-        .bind(content)
-        .bind(revision_id)
-        .bind(id)
+        .bind(now)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -529,6 +515,18 @@ impl NoteRepository for PgNoteRepository {
             .await
             .map_err(Error::Database)?;
         Ok(exists)
+    }
+
+    async fn update_title(&self, id: Uuid, title: &str) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query("UPDATE note SET title = $1, updated_at_utc = $2 WHERE id = $3")
+            .bind(title)
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
     }
 }
 

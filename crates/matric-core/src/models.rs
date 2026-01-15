@@ -187,6 +187,19 @@ pub enum JobStatus {
     Cancelled,
 }
 
+/// AI revision mode controlling enhancement aggressiveness.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RevisionMode {
+    /// Full contextual enhancement - expands content with related concepts (default)
+    #[default]
+    Full,
+    /// Light touch - formatting and structure only, no invented details
+    Light,
+    /// No AI revision - store original as-is
+    None,
+}
+
 /// Type of job to process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +247,16 @@ pub struct Job {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// Queue statistics summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueStats {
+    pub pending: i64,
+    pub processing: i64,
+    pub completed_last_hour: i64,
+    pub failed_last_hour: i64,
+    pub total: i64,
 }
 
 // =============================================================================

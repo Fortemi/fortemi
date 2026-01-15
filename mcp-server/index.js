@@ -94,6 +94,7 @@ function createMcpServer() {
           result = await apiRequest("POST", "/api/v1/notes", {
             content: args.content,
             tags: args.tags,
+            revision_mode: args.revision_mode,
           });
           break;
 
@@ -102,6 +103,7 @@ function createMcpServer() {
           if (args.content !== undefined) body.content = args.content;
           if (args.starred !== undefined) body.starred = args.starred;
           if (args.archived !== undefined) body.archived = args.archived;
+          if (args.revision_mode !== undefined) body.revision_mode = args.revision_mode;
           await apiRequest("PATCH", `/api/v1/notes/${args.id}`, body);
           result = { success: true };
           break;
@@ -141,6 +143,21 @@ function createMcpServer() {
           });
           break;
 
+        case "list_jobs": {
+          const jobParams = new URLSearchParams();
+          if (args.status) jobParams.set("status", args.status);
+          if (args.job_type) jobParams.set("job_type", args.job_type);
+          if (args.note_id) jobParams.set("note_id", args.note_id);
+          if (args.limit) jobParams.set("limit", args.limit);
+          if (args.offset) jobParams.set("offset", args.offset);
+          result = await apiRequest("GET", `/api/v1/jobs?${jobParams}`);
+          break;
+        }
+
+        case "get_queue_stats":
+          result = await apiRequest("GET", "/api/v1/jobs/stats");
+          break;
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -159,60 +176,194 @@ function createMcpServer() {
   return mcpServer;
 }
 
-// Define available tools
+// Define available tools with comprehensive documentation for consuming agents
 const tools = [
+  // ============================================================================
+  // READ OPERATIONS - No processing triggered
+  // ============================================================================
   {
     name: "list_notes",
-    description: "List all notes in the memory system. Returns summaries with titles, snippets, and metadata.",
+    description: `List notes from the memory system.
+
+Returns note summaries with titles, snippets, tags, and metadata. Notes are returned with both their original content and AI-enhanced revisions.
+
+Use cases:
+- Browse recent notes
+- Get an overview of stored knowledge
+- Filter by starred or archived status`,
     inputSchema: {
       type: "object",
       properties: {
-        limit: { type: "number", description: "Maximum number of notes to return", default: 50 },
-        offset: { type: "number", description: "Pagination offset", default: 0 },
-        filter: { type: "string", description: "Filter: 'starred' or 'archived'" },
+        limit: { type: "number", description: "Maximum notes to return (default: 50)", default: 50 },
+        offset: { type: "number", description: "Pagination offset (default: 0)", default: 0 },
+        filter: { type: "string", description: "Filter: 'starred' or 'archived'", enum: ["starred", "archived"] },
       },
     },
   },
   {
     name: "get_note",
-    description: "Get full details of a specific note including original content, AI revisions, tags, and links.",
+    description: `Get complete details for a specific note.
+
+Returns the full note including:
+- Original content (as submitted)
+- AI-enhanced revision (structured, contextual)
+- Generated title
+- Tags (user + AI-generated)
+- Semantic links to related notes
+- Metadata and timestamps
+
+Use this to retrieve the full context of a note for analysis or reference.`,
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "UUID of the note to retrieve" },
+        id: { type: "string", description: "UUID of the note" },
       },
       required: ["id"],
     },
   },
   {
-    name: "create_note",
-    description: "Create a new note in the memory system. Content should be markdown formatted.",
+    name: "search_notes",
+    description: `Search notes using hybrid full-text and semantic search.
+
+Search modes:
+- 'hybrid' (default): Combines keyword matching with semantic similarity for best results
+- 'fts': Full-text search only - exact keyword matching
+- 'semantic': Vector similarity only - finds conceptually related content
+
+Returns ranked results with relevance scores. Use semantic mode when looking for conceptually related content even if exact keywords don't match.`,
     inputSchema: {
       type: "object",
       properties: {
-        content: { type: "string", description: "Markdown content of the note" },
-        tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
+        query: { type: "string", description: "Search query (natural language or keywords)" },
+        limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
+        mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "list_tags",
+    description: "List all tags in the knowledge base with usage counts.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_note_links",
+    description: `Get semantic links for a note.
+
+Returns:
+- outgoing: Notes this note links TO (related concepts it references)
+- incoming: Notes that link TO this note (notes that reference this concept)
+
+Links are automatically created based on semantic similarity (>70%) and are bidirectional.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the note" },
+      },
+      required: ["id"],
+    },
+  },
+
+  // ============================================================================
+  // WRITE OPERATIONS WITH FULL PIPELINE
+  // These automatically trigger the complete NLP enhancement pipeline:
+  // 1. AI Revision - Enhances content with context from related notes
+  // 2. Embedding - Generates vector embeddings for semantic search
+  // 3. Title Generation - Creates descriptive title from content
+  // 4. Linking - Creates bidirectional semantic links to related notes
+  // ============================================================================
+  {
+    name: "create_note",
+    description: `Create a new note with FULL AI ENHANCEMENT PIPELINE.
+
+This is the primary method for adding knowledge. After creation, the note automatically goes through:
+
+1. AI REVISION: Content is enhanced using context from related notes in the knowledge base. The revision adds structure, clarity, connections to related concepts, and proper markdown formatting.
+
+2. EMBEDDING: Vector embeddings are generated for semantic search. Content is chunked and each chunk is embedded for fine-grained retrieval.
+
+3. TITLE GENERATION: A descriptive, unique title is generated based on content and related notes.
+
+4. LINKING: Bidirectional semantic links are created to related notes (similarity >70%), connecting this note to the broader knowledge graph.
+
+The enhanced version preserves all original information while adding structure and context. Both original and enhanced versions are stored.
+
+**REVISION MODE SELECTION GUIDE:**
+
+Use revision_mode="full" (default) when:
+- Recording technical concepts, research, or complex ideas that benefit from connections
+- Building a knowledge base where cross-referencing adds value
+- The note has enough detail for meaningful enhancement
+
+Use revision_mode="light" when:
+- Recording facts, opinions, or observations that should stay as-is
+- The note is short/simple and shouldn't be expanded
+- You want formatting improvements without invented details
+- Recording personal notes or quick thoughts
+
+Use revision_mode="none" when:
+- Storing exact quotes or citations
+- Recording data that must remain unmodified
+- Bulk importing content that shouldn't be processed
+
+Best practices:
+- Write in markdown format for best results
+- Include context and specifics - the more detail, the better the enhancement
+- Use #tags inline for explicit categorization
+- For factual/personal notes, use "light" mode to prevent hallucination`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Note content in markdown format" },
+        tags: { type: "array", items: { type: "string" }, description: "Optional explicit tags" },
+        revision_mode: {
+          type: "string",
+          enum: ["full", "light", "none"],
+          description: "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
+          default: "full"
+        },
       },
       required: ["content"],
     },
   },
   {
     name: "update_note",
-    description: "Update an existing note's content or status.",
+    description: `Update a note's content or status.
+
+If CONTENT is updated, the FULL AI ENHANCEMENT PIPELINE runs automatically:
+- AI revision regenerated with new content
+- Embeddings updated for semantic search
+- Title regenerated if content changed significantly
+- Links recalculated based on new content
+
+If only STATUS (starred/archived) is updated, no processing occurs.
+
+Use this to:
+- Correct or expand note content (triggers full pipeline)
+- Star important notes for quick access (no processing)
+- Archive outdated notes (no processing)`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "UUID of the note to update" },
-        content: { type: "string", description: "New markdown content" },
-        starred: { type: "boolean", description: "Star/unstar the note" },
-        archived: { type: "boolean", description: "Archive/unarchive the note" },
+        content: { type: "string", description: "New markdown content (triggers full AI pipeline)" },
+        starred: { type: "boolean", description: "Mark as important (no processing)" },
+        archived: { type: "boolean", description: "Archive the note (no processing)" },
+        revision_mode: {
+          type: "string",
+          enum: ["full", "light", "none"],
+          description: "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
+          default: "full"
+        },
       },
       required: ["id"],
     },
   },
   {
     name: "delete_note",
-    description: "Soft delete a note. Can be restored later.",
+    description: `Soft delete a note (can be restored later).
+
+The note is marked as deleted but not permanently removed. Use restore endpoint to recover.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -222,49 +373,48 @@ const tools = [
     },
   },
   {
-    name: "search_notes",
-    description: "Search notes using full-text and semantic search. Returns matching notes ranked by relevance.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        limit: { type: "number", description: "Maximum results", default: 20 },
-        mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "list_tags",
-    description: "List all tags in the system.",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
     name: "set_note_tags",
-    description: "Set tags for a note (replaces existing tags).",
+    description: `Set tags for a note (replaces all existing user tags).
+
+AI-generated tags are preserved separately. This only affects user-defined tags.`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "UUID of the note" },
-        tags: { type: "array", items: { type: "string" }, description: "New tags" },
+        tags: { type: "array", items: { type: "string" }, description: "New tags (replaces existing)" },
       },
       required: ["id", "tags"],
     },
   },
-  {
-    name: "get_note_links",
-    description: "Get incoming and outgoing links for a note.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "UUID of the note" },
-      },
-      required: ["id"],
-    },
-  },
+
+  // ============================================================================
+  // SINGLE-STEP PROCESSING
+  // For fine-grained control when you need to run specific pipeline steps
+  // ============================================================================
   {
     name: "create_job",
-    description: "Queue a background job for AI processing (embedding, revision, linking, etc).",
+    description: `Queue a SINGLE processing step (for fine-grained control).
+
+Unlike create_note/update_note which run the FULL pipeline, this queues just ONE step. Use this for:
+- Reprocessing specific notes after model updates
+- Debugging pipeline issues
+- Bulk reprocessing with control over which steps run
+
+Job types:
+- 'ai_revision': Re-enhance content with context from related notes
+- 'embedding': Regenerate vector embeddings for semantic search
+- 'title_generation': Regenerate the note title
+- 'linking': Recalculate semantic links to related notes
+- 'context_update': Add "Related Context" section based on links
+
+Priority: Higher values run sooner. Default priorities:
+- ai_revision: 8 (highest - should run first)
+- embedding: 5
+- linking: 3
+- title_generation: 2
+- context_update: 1 (lowest - runs after links exist)
+
+NOTE: For normal operations, prefer create_note/update_note which handle the full pipeline automatically. Use create_job only when you need single-step control.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -272,11 +422,69 @@ const tools = [
         job_type: {
           type: "string",
           enum: ["ai_revision", "embedding", "linking", "context_update", "title_generation"],
-          description: "Type of job to create"
+          description: "Single processing step to run"
         },
         priority: { type: "number", description: "Job priority (higher = sooner)" },
       },
       required: ["job_type"],
+    },
+  },
+
+  // ============================================================================
+  // JOB VISIBILITY
+  // Monitor background job queue status and processing progress
+  // ============================================================================
+  {
+    name: "list_jobs",
+    description: `List and filter background jobs in the processing queue.
+
+Use this to monitor job progress after triggering updates:
+- Confirm jobs were queued successfully
+- Track processing progress across multiple notes
+- Identify failed or stuck jobs
+- Wait for bulk operations to complete
+
+Returns job list with queue statistics summary.
+
+Common workflows:
+1. After bulk update: list_jobs(status="pending") → confirm all queued
+2. Monitor progress: list_jobs(status="processing") → see what's running
+3. Check failures: list_jobs(status="failed") → surface errors
+4. Track specific note: list_jobs(note_id="uuid") → see all jobs for one note`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "processing", "completed", "failed"],
+          description: "Filter by job status"
+        },
+        job_type: {
+          type: "string",
+          enum: ["ai_revision", "embedding", "linking", "context_update", "title_generation"],
+          description: "Filter by job type"
+        },
+        note_id: { type: "string", description: "Filter by specific note UUID" },
+        limit: { type: "number", description: "Max results (default: 50)", default: 50 },
+        offset: { type: "number", description: "Pagination offset", default: 0 },
+      },
+    },
+  },
+  {
+    name: "get_queue_stats",
+    description: `Get a quick summary of queue health without listing individual jobs.
+
+Returns:
+- pending: Jobs waiting to be processed
+- processing: Jobs currently running
+- completed_last_hour: Successfully finished in last hour
+- failed_last_hour: Failed in last hour
+- total: Total jobs in queue
+
+Use this for quick status checks or progress bars when you don't need full job details.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
     },
   },
 ];
