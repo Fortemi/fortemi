@@ -188,3 +188,113 @@ impl LinkRepository for PgLinkRepository {
         Ok(())
     }
 }
+
+/// Graph node with basic note info.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphNode {
+    pub id: Uuid,
+    pub title: Option<String>,
+    pub depth: i32,
+}
+
+/// Graph edge representing a link between notes.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphEdge {
+    pub from_id: Uuid,
+    pub to_id: Uuid,
+    pub score: f32,
+    pub kind: String,
+}
+
+/// Result of graph traversal.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphResult {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+impl PgLinkRepository {
+    /// Traverse the knowledge graph starting from a note.
+    ///
+    /// Uses recursive CTE to explore links up to `max_depth` hops.
+    /// Returns unique nodes and edges discovered.
+    pub async fn traverse_graph(
+        &self,
+        start_id: Uuid,
+        max_depth: i32,
+        max_nodes: i64,
+    ) -> Result<GraphResult> {
+        // Use recursive CTE to traverse the graph
+        let rows = sqlx::query(
+            r#"
+            WITH RECURSIVE graph AS (
+                -- Base case: starting node
+                SELECT
+                    $1::uuid as note_id,
+                    0 as depth
+
+                UNION
+
+                -- Recursive case: follow links
+                SELECT
+                    CASE WHEN l.from_note_id = g.note_id THEN l.to_note_id ELSE l.from_note_id END as note_id,
+                    g.depth + 1 as depth
+                FROM graph g
+                JOIN link l ON (l.from_note_id = g.note_id OR l.to_note_id = g.note_id)
+                WHERE g.depth < $2
+            )
+            SELECT DISTINCT ON (g.note_id)
+                g.note_id,
+                g.depth,
+                n.title
+            FROM graph g
+            JOIN note n ON n.id = g.note_id
+            WHERE n.deleted_at IS NULL
+            ORDER BY g.note_id, g.depth
+            LIMIT $3
+            "#,
+        )
+        .bind(start_id)
+        .bind(max_depth)
+        .bind(max_nodes)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let nodes: Vec<GraphNode> = rows
+            .iter()
+            .map(|row| GraphNode {
+                id: row.get("note_id"),
+                title: row.get("title"),
+                depth: row.get("depth"),
+            })
+            .collect();
+
+        // Get edges between discovered nodes
+        let node_ids: Vec<Uuid> = nodes.iter().map(|n| n.id).collect();
+
+        let edge_rows = sqlx::query(
+            r#"
+            SELECT DISTINCT from_note_id, to_note_id, score, kind
+            FROM link
+            WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
+            "#,
+        )
+        .bind(&node_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let edges: Vec<GraphEdge> = edge_rows
+            .iter()
+            .map(|row| GraphEdge {
+                from_id: row.get("from_note_id"),
+                to_id: row.get("to_note_id"),
+                score: row.get("score"),
+                kind: row.get("kind"),
+            })
+            .collect();
+
+        Ok(GraphResult { nodes, edges })
+    }
+}

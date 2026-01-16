@@ -103,6 +103,12 @@ pub struct SearchHit {
     pub note_id: Uuid,
     pub score: f32,
     pub snippet: Option<String>,
+    /// Note title (generated or first line of content)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Note tags
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// Search results response.
@@ -263,13 +269,19 @@ pub struct QueueStats {
 // COLLECTION & TAG TYPES
 // =============================================================================
 
-/// A collection of notes.
+/// A collection of notes (folder/hierarchy).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    /// Parent collection ID for nested hierarchy (None = root)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<Uuid>,
     pub created_at_utc: DateTime<Utc>,
+    /// Number of notes in this collection (computed)
+    #[serde(default)]
+    pub note_count: i64,
 }
 
 /// A tag definition.
@@ -691,6 +703,27 @@ impl AuthPrincipal {
     pub fn is_authenticated(&self) -> bool {
         !matches!(self, AuthPrincipal::Anonymous)
     }
+}
+
+// =============================================================================
+// NOTE TEMPLATE TYPES
+// =============================================================================
+
+/// A reusable note template.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteTemplate {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub content: String,
+    pub format: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<Uuid>,
+    pub created_at_utc: DateTime<Utc>,
+    pub updated_at_utc: DateTime<Utc>,
 }
 
 // =============================================================================

@@ -108,18 +108,31 @@ impl EmbeddingRepository for PgEmbeddingRepository {
 
         let query = format!(
             r#"
-            SELECT e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score
+            SELECT DISTINCT ON (e.note_id)
+                   e.note_id AS note_id,
+                   1.0 - (e.vector <=> $1::vector) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE TRUE {}
-            ORDER BY e.vector <=> $1::vector
-            LIMIT $2
+            ORDER BY e.note_id, e.vector <=> $1::vector
             "#,
             archive_clause
         );
 
-        let rows = sqlx::query(&query)
+        // Wrap to re-order by score after deduplication
+        let wrapped_query = format!(
+            "SELECT note_id, score, snippet, title, tags FROM ({}) sub ORDER BY score DESC LIMIT $2",
+            query
+        );
+
+        let rows = sqlx::query(&wrapped_query)
             .bind(query_vec)
             .bind(limit)
             .fetch_all(&self.pool)
@@ -128,10 +141,20 @@ impl EmbeddingRepository for PgEmbeddingRepository {
 
         let results = rows
             .into_iter()
-            .map(|row| SearchHit {
-                note_id: row.get("note_id"),
-                score: row.get::<f64, _>("score") as f32,
-                snippet: None,
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<f64, _>("score") as f32,
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
             })
             .collect();
 

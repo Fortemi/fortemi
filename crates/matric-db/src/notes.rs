@@ -120,6 +120,100 @@ impl NoteRepository for PgNoteRepository {
         Ok(note_id)
     }
 
+    async fn insert_bulk(&self, notes: Vec<CreateNoteRequest>) -> Result<Vec<Uuid>> {
+        if notes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let mut ids = Vec::with_capacity(notes.len());
+        let now = Utc::now();
+
+        for req in notes {
+            let note_id = Uuid::new_v4();
+            let hash = Self::hash_content(&req.content);
+
+            // Insert note metadata
+            sqlx::query(
+                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc)
+                 VALUES ($1, $2, $3, $4, $5, $5)",
+            )
+            .bind(note_id)
+            .bind(req.collection_id)
+            .bind(&req.format)
+            .bind(&req.source)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Insert original content
+            sqlx::query(
+                "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(&hash)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Insert initial revised content (same as original)
+            sqlx::query(
+                "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Add tags if provided
+            if let Some(tags) = req.tags {
+                for tag in tags {
+                    sqlx::query(
+                        "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&tag)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(Error::Database)?;
+
+                    sqlx::query(
+                        "INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, 'user')",
+                    )
+                    .bind(note_id)
+                    .bind(&tag)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(Error::Database)?;
+                }
+            }
+
+            ids.push(note_id);
+        }
+
+        // Log bulk activity
+        sqlx::query(
+            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
+             VALUES ($1, $2, 'user', 'bulk_create', NULL, $3::jsonb)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(now)
+        .bind(serde_json::json!({ "count": ids.len() }))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        tx.commit().await.map_err(Error::Database)?;
+
+        Ok(ids)
+    }
+
     async fn fetch(&self, id: Uuid) -> Result<NoteFull> {
         // Update last accessed timestamp
         sqlx::query(
@@ -271,18 +365,62 @@ impl NoteRepository for PgNoteRepository {
             _ => format!("n.created_at_utc {}", sort_order),
         };
 
-        // Get total count
-        let count_query = format!(
-            "SELECT COUNT(*) as count FROM note n WHERE TRUE {}",
+        // Count tag parameters for binding
+        let tag_count = req.tags.as_ref().map(|t| t.len()).unwrap_or(0);
+
+        // Build count query
+        let mut count_query = format!(
+            "SELECT COUNT(*) as count FROM note n WHERE TRUE {} ",
             filter_clause
         );
-        let total: i64 = sqlx::query_scalar(&count_query)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let mut param_idx = 1;
 
-        // Get notes
-        let notes_query = format!(
+        // Add tag filters to count query
+        if tag_count > 0 {
+            for _ in 0..tag_count {
+                count_query.push_str(&format!(
+                    "AND EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND nt.tag_name = ${}) ",
+                    param_idx
+                ));
+                param_idx += 1;
+            }
+        }
+
+        // Add date filters to count query
+        if let Some(_) = &req.created_after {
+            count_query.push_str(&format!("AND n.created_at_utc >= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.created_before {
+            count_query.push_str(&format!("AND n.created_at_utc <= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.updated_after {
+            count_query.push_str(&format!("AND n.updated_at_utc >= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.updated_before {
+            count_query.push_str(&format!("AND n.updated_at_utc <= ${} ", param_idx));
+            // param_idx += 1; // Not needed for count query
+        }
+
+        // Execute count query
+        let total: i64 = {
+            let mut q = sqlx::query_scalar(&count_query);
+            if let Some(tags) = &req.tags {
+                for tag in tags {
+                    q = q.bind(tag);
+                }
+            }
+            if let Some(dt) = &req.created_after { q = q.bind(dt); }
+            if let Some(dt) = &req.created_before { q = q.bind(dt); }
+            if let Some(dt) = &req.updated_after { q = q.bind(dt); }
+            if let Some(dt) = &req.updated_before { q = q.bind(dt); }
+            q.fetch_one(&self.pool).await.map_err(Error::Database)?
+        };
+
+        // Build notes query
+        let mut notes_query = format!(
             r#"
             SELECT
                 n.id, n.created_at_utc, n.updated_at_utc, n.starred, n.archived,
@@ -297,16 +435,61 @@ impl NoteRepository for PgNoteRepository {
             JOIN note_original no ON no.note_id = n.id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
             WHERE TRUE {}
-            ORDER BY {}
-            LIMIT {} OFFSET {}
             "#,
-            filter_clause, order_clause, limit, offset
+            filter_clause
         );
+        param_idx = 1;
 
-        let rows = sqlx::query(&notes_query)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        // Add tag filters to notes query
+        if tag_count > 0 {
+            for _ in 0..tag_count {
+                notes_query.push_str(&format!(
+                    "AND EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND nt.tag_name = ${}) ",
+                    param_idx
+                ));
+                param_idx += 1;
+            }
+        }
+
+        // Add date filters to notes query
+        if let Some(_) = &req.created_after {
+            notes_query.push_str(&format!("AND n.created_at_utc >= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.created_before {
+            notes_query.push_str(&format!("AND n.created_at_utc <= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.updated_after {
+            notes_query.push_str(&format!("AND n.updated_at_utc >= ${} ", param_idx));
+            param_idx += 1;
+        }
+        if let Some(_) = &req.updated_before {
+            notes_query.push_str(&format!("AND n.updated_at_utc <= ${} ", param_idx));
+            param_idx += 1;
+        }
+
+        // Add order and pagination
+        notes_query.push_str(&format!(
+            "ORDER BY {} LIMIT ${} OFFSET ${}",
+            order_clause, param_idx, param_idx + 1
+        ));
+
+        // Execute notes query
+        let rows = {
+            let mut q = sqlx::query(&notes_query);
+            if let Some(tags) = &req.tags {
+                for tag in tags {
+                    q = q.bind(tag);
+                }
+            }
+            if let Some(dt) = &req.created_after { q = q.bind(dt); }
+            if let Some(dt) = &req.created_before { q = q.bind(dt); }
+            if let Some(dt) = &req.updated_after { q = q.bind(dt); }
+            if let Some(dt) = &req.updated_before { q = q.bind(dt); }
+            q = q.bind(limit).bind(offset);
+            q.fetch_all(&self.pool).await.map_err(Error::Database)?
+        };
 
         let notes: Vec<NoteSummary> = rows
             .into_iter()

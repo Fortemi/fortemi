@@ -8,31 +8,51 @@ use matric_core::SearchHit;
 /// RRF constant (typically 60)
 pub const RRF_K: f32 = 60.0;
 
+/// Metadata preserved from search results during RRF fusion.
+struct HitMetadata {
+    snippet: Option<String>,
+    title: Option<String>,
+    tags: Vec<String>,
+}
+
 /// Fuse multiple ranked lists using Reciprocal Rank Fusion.
 ///
 /// Each input is a list of (note_id, score) pairs, ranked by score descending.
 /// The output combines all lists using RRF scoring.
 pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHit> {
     let mut scores: HashMap<Uuid, f32> = HashMap::new();
-    let mut snippets: HashMap<Uuid, Option<String>> = HashMap::new();
+    let mut metadata: HashMap<Uuid, HitMetadata> = HashMap::new();
 
     for list in ranked_lists {
         for (rank, hit) in list.into_iter().enumerate() {
             let rrf_score = 1.0 / (RRF_K + (rank as f32) + 1.0);
             *scores.entry(hit.note_id).or_insert(0.0) += rrf_score;
 
-            // Keep the first non-empty snippet we find
-            snippets.entry(hit.note_id).or_insert(hit.snippet);
+            // Keep the first non-empty metadata we find
+            metadata.entry(hit.note_id).or_insert(HitMetadata {
+                snippet: hit.snippet,
+                title: hit.title,
+                tags: hit.tags,
+            });
         }
     }
 
     // Sort by RRF score descending
     let mut results: Vec<SearchHit> = scores
         .into_iter()
-        .map(|(note_id, score)| SearchHit {
-            note_id,
-            score,
-            snippet: snippets.remove(&note_id).flatten(),
+        .map(|(note_id, score)| {
+            let meta = metadata.remove(&note_id).unwrap_or(HitMetadata {
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            });
+            SearchHit {
+                note_id,
+                score,
+                snippet: meta.snippet,
+                title: meta.title,
+                tags: meta.tags,
+            }
         })
         .collect();
 
@@ -59,11 +79,15 @@ mod tests {
                 note_id: id1,
                 score: 0.9,
                 snippet: Some("first".to_string()),
+                title: Some("First Note".to_string()),
+                tags: vec!["tag1".to_string()],
             },
             SearchHit {
                 note_id: id2,
                 score: 0.8,
                 snippet: Some("second".to_string()),
+                title: Some("Second Note".to_string()),
+                tags: vec!["tag2".to_string()],
             },
         ];
 
@@ -71,6 +95,9 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].note_id, id1);
         assert!(results[0].score > results[1].score);
+        // Verify metadata is preserved
+        assert_eq!(results[0].title, Some("First Note".to_string()));
+        assert_eq!(results[0].tags, vec!["tag1".to_string()]);
     }
 
     #[test]
@@ -85,11 +112,15 @@ mod tests {
                 note_id: id1,
                 score: 0.9,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
             SearchHit {
                 note_id: id2,
                 score: 0.8,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
         ];
 
@@ -99,16 +130,22 @@ mod tests {
                 note_id: id2,
                 score: 0.95,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
             SearchHit {
                 note_id: id3,
                 score: 0.85,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
             SearchHit {
                 note_id: id1,
                 score: 0.75,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
         ];
 
@@ -129,6 +166,8 @@ mod tests {
                 note_id: Uuid::new_v4(),
                 score: 1.0 - (i as f32 * 0.01),
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             })
             .collect();
 

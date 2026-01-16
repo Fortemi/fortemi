@@ -82,6 +82,11 @@ function createMcpServer() {
           if (args.limit) params.set("limit", args.limit);
           if (args.offset) params.set("offset", args.offset);
           if (args.filter) params.set("filter", args.filter);
+          if (args.tags) params.set("tags", Array.isArray(args.tags) ? args.tags.join(",") : args.tags);
+          if (args.created_after) params.set("created_after", args.created_after);
+          if (args.created_before) params.set("created_before", args.created_before);
+          if (args.updated_after) params.set("updated_after", args.updated_after);
+          if (args.updated_before) params.set("updated_before", args.updated_before);
           result = await apiRequest("GET", `/api/v1/notes?${params}`);
           break;
         }
@@ -95,6 +100,12 @@ function createMcpServer() {
             content: args.content,
             tags: args.tags,
             revision_mode: args.revision_mode,
+          });
+          break;
+
+        case "bulk_create_notes":
+          result = await apiRequest("POST", "/api/v1/notes/bulk", {
+            notes: args.notes,
           });
           break;
 
@@ -133,6 +144,103 @@ function createMcpServer() {
 
         case "get_note_links":
           result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
+          break;
+
+        case "export_note": {
+          const exportParams = new URLSearchParams();
+          if (args.include_frontmatter !== undefined) {
+            exportParams.set("include_frontmatter", args.include_frontmatter.toString());
+          }
+          if (args.content) exportParams.set("content", args.content);
+          // Fetch as text since this returns markdown, not JSON
+          const exportResponse = await fetch(`${API_BASE}/api/v1/notes/${args.id}/export?${exportParams}`, {
+            headers: { "Accept": "text/markdown" },
+          });
+          if (!exportResponse.ok) {
+            throw new Error(`Export failed: ${exportResponse.status}`);
+          }
+          result = { markdown: await exportResponse.text() };
+          break;
+        }
+
+        case "list_collections": {
+          const collParams = new URLSearchParams();
+          if (args.parent_id) collParams.set("parent_id", args.parent_id);
+          result = await apiRequest("GET", `/api/v1/collections?${collParams}`);
+          break;
+        }
+
+        case "create_collection":
+          result = await apiRequest("POST", "/api/v1/collections", {
+            name: args.name,
+            description: args.description,
+            parent_id: args.parent_id,
+          });
+          break;
+
+        case "get_collection":
+          result = await apiRequest("GET", `/api/v1/collections/${args.id}`);
+          break;
+
+        case "delete_collection":
+          await apiRequest("DELETE", `/api/v1/collections/${args.id}`);
+          result = { success: true };
+          break;
+
+        case "get_collection_notes": {
+          const noteParams = new URLSearchParams();
+          if (args.limit) noteParams.set("limit", args.limit);
+          if (args.offset) noteParams.set("offset", args.offset);
+          result = await apiRequest("GET", `/api/v1/collections/${args.id}/notes?${noteParams}`);
+          break;
+        }
+
+        case "move_note_to_collection":
+          await apiRequest("POST", `/api/v1/notes/${args.note_id}/move`, {
+            collection_id: args.collection_id || null,
+          });
+          result = { success: true };
+          break;
+
+        case "explore_graph": {
+          const graphParams = new URLSearchParams();
+          if (args.depth) graphParams.set("depth", args.depth);
+          if (args.max_nodes) graphParams.set("max_nodes", args.max_nodes);
+          result = await apiRequest("GET", `/api/v1/graph/${args.id}?${graphParams}`);
+          break;
+        }
+
+        case "list_templates":
+          result = await apiRequest("GET", "/api/v1/templates");
+          break;
+
+        case "create_template":
+          result = await apiRequest("POST", "/api/v1/templates", {
+            name: args.name,
+            description: args.description,
+            content: args.content,
+            format: args.format,
+            default_tags: args.default_tags,
+            collection_id: args.collection_id,
+          });
+          break;
+
+        case "get_template":
+          result = await apiRequest("GET", `/api/v1/templates/${args.id}`);
+          break;
+
+        case "delete_template":
+          await apiRequest("DELETE", `/api/v1/templates/${args.id}`);
+          result = { success: true };
+          break;
+
+        case "instantiate_template":
+          result = await apiRequest("POST", `/api/v1/templates/${args.id}/instantiate`, {
+            variables: args.variables || {},
+            tags: args.tags,
+            collection_id: args.collection_id,
+            revision_mode: args.revision_mode,
+          });
           break;
 
         case "create_job":
@@ -190,13 +298,20 @@ Returns note summaries with titles, snippets, tags, and metadata. Notes are retu
 Use cases:
 - Browse recent notes
 - Get an overview of stored knowledge
-- Filter by starred or archived status`,
+- Filter by starred or archived status
+- Filter by specific tags
+- Filter by date range (created_after/before, updated_after/before)`,
     inputSchema: {
       type: "object",
       properties: {
         limit: { type: "number", description: "Maximum notes to return (default: 50)", default: 50 },
         offset: { type: "number", description: "Pagination offset (default: 0)", default: 0 },
         filter: { type: "string", description: "Filter: 'starred' or 'archived'", enum: ["starred", "archived"] },
+        tags: { type: "array", items: { type: "string" }, description: "Filter by tags (notes must have ALL specified tags)" },
+        created_after: { type: "string", description: "Filter notes created after this date (ISO 8601 format, e.g. '2024-01-01T00:00:00Z')" },
+        created_before: { type: "string", description: "Filter notes created before this date (ISO 8601 format)" },
+        updated_after: { type: "string", description: "Filter notes updated after this date (ISO 8601 format)" },
+        updated_before: { type: "string", description: "Filter notes updated before this date (ISO 8601 format)" },
       },
     },
   },
@@ -230,7 +345,14 @@ Search modes:
 - 'fts': Full-text search only - exact keyword matching
 - 'semantic': Vector similarity only - finds conceptually related content
 
-Returns ranked results with relevance scores. Use semantic mode when looking for conceptually related content even if exact keywords don't match.`,
+Returns ranked results with:
+- note_id: UUID of the matching note
+- score: Relevance score (0.0-1.0)
+- snippet: Text excerpt showing matching content
+- title: Note title (for quick identification)
+- tags: Associated tags (for context)
+
+Use semantic mode when looking for conceptually related content even if exact keywords don't match.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -248,17 +370,52 @@ Returns ranked results with relevance scores. Use semantic mode when looking for
   },
   {
     name: "get_note_links",
-    description: `Get semantic links for a note.
+    description: `Get semantic links and backlinks for a note.
 
-Returns:
+Returns two arrays:
 - outgoing: Notes this note links TO (related concepts it references)
-- incoming: Notes that link TO this note (notes that reference this concept)
+- incoming: BACKLINKS - Notes that link TO this note (other notes that reference this concept)
+
+Each link includes:
+- id: Link UUID
+- from_note_id / to_note_id: The connected notes
+- kind: Link type (e.g., "semantic")
+- score: Similarity score (0.0-1.0)
+
+Use backlinks (incoming) to discover:
+- What notes reference this concept
+- How this note fits into the broader knowledge graph
+- Entry points for exploring related knowledge
 
 Links are automatically created based on semantic similarity (>70%) and are bidirectional.`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "UUID of the note" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "export_note",
+    description: `Export a note as markdown with optional YAML frontmatter.
+
+Perfect for:
+- Backing up notes to local files
+- Sharing notes in standard format
+- Importing into other tools (Obsidian, Notion, etc.)
+
+Options:
+- include_frontmatter: Add YAML metadata (id, title, dates, tags) at top (default: true)
+- content: "revised" (default, AI-enhanced) or "original" (raw input)
+
+Returns the complete markdown text ready to save as a .md file.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the note to export" },
+        include_frontmatter: { type: "boolean", description: "Include YAML metadata header (default: true)", default: true },
+        content: { type: "string", enum: ["revised", "original"], description: "Content version to export (default: revised)", default: "revised" },
       },
       required: ["id"],
     },
@@ -324,6 +481,54 @@ Best practices:
         },
       },
       required: ["content"],
+    },
+  },
+  {
+    name: "bulk_create_notes",
+    description: `Create multiple notes in a single batch operation.
+
+Use this for efficient batch import of multiple notes. All notes are inserted in a single transaction for atomicity.
+
+Each note in the batch:
+- Goes through the same AI enhancement pipeline as create_note
+- Can have its own revision_mode setting
+- Can have its own tags
+
+Limits:
+- Maximum 100 notes per batch
+- Large batches may take longer to process (AI pipeline runs for each)
+
+Returns:
+- ids: Array of created note UUIDs (in same order as input)
+- count: Total notes created
+
+Best practices:
+- Use revision_mode="none" for raw imports that shouldn't be AI-enhanced
+- Use revision_mode="light" for lightly processed content
+- Group similar content types in batches for consistent processing`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        notes: {
+          type: "array",
+          description: "Array of notes to create (max 100)",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "Note content in markdown format" },
+              tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
+              revision_mode: {
+                type: "string",
+                enum: ["full", "light", "none"],
+                description: "AI revision mode for this note",
+                default: "full"
+              }
+            },
+            required: ["content"]
+          }
+        }
+      },
+      required: ["notes"],
     },
   },
   {
@@ -485,6 +690,224 @@ Use this for quick status checks or progress bars when you don't need full job d
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+
+  // ============================================================================
+  // COLLECTIONS (FOLDERS) - Hierarchical organization
+  // Organize notes into nested collections/folders for better structure
+  // ============================================================================
+  {
+    name: "list_collections",
+    description: `List all collections (folders) for organizing notes.
+
+Collections provide hierarchical organization with nested folders.
+Use parent_id to list children of a specific collection, or omit for root collections.
+
+Returns:
+- id: Collection UUID
+- name: Collection name
+- description: Optional description
+- parent_id: Parent collection UUID (null for root)
+- note_count: Number of notes in this collection
+- created_at_utc: Creation timestamp`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        parent_id: { type: "string", description: "Parent collection UUID (omit for root collections)" },
+      },
+    },
+  },
+  {
+    name: "create_collection",
+    description: `Create a new collection (folder) for organizing notes.
+
+Collections can be nested to create a folder hierarchy.
+Set parent_id to create a subcollection within an existing collection.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Collection name" },
+        description: { type: "string", description: "Optional description" },
+        parent_id: { type: "string", description: "Parent collection UUID for nesting" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "get_collection",
+    description: `Get details of a specific collection by ID.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Collection UUID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_collection",
+    description: `Delete a collection.
+
+Notes in the collection will be moved to uncategorized (not deleted).
+Child collections will be moved to root level.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Collection UUID to delete" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_collection_notes",
+    description: `List all notes in a specific collection.
+
+Returns paginated list of note summaries in the collection.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Collection UUID" },
+        limit: { type: "number", description: "Maximum results (default: 50)", default: 50 },
+        offset: { type: "number", description: "Pagination offset", default: 0 },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "move_note_to_collection",
+    description: `Move a note to a different collection.
+
+Set collection_id to move to a specific collection, or omit/null to move to uncategorized.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "Note UUID to move" },
+        collection_id: { type: "string", description: "Target collection UUID (omit for uncategorized)" },
+      },
+      required: ["note_id"],
+    },
+  },
+  {
+    name: "explore_graph",
+    description: `Explore the knowledge graph starting from a note.
+
+Traverses semantic links to discover connected notes up to N hops away.
+Returns a graph structure with:
+- nodes: Discovered notes with id, title, and depth from start
+- edges: Links between discovered notes with score and kind
+
+Use for:
+- Visualizing the neighborhood around a concept
+- Finding clusters of related knowledge
+- Discovering indirect connections between ideas
+
+Parameters:
+- id: Starting note UUID
+- depth: How many hops to traverse (default: 2, max recommended: 3)
+- max_nodes: Limit total nodes returned (default: 50)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Starting note UUID" },
+        depth: { type: "number", description: "Maximum hops to traverse (default: 2)", default: 2 },
+        max_nodes: { type: "number", description: "Maximum nodes to return (default: 50)", default: 50 },
+      },
+      required: ["id"],
+    },
+  },
+
+  // ============================================================================
+  // NOTE TEMPLATES - Reusable note structures
+  // ============================================================================
+  {
+    name: "list_templates",
+    description: `List all available note templates.
+
+Templates are reusable note structures with:
+- Pre-defined content with {{variable}} placeholders
+- Default tags and collection assignment
+- Consistent formatting
+
+Returns all templates sorted by name.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "create_template",
+    description: `Create a new note template.
+
+Templates support {{variable}} placeholders that get replaced during instantiation.
+Example: "# Meeting Notes: {{topic}}\\n\\nDate: {{date}}\\n\\n## Attendees\\n{{attendees}}"
+
+Set default_tags and collection_id to automatically apply them to notes created from this template.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Unique template name" },
+        description: { type: "string", description: "What this template is for" },
+        content: { type: "string", description: "Template content with {{variable}} placeholders" },
+        format: { type: "string", description: "Content format (default: markdown)", default: "markdown" },
+        default_tags: { type: "array", items: { type: "string" }, description: "Tags to apply by default" },
+        collection_id: { type: "string", description: "Default collection for instantiated notes" },
+      },
+      required: ["name", "content"],
+    },
+  },
+  {
+    name: "get_template",
+    description: `Get a template by ID.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Template UUID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_template",
+    description: `Delete a template.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Template UUID to delete" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "instantiate_template",
+    description: `Create a new note from a template.
+
+Substitutes {{variable}} placeholders with provided values.
+The resulting note goes through the full NLP enhancement pipeline.
+
+Example:
+  template content: "# Meeting: {{topic}}\\nDate: {{date}}"
+  variables: { "topic": "Sprint Planning", "date": "2024-01-15" }
+  result: "# Meeting: Sprint Planning\\nDate: 2024-01-15"`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Template UUID to instantiate" },
+        variables: {
+          type: "object",
+          additionalProperties: { type: "string" },
+          description: "Variable substitutions: { 'placeholder': 'value' }",
+        },
+        tags: { type: "array", items: { type: "string" }, description: "Override default tags" },
+        collection_id: { type: "string", description: "Override default collection" },
+        revision_mode: {
+          type: "string",
+          enum: ["full", "light", "none"],
+          description: "AI revision mode (default: full)",
+          default: "full",
+        },
+      },
+      required: ["id"],
     },
   },
 ];

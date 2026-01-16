@@ -213,6 +213,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/openapi.yaml", get(openapi_yaml))
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
+        .route("/api/v1/notes/bulk", post(bulk_create_notes))
         .route(
             "/api/v1/notes/:id",
             get(get_note).patch(update_note).delete(delete_note),
@@ -224,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
             get(get_note_tags).put(set_note_tags),
         )
         .route("/api/v1/notes/:id/links", get(get_note_links))
+        .route("/api/v1/notes/:id/export", get(export_note))
         // Search
         .route("/api/v1/search", get(search_notes))
         // Note status shortcut
@@ -235,6 +237,23 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs/stats", get(queue_stats))
         // Tags
         .route("/api/v1/tags", get(list_tags))
+        // Collections
+        .route("/api/v1/collections", get(list_collections).post(create_collection))
+        .route(
+            "/api/v1/collections/:id",
+            get(get_collection).patch(update_collection).delete(delete_collection),
+        )
+        .route("/api/v1/collections/:id/notes", get(get_collection_notes))
+        .route("/api/v1/notes/:id/move", post(move_note_to_collection))
+        // Graph exploration
+        .route("/api/v1/graph/:id", get(explore_graph))
+        // Templates
+        .route("/api/v1/templates", get(list_templates).post(create_template))
+        .route(
+            "/api/v1/templates/:id",
+            get(get_template).patch(update_template).delete(delete_template),
+        )
+        .route("/api/v1/templates/:id/instantiate", post(instantiate_template))
         // OAuth2 endpoints
         .route(
             "/.well-known/oauth-authorization-server",
@@ -297,12 +316,30 @@ struct ListNotesQuery {
     sort_by: Option<String>,
     sort_order: Option<String>,
     collection_id: Option<Uuid>,
+    /// Filter by tags (comma-separated)
+    tags: Option<String>,
+    /// Filter: notes created after this timestamp (ISO 8601)
+    created_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes created before this timestamp (ISO 8601)
+    created_before: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated after this timestamp (ISO 8601)
+    updated_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated before this timestamp (ISO 8601)
+    updated_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn list_notes(
     State(state): State<AppState>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Parse comma-separated tags into Vec
+    let tags = query.tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
     let req = ListNotesRequest {
         limit: query.limit,
         offset: query.offset,
@@ -310,7 +347,11 @@ async fn list_notes(
         sort_by: query.sort_by,
         sort_order: query.sort_order,
         collection_id: query.collection_id,
-        tags: None,
+        tags,
+        created_after: query.created_after,
+        created_before: query.created_before,
+        updated_after: query.updated_after,
+        updated_before: query.updated_before,
     };
 
     let response = state.db.notes.list(req).await?;
@@ -365,6 +406,77 @@ async fn create_note(
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": note_id })),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct BulkCreateNoteItem {
+    content: String,
+    tags: Option<Vec<String>>,
+    /// AI revision mode: "full" (default), "light", or "none"
+    #[serde(default)]
+    revision_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BulkCreateNotesBody {
+    notes: Vec<BulkCreateNoteItem>,
+}
+
+async fn bulk_create_notes(
+    State(state): State<AppState>,
+    Json(body): Json<BulkCreateNotesBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.notes.is_empty() {
+        return Ok((StatusCode::OK, Json(serde_json::json!({ "ids": [], "count": 0 }))));
+    }
+
+    if body.notes.len() > 100 {
+        return Err(ApiError::BadRequest("Maximum 100 notes per batch".to_string()));
+    }
+
+    // Convert to CreateNoteRequest
+    let requests: Vec<CreateNoteRequest> = body
+        .notes
+        .iter()
+        .map(|item| CreateNoteRequest {
+            content: item.content.clone(),
+            format: "markdown".to_string(),
+            source: "api_bulk".to_string(),
+            collection_id: None,
+            tags: item.tags.clone(),
+        })
+        .collect();
+
+    // Bulk insert all notes
+    let ids = state.db.notes.insert_bulk(requests.clone()).await?;
+
+    // Queue NLP pipeline for each note based on revision mode
+    for (i, note_id) in ids.iter().enumerate() {
+        let revision_mode = match body.notes[i].revision_mode.as_deref() {
+            Some("light") => RevisionMode::Light,
+            Some("none") => RevisionMode::None,
+            _ => RevisionMode::Full,
+        };
+
+        // If mode is "none", copy original to revised
+        if revision_mode == RevisionMode::None {
+            let _ = state
+                .db
+                .notes
+                .update_revised(*note_id, &requests[i].content, Some("Original preserved (no AI revision)"))
+                .await;
+        }
+
+        queue_nlp_pipeline(&state.db, *note_id, revision_mode).await;
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "ids": ids,
+            "count": ids.len()
+        })),
     ))
 }
 
@@ -557,6 +669,324 @@ async fn list_tags(State(state): State<AppState>) -> Result<impl IntoResponse, A
 }
 
 // =============================================================================
+// COLLECTION HANDLERS
+// =============================================================================
+
+use matric_db::CollectionRepository;
+
+#[derive(Debug, Deserialize)]
+struct ListCollectionsQuery {
+    parent_id: Option<Uuid>,
+}
+
+async fn list_collections(
+    State(state): State<AppState>,
+    Query(query): Query<ListCollectionsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let collections = state.db.collections.list(query.parent_id).await?;
+    Ok(Json(collections))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateCollectionBody {
+    name: String,
+    description: Option<String>,
+    parent_id: Option<Uuid>,
+}
+
+async fn create_collection(
+    State(state): State<AppState>,
+    Json(body): Json<CreateCollectionBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state
+        .db
+        .collections
+        .create(&body.name, body.description.as_deref(), body.parent_id)
+        .await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+async fn get_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let collection = state
+        .db
+        .collections
+        .get(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Collection {} not found", id)))?;
+    Ok(Json(collection))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateCollectionBody {
+    name: String,
+    description: Option<String>,
+}
+
+async fn update_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateCollectionBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .db
+        .collections
+        .update(id, &body.name, body.description.as_deref())
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.collections.delete(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct CollectionNotesQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn get_collection_notes(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<CollectionNotesQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+    let notes = state.db.collections.get_notes(id, limit, offset).await?;
+    Ok(Json(serde_json::json!({ "notes": notes, "collection_id": id })))
+}
+
+#[derive(Debug, Deserialize)]
+struct MoveNoteBody {
+    collection_id: Option<Uuid>,
+}
+
+async fn move_note_to_collection(
+    State(state): State<AppState>,
+    Path(note_id): Path<Uuid>,
+    Json(body): Json<MoveNoteBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .db
+        .collections
+        .move_note(note_id, body.collection_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// =============================================================================
+// GRAPH EXPLORATION HANDLERS
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct GraphQuery {
+    /// Maximum depth to traverse (default: 2)
+    #[serde(default = "default_depth")]
+    depth: i32,
+    /// Maximum nodes to return (default: 50)
+    #[serde(default = "default_max_nodes")]
+    max_nodes: i64,
+}
+
+fn default_depth() -> i32 {
+    2
+}
+
+fn default_max_nodes() -> i64 {
+    50
+}
+
+async fn explore_graph(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<GraphQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .db
+        .links
+        .traverse_graph(id, query.depth, query.max_nodes)
+        .await?;
+    Ok(Json(result))
+}
+
+// =============================================================================
+// TEMPLATE HANDLERS
+// =============================================================================
+
+async fn list_templates(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::TemplateRepository;
+    let templates = state.db.templates.list().await?;
+    Ok(Json(templates))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTemplateBody {
+    name: String,
+    description: Option<String>,
+    content: String,
+    format: Option<String>,
+    default_tags: Option<Vec<String>>,
+    collection_id: Option<Uuid>,
+}
+
+async fn create_template(
+    State(state): State<AppState>,
+    Json(body): Json<CreateTemplateBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{CreateTemplateRequest, TemplateRepository};
+
+    let id = state
+        .db
+        .templates
+        .create(CreateTemplateRequest {
+            name: body.name,
+            description: body.description,
+            content: body.content,
+            format: body.format,
+            default_tags: body.default_tags,
+            collection_id: body.collection_id,
+        })
+        .await?;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+async fn get_template(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::TemplateRepository;
+
+    let template = state
+        .db
+        .templates
+        .get(id)
+        .await?
+        .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
+
+    Ok(Json(template))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateTemplateBody {
+    name: Option<String>,
+    description: Option<String>,
+    content: Option<String>,
+    default_tags: Option<Vec<String>>,
+    collection_id: Option<Option<Uuid>>,
+}
+
+async fn update_template(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateTemplateBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{TemplateRepository, UpdateTemplateRequest};
+
+    state
+        .db
+        .templates
+        .update(
+            id,
+            UpdateTemplateRequest {
+                name: body.name,
+                description: body.description,
+                content: body.content,
+                default_tags: body.default_tags,
+                collection_id: body.collection_id,
+            },
+        )
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_template(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::TemplateRepository;
+    state.db.templates.delete(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct InstantiateTemplateBody {
+    /// Variables to substitute in the template (placeholder -> value)
+    #[serde(default)]
+    variables: std::collections::HashMap<String, String>,
+    /// Override default tags
+    tags: Option<Vec<String>>,
+    /// Override default collection
+    collection_id: Option<Uuid>,
+    /// AI revision mode: "full" (default), "light", or "none"
+    #[serde(default)]
+    revision_mode: Option<String>,
+}
+
+async fn instantiate_template(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<InstantiateTemplateBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{CreateNoteRequest, NoteRepository, TemplateRepository};
+
+    // Get the template
+    let template = state
+        .db
+        .templates
+        .get(id)
+        .await?
+        .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
+
+    // Substitute variables in the content
+    let mut content = template.content.clone();
+    for (key, value) in &body.variables {
+        content = content.replace(&format!("{{{{{}}}}}", key), value);
+    }
+
+    // Use provided tags or template defaults
+    let tags = body.tags.or(if template.default_tags.is_empty() {
+        None
+    } else {
+        Some(template.default_tags.clone())
+    });
+
+    // Use provided collection_id or template default
+    let collection_id = body.collection_id.or(template.collection_id);
+
+    // Create the note
+    let note_id = state
+        .db
+        .notes
+        .insert(CreateNoteRequest {
+            content,
+            format: template.format.clone(),
+            source: "template".to_string(),
+            collection_id,
+            tags,
+        })
+        .await?;
+
+    // Parse and queue NLP pipeline
+    let revision_mode = match body.revision_mode.as_deref() {
+        Some("none") => RevisionMode::None,
+        Some("light") => RevisionMode::Light,
+        _ => RevisionMode::Full,
+    };
+    queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
+
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": note_id }))))
+}
+
+// =============================================================================
 // LINK HANDLERS
 // =============================================================================
 
@@ -576,15 +1006,113 @@ async fn get_note_links(
 }
 
 // =============================================================================
+// EXPORT HANDLERS
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ExportQuery {
+    /// Include YAML frontmatter with metadata (default: true)
+    #[serde(default = "default_true")]
+    include_frontmatter: bool,
+    /// Content version: "revised" (default) or "original"
+    #[serde(default)]
+    content: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn export_note(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<ExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let note_full = state.db.notes.fetch(id).await?;
+    let tags = state.db.tags.get_for_note(id).await?;
+
+    let mut output = String::new();
+
+    // Add YAML frontmatter if requested
+    if query.include_frontmatter {
+        output.push_str("---\n");
+        output.push_str(&format!("id: {}\n", note_full.note.id));
+        if let Some(ref title) = note_full.note.title {
+            // Escape title for YAML
+            let escaped_title = title.replace('\"', "\\\"");
+            output.push_str(&format!("title: \"{}\"\n", escaped_title));
+        }
+        output.push_str(&format!("created: {}\n", note_full.note.created_at_utc.to_rfc3339()));
+        output.push_str(&format!("updated: {}\n", note_full.note.updated_at_utc.to_rfc3339()));
+        if note_full.note.starred {
+            output.push_str("starred: true\n");
+        }
+        if note_full.note.archived {
+            output.push_str("archived: true\n");
+        }
+        if !tags.is_empty() {
+            output.push_str("tags:\n");
+            for tag in &tags {
+                output.push_str(&format!("  - {}\n", tag));
+            }
+        }
+        if let Some(collection_id) = note_full.note.collection_id {
+            output.push_str(&format!("collection_id: {}\n", collection_id));
+        }
+        output.push_str("---\n\n");
+    }
+
+    // Add content (revised by default, original if requested)
+    let use_original = query.content.as_deref() == Some("original");
+    let content = if use_original || note_full.revised.content.is_empty() {
+        &note_full.original.content
+    } else {
+        &note_full.revised.content
+    };
+    output.push_str(content);
+
+    // Return as markdown with appropriate headers
+    let filename = note_full
+        .note
+        .title
+        .as_ref()
+        .map(|t| t.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"))
+        .unwrap_or_else(|| id.to_string());
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "text/markdown; charset=utf-8".parse().unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}.md\"", filename)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((StatusCode::OK, headers, output))
+}
+
+// =============================================================================
 // SEARCH HANDLERS
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Date fields reserved for future search filtering
 struct SearchQuery {
     q: String,
     limit: Option<i64>,
     filters: Option<String>,
     mode: Option<String>,
+    /// Filter: notes created after this timestamp (ISO 8601)
+    created_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes created before this timestamp (ISO 8601)
+    created_before: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated after this timestamp (ISO 8601)
+    updated_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated before this timestamp (ISO 8601)
+    updated_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize)]

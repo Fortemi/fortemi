@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+pub mod collections;
 pub mod embeddings;
 pub mod jobs;
 pub mod links;
@@ -38,19 +39,22 @@ pub mod oauth;
 pub mod pool;
 pub mod search;
 pub mod tags;
+pub mod templates;
 
 // Re-export core types
 pub use matric_core::*;
 
 // Re-export repository implementations
+pub use collections::PgCollectionRepository;
 pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
 pub use jobs::PgJobRepository;
-pub use links::PgLinkRepository;
+pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};
 pub use notes::PgNoteRepository;
 pub use oauth::PgOAuthRepository;
 pub use pool::{create_pool, create_pool_with_config, PoolConfig};
 pub use search::PgFtsSearch;
 pub use tags::PgTagRepository;
+pub use templates::PgTemplateRepository;
 
 /// Combined database context with all repositories.
 pub struct Database {
@@ -64,12 +68,16 @@ pub struct Database {
     pub links: PgLinkRepository,
     /// Tag repository for tag management.
     pub tags: PgTagRepository,
+    /// Collection repository for folder hierarchy.
+    pub collections: PgCollectionRepository,
     /// Job repository for background processing.
     pub jobs: PgJobRepository,
     /// Full-text search provider.
     pub search: PgFtsSearch,
     /// OAuth2 and API key repository.
     pub oauth: PgOAuthRepository,
+    /// Note template repository.
+    pub templates: PgTemplateRepository,
 }
 
 impl Database {
@@ -80,9 +88,11 @@ impl Database {
             embeddings: PgEmbeddingRepository::new(pool.clone()),
             links: PgLinkRepository::new(pool.clone()),
             tags: PgTagRepository::new(pool.clone()),
+            collections: PgCollectionRepository::new(pool.clone()),
             jobs: PgJobRepository::new(pool.clone()),
             search: PgFtsSearch::new(pool.clone()),
             oauth: PgOAuthRepository::new(pool.clone()),
+            templates: PgTemplateRepository::new(pool.clone()),
             pool,
         }
     }

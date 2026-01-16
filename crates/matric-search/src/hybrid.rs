@@ -376,11 +376,15 @@ mod tests {
                 note_id: Uuid::new_v4(),
                 score: 1.0,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
             SearchHit {
                 note_id: Uuid::new_v4(),
                 score: 0.5,
                 snippet: None,
+                title: None,
+                tags: Vec::new(),
             },
         ];
 

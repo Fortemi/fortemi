@@ -32,6 +32,14 @@ pub struct ListNotesRequest {
     pub collection_id: Option<Uuid>,
     /// Filter by tags
     pub tags: Option<Vec<String>>,
+    /// Filter: notes created after this timestamp (ISO 8601)
+    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes created before this timestamp (ISO 8601)
+    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated after this timestamp (ISO 8601)
+    pub updated_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes updated before this timestamp (ISO 8601)
+    pub updated_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Response for listing notes.
@@ -63,6 +71,9 @@ pub struct CreateNoteRequest {
 pub trait NoteRepository: Send + Sync {
     /// Insert a new note.
     async fn insert(&self, req: CreateNoteRequest) -> Result<Uuid>;
+
+    /// Insert multiple notes in a single transaction.
+    async fn insert_bulk(&self, notes: Vec<CreateNoteRequest>) -> Result<Vec<Uuid>>;
 
     /// Fetch a full note by ID.
     async fn fetch(&self, id: Uuid) -> Result<NoteFull>;
@@ -186,6 +197,45 @@ pub trait TagRepository: Send + Sync {
 
     /// Set tags for a note (replace all).
     async fn set_for_note(&self, note_id: Uuid, tags: Vec<String>, source: &str) -> Result<()>;
+}
+
+// =============================================================================
+// COLLECTION REPOSITORY TRAITS
+// =============================================================================
+
+/// Repository for collection (folder) operations.
+#[async_trait]
+pub trait CollectionRepository: Send + Sync {
+    /// Create a new collection.
+    async fn create(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        parent_id: Option<Uuid>,
+    ) -> Result<Uuid>;
+
+    /// Get a collection by ID.
+    async fn get(&self, id: Uuid) -> Result<Option<crate::Collection>>;
+
+    /// List all collections (optionally filtered by parent).
+    async fn list(&self, parent_id: Option<Uuid>) -> Result<Vec<crate::Collection>>;
+
+    /// Update a collection.
+    async fn update(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<()>;
+
+    /// Delete a collection (moves notes to uncategorized).
+    async fn delete(&self, id: Uuid) -> Result<()>;
+
+    /// Get notes in a collection.
+    async fn get_notes(&self, id: Uuid, limit: i64, offset: i64) -> Result<Vec<crate::NoteSummary>>;
+
+    /// Move a note to a collection.
+    async fn move_note(&self, note_id: Uuid, collection_id: Option<Uuid>) -> Result<()>;
 }
 
 // =============================================================================
@@ -391,4 +441,51 @@ pub trait ContentProcessor: Send + Sync {
 
     /// Extract tags from content.
     async fn extract_tags(&self, content: &str) -> Result<Vec<String>>;
+}
+
+// =============================================================================
+// TEMPLATE REPOSITORY TRAITS
+// =============================================================================
+
+/// Request for creating a new template.
+#[derive(Debug, Clone)]
+pub struct CreateTemplateRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub content: String,
+    pub format: Option<String>,
+    pub default_tags: Option<Vec<String>>,
+    pub collection_id: Option<Uuid>,
+}
+
+/// Request for updating a template.
+#[derive(Debug, Clone, Default)]
+pub struct UpdateTemplateRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub content: Option<String>,
+    pub default_tags: Option<Vec<String>>,
+    pub collection_id: Option<Option<Uuid>>,
+}
+
+/// Repository for note template operations.
+#[async_trait]
+pub trait TemplateRepository: Send + Sync {
+    /// Create a new template.
+    async fn create(&self, req: CreateTemplateRequest) -> Result<Uuid>;
+
+    /// Get a template by ID.
+    async fn get(&self, id: Uuid) -> Result<Option<crate::NoteTemplate>>;
+
+    /// Get a template by name.
+    async fn get_by_name(&self, name: &str) -> Result<Option<crate::NoteTemplate>>;
+
+    /// List all templates.
+    async fn list(&self) -> Result<Vec<crate::NoteTemplate>>;
+
+    /// Update a template.
+    async fn update(&self, id: Uuid, req: UpdateTemplateRequest) -> Result<()>;
+
+    /// Delete a template.
+    async fn delete(&self, id: Uuid) -> Result<()>;
 }

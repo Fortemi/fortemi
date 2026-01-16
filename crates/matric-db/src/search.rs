@@ -33,7 +33,12 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
-                   substring(nrc.content for 200) AS snippet
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
             WHERE nrc.tsv @@ plainto_tsquery('english', $1)
@@ -53,10 +58,20 @@ impl PgFtsSearch {
 
         let results = rows
             .into_iter()
-            .map(|row| SearchHit {
-                note_id: row.get("note_id"),
-                score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
-                snippet: row.get("snippet"),
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
             })
             .collect();
 
@@ -85,7 +100,12 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
-                   substring(nrc.content for 200) AS snippet
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
             WHERE nrc.tsv @@ plainto_tsquery('english', $1)
@@ -124,10 +144,20 @@ impl PgFtsSearch {
 
         let results = rows
             .into_iter()
-            .map(|row| SearchHit {
-                note_id: row.get("note_id"),
-                score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
-                snippet: row.get("snippet"),
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
             })
             .collect();
 
