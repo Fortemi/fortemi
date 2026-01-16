@@ -219,13 +219,39 @@ export async function runLLMEvaluations(
 
   const results: Record<string, LLMEvalResult> = {};
 
-  // Determine judge model - prefer qwen2.5:14b for stability, fallback to qwen2.5:32b
+  // Determine judge model - prefer larger models for better quality judgments
   const allModels = await listOllamaModels();
-  const judgeModelName = allModels.find(m => m.name === 'qwen2.5:14b')?.name
-    || allModels.find(m => m.name === 'qwen2.5:32b')?.name;
+
+  // Try these models in order of preference (larger = better for judging)
+  const judgePreference = [
+    'qwen2.5:32b',
+    'qwen2.5:14b',
+    'qwen2.5-coder:14b',
+    'qwen2.5-coder:7b',
+    'llama3.1:70b',
+    'llama3.1:8b',
+    'mistral:latest',
+    'gemma2:9b',
+  ];
+
+  let judgeModelName: string | undefined;
+  for (const candidate of judgePreference) {
+    if (allModels.find(m => m.name === candidate)) {
+      judgeModelName = candidate;
+      break;
+    }
+  }
+
+  // Fallback: use any qwen model > 7b
+  if (!judgeModelName) {
+    judgeModelName = allModels.find(m =>
+      m.name.includes('qwen') && m.size > 4 * 1024 * 1024 * 1024
+    )?.name;
+  }
 
   if (!judgeModelName) {
-    console.error('No suitable judge model found (qwen2.5:32b or qwen2.5:14b). Skipping LLM evaluations.');
+    console.error('No suitable judge model found. Need a capable LLM (qwen2.5:14b+, llama3.1:8b+, etc.).');
+    console.error('Available models:', allModels.map(m => m.name).join(', '));
     return results;
   }
 

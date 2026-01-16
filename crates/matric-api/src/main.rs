@@ -23,12 +23,12 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
+use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, ClientRegistrationRequest, CreateApiKeyRequest,
     CreateNoteRequest, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
     OAuthError, RevisionMode, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
-use matric_core::EmbeddingBackend;
 use matric_db::Database;
 
 // =============================================================================
@@ -176,17 +176,28 @@ async fn main() -> anyhow::Result<()> {
 
         // Register handlers - create separate backend instances
         worker
-            .register_handler(AiRevisionHandler::new(db.clone(), OllamaBackend::from_env()))
+            .register_handler(AiRevisionHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+            ))
             .await;
         worker
             .register_handler(EmbeddingHandler::new(db.clone(), OllamaBackend::from_env()))
             .await;
         worker
-            .register_handler(TitleGenerationHandler::new(db.clone(), OllamaBackend::from_env()))
+            .register_handler(TitleGenerationHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+            ))
             .await;
-        worker.register_handler(LinkingHandler::new(db.clone())).await;
         worker
-            .register_handler(ContextUpdateHandler::new(db.clone(), OllamaBackend::from_env()))
+            .register_handler(LinkingHandler::new(db.clone()))
+            .await;
+        worker
+            .register_handler(ContextUpdateHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+            ))
             .await;
 
         let handle = worker.start();
@@ -238,22 +249,35 @@ async fn main() -> anyhow::Result<()> {
         // Tags
         .route("/api/v1/tags", get(list_tags))
         // Collections
-        .route("/api/v1/collections", get(list_collections).post(create_collection))
+        .route(
+            "/api/v1/collections",
+            get(list_collections).post(create_collection),
+        )
         .route(
             "/api/v1/collections/:id",
-            get(get_collection).patch(update_collection).delete(delete_collection),
+            get(get_collection)
+                .patch(update_collection)
+                .delete(delete_collection),
         )
         .route("/api/v1/collections/:id/notes", get(get_collection_notes))
         .route("/api/v1/notes/:id/move", post(move_note_to_collection))
         // Graph exploration
         .route("/api/v1/graph/:id", get(explore_graph))
         // Templates
-        .route("/api/v1/templates", get(list_templates).post(create_template))
+        .route(
+            "/api/v1/templates",
+            get(list_templates).post(create_template),
+        )
         .route(
             "/api/v1/templates/:id",
-            get(get_template).patch(update_template).delete(delete_template),
+            get(get_template)
+                .patch(update_template)
+                .delete(delete_template),
         )
-        .route("/api/v1/templates/:id/instantiate", post(instantiate_template))
+        .route(
+            "/api/v1/templates/:id/instantiate",
+            post(instantiate_template),
+        )
         // OAuth2 endpoints
         .route(
             "/.well-known/oauth-authorization-server",
@@ -396,7 +420,11 @@ async fn create_note(
         let _ = state
             .db
             .notes
-            .update_revised(note_id, &req.content, Some("Original preserved (no AI revision)"))
+            .update_revised(
+                note_id,
+                &req.content,
+                Some("Original preserved (no AI revision)"),
+            )
             .await;
     }
 
@@ -428,11 +456,16 @@ async fn bulk_create_notes(
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.notes.is_empty() {
-        return Ok((StatusCode::OK, Json(serde_json::json!({ "ids": [], "count": 0 }))));
+        return Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "ids": [], "count": 0 })),
+        ));
     }
 
     if body.notes.len() > 100 {
-        return Err(ApiError::BadRequest("Maximum 100 notes per batch".to_string()));
+        return Err(ApiError::BadRequest(
+            "Maximum 100 notes per batch".to_string(),
+        ));
     }
 
     // Convert to CreateNoteRequest
@@ -464,7 +497,11 @@ async fn bulk_create_notes(
             let _ = state
                 .db
                 .notes
-                .update_revised(*note_id, &requests[i].content, Some("Original preserved (no AI revision)"))
+                .update_revised(
+                    *note_id,
+                    &requests[i].content,
+                    Some("Original preserved (no AI revision)"),
+                )
                 .await;
         }
 
@@ -760,7 +797,9 @@ async fn get_collection_notes(
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
     let notes = state.db.collections.get_notes(id, limit, offset).await?;
-    Ok(Json(serde_json::json!({ "notes": notes, "collection_id": id })))
+    Ok(Json(
+        serde_json::json!({ "notes": notes, "collection_id": id }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -983,7 +1022,10 @@ async fn instantiate_template(
     };
     queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": note_id }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": note_id })),
+    ))
 }
 
 // =============================================================================
@@ -1042,8 +1084,14 @@ async fn export_note(
             let escaped_title = title.replace('\"', "\\\"");
             output.push_str(&format!("title: \"{}\"\n", escaped_title));
         }
-        output.push_str(&format!("created: {}\n", note_full.note.created_at_utc.to_rfc3339()));
-        output.push_str(&format!("updated: {}\n", note_full.note.updated_at_utc.to_rfc3339()));
+        output.push_str(&format!(
+            "created: {}\n",
+            note_full.note.created_at_utc.to_rfc3339()
+        ));
+        output.push_str(&format!(
+            "updated: {}\n",
+            note_full.note.updated_at_utc.to_rfc3339()
+        ));
         if note_full.note.starred {
             output.push_str("starred: true\n");
         }
@@ -1138,7 +1186,7 @@ async fn search_notes(
     let query_embedding = if config.semantic_weight > 0.0 && !query.q.trim().is_empty() {
         let backend = OllamaBackend::from_env();
         backend
-            .embed_texts(&[query.q.clone()])
+            .embed_texts(std::slice::from_ref(&query.q))
             .await
             .ok()
             .and_then(|vecs| vecs.into_iter().next())

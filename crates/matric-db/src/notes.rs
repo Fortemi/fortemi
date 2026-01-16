@@ -387,19 +387,19 @@ impl NoteRepository for PgNoteRepository {
         }
 
         // Add date filters to count query
-        if let Some(_) = &req.created_after {
+        if req.created_after.is_some() {
             count_query.push_str(&format!("AND n.created_at_utc >= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.created_before {
+        if req.created_before.is_some() {
             count_query.push_str(&format!("AND n.created_at_utc <= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.updated_after {
+        if req.updated_after.is_some() {
             count_query.push_str(&format!("AND n.updated_at_utc >= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.updated_before {
+        if req.updated_before.is_some() {
             count_query.push_str(&format!("AND n.updated_at_utc <= ${} ", param_idx));
             // param_idx += 1; // Not needed for count query
         }
@@ -412,10 +412,18 @@ impl NoteRepository for PgNoteRepository {
                     q = q.bind(tag);
                 }
             }
-            if let Some(dt) = &req.created_after { q = q.bind(dt); }
-            if let Some(dt) = &req.created_before { q = q.bind(dt); }
-            if let Some(dt) = &req.updated_after { q = q.bind(dt); }
-            if let Some(dt) = &req.updated_before { q = q.bind(dt); }
+            if let Some(dt) = &req.created_after {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.created_before {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.updated_after {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.updated_before {
+                q = q.bind(dt);
+            }
             q.fetch_one(&self.pool).await.map_err(Error::Database)?
         };
 
@@ -452,19 +460,19 @@ impl NoteRepository for PgNoteRepository {
         }
 
         // Add date filters to notes query
-        if let Some(_) = &req.created_after {
+        if req.created_after.is_some() {
             notes_query.push_str(&format!("AND n.created_at_utc >= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.created_before {
+        if req.created_before.is_some() {
             notes_query.push_str(&format!("AND n.created_at_utc <= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.updated_after {
+        if req.updated_after.is_some() {
             notes_query.push_str(&format!("AND n.updated_at_utc >= ${} ", param_idx));
             param_idx += 1;
         }
-        if let Some(_) = &req.updated_before {
+        if req.updated_before.is_some() {
             notes_query.push_str(&format!("AND n.updated_at_utc <= ${} ", param_idx));
             param_idx += 1;
         }
@@ -472,7 +480,9 @@ impl NoteRepository for PgNoteRepository {
         // Add order and pagination
         notes_query.push_str(&format!(
             "ORDER BY {} LIMIT ${} OFFSET ${}",
-            order_clause, param_idx, param_idx + 1
+            order_clause,
+            param_idx,
+            param_idx + 1
         ));
 
         // Execute notes query
@@ -483,10 +493,18 @@ impl NoteRepository for PgNoteRepository {
                     q = q.bind(tag);
                 }
             }
-            if let Some(dt) = &req.created_after { q = q.bind(dt); }
-            if let Some(dt) = &req.created_before { q = q.bind(dt); }
-            if let Some(dt) = &req.updated_after { q = q.bind(dt); }
-            if let Some(dt) = &req.updated_before { q = q.bind(dt); }
+            if let Some(dt) = &req.created_after {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.created_before {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.updated_after {
+                q = q.bind(dt);
+            }
+            if let Some(dt) = &req.updated_before {
+                q = q.bind(dt);
+            }
             q = q.bind(limit).bind(offset);
             q.fetch_all(&self.pool).await.map_err(Error::Database)?
         };

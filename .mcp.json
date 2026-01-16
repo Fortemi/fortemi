@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "matric-memory": {
+      "command": "node",
+      "args": ["./mcp-server/index.js"],
+      "env": {
+        "MATRIC_MEMORY_URL": "http://localhost:3000",
+        "MATRIC_MEMORY_API_KEY": ""
+      }
+    }
+  }
+}

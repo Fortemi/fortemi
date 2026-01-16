@@ -141,8 +141,7 @@ Guidelines:
 - Add value through context, not just length
 
 Output the enhanced note in clean markdown format. Do not add any labels, markers, or metadata."#,
-                    original_content,
-                    related_context
+                    original_content, related_context
                 );
                 (prompt, count)
             }
@@ -424,8 +423,7 @@ Examples of good titles:
 - "Python Data Processing Workflow"
 
 Generate only the title, no quotes, no explanations."#,
-            content_preview,
-            related_context
+            content_preview, related_context
         );
 
         let title = match self.backend.generate(&prompt).await {
@@ -436,7 +434,12 @@ Generate only the title, no quotes, no explanations."#,
                     .trim_matches('\'')
                     .replace('\n', " ");
                 // Take first 80 chars max
-                cleaned.chars().take(80).collect::<String>().trim().to_string()
+                cleaned
+                    .chars()
+                    .take(80)
+                    .collect::<String>()
+                    .trim()
+                    .to_string()
             }
             Err(e) => return JobResult::Failed(format!("Title generation failed: {}", e)),
         };
@@ -585,15 +588,23 @@ impl JobHandler for ContextUpdateHandler {
 
         // Get outgoing semantic links with high scores
         let links = match self.db.links.get_outgoing(note_id).await {
-            Ok(l) => l.into_iter().filter(|l| l.score > 0.75).take(3).collect::<Vec<_>>(),
+            Ok(l) => l
+                .into_iter()
+                .filter(|l| l.score > 0.75)
+                .take(3)
+                .collect::<Vec<_>>(),
             Err(e) => {
                 warn!(error = %e, "Failed to get links");
-                return JobResult::Success(Some(serde_json::json!({"updated": false, "reason": "no_links"})));
+                return JobResult::Success(Some(
+                    serde_json::json!({"updated": false, "reason": "no_links"}),
+                ));
             }
         };
 
         if links.is_empty() {
-            return JobResult::Success(Some(serde_json::json!({"updated": false, "reason": "no_high_quality_links"})));
+            return JobResult::Success(Some(
+                serde_json::json!({"updated": false, "reason": "no_high_quality_links"}),
+            ));
         }
 
         ctx.report_progress(40, Some("Fetching linked content..."));
@@ -612,7 +623,9 @@ impl JobHandler for ContextUpdateHandler {
 
         // Skip if already has Related Context section
         if current_content.contains("## Related Context") {
-            return JobResult::Success(Some(serde_json::json!({"updated": false, "reason": "already_has_context"})));
+            return JobResult::Success(Some(
+                serde_json::json!({"updated": false, "reason": "already_has_context"}),
+            ));
         }
 
         // Build context from linked notes
@@ -635,7 +648,9 @@ impl JobHandler for ContextUpdateHandler {
         }
 
         if linked_context.is_empty() {
-            return JobResult::Success(Some(serde_json::json!({"updated": false, "reason": "no_linked_content"})));
+            return JobResult::Success(Some(
+                serde_json::json!({"updated": false, "reason": "no_linked_content"}),
+            ));
         }
 
         ctx.report_progress(60, Some("Generating context section..."));
@@ -670,7 +685,11 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         if let Err(e) = self
             .db
             .notes
-            .update_revised(note_id, &updated_content, Some("Added related context section"))
+            .update_revised(
+                note_id,
+                &updated_content,
+                Some("Added related context section"),
+            )
             .await
         {
             return JobResult::Failed(format!("Failed to save: {}", e));

@@ -183,7 +183,10 @@ impl TemplateRepository for PgTemplateRepository {
             q = q.bind(*collection_id);
         }
 
-        q.bind(id).execute(&self.pool).await.map_err(Error::Database)?;
+        q.bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         Ok(())
     }

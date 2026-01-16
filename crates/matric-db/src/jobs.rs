@@ -417,7 +417,9 @@ impl JobRepository for PgJobRepository {
              {}
              ORDER BY created_at DESC
              LIMIT ${} OFFSET ${}",
-            where_clause, param_idx, param_idx + 1
+            where_clause,
+            param_idx,
+            param_idx + 1
         );
 
         let mut q = sqlx::query(&query);

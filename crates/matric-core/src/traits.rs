@@ -221,18 +221,14 @@ pub trait CollectionRepository: Send + Sync {
     async fn list(&self, parent_id: Option<Uuid>) -> Result<Vec<crate::Collection>>;
 
     /// Update a collection.
-    async fn update(
-        &self,
-        id: Uuid,
-        name: &str,
-        description: Option<&str>,
-    ) -> Result<()>;
+    async fn update(&self, id: Uuid, name: &str, description: Option<&str>) -> Result<()>;
 
     /// Delete a collection (moves notes to uncategorized).
     async fn delete(&self, id: Uuid) -> Result<()>;
 
     /// Get notes in a collection.
-    async fn get_notes(&self, id: Uuid, limit: i64, offset: i64) -> Result<Vec<crate::NoteSummary>>;
+    async fn get_notes(&self, id: Uuid, limit: i64, offset: i64)
+        -> Result<Vec<crate::NoteSummary>>;
 
     /// Move a note to a collection.
     async fn move_note(&self, note_id: Uuid, collection_id: Option<Uuid>) -> Result<()>;
