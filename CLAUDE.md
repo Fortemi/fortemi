@@ -14,15 +14,31 @@ AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipe
 
 ## Deployment
 
+### CRITICAL: Always Backup Before Migrations
+
+**Before running ANY migration, create a database backup:**
+
+```bash
+# Backup database before migration
+pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup was created and has content
+ls -lh backup_*.sql | tail -1
+```
+
+This is non-negotiable. Migrations can fail or have unintended effects. Always have a restore point.
+
 ### IMPORTANT: Always Run Migrations Before Restarting
 
 Schema changes require migrations to be applied BEFORE the new code runs:
 
 ```bash
-# 1. Apply any new migrations
+# 1. Backup first (see above)
+
+# 2. Apply any new migrations
 PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_migration>.sql
 
-# 2. Then restart the service
+# 3. Then restart the service
 sudo systemctl restart matric-api
 ```
 
