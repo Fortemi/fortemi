@@ -4655,20 +4655,32 @@ async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse,
     let recommended_ram_gb = 4.0 + (total_vector_bytes as f64 / 1_073_741_824.0); // 4GB base + vectors
     let min_ram_gb = 2.0 + (total_vector_bytes as f64 / 1_073_741_824.0);
 
+    let total_embeddings: i32 = set_infos.iter().map(|s| s.embedding_count).sum();
+    let dimension = set_infos.first().map(|s| s.dimension).unwrap_or(768);
+
     let recommendations = HardwareRecommendations {
         min_inference_ram_gb: min_ram_gb,
         recommended_ram_gb,
         gpu_vram_needed_gb: embedding_model_size_gb + 1.0, // Model + workspace
-        gpu_required: false, // Ollama can run on CPU
+        gpu_required: false, // Ollama can run on CPU (slower)
         notes: vec![
-            format!("Embedding vectors: {} ({} embeddings × {} dimensions × 4 bytes)",
-                format_size(total_vector_bytes as u64),
-                set_infos.iter().map(|s| s.embedding_count).sum::<i32>(),
-                set_infos.first().map(|s| s.dimension).unwrap_or(768)),
-            "GPU accelerates embedding generation but is not required".to_string(),
-            "pgvector searches run on CPU/RAM, not GPU".to_string(),
-            format!("Embedding model (nomic-embed-text): ~{}MB VRAM if using GPU",
+            // Storage explanation
+            format!("Vector storage: {} ({} embeddings × {} dimensions × 4 bytes/float)",
+                format_size(total_vector_bytes as u64), total_embeddings, dimension),
+
+            // GPU role - embedding GENERATION
+            "GPU usage: EMBEDDING GENERATION via Ollama (runs the embedding model)".to_string(),
+            format!("  └─ With GPU: ~{}MB VRAM for nomic-embed-text + workspace",
                 (embedding_model_size_gb * 1024.0) as i64),
+            "  └─ Without GPU: Falls back to CPU (functional but slower)".to_string(),
+
+            // CPU role - vector SEARCH
+            "CPU usage: VECTOR SEARCH via pgvector (runs in PostgreSQL)".to_string(),
+            "  └─ HNSW index traversal and cosine similarity are CPU-bound".to_string(),
+            "  └─ More RAM = more vectors cached = faster search performance".to_string(),
+
+            // Practical summary
+            "Practical: GPU speeds up creating/updating notes; all searches use CPU/RAM".to_string(),
         ],
     };
 
