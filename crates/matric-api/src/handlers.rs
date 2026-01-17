@@ -560,6 +560,93 @@ impl JobHandler for LinkingHandler {
     }
 }
 
+/// Handler for permanently deleting a note and all related data.
+/// This triggers CASCADE DELETE on all dependent records (embeddings, links, tags, etc.)
+/// and updates embedding set stats afterward.
+pub struct PurgeNoteHandler {
+    db: Database,
+}
+
+impl PurgeNoteHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl JobHandler for PurgeNoteHandler {
+    fn job_type(&self) -> JobType {
+        JobType::PurgeNote
+    }
+
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        ctx.report_progress(10, Some("Finding affected embedding sets..."));
+
+        // Get embedding sets this note is a member of (to update stats after deletion)
+        let affected_sets = match self.db.embedding_sets.get_sets_for_note(note_id).await {
+            Ok(sets) => sets,
+            Err(e) => {
+                warn!(error = %e, "Failed to get embedding sets for note, continuing with deletion");
+                vec![]
+            }
+        };
+
+        ctx.report_progress(30, Some("Verifying note exists..."));
+
+        // Verify note exists before attempting deletion
+        if !self.db.notes.exists(note_id).await.unwrap_or(false) {
+            return JobResult::Failed(format!("Note {} does not exist", note_id));
+        }
+
+        ctx.report_progress(50, Some("Deleting note and all related data..."));
+
+        // Perform hard delete - this triggers CASCADE DELETE for:
+        // - note_original
+        // - note_revised_current
+        // - note_revision
+        // - note_tag
+        // - link (both from_note_id and to_note_id)
+        // - context
+        // - embedding
+        // - embedding_set_member
+        // - job_queue (for this note)
+        if let Err(e) = self.db.notes.hard_delete(note_id).await {
+            return JobResult::Failed(format!("Failed to delete note: {}", e));
+        }
+
+        ctx.report_progress(80, Some("Updating embedding set statistics..."));
+
+        // Update stats for all affected embedding sets
+        let mut stats_updated = 0;
+        for set_id in &affected_sets {
+            if let Err(e) = self.db.embedding_sets.refresh_stats(*set_id).await {
+                warn!(error = %e, set_id = %set_id, "Failed to update embedding set stats");
+            } else {
+                stats_updated += 1;
+            }
+        }
+
+        ctx.report_progress(100, Some("Note permanently deleted"));
+        info!(
+            note_id = %note_id,
+            affected_sets = affected_sets.len(),
+            stats_updated = stats_updated,
+            "Note permanently deleted with all related data"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "deleted_note_id": note_id.to_string(),
+            "affected_embedding_sets": affected_sets.len(),
+            "stats_updated": stats_updated
+        })))
+    }
+}
+
 /// Handler for context update jobs - adds "Related Context" section based on links.
 pub struct ContextUpdateHandler {
     db: Database,

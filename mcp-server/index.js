@@ -129,6 +129,7 @@ function createMcpServer() {
           const params = new URLSearchParams({ q: args.query });
           if (args.limit) params.set("limit", args.limit);
           if (args.mode) params.set("mode", args.mode);
+          if (args.set) params.set("set", args.set);
           result = await apiRequest("GET", `/api/v1/search?${params}`);
           break;
         }
@@ -266,6 +267,205 @@ function createMcpServer() {
           result = await apiRequest("GET", "/api/v1/jobs/stats");
           break;
 
+        // ============================================================================
+        // EMBEDDING SETS
+        // ============================================================================
+        case "list_embedding_sets":
+          result = await apiRequest("GET", "/api/v1/embedding-sets");
+          break;
+
+        case "get_embedding_set":
+          result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}`);
+          break;
+
+        case "create_embedding_set":
+          result = await apiRequest("POST", "/api/v1/embedding-sets", {
+            name: args.name,
+            slug: args.slug,
+            description: args.description,
+            purpose: args.purpose,
+            usage_hints: args.usage_hints,
+            keywords: args.keywords || [],
+            mode: args.mode || "auto",
+            criteria: args.criteria || {},
+          });
+          break;
+
+        case "list_set_members": {
+          const memberParams = new URLSearchParams();
+          if (args.limit) memberParams.set("limit", args.limit);
+          if (args.offset) memberParams.set("offset", args.offset);
+          result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}/members?${memberParams}`);
+          break;
+        }
+
+        case "add_set_members":
+          result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/members`, {
+            note_ids: args.note_ids,
+            added_by: args.added_by,
+          });
+          break;
+
+        case "remove_set_member":
+          await apiRequest("DELETE", `/api/v1/embedding-sets/${args.slug}/members/${args.note_id}`);
+          result = { success: true };
+          break;
+
+        case "refresh_embedding_set":
+          result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/refresh`);
+          break;
+
+        case "purge_note":
+          // Queue a purge job for permanent deletion
+          result = await apiRequest("POST", `/api/v1/notes/${args.id}/purge`);
+          break;
+
+        case "purge_notes":
+          // Batch purge multiple notes
+          const purgeResults = { queued: [], failed: [] };
+          for (const noteId of args.note_ids) {
+            try {
+              await apiRequest("POST", `/api/v1/notes/${noteId}/purge`);
+              purgeResults.queued.push(noteId);
+            } catch (e) {
+              purgeResults.failed.push({ id: noteId, error: e.message });
+            }
+          }
+          result = purgeResults;
+          break;
+
+        case "purge_all_notes":
+          // Require explicit confirmation
+          if (!args.confirm) {
+            throw new Error("Must set confirm=true to purge all notes");
+          }
+          // Get all notes and purge them
+          const allNotes = await apiRequest("GET", "/api/v1/notes?limit=10000");
+          const purgeAllResults = { queued: [], failed: [], total: (allNotes.notes || []).length };
+          for (const note of allNotes.notes || []) {
+            try {
+              await apiRequest("POST", `/api/v1/notes/${note.id}/purge`);
+              purgeAllResults.queued.push(note.id);
+            } catch (e) {
+              purgeAllResults.failed.push({ id: note.id, error: e.message });
+            }
+          }
+          result = purgeAllResults;
+          break;
+
+        // ============================================================================
+        // BACKUP & EXPORT - Calls API endpoints
+        // ============================================================================
+        case "export_all_notes": {
+          // Export all notes via API endpoint
+          const exportParams = new URLSearchParams();
+          if (args.filter?.starred_only) exportParams.set("starred_only", "true");
+          if (args.filter?.tags) exportParams.set("tags", args.filter.tags.join(","));
+          if (args.filter?.created_after) exportParams.set("created_after", args.filter.created_after);
+          if (args.filter?.created_before) exportParams.set("created_before", args.filter.created_before);
+
+          result = await apiRequest("GET", `/api/v1/backup/export?${exportParams}`);
+          break;
+        }
+
+        case "backup_now": {
+          // Trigger backup via API endpoint
+          const body = {};
+          if (args.destinations) body.destinations = args.destinations;
+          if (args.dry_run) body.dry_run = args.dry_run;
+
+          result = await apiRequest("POST", "/api/v1/backup/trigger", Object.keys(body).length > 0 ? body : null);
+          break;
+        }
+
+        case "backup_status": {
+          // Get backup status via API endpoint
+          result = await apiRequest("GET", "/api/v1/backup/status");
+          break;
+        }
+
+        case "backup_download": {
+          // Download backup as file (returns same data as export)
+          const downloadParams = new URLSearchParams();
+          if (args.starred_only) downloadParams.set("starred_only", "true");
+          if (args.tags) downloadParams.set("tags", args.tags.join(","));
+          if (args.created_after) downloadParams.set("created_after", args.created_after);
+          if (args.created_before) downloadParams.set("created_before", args.created_before);
+
+          result = await apiRequest("GET", `/api/v1/backup/download?${downloadParams}`);
+          break;
+        }
+
+        case "backup_import": {
+          // Import backup data
+          const importBody = {
+            backup: args.backup,
+            dry_run: args.dry_run || false,
+            on_conflict: args.on_conflict || "skip",
+          };
+
+          result = await apiRequest("POST", "/api/v1/backup/import", importBody);
+          break;
+        }
+
+        case "backup_archive": {
+          // Create full backup archive with all data including embeddings and links
+          const archiveParams = new URLSearchParams();
+          if (args.include) {
+            archiveParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
+          }
+
+          // Get token from context for authorization
+          const sessionToken = tokenStorage.getStore()?.token;
+          const headers = { "Accept": "application/gzip" };
+          if (sessionToken) {
+            headers["Authorization"] = `Bearer ${sessionToken}`;
+          } else if (API_KEY) {
+            headers["Authorization"] = `Bearer ${API_KEY}`;
+          }
+
+          const archiveResponse = await fetch(`${API_BASE}/api/v1/backup/archive?${archiveParams}`, { headers });
+          if (!archiveResponse.ok) {
+            throw new Error(`Archive creation failed: ${archiveResponse.status}`);
+          }
+
+          // Get archive as binary and convert to base64
+          const arrayBuffer = await archiveResponse.arrayBuffer();
+          const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+          // Get content-disposition for filename
+          const contentDisposition = archiveResponse.headers.get('content-disposition');
+          const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+          const filename = filenameMatch ? filenameMatch[1] : `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
+
+          result = {
+            success: true,
+            filename,
+            size_bytes: arrayBuffer.byteLength,
+            size_human: arrayBuffer.byteLength > 1024*1024
+              ? `${(arrayBuffer.byteLength / (1024*1024)).toFixed(2)} MB`
+              : `${(arrayBuffer.byteLength / 1024).toFixed(2)} KB`,
+            content_type: "application/gzip",
+            base64_data: base64Data,
+            message: `Archive created: ${filename} (${arrayBuffer.byteLength} bytes). Use base64_data to save the file.`,
+          };
+          break;
+        }
+
+        case "archive_import": {
+          // Import a full backup archive from tar.gz
+          const importBody = {
+            archive_base64: args.archive_base64,
+            include: args.include,
+            dry_run: args.dry_run || false,
+            on_conflict: args.on_conflict || "skip",
+            skip_embedding_regen: args.skip_embedding_regen || false,
+          };
+
+          result = await apiRequest("POST", "/api/v1/backup/archive/import", importBody);
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -345,6 +545,11 @@ Search modes:
 - 'fts': Full-text search only - exact keyword matching
 - 'semantic': Vector similarity only - finds conceptually related content
 
+Embedding sets:
+- Use 'set' parameter to restrict semantic search to a specific embedding set
+- Omit 'set' to search across all embeddings (default behavior)
+- Use list_embedding_sets to discover available sets
+
 Returns ranked results with:
 - note_id: UUID of the matching note
 - score: Relevance score (0.0-1.0)
@@ -359,6 +564,7 @@ Use semantic mode when looking for conceptually related content even if exact ke
         query: { type: "string", description: "Search query (natural language or keywords)" },
         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
+        set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
       },
       required: ["query"],
     },
@@ -908,6 +1114,528 @@ Example:
         },
       },
       required: ["id"],
+    },
+  },
+
+  // ============================================================================
+  // EMBEDDING SETS - Focused semantic search collections
+  // Create curated embedding sets for domain-specific semantic search
+  // ============================================================================
+  {
+    name: "list_embedding_sets",
+    description: `List all embedding sets available for semantic search.
+
+Embedding sets are curated collections of notes optimized for focused semantic search.
+The 'default' set contains all notes (global search). Power users can create focused sets
+for specific domains or use cases.
+
+Returns:
+- id: Set UUID
+- name: Display name
+- slug: URL-friendly identifier (use this in search_notes)
+- description: What this set is for
+- purpose: Detailed purpose description
+- usage_hints: When to use this set
+- keywords: Discovery keywords
+- document_count: Number of notes in set
+- embedding_count: Number of embedding chunks
+- index_status: pending/building/ready/stale/disabled
+
+Use slug as the 'set' parameter in search_notes for focused semantic search.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_embedding_set",
+    description: `Get detailed information about an embedding set.
+
+Returns full set metadata including:
+- All fields from list_embedding_sets
+- criteria: Auto-membership rules (tags, collections, fts_query, etc.)
+- agent_metadata: Information for AI agents about set usage
+
+Use this to understand what's in a set before searching it.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Embedding set slug" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "create_embedding_set",
+    description: `Create a new embedding set for focused semantic search.
+
+Embedding sets allow you to create curated collections for domain-specific queries.
+For example:
+- "ml-research" - Notes about machine learning
+- "project-alpha" - Notes for a specific project
+- "meeting-notes" - All meeting-related content
+
+Modes:
+- 'auto': Automatically include notes matching criteria
+- 'manual': Only explicitly added notes
+- 'mixed': Auto criteria + manual additions/exclusions
+
+Criteria options (for auto/mixed modes):
+- include_all: Include all notes (default set behavior)
+- tags: Notes with any of these tags
+- collections: Notes in any of these collections
+- fts_query: Notes matching this full-text search
+- created_after/before: Date range filters
+- exclude_archived: Skip archived notes (default: true)
+
+After creation, a background job builds the embedding index.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Display name for the set" },
+        slug: { type: "string", description: "URL-friendly identifier (auto-generated if omitted)" },
+        description: { type: "string", description: "What this set is for" },
+        purpose: { type: "string", description: "Detailed purpose (helps AI agents decide when to use)" },
+        usage_hints: { type: "string", description: "When and how to use this set" },
+        keywords: { type: "array", items: { type: "string" }, description: "Discovery keywords" },
+        mode: { type: "string", enum: ["auto", "manual", "mixed"], description: "Membership mode", default: "auto" },
+        criteria: {
+          type: "object",
+          description: "Auto-membership criteria",
+          properties: {
+            include_all: { type: "boolean", description: "Include all notes" },
+            tags: { type: "array", items: { type: "string" }, description: "Include notes with these tags" },
+            collections: { type: "array", items: { type: "string" }, description: "Include notes in these collection UUIDs" },
+            fts_query: { type: "string", description: "Include notes matching this FTS query" },
+            exclude_archived: { type: "boolean", description: "Exclude archived notes", default: true },
+          },
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_set_members",
+    description: `List notes that are members of an embedding set.
+
+Returns paginated list of notes in the set with their membership details.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Embedding set slug" },
+        limit: { type: "number", description: "Maximum results", default: 50 },
+        offset: { type: "number", description: "Pagination offset", default: 0 },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "add_set_members",
+    description: `Add notes to an embedding set.
+
+For manual or mixed mode sets, explicitly add notes to the set.
+Added notes will be embedded and indexed for semantic search within the set.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Embedding set slug" },
+        note_ids: { type: "array", items: { type: "string" }, description: "Note UUIDs to add" },
+        added_by: { type: "string", description: "Who/what added these notes" },
+      },
+      required: ["slug", "note_ids"],
+    },
+  },
+  {
+    name: "remove_set_member",
+    description: `Remove a note from an embedding set.
+
+Removes the note's membership and its embeddings from the set.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Embedding set slug" },
+        note_id: { type: "string", description: "Note UUID to remove" },
+      },
+      required: ["slug", "note_id"],
+    },
+  },
+  {
+    name: "refresh_embedding_set",
+    description: `Refresh an embedding set.
+
+For auto/mixed mode sets, re-evaluates criteria to find matching notes.
+Queues background jobs to update membership and rebuild embeddings.
+
+Use this after adding notes that should match the criteria, or periodically
+to ensure the set is current.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Embedding set slug" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "purge_note",
+    description: `Permanently delete a note and ALL related data.
+
+CAUTION: This is irreversible! Unlike soft delete, this permanently removes:
+- The note itself
+- All embeddings for the note
+- All links (from and to this note)
+- All tags associations
+- All revision history
+- Membership in all embedding sets
+
+Queues a high-priority background job to perform the deletion.
+Use delete_note for recoverable deletion, purge_note for permanent removal.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Note UUID to permanently delete" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "purge_notes",
+    description: `Batch permanently delete multiple notes.
+
+CAUTION: This is irreversible! Permanently deletes all specified notes
+and their related data (embeddings, links, tags, revisions, set memberships).
+
+Returns a summary of queued and failed operations.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of note UUIDs to permanently delete",
+        },
+      },
+      required: ["note_ids"],
+    },
+  },
+  {
+    name: "purge_all_notes",
+    description: `Permanently delete ALL notes in the system.
+
+EXTREME CAUTION: This wipes the entire knowledge base!
+Use only for development cleanup or complete system reset.
+
+Queues purge jobs for every note in the system.
+Returns count of queued and failed operations.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirm: {
+          type: "boolean",
+          description: "Must be true to confirm this destructive operation",
+        },
+      },
+      required: ["confirm"],
+    },
+  },
+
+  // ============================================================================
+  // BACKUP & EXPORT
+  // Tools for backing up and exporting the knowledge base
+  // ============================================================================
+  {
+    name: "export_all_notes",
+    description: `Export all notes from the knowledge base as a complete backup archive.
+
+Returns a JSON structure containing:
+- manifest: Archive metadata (version, timestamps, counts)
+- notes: All notes with original content, revised content, tags, and links
+- collections: All collections (folders)
+- tags: All tags with usage counts
+- templates: All note templates
+
+Options:
+- filter.starred_only: Only export starred notes
+- filter.tags: Only export notes with these tags
+- filter.created_after/before: Date range filter
+
+Use this for:
+- Complete knowledge base backup
+- Migrating to another instance
+- Offline analysis of your notes
+- Creating snapshots before major changes
+
+Note: Embeddings are not included (they can be regenerated).
+For database-level backup with compression and shipping, use backup_now.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filter: {
+          type: "object",
+          description: "Optional filters to restrict export",
+          properties: {
+            starred_only: { type: "boolean", description: "Only export starred notes" },
+            tags: { type: "array", items: { type: "string" }, description: "Only notes with these tags" },
+            created_after: { type: "string", description: "Only notes created after this date (ISO 8601)" },
+            created_before: { type: "string", description: "Only notes created before this date (ISO 8601)" },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "backup_now",
+    description: `Trigger an immediate database backup.
+
+Runs the backup script to create a compressed pg_dump backup and optionally
+ship it to configured destinations (local, rsync, S3).
+
+Options:
+- destinations: Specific destinations to use (default: all enabled)
+  - "local": Local filesystem backup
+  - "s3": S3-compatible storage
+  - "rsync": Remote rsync destination
+- dry_run: Show what would be done without executing
+
+The backup includes:
+- Complete PostgreSQL database dump (pg_dump format)
+- Compression (gzip or zstd based on configuration)
+- Optional encryption (age)
+- Retention policy enforcement
+
+Configure destinations via environment variables:
+- BACKUP_DEST: Local backup directory
+- BACKUP_REMOTE_S3: S3 bucket path
+- BACKUP_REMOTE_RSYNC: rsync target
+
+Use backup_status to check the result after triggering.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        destinations: {
+          type: "array",
+          items: { type: "string", enum: ["local", "s3", "rsync"] },
+          description: "Specific destinations (default: all enabled)",
+        },
+        dry_run: {
+          type: "boolean",
+          description: "Show what would be done without executing",
+          default: false,
+        },
+      },
+    },
+  },
+  {
+    name: "backup_status",
+    description: `Get the current status of the backup system.
+
+Returns:
+- backup_directory: Where backups are stored
+- disk_usage: Total space used by backups
+- latest_backup: Details of the most recent backup (path, size, timestamp)
+- recent_backups: List of recent backup files
+- status: "healthy" if backups exist, "no_backups" if none, "error" on failure
+
+Use this to:
+- Verify backups are being created
+- Check when the last backup was taken
+- Monitor disk usage
+- Troubleshoot backup issues`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "backup_download",
+    description: `Download a complete backup archive as a JSON file.
+
+Returns the same data as export_all_notes but with Content-Disposition header
+for direct file download in HTTP contexts. Use this when you need to save
+the backup to a file.
+
+Options:
+- starred_only: Only include starred notes
+- tags: Filter by tags
+- created_after/before: Date range filter
+
+Returns the complete backup JSON that can be used with backup_import.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        starred_only: { type: "boolean", description: "Only include starred notes" },
+        tags: { type: "array", items: { type: "string" }, description: "Filter by tags" },
+        created_after: { type: "string", description: "Only notes created after this date (ISO 8601)" },
+        created_before: { type: "string", description: "Only notes created before this date (ISO 8601)" },
+      },
+    },
+  },
+  {
+    name: "backup_import",
+    description: `Import a backup archive into the system.
+
+Restores notes, collections, and templates from a backup created by
+export_all_notes or backup_download.
+
+Options:
+- backup: The backup data (with manifest, notes, collections, templates)
+- dry_run: Validate without actually importing (default: false)
+- on_conflict: How to handle existing notes with same ID
+  - "skip" (default): Keep existing, skip imported
+  - "replace": Delete existing, import new
+  - "merge": Keep existing, only add new
+
+Returns:
+- status: "success" or "partial" (if some errors)
+- imported: Count of notes/collections/templates imported
+- skipped: Count of items skipped
+- errors: List of error messages
+
+Use dry_run=true first to validate the backup before importing.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        backup: {
+          type: "object",
+          description: "The backup data from export_all_notes or backup_download",
+          properties: {
+            manifest: { type: "object", description: "Backup manifest (optional)" },
+            notes: {
+              type: "array",
+              description: "Array of notes to import",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", description: "Original note UUID (optional)" },
+                  original_content: { type: "string", description: "Original note content" },
+                  content: { type: "string", description: "Note content (fallback if original_content missing)" },
+                  revised_content: { type: "string", description: "AI-revised content (optional)" },
+                  format: { type: "string", description: "Content format (default: markdown)" },
+                  starred: { type: "boolean", description: "Star the note" },
+                  archived: { type: "boolean", description: "Archive the note" },
+                  tags: { type: "array", items: { type: "string" }, description: "Tags to apply" },
+                },
+              },
+            },
+            collections: { type: "array", description: "Collections to import" },
+            templates: { type: "array", description: "Templates to import" },
+          },
+          required: ["notes"],
+        },
+        dry_run: { type: "boolean", description: "Validate without importing", default: false },
+        on_conflict: {
+          type: "string",
+          enum: ["skip", "replace", "merge"],
+          description: "Conflict resolution strategy",
+          default: "skip",
+        },
+      },
+      required: ["backup"],
+    },
+  },
+  {
+    name: "backup_archive",
+    description: `Create a comprehensive backup archive as a tar.gz file.
+
+Unlike export_all_notes (JSON only), this creates a complete tar.gz archive containing:
+- manifest.json: Archive metadata, version, checksums
+- notes.jsonl: All notes with content, revisions, metadata
+- collections.json: Folder hierarchy
+- tags.json: All tags with counts
+- templates.json: Note templates
+- links.jsonl: Semantic relationship graph
+- embedding_sets.json: Embedding set definitions
+- embedding_set_members.jsonl: Set membership data
+- embedding_configs.json: Embedding model configurations
+- embeddings/vectors.jsonl: Vector embeddings (optional, large)
+- checksums.sha256: SHA256 integrity verification
+
+Component selection:
+- Default: notes,collections,tags,templates,links,embedding_sets
+- Add 'embeddings' for vector data (warning: can be very large)
+- Add 'all' to include everything
+
+Returns:
+- filename: Suggested filename
+- size_bytes/size_human: Archive size
+- base64_data: The archive as base64 (decode and save as .tar.gz)
+
+Use this for:
+- Complete system backup including semantic graph and embeddings
+- Migrating to another instance with full fidelity
+- Disaster recovery archives
+- Offline analysis with all metadata
+
+For database-level pg_dump backups, use backup_now instead.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        include: {
+          oneOf: [
+            { type: "string", description: "Comma-separated components" },
+            { type: "array", items: { type: "string" }, description: "Array of components" },
+          ],
+          description: "Components to include: notes, collections, tags, templates, links, embedding_sets, embeddings, or 'all'",
+        },
+      },
+    },
+  },
+  {
+    name: "archive_import",
+    description: `Import a full backup archive from tar.gz format.
+
+Restores data from an archive created by backup_archive. Supports:
+- Notes with original/revised content, metadata, tags
+- Collections (folder hierarchy)
+- Templates
+- Links (semantic relationships)
+- Embedding sets (definitions, not yet fully supported)
+
+Options:
+- archive_base64: The tar.gz archive as base64-encoded string (from backup_archive)
+- include: Components to import (default: all available in archive)
+- dry_run: Validate without actually importing
+- on_conflict: How to handle existing notes (skip, replace, merge)
+- skip_embedding_regen: Skip regenerating embeddings (use if archive has embeddings)
+
+Returns:
+- status: success, partial, or failed
+- manifest: Archive manifest if present
+- imported/skipped: Counts by component type
+- errors: List of any errors encountered
+
+Use with backup_archive for complete backup/restore workflow:
+1. Create backup: backup_archive() -> save base64_data
+2. Restore: archive_import(archive_base64: saved_data)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        archive_base64: {
+          type: "string",
+          description: "The tar.gz archive as base64-encoded string (from backup_archive.base64_data)",
+        },
+        include: {
+          type: "string",
+          description: "Comma-separated components to import (default: all available)",
+        },
+        dry_run: {
+          type: "boolean",
+          description: "Validate archive without importing (default: false)",
+          default: false,
+        },
+        on_conflict: {
+          type: "string",
+          enum: ["skip", "replace", "merge"],
+          description: "Conflict resolution for existing notes (default: skip)",
+          default: "skip",
+        },
+        skip_embedding_regen: {
+          type: "boolean",
+          description: "Skip embedding regeneration after import (default: false)",
+          default: false,
+        },
+      },
+      required: ["archive_base64"],
     },
   },
 ];

@@ -31,6 +31,7 @@
 //! ```
 
 pub mod collections;
+pub mod embedding_sets;
 pub mod embeddings;
 pub mod jobs;
 pub mod links;
@@ -46,6 +47,7 @@ pub use matric_core::*;
 
 // Re-export repository implementations
 pub use collections::PgCollectionRepository;
+pub use embedding_sets::{PgEmbeddingSetRepository, DEFAULT_EMBEDDING_CONFIG_ID, DEFAULT_EMBEDDING_SET_ID};
 pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
 pub use jobs::PgJobRepository;
 pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};
@@ -64,6 +66,8 @@ pub struct Database {
     pub notes: PgNoteRepository,
     /// Embedding repository for vector storage.
     pub embeddings: PgEmbeddingRepository,
+    /// Embedding set repository for managing embedding collections.
+    pub embedding_sets: PgEmbeddingSetRepository,
     /// Link repository for note relationships.
     pub links: PgLinkRepository,
     /// Tag repository for tag management.
@@ -86,6 +90,7 @@ impl Database {
         Self {
             notes: PgNoteRepository::new(pool.clone()),
             embeddings: PgEmbeddingRepository::new(pool.clone()),
+            embedding_sets: PgEmbeddingSetRepository::new(pool.clone()),
             links: PgLinkRepository::new(pool.clone()),
             tags: PgTagRepository::new(pool.clone()),
             collections: PgCollectionRepository::new(pool.clone()),

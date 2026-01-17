@@ -214,6 +214,50 @@ pub struct GraphResult {
 }
 
 impl PgLinkRepository {
+    /// List all links in the database.
+    pub async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<Link>> {
+        let rows = sqlx::query(
+            r#"SELECT
+                l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
+                l.created_at_utc, l.metadata,
+                '' as snippet
+               FROM link l
+               ORDER BY l.created_at_utc DESC
+               LIMIT $1 OFFSET $2"#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let links = rows
+            .into_iter()
+            .map(|row| Link {
+                id: row.get("id"),
+                from_note_id: row.get("from_note_id"),
+                to_note_id: row.get("to_note_id"),
+                to_url: row.get("to_url"),
+                kind: row.get("kind"),
+                score: row.get("score"),
+                created_at_utc: row.get("created_at_utc"),
+                snippet: row.get("snippet"),
+                metadata: row.get("metadata"),
+            })
+            .collect();
+
+        Ok(links)
+    }
+
+    /// Count total links.
+    pub async fn count(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM link")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        Ok(row.get("count"))
+    }
+
     /// Traverse the knowledge graph starting from a note.
     ///
     /// Uses recursive CTE to explore links up to `max_depth` hops.

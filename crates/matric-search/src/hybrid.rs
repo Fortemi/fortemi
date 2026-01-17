@@ -20,6 +20,8 @@ pub struct HybridSearchConfig {
     pub exclude_archived: bool,
     /// Minimum score threshold (0.0 to 1.0)
     pub min_score: f32,
+    /// Optional embedding set to search within (None = default/all embeddings)
+    pub embedding_set_id: Option<Uuid>,
 }
 
 impl Default for HybridSearchConfig {
@@ -29,6 +31,7 @@ impl Default for HybridSearchConfig {
             semantic_weight: 0.5,
             exclude_archived: true,
             min_score: 0.0,
+            embedding_set_id: None,
         }
     }
 }
@@ -72,6 +75,12 @@ impl HybridSearchConfig {
         self.exclude_archived = exclude;
         self
     }
+
+    /// Set embedding set to search within.
+    pub fn with_embedding_set(mut self, set_id: Uuid) -> Self {
+        self.embedding_set_id = Some(set_id);
+        self
+    }
 }
 
 /// Trait for hybrid search operations.
@@ -100,6 +109,15 @@ pub trait HybridSearch: Send + Sync {
     async fn find_similar(
         &self,
         query_embedding: &Vector,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>>;
+
+    /// Find similar notes within a specific embedding set.
+    async fn find_similar_in_set(
+        &self,
+        query_embedding: &Vector,
+        embedding_set_id: Uuid,
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>>;
@@ -157,11 +175,18 @@ impl HybridSearch for HybridSearchEngine {
         // Semantic search (if weight > 0 and embedding is provided)
         if config.semantic_weight > 0.0 {
             if let Some(embedding) = query_embedding {
-                let semantic_results = self
-                    .db
-                    .embeddings
-                    .find_similar(embedding, limit * 2, config.exclude_archived)
-                    .await?;
+                // Use embedding set if specified, otherwise search all embeddings
+                let semantic_results = if let Some(set_id) = config.embedding_set_id {
+                    self.db
+                        .embeddings
+                        .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
+                        .await?
+                } else {
+                    self.db
+                        .embeddings
+                        .find_similar(embedding, limit * 2, config.exclude_archived)
+                        .await?
+                };
 
                 if !semantic_results.is_empty() {
                     ranked_lists.push(Self::apply_weights(
@@ -214,11 +239,18 @@ impl HybridSearch for HybridSearchEngine {
         // Semantic search (filters not applied to vector search - we filter after fusion)
         if config.semantic_weight > 0.0 {
             if let Some(embedding) = query_embedding {
-                let semantic_results = self
-                    .db
-                    .embeddings
-                    .find_similar(embedding, limit * 2, config.exclude_archived)
-                    .await?;
+                // Use embedding set if specified, otherwise search all embeddings
+                let semantic_results = if let Some(set_id) = config.embedding_set_id {
+                    self.db
+                        .embeddings
+                        .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
+                        .await?
+                } else {
+                    self.db
+                        .embeddings
+                        .find_similar(embedding, limit * 2, config.exclude_archived)
+                        .await?
+                };
 
                 if !semantic_results.is_empty() {
                     ranked_lists.push(Self::apply_weights(
@@ -251,6 +283,19 @@ impl HybridSearch for HybridSearchEngine {
         self.db
             .embeddings
             .find_similar(query_embedding, limit, exclude_archived)
+            .await
+    }
+
+    async fn find_similar_in_set(
+        &self,
+        query_embedding: &Vector,
+        embedding_set_id: Uuid,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        self.db
+            .embeddings
+            .find_similar_in_set(query_embedding, embedding_set_id, limit, exclude_archived)
             .await
     }
 
@@ -317,6 +362,12 @@ impl SearchRequest {
         self
     }
 
+    /// Restrict semantic search to a specific embedding set.
+    pub fn with_embedding_set(mut self, set_id: Uuid) -> Self {
+        self.config.embedding_set_id = Some(set_id);
+        self
+    }
+
     /// Execute the search request.
     pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<SearchHit>> {
         if let Some(filters) = &self.filters {
@@ -353,6 +404,7 @@ mod tests {
         assert_eq!(config.semantic_weight, 0.5);
         assert!(config.exclude_archived);
         assert_eq!(config.min_score, 0.0);
+        assert!(config.embedding_set_id.is_none());
     }
 
     #[test]
@@ -405,5 +457,24 @@ mod tests {
         assert_eq!(request.filters, Some("tag:rust".to_string()));
         assert_eq!(request.config.fts_weight, 1.0);
         assert_eq!(request.config.semantic_weight, 0.0);
+    }
+
+    #[test]
+    fn test_config_with_embedding_set() {
+        let set_id = Uuid::new_v4();
+        let config = HybridSearchConfig::default().with_embedding_set(set_id);
+        assert_eq!(config.embedding_set_id, Some(set_id));
+    }
+
+    #[test]
+    fn test_search_request_with_embedding_set() {
+        let set_id = Uuid::new_v4();
+        let request = SearchRequest::new("test query")
+            .semantic_only()
+            .with_embedding_set(set_id);
+
+        assert_eq!(request.config.embedding_set_id, Some(set_id));
+        assert_eq!(request.config.semantic_weight, 1.0);
+        assert_eq!(request.config.fts_weight, 0.0);
     }
 }

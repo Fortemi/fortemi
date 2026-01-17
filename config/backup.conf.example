@@ -1,0 +1,60 @@
+# Matric Memory Backup Configuration
+# Copy to /etc/matric-memory/backup.conf and customize
+
+# ============================================================================
+# BACKUP DESTINATIONS
+# ============================================================================
+
+# Primary local destination (required)
+BACKUP_DEST=/var/backups/matric-memory
+
+# Temporary directory for backup processing
+BACKUP_TEMP_DIR=/tmp/matric-backup
+
+# Remote rsync destination (optional)
+# Format: user@host:/path/to/backups
+# Requires SSH key authentication
+BACKUP_REMOTE_RSYNC=
+
+# S3 destination (optional)
+# Format: s3://bucket-name/prefix
+# Requires AWS CLI configured
+BACKUP_REMOTE_S3=
+
+# ============================================================================
+# RETENTION POLICY
+# ============================================================================
+
+# Number of days to retain backups (default: 7)
+BACKUP_RETAIN=7
+
+# ============================================================================
+# COMPRESSION & ENCRYPTION
+# ============================================================================
+
+# Compression type: gzip, zstd, xz, none (default: gzip)
+BACKUP_COMPRESS=gzip
+
+# Encryption key path (optional)
+# Use 'age' format public key file
+# Generate with: age-keygen -o backup-key.txt
+# Example: /etc/matric-memory/backup-key.pub
+BACKUP_ENCRYPT=
+
+# ============================================================================
+# DATABASE CONNECTION
+# ============================================================================
+
+# PostgreSQL connection parameters
+PGUSER=matric
+PGPASSWORD=matric
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=matric
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+# Log file location
+LOG_FILE=/var/log/matric-memory/backup.log

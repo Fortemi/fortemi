@@ -27,6 +27,10 @@ impl PgJobRepository {
             JobType::Linking => "linking",
             JobType::ContextUpdate => "context_update",
             JobType::TitleGeneration => "title_generation",
+            JobType::CreateEmbeddingSet => "create_embedding_set",
+            JobType::RefreshEmbeddingSet => "refresh_embedding_set",
+            JobType::BuildSetIndex => "build_set_index",
+            JobType::PurgeNote => "purge_note",
         }
     }
 
@@ -38,6 +42,10 @@ impl PgJobRepository {
             "linking" => JobType::Linking,
             "context_update" => JobType::ContextUpdate,
             "title_generation" => JobType::TitleGeneration,
+            "create_embedding_set" => JobType::CreateEmbeddingSet,
+            "refresh_embedding_set" => JobType::RefreshEmbeddingSet,
+            "build_set_index" => JobType::BuildSetIndex,
+            "purge_note" => JobType::PurgeNote,
             _ => JobType::ContextUpdate, // fallback
         }
     }

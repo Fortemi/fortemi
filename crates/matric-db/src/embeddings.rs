@@ -162,6 +162,118 @@ impl EmbeddingRepository for PgEmbeddingRepository {
     }
 }
 
+// Additional methods not part of the trait
+impl PgEmbeddingRepository {
+    /// List all embeddings with pagination (for export).
+    pub async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<Embedding>> {
+        let rows = sqlx::query(
+            "SELECT id, note_id, chunk_index, text, vector, model
+             FROM embedding
+             ORDER BY note_id, chunk_index
+             LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let embeddings = rows
+            .into_iter()
+            .map(|row| Embedding {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                chunk_index: row.get("chunk_index"),
+                text: row.get("text"),
+                vector: row.get("vector"),
+                model: row.get("model"),
+            })
+            .collect();
+
+        Ok(embeddings)
+    }
+
+    /// Count total embeddings.
+    pub async fn count(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) as count FROM embedding")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        Ok(row.get("count"))
+    }
+
+
+    /// Find similar embeddings within a specific embedding set.
+    pub async fn find_similar_in_set(
+        &self,
+        query_vec: &Vector,
+        embedding_set_id: Uuid,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        let archive_clause = if exclude_archived {
+            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "AND n.deleted_at IS NULL"
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ON (e.note_id)
+                   e.note_id AS note_id,
+                   1.0 - (e.vector <=> $1::vector) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM embedding e
+            JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
+            WHERE e.embedding_set_id = $3 {}
+            ORDER BY e.note_id, e.vector <=> $1::vector
+            "#,
+            archive_clause
+        );
+
+        // Wrap to re-order by score after deduplication
+        let wrapped_query = format!(
+            "SELECT note_id, score, snippet, title, tags FROM ({}) sub ORDER BY score DESC LIMIT $2",
+            query
+        );
+
+        let rows = sqlx::query(&wrapped_query)
+            .bind(query_vec)
+            .bind(limit)
+            .bind(embedding_set_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<f64, _>("score") as f32,
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
+}
+
 /// Utility functions for embedding operations.
 pub mod utils {
     /// Chunk text into pieces of at most `max_chars` characters.

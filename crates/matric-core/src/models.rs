@@ -179,6 +179,300 @@ impl Default for EmbeddingConfig {
 }
 
 // =============================================================================
+// EMBEDDING SET TYPES
+// =============================================================================
+
+/// Membership mode for embedding sets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingSetMode {
+    /// Automatically include notes matching criteria
+    #[default]
+    Auto,
+    /// Only explicitly added notes
+    Manual,
+    /// Auto criteria + manual additions/exclusions
+    Mixed,
+}
+
+impl std::fmt::Display for EmbeddingSetMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Manual => write!(f, "manual"),
+            Self::Mixed => write!(f, "mixed"),
+        }
+    }
+}
+
+impl std::str::FromStr for EmbeddingSetMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "manual" => Ok(Self::Manual),
+            "mixed" => Ok(Self::Mixed),
+            _ => Err(format!("Invalid embedding set mode: {}", s)),
+        }
+    }
+}
+
+/// Index build status for embedding sets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingIndexStatus {
+    /// Needs initial build
+    #[default]
+    Pending,
+    /// Currently building
+    Building,
+    /// Index is current
+    Ready,
+    /// Index needs rebuild (new members)
+    Stale,
+    /// No index (for very small sets)
+    Disabled,
+}
+
+impl std::fmt::Display for EmbeddingIndexStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pending => write!(f, "pending"),
+            Self::Building => write!(f, "building"),
+            Self::Ready => write!(f, "ready"),
+            Self::Stale => write!(f, "stale"),
+            Self::Disabled => write!(f, "disabled"),
+        }
+    }
+}
+
+impl std::str::FromStr for EmbeddingIndexStatus {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "pending" => Ok(Self::Pending),
+            "building" => Ok(Self::Building),
+            "ready" => Ok(Self::Ready),
+            "stale" => Ok(Self::Stale),
+            "disabled" => Ok(Self::Disabled),
+            _ => Err(format!("Invalid embedding index status: {}", s)),
+        }
+    }
+}
+
+/// Criteria for automatic embedding set membership.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EmbeddingSetCriteria {
+    /// Include all notes (default set behavior)
+    #[serde(default)]
+    pub include_all: bool,
+
+    /// Include notes with any of these tags
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+
+    /// Include notes in any of these collections
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collections: Vec<Uuid>,
+
+    /// Include notes matching this FTS query
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fts_query: Option<String>,
+
+    /// Include notes created after this date
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_after: Option<DateTime<Utc>>,
+
+    /// Include notes created before this date
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_before: Option<DateTime<Utc>>,
+
+    /// Exclude archived notes (default true)
+    #[serde(default = "default_true")]
+    pub exclude_archived: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Agent-provided metadata for embedding set discovery.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EmbeddingSetAgentMetadata {
+    /// Agent that created this set
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_agent: Option<String>,
+
+    /// Why this set was created
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+
+    /// Performance notes for other agents
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub performance_notes: Option<String>,
+
+    /// Related embedding sets
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_sets: Vec<String>,
+
+    /// Example queries this set is good for
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggested_queries: Vec<String>,
+}
+
+/// Database-stored embedding configuration profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingConfigProfile {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub model: String,
+    pub dimension: i32,
+    pub chunk_size: i32,
+    pub chunk_overlap: i32,
+    pub hnsw_m: Option<i32>,
+    pub hnsw_ef_construction: Option<i32>,
+    pub ivfflat_lists: Option<i32>,
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// An embedding set groups documents for focused semantic search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingSet {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+
+    // Agent-friendly discovery
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_hints: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+
+    // Membership
+    pub mode: EmbeddingSetMode,
+    pub criteria: EmbeddingSetCriteria,
+
+    // Config reference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_config_id: Option<Uuid>,
+
+    // Stats
+    pub document_count: i32,
+    pub embedding_count: i32,
+    pub index_status: EmbeddingIndexStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_size_bytes: Option<i64>,
+
+    // Flags
+    pub is_system: bool,
+    pub is_active: bool,
+    pub auto_refresh: bool,
+
+    // Agent metadata
+    #[serde(default)]
+    pub agent_metadata: EmbeddingSetAgentMetadata,
+
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+}
+
+/// Summary view of embedding sets for listing/discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingSetSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    pub document_count: i32,
+    pub embedding_count: i32,
+    pub index_status: EmbeddingIndexStatus,
+    pub is_system: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimension: Option<i32>,
+}
+
+/// Request to create a new embedding set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateEmbeddingSetRequest {
+    pub name: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    pub description: Option<String>,
+    pub purpose: Option<String>,
+    pub usage_hints: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub mode: EmbeddingSetMode,
+    #[serde(default)]
+    pub criteria: EmbeddingSetCriteria,
+    #[serde(default)]
+    pub agent_metadata: EmbeddingSetAgentMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_config_id: Option<Uuid>,
+}
+
+/// Request to update an embedding set.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdateEmbeddingSetRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_hints: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keywords: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<EmbeddingSetMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub criteria: Option<EmbeddingSetCriteria>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_metadata: Option<EmbeddingSetAgentMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_refresh: Option<bool>,
+}
+
+/// Embedding set membership record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingSetMember {
+    pub embedding_set_id: Uuid,
+    pub note_id: Uuid,
+    pub membership_type: String,
+    pub added_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_by: Option<String>,
+}
+
+/// Request to add members to an embedding set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddMembersRequest {
+    pub note_ids: Vec<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_by: Option<String>,
+}
+
+// =============================================================================
 // JOB TYPES
 // =============================================================================
 
@@ -220,6 +514,14 @@ pub enum JobType {
     ContextUpdate,
     /// Generate title from content
     TitleGeneration,
+    /// Create a new embedding set (evaluate criteria, add members)
+    CreateEmbeddingSet,
+    /// Refresh an embedding set (re-evaluate criteria, update membership)
+    RefreshEmbeddingSet,
+    /// Build or rebuild the vector index for an embedding set
+    BuildSetIndex,
+    /// Permanently delete a note and all related data
+    PurgeNote,
 }
 
 impl JobType {
@@ -231,6 +533,12 @@ impl JobType {
             JobType::Linking => 3,
             JobType::TitleGeneration => 2,
             JobType::ContextUpdate => 1,
+            // Embedding set jobs are lower priority (background tasks)
+            JobType::CreateEmbeddingSet => 2,
+            JobType::RefreshEmbeddingSet => 2,
+            JobType::BuildSetIndex => 3,
+            // Purge is high priority to complete cleanup quickly
+            JobType::PurgeNote => 9,
         }
     }
 }
@@ -765,5 +1073,153 @@ mod tests {
     #[test]
     fn test_search_mode_default() {
         assert_eq!(SearchMode::default(), SearchMode::Hybrid);
+    }
+
+    // =========================================================================
+    // Embedding Set Tests
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_set_mode_serialization() {
+        let modes = vec![
+            (EmbeddingSetMode::Auto, "auto"),
+            (EmbeddingSetMode::Manual, "manual"),
+            (EmbeddingSetMode::Mixed, "mixed"),
+        ];
+
+        for (mode, expected) in modes {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let deserialized: EmbeddingSetMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, mode);
+        }
+    }
+
+    #[test]
+    fn test_embedding_index_status_serialization() {
+        let statuses = vec![
+            (EmbeddingIndexStatus::Pending, "pending"),
+            (EmbeddingIndexStatus::Building, "building"),
+            (EmbeddingIndexStatus::Ready, "ready"),
+            (EmbeddingIndexStatus::Stale, "stale"),
+            (EmbeddingIndexStatus::Disabled, "disabled"),
+        ];
+
+        for (status, expected) in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let deserialized: EmbeddingIndexStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, status);
+        }
+    }
+
+    #[test]
+    fn test_embedding_set_criteria_defaults() {
+        let criteria = EmbeddingSetCriteria::default();
+        assert!(!criteria.include_all);
+        assert!(criteria.tags.is_empty());
+        assert!(criteria.collections.is_empty());
+        assert!(criteria.fts_query.is_none());
+        assert!(criteria.created_after.is_none());
+        assert!(criteria.created_before.is_none());
+        // Note: Default derive gives false, but serde deserialize gives true
+        assert!(!criteria.exclude_archived);
+    }
+
+    #[test]
+    fn test_embedding_set_criteria_serde_defaults() {
+        // When deserializing with missing fields, serde uses its defaults
+        let json = r#"{"include_all": false}"#;
+        let criteria: EmbeddingSetCriteria = serde_json::from_str(json).unwrap();
+        // serde default for exclude_archived is true
+        assert!(criteria.exclude_archived);
+    }
+
+    #[test]
+    fn test_embedding_set_criteria_serialization() {
+        let criteria = EmbeddingSetCriteria {
+            include_all: false,
+            tags: vec!["rust".to_string(), "programming".to_string()],
+            collections: vec![],
+            fts_query: Some("machine learning".to_string()),
+            created_after: None,
+            created_before: None,
+            exclude_archived: true,
+        };
+
+        let json = serde_json::to_string(&criteria).unwrap();
+        let deserialized: EmbeddingSetCriteria = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(criteria.include_all, deserialized.include_all);
+        assert_eq!(criteria.tags, deserialized.tags);
+        assert_eq!(criteria.fts_query, deserialized.fts_query);
+        assert_eq!(criteria.exclude_archived, deserialized.exclude_archived);
+    }
+
+    #[test]
+    fn test_create_embedding_set_request() {
+        let request = CreateEmbeddingSetRequest {
+            name: "Test Set".to_string(),
+            slug: None, // Should be auto-generated
+            description: Some("A test embedding set".to_string()),
+            purpose: Some("Testing".to_string()),
+            usage_hints: None,
+            keywords: vec!["test".to_string()],
+            mode: EmbeddingSetMode::Auto,
+            criteria: EmbeddingSetCriteria {
+                include_all: false,
+                tags: vec!["test".to_string()],
+                ..Default::default()
+            },
+            agent_metadata: EmbeddingSetAgentMetadata::default(),
+            embedding_config_id: None,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: CreateEmbeddingSetRequest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(request.name, deserialized.name);
+        assert_eq!(request.slug, deserialized.slug);
+        assert_eq!(request.mode, deserialized.mode);
+    }
+
+    #[test]
+    fn test_embedding_set_agent_metadata() {
+        let metadata = EmbeddingSetAgentMetadata {
+            created_by_agent: Some("test-agent".to_string()),
+            rationale: Some("Created for testing purposes".to_string()),
+            performance_notes: None,
+            related_sets: vec!["default".to_string()],
+            suggested_queries: vec!["test query".to_string(), "another query".to_string()],
+        };
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        let deserialized: EmbeddingSetAgentMetadata = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(metadata.created_by_agent, deserialized.created_by_agent);
+        assert_eq!(metadata.related_sets, deserialized.related_sets);
+        assert_eq!(metadata.suggested_queries, deserialized.suggested_queries);
+    }
+
+    #[test]
+    fn test_add_members_request() {
+        let request = AddMembersRequest {
+            note_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
+            added_by: Some("test-user".to_string()),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: AddMembersRequest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(request.note_ids.len(), deserialized.note_ids.len());
+        assert_eq!(request.added_by, deserialized.added_by);
+    }
+
+    #[test]
+    fn test_embedding_set_job_types_priority() {
+        // Embedding set jobs should have lower priority (background tasks)
+        assert!(JobType::Embedding.default_priority() > JobType::CreateEmbeddingSet.default_priority());
+        assert!(JobType::Embedding.default_priority() > JobType::RefreshEmbeddingSet.default_priority());
+        assert!(JobType::BuildSetIndex.default_priority() > JobType::CreateEmbeddingSet.default_priority());
     }
 }

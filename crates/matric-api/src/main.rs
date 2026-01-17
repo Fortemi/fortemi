@@ -89,7 +89,7 @@ use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
     AiRevisionHandler, ContextUpdateHandler, EmbeddingHandler, LinkingHandler,
-    TitleGenerationHandler,
+    PurgeNoteHandler, TitleGenerationHandler,
 };
 
 /// Application state shared across handlers.
@@ -199,6 +199,9 @@ async fn main() -> anyhow::Result<()> {
                 OllamaBackend::from_env(),
             ))
             .await;
+        worker
+            .register_handler(PurgeNoteHandler::new(db.clone()))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");
@@ -230,6 +233,7 @@ async fn main() -> anyhow::Result<()> {
             get(get_note).patch(update_note).delete(delete_note),
         )
         .route("/api/v1/notes/:id/restore", post(restore_note))
+        .route("/api/v1/notes/:id/purge", post(purge_note))
         .route("/api/v1/notes/:id/reprocess", post(reprocess_note))
         .route(
             "/api/v1/notes/:id/tags",
@@ -261,6 +265,34 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/collections/:id/notes", get(get_collection_notes))
         .route("/api/v1/notes/:id/move", post(move_note_to_collection))
+        // Embedding sets
+        .route(
+            "/api/v1/embedding-sets",
+            get(list_embedding_sets).post(create_embedding_set),
+        )
+        .route(
+            "/api/v1/embedding-sets/:slug",
+            get(get_embedding_set)
+                .patch(update_embedding_set)
+                .delete(delete_embedding_set),
+        )
+        .route(
+            "/api/v1/embedding-sets/:slug/members",
+            get(list_embedding_set_members).post(add_embedding_set_members),
+        )
+        .route(
+            "/api/v1/embedding-sets/:slug/members/:note_id",
+            delete(remove_embedding_set_member),
+        )
+        .route(
+            "/api/v1/embedding-sets/:slug/refresh",
+            post(refresh_embedding_set),
+        )
+        .route("/api/v1/embedding-configs", get(list_embedding_configs))
+        .route(
+            "/api/v1/embedding-configs/default",
+            get(get_default_embedding_config),
+        )
         // Graph exploration
         .route("/api/v1/graph/:id", get(explore_graph))
         // Templates
@@ -298,6 +330,14 @@ async fn main() -> anyhow::Result<()> {
         // API key management
         .route("/api/v1/api-keys", get(list_api_keys).post(create_api_key))
         .route("/api/v1/api-keys/:id", delete(revoke_api_key))
+        // Backup endpoints
+        .route("/api/v1/backup/export", get(backup_export))
+        .route("/api/v1/backup/download", get(backup_download))
+        .route("/api/v1/backup/import", post(backup_import))
+        .route("/api/v1/backup/trigger", post(backup_trigger))
+        .route("/api/v1/backup/status", get(backup_status))
+        .route("/api/v1/backup/archive", get(backup_archive))
+        .route("/api/v1/backup/archive/import", post(archive_import))
         // Middleware
         .layer(TraceLayer::new_for_http())
         .layer(
@@ -587,6 +627,36 @@ async fn delete_note(
 ) -> Result<impl IntoResponse, ApiError> {
     state.db.notes.soft_delete(id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Permanently delete a note by queuing a purge job.
+/// This triggers CASCADE DELETE on all related data.
+async fn purge_note(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify note exists first
+    if !state.db.notes.exists(id).await? {
+        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+    }
+
+    // Queue a high-priority purge job
+    let job_id = state
+        .db
+        .jobs
+        .queue(
+            Some(id),
+            JobType::PurgeNote,
+            JobType::PurgeNote.default_priority(),
+            None,
+        )
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "queued",
+        "job_id": job_id.to_string(),
+        "note_id": id.to_string()
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1153,6 +1223,9 @@ struct SearchQuery {
     limit: Option<i64>,
     filters: Option<String>,
     mode: Option<String>,
+    /// Embedding set slug to search within (default: "default")
+    #[serde(rename = "set")]
+    embedding_set: Option<String>,
     /// Filter: notes created after this timestamp (ISO 8601)
     created_after: Option<chrono::DateTime<chrono::Utc>>,
     /// Filter: notes created before this timestamp (ISO 8601)
@@ -1214,6 +1287,136 @@ async fn search_notes(
         query: query.q,
         total,
     }))
+}
+
+// =============================================================================
+// EMBEDDING SET HANDLERS
+// =============================================================================
+
+use matric_core::{AddMembersRequest, CreateEmbeddingSetRequest, UpdateEmbeddingSetRequest};
+
+/// List all embedding sets for discovery
+async fn list_embedding_sets(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let sets = state.db.embedding_sets.list().await?;
+    Ok(Json(sets))
+}
+
+/// Get an embedding set by slug
+async fn get_embedding_set(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let set = state
+        .db
+        .embedding_sets
+        .get_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug)))?;
+    Ok(Json(set))
+}
+
+/// Create a new embedding set
+async fn create_embedding_set(
+    State(state): State<AppState>,
+    Json(body): Json<CreateEmbeddingSetRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let set = state.db.embedding_sets.create(body).await?;
+    Ok((StatusCode::CREATED, Json(set)))
+}
+
+/// Update an embedding set
+async fn update_embedding_set(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Json(body): Json<UpdateEmbeddingSetRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let set = state.db.embedding_sets.update(&slug, body).await?;
+    Ok(Json(set))
+}
+
+/// Delete an embedding set (not allowed for system sets)
+async fn delete_embedding_set(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.embedding_sets.delete(&slug).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ListMembersQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+/// List members of an embedding set
+async fn list_embedding_set_members(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Query(query): Query<ListMembersQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(100);
+    let offset = query.offset.unwrap_or(0);
+    let members = state.db.embedding_sets.list_members(&slug, limit, offset).await?;
+    Ok(Json(members))
+}
+
+/// Add notes to an embedding set
+async fn add_embedding_set_members(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Json(body): Json<AddMembersRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let count = state.db.embedding_sets.add_members(&slug, body).await?;
+    Ok(Json(serde_json::json!({ "added": count })))
+}
+
+/// Remove a note from an embedding set
+async fn remove_embedding_set_member(
+    State(state): State<AppState>,
+    Path((slug, note_id)): Path<(String, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let removed = state.db.embedding_sets.remove_member(&slug, note_id).await?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::NotFound(format!(
+            "Note {} not found in embedding set {}",
+            note_id, slug
+        )))
+    }
+}
+
+/// Refresh an embedding set by re-evaluating criteria
+async fn refresh_embedding_set(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let added = state.db.embedding_sets.refresh(&slug).await?;
+    Ok(Json(serde_json::json!({ "added": added })))
+}
+
+/// List embedding configs
+async fn list_embedding_configs(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let configs = state.db.embedding_sets.list_configs().await?;
+    Ok(Json(configs))
+}
+
+/// Get default embedding config
+async fn get_default_embedding_config(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let config = state
+        .db
+        .embedding_sets
+        .get_default_config()
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Default embedding config not found".to_string()))?;
+    Ok(Json(config))
 }
 
 // =============================================================================
@@ -2270,6 +2473,1409 @@ impl RequireAuth {
 }
 
 // =============================================================================
+// BACKUP HANDLERS
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct BackupExportQuery {
+    /// Only export starred notes
+    #[serde(default)]
+    starred_only: bool,
+    /// Filter by tags (comma-separated)
+    tags: Option<String>,
+    /// Filter: notes created after this timestamp (ISO 8601)
+    created_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes created before this timestamp (ISO 8601)
+    created_before: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupExportManifest {
+    version: String,
+    format: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    counts: BackupCounts,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupCounts {
+    notes: usize,
+    collections: usize,
+    tags: usize,
+    templates: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupExportResponse {
+    manifest: BackupExportManifest,
+    notes: Vec<serde_json::Value>,
+    collections: Vec<serde_json::Value>,
+    tags: Vec<String>,
+    templates: Vec<serde_json::Value>,
+}
+
+/// Export all notes as a JSON archive.
+async fn backup_export(
+    State(state): State<AppState>,
+    Query(query): Query<BackupExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{NoteRepository, TemplateRepository};
+
+    // Build list request with filters
+    let tags = query.tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let mut filter = None;
+    if query.starred_only {
+        filter = Some("starred".to_string());
+    }
+
+    let list_req = ListNotesRequest {
+        limit: Some(10000), // Large limit for export
+        offset: None,
+        filter,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("asc".to_string()),
+        collection_id: None,
+        tags,
+        created_after: query.created_after,
+        created_before: query.created_before,
+        updated_after: None,
+        updated_before: None,
+    };
+
+    // Fetch all notes
+    let notes_response = state.db.notes.list(list_req).await?;
+    let mut exported_notes = Vec::new();
+
+    for note in notes_response.notes {
+        // Fetch full note with content
+        if let Ok(full_note) = state.db.notes.fetch(note.id).await {
+            let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+            exported_notes.push(serde_json::json!({
+                "id": full_note.note.id,
+                "title": full_note.note.title,
+                "original_content": full_note.original.content,
+                "revised_content": full_note.revised.content,
+                "format": full_note.note.format,
+                "source": full_note.note.source,
+                "starred": full_note.note.starred,
+                "archived": full_note.note.archived,
+                "collection_id": full_note.note.collection_id,
+                "created_at": full_note.note.created_at_utc,
+                "updated_at": full_note.note.updated_at_utc,
+                "tags": note_tags,
+            }));
+        }
+    }
+
+    // Fetch collections
+    let collections = state.db.collections.list(None).await.unwrap_or_default();
+    let collections_json: Vec<serde_json::Value> = collections
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "parent_id": c.parent_id,
+                "created_at": c.created_at_utc,
+                "note_count": c.note_count,
+            })
+        })
+        .collect();
+
+    // Fetch all tags (extract names)
+    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
+
+    // Fetch templates
+    let templates = state.db.templates.list().await.unwrap_or_default();
+    let templates_json: Vec<serde_json::Value> = templates
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "content": t.content,
+                "format": t.format,
+                "default_tags": t.default_tags,
+                "collection_id": t.collection_id,
+                "created_at": t.created_at_utc,
+                "updated_at": t.updated_at_utc,
+            })
+        })
+        .collect();
+
+    let response = BackupExportResponse {
+        manifest: BackupExportManifest {
+            version: "1.0.0".to_string(),
+            format: "matric-backup".to_string(),
+            created_at: chrono::Utc::now(),
+            counts: BackupCounts {
+                notes: exported_notes.len(),
+                collections: collections_json.len(),
+                tags: tag_names.len(),
+                templates: templates_json.len(),
+            },
+        },
+        notes: exported_notes,
+        collections: collections_json,
+        tags: tag_names,
+        templates: templates_json,
+    };
+
+    Ok(Json(response))
+}
+
+/// Download backup as a file attachment.
+async fn backup_download(
+    State(state): State<AppState>,
+    Query(query): Query<BackupExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{NoteRepository, TemplateRepository};
+
+    // Build list request with filters (same as backup_export)
+    let tags = query.tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let mut filter = None;
+    if query.starred_only {
+        filter = Some("starred".to_string());
+    }
+
+    let list_req = ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("asc".to_string()),
+        collection_id: None,
+        tags,
+        created_after: query.created_after,
+        created_before: query.created_before,
+        updated_after: None,
+        updated_before: None,
+    };
+
+    // Fetch all notes
+    let notes_response = state.db.notes.list(list_req).await?;
+    let mut exported_notes = Vec::new();
+
+    for note in notes_response.notes {
+        if let Ok(full_note) = state.db.notes.fetch(note.id).await {
+            let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+            exported_notes.push(serde_json::json!({
+                "id": full_note.note.id,
+                "title": full_note.note.title,
+                "original_content": full_note.original.content,
+                "revised_content": full_note.revised.content,
+                "format": full_note.note.format,
+                "source": full_note.note.source,
+                "starred": full_note.note.starred,
+                "archived": full_note.note.archived,
+                "collection_id": full_note.note.collection_id,
+                "created_at": full_note.note.created_at_utc,
+                "updated_at": full_note.note.updated_at_utc,
+                "tags": note_tags,
+            }));
+        }
+    }
+
+    // Fetch collections
+    let collections = state.db.collections.list(None).await.unwrap_or_default();
+    let collections_json: Vec<serde_json::Value> = collections
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "parent_id": c.parent_id,
+                "created_at": c.created_at_utc,
+                "note_count": c.note_count,
+            })
+        })
+        .collect();
+
+    // Fetch all tags
+    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
+
+    // Fetch templates
+    let templates = state.db.templates.list().await.unwrap_or_default();
+    let templates_json: Vec<serde_json::Value> = templates
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "content": t.content,
+                "format": t.format,
+                "default_tags": t.default_tags,
+                "collection_id": t.collection_id,
+                "created_at": t.created_at_utc,
+                "updated_at": t.updated_at_utc,
+            })
+        })
+        .collect();
+
+    let response = BackupExportResponse {
+        manifest: BackupExportManifest {
+            version: "1.0.0".to_string(),
+            format: "matric-backup".to_string(),
+            created_at: chrono::Utc::now(),
+            counts: BackupCounts {
+                notes: exported_notes.len(),
+                collections: collections_json.len(),
+                tags: tag_names.len(),
+                templates: templates_json.len(),
+            },
+        },
+        notes: exported_notes,
+        collections: collections_json,
+        tags: tag_names,
+        templates: templates_json,
+    };
+
+    // Serialize to JSON
+    let json_content = serde_json::to_string_pretty(&response)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to serialize backup: {}", e)))?;
+
+    // Generate filename with timestamp
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let filename = format!("matric-backup-{}.json", timestamp);
+
+    // Return as downloadable file
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "application/json; charset=utf-8".parse().unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", filename)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((StatusCode::OK, headers, json_content))
+}
+
+#[derive(Debug, Deserialize)]
+struct BackupImportBody {
+    /// The backup data to import
+    backup: BackupImportData,
+    /// Dry run mode - validate without importing
+    #[serde(default)]
+    dry_run: bool,
+    /// Conflict resolution strategy
+    #[serde(default)]
+    on_conflict: ConflictStrategy,
+}
+
+#[derive(Debug, Deserialize)]
+struct BackupImportData {
+    manifest: Option<serde_json::Value>,
+    notes: Vec<BackupNoteData>,
+    #[serde(default)]
+    collections: Vec<serde_json::Value>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    templates: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BackupNoteData {
+    id: Option<Uuid>,
+    title: Option<String>,
+    original_content: Option<String>,
+    revised_content: Option<String>,
+    content: Option<String>, // Fallback if original_content not present
+    format: Option<String>,
+    source: Option<String>,
+    starred: Option<bool>,
+    archived: Option<bool>,
+    collection_id: Option<Uuid>,
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ConflictStrategy {
+    /// Skip notes that already exist (by ID)
+    #[default]
+    Skip,
+    /// Replace existing notes with imported data
+    Replace,
+    /// Merge: keep existing, add new
+    Merge,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupImportResponse {
+    status: String,
+    dry_run: bool,
+    imported: ImportCounts,
+    skipped: ImportCounts,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Default)]
+struct ImportCounts {
+    notes: usize,
+    collections: usize,
+    templates: usize,
+}
+
+/// Import a backup archive.
+async fn backup_import(
+    State(state): State<AppState>,
+    Json(body): Json<BackupImportBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::{CreateNoteRequest, NoteRepository};
+
+    let mut imported = ImportCounts::default();
+    let mut skipped = ImportCounts::default();
+    let mut errors: Vec<String> = Vec::new();
+
+    // Import notes
+    for note_data in &body.backup.notes {
+        // Get content (prefer original_content, fall back to content)
+        let content = note_data
+            .original_content
+            .as_ref()
+            .or(note_data.content.as_ref())
+            .cloned()
+            .unwrap_or_default();
+
+        if content.is_empty() {
+            errors.push(format!(
+                "Note {:?} has no content, skipping",
+                note_data.id.or(note_data.title.as_ref().map(|_| Uuid::nil()))
+            ));
+            skipped.notes += 1;
+            continue;
+        }
+
+        // Check if note exists (by ID)
+        if let Some(id) = note_data.id {
+            if state.db.notes.exists(id).await.unwrap_or(false) {
+                match body.on_conflict {
+                    ConflictStrategy::Skip => {
+                        skipped.notes += 1;
+                        continue;
+                    }
+                    ConflictStrategy::Replace => {
+                        // Delete existing and re-create
+                        if !body.dry_run {
+                            let _ = state.db.notes.soft_delete(id).await;
+                        }
+                    }
+                    ConflictStrategy::Merge => {
+                        // Keep existing
+                        skipped.notes += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if !body.dry_run {
+            // Create the note
+            let req = CreateNoteRequest {
+                content,
+                format: note_data.format.clone().unwrap_or_else(|| "markdown".to_string()),
+                source: note_data.source.clone().unwrap_or_else(|| "import".to_string()),
+                collection_id: note_data.collection_id,
+                tags: note_data.tags.clone(),
+            };
+
+            match state.db.notes.insert(req).await {
+                Ok(new_id) => {
+                    // Update status if specified
+                    if note_data.starred.unwrap_or(false) || note_data.archived.unwrap_or(false) {
+                        let status_req = matric_core::UpdateNoteStatusRequest {
+                            starred: note_data.starred,
+                            archived: note_data.archived,
+                        };
+                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                    }
+
+                    // If revised content exists, update it
+                    if let Some(revised) = &note_data.revised_content {
+                        if !revised.is_empty() {
+                            let _ = state
+                                .db
+                                .notes
+                                .update_revised(new_id, revised, Some("Imported from backup"))
+                                .await;
+                        }
+                    }
+
+                    // Queue NLP pipeline
+                    queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+
+                    imported.notes += 1;
+                }
+                Err(e) => {
+                    errors.push(format!("Failed to import note: {}", e));
+                }
+            }
+        } else {
+            imported.notes += 1;
+        }
+    }
+
+    // Import collections (basic support)
+    for coll in &body.backup.collections {
+        if let (Some(name), Some(_id)) = (
+            coll.get("name").and_then(|v| v.as_str()),
+            coll.get("id").and_then(|v| v.as_str()),
+        ) {
+            if !body.dry_run {
+                let description = coll.get("description").and_then(|v| v.as_str());
+                match state.db.collections.create(name, description, None).await {
+                    Ok(_) => imported.collections += 1,
+                    Err(_) => skipped.collections += 1,
+                }
+            } else {
+                imported.collections += 1;
+            }
+        }
+    }
+
+    // Import templates (basic support)
+    for tmpl in &body.backup.templates {
+        if let (Some(name), Some(content)) = (
+            tmpl.get("name").and_then(|v| v.as_str()),
+            tmpl.get("content").and_then(|v| v.as_str()),
+        ) {
+            if !body.dry_run {
+                use matric_core::{CreateTemplateRequest, TemplateRepository};
+                let req = CreateTemplateRequest {
+                    name: name.to_string(),
+                    description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                    content: content.to_string(),
+                    format: tmpl.get("format").and_then(|v| v.as_str()).map(String::from),
+                    default_tags: None,
+                    collection_id: None,
+                };
+                match state.db.templates.create(req).await {
+                    Ok(_) => imported.templates += 1,
+                    Err(_) => skipped.templates += 1,
+                }
+            } else {
+                imported.templates += 1;
+            }
+        }
+    }
+
+    let status = if errors.is_empty() { "success" } else { "partial" };
+
+    Ok(Json(BackupImportResponse {
+        status: status.to_string(),
+        dry_run: body.dry_run,
+        imported,
+        skipped,
+        errors,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct BackupTriggerBody {
+    /// Target destinations: local, s3, rsync, or all
+    destinations: Option<Vec<String>>,
+    /// Dry run mode - show what would be done without executing
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupTriggerResponse {
+    status: String,
+    output: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Trigger an immediate database backup.
+async fn backup_trigger(
+    State(_state): State<AppState>,
+    body: Option<Json<BackupTriggerBody>>,
+) -> Result<impl IntoResponse, ApiError> {
+    use std::process::Command;
+
+    let body = body.map(|b| b.0).unwrap_or(BackupTriggerBody {
+        destinations: None,
+        dry_run: false,
+    });
+
+    // Build backup script path
+    let script_path = std::env::var("BACKUP_SCRIPT_PATH")
+        .unwrap_or_else(|_| "/home/roctinam/dev/matric-memory/scripts/backup.sh".to_string());
+
+    // Build command
+    let mut cmd = Command::new(&script_path);
+
+    if body.dry_run {
+        cmd.arg("--dry-run");
+    }
+
+    if let Some(destinations) = &body.destinations {
+        for dest in destinations {
+            cmd.arg("--destination").arg(dest);
+        }
+    }
+
+    // Execute backup script
+    let output = cmd.output().map_err(|e| {
+        ApiError::BadRequest(format!("Failed to execute backup script: {}", e))
+    })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined_output = if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{}\n\nSTDERR:\n{}", stdout, stderr)
+    };
+
+    let status = if output.status.success() {
+        "success"
+    } else {
+        "failed"
+    };
+
+    Ok(Json(BackupTriggerResponse {
+        status: status.to_string(),
+        output: combined_output,
+        timestamp: chrono::Utc::now(),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct BackupStatusResponse {
+    backup_directory: String,
+    disk_usage: Option<String>,
+    backup_count: usize,
+    latest_backup: Option<LatestBackupInfo>,
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LatestBackupInfo {
+    path: String,
+    filename: String,
+    size_bytes: u64,
+    modified: chrono::DateTime<chrono::Utc>,
+}
+
+/// Get the status of the backup system.
+async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    use std::fs;
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    let mut response = BackupStatusResponse {
+        backup_directory: backup_dir.clone(),
+        disk_usage: None,
+        backup_count: 0,
+        latest_backup: None,
+        status: "unknown".to_string(),
+    };
+
+    // Check if backup directory exists
+    let backup_path = std::path::Path::new(&backup_dir);
+    if !backup_path.exists() {
+        response.status = "no_backup_directory".to_string();
+        return Ok(Json(response));
+    }
+
+    // List backup files
+    let mut backups: Vec<(String, std::fs::Metadata)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(backup_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("matric_backup_") && name.ends_with(".sql.gz") {
+                    if let Ok(meta) = entry.metadata() {
+                        backups.push((path.to_string_lossy().to_string(), meta));
+                    }
+                }
+            }
+        }
+    }
+
+    response.backup_count = backups.len();
+
+    // Find latest backup
+    if let Some((path, meta)) = backups
+        .iter()
+        .max_by_key(|(_, m)| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+    {
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let modified = meta
+            .modified()
+            .map(|t| {
+                let duration = t
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                    .unwrap_or_else(chrono::Utc::now)
+            })
+            .unwrap_or_else(|_| chrono::Utc::now());
+
+        response.latest_backup = Some(LatestBackupInfo {
+            path: path.clone(),
+            filename,
+            size_bytes: meta.len(),
+            modified,
+        });
+    }
+
+    // Calculate disk usage
+    if let Ok(output) = std::process::Command::new("du")
+        .arg("-sh")
+        .arg(&backup_dir)
+        .output()
+    {
+        if output.status.success() {
+            let usage = String::from_utf8_lossy(&output.stdout);
+            if let Some(size) = usage.split_whitespace().next() {
+                response.disk_usage = Some(size.to_string());
+            }
+        }
+    }
+
+    // Determine status
+    response.status = if response.backup_count > 0 {
+        "healthy".to_string()
+    } else {
+        "no_backups".to_string()
+    };
+
+    Ok(Json(response))
+}
+
+// =============================================================================
+// ARCHIVE EXPORT (Full backup with all components)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ArchiveExportQuery {
+    /// Components to include (comma-separated): notes,collections,tags,templates,links,embedding_sets,embeddings
+    /// Default: notes,collections,tags,templates,links,embedding_sets
+    include: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ArchiveManifest {
+    version: String,
+    format: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    components: Vec<String>,
+    counts: ArchiveCounts,
+    checksums: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct ArchiveCounts {
+    notes: usize,
+    collections: usize,
+    tags: usize,
+    templates: usize,
+    links: usize,
+    embedding_sets: usize,
+    embedding_set_members: usize,
+    embeddings: usize,
+    embedding_configs: usize,
+}
+
+/// Create a full backup archive with selected components.
+async fn backup_archive(
+    State(state): State<AppState>,
+    Query(query): Query<ArchiveExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use matric_core::{NoteRepository, TemplateRepository};
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+    use tar::Builder;
+
+    // Parse included components
+    let include_str = query.include.unwrap_or_else(|| {
+        "notes,collections,tags,templates,links,embedding_sets".to_string()
+    });
+    let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
+
+    let mut counts = ArchiveCounts::default();
+    let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // Create tar.gz in memory
+    let mut archive_data = Vec::new();
+    {
+        let encoder = GzEncoder::new(&mut archive_data, Compression::default());
+        let mut tar = Builder::new(encoder);
+
+        // Helper to add JSON file to archive
+        let mut add_json_file = |name: &str, data: &[u8]| -> std::io::Result<()> {
+            // Calculate checksum
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            let hash = hex::encode(hasher.finalize());
+            checksums.insert(name.to_string(), hash);
+
+            // Create header and add to tar
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_mtime(chrono::Utc::now().timestamp() as u64);
+            header.set_cksum();
+            tar.append_data(&mut header, name, data)?;
+            Ok(())
+        };
+
+        // Export notes
+        if components.contains(&"notes") {
+            let list_req = ListNotesRequest {
+                limit: Some(100000),
+                ..Default::default()
+            };
+            let notes_response = state.db.notes.list(list_req).await?;
+            let mut notes_json = Vec::new();
+
+            for note in &notes_response.notes {
+                if let Ok(full_note) = state.db.notes.fetch(note.id).await {
+                    let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+                    let note_obj = serde_json::json!({
+                        "id": full_note.note.id,
+                        "title": full_note.note.title,
+                        "original_content": full_note.original.content,
+                        "revised_content": full_note.revised.content,
+                        "format": full_note.note.format,
+                        "source": full_note.note.source,
+                        "starred": full_note.note.starred,
+                        "archived": full_note.note.archived,
+                        "collection_id": full_note.note.collection_id,
+                        "created_at": full_note.note.created_at_utc,
+                        "updated_at": full_note.note.updated_at_utc,
+                        "tags": note_tags,
+                    });
+                    notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
+                }
+            }
+            counts.notes = notes_json.len();
+            let notes_data = notes_json.join("\n").into_bytes();
+            add_json_file("notes.jsonl", &notes_data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add notes to archive: {}", e))
+            })?;
+        }
+
+        // Export collections
+        if components.contains(&"collections") {
+            let collections = state.db.collections.list(None).await.unwrap_or_default();
+            counts.collections = collections.len();
+            let collections_json: Vec<serde_json::Value> = collections
+                .iter()
+                .map(|c| serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "description": c.description,
+                    "parent_id": c.parent_id,
+                    "created_at": c.created_at_utc,
+                    "note_count": c.note_count,
+                }))
+                .collect();
+            let data = serde_json::to_vec_pretty(&collections_json).unwrap_or_default();
+            add_json_file("collections.json", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add collections: {}", e))
+            })?;
+        }
+
+        // Export tags
+        if components.contains(&"tags") {
+            let tags = state.db.tags.list().await.unwrap_or_default();
+            counts.tags = tags.len();
+            let tags_json: Vec<serde_json::Value> = tags
+                .iter()
+                .map(|t| serde_json::json!({
+                    "name": t.name,
+                    "created_at": t.created_at_utc,
+                }))
+                .collect();
+            let data = serde_json::to_vec_pretty(&tags_json).unwrap_or_default();
+            add_json_file("tags.json", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add tags: {}", e))
+            })?;
+        }
+
+        // Export templates
+        if components.contains(&"templates") {
+            let templates = state.db.templates.list().await.unwrap_or_default();
+            counts.templates = templates.len();
+            let templates_json: Vec<serde_json::Value> = templates
+                .iter()
+                .map(|t| serde_json::json!({
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "content": t.content,
+                    "format": t.format,
+                    "default_tags": t.default_tags,
+                    "collection_id": t.collection_id,
+                    "created_at": t.created_at_utc,
+                    "updated_at": t.updated_at_utc,
+                }))
+                .collect();
+            let data = serde_json::to_vec_pretty(&templates_json).unwrap_or_default();
+            add_json_file("templates.json", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add templates: {}", e))
+            })?;
+        }
+
+        // Export links
+        if components.contains(&"links") {
+            let links = state.db.links.list_all(100000, 0).await.unwrap_or_default();
+            counts.links = links.len();
+            let mut links_jsonl = Vec::new();
+            for link in &links {
+                let link_obj = serde_json::json!({
+                    "id": link.id,
+                    "from_note_id": link.from_note_id,
+                    "to_note_id": link.to_note_id,
+                    "to_url": link.to_url,
+                    "kind": link.kind,
+                    "score": link.score,
+                    "created_at": link.created_at_utc,
+                    "metadata": link.metadata,
+                });
+                links_jsonl.push(serde_json::to_string(&link_obj).unwrap_or_default());
+            }
+            let data = links_jsonl.join("\n").into_bytes();
+            add_json_file("links.jsonl", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add links: {}", e))
+            })?;
+        }
+
+        // Export embedding sets
+        if components.contains(&"embedding_sets") {
+            // Export set definitions
+            let sets = state.db.embedding_sets.list().await.unwrap_or_default();
+            counts.embedding_sets = sets.len();
+            let sets_json: Vec<serde_json::Value> = sets
+                .iter()
+                .map(|s| serde_json::json!({
+                    "id": s.id,
+                    "name": s.name,
+                    "slug": s.slug,
+                    "description": s.description,
+                    "purpose": s.purpose,
+                    "document_count": s.document_count,
+                    "embedding_count": s.embedding_count,
+                    "is_system": s.is_system,
+                    "keywords": s.keywords,
+                    "model": s.model,
+                    "dimension": s.dimension,
+                }))
+                .collect();
+            let data = serde_json::to_vec_pretty(&sets_json).unwrap_or_default();
+            add_json_file("embedding_sets.json", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add embedding sets: {}", e))
+            })?;
+
+            // Export set members
+            let members = state.db.embedding_sets.list_all_members(100000, 0).await.unwrap_or_default();
+            counts.embedding_set_members = members.len();
+            let mut members_jsonl = Vec::new();
+            for m in &members {
+                let member_obj = serde_json::json!({
+                    "embedding_set_id": m.embedding_set_id,
+                    "note_id": m.note_id,
+                    "membership_type": m.membership_type,
+                    "added_at": m.added_at,
+                    "added_by": m.added_by,
+                });
+                members_jsonl.push(serde_json::to_string(&member_obj).unwrap_or_default());
+            }
+            let data = members_jsonl.join("\n").into_bytes();
+            add_json_file("embedding_set_members.jsonl", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add embedding set members: {}", e))
+            })?;
+
+            // Export embedding configs
+            let configs = state.db.embedding_sets.list_configs().await.unwrap_or_default();
+            counts.embedding_configs = configs.len();
+            let configs_json: Vec<serde_json::Value> = configs
+                .iter()
+                .map(|c| serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "description": c.description,
+                    "model": c.model,
+                    "dimension": c.dimension,
+                    "chunk_size": c.chunk_size,
+                    "chunk_overlap": c.chunk_overlap,
+                    "is_default": c.is_default,
+                }))
+                .collect();
+            let data = serde_json::to_vec_pretty(&configs_json).unwrap_or_default();
+            add_json_file("embedding_configs.json", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add embedding configs: {}", e))
+            })?;
+        }
+
+        // Export embeddings (optional, can be large)
+        if components.contains(&"embeddings") {
+            let embeddings = state.db.embeddings.list_all(100000, 0).await.unwrap_or_default();
+            counts.embeddings = embeddings.len();
+            let mut embeddings_jsonl = Vec::new();
+            for emb in &embeddings {
+                let emb_obj = serde_json::json!({
+                    "id": emb.id,
+                    "note_id": emb.note_id,
+                    "chunk_index": emb.chunk_index,
+                    "text": emb.text,
+                    "vector": emb.vector.as_slice(),
+                    "model": emb.model,
+                });
+                embeddings_jsonl.push(serde_json::to_string(&emb_obj).unwrap_or_default());
+            }
+            let data = embeddings_jsonl.join("\n").into_bytes();
+            add_json_file("embeddings.jsonl", &data).map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add embeddings: {}", e))
+            })?;
+        }
+
+        // Create manifest (added last)
+        let manifest = ArchiveManifest {
+            version: "1.0.0".to_string(),
+            format: "matric-archive".to_string(),
+            created_at: chrono::Utc::now(),
+            components: components.iter().map(|s| s.to_string()).collect(),
+            counts,
+            checksums: checksums.clone(),
+        };
+        let manifest_data = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
+
+        // Add manifest to archive
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest_data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(chrono::Utc::now().timestamp() as u64);
+        header.set_cksum();
+        tar.append_data(&mut header, "manifest.json", manifest_data.as_slice())
+            .map_err(|e| ApiError::BadRequest(format!("Failed to add manifest: {}", e)))?;
+
+        // Finalize tar
+        tar.finish()
+            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize archive: {}", e)))?;
+    }
+
+    // Generate filename with timestamp
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let filename = format!("matric-archive-{}.tar.gz", timestamp);
+
+    // Return as downloadable file
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "application/gzip".parse().unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", filename)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((StatusCode::OK, headers, archive_data))
+}
+
+// =============================================================================
+// ARCHIVE IMPORT (Full restore from tar.gz archive)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ArchiveImportBody {
+    /// Base64-encoded tar.gz archive data
+    archive_base64: String,
+    /// Components to import (comma-separated). If not specified, imports all available.
+    include: Option<String>,
+    /// Dry run - validate without importing
+    #[serde(default)]
+    dry_run: bool,
+    /// Conflict resolution strategy for notes
+    #[serde(default)]
+    on_conflict: ConflictStrategy,
+    /// Whether to skip embedding regeneration (use imported embeddings)
+    #[serde(default)]
+    skip_embedding_regen: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ArchiveImportResponse {
+    status: String,
+    manifest: Option<ArchiveManifest>,
+    imported: ArchiveImportCounts,
+    skipped: ArchiveImportCounts,
+    errors: Vec<String>,
+    dry_run: bool,
+}
+
+#[derive(Debug, Serialize, Default)]
+struct ArchiveImportCounts {
+    notes: usize,
+    collections: usize,
+    tags: usize,
+    templates: usize,
+    links: usize,
+    embedding_sets: usize,
+    embedding_set_members: usize,
+    embeddings: usize,
+}
+
+/// Import a full backup archive from tar.gz.
+async fn archive_import(
+    State(state): State<AppState>,
+    Json(body): Json<ArchiveImportBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    use base64::Engine;
+    use flate2::read::GzDecoder;
+    use matric_core::{CreateNoteRequest, NoteRepository, TemplateRepository};
+    use tar::Archive;
+
+    // Decode base64 archive
+    let archive_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&body.archive_base64)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
+
+    // Decompress gzip
+    let decoder = GzDecoder::new(archive_bytes.as_slice());
+    let mut archive = Archive::new(decoder);
+
+    // Parse included components filter
+    let include_filter: Option<Vec<String>> = body.include.as_ref().map(|s| {
+        s.split(',').map(|c| c.trim().to_lowercase()).collect()
+    });
+
+    let mut imported = ArchiveImportCounts::default();
+    let mut skipped = ArchiveImportCounts::default();
+    let mut errors: Vec<String> = Vec::new();
+    let mut manifest: Option<ArchiveManifest> = None;
+
+    // First pass: read all entries into memory for processing
+    let mut files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+
+    for entry_result in archive.entries().map_err(|e| {
+        ApiError::BadRequest(format!("Failed to read archive: {}", e))
+    })? {
+        let mut entry = entry_result.map_err(|e| {
+            ApiError::BadRequest(format!("Failed to read archive entry: {}", e))
+        })?;
+
+        let path = entry.path().map_err(|e| {
+            ApiError::BadRequest(format!("Invalid path in archive: {}", e))
+        })?;
+        let filename = path.to_string_lossy().to_string();
+
+        let mut contents = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut contents).map_err(|e| {
+            ApiError::BadRequest(format!("Failed to read entry {}: {}", filename, e))
+        })?;
+
+        files.insert(filename, contents);
+    }
+
+    // Parse manifest first
+    if let Some(manifest_data) = files.get("manifest.json") {
+        match serde_json::from_slice::<ArchiveManifest>(manifest_data) {
+            Ok(m) => manifest = Some(m),
+            Err(e) => errors.push(format!("Failed to parse manifest: {}", e)),
+        }
+    }
+
+    // Helper to check if component should be imported
+    let should_import = |component: &str| -> bool {
+        match &include_filter {
+            Some(filter) => filter.contains(&component.to_lowercase()),
+            None => true, // Import all if no filter specified
+        }
+    };
+
+    // Import notes
+    if should_import("notes") {
+        if let Some(notes_data) = files.get("notes.jsonl") {
+            let notes_str = String::from_utf8_lossy(notes_data);
+            for line in notes_str.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                match serde_json::from_str::<serde_json::Value>(line) {
+                    Ok(note_json) => {
+                        let content = note_json.get("original_content")
+                            .or(note_json.get("content"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        if content.is_empty() {
+                            skipped.notes += 1;
+                            continue;
+                        }
+
+                        // Check for existing note by ID
+                        let existing_id = note_json.get("id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok());
+
+                        if let Some(id) = existing_id {
+                            if state.db.notes.exists(id).await.unwrap_or(false) {
+                                match body.on_conflict {
+                                    ConflictStrategy::Skip => {
+                                        skipped.notes += 1;
+                                        continue;
+                                    }
+                                    ConflictStrategy::Replace => {
+                                        if !body.dry_run {
+                                            let _ = state.db.notes.soft_delete(id).await;
+                                        }
+                                    }
+                                    ConflictStrategy::Merge => {
+                                        skipped.notes += 1;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !body.dry_run {
+                            let req = CreateNoteRequest {
+                                content,
+                                format: note_json.get("format")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("markdown")
+                                    .to_string(),
+                                source: note_json.get("source")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("archive-import")
+                                    .to_string(),
+                                collection_id: note_json.get("collection_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|s| Uuid::parse_str(s).ok()),
+                                tags: note_json.get("tags")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
+                            };
+
+                            match state.db.notes.insert(req).await {
+                                Ok(new_id) => {
+                                    // Update status if specified
+                                    let starred = note_json.get("starred").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let archived = note_json.get("archived").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    if starred || archived {
+                                        let status_req = matric_core::UpdateNoteStatusRequest {
+                                            starred: Some(starred),
+                                            archived: Some(archived),
+                                        };
+                                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                                    }
+
+                                    // Update revised content if available
+                                    if let Some(revised) = note_json.get("revised_content").and_then(|v| v.as_str()) {
+                                        if !revised.is_empty() {
+                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported from archive")).await;
+                                        }
+                                    }
+
+                                    // Queue NLP pipeline if not skipping regen
+                                    if !body.skip_embedding_regen {
+                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+                                    }
+
+                                    imported.notes += 1;
+                                }
+                                Err(e) => {
+                                    errors.push(format!("Failed to import note: {}", e));
+                                }
+                            }
+                        } else {
+                            imported.notes += 1;
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("Invalid note JSON: {}", e));
+                    }
+                }
+            }
+        }
+    }
+
+    // Import collections
+    if should_import("collections") {
+        if let Some(collections_data) = files.get("collections.json") {
+            match serde_json::from_slice::<Vec<serde_json::Value>>(collections_data) {
+                Ok(collections) => {
+                    for coll in collections {
+                        let name = coll.get("name").and_then(|v| v.as_str());
+                        let id = coll.get("id").and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok());
+
+                        if let (Some(name), Some(_id)) = (name, id) {
+                            if !body.dry_run {
+                                match state.db.collections.create(
+                                    name,
+                                    coll.get("description").and_then(|v| v.as_str()),
+                                    coll.get("parent_id").and_then(|v| v.as_str())
+                                        .and_then(|s| Uuid::parse_str(s).ok()),
+                                ).await {
+                                    Ok(_) => imported.collections += 1,
+                                    Err(e) => errors.push(format!("Failed to import collection {}: {}", name, e)),
+                                }
+                            } else {
+                                imported.collections += 1;
+                            }
+                        }
+                    }
+                }
+                Err(e) => errors.push(format!("Failed to parse collections: {}", e)),
+            }
+        }
+    }
+
+    // Import templates
+    if should_import("templates") {
+        if let Some(templates_data) = files.get("templates.json") {
+            match serde_json::from_slice::<Vec<serde_json::Value>>(templates_data) {
+                Ok(templates) => {
+                    for tmpl in templates {
+                        if let (Some(name), Some(content)) = (
+                            tmpl.get("name").and_then(|v| v.as_str()),
+                            tmpl.get("content").and_then(|v| v.as_str()),
+                        ) {
+                            if !body.dry_run {
+                                let req = matric_core::CreateTemplateRequest {
+                                    name: name.to_string(),
+                                    description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                                    content: content.to_string(),
+                                    format: Some(tmpl.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string()),
+                                    default_tags: tmpl.get("default_tags")
+                                        .and_then(|v| v.as_array())
+                                        .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
+                                    collection_id: tmpl.get("collection_id")
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|s| Uuid::parse_str(s).ok()),
+                                };
+
+                                match state.db.templates.create(req).await {
+                                    Ok(_) => imported.templates += 1,
+                                    Err(e) => errors.push(format!("Failed to import template {}: {}", name, e)),
+                                }
+                            } else {
+                                imported.templates += 1;
+                            }
+                        }
+                    }
+                }
+                Err(e) => errors.push(format!("Failed to parse templates: {}", e)),
+            }
+        }
+    }
+
+    // Import links (if embeddings are being skipped, links help preserve graph structure)
+    if should_import("links") {
+        if let Some(links_data) = files.get("links.jsonl") {
+            let links_str = String::from_utf8_lossy(links_data);
+            for line in links_str.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                match serde_json::from_str::<serde_json::Value>(line) {
+                    Ok(link_json) => {
+                        let from_id = link_json.get("from_note_id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok());
+                        let to_id = link_json.get("to_note_id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok());
+                        let kind = link_json.get("kind")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("semantic");
+                        let score = link_json.get("score")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.7) as f32;
+
+                        if let (Some(from_id), Some(to_id)) = (from_id, to_id) {
+                            if !body.dry_run {
+                                let metadata = link_json.get("metadata").cloned();
+                                match state.db.links.create(from_id, to_id, kind, score, metadata).await {
+                                    Ok(_) => imported.links += 1,
+                                    Err(_) => skipped.links += 1, // Link may already exist
+                                }
+                            } else {
+                                imported.links += 1;
+                            }
+                        }
+                    }
+                    Err(e) => errors.push(format!("Invalid link JSON: {}", e)),
+                }
+            }
+        }
+    }
+
+    // Note: Embedding sets, members, and raw embeddings import would require
+    // additional repository methods. For now, we skip these as they can be
+    // regenerated from the notes.
+
+    if should_import("embedding_sets") {
+        if files.contains_key("embedding_sets.json") {
+            errors.push("Embedding set import not yet implemented - sets will be regenerated".to_string());
+        }
+    }
+
+    if should_import("embeddings") {
+        if files.contains_key("embeddings.jsonl") {
+            errors.push("Direct embedding import not yet implemented - embeddings will be regenerated".to_string());
+        }
+    }
+
+    let status = if errors.is_empty() {
+        "success".to_string()
+    } else if imported.notes > 0 || imported.collections > 0 || imported.templates > 0 {
+        "partial".to_string()
+    } else {
+        "failed".to_string()
+    };
+
+    Ok(Json(ArchiveImportResponse {
+        status,
+        manifest,
+        imported,
+        skipped,
+        errors,
+        dry_run: body.dry_run,
+    }))
+}
+
+// =============================================================================
 // ERROR HANDLING
 // =============================================================================
 
@@ -2307,5 +3913,372 @@ impl IntoResponse for ApiError {
         }));
 
         (status, body).into_response()
+    }
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_export_manifest_serialization() {
+        let manifest = BackupExportManifest {
+            version: "1.0.0".to_string(),
+            format: "matric-backup".to_string(),
+            created_at: chrono::Utc::now(),
+            counts: BackupCounts {
+                notes: 10,
+                collections: 3,
+                tags: 5,
+                templates: 2,
+            },
+        };
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        assert!(json.contains("\"version\":\"1.0.0\""));
+        assert!(json.contains("\"format\":\"matric-backup\""));
+        assert!(json.contains("\"notes\":10"));
+    }
+
+    #[test]
+    fn test_backup_status_response_serialization() {
+        let response = BackupStatusResponse {
+            backup_directory: "/var/backups/test".to_string(),
+            disk_usage: Some("1.2G".to_string()),
+            backup_count: 5,
+            latest_backup: Some(LatestBackupInfo {
+                path: "/var/backups/test/backup.sql.gz".to_string(),
+                filename: "backup.sql.gz".to_string(),
+                size_bytes: 1024,
+                modified: chrono::Utc::now(),
+            }),
+            status: "healthy".to_string(),
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"backup_directory\":\"/var/backups/test\""));
+        assert!(json.contains("\"disk_usage\":\"1.2G\""));
+        assert!(json.contains("\"backup_count\":5"));
+        assert!(json.contains("\"status\":\"healthy\""));
+    }
+
+    #[test]
+    fn test_backup_trigger_response_serialization() {
+        let response = BackupTriggerResponse {
+            status: "success".to_string(),
+            output: "Backup completed".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"status\":\"success\""));
+        assert!(json.contains("\"output\":\"Backup completed\""));
+    }
+
+    #[test]
+    fn test_backup_export_query_defaults() {
+        // Test default values for BackupExportQuery
+        let query: BackupExportQuery = serde_json::from_str("{}").unwrap();
+        assert!(!query.starred_only);
+        assert!(query.tags.is_none());
+        assert!(query.created_after.is_none());
+        assert!(query.created_before.is_none());
+    }
+
+    #[test]
+    fn test_backup_export_query_with_filters() {
+        let json = r#"{
+            "starred_only": true,
+            "tags": "rust,api",
+            "created_after": "2024-01-01T00:00:00Z"
+        }"#;
+        let query: BackupExportQuery = serde_json::from_str(json).unwrap();
+        assert!(query.starred_only);
+        assert_eq!(query.tags, Some("rust,api".to_string()));
+        assert!(query.created_after.is_some());
+    }
+
+    #[test]
+    fn test_backup_trigger_body_defaults() {
+        let body: BackupTriggerBody = serde_json::from_str("{}").unwrap();
+        assert!(body.destinations.is_none());
+        assert!(!body.dry_run);
+    }
+
+    #[test]
+    fn test_backup_trigger_body_with_options() {
+        let json = r#"{
+            "destinations": ["local", "s3"],
+            "dry_run": true
+        }"#;
+        let body: BackupTriggerBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.destinations, Some(vec!["local".to_string(), "s3".to_string()]));
+        assert!(body.dry_run);
+    }
+
+    #[test]
+    fn test_backup_import_response_serialization() {
+        let response = BackupImportResponse {
+            status: "success".to_string(),
+            dry_run: false,
+            imported: ImportCounts {
+                notes: 10,
+                collections: 2,
+                templates: 1,
+            },
+            skipped: ImportCounts {
+                notes: 2,
+                collections: 0,
+                templates: 0,
+            },
+            errors: vec![],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"status\":\"success\""));
+        assert!(json.contains("\"dry_run\":false"));
+        assert!(json.contains("\"notes\":10"));
+    }
+
+    #[test]
+    fn test_backup_import_body_defaults() {
+        let json = r#"{
+            "backup": {
+                "notes": []
+            }
+        }"#;
+        let body: BackupImportBody = serde_json::from_str(json).unwrap();
+        assert!(!body.dry_run);
+        assert!(body.backup.notes.is_empty());
+    }
+
+    #[test]
+    fn test_backup_import_body_with_options() {
+        let json = r#"{
+            "backup": {
+                "notes": [
+                    {
+                        "content": "Test note",
+                        "tags": ["test"]
+                    }
+                ]
+            },
+            "dry_run": true,
+            "on_conflict": "replace"
+        }"#;
+        let body: BackupImportBody = serde_json::from_str(json).unwrap();
+        assert!(body.dry_run);
+        assert_eq!(body.backup.notes.len(), 1);
+        assert_eq!(body.backup.notes[0].content, Some("Test note".to_string()));
+    }
+
+    #[test]
+    fn test_conflict_strategy_deserialization() {
+        let json = r#""skip""#;
+        let strategy: ConflictStrategy = serde_json::from_str(json).unwrap();
+        assert!(matches!(strategy, ConflictStrategy::Skip));
+
+        let json = r#""replace""#;
+        let strategy: ConflictStrategy = serde_json::from_str(json).unwrap();
+        assert!(matches!(strategy, ConflictStrategy::Replace));
+
+        let json = r#""merge""#;
+        let strategy: ConflictStrategy = serde_json::from_str(json).unwrap();
+        assert!(matches!(strategy, ConflictStrategy::Merge));
+    }
+
+    #[test]
+    fn test_backup_note_data_deserialization() {
+        let json = r#"{
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "original_content": "Test content",
+            "revised_content": "Enhanced content",
+            "format": "markdown",
+            "starred": true,
+            "tags": ["tag1", "tag2"]
+        }"#;
+        let note: BackupNoteData = serde_json::from_str(json).unwrap();
+        assert!(note.id.is_some());
+        assert_eq!(note.original_content, Some("Test content".to_string()));
+        assert_eq!(note.revised_content, Some("Enhanced content".to_string()));
+        assert_eq!(note.format, Some("markdown".to_string()));
+        assert_eq!(note.starred, Some(true));
+        assert_eq!(note.tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+    }
+
+    #[test]
+    fn test_import_counts_default() {
+        let counts = ImportCounts::default();
+        assert_eq!(counts.notes, 0);
+        assert_eq!(counts.collections, 0);
+        assert_eq!(counts.templates, 0);
+    }
+
+    // =========================================================================
+    // ARCHIVE EXPORT/IMPORT TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_archive_export_query_defaults() {
+        let query: ArchiveExportQuery = serde_json::from_str("{}").unwrap();
+        assert!(query.include.is_none());
+    }
+
+    #[test]
+    fn test_archive_export_query_with_components() {
+        let json = r#"{"include": "notes,links,embeddings"}"#;
+        let query: ArchiveExportQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.include, Some("notes,links,embeddings".to_string()));
+    }
+
+    #[test]
+    fn test_archive_manifest_serialization() {
+        let manifest = ArchiveManifest {
+            version: "1.0.0".to_string(),
+            format: "matric-archive".to_string(),
+            created_at: chrono::Utc::now(),
+            components: vec!["notes".to_string(), "links".to_string()],
+            counts: ArchiveCounts {
+                notes: 100,
+                collections: 5,
+                tags: 20,
+                templates: 3,
+                links: 50,
+                embedding_sets: 2,
+                embedding_set_members: 80,
+                embeddings: 500,
+                embedding_configs: 1,
+            },
+            checksums: std::collections::HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        assert!(json.contains("\"version\":\"1.0.0\""));
+        assert!(json.contains("\"format\":\"matric-archive\""));
+        assert!(json.contains("\"notes\":100"));
+        assert!(json.contains("\"links\":50"));
+        assert!(json.contains("\"embeddings\":500"));
+    }
+
+    #[test]
+    fn test_archive_manifest_deserialization() {
+        let json = r#"{
+            "version": "1.0.0",
+            "format": "matric-archive",
+            "created_at": "2024-01-15T10:30:00Z",
+            "components": ["notes", "links"],
+            "counts": {
+                "notes": 10,
+                "collections": 2,
+                "tags": 5,
+                "templates": 1,
+                "links": 8,
+                "embedding_sets": 1,
+                "embedding_set_members": 10,
+                "embeddings": 50,
+                "embedding_configs": 1
+            },
+            "checksums": {}
+        }"#;
+        let manifest: ArchiveManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(manifest.format, "matric-archive");
+        assert_eq!(manifest.components.len(), 2);
+        assert_eq!(manifest.counts.notes, 10);
+        assert_eq!(manifest.counts.links, 8);
+        assert_eq!(manifest.counts.embeddings, 50);
+    }
+
+    #[test]
+    fn test_archive_counts_default() {
+        let counts = ArchiveCounts::default();
+        assert_eq!(counts.notes, 0);
+        assert_eq!(counts.collections, 0);
+        assert_eq!(counts.tags, 0);
+        assert_eq!(counts.templates, 0);
+        assert_eq!(counts.links, 0);
+        assert_eq!(counts.embedding_sets, 0);
+        assert_eq!(counts.embedding_set_members, 0);
+        assert_eq!(counts.embeddings, 0);
+        assert_eq!(counts.embedding_configs, 0);
+    }
+
+    #[test]
+    fn test_archive_import_body_defaults() {
+        let json = r#"{"archive_base64": "H4sIAAAAAAAA"}"#;
+        let body: ArchiveImportBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.archive_base64, "H4sIAAAAAAAA");
+        assert!(body.include.is_none());
+        assert!(!body.dry_run);
+        assert!(matches!(body.on_conflict, ConflictStrategy::Skip));
+        assert!(!body.skip_embedding_regen);
+    }
+
+    #[test]
+    fn test_archive_import_body_with_options() {
+        let json = r#"{
+            "archive_base64": "H4sIAAAAAAAA",
+            "include": "notes,collections",
+            "dry_run": true,
+            "on_conflict": "replace",
+            "skip_embedding_regen": true
+        }"#;
+        let body: ArchiveImportBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.archive_base64, "H4sIAAAAAAAA");
+        assert_eq!(body.include, Some("notes,collections".to_string()));
+        assert!(body.dry_run);
+        assert!(matches!(body.on_conflict, ConflictStrategy::Replace));
+        assert!(body.skip_embedding_regen);
+    }
+
+    #[test]
+    fn test_archive_import_response_serialization() {
+        let response = ArchiveImportResponse {
+            status: "success".to_string(),
+            manifest: Some(ArchiveManifest {
+                version: "1.0.0".to_string(),
+                format: "matric-archive".to_string(),
+                created_at: chrono::Utc::now(),
+                components: vec!["notes".to_string()],
+                counts: ArchiveCounts::default(),
+                checksums: std::collections::HashMap::new(),
+            }),
+            imported: ArchiveImportCounts {
+                notes: 10,
+                collections: 2,
+                tags: 0,
+                templates: 1,
+                links: 5,
+                embedding_sets: 0,
+                embedding_set_members: 0,
+                embeddings: 0,
+            },
+            skipped: ArchiveImportCounts::default(),
+            errors: vec![],
+            dry_run: false,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"status\":\"success\""));
+        assert!(json.contains("\"notes\":10"));
+        assert!(json.contains("\"links\":5"));
+        assert!(json.contains("\"dry_run\":false"));
+    }
+
+    #[test]
+    fn test_archive_import_counts_default() {
+        let counts = ArchiveImportCounts::default();
+        assert_eq!(counts.notes, 0);
+        assert_eq!(counts.collections, 0);
+        assert_eq!(counts.tags, 0);
+        assert_eq!(counts.templates, 0);
+        assert_eq!(counts.links, 0);
+        assert_eq!(counts.embedding_sets, 0);
+        assert_eq!(counts.embedding_set_members, 0);
+        assert_eq!(counts.embeddings, 0);
     }
 }
