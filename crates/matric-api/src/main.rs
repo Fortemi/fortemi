@@ -3073,8 +3073,16 @@ async fn backup_trigger(
 #[derive(Debug, Serialize)]
 struct BackupStatusResponse {
     backup_directory: String,
+    /// Total size of all backups in bytes
+    total_size_bytes: u64,
+    /// Human-readable total size (e.g., "1.5 GB")
+    total_size_human: String,
+    /// Deprecated: use total_size_human instead
     disk_usage: Option<String>,
     backup_count: usize,
+    /// Breakdown by type
+    archive_count: usize,
+    pgdump_count: usize,
     latest_backup: Option<LatestBackupInfo>,
     status: String,
 }
@@ -3096,8 +3104,12 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 
     let mut response = BackupStatusResponse {
         backup_directory: backup_dir.clone(),
+        total_size_bytes: 0,
+        total_size_human: "0 B".to_string(),
         disk_usage: None,
         backup_count: 0,
+        archive_count: 0,
+        pgdump_count: 0,
         latest_backup: None,
         status: "unknown".to_string(),
     };
@@ -3109,27 +3121,44 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         return Ok(Json(response));
     }
 
-    // List backup files
-    let mut backups: Vec<(String, std::fs::Metadata)> = Vec::new();
+    // List ALL backup files (archives, pgdump, json)
+    let mut backups: Vec<(String, std::fs::Metadata, &str)> = Vec::new();
+    let mut total_size: u64 = 0;
+
     if let Ok(entries) = fs::read_dir(backup_path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("matric_backup_") && name.ends_with(".sql.gz") {
+                let backup_type = if name.ends_with(".tar.gz") {
+                    Some("archive")
+                } else if name.ends_with(".sql.gz") || name.ends_with(".sql") {
+                    Some("pgdump")
+                } else if name.ends_with(".json") {
+                    Some("json")
+                } else {
+                    None
+                };
+
+                if let Some(btype) = backup_type {
                     if let Ok(meta) = entry.metadata() {
-                        backups.push((path.to_string_lossy().to_string(), meta));
+                        total_size += meta.len();
+                        backups.push((path.to_string_lossy().to_string(), meta, btype));
                     }
                 }
             }
         }
     }
 
+    response.total_size_bytes = total_size;
+    response.total_size_human = format_size(total_size);
     response.backup_count = backups.len();
+    response.archive_count = backups.iter().filter(|(_, _, t)| *t == "archive").count();
+    response.pgdump_count = backups.iter().filter(|(_, _, t)| *t == "pgdump").count();
 
-    // Find latest backup
-    if let Some((path, meta)) = backups
+    // Find latest backup (any type)
+    if let Some((path, meta, _)) = backups
         .iter()
-        .max_by_key(|(_, m)| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+        .max_by_key(|(_, m, _)| m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH))
     {
         let filename = std::path::Path::new(path)
             .file_name()
@@ -3155,19 +3184,8 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         });
     }
 
-    // Calculate disk usage
-    if let Ok(output) = std::process::Command::new("du")
-        .arg("-sh")
-        .arg(&backup_dir)
-        .output()
-    {
-        if output.status.success() {
-            let usage = String::from_utf8_lossy(&output.stdout);
-            if let Some(size) = usage.split_whitespace().next() {
-                response.disk_usage = Some(size.to_string());
-            }
-        }
-    }
+    // Keep disk_usage for backwards compatibility
+    response.disk_usage = Some(response.total_size_human.clone());
 
     // Determine status
     response.status = if response.backup_count > 0 {
