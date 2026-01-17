@@ -338,6 +338,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/backup/status", get(backup_status))
         .route("/api/v1/backup/archive", get(backup_archive))
         .route("/api/v1/backup/archive/import", post(archive_import))
+        // Archive browser and swap
+        .route("/api/v1/backup/archives", get(list_backup_archives))
+        .route("/api/v1/backup/archives/:filename", get(get_backup_archive_info))
+        .route("/api/v1/backup/swap", post(swap_backup))
+        // Memory info
+        .route("/api/v1/memory/info", get(memory_info))
         // Middleware
         .layer(TraceLayer::new_for_http())
         .layer(
@@ -3913,6 +3919,821 @@ impl IntoResponse for ApiError {
         }));
 
         (status, body).into_response()
+    }
+}
+
+// =============================================================================
+// BACKUP ARCHIVE BROWSER
+// =============================================================================
+
+/// Info about a single backup archive file
+#[derive(Debug, Serialize)]
+struct BackupArchiveInfo {
+    filename: String,
+    path: String,
+    size_bytes: u64,
+    size_human: String,
+    modified: chrono::DateTime<chrono::Utc>,
+    /// ISO 8601 timestamp string for easy display
+    modified_iso: String,
+    /// Archive type: "archive" (tar.gz), "pgdump" (.sql.gz), "json" (.json)
+    archive_type: String,
+    /// SHA256 hash of the file (first 16 chars for display)
+    sha256_short: Option<String>,
+    /// Full SHA256 hash
+    sha256: Option<String>,
+    /// Manifest info if available (for tar.gz archives)
+    manifest: Option<ArchiveManifest>,
+}
+
+#[derive(Debug, Serialize)]
+struct ListBackupArchivesResponse {
+    backup_directory: String,
+    archives: Vec<BackupArchiveInfo>,
+    total_size_bytes: u64,
+    total_size_human: String,
+}
+
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// List all backup archives in the backup directory.
+async fn list_backup_archives(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    use std::fs;
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    let backup_path = std::path::Path::new(&backup_dir);
+    if !backup_path.exists() {
+        return Ok(Json(ListBackupArchivesResponse {
+            backup_directory: backup_dir,
+            archives: vec![],
+            total_size_bytes: 0,
+            total_size_human: "0 B".to_string(),
+        }));
+    }
+
+    let mut archives = Vec::new();
+    let mut total_size = 0u64;
+
+    if let Ok(entries) = fs::read_dir(backup_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                let archive_type = if name.ends_with(".tar.gz") {
+                    "archive"
+                } else if name.ends_with(".sql.gz") || name.ends_with(".sql") {
+                    "pgdump"
+                } else if name.ends_with(".json") {
+                    "json"
+                } else {
+                    continue; // Skip unknown files
+                };
+
+                if let Ok(meta) = entry.metadata() {
+                    let size = meta.len();
+                    total_size += size;
+
+                    let modified = meta
+                        .modified()
+                        .map(|t| {
+                            let duration = t
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default();
+                            chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                                .unwrap_or_else(chrono::Utc::now)
+                        })
+                        .unwrap_or_else(|_| chrono::Utc::now());
+
+                    // Calculate SHA256 hash (only for reasonably sized files)
+                    let (sha256, sha256_short) = if size < 500_000_000 {
+                        // < 500MB
+                        calculate_file_sha256(&path)
+                            .map(|h| (Some(h.clone()), Some(h[..16].to_string())))
+                            .unwrap_or((None, None))
+                    } else {
+                        (None, None)
+                    };
+
+                    // Try to extract manifest from tar.gz archives
+                    let manifest = if archive_type == "archive" {
+                        extract_manifest_from_archive(&path).ok()
+                    } else {
+                        None
+                    };
+
+                    archives.push(BackupArchiveInfo {
+                        filename: name.to_string(),
+                        path: path.to_string_lossy().to_string(),
+                        size_bytes: size,
+                        size_human: format_size(size),
+                        modified,
+                        modified_iso: modified.to_rfc3339(),
+                        archive_type: archive_type.to_string(),
+                        sha256_short,
+                        sha256,
+                        manifest,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by modified date, newest first
+    archives.sort_by(|a, b| b.modified.cmp(&a.modified));
+
+    Ok(Json(ListBackupArchivesResponse {
+        backup_directory: backup_dir,
+        archives,
+        total_size_bytes: total_size,
+        total_size_human: format_size(total_size),
+    }))
+}
+
+/// Calculate SHA256 hash of a file.
+fn calculate_file_sha256(path: &std::path::Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+
+    let file = File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let bytes_read = reader.read(&mut buffer).ok()?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Some(hex::encode(hasher.finalize()))
+}
+
+/// Extract manifest from a tar.gz archive without loading entire file.
+fn extract_manifest_from_archive(path: &std::path::Path) -> Result<ArchiveManifest, String> {
+    use flate2::read::GzDecoder;
+    use std::fs::File;
+    use tar::Archive;
+
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+
+    for entry in archive.entries().map_err(|e| e.to_string())? {
+        let mut entry = entry.map_err(|e| e.to_string())?;
+        let entry_path = entry.path().map_err(|e| e.to_string())?;
+
+        if entry_path.to_string_lossy() == "manifest.json" {
+            use std::io::Read;
+            let mut contents = String::new();
+            entry.read_to_string(&mut contents).map_err(|e| e.to_string())?;
+            return serde_json::from_str(&contents).map_err(|e| e.to_string());
+        }
+    }
+
+    Err("No manifest.json found in archive".to_string())
+}
+
+/// Get detailed info about a specific backup archive.
+async fn get_backup_archive_info(
+    State(_state): State<AppState>,
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use std::fs;
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: ensure filename doesn't contain path traversal
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let path = std::path::Path::new(&backup_dir).join(&filename);
+    if !path.exists() {
+        return Err(ApiError::NotFound(format!("Archive not found: {}", filename)));
+    }
+
+    let meta = fs::metadata(&path)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot read file: {}", e)))?;
+
+    let archive_type = if filename.ends_with(".tar.gz") {
+        "archive"
+    } else if filename.ends_with(".sql.gz") || filename.ends_with(".sql") {
+        "pgdump"
+    } else if filename.ends_with(".json") {
+        "json"
+    } else {
+        "unknown"
+    };
+
+    let modified = meta
+        .modified()
+        .map(|t| {
+            let duration = t
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                .unwrap_or_else(chrono::Utc::now)
+        })
+        .unwrap_or_else(|_| chrono::Utc::now());
+
+    let manifest = if archive_type == "archive" {
+        extract_manifest_from_archive(&path).ok()
+    } else {
+        None
+    };
+
+    // Calculate SHA256
+    let (sha256, sha256_short) = calculate_file_sha256(&path)
+        .map(|h| (Some(h.clone()), Some(h[..16].to_string())))
+        .unwrap_or((None, None));
+
+    Ok(Json(BackupArchiveInfo {
+        filename,
+        path: path.to_string_lossy().to_string(),
+        size_bytes: meta.len(),
+        size_human: format_size(meta.len()),
+        modified,
+        modified_iso: modified.to_rfc3339(),
+        archive_type: archive_type.to_string(),
+        sha256_short,
+        sha256,
+        manifest,
+    }))
+}
+
+// =============================================================================
+// BACKUP SWAP (HOT RESTORE)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct SwapBackupRequest {
+    /// Filename of the archive to restore from
+    filename: String,
+    /// If true, just validate without actually restoring
+    dry_run: Option<bool>,
+    /// What to do with existing data: "wipe" (default) or "merge"
+    strategy: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SwapBackupResponse {
+    status: String,
+    message: String,
+    /// Stats about what was/would be restored
+    stats: Option<ArchiveImportCounts>,
+    dry_run: bool,
+}
+
+/// Swap to a different backup (restore from archive file on disk).
+async fn swap_backup(
+    State(state): State<AppState>,
+    Json(req): Json<SwapBackupRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    use std::fs::File;
+    use std::io::Read;
+
+    let dry_run = req.dry_run.unwrap_or(false);
+    let strategy = req.strategy.as_deref().unwrap_or("wipe");
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: ensure filename doesn't contain path traversal
+    if req.filename.contains("..") || req.filename.contains('/') || req.filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let path = std::path::Path::new(&backup_dir).join(&req.filename);
+    if !path.exists() {
+        return Err(ApiError::NotFound(format!("Archive not found: {}", req.filename)));
+    }
+
+    // Only support tar.gz archives for now
+    if !req.filename.ends_with(".tar.gz") {
+        return Err(ApiError::BadRequest(
+            "Only tar.gz archives are supported for swap. Use pg_restore for .sql.gz files.".to_string()
+        ));
+    }
+
+    // Read archive file
+    let mut file = File::open(&path)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot read archive: {}", e)))?;
+    let mut archive_data = Vec::new();
+    file.read_to_end(&mut archive_data)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot read archive: {}", e)))?;
+
+    // Encode as base64 for the import handler
+    let archive_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &archive_data);
+
+    // If strategy is "wipe", purge existing data first
+    if strategy == "wipe" && !dry_run {
+        use matric_core::TemplateRepository;
+
+        // Purge all notes (which cascades to tags, embeddings, links)
+        let list_req = ListNotesRequest {
+            limit: Some(100000),
+            filter: Some("all".to_string()), // Include archived
+            ..Default::default()
+        };
+        let notes = state.db.notes.list(list_req).await?;
+        for note in notes.notes {
+            let _ = state.db.notes.hard_delete(note.id).await;
+        }
+
+        // Purge collections
+        for coll in state.db.collections.list(None).await.unwrap_or_default() {
+            let _ = state.db.collections.delete(coll.id).await;
+        }
+
+        // Purge templates
+        let templates: Vec<matric_core::NoteTemplate> = state.db.templates.list().await.unwrap_or_default();
+        for tmpl in templates {
+            let _ = state.db.templates.delete(tmpl.id).await;
+        }
+    }
+
+    // Import from archive
+    let import_body = ArchiveImportBody {
+        archive_base64,
+        include: None,
+        dry_run,
+        on_conflict: ConflictStrategy::Replace,
+        skip_embedding_regen: false,
+    };
+
+    // Call the archive import logic
+    let result = archive_import_internal(&state, import_body).await?;
+
+    Ok(Json(SwapBackupResponse {
+        status: result.status.clone(),
+        message: if dry_run {
+            format!("Dry run: would restore {} notes, {} collections, {} templates, {} links",
+                result.imported.notes, result.imported.collections,
+                result.imported.templates, result.imported.links)
+        } else {
+            format!("Restored {} notes, {} collections, {} templates, {} links",
+                result.imported.notes, result.imported.collections,
+                result.imported.templates, result.imported.links)
+        },
+        stats: Some(result.imported),
+        dry_run,
+    }))
+}
+
+/// Internal archive import function (reused by both endpoints).
+async fn archive_import_internal(
+    state: &AppState,
+    body: ArchiveImportBody,
+) -> Result<ArchiveImportResponse, ApiError> {
+    use flate2::read::GzDecoder;
+    use std::collections::HashMap;
+    use std::io::Read;
+    use tar::Archive;
+
+    // Decode base64 archive
+    let archive_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &body.archive_base64)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
+
+    // Parse tar.gz
+    let decoder = GzDecoder::new(&archive_bytes[..]);
+    let mut archive = Archive::new(decoder);
+
+    let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+    for entry in archive.entries().map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))? {
+        let mut entry = entry.map_err(|e| ApiError::BadRequest(format!("Invalid tar entry: {}", e)))?;
+        let entry_path = entry.path().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        let name = entry_path.to_string_lossy().to_string();
+
+        let mut contents = Vec::new();
+        entry.read_to_end(&mut contents).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        files.insert(name, contents);
+    }
+
+    // Parse manifest
+    let manifest = files.get("manifest.json")
+        .and_then(|data| serde_json::from_slice::<ArchiveManifest>(data).ok());
+
+    let mut imported = ArchiveImportCounts::default();
+    let mut skipped = ArchiveImportCounts::default();
+    let mut errors: Vec<String> = Vec::new();
+
+    // Determine what to import
+    let include_str = body.include.as_deref().unwrap_or("notes,collections,tags,templates,links");
+    let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
+    let should_import = |c: &str| components.contains(&c) || components.contains(&"all");
+
+    let on_conflict = &body.on_conflict;
+
+    // Import notes
+    if should_import("notes") {
+        if let Some(notes_data) = files.get("notes.jsonl") {
+            let notes_str = String::from_utf8_lossy(notes_data);
+            for line in notes_str.lines() {
+                if line.trim().is_empty() { continue; }
+                match serde_json::from_str::<serde_json::Value>(line) {
+                    Ok(note_json) => {
+                        let original_id = note_json.get("id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok());
+                        let content = note_json.get("original_content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+
+                        if content.is_empty() { continue; }
+
+                        // Check if note exists
+                        let exists = if let Some(id) = original_id {
+                            state.db.notes.fetch(id).await.is_ok()
+                        } else { false };
+
+                        if exists {
+                            match on_conflict {
+                                ConflictStrategy::Skip => { skipped.notes += 1; continue; }
+                                ConflictStrategy::Replace => {
+                                    if let Some(id) = original_id {
+                                        if !body.dry_run {
+                                            let _ = state.db.notes.hard_delete(id).await;
+                                        }
+                                    }
+                                }
+                                ConflictStrategy::Merge => {} // Keep existing, just add new
+                            }
+                        }
+
+                        if !body.dry_run {
+                            let req = CreateNoteRequest {
+                                content: content.to_string(),
+                                format: note_json.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string(),
+                                source: note_json.get("source").and_then(|v| v.as_str()).unwrap_or("import").to_string(),
+                                collection_id: note_json.get("collection_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|s| Uuid::parse_str(s).ok()),
+                                tags: note_json.get("tags")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
+                            };
+
+                            match state.db.notes.insert(req).await {
+                                Ok(new_id) => {
+                                    // Update starred status if present
+                                    if let Some(starred) = note_json.get("starred").and_then(|v| v.as_bool()) {
+                                        let status_req = UpdateNoteStatusRequest {
+                                            starred: Some(starred),
+                                            archived: None,
+                                        };
+                                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                                    }
+                                    // Update revised content if available
+                                    if let Some(revised) = note_json.get("revised_content").and_then(|v| v.as_str()) {
+                                        if !revised.is_empty() {
+                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported")).await;
+                                        }
+                                    }
+                                    if !body.skip_embedding_regen {
+                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+                                    }
+                                    imported.notes += 1;
+                                }
+                                Err(e) => errors.push(format!("Note import failed: {}", e)),
+                            }
+                        } else {
+                            imported.notes += 1;
+                        }
+                    }
+                    Err(e) => errors.push(format!("Invalid note JSON: {}", e)),
+                }
+            }
+        }
+    }
+
+    // Import collections
+    if should_import("collections") {
+        if let Some(data) = files.get("collections.json") {
+            if let Ok(collections) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
+                for coll in collections {
+                    if let Some(name) = coll.get("name").and_then(|v| v.as_str()) {
+                        if !body.dry_run {
+                            match state.db.collections.create(
+                                name,
+                                coll.get("description").and_then(|v| v.as_str()),
+                                coll.get("parent_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
+                            ).await {
+                                Ok(_) => imported.collections += 1,
+                                Err(_) => skipped.collections += 1,
+                            }
+                        } else {
+                            imported.collections += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Import templates
+    if should_import("templates") {
+        use matric_core::TemplateRepository;
+        if let Some(data) = files.get("templates.json") {
+            if let Ok(templates) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
+                for tmpl in templates {
+                    if let (Some(name), Some(content)) = (
+                        tmpl.get("name").and_then(|v| v.as_str()),
+                        tmpl.get("content").and_then(|v| v.as_str()),
+                    ) {
+                        if !body.dry_run {
+                            let req = matric_core::CreateTemplateRequest {
+                                name: name.to_string(),
+                                description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                                content: content.to_string(),
+                                format: Some(tmpl.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string()),
+                                default_tags: tmpl.get("default_tags")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect()),
+                                collection_id: tmpl.get("collection_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|s| Uuid::parse_str(s).ok()),
+                            };
+                            match state.db.templates.create(req).await {
+                                Ok(_) => imported.templates += 1,
+                                Err(_) => skipped.templates += 1,
+                            }
+                        } else {
+                            imported.templates += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Import links
+    if should_import("links") {
+        if let Some(data) = files.get("links.jsonl") {
+            let links_str = String::from_utf8_lossy(data);
+            for line in links_str.lines() {
+                if line.trim().is_empty() { continue; }
+                if let Ok(link) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let (Some(from_id), Some(to_id)) = (
+                        link.get("from_note_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
+                        link.get("to_note_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
+                    ) {
+                        if !body.dry_run {
+                            let kind = link.get("kind").and_then(|v| v.as_str()).unwrap_or("semantic");
+                            let score = link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
+                            match state.db.links.create(from_id, to_id, kind, score, None).await {
+                                Ok(_) => imported.links += 1,
+                                Err(_) => skipped.links += 1,
+                            }
+                        } else {
+                            imported.links += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let status = if errors.is_empty() { "success" } else if imported.notes > 0 { "partial" } else { "failed" };
+
+    Ok(ArchiveImportResponse {
+        status: status.to_string(),
+        manifest,
+        imported,
+        skipped,
+        errors,
+        dry_run: body.dry_run,
+    })
+}
+
+// =============================================================================
+// MEMORY INFO (Detailed sizing for hardware planning)
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+struct MemoryInfoResponse {
+    /// Summary statistics
+    summary: MemorySummary,
+    /// Embedding set details
+    embedding_sets: Vec<EmbeddingSetInfo>,
+    /// Storage breakdown
+    storage: StorageBreakdown,
+    /// Hardware recommendations
+    recommendations: HardwareRecommendations,
+}
+
+#[derive(Debug, Serialize)]
+struct MemorySummary {
+    total_notes: i64,
+    total_embeddings: i64,
+    total_links: i64,
+    total_collections: i64,
+    total_tags: i64,
+    total_templates: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct EmbeddingSetInfo {
+    id: Uuid,
+    name: String,
+    slug: String,
+    description: Option<String>,
+    document_count: i32,
+    embedding_count: i32,
+    /// Embedding dimension (e.g., 768 for nomic-embed-text)
+    dimension: i32,
+    /// Estimated vector storage in bytes
+    vector_storage_bytes: i64,
+    vector_storage_human: String,
+    /// Model name
+    model: Option<String>,
+    /// Index status
+    index_status: String,
+    /// Is this the system default set?
+    is_system: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct StorageBreakdown {
+    /// Total database size
+    database_total_bytes: i64,
+    database_total_human: String,
+    /// Embedding table size (actual)
+    embedding_table_bytes: i64,
+    embedding_table_human: String,
+    /// Embedding index size (estimated)
+    embedding_index_bytes: i64,
+    embedding_index_human: String,
+    /// Notes table size
+    notes_table_bytes: i64,
+    notes_table_human: String,
+    /// FTS index size
+    fts_index_bytes: i64,
+    fts_index_human: String,
+}
+
+#[derive(Debug, Serialize)]
+struct HardwareRecommendations {
+    /// Minimum RAM for embedding inference
+    min_inference_ram_gb: f64,
+    /// Recommended RAM for good performance
+    recommended_ram_gb: f64,
+    /// GPU VRAM needed for embedding model (if using GPU inference)
+    gpu_vram_needed_gb: f64,
+    /// Whether GPU is required
+    gpu_required: bool,
+    /// Notes about hardware requirements
+    notes: Vec<String>,
+}
+
+/// Get detailed memory/storage info for hardware planning.
+async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::TemplateRepository;
+
+    // Get summary counts
+    let notes_req = ListNotesRequest { limit: Some(1), ..Default::default() };
+    let notes_resp = state.db.notes.list(notes_req).await?;
+
+    let _links = state.db.links.list_all(1, 0).await.unwrap_or_default();
+    let link_count = state.db.links.count().await.unwrap_or(0);
+    let collections = state.db.collections.list(None).await.unwrap_or_default();
+    let tags = state.db.tags.list().await.unwrap_or_default();
+    let templates: Vec<matric_core::NoteTemplate> = state.db.templates.list().await.unwrap_or_default();
+
+    // Get embedding set info
+    let embedding_sets = state.db.embedding_sets.list().await.unwrap_or_default();
+    let mut set_infos = Vec::new();
+
+    for set in &embedding_sets {
+        // Calculate vector storage: embedding_count * dimension * 4 bytes per float
+        let vector_bytes = (set.embedding_count as i64) * (set.dimension.unwrap_or(768) as i64) * 4;
+
+        set_infos.push(EmbeddingSetInfo {
+            id: set.id,
+            name: set.name.clone(),
+            slug: set.slug.clone(),
+            description: set.description.clone(),
+            document_count: set.document_count,
+            embedding_count: set.embedding_count,
+            dimension: set.dimension.unwrap_or(768),
+            vector_storage_bytes: vector_bytes,
+            vector_storage_human: format_size(vector_bytes as u64),
+            model: set.model.clone(),
+            index_status: format!("{:?}", set.index_status),
+            is_system: set.is_system,
+        });
+    }
+
+    // Get storage sizes from database
+    let storage = get_storage_breakdown(&state.db).await;
+
+    // Calculate total embedding vector bytes
+    let total_vector_bytes: i64 = set_infos.iter().map(|s| s.vector_storage_bytes).sum();
+
+    // Hardware recommendations
+    let embedding_model_size_gb = 0.5; // nomic-embed-text is ~500MB
+    let recommended_ram_gb = 4.0 + (total_vector_bytes as f64 / 1_073_741_824.0); // 4GB base + vectors
+    let min_ram_gb = 2.0 + (total_vector_bytes as f64 / 1_073_741_824.0);
+
+    let recommendations = HardwareRecommendations {
+        min_inference_ram_gb: min_ram_gb,
+        recommended_ram_gb,
+        gpu_vram_needed_gb: embedding_model_size_gb + 1.0, // Model + workspace
+        gpu_required: false, // Ollama can run on CPU
+        notes: vec![
+            format!("Embedding vectors: {} ({} embeddings × {} dimensions × 4 bytes)",
+                format_size(total_vector_bytes as u64),
+                set_infos.iter().map(|s| s.embedding_count).sum::<i32>(),
+                set_infos.first().map(|s| s.dimension).unwrap_or(768)),
+            "GPU accelerates embedding generation but is not required".to_string(),
+            "pgvector searches run on CPU/RAM, not GPU".to_string(),
+            format!("Embedding model (nomic-embed-text): ~{}MB VRAM if using GPU",
+                (embedding_model_size_gb * 1024.0) as i64),
+        ],
+    };
+
+    Ok(Json(MemoryInfoResponse {
+        summary: MemorySummary {
+            total_notes: notes_resp.total,
+            total_embeddings: set_infos.iter().map(|s| s.embedding_count as i64).sum(),
+            total_links: link_count,
+            total_collections: collections.len() as i64,
+            total_tags: tags.len() as i64,
+            total_templates: templates.len() as i64,
+        },
+        embedding_sets: set_infos,
+        storage,
+        recommendations,
+    }))
+}
+
+/// Get storage breakdown using system commands (avoids sqlx dependency).
+async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
+    // Use psql to query sizes - more reliable and doesn't require sqlx in this crate
+    let db_size = get_db_size_via_psql("pg_database_size(current_database())").unwrap_or(0);
+    let embedding_size = get_db_size_via_psql("pg_total_relation_size('embedding')").unwrap_or(0);
+    let notes_size = get_db_size_via_psql("pg_total_relation_size('note')").unwrap_or(0);
+    let fts_size = get_db_size_via_psql("pg_total_relation_size('note_revised_current')").unwrap_or(0);
+
+    // Estimate index size as 20% of table size (rough heuristic)
+    let embedding_index_size = embedding_size / 5;
+
+    StorageBreakdown {
+        database_total_bytes: db_size,
+        database_total_human: format_size(db_size as u64),
+        embedding_table_bytes: embedding_size,
+        embedding_table_human: format_size(embedding_size as u64),
+        embedding_index_bytes: embedding_index_size,
+        embedding_index_human: format_size(embedding_index_size as u64),
+        notes_table_bytes: notes_size,
+        notes_table_human: format_size(notes_size as u64),
+        fts_index_bytes: fts_size,
+        fts_index_human: format_size(fts_size as u64),
+    }
+}
+
+/// Get database size using psql command.
+fn get_db_size_via_psql(expr: &str) -> Option<i64> {
+    let output = std::process::Command::new("psql")
+        .args([
+            "-U", "matric",
+            "-h", "localhost",
+            "-d", "matric",
+            "-t",  // Tuples only (no header)
+            "-A",  // Unaligned output
+            "-c", &format!("SELECT {}", expr),
+        ])
+        .env("PGPASSWORD", "matric")
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<i64>()
+            .ok()
+    } else {
+        None
     }
 }
 
