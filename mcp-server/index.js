@@ -755,6 +755,16 @@ function createMcpServer() {
           break;
         }
 
+        case "get_documentation": {
+          const topic = args.topic || "overview";
+          const content = DOCUMENTATION[topic];
+          if (!content) {
+            throw new Error(`Unknown documentation topic: ${topic}. Available: ${Object.keys(DOCUMENTATION).join(", ")}`);
+          }
+          result = { topic, content };
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -2378,7 +2388,549 @@ USE WHEN: See exactly what changed between versions.`,
       required: ["note_id", "from_version", "to_version"],
     },
   },
+
+  // ============================================================================
+  // DOCUMENTATION - Expanded help for AI agents
+  // ============================================================================
+  {
+    name: "get_documentation",
+    description: `Get expanded documentation and usage guidance for Matric Memory.
+
+Returns detailed documentation on specific topics to help agents use the system effectively.
+
+Available topics:
+- "overview" - System overview and capabilities
+- "notes" - Note creation, revision modes, and best practices
+- "search" - Search modes, embedding sets, and optimization
+- "concepts" - SKOS hierarchical tagging system
+- "chunking" - Document chunking strategies for embeddings
+- "versioning" - Note version history and restoration
+- "collections" - Folder organization
+- "templates" - Reusable note structures
+- "backup" - Backup and export strategies
+- "workflows" - Usage patterns and advanced workflows
+- "troubleshooting" - Common issues and solutions
+- "all" - Complete documentation (large response)
+
+USE THIS TOOL when you need:
+- Detailed guidance on using specific features
+- Best practices for content creation
+- Understanding how components interact
+- Troubleshooting unexpected behavior`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          enum: ["overview", "notes", "search", "concepts", "chunking", "versioning", "collections", "templates", "backup", "workflows", "troubleshooting", "all"],
+          description: "Documentation topic to retrieve",
+          default: "overview"
+        },
+      },
+    },
+  },
 ];
+
+// Documentation content for get_documentation tool
+const DOCUMENTATION = {
+  overview: `# Matric Memory Overview
+
+Matric Memory is an AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines.
+
+## Core Capabilities
+
+1. **AI-Enhanced Notes**
+   - Full revision mode: Contextual expansion using related notes
+   - Light revision mode: Formatting without invented details
+   - Automatic title generation
+   - Semantic link creation
+
+2. **Hybrid Search**
+   - Full-text search (exact keywords)
+   - Semantic search (conceptual similarity)
+   - Hybrid mode (combined ranking)
+   - Embedding sets for focused contexts
+
+3. **Knowledge Graph**
+   - Automatic semantic linking (>70% similarity)
+   - Bidirectional backlinks
+   - Graph exploration
+   - Relationship discovery
+
+4. **SKOS Hierarchical Tags**
+   - W3C compliant concept schemes
+   - Broader/narrower/related relations
+   - Governance workflows
+   - Anti-pattern detection
+
+5. **Organization**
+   - Collections (nested folders)
+   - Templates with variables
+   - Embedding sets for domains
+   - Version history
+
+## Quick Start
+
+1. Create notes with \`create_note\` - choose appropriate revision_mode
+2. Search with \`search_notes\` - use mode="semantic" for conceptual search
+3. Explore links with \`get_note_links\` - backlinks show what references your note
+4. Build hierarchy with SKOS concepts for structured tagging`,
+
+  notes: `# Notes: Creation and Management
+
+## Revision Modes
+
+| Mode | When to Use | Behavior |
+|------|-------------|----------|
+| \`full\` (default) | Technical concepts, research, ideas | Full contextual expansion with related notes |
+| \`light\` | Facts, opinions, quick thoughts | Formatting improvements, no invented details |
+| \`none\` | Exact quotes, citations, data imports | No AI processing |
+
+## Best Practices
+
+### Content Formatting
+- Write in Markdown for best results
+- Use headings (##) for structure
+- Include context and specifics
+- Add #inline-tags for explicit categorization
+
+### Revision Mode Selection
+
+**Use \`full\` when:**
+- Recording technical concepts that benefit from connections
+- Building a knowledge base where cross-referencing adds value
+- The note has enough detail for meaningful enhancement
+
+**Use \`light\` when:**
+- Recording facts or observations that should stay as-is
+- The note is short/simple and shouldn't be expanded
+- Recording personal notes or quick thoughts
+
+**Use \`none\` when:**
+- Storing exact quotes or citations
+- Recording data that must remain unmodified
+- Bulk importing content
+
+## Processing Pipeline
+
+After create_note/update_note, the system:
+1. AI Revision - Enhances content (if mode != none)
+2. Embedding - Generates vectors for semantic search
+3. Title Generation - Creates descriptive title
+4. Linking - Creates semantic links to related notes
+
+**Important:** Jobs are asynchronous. Use \`list_jobs(note_id="...")\` to check progress before searching for newly created content.`,
+
+  search: `# Search: Finding Knowledge
+
+## Search Modes
+
+| Mode | Best For | How It Works |
+|------|----------|--------------|
+| \`hybrid\` (default) | General search | Combines keyword + semantic, best overall |
+| \`fts\` | Exact matching | Full-text search, keyword-based |
+| \`semantic\` | Conceptual search | Vector similarity, finds related concepts |
+
+## Embedding Sets
+
+Create focused search contexts:
+
+\`\`\`javascript
+// Create a focused set
+create_embedding_set({
+  name: "AI Research",
+  slug: "ai-research",
+  purpose: "AI/ML research papers and notes",
+  mode: "auto",
+  criteria: { tags: ["ai", "ml", "research"] }
+})
+
+// Search within the set
+search_notes({
+  query: "transformer attention mechanisms",
+  mode: "semantic",
+  set: "ai-research"
+})
+\`\`\`
+
+## Search Tips
+
+1. **Start broad, then narrow**
+   - Begin with hybrid mode
+   - Switch to semantic if keywords don't match but concept does
+   - Use embedding sets to restrict domain
+
+2. **Leverage backlinks**
+   - After finding a relevant note, check its links
+   - Backlinks often reveal related content you didn't think to search for
+
+3. **Wait for embeddings**
+   - Newly created notes need embedding generation
+   - Check \`list_jobs\` before searching for fresh content`,
+
+  concepts: `# SKOS Hierarchical Tagging
+
+W3C SKOS-compliant concept taxonomy system.
+
+## Key Concepts
+
+- **Concept Scheme**: A vocabulary/namespace (e.g., "main", "projects")
+- **Concept**: A tag with semantic meaning
+- **Relations**: broader, narrower, related connections
+
+## Concept Status
+
+| Status | Meaning |
+|--------|---------|
+| \`candidate\` | Auto-created, needs review |
+| \`controlled\` | Approved for use |
+| \`deprecated\` | Replaced, don't use |
+
+## Building Hierarchy
+
+\`\`\`javascript
+// Create parent
+const ai = await create_concept({
+  scheme_id: "main",
+  pref_label: "Artificial Intelligence"
+})
+
+// Create child with relation
+await create_concept({
+  scheme_id: "main",
+  pref_label: "Machine Learning",
+  broader_ids: [ai.id]
+})
+
+// Add related concept
+await add_related({
+  id: ml_concept_id,
+  target_id: statistics_concept_id
+})
+\`\`\`
+
+## Best Practices
+
+1. **Search before creating** - Avoid duplicates
+2. **Use specific labels** - "Rust programming" not "programming"
+3. **Add alt_labels** - Include synonyms
+4. **Set appropriate status** - "candidate" for auto-created
+5. **Review candidates** - Promote good concepts to "controlled"`,
+
+  chunking: `# Document Chunking
+
+The system splits documents into chunks for optimal embedding quality.
+
+## Chunking Strategies
+
+| Strategy | Best For |
+|----------|----------|
+| \`SemanticChunker\` | Markdown docs, technical content (recommended) |
+| \`ParagraphChunker\` | Blog posts, structured content |
+| \`SentenceChunker\` | Narrative, prose |
+| \`SlidingWindowChunker\` | Dense text, consistent sizes |
+| \`RecursiveChunker\` | Mixed/unknown content |
+
+## Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| \`max_chunk_size\` | 1000 | Maximum characters per chunk |
+| \`min_chunk_size\` | 100 | Minimum size (smaller merged) |
+| \`overlap\` | 100 | Overlap between chunks |
+
+## Impact on Search
+
+- **Too small chunks**: Lost context, fragmented concepts
+- **Too large chunks**: Mixed concepts, noisy embeddings
+- **Good chunking**: Coherent semantic units, accurate retrieval
+
+## Writing for Good Chunks
+
+1. Use clear headings (##) - Creates natural boundaries
+2. Separate topics with blank lines - Paragraph breaks
+3. Keep code blocks focused - One concept per block
+4. Use lists for related items - Keeps them together`,
+
+  versioning: `# Note Version History
+
+Dual-track versioning preserves both original and AI-enhanced content.
+
+## Tracks
+
+| Track | Contains |
+|-------|----------|
+| \`original\` | User-submitted content as-is |
+| \`revised\` | AI-enhanced content |
+
+## Operations
+
+\`\`\`javascript
+// List versions
+const versions = await list_note_versions({ note_id: "..." })
+// Returns: [{version: 1, track: "original", created_at: ...}, ...]
+
+// Get specific version
+const v2 = await get_note_version({
+  note_id: "...",
+  version: 2,
+  track: "original"  // or "revised"
+})
+
+// Restore version
+await restore_note_version({
+  note_id: "...",
+  version: 2,
+  restore_tags: false  // optional: restore tags too
+})
+
+// Compare versions
+const diff = await diff_note_versions({
+  note_id: "...",
+  from_version: 1,
+  to_version: 3
+})
+\`\`\`
+
+## Use Cases
+
+- Undo accidental changes
+- Compare evolution of ideas
+- Recover lost content
+- Review AI enhancement effects`,
+
+  collections: `# Collections (Folders)
+
+Hierarchical folder organization for notes.
+
+## Operations
+
+\`\`\`javascript
+// List root collections
+const roots = await list_collections({})
+
+// List children
+const children = await list_collections({ parent_id: "..." })
+
+// Create nested collection
+await create_collection({
+  name: "Work Projects",
+  parent_id: root_id,
+  description: "Active work projects"
+})
+
+// Move note
+await move_note_to_collection({
+  note_id: "...",
+  collection_id: "..."  // or null for uncategorized
+})
+\`\`\`
+
+## Best Practices
+
+- Use collections for broad categories
+- Use SKOS concepts for detailed tagging
+- Don't over-nest (3-4 levels max)
+- Combine with embedding sets for search focus`,
+
+  templates: `# Note Templates
+
+Reusable note structures with variable substitution.
+
+## Creating Templates
+
+\`\`\`javascript
+await create_template({
+  name: "Meeting Notes",
+  content: \`# Meeting: {{topic}}
+
+Date: {{date}}
+Attendees: {{attendees}}
+
+## Agenda
+{{agenda}}
+
+## Notes
+
+## Action Items
+\`,
+  default_tags: ["meeting"],
+  collection_id: "meetings-folder-id"
+})
+\`\`\`
+
+## Using Templates
+
+\`\`\`javascript
+await instantiate_template({
+  id: template_id,
+  variables: {
+    topic: "Sprint Planning",
+    date: "2024-01-15",
+    attendees: "Alice, Bob, Carol",
+    agenda: "- Review backlog\\n- Assign tasks"
+  },
+  revision_mode: "light"  // usually light for structured notes
+})
+\`\`\`
+
+## Variable Syntax
+
+- Use \`{{variable_name}}\` in template content
+- All variables are replaced with provided values
+- Missing variables left as-is`,
+
+  backup: `# Backup & Export
+
+## Quick Operations
+
+| Tool | Use Case |
+|------|----------|
+| \`export_note\` | Single note as markdown |
+| \`export_all_notes\` | All notes as JSON |
+| \`backup_now\` | Trigger full system backup |
+
+## Knowledge Shards
+
+Self-contained archives with everything needed to restore:
+
+\`\`\`javascript
+// Create archive (returns base64)
+const shard = await knowledge_shard({
+  include: ["notes", "embeddings", "links", "concepts"]
+})
+
+// Import archive
+await knowledge_shard_import({
+  shard_base64: shard.base64_data,
+  on_conflict: "skip",  // or "replace", "merge"
+  dry_run: false
+})
+\`\`\`
+
+## Best Practices
+
+1. Schedule regular backups
+2. Test restore procedures
+3. Store backups off-site
+4. Include embeddings for full restore`,
+
+  workflows: `# Usage Patterns and Workflows
+
+Matric Memory enables powerful knowledge management patterns through its combination of search tools, embedding sets, and memory isolation.
+
+## Pattern 1: Domain-Isolated Contexts
+
+Use embedding sets to create focused search contexts:
+
+\`\`\`javascript
+// Create work context
+await create_embedding_set({
+  name: "Work Projects",
+  slug: "work",
+  criteria: { tags: ["work"] }
+})
+
+// Search only within work context
+await search_notes({
+  query: "api integration",
+  mode: "semantic",
+  set: "work"
+})
+\`\`\`
+
+## Pattern 2: Memory Snapshots
+
+Swap entire knowledge contexts:
+
+\`\`\`javascript
+// Save current memory
+const backup = await knowledge_shard({
+  include: ["notes", "embeddings", "links"]
+})
+
+// Load different context
+await knowledge_shard_import({
+  shard_base64: other_context_data,
+  on_conflict: "replace"
+})
+\`\`\`
+
+## Pattern 3: Research vs Production
+
+Separate exploratory research from validated knowledge:
+
+- Tag research notes: \`["research", "unvalidated"]\`
+- Tag validated notes: \`["validated"]\`
+- Create separate embedding sets for each
+- Promote concepts from "candidate" to "controlled" status
+
+## Pattern 4: Dual-Track Mind
+
+- **Raw observations**: \`revision_mode: "none"\` - preserve exactly
+- **Synthesized insights**: \`revision_mode: "full"\` - enrich with connections
+
+## Pattern 5: AI Agent Memory
+
+Configure AI to use Matric Memory as long-term memory:
+
+1. Search existing knowledge before responding
+2. Get context from top results and their links
+3. Store new insights with appropriate revision mode
+4. Create task-specific embedding sets for focused contexts
+
+## Design Principles
+
+1. **Tag consistently** - Tags are primary organization mechanism
+2. **Use appropriate revision modes** - Match mode to content type
+3. **Leverage embedding sets** - Create "views" into knowledge
+4. **Backup before major changes** - Snapshot before bulk operations
+5. **Use semantic search for discovery** - FTS for exact, semantic for related`,
+
+  troubleshooting: `# Troubleshooting
+
+## Common Issues
+
+### "Note not found" after create
+- **Cause**: Pipeline jobs are asynchronous
+- **Fix**: Wait for jobs to complete
+\`\`\`javascript
+await list_jobs({ note_id: "...", status: "pending" })
+\`\`\`
+
+### Search returns no results
+- **Check 1**: Has embedding job completed?
+- **Check 2**: Correct search mode? Try \`semantic\`
+- **Check 3**: Using embedding set? Verify note is in set
+
+### AI revision seems wrong
+- **Try**: Use \`light\` revision mode
+- **Check**: Is content too short for context?
+- **Review**: \`get_note_version\` to compare original vs revised
+
+### Rate limit errors (429)
+- **Wait**: Implement exponential backoff
+- **Batch**: Use \`bulk_create_notes\` for multiple items
+- **Paginate**: Use smaller page sizes
+
+### Slow responses
+- **Check**: \`get_queue_stats\` - many pending jobs?
+- **Paginate**: Add \`limit\` parameter
+- **Index**: Ensure searching in appropriate embedding set
+
+## Debugging Tips
+
+1. Check job status after writes
+2. Use \`get_note\` to see full note state
+3. Review \`get_note_links\` for connection issues
+4. Check \`get_governance_stats\` for concept problems`,
+};
+
+// Combine all documentation for "all" topic
+DOCUMENTATION.all = Object.entries(DOCUMENTATION)
+  .filter(([key]) => key !== 'all')
+  .map(([key, value]) => `---\n\n${value}`)
+  .join('\n\n');
 
 // Start server based on transport mode
 if (MCP_TRANSPORT === "http") {

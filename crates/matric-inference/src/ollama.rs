@@ -267,6 +267,35 @@ impl InferenceBackend for OllamaBackend {
 mod tests {
     use super::*;
 
+    // ==========================================================================
+    // Constants Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_default_constants() {
+        assert_eq!(DEFAULT_OLLAMA_URL, "http://127.0.0.1:11434");
+        assert_eq!(DEFAULT_EMBED_MODEL, "nomic-embed-text");
+        assert_eq!(DEFAULT_GEN_MODEL, "gpt-oss:20b");
+        assert_eq!(DEFAULT_DIMENSION, 768);
+        assert_eq!(EMBED_TIMEOUT_SECS, 30);
+        assert_eq!(GEN_TIMEOUT_SECS, 120);
+    }
+
+    #[test]
+    fn test_default_url_is_localhost() {
+        assert!(DEFAULT_OLLAMA_URL.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn test_default_dimension_is_standard() {
+        // 768 is standard for many embedding models
+        assert!(DEFAULT_DIMENSION == 768 || DEFAULT_DIMENSION == 384 || DEFAULT_DIMENSION == 1536);
+    }
+
+    // ==========================================================================
+    // Backend Configuration Tests
+    // ==========================================================================
+
     #[test]
     fn test_default_config() {
         let backend = OllamaBackend::new();
@@ -282,9 +311,13 @@ mod tests {
         std::env::remove_var("OLLAMA_BASE");
         std::env::remove_var("OLLAMA_EMBED_MODEL");
         std::env::remove_var("OLLAMA_GEN_MODEL");
+        std::env::remove_var("OLLAMA_EMBED_DIM");
 
         let backend = OllamaBackend::from_env();
         assert_eq!(backend.base_url, DEFAULT_OLLAMA_URL);
+        assert_eq!(backend.embed_model, DEFAULT_EMBED_MODEL);
+        assert_eq!(backend.gen_model, DEFAULT_GEN_MODEL);
+        assert_eq!(backend.dimension, DEFAULT_DIMENSION);
     }
 
     #[test]
@@ -299,6 +332,158 @@ mod tests {
         assert_eq!(backend.embed_model, "custom-embed");
         assert_eq!(backend.gen_model, "custom-gen");
         assert_eq!(backend.dimension, 512);
+    }
+
+    #[test]
+    fn test_custom_config_with_https() {
+        let backend = OllamaBackend::with_config(
+            "https://remote-ollama.example.com".to_string(),
+            "mxbai-embed-large".to_string(),
+            "llama3".to_string(),
+            1024,
+        );
+        assert_eq!(backend.base_url, "https://remote-ollama.example.com");
+        assert_eq!(backend.dimension, 1024);
+    }
+
+    #[test]
+    fn test_default_impl() {
+        let backend = OllamaBackend::default();
+        assert_eq!(backend.base_url, DEFAULT_OLLAMA_URL);
+        assert_eq!(backend.embed_model, DEFAULT_EMBED_MODEL);
+    }
+
+    // ==========================================================================
+    // Accessor Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_dimension_accessor() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "model".to_string(),
+            "gen".to_string(),
+            384,
+        );
+        assert_eq!(backend.dimension(), 384);
+    }
+
+    #[test]
+    fn test_model_name_accessor() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "my-embed-model".to_string(),
+            "my-gen-model".to_string(),
+            768,
+        );
+        assert_eq!(EmbeddingBackend::model_name(&backend), "my-embed-model");
+        assert_eq!(GenerationBackend::model_name(&backend), "my-gen-model");
+    }
+
+    // ==========================================================================
+    // Request/Response Struct Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_embedding_request_serialization() {
+        let request = EmbeddingRequest {
+            model: "test-model".to_string(),
+            input: vec!["hello".to_string(), "world".to_string()],
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("test-model"));
+        assert!(json.contains("hello"));
+        assert!(json.contains("world"));
+    }
+
+    #[test]
+    fn test_embedding_response_deserialization() {
+        let json = r#"{"embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]}"#;
+        let response: EmbeddingResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.embeddings.len(), 2);
+        assert_eq!(response.embeddings[0], vec![0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn test_generate_request_serialization() {
+        let request = GenerateRequest {
+            model: "llama3".to_string(),
+            prompt: "Hello".to_string(),
+            stream: false,
+            system: Some("Be helpful".to_string()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("llama3"));
+        assert!(json.contains("Hello"));
+        assert!(json.contains("Be helpful"));
+    }
+
+    #[test]
+    fn test_generate_request_without_system() {
+        let request = GenerateRequest {
+            model: "llama3".to_string(),
+            prompt: "Hello".to_string(),
+            stream: false,
+            system: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(!json.contains("system")); // Should skip serializing None
+    }
+
+    #[test]
+    fn test_generate_response_deserialization() {
+        let json = r#"{"response": "Hello there!"}"#;
+        let response: GenerateResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.response, "Hello there!");
+    }
+
+    // ==========================================================================
+    // Edge Cases
+    // ==========================================================================
+
+    #[test]
+    fn test_zero_dimension_config() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "model".to_string(),
+            "gen".to_string(),
+            0,
+        );
+        assert_eq!(backend.dimension(), 0);
+    }
+
+    #[test]
+    fn test_large_dimension_config() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "model".to_string(),
+            "gen".to_string(),
+            4096,
+        );
+        assert_eq!(backend.dimension(), 4096);
+    }
+
+    #[test]
+    fn test_empty_model_names() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "".to_string(),
+            "".to_string(),
+            768,
+        );
+        assert_eq!(backend.embed_model, "");
+        assert_eq!(backend.gen_model, "");
+    }
+
+    #[test]
+    fn test_special_characters_in_url() {
+        let backend = OllamaBackend::with_config(
+            "http://user:pass@host:1234/path?query=value".to_string(),
+            "model".to_string(),
+            "gen".to_string(),
+            768,
+        );
+        assert_eq!(backend.base_url, "http://user:pass@host:1234/path?query=value");
     }
 }
 

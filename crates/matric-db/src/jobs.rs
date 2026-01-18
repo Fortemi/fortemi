@@ -31,6 +31,7 @@ impl PgJobRepository {
             JobType::RefreshEmbeddingSet => "refresh_embedding_set",
             JobType::BuildSetIndex => "build_set_index",
             JobType::PurgeNote => "purge_note",
+            JobType::ConceptTagging => "concept_tagging",
         }
     }
 
@@ -46,6 +47,7 @@ impl PgJobRepository {
             "refresh_embedding_set" => JobType::RefreshEmbeddingSet,
             "build_set_index" => JobType::BuildSetIndex,
             "purge_note" => JobType::PurgeNote,
+            "concept_tagging" => JobType::ConceptTagging,
             _ => JobType::ContextUpdate, // fallback
         }
     }
@@ -487,5 +489,174 @@ impl JobRepository for PgJobRepository {
         .map_err(Error::Database)?;
 
         Ok(result.rows_affected() as i64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test JobType to string conversion
+    #[test]
+    fn test_job_type_to_str_all_variants() {
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::AiRevision), "ai_revision");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::Embedding), "embedding");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::Linking), "linking");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::ContextUpdate), "context_update");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::TitleGeneration), "title_generation");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::CreateEmbeddingSet), "create_embedding_set");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::RefreshEmbeddingSet), "refresh_embedding_set");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::BuildSetIndex), "build_set_index");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::PurgeNote), "purge_note");
+        assert_eq!(PgJobRepository::job_type_to_str(JobType::ConceptTagging), "concept_tagging");
+    }
+
+    // Test string to JobType conversion
+    #[test]
+    fn test_str_to_job_type_all_variants() {
+        assert_eq!(PgJobRepository::str_to_job_type("ai_revision"), JobType::AiRevision);
+        assert_eq!(PgJobRepository::str_to_job_type("embedding"), JobType::Embedding);
+        assert_eq!(PgJobRepository::str_to_job_type("linking"), JobType::Linking);
+        assert_eq!(PgJobRepository::str_to_job_type("context_update"), JobType::ContextUpdate);
+        assert_eq!(PgJobRepository::str_to_job_type("title_generation"), JobType::TitleGeneration);
+        assert_eq!(PgJobRepository::str_to_job_type("create_embedding_set"), JobType::CreateEmbeddingSet);
+        assert_eq!(PgJobRepository::str_to_job_type("refresh_embedding_set"), JobType::RefreshEmbeddingSet);
+        assert_eq!(PgJobRepository::str_to_job_type("build_set_index"), JobType::BuildSetIndex);
+        assert_eq!(PgJobRepository::str_to_job_type("purge_note"), JobType::PurgeNote);
+        assert_eq!(PgJobRepository::str_to_job_type("concept_tagging"), JobType::ConceptTagging);
+    }
+
+    #[test]
+    fn test_str_to_job_type_unknown_fallback() {
+        // Unknown strings should fall back to ContextUpdate
+        assert_eq!(PgJobRepository::str_to_job_type("unknown_type"), JobType::ContextUpdate);
+        assert_eq!(PgJobRepository::str_to_job_type(""), JobType::ContextUpdate);
+        assert_eq!(PgJobRepository::str_to_job_type("invalid"), JobType::ContextUpdate);
+    }
+
+    #[test]
+    fn test_str_to_job_type_case_sensitive() {
+        // Test that conversion is case-sensitive
+        assert_eq!(PgJobRepository::str_to_job_type("AI_REVISION"), JobType::ContextUpdate);
+        assert_eq!(PgJobRepository::str_to_job_type("Embedding"), JobType::ContextUpdate);
+    }
+
+    // Test JobStatus to string conversion
+    #[test]
+    fn test_job_status_to_str_all_variants() {
+        assert_eq!(PgJobRepository::job_status_to_str(JobStatus::Pending), "pending");
+        assert_eq!(PgJobRepository::job_status_to_str(JobStatus::Running), "running");
+        assert_eq!(PgJobRepository::job_status_to_str(JobStatus::Completed), "completed");
+        assert_eq!(PgJobRepository::job_status_to_str(JobStatus::Failed), "failed");
+        assert_eq!(PgJobRepository::job_status_to_str(JobStatus::Cancelled), "cancelled");
+    }
+
+    // Test string to JobStatus conversion
+    #[test]
+    fn test_str_to_job_status_all_variants() {
+        assert_eq!(PgJobRepository::str_to_job_status("pending"), JobStatus::Pending);
+        assert_eq!(PgJobRepository::str_to_job_status("running"), JobStatus::Running);
+        assert_eq!(PgJobRepository::str_to_job_status("completed"), JobStatus::Completed);
+        assert_eq!(PgJobRepository::str_to_job_status("failed"), JobStatus::Failed);
+        assert_eq!(PgJobRepository::str_to_job_status("cancelled"), JobStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_str_to_job_status_unknown_fallback() {
+        // Unknown strings should fall back to Pending
+        assert_eq!(PgJobRepository::str_to_job_status("unknown_status"), JobStatus::Pending);
+        assert_eq!(PgJobRepository::str_to_job_status(""), JobStatus::Pending);
+        assert_eq!(PgJobRepository::str_to_job_status("invalid"), JobStatus::Pending);
+    }
+
+    #[test]
+    fn test_str_to_job_status_case_sensitive() {
+        // Test that conversion is case-sensitive
+        assert_eq!(PgJobRepository::str_to_job_status("PENDING"), JobStatus::Pending);
+        assert_eq!(PgJobRepository::str_to_job_status("Running"), JobStatus::Pending);
+    }
+
+    // Test round-trip conversion for JobType
+    #[test]
+    fn test_job_type_round_trip() {
+        let types = vec![
+            JobType::AiRevision,
+            JobType::Embedding,
+            JobType::Linking,
+            JobType::ContextUpdate,
+            JobType::TitleGeneration,
+            JobType::CreateEmbeddingSet,
+            JobType::RefreshEmbeddingSet,
+            JobType::BuildSetIndex,
+            JobType::PurgeNote,
+            JobType::ConceptTagging,
+        ];
+
+        for job_type in types {
+            let str_repr = PgJobRepository::job_type_to_str(job_type);
+            let recovered = PgJobRepository::str_to_job_type(str_repr);
+            assert_eq!(job_type, recovered);
+        }
+    }
+
+    // Test round-trip conversion for JobStatus
+    #[test]
+    fn test_job_status_round_trip() {
+        let statuses = vec![
+            JobStatus::Pending,
+            JobStatus::Running,
+            JobStatus::Completed,
+            JobStatus::Failed,
+            JobStatus::Cancelled,
+        ];
+
+        for status in statuses {
+            let str_repr = PgJobRepository::job_status_to_str(status);
+            let recovered = PgJobRepository::str_to_job_status(str_repr);
+            assert_eq!(status, recovered);
+        }
+    }
+
+    // Test that all JobType strings are unique
+    #[test]
+    fn test_job_type_strings_are_unique() {
+        let types = vec![
+            JobType::AiRevision,
+            JobType::Embedding,
+            JobType::Linking,
+            JobType::ContextUpdate,
+            JobType::TitleGeneration,
+            JobType::CreateEmbeddingSet,
+            JobType::RefreshEmbeddingSet,
+            JobType::BuildSetIndex,
+            JobType::PurgeNote,
+            JobType::ConceptTagging,
+        ];
+
+        let strings: Vec<&str> = types.iter().map(|t| PgJobRepository::job_type_to_str(*t)).collect();
+        let mut unique_strings = strings.clone();
+        unique_strings.sort();
+        unique_strings.dedup();
+
+        assert_eq!(strings.len(), unique_strings.len(), "JobType strings must be unique");
+    }
+
+    // Test that all JobStatus strings are unique
+    #[test]
+    fn test_job_status_strings_are_unique() {
+        let statuses = vec![
+            JobStatus::Pending,
+            JobStatus::Running,
+            JobStatus::Completed,
+            JobStatus::Failed,
+            JobStatus::Cancelled,
+        ];
+
+        let strings: Vec<&str> = statuses.iter().map(|s| PgJobRepository::job_status_to_str(*s)).collect();
+        let mut unique_strings = strings.clone();
+        unique_strings.sort();
+        unique_strings.dedup();
+
+        assert_eq!(strings.len(), unique_strings.len(), "JobStatus strings must be unique");
     }
 }

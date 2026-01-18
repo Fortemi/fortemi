@@ -485,3 +485,422 @@ pub trait TemplateRepository: Send + Sync {
     /// Delete a template.
     async fn delete(&self, id: Uuid) -> Result<()>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+
+    // =============================================================================
+    // Request/Response Tests
+    // =============================================================================
+
+    #[test]
+    fn test_list_notes_request_default() {
+        let req = ListNotesRequest::default();
+        assert!(req.sort_by.is_none());
+        assert!(req.sort_order.is_none());
+        assert!(req.filter.is_none());
+        assert!(req.limit.is_none());
+        assert!(req.offset.is_none());
+        assert!(req.collection_id.is_none());
+        assert!(req.tags.is_none());
+        assert!(req.created_after.is_none());
+        assert!(req.created_before.is_none());
+        assert!(req.updated_after.is_none());
+        assert!(req.updated_before.is_none());
+    }
+
+    #[test]
+    fn test_list_notes_request_with_filters() {
+        let collection_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let req = ListNotesRequest {
+            sort_by: Some("created_at_utc".to_string()),
+            sort_order: Some("desc".to_string()),
+            filter: Some("starred".to_string()),
+            limit: Some(50),
+            offset: Some(0),
+            collection_id: Some(collection_id),
+            tags: Some(vec!["rust".to_string(), "programming".to_string()]),
+            created_after: Some(now),
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+        };
+
+        assert_eq!(req.sort_by.unwrap(), "created_at_utc");
+        assert_eq!(req.filter.unwrap(), "starred");
+        assert_eq!(req.limit.unwrap(), 50);
+        assert_eq!(req.tags.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_list_notes_response_serialization() {
+        let response = ListNotesResponse {
+            notes: vec![],
+            total: 0,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: ListNotesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.total, 0);
+        assert_eq!(parsed.notes.len(), 0);
+    }
+
+    #[test]
+    fn test_update_note_status_request_default() {
+        let req = UpdateNoteStatusRequest::default();
+        assert!(req.starred.is_none());
+        assert!(req.archived.is_none());
+    }
+
+    #[test]
+    fn test_update_note_status_request_partial() {
+        let req = UpdateNoteStatusRequest {
+            starred: Some(true),
+            archived: None,
+        };
+        assert_eq!(req.starred, Some(true));
+        assert!(req.archived.is_none());
+    }
+
+    #[test]
+    fn test_create_note_request() {
+        let req = CreateNoteRequest {
+            content: "Test content".to_string(),
+            format: "markdown".to_string(),
+            source: "manual".to_string(),
+            collection_id: None,
+            tags: Some(vec!["test".to_string()]),
+        };
+
+        assert_eq!(req.content, "Test content");
+        assert_eq!(req.format, "markdown");
+        assert_eq!(req.source, "manual");
+        assert_eq!(req.tags.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_query_default() {
+        let query = SearchQuery::default();
+        assert_eq!(query.query, "");
+        assert_eq!(query.mode, SearchMode::default());
+        assert!(query.limit.is_none());
+        assert!(query.offset.is_none());
+        assert!(query.collection_id.is_none());
+        assert!(query.tags.is_empty());
+        assert!(!query.include_archived);
+    }
+
+    #[test]
+    fn test_search_query_with_params() {
+        let query = SearchQuery {
+            query: "rust programming".to_string(),
+            mode: SearchMode::Hybrid,
+            limit: Some(20),
+            offset: Some(0),
+            collection_id: Some(Uuid::new_v4()),
+            tags: vec!["rust".to_string()],
+            include_archived: false,
+        };
+
+        assert_eq!(query.query, "rust programming");
+        assert_eq!(query.mode, SearchMode::Hybrid);
+        assert_eq!(query.limit.unwrap(), 20);
+        assert!(!query.include_archived);
+    }
+
+    #[test]
+    fn test_ai_metadata_default() {
+        let metadata = AiMetadata::default();
+        assert!(metadata.categories.is_empty());
+        assert!(metadata.topics.is_empty());
+        assert!(metadata.keywords.is_empty());
+        assert!(metadata.summary.is_none());
+    }
+
+    #[test]
+    fn test_ai_metadata_serialization() {
+        let metadata = AiMetadata {
+            categories: vec!["technology".to_string()],
+            topics: vec!["rust".to_string(), "programming".to_string()],
+            keywords: vec!["async".to_string(), "trait".to_string()],
+            entities: json!({"person": ["John Doe"]}),
+            summary: Some("A test summary".to_string()),
+        };
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        let parsed: AiMetadata = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.categories.len(), 1);
+        assert_eq!(parsed.topics.len(), 2);
+        assert_eq!(parsed.keywords.len(), 2);
+        assert_eq!(parsed.summary.unwrap(), "A test summary");
+    }
+
+    #[test]
+    fn test_create_template_request() {
+        let req = CreateTemplateRequest {
+            name: "Daily Note".to_string(),
+            description: Some("Template for daily notes".to_string()),
+            content: "# {{date}}\n\n## Notes\n\n".to_string(),
+            format: Some("markdown".to_string()),
+            default_tags: Some(vec!["daily".to_string()]),
+            collection_id: None,
+        };
+
+        assert_eq!(req.name, "Daily Note");
+        assert_eq!(req.format.unwrap(), "markdown");
+        assert_eq!(req.default_tags.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_update_template_request_default() {
+        let req = UpdateTemplateRequest::default();
+        assert!(req.name.is_none());
+        assert!(req.description.is_none());
+        assert!(req.content.is_none());
+        assert!(req.default_tags.is_none());
+        assert!(req.collection_id.is_none());
+    }
+
+    #[test]
+    fn test_update_template_request_partial() {
+        let req = UpdateTemplateRequest {
+            name: Some("Updated Name".to_string()),
+            description: None,
+            content: Some("New content".to_string()),
+            default_tags: None,
+            collection_id: Some(Some(Uuid::new_v4())),
+        };
+
+        assert_eq!(req.name.unwrap(), "Updated Name");
+        assert_eq!(req.content.unwrap(), "New content");
+        assert!(req.description.is_none());
+    }
+
+    // =============================================================================
+    // NoOpNotifier Tests
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_noop_notifier_on_job_queued() {
+        let notifier = NoOpNotifier;
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: None,
+            job_type: JobType::Embedding,
+            status: JobStatus::Pending,
+            priority: 5,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: None,
+        };
+
+        // Should not panic
+        notifier.on_job_queued(&job).await;
+    }
+
+    #[tokio::test]
+    async fn test_noop_notifier_on_job_started() {
+        let notifier = NoOpNotifier;
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::AiRevision,
+            status: JobStatus::Running,
+            priority: 8,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: None,
+        };
+
+        notifier.on_job_started(&job).await;
+    }
+
+    #[tokio::test]
+    async fn test_noop_notifier_on_job_progress() {
+        let notifier = NoOpNotifier;
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::Linking,
+            status: JobStatus::Running,
+            priority: 3,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 50,
+            progress_message: Some("Halfway done".to_string()),
+            retry_count: 0,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: None,
+        };
+
+        notifier.on_job_progress(&job).await;
+    }
+
+    #[tokio::test]
+    async fn test_noop_notifier_on_job_completed() {
+        let notifier = NoOpNotifier;
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::TitleGeneration,
+            status: JobStatus::Completed,
+            priority: 2,
+            payload: None,
+            result: Some(json!({"title": "Generated Title"})),
+            error_message: None,
+            progress_percent: 100,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: Some(Utc::now()),
+        };
+
+        notifier.on_job_completed(&job).await;
+    }
+
+    #[tokio::test]
+    async fn test_noop_notifier_on_job_failed() {
+        let notifier = NoOpNotifier;
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: Some(Uuid::new_v4()),
+            job_type: JobType::Embedding,
+            status: JobStatus::Failed,
+            priority: 5,
+            payload: None,
+            result: None,
+            error_message: Some("Model timeout".to_string()),
+            progress_percent: 25,
+            progress_message: None,
+            retry_count: 1,
+            max_retries: 3,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: Some(Utc::now()),
+        };
+
+        notifier.on_job_failed(&job).await;
+    }
+
+    // =============================================================================
+    // Type Tests
+    // =============================================================================
+
+    #[test]
+    fn test_search_query_debug_format() {
+        let query = SearchQuery {
+            query: "test".to_string(),
+            mode: SearchMode::Hybrid,
+            limit: Some(10),
+            offset: Some(0),
+            collection_id: None,
+            tags: vec![],
+            include_archived: false,
+        };
+
+        let debug_str = format!("{:?}", query);
+        assert!(debug_str.contains("SearchQuery"));
+        assert!(debug_str.contains("test"));
+    }
+
+    #[test]
+    fn test_create_note_request_debug_format() {
+        let req = CreateNoteRequest {
+            content: "test".to_string(),
+            format: "markdown".to_string(),
+            source: "manual".to_string(),
+            collection_id: None,
+            tags: None,
+        };
+
+        let debug_str = format!("{:?}", req);
+        assert!(debug_str.contains("CreateNoteRequest"));
+    }
+
+    #[test]
+    fn test_ai_metadata_with_entities() {
+        let metadata = AiMetadata {
+            categories: vec![],
+            topics: vec![],
+            keywords: vec![],
+            entities: json!({
+                "person": ["Alice", "Bob"],
+                "organization": ["ACME Corp"],
+                "location": ["New York"]
+            }),
+            summary: None,
+        };
+
+        assert!(metadata.entities.is_object());
+        assert_eq!(metadata.entities["person"][0], "Alice");
+    }
+
+    #[test]
+    fn test_list_notes_request_clone() {
+        let req1 = ListNotesRequest {
+            sort_by: Some("created_at_utc".to_string()),
+            sort_order: Some("asc".to_string()),
+            ..Default::default()
+        };
+
+        let req2 = req1.clone();
+        assert_eq!(req1.sort_by, req2.sort_by);
+        assert_eq!(req1.sort_order, req2.sort_order);
+    }
+
+    #[test]
+    fn test_update_note_status_request_clone() {
+        let req1 = UpdateNoteStatusRequest {
+            starred: Some(true),
+            archived: Some(false),
+        };
+
+        let req2 = req1.clone();
+        assert_eq!(req1.starred, req2.starred);
+        assert_eq!(req1.archived, req2.archived);
+    }
+
+    #[test]
+    fn test_search_query_clone() {
+        let query1 = SearchQuery {
+            query: "test".to_string(),
+            mode: SearchMode::Fts,
+            limit: Some(10),
+            offset: Some(5),
+            collection_id: Some(Uuid::new_v4()),
+            tags: vec!["tag1".to_string()],
+            include_archived: true,
+        };
+
+        let query2 = query1.clone();
+        assert_eq!(query1.query, query2.query);
+        assert_eq!(query1.mode, query2.mode);
+        assert_eq!(query1.limit, query2.limit);
+        assert_eq!(query1.include_archived, query2.include_archived);
+    }
+}

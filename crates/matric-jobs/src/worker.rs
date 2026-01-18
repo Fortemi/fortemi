@@ -343,4 +343,257 @@ mod tests {
         assert_eq!(config.max_concurrent_jobs, 8);
         assert!(!config.enabled);
     }
+
+    // ========== NEW COMPREHENSIVE TESTS ==========
+
+    #[test]
+    fn test_worker_config_default_values() {
+        let config = WorkerConfig::default();
+        assert_eq!(config.poll_interval_ms, 500); // DEFAULT_POLL_INTERVAL_MS
+        assert_eq!(config.max_concurrent_jobs, 4);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_with_poll_interval() {
+        let config = WorkerConfig::default().with_poll_interval(100);
+        assert_eq!(config.poll_interval_ms, 100);
+        // Ensure other defaults preserved
+        assert_eq!(config.max_concurrent_jobs, 4);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_with_poll_interval_zero() {
+        let config = WorkerConfig::default().with_poll_interval(0);
+        assert_eq!(config.poll_interval_ms, 0);
+    }
+
+    #[test]
+    fn test_worker_config_with_poll_interval_large() {
+        let config = WorkerConfig::default().with_poll_interval(60000);
+        assert_eq!(config.poll_interval_ms, 60000);
+    }
+
+    #[test]
+    fn test_worker_config_with_max_concurrent() {
+        let config = WorkerConfig::default().with_max_concurrent(16);
+        assert_eq!(config.max_concurrent_jobs, 16);
+        // Ensure other defaults preserved
+        assert_eq!(config.poll_interval_ms, 500);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_with_max_concurrent_one() {
+        let config = WorkerConfig::default().with_max_concurrent(1);
+        assert_eq!(config.max_concurrent_jobs, 1);
+    }
+
+    #[test]
+    fn test_worker_config_with_max_concurrent_large() {
+        let config = WorkerConfig::default().with_max_concurrent(1000);
+        assert_eq!(config.max_concurrent_jobs, 1000);
+    }
+
+    #[test]
+    fn test_worker_config_with_enabled_true() {
+        let config = WorkerConfig::default().with_enabled(true);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_with_enabled_false() {
+        let config = WorkerConfig::default().with_enabled(false);
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_chaining() {
+        let config = WorkerConfig::default()
+            .with_poll_interval(2000)
+            .with_max_concurrent(12)
+            .with_enabled(false);
+
+        assert_eq!(config.poll_interval_ms, 2000);
+        assert_eq!(config.max_concurrent_jobs, 12);
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_worker_config_chaining_order_independence() {
+        let config1 = WorkerConfig::default()
+            .with_enabled(false)
+            .with_max_concurrent(10)
+            .with_poll_interval(3000);
+
+        let config2 = WorkerConfig::default()
+            .with_poll_interval(3000)
+            .with_enabled(false)
+            .with_max_concurrent(10);
+
+        assert_eq!(config1.poll_interval_ms, config2.poll_interval_ms);
+        assert_eq!(config1.max_concurrent_jobs, config2.max_concurrent_jobs);
+        assert_eq!(config1.enabled, config2.enabled);
+    }
+
+    #[test]
+    fn test_worker_event_job_started() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobStarted {
+            job_id,
+            job_type: JobType::Embedding,
+        };
+
+        match event {
+            WorkerEvent::JobStarted { job_id: id, job_type } => {
+                assert_eq!(id, job_id);
+                assert_eq!(job_type, JobType::Embedding);
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_job_progress() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobProgress {
+            job_id,
+            percent: 50,
+            message: Some("halfway".to_string()),
+        };
+
+        match event {
+            WorkerEvent::JobProgress { job_id: id, percent, message } => {
+                assert_eq!(id, job_id);
+                assert_eq!(percent, 50);
+                assert_eq!(message, Some("halfway".to_string()));
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_job_progress_no_message() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobProgress {
+            job_id,
+            percent: 75,
+            message: None,
+        };
+
+        match event {
+            WorkerEvent::JobProgress { percent, message, .. } => {
+                assert_eq!(percent, 75);
+                assert!(message.is_none());
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_job_completed() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobCompleted {
+            job_id,
+            job_type: JobType::Linking,
+        };
+
+        match event {
+            WorkerEvent::JobCompleted { job_id: id, job_type } => {
+                assert_eq!(id, job_id);
+                assert_eq!(job_type, JobType::Linking);
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_job_failed() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobFailed {
+            job_id,
+            job_type: JobType::AiRevision,
+            error: "test error".to_string(),
+        };
+
+        match event {
+            WorkerEvent::JobFailed { job_id: id, job_type, error } => {
+                assert_eq!(id, job_id);
+                assert_eq!(job_type, JobType::AiRevision);
+                assert_eq!(error, "test error");
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_worker_started() {
+        let event = WorkerEvent::WorkerStarted;
+        assert!(matches!(event, WorkerEvent::WorkerStarted));
+    }
+
+    #[test]
+    fn test_worker_event_worker_stopped() {
+        let event = WorkerEvent::WorkerStopped;
+        assert!(matches!(event, WorkerEvent::WorkerStopped));
+    }
+
+    #[test]
+    fn test_worker_event_clone() {
+        let job_id = Uuid::new_v4();
+        let event1 = WorkerEvent::JobStarted {
+            job_id,
+            job_type: JobType::Embedding,
+        };
+
+        let event2 = event1.clone();
+
+        match (event1, event2) {
+            (
+                WorkerEvent::JobStarted { job_id: id1, job_type: jt1 },
+                WorkerEvent::JobStarted { job_id: id2, job_type: jt2 },
+            ) => {
+                assert_eq!(id1, id2);
+                assert_eq!(jt1, jt2);
+            }
+            _ => panic!("Clone failed"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_debug() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobStarted {
+            job_id,
+            job_type: JobType::Embedding,
+        };
+
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("JobStarted"));
+        assert!(debug_str.contains("Embedding"));
+    }
+
+    #[test]
+    fn test_worker_config_debug() {
+        let config = WorkerConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("WorkerConfig"));
+        assert!(debug_str.contains("poll_interval_ms"));
+        assert!(debug_str.contains("max_concurrent_jobs"));
+        assert!(debug_str.contains("enabled"));
+    }
+
+    #[test]
+    fn test_worker_config_clone() {
+        let config1 = WorkerConfig::default()
+            .with_poll_interval(1500)
+            .with_max_concurrent(6);
+
+        let config2 = config1.clone();
+
+        assert_eq!(config1.poll_interval_ms, config2.poll_interval_ms);
+        assert_eq!(config1.max_concurrent_jobs, config2.max_concurrent_jobs);
+        assert_eq!(config1.enabled, config2.enabled);
+    }
 }

@@ -30,6 +30,7 @@ md5.workspace = true
 similar.workspace = true
 rand.workspace = true
 base64.workspace = true
+regex.workspace = true
 
 # Error handling
 thiserror.workspace = true

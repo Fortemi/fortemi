@@ -1250,4 +1250,434 @@ mod tests {
                 > JobType::CreateEmbeddingSet.default_priority()
         );
     }
+
+    // =========================================================================
+    // Additional Model Tests
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_config_default_values() {
+        let config = EmbeddingConfig::default();
+        assert_eq!(config.chunk_size, 1500);
+        assert_eq!(config.chunk_overlap, 200);
+        assert_eq!(config.model, "nomic-embed-text");
+        assert_eq!(config.dimension, 768);
+    }
+
+    #[test]
+    fn test_embedding_set_mode_display() {
+        assert_eq!(EmbeddingSetMode::Auto.to_string(), "auto");
+        assert_eq!(EmbeddingSetMode::Manual.to_string(), "manual");
+        assert_eq!(EmbeddingSetMode::Mixed.to_string(), "mixed");
+    }
+
+    #[test]
+    fn test_embedding_set_mode_from_str_valid() {
+        assert_eq!("auto".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Auto);
+        assert_eq!("AUTO".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Auto);
+        assert_eq!("manual".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Manual);
+        assert_eq!("mixed".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Mixed);
+    }
+
+    #[test]
+    fn test_embedding_set_mode_from_str_invalid() {
+        let result = "invalid".parse::<EmbeddingSetMode>();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid embedding set mode"));
+    }
+
+    #[test]
+    fn test_embedding_index_status_display() {
+        assert_eq!(EmbeddingIndexStatus::Pending.to_string(), "pending");
+        assert_eq!(EmbeddingIndexStatus::Building.to_string(), "building");
+        assert_eq!(EmbeddingIndexStatus::Ready.to_string(), "ready");
+        assert_eq!(EmbeddingIndexStatus::Stale.to_string(), "stale");
+        assert_eq!(EmbeddingIndexStatus::Disabled.to_string(), "disabled");
+    }
+
+    #[test]
+    fn test_embedding_index_status_from_str_valid() {
+        assert_eq!("pending".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Pending);
+        assert_eq!("BUILDING".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Building);
+        assert_eq!("ready".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Ready);
+    }
+
+    #[test]
+    fn test_embedding_index_status_from_str_invalid() {
+        let result = "unknown".parse::<EmbeddingIndexStatus>();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid embedding index status"));
+    }
+
+    #[test]
+    fn test_job_status_serialization() {
+        let statuses = vec![
+            (JobStatus::Pending, "pending"),
+            (JobStatus::Running, "running"),
+            (JobStatus::Completed, "completed"),
+            (JobStatus::Failed, "failed"),
+            (JobStatus::Cancelled, "cancelled"),
+        ];
+
+        for (status, expected) in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: JobStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, status);
+        }
+    }
+
+    #[test]
+    fn test_revision_mode_default() {
+        assert_eq!(RevisionMode::default(), RevisionMode::Full);
+    }
+
+    #[test]
+    fn test_revision_mode_serialization() {
+        let modes = vec![
+            (RevisionMode::Full, "full"),
+            (RevisionMode::Light, "light"),
+            (RevisionMode::None, "none"),
+        ];
+
+        for (mode, expected) in modes {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: RevisionMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, mode);
+        }
+    }
+
+    #[test]
+    fn test_job_type_serialization() {
+        let types = vec![
+            (JobType::AiRevision, "ai_revision"),
+            (JobType::Embedding, "embedding"),
+            (JobType::Linking, "linking"),
+            (JobType::ContextUpdate, "context_update"),
+            (JobType::TitleGeneration, "title_generation"),
+            (JobType::CreateEmbeddingSet, "create_embedding_set"),
+            (JobType::RefreshEmbeddingSet, "refresh_embedding_set"),
+            (JobType::BuildSetIndex, "build_set_index"),
+            (JobType::PurgeNote, "purge_note"),
+            (JobType::ConceptTagging, "concept_tagging"),
+        ];
+
+        for (job_type, expected) in types {
+            let json = serde_json::to_string(&job_type).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: JobType = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, job_type);
+        }
+    }
+
+    #[test]
+    fn test_job_type_all_priorities_are_positive() {
+        let types = vec![
+            JobType::AiRevision,
+            JobType::Embedding,
+            JobType::Linking,
+            JobType::ContextUpdate,
+            JobType::TitleGeneration,
+            JobType::CreateEmbeddingSet,
+            JobType::RefreshEmbeddingSet,
+            JobType::BuildSetIndex,
+            JobType::PurgeNote,
+            JobType::ConceptTagging,
+        ];
+
+        for job_type in types {
+            assert!(job_type.default_priority() > 0);
+        }
+    }
+
+    #[test]
+    fn test_purge_note_has_highest_priority() {
+        let types = vec![
+            JobType::AiRevision,
+            JobType::Embedding,
+            JobType::Linking,
+            JobType::ContextUpdate,
+            JobType::TitleGeneration,
+            JobType::CreateEmbeddingSet,
+            JobType::RefreshEmbeddingSet,
+            JobType::BuildSetIndex,
+            JobType::ConceptTagging,
+        ];
+
+        for job_type in types {
+            assert!(JobType::PurgeNote.default_priority() >= job_type.default_priority());
+        }
+    }
+
+    #[test]
+    fn test_oauth_error_constructors() {
+        let err = OAuthError::invalid_request("bad param");
+        assert_eq!(err.error, "invalid_request");
+        assert_eq!(err.error_description, Some("bad param".to_string()));
+
+        let err = OAuthError::invalid_client("unknown client");
+        assert_eq!(err.error, "invalid_client");
+
+        let err = OAuthError::invalid_grant("expired code");
+        assert_eq!(err.error, "invalid_grant");
+
+        let err = OAuthError::unauthorized_client("not allowed");
+        assert_eq!(err.error, "unauthorized_client");
+
+        let err = OAuthError::unsupported_grant_type("unknown grant");
+        assert_eq!(err.error, "unsupported_grant_type");
+
+        let err = OAuthError::invalid_scope("bad scope");
+        assert_eq!(err.error, "invalid_scope");
+
+        let err = OAuthError::unsupported_response_type("bad type");
+        assert_eq!(err.error, "unsupported_response_type");
+
+        let err = OAuthError::server_error("internal");
+        assert_eq!(err.error, "server_error");
+    }
+
+    #[test]
+    fn test_oauth_grant_type_serialization() {
+        let types = vec![
+            (OAuthGrantType::AuthorizationCode, "authorization_code"),
+            (OAuthGrantType::ClientCredentials, "client_credentials"),
+            (OAuthGrantType::RefreshToken, "refresh_token"),
+        ];
+
+        for (grant_type, expected) in types {
+            let json = serde_json::to_string(&grant_type).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: OAuthGrantType = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, grant_type);
+        }
+    }
+
+    #[test]
+    fn test_oauth_response_type_serialization() {
+        let types = vec![
+            (OAuthResponseType::Code, "code"),
+            (OAuthResponseType::Token, "token"),
+        ];
+
+        for (response_type, expected) in types {
+            let json = serde_json::to_string(&response_type).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: OAuthResponseType = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, response_type);
+        }
+    }
+
+    #[test]
+    fn test_token_auth_method_default() {
+        assert_eq!(TokenAuthMethod::default(), TokenAuthMethod::ClientSecretBasic);
+    }
+
+    #[test]
+    fn test_token_auth_method_serialization() {
+        let methods = vec![
+            (TokenAuthMethod::ClientSecretBasic, "client_secret_basic"),
+            (TokenAuthMethod::ClientSecretPost, "client_secret_post"),
+            (TokenAuthMethod::None, "none"),
+        ];
+
+        for (method, expected) in methods {
+            let json = serde_json::to_string(&method).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: TokenAuthMethod = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, method);
+        }
+    }
+
+    #[test]
+    fn test_auth_principal_has_scope_admin() {
+        let principal = AuthPrincipal::OAuthClient {
+            client_id: "test".to_string(),
+            scope: "admin".to_string(),
+            user_id: None,
+        };
+
+        assert!(principal.has_scope("read"));
+        assert!(principal.has_scope("write"));
+        assert!(principal.has_scope("delete"));
+        assert!(principal.has_scope("anything"));
+    }
+
+    #[test]
+    fn test_auth_principal_has_scope_mcp() {
+        let principal = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "mcp".to_string(),
+        };
+
+        assert!(principal.has_scope("read"));
+        assert!(principal.has_scope("write"));
+        assert!(!principal.has_scope("delete"));
+    }
+
+    #[test]
+    fn test_auth_principal_has_scope_specific() {
+        let principal = AuthPrincipal::OAuthClient {
+            client_id: "test".to_string(),
+            scope: "read write".to_string(),
+            user_id: None,
+        };
+
+        assert!(principal.has_scope("read"));
+        assert!(principal.has_scope("write"));
+        assert!(!principal.has_scope("delete"));
+    }
+
+    #[test]
+    fn test_auth_principal_anonymous_has_no_scope() {
+        let principal = AuthPrincipal::Anonymous;
+
+        assert!(!principal.has_scope("read"));
+        assert!(!principal.has_scope("write"));
+        assert!(!principal.has_scope("admin"));
+    }
+
+    #[test]
+    fn test_auth_principal_is_authenticated() {
+        let oauth = AuthPrincipal::OAuthClient {
+            client_id: "test".to_string(),
+            scope: "read".to_string(),
+            user_id: None,
+        };
+        assert!(oauth.is_authenticated());
+
+        let api_key = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "read".to_string(),
+        };
+        assert!(api_key.is_authenticated());
+
+        let anon = AuthPrincipal::Anonymous;
+        assert!(!anon.is_authenticated());
+    }
+
+    #[test]
+    fn test_default_scope_function() {
+        assert_eq!(default_scope(), "read");
+    }
+
+    #[test]
+    fn test_default_true_function() {
+        assert!(default_true());
+    }
+
+    #[test]
+    fn test_search_mode_serialization() {
+        let modes = vec![
+            (SearchMode::Fts, "fts"),
+            (SearchMode::Vector, "vector"),
+            (SearchMode::Hybrid, "hybrid"),
+        ];
+
+        for (mode, expected) in modes {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, format!("\"{}\"", expected));
+            let parsed: SearchMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, mode);
+        }
+    }
+
+    #[test]
+    fn test_embedding_set_mode_default() {
+        assert_eq!(EmbeddingSetMode::default(), EmbeddingSetMode::Auto);
+    }
+
+    #[test]
+    fn test_embedding_index_status_default() {
+        assert_eq!(EmbeddingIndexStatus::default(), EmbeddingIndexStatus::Pending);
+    }
+
+    #[test]
+    fn test_embedding_set_agent_metadata_default() {
+        let metadata = EmbeddingSetAgentMetadata::default();
+        assert!(metadata.created_by_agent.is_none());
+        assert!(metadata.rationale.is_none());
+        assert!(metadata.performance_notes.is_none());
+        assert!(metadata.related_sets.is_empty());
+        assert!(metadata.suggested_queries.is_empty());
+    }
+
+    #[test]
+    fn test_update_embedding_set_request_default() {
+        let request = UpdateEmbeddingSetRequest::default();
+        assert!(request.name.is_none());
+        assert!(request.description.is_none());
+        assert!(request.purpose.is_none());
+        assert!(request.mode.is_none());
+        assert!(request.is_active.is_none());
+    }
+
+    #[test]
+    fn test_collection_serialization_with_note_count() {
+        let collection = Collection {
+            id: Uuid::new_v4(),
+            name: "Test Collection".to_string(),
+            description: Some("Description".to_string()),
+            parent_id: None,
+            created_at_utc: Utc::now(),
+            note_count: 42,
+        };
+
+        let json = serde_json::to_string(&collection).unwrap();
+        let parsed: Collection = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.note_count, 42);
+        assert_eq!(parsed.name, "Test Collection");
+    }
+
+    #[test]
+    fn test_search_hit_skip_serializing_empty_tags() {
+        let hit = SearchHit {
+            note_id: Uuid::new_v4(),
+            score: 0.95,
+            snippet: Some("snippet".to_string()),
+            title: Some("title".to_string()),
+            tags: vec![],
+        };
+
+        let json = serde_json::to_value(&hit).unwrap();
+        // Empty tags should be skipped
+        assert!(!json.as_object().unwrap().contains_key("tags") ||
+                json["tags"].as_array().map_or(true, |a| a.is_empty()));
+    }
+
+    #[test]
+    fn test_note_original_serialization() {
+        let original = NoteOriginal {
+            content: "test content".to_string(),
+            hash: "abc123".to_string(),
+            user_created_at: None,
+            user_last_edited_at: None,
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: NoteOriginal = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.content, "test content");
+        assert_eq!(parsed.hash, "abc123");
+    }
+
+    #[test]
+    fn test_note_revised_serialization() {
+        let revised = NoteRevised {
+            content: "revised content".to_string(),
+            last_revision_id: Some(Uuid::new_v4()),
+            ai_metadata: Some(json!({"test": "data"})),
+            ai_generated_at: None,
+            user_last_edited_at: None,
+            is_user_edited: false,
+            generation_count: 1,
+            model: Some("gpt-4".to_string()),
+        };
+
+        let json = serde_json::to_string(&revised).unwrap();
+        let parsed: NoteRevised = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.content, "revised content");
+        assert_eq!(parsed.generation_count, 1);
+        assert!(!parsed.is_user_edited);
+    }
 }

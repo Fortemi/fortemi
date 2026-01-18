@@ -80,3 +80,162 @@ impl From<reqwest::Error> for Error {
         Error::Request(e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_error_display_not_found() {
+        let err = Error::NotFound("test resource".to_string());
+        assert_eq!(err.to_string(), "Not found: test resource");
+    }
+
+    #[test]
+    fn test_error_display_note_not_found() {
+        let id = Uuid::nil();
+        let err = Error::NoteNotFound(id);
+        assert_eq!(err.to_string(), format!("Note not found: {}", id));
+    }
+
+    #[test]
+    fn test_error_display_collection_not_found() {
+        let id = Uuid::nil();
+        let err = Error::CollectionNotFound(id);
+        assert_eq!(err.to_string(), format!("Collection not found: {}", id));
+    }
+
+    #[test]
+    fn test_error_display_embedding() {
+        let err = Error::Embedding("failed to generate".to_string());
+        assert_eq!(err.to_string(), "Embedding error: failed to generate");
+    }
+
+    #[test]
+    fn test_error_display_inference() {
+        let err = Error::Inference("model timeout".to_string());
+        assert_eq!(err.to_string(), "Inference error: model timeout");
+    }
+
+    #[test]
+    fn test_error_display_search() {
+        let err = Error::Search("index unavailable".to_string());
+        assert_eq!(err.to_string(), "Search error: index unavailable");
+    }
+
+    #[test]
+    fn test_error_display_job() {
+        let err = Error::Job("queue full".to_string());
+        assert_eq!(err.to_string(), "Job error: queue full");
+    }
+
+    #[test]
+    fn test_error_display_serialization() {
+        let err = Error::Serialization("invalid JSON".to_string());
+        assert_eq!(err.to_string(), "Serialization error: invalid JSON");
+    }
+
+    #[test]
+    fn test_error_display_config() {
+        let err = Error::Config("missing API key".to_string());
+        assert_eq!(err.to_string(), "Configuration error: missing API key");
+    }
+
+    #[test]
+    fn test_error_display_invalid_input() {
+        let err = Error::InvalidInput("negative count".to_string());
+        assert_eq!(err.to_string(), "Invalid input: negative count");
+    }
+
+    #[test]
+    fn test_error_display_request() {
+        let err = Error::Request("network unreachable".to_string());
+        assert_eq!(err.to_string(), "Request error: network unreachable");
+    }
+
+    #[test]
+    fn test_error_display_internal() {
+        let err = Error::Internal("unexpected state".to_string());
+        assert_eq!(err.to_string(), "Internal error: unexpected state");
+    }
+
+    #[test]
+    fn test_error_display_unauthorized() {
+        let err = Error::Unauthorized("invalid token".to_string());
+        assert_eq!(err.to_string(), "Unauthorized: invalid token");
+    }
+
+    #[test]
+    fn test_error_display_forbidden() {
+        let err = Error::Forbidden("insufficient permissions".to_string());
+        assert_eq!(err.to_string(), "Forbidden: insufficient permissions");
+    }
+
+    #[test]
+    fn test_from_serde_json_error() {
+        let json_err = serde_json::from_str::<i32>("not a number");
+        assert!(json_err.is_err());
+
+        let err: Error = json_err.unwrap_err().into();
+        match err {
+            Error::Serialization(msg) => {
+                assert!(!msg.is_empty());
+            }
+            _ => panic!("Expected Serialization error"),
+        }
+    }
+
+    #[test]
+    fn test_from_serde_json_error_maintains_message() {
+        let json_str = r#"{"invalid": json}"#;
+        let json_err = serde_json::from_str::<serde_json::Value>(json_str);
+        assert!(json_err.is_err());
+
+        let err: Error = json_err.unwrap_err().into();
+        assert!(err.to_string().contains("Serialization error:"));
+    }
+
+    #[test]
+    fn test_result_type_ok() {
+        let result: Result<i32> = Ok(42);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_result_type_err() {
+        let result: Result<i32> = Err(Error::Internal("test".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_error_is_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<Error>();
+        assert_sync::<Error>();
+    }
+
+    #[test]
+    fn test_error_debug_format() {
+        let err = Error::NotFound("test".to_string());
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("NotFound"));
+    }
+
+    #[test]
+    fn test_note_not_found_with_random_uuid() {
+        let id = Uuid::new_v4();
+        let err = Error::NoteNotFound(id);
+        assert!(err.to_string().contains(&id.to_string()));
+    }
+
+    #[test]
+    fn test_collection_not_found_with_random_uuid() {
+        let id = Uuid::new_v4();
+        let err = Error::CollectionNotFound(id);
+        assert!(err.to_string().contains(&id.to_string()));
+    }
+}

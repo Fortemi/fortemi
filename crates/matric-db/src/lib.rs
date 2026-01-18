@@ -31,6 +31,7 @@
 //! }
 //! ```
 
+pub mod chunking;
 pub mod collections;
 pub mod embedding_sets;
 pub mod embeddings;
@@ -47,6 +48,12 @@ pub mod versioning;
 
 // Re-export core types
 pub use matric_core::*;
+
+// Re-export chunking types
+pub use chunking::{
+    Chunk, Chunker, ChunkerConfig, ParagraphChunker, RecursiveChunker, SemanticChunker,
+    SentenceChunker, SlidingWindowChunker,
+};
 
 // Re-export repository implementations
 pub use collections::PgCollectionRepository;
