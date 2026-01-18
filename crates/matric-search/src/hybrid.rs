@@ -535,8 +535,7 @@ mod tests {
 
     #[test]
     fn test_config_with_min_score() {
-        let config = HybridSearchConfig::default()
-            .with_min_score(0.5);
+        let config = HybridSearchConfig::default().with_min_score(0.5);
         assert_eq!(config.min_score, 0.5);
     }
 
@@ -551,15 +550,13 @@ mod tests {
 
     #[test]
     fn test_config_with_exclude_archived_true() {
-        let config = HybridSearchConfig::default()
-            .with_exclude_archived(true);
+        let config = HybridSearchConfig::default().with_exclude_archived(true);
         assert!(config.exclude_archived);
     }
 
     #[test]
     fn test_config_with_exclude_archived_false() {
-        let config = HybridSearchConfig::default()
-            .with_exclude_archived(false);
+        let config = HybridSearchConfig::default().with_exclude_archived(false);
         assert!(!config.exclude_archived);
     }
 
@@ -578,15 +575,13 @@ mod tests {
 
     #[test]
     fn test_apply_weights_with_zero_weight() {
-        let hits = vec![
-            SearchHit {
-                note_id: Uuid::new_v4(),
-                score: 1.0,
-                snippet: None,
-                title: None,
-                tags: Vec::new(),
-            },
-        ];
+        let hits = vec![SearchHit {
+            note_id: Uuid::new_v4(),
+            score: 1.0,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let weighted = HybridSearchEngine::apply_weights(hits, 0.0);
         assert_eq!(weighted[0].score, 0.0);
@@ -594,15 +589,13 @@ mod tests {
 
     #[test]
     fn test_apply_weights_with_full_weight() {
-        let hits = vec![
-            SearchHit {
-                note_id: Uuid::new_v4(),
-                score: 0.8,
-                snippet: None,
-                title: None,
-                tags: Vec::new(),
-            },
-        ];
+        let hits = vec![SearchHit {
+            note_id: Uuid::new_v4(),
+            score: 0.8,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let weighted = HybridSearchEngine::apply_weights(hits, 1.0);
         assert_eq!(weighted[0].score, 0.8);
@@ -617,15 +610,13 @@ mod tests {
 
     #[test]
     fn test_apply_weights_preserves_metadata() {
-        let hits = vec![
-            SearchHit {
-                note_id: Uuid::new_v4(),
-                score: 1.0,
-                snippet: Some("test snippet".to_string()),
-                title: Some("Test Title".to_string()),
-                tags: vec!["tag1".to_string(), "tag2".to_string()],
-            },
-        ];
+        let hits = vec![SearchHit {
+            note_id: Uuid::new_v4(),
+            score: 1.0,
+            snippet: Some("test snippet".to_string()),
+            title: Some("Test Title".to_string()),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
+        }];
 
         let weighted = HybridSearchEngine::apply_weights(hits.clone(), 0.5);
         assert_eq!(weighted[0].snippet, hits[0].snippet);
@@ -701,7 +692,10 @@ mod tests {
 
         assert_eq!(request.query, "complex query");
         assert_eq!(request.limit, 50);
-        assert_eq!(request.filters, Some("tag:rust collection:test".to_string()));
+        assert_eq!(
+            request.filters,
+            Some("tag:rust collection:test".to_string())
+        );
         assert!(request.embedding.is_some());
         assert_eq!(request.created_after, Some(ts_after));
         assert_eq!(request.created_before, Some(ts_before));

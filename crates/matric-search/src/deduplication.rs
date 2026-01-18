@@ -4,10 +4,10 @@
 //! document can appear in search results. This module provides deduplication
 //! logic to show only the best-scoring chunk per document.
 
+use matric_core::SearchHit;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use matric_core::SearchHit;
 
 /// Information about a document chain (chunked document).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -96,7 +96,11 @@ pub fn deduplicate_search_results(
         .into_iter()
         .map(|(chain_id, mut hits)| {
             // Sort hits by score descending to find best chunk
-            hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+            hits.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             let chunks_matched = hits.len();
             let best_hit = hits.into_iter().next().unwrap(); // Safe: at least one hit per chain
@@ -235,9 +239,18 @@ mod tests {
         assert_eq!(deduplicated[2].hit.score, 0.70); // note3
 
         // Check chain info
-        assert_eq!(deduplicated[0].chain_info.as_ref().unwrap().chunks_matched, 2);
-        assert_eq!(deduplicated[1].chain_info.as_ref().unwrap().chunks_matched, 3);
-        assert_eq!(deduplicated[2].chain_info.as_ref().unwrap().chunks_matched, 1);
+        assert_eq!(
+            deduplicated[0].chain_info.as_ref().unwrap().chunks_matched,
+            2
+        );
+        assert_eq!(
+            deduplicated[1].chain_info.as_ref().unwrap().chunks_matched,
+            3
+        );
+        assert_eq!(
+            deduplicated[2].chain_info.as_ref().unwrap().chunks_matched,
+            1
+        );
     }
 
     #[test]
@@ -270,18 +283,12 @@ mod tests {
             extract_original_title("My Document - Part 2 of 5"),
             "My Document"
         );
-        assert_eq!(
-            extract_original_title("My Document [3/10]"),
-            "My Document"
-        );
+        assert_eq!(extract_original_title("My Document [3/10]"), "My Document");
     }
 
     #[test]
     fn test_extract_original_title_without_suffix() {
-        assert_eq!(
-            extract_original_title("My Document"),
-            "My Document"
-        );
+        assert_eq!(extract_original_title("My Document"), "My Document");
         assert_eq!(
             extract_original_title("Document with (parentheses) in middle"),
             "Document with (parentheses) in middle"
@@ -321,7 +328,10 @@ mod tests {
         let deduplicated = deduplicate_search_results(results, &config);
 
         assert_eq!(deduplicated.len(), 1);
-        assert_eq!(deduplicated[0].hit.snippet, Some("Best snippet".to_string()));
+        assert_eq!(
+            deduplicated[0].hit.snippet,
+            Some("Best snippet".to_string())
+        );
         assert_eq!(deduplicated[0].hit.tags.len(), 2);
     }
 
@@ -350,10 +360,7 @@ mod tests {
         let deserialized: EnhancedSearchHit = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.hit.note_id, note_id);
-        assert_eq!(
-            deserialized.chain_info.as_ref().unwrap().chunks_matched,
-            2
-        );
+        assert_eq!(deserialized.chain_info.as_ref().unwrap().chunks_matched, 2);
     }
 
     #[test]
@@ -395,6 +402,9 @@ mod tests {
         let deduplicated = deduplicate_search_results(results, &config);
 
         assert_eq!(deduplicated.len(), 1);
-        assert_eq!(deduplicated[0].chain_info.as_ref().unwrap().chunks_matched, 1);
+        assert_eq!(
+            deduplicated[0].chain_info.as_ref().unwrap().chunks_matched,
+            1
+        );
     }
 }

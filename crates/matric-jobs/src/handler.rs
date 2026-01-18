@@ -344,7 +344,10 @@ mod tests {
         let progress_log_clone = progress_log.clone();
 
         let ctx = JobContext::new(job).with_progress_callback(move |percent, message| {
-            progress_log_clone.lock().unwrap().push((percent, message.map(String::from)));
+            progress_log_clone
+                .lock()
+                .unwrap()
+                .push((percent, message.map(String::from)));
         });
 
         ctx.report_progress(25, Some("Starting"));
@@ -407,7 +410,10 @@ mod tests {
         let progress_log_clone = progress_log.clone();
 
         let ctx = JobContext::new(job).with_progress_callback(move |percent, message| {
-            progress_log_clone.lock().unwrap().push((percent, message.map(String::from)));
+            progress_log_clone
+                .lock()
+                .unwrap()
+                .push((percent, message.map(String::from)));
         });
 
         let result = handler.execute(ctx).await;

@@ -22,8 +22,8 @@ use uuid::Uuid;
 
 use matric_core::{
     AddLabelRequest, AddNoteRequest, BatchTagNoteRequest, CreateConceptRequest,
-    CreateConceptSchemeRequest, CreateMappingRelationRequest, CreateSemanticRelationRequest,
-    Error, MergeConceptsRequest, NoteSkosConceptTag, ResolvedTag, Result, SearchConceptsRequest,
+    CreateConceptSchemeRequest, CreateMappingRelationRequest, CreateSemanticRelationRequest, Error,
+    MergeConceptsRequest, NoteSkosConceptTag, ResolvedTag, Result, SearchConceptsRequest,
     SearchConceptsResponse, SkosAuditLogEntry, SkosConcept, SkosConceptFull, SkosConceptHierarchy,
     SkosConceptLabel, SkosConceptMerge, SkosConceptNote, SkosConceptScheme,
     SkosConceptSchemeSummary, SkosConceptSummary, SkosConceptWithLabel, SkosGovernanceStats,
@@ -115,12 +115,7 @@ pub trait SkosConceptRepository: Send + Sync {
     async fn refresh_antipatterns(&self, id: Uuid) -> Result<Vec<TagAntipattern>>;
 
     /// Update concept embedding.
-    async fn update_embedding(
-        &self,
-        id: Uuid,
-        embedding: &[f32],
-        model: &str,
-    ) -> Result<()>;
+    async fn update_embedding(&self, id: Uuid, embedding: &[f32], model: &str) -> Result<()>;
 }
 
 /// Repository trait for SKOS label operations.
@@ -162,10 +157,7 @@ pub trait SkosNoteRepository: Send + Sync {
 #[async_trait]
 pub trait SkosRelationRepository: Send + Sync {
     /// Create a semantic relation.
-    async fn create_semantic_relation(
-        &self,
-        req: CreateSemanticRelationRequest,
-    ) -> Result<Uuid>;
+    async fn create_semantic_relation(&self, req: CreateSemanticRelationRequest) -> Result<Uuid>;
 
     /// Get semantic relations for a concept.
     async fn get_semantic_relations(
@@ -181,10 +173,8 @@ pub trait SkosRelationRepository: Send + Sync {
     async fn create_mapping_relation(&self, req: CreateMappingRelationRequest) -> Result<Uuid>;
 
     /// Get mapping relations for a concept.
-    async fn get_mapping_relations(
-        &self,
-        concept_id: Uuid,
-    ) -> Result<Vec<SkosMappingRelationEdge>>;
+    async fn get_mapping_relations(&self, concept_id: Uuid)
+        -> Result<Vec<SkosMappingRelationEdge>>;
 
     /// Delete a mapping relation.
     async fn delete_mapping_relation(&self, id: Uuid) -> Result<()>;
@@ -215,8 +205,12 @@ pub trait SkosTaggingRepository: Send + Sync {
     ) -> Result<Vec<(NoteSkosConceptTag, SkosConceptWithLabel)>>;
 
     /// Get all notes tagged with a concept.
-    async fn get_tagged_notes(&self, concept_id: Uuid, limit: i64, offset: i64)
-        -> Result<Vec<Uuid>>;
+    async fn get_tagged_notes(
+        &self,
+        concept_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Uuid>>;
 
     /// Set the primary tag for a note.
     async fn set_primary_tag(&self, note_id: Uuid, concept_id: Uuid) -> Result<()>;
@@ -496,20 +490,22 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
             q = q.bind(v);
         }
 
-        q.bind(id).execute(&self.pool).await.map_err(Error::Database)?;
+        q.bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         Ok(())
     }
 
     async fn delete_scheme(&self, id: Uuid) -> Result<()> {
         // Check if scheme has concepts
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM skos_concept WHERE primary_scheme_id = $1",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skos_concept WHERE primary_scheme_id = $1")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         if count > 0 {
             return Err(Error::InvalidInput(format!(
@@ -519,17 +515,18 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
         }
 
         // Check if system scheme
-        let is_system: bool = sqlx::query_scalar(
-            "SELECT is_system FROM skos_concept_scheme WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?
-        .unwrap_or(false);
+        let is_system: bool =
+            sqlx::query_scalar("SELECT is_system FROM skos_concept_scheme WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?
+                .unwrap_or(false);
 
         if is_system {
-            return Err(Error::InvalidInput("Cannot delete system scheme".to_string()));
+            return Err(Error::InvalidInput(
+                "Cannot delete system scheme".to_string(),
+            ));
         }
 
         sqlx::query("DELETE FROM skos_concept_scheme WHERE id = $1")
@@ -1007,7 +1004,10 @@ impl SkosConceptRepository for PgSkosRepository {
             conditions.push("c.status != 'deprecated' AND c.status != 'obsolete'".to_string());
         }
         if req.query.is_some() {
-            conditions.push(format!("l.tsv @@ plainto_tsquery('english', ${})", param_idx));
+            conditions.push(format!(
+                "l.tsv @@ plainto_tsquery('english', ${})",
+                param_idx
+            ));
             param_idx += 1;
         }
 
@@ -1038,7 +1038,9 @@ impl SkosConceptRepository for PgSkosRepository {
             ORDER BY l2.value, c.notation
             LIMIT ${} OFFSET ${}
             "#,
-            where_clause, param_idx, param_idx + 1
+            where_clause,
+            param_idx,
+            param_idx + 1
         );
 
         // Execute count query
@@ -1062,7 +1064,10 @@ impl SkosConceptRepository for PgSkosRepository {
             count_q = count_q.bind(v);
         }
 
-        let total = count_q.fetch_one(&self.pool).await.map_err(Error::Database)?;
+        let total = count_q
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         // Execute main query
         let mut main_q = sqlx::query(&main_query);
@@ -1086,7 +1091,10 @@ impl SkosConceptRepository for PgSkosRepository {
         }
         main_q = main_q.bind(req.limit).bind(req.offset);
 
-        let rows = main_q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+        let rows = main_q
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         let concepts: Vec<SkosConceptWithLabel> = rows
             .into_iter()
@@ -1179,7 +1187,10 @@ impl SkosConceptRepository for PgSkosRepository {
             q = q.bind(v);
         }
 
-        q.bind(id).execute(&self.pool).await.map_err(Error::Database)?;
+        q.bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         Ok(())
     }
@@ -1213,13 +1224,12 @@ impl SkosConceptRepository for PgSkosRepository {
 
     async fn delete_concept(&self, id: Uuid) -> Result<()> {
         // Check if concept has tags
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM note_skos_concept WHERE concept_id = $1",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM note_skos_concept WHERE concept_id = $1")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         if count > 0 {
             return Err(Error::InvalidInput(format!(
@@ -1328,16 +1338,15 @@ impl SkosConceptRepository for PgSkosRepository {
     }
 
     async fn refresh_antipatterns(&self, id: Uuid) -> Result<Vec<TagAntipattern>> {
-        let row = sqlx::query(
-            "SELECT skos_detect_antipatterns($1) AS antipatterns",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let row = sqlx::query("SELECT skos_detect_antipatterns($1) AS antipatterns")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         let patterns: Vec<String> = row.get("antipatterns");
-        let antipatterns: Vec<TagAntipattern> = patterns.clone()
+        let antipatterns: Vec<TagAntipattern> = patterns
+            .clone()
             .into_iter()
             .filter_map(|s| s.parse().ok())
             .collect();
@@ -1361,12 +1370,7 @@ impl SkosConceptRepository for PgSkosRepository {
         Ok(antipatterns)
     }
 
-    async fn update_embedding(
-        &self,
-        id: Uuid,
-        embedding: &[f32],
-        model: &str,
-    ) -> Result<()> {
+    async fn update_embedding(&self, id: Uuid, embedding: &[f32], model: &str) -> Result<()> {
         let now = Utc::now();
         let vec = pgvector::Vector::from(embedding.to_vec());
 
@@ -1593,10 +1597,7 @@ impl SkosNoteRepository for PgSkosRepository {
 
 #[async_trait]
 impl SkosRelationRepository for PgSkosRepository {
-    async fn create_semantic_relation(
-        &self,
-        req: CreateSemanticRelationRequest,
-    ) -> Result<Uuid> {
+    async fn create_semantic_relation(&self, req: CreateSemanticRelationRequest) -> Result<Uuid> {
         let id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -2292,9 +2293,7 @@ impl SkosGovernanceRepository for PgSkosRepository {
 impl PgSkosRepository {
     /// Convert a database row to a SkosConcept.
     fn row_to_concept(&self, row: &sqlx::postgres::PgRow) -> SkosConcept {
-        let antipatterns_str: Vec<String> = row
-            .try_get("antipatterns")
-            .unwrap_or_default();
+        let antipatterns_str: Vec<String> = row.try_get("antipatterns").unwrap_or_default();
         let antipatterns: Vec<TagAntipattern> = antipatterns_str
             .into_iter()
             .filter_map(|s| s.parse().ok())
@@ -2362,11 +2361,7 @@ pub trait SkosTagResolutionRepository: Send + Sync {
     async fn resolve_or_create_from_spec(&self, spec: &SkosTagSpec) -> Result<ResolvedTag>;
 
     /// Find an existing concept by its path.
-    async fn find_concept_by_path(
-        &self,
-        scheme_id: Uuid,
-        path: &[String],
-    ) -> Result<Option<Uuid>>;
+    async fn find_concept_by_path(&self, scheme_id: Uuid, path: &[String]) -> Result<Option<Uuid>>;
 }
 
 #[async_trait]
@@ -2453,8 +2448,7 @@ impl SkosTagResolutionRepository for PgSkosRepository {
         }
 
         // Return the leaf concept
-        let leaf_id = parent_id
-            .ok_or_else(|| Error::InvalidInput("Empty tag path".to_string()))?;
+        let leaf_id = parent_id.ok_or_else(|| Error::InvalidInput("Empty tag path".to_string()))?;
 
         Ok(ResolvedTag {
             input: input.clone(),
@@ -2596,11 +2590,7 @@ impl SkosTagResolutionRepository for PgSkosRepository {
         Ok(resolved)
     }
 
-    async fn find_concept_by_path(
-        &self,
-        scheme_id: Uuid,
-        path: &[String],
-    ) -> Result<Option<Uuid>> {
+    async fn find_concept_by_path(&self, scheme_id: Uuid, path: &[String]) -> Result<Option<Uuid>> {
         if path.is_empty() {
             return Ok(None);
         }

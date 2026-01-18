@@ -890,7 +890,11 @@ impl ConceptTaggingHandler {
     }
 
     /// Get or create a concept by preferred label.
-    async fn get_or_create_concept(&self, label: &str, scheme_id: uuid::Uuid) -> Option<uuid::Uuid> {
+    async fn get_or_create_concept(
+        &self,
+        label: &str,
+        scheme_id: uuid::Uuid,
+    ) -> Option<uuid::Uuid> {
         use matric_db::SkosConceptRepository;
         use matric_db::SkosLabelRepository;
 
@@ -959,7 +963,9 @@ impl JobHandler for ConceptTaggingHandler {
         };
 
         if content.trim().is_empty() {
-            return JobResult::Success(Some(serde_json::json!({"concepts": 0, "reason": "empty_content"})));
+            return JobResult::Success(Some(
+                serde_json::json!({"concepts": 0, "reason": "empty_content"}),
+            ));
         }
 
         ctx.report_progress(20, Some("Getting default concept scheme..."));
@@ -973,7 +979,9 @@ impl JobHandler for ConceptTaggingHandler {
                     notation: "default".to_string(),
                     title: "Default Concept Scheme".to_string(),
                     uri: None,
-                    description: Some("Auto-created default scheme for AI-generated concepts".to_string()),
+                    description: Some(
+                        "Auto-created default scheme for AI-generated concepts".to_string(),
+                    ),
                     creator: None,
                     publisher: None,
                     rights: None,
@@ -981,7 +989,9 @@ impl JobHandler for ConceptTaggingHandler {
                 };
                 match self.db.skos.create_scheme(req).await {
                     Ok(id) => id,
-                    Err(e) => return JobResult::Failed(format!("Failed to create default scheme: {}", e)),
+                    Err(e) => {
+                        return JobResult::Failed(format!("Failed to create default scheme: {}", e))
+                    }
                 }
             }
             Err(e) => return JobResult::Failed(format!("Failed to get schemes: {}", e)),

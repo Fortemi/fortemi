@@ -151,7 +151,9 @@ impl SentenceChunker {
     fn find_sentences(&self, text: &str) -> Vec<(usize, usize)> {
         // Pattern for sentence endings, avoiding common abbreviations
         let sentence_regex = Regex::new(r"[.!?]+(?:\s+|$)").unwrap();
-        let abbrev_regex = Regex::new(r"(?i)\b(?:dr|mr|mrs|ms|prof|sr|jr|inc|ltd|co|etc|vs|e\.g|i\.e)\.$").unwrap();
+        let abbrev_regex =
+            Regex::new(r"(?i)\b(?:dr|mr|mrs|ms|prof|sr|jr|inc|ltd|co|etc|vs|e\.g|i\.e)\.$")
+                .unwrap();
 
         let mut sentences = Vec::new();
         let mut last_end = 0;
@@ -167,7 +169,12 @@ impl SentenceChunker {
 
             // Check if preceded by a digit (likely decimal)
             let before_punct = mat.start();
-            if before_punct > 0 && text[..before_punct].chars().last().map_or(false, |c| c.is_ascii_digit()) {
+            if before_punct > 0
+                && text[..before_punct]
+                    .chars()
+                    .last()
+                    .map_or(false, |c| c.is_ascii_digit())
+            {
                 continue;
             }
 
@@ -232,7 +239,7 @@ impl Chunker for SentenceChunker {
         chunks
     }
 
-        fn config(&self) -> &ChunkerConfig {
+    fn config(&self) -> &ChunkerConfig {
         &self.config
     }
 }
@@ -318,7 +325,7 @@ impl Chunker for ParagraphChunker {
         chunks
     }
 
-        fn config(&self) -> &ChunkerConfig {
+    fn config(&self) -> &ChunkerConfig {
         &self.config
     }
 }
@@ -370,7 +377,10 @@ impl SemanticChunker {
                 elements.push((code_start, current_offset, "code".to_string()));
                 i += 1;
                 continue;
-            } else if line.trim().starts_with('-') || line.trim().starts_with('*') || line.trim().starts_with('+') {
+            } else if line.trim().starts_with('-')
+                || line.trim().starts_with('*')
+                || line.trim().starts_with('+')
+            {
                 // List item
                 let list_start = line_start;
                 let mut list_end = line_end;
@@ -380,7 +390,10 @@ impl SemanticChunker {
 
                 while i < lines.len() {
                     let next_line = lines[i].trim();
-                    if next_line.starts_with('-') || next_line.starts_with('*') || next_line.starts_with('+') {
+                    if next_line.starts_with('-')
+                        || next_line.starts_with('*')
+                        || next_line.starts_with('+')
+                    {
                         list_end = current_offset + lines[i].len() + 1;
                         current_offset = list_end;
                         i += 1;
@@ -586,7 +599,10 @@ impl Chunker for SlidingWindowChunker {
         let step_size = if self.config.overlap >= self.config.max_chunk_size {
             1 // Prevent infinite loop
         } else {
-            self.config.max_chunk_size.saturating_sub(self.config.overlap).max(1)
+            self.config
+                .max_chunk_size
+                .saturating_sub(self.config.overlap)
+                .max(1)
         };
 
         let mut start = 0;
@@ -665,13 +681,20 @@ impl RecursiveChunker {
 
             if para_regex.is_match(text) {
                 let chunks = para_chunker.chunk(text);
-                if chunks.iter().all(|c| c.text.len() <= self.config.max_chunk_size) {
-                    return chunks.into_iter().map(|mut c| {
-                        c.start_offset += start_offset;
-                        c.end_offset += start_offset;
-                        c.metadata.insert("type".to_string(), "recursive_paragraph".to_string());
-                        c
-                    }).collect();
+                if chunks
+                    .iter()
+                    .all(|c| c.text.len() <= self.config.max_chunk_size)
+                {
+                    return chunks
+                        .into_iter()
+                        .map(|mut c| {
+                            c.start_offset += start_offset;
+                            c.end_offset += start_offset;
+                            c.metadata
+                                .insert("type".to_string(), "recursive_paragraph".to_string());
+                            c
+                        })
+                        .collect();
                 }
             }
         }
@@ -683,25 +706,37 @@ impl RecursiveChunker {
 
             if sentence_regex.is_match(text) {
                 let chunks = sentence_chunker.chunk(text);
-                if chunks.iter().all(|c| c.text.len() <= self.config.max_chunk_size) {
-                    return chunks.into_iter().map(|mut c| {
-                        c.start_offset += start_offset;
-                        c.end_offset += start_offset;
-                        c.metadata.insert("type".to_string(), "recursive_sentence".to_string());
-                        c
-                    }).collect();
+                if chunks
+                    .iter()
+                    .all(|c| c.text.len() <= self.config.max_chunk_size)
+                {
+                    return chunks
+                        .into_iter()
+                        .map(|mut c| {
+                            c.start_offset += start_offset;
+                            c.end_offset += start_offset;
+                            c.metadata
+                                .insert("type".to_string(), "recursive_sentence".to_string());
+                            c
+                        })
+                        .collect();
                 }
             }
         }
 
         // Fall back to character splitting (level 2+)
         let window_chunker = SlidingWindowChunker::new(self.config.clone());
-        window_chunker.chunk(text).into_iter().map(|mut c| {
-            c.start_offset += start_offset;
-            c.end_offset += start_offset;
-            c.metadata.insert("type".to_string(), "recursive_char".to_string());
-            c
-        }).collect()
+        window_chunker
+            .chunk(text)
+            .into_iter()
+            .map(|mut c| {
+                c.start_offset += start_offset;
+                c.end_offset += start_offset;
+                c.metadata
+                    .insert("type".to_string(), "recursive_char".to_string());
+                c
+            })
+            .collect()
     }
 }
 
@@ -812,7 +847,10 @@ mod tests {
 
         // Should not split on decimal point
         let first_chunk = &chunks[0].text;
-        assert!(first_chunk.contains("3.14159"), "Should keep decimal intact");
+        assert!(
+            first_chunk.contains("3.14159"),
+            "Should keep decimal intact"
+        );
     }
 
     #[test]
@@ -827,7 +865,11 @@ mod tests {
         let chunks = chunker.chunk(text);
 
         for chunk in chunks {
-            assert!(chunk.text.len() <= 50, "Chunk exceeds max size: {}", chunk.text.len());
+            assert!(
+                chunk.text.len() <= 50,
+                "Chunk exceeds max size: {}",
+                chunk.text.len()
+            );
         }
     }
 
@@ -867,7 +909,10 @@ mod tests {
         let text = "This is text without proper punctuation marks at the end";
         let chunks = chunker.chunk(text);
 
-        assert!(!chunks.is_empty(), "Should handle text without ending punctuation");
+        assert!(
+            !chunks.is_empty(),
+            "Should handle text without ending punctuation"
+        );
     }
 
     #[test]
@@ -876,7 +921,10 @@ mod tests {
         let text = "What?!! Really??? Yes!!!";
         let chunks = chunker.chunk(text);
 
-        assert!(chunks.len() >= 2, "Should handle multiple punctuation marks");
+        assert!(
+            chunks.len() >= 2,
+            "Should handle multiple punctuation marks"
+        );
     }
 
     // ============================================================================
@@ -1030,7 +1078,9 @@ mod tests {
         let chunks = chunker.chunk(text);
 
         // Lists should be kept together if possible
-        let has_list = chunks.iter().any(|c| c.text.contains("Item 1") && c.text.contains("Item 2"));
+        let has_list = chunks
+            .iter()
+            .any(|c| c.text.contains("Item 1") && c.text.contains("Item 2"));
         assert!(has_list, "Should keep lists together");
     }
 
@@ -1040,7 +1090,9 @@ mod tests {
         let text = "Steps:\n1. First\n2. Second\n3. Third\nDone.";
         let chunks = chunker.chunk(text);
 
-        let has_list = chunks.iter().any(|c| c.text.contains("First") && c.text.contains("Second"));
+        let has_list = chunks
+            .iter()
+            .any(|c| c.text.contains("First") && c.text.contains("Second"));
         assert!(has_list, "Should keep numbered lists together");
     }
 
@@ -1090,13 +1142,19 @@ mod tests {
 
         // Verify all chunks contain valid UTF-8
         for chunk in &chunks {
-            assert!(std::str::from_utf8(chunk.text.as_bytes()).is_ok(), "Chunk text must be valid UTF-8");
+            assert!(
+                std::str::from_utf8(chunk.text.as_bytes()).is_ok(),
+                "Chunk text must be valid UTF-8"
+            );
         }
         // Verify start offsets are valid char boundaries
         for chunk in &chunks {
             assert!(chunk.start_offset <= text.len(), "Start offset in range");
             if chunk.start_offset < text.len() {
-                assert!(text.is_char_boundary(chunk.start_offset), "Start must be char boundary");
+                assert!(
+                    text.is_char_boundary(chunk.start_offset),
+                    "Start must be char boundary"
+                );
             }
         }
     }
@@ -1168,7 +1226,10 @@ mod tests {
         for i in 0..chunks.len() - 1 {
             let curr_end = &chunks[i].text[chunks[i].text.len().saturating_sub(3)..];
             let next_start = &chunks[i + 1].text[..3.min(chunks[i + 1].text.len())];
-            assert!(curr_end == next_start || chunks[i].text.len() < 3, "Overlap should be preserved");
+            assert!(
+                curr_end == next_start || chunks[i].text.len() < 3,
+                "Overlap should be preserved"
+            );
         }
     }
 
@@ -1348,7 +1409,11 @@ mod tests {
         let chunks = chunker.chunk(&text);
 
         for chunk in chunks {
-            assert!(chunk.text.len() <= 50, "Chunk exceeds max size: {}", chunk.text.len());
+            assert!(
+                chunk.text.len() <= 50,
+                "Chunk exceeds max size: {}",
+                chunk.text.len()
+            );
         }
     }
 

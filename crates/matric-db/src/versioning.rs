@@ -61,13 +61,12 @@ impl VersioningRepository {
     /// Get all versions for a note (both tracks).
     pub async fn list_versions(&self, note_id: Uuid) -> Result<NoteVersions> {
         // Get current original version number
-        let current_original: Option<(i32,)> = sqlx::query_as(
-            "SELECT version_number FROM note_original WHERE note_id = $1"
-        )
-        .bind(note_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let current_original: Option<(i32,)> =
+            sqlx::query_as("SELECT version_number FROM note_original WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         let current_original_version = current_original.map(|r| r.0).unwrap_or(1);
 
@@ -78,7 +77,7 @@ impl VersioningRepository {
             FROM note_original_history
             WHERE note_id = $1
             ORDER BY version_number DESC
-            "#
+            "#,
         )
         .bind(note_id)
         .fetch_all(&self.pool)
@@ -87,31 +86,35 @@ impl VersioningRepository {
 
         let mut original_versions: Vec<VersionSummary> = original_history
             .into_iter()
-            .map(|(version_number, created_at_utc, created_by)| VersionSummary {
-                version_number,
-                created_at_utc,
-                created_by,
-                is_current: false,
-            })
+            .map(
+                |(version_number, created_at_utc, created_by)| VersionSummary {
+                    version_number,
+                    created_at_utc,
+                    created_by,
+                    is_current: false,
+                },
+            )
             .collect();
 
         // Add current version to the list
         if let Some((version,)) = current_original {
             // Get the timestamp from note_original
-            let current_time: Option<(DateTime<Utc>,)> = sqlx::query_as(
-                "SELECT user_last_edited_at FROM note_original WHERE note_id = $1"
-            )
-            .bind(note_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+            let current_time: Option<(DateTime<Utc>,)> =
+                sqlx::query_as("SELECT user_last_edited_at FROM note_original WHERE note_id = $1")
+                    .bind(note_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(Error::Database)?;
 
-            original_versions.insert(0, VersionSummary {
-                version_number: version,
-                created_at_utc: current_time.map(|t| t.0).unwrap_or_else(Utc::now),
-                created_by: "user".to_string(),
-                is_current: true,
-            });
+            original_versions.insert(
+                0,
+                VersionSummary {
+                    version_number: version,
+                    created_at_utc: current_time.map(|t| t.0).unwrap_or_else(Utc::now),
+                    created_by: "user".to_string(),
+                    is_current: true,
+                },
+            );
         }
 
         // Get revision versions
@@ -121,7 +124,7 @@ impl VersioningRepository {
             FROM note_revision
             WHERE note_id = $1
             ORDER BY revision_number DESC
-            "#
+            "#,
         )
         .bind(note_id)
         .fetch_all(&self.pool)
@@ -134,7 +137,7 @@ impl VersioningRepository {
             SELECT MAX(revision_number)
             FROM note_revision
             WHERE note_id = $1
-            "#
+            "#,
         )
         .bind(note_id)
         .fetch_optional(&self.pool)
@@ -162,7 +165,7 @@ impl VersioningRepository {
             SELECT version_number, content, hash, user_last_edited_at
             FROM note_original
             WHERE note_id = $1 AND version_number = $2
-            "#
+            "#,
         )
         .bind(note_id)
         .bind(version)
@@ -188,7 +191,7 @@ impl VersioningRepository {
             SELECT id, note_id, version_number, content, hash, created_at_utc, created_by
             FROM note_original_history
             WHERE note_id = $1 AND version_number = $2
-            "#
+            "#,
         )
         .bind(note_id)
         .bind(version)
@@ -211,7 +214,7 @@ impl VersioningRepository {
                    created_at_utc, model, is_user_edited
             FROM note_revision
             WHERE note_id = $1 AND revision_number = $2
-            "#
+            "#,
         )
         .bind(note_id)
         .bind(revision_number)
@@ -230,15 +233,17 @@ impl VersioningRepository {
         restore_tags: bool,
     ) -> Result<i32> {
         // Get the version to restore
-        let version_data = self.get_original_version(note_id, version).await?
+        let version_data = self
+            .get_original_version(note_id, version)
+            .await?
             .ok_or_else(|| Error::NotFound(format!("Version {} not found", version)))?;
 
         // Parse tags from YAML frontmatter if restore_tags is true
         let content_to_restore = if version_data.content.starts_with("---\n") {
             // Extract content after frontmatter
             if let Some(end_idx) = version_data.content[4..].find("\n---\n") {
-                let frontmatter = &version_data.content[4..4+end_idx];
-                let actual_content = &version_data.content[4+end_idx+5..];
+                let frontmatter = &version_data.content[4..4 + end_idx];
+                let actual_content = &version_data.content[4 + end_idx + 5..];
 
                 // Restore tags if requested
                 if restore_tags {
@@ -258,7 +263,7 @@ impl VersioningRepository {
                                 for tag in tags {
                                     sqlx::query(
                                         "INSERT INTO note_tag (note_id, tag_name) VALUES ($1, $2)
-                                         ON CONFLICT DO NOTHING"
+                                         ON CONFLICT DO NOTHING",
                                     )
                                     .bind(note_id)
                                     .bind(&tag)
@@ -288,7 +293,7 @@ impl VersioningRepository {
             UPDATE note_original
             SET content = $1, hash = $2
             WHERE note_id = $3
-            "#
+            "#,
         )
         .bind(&content_to_restore)
         .bind(&new_hash)
@@ -305,7 +310,7 @@ impl VersioningRepository {
             WHERE note_id = $1
             ORDER BY version_number DESC
             LIMIT 1
-            "#
+            "#,
         )
         .bind(note_id)
         .execute(&self.pool)
@@ -313,13 +318,12 @@ impl VersioningRepository {
         .ok(); // Ignore errors for this update
 
         // Get the new version number
-        let new_version: (i32,) = sqlx::query_as(
-            "SELECT version_number FROM note_original WHERE note_id = $1"
-        )
-        .bind(note_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let new_version: (i32,) =
+            sqlx::query_as("SELECT version_number FROM note_original WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         Ok(new_version.0)
     }
@@ -327,20 +331,21 @@ impl VersioningRepository {
     /// Delete a specific version from history.
     pub async fn delete_version(&self, note_id: Uuid, version: i32) -> Result<bool> {
         // Can't delete current version
-        let current: Option<(i32,)> = sqlx::query_as(
-            "SELECT version_number FROM note_original WHERE note_id = $1"
-        )
-        .bind(note_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let current: Option<(i32,)> =
+            sqlx::query_as("SELECT version_number FROM note_original WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
         if current.map(|c| c.0) == Some(version) {
-            return Err(Error::InvalidInput("Cannot delete current version".to_string()));
+            return Err(Error::InvalidInput(
+                "Cannot delete current version".to_string(),
+            ));
         }
 
         let result = sqlx::query(
-            "DELETE FROM note_original_history WHERE note_id = $1 AND version_number = $2"
+            "DELETE FROM note_original_history WHERE note_id = $1 AND version_number = $2",
         )
         .bind(note_id)
         .bind(version)
@@ -354,7 +359,7 @@ impl VersioningRepository {
     /// Delete all versions before a specific version.
     pub async fn delete_versions_before(&self, note_id: Uuid, before_version: i32) -> Result<u64> {
         let result = sqlx::query(
-            "DELETE FROM note_original_history WHERE note_id = $1 AND version_number < $2"
+            "DELETE FROM note_original_history WHERE note_id = $1 AND version_number < $2",
         )
         .bind(note_id)
         .bind(before_version)
@@ -372,10 +377,14 @@ impl VersioningRepository {
         from_version: i32,
         to_version: i32,
     ) -> Result<String> {
-        let from = self.get_original_version(note_id, from_version).await?
+        let from = self
+            .get_original_version(note_id, from_version)
+            .await?
             .ok_or_else(|| Error::NotFound(format!("Version {} not found", from_version)))?;
 
-        let to = self.get_original_version(note_id, to_version).await?
+        let to = self
+            .get_original_version(note_id, to_version)
+            .await?
             .ok_or_else(|| Error::NotFound(format!("Version {} not found", to_version)))?;
 
         // Extract actual content (strip frontmatter if present)
@@ -403,26 +412,28 @@ impl VersioningRepository {
 
     /// Check if versioning is enabled.
     pub async fn is_versioning_enabled(&self) -> Result<bool> {
-        let result: Option<(serde_json::Value,)> = sqlx::query_as(
-            "SELECT value FROM user_config WHERE key = 'versioning_enabled'"
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let result: Option<(serde_json::Value,)> =
+            sqlx::query_as("SELECT value FROM user_config WHERE key = 'versioning_enabled'")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
-        Ok(result.map(|r| r.0.as_bool().unwrap_or(true)).unwrap_or(true))
+        Ok(result
+            .map(|r| r.0.as_bool().unwrap_or(true))
+            .unwrap_or(true))
     }
 
     /// Get max history setting.
     pub async fn get_max_history(&self) -> Result<i32> {
-        let result: Option<(serde_json::Value,)> = sqlx::query_as(
-            "SELECT value FROM user_config WHERE key = 'versioning_max_history'"
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let result: Option<(serde_json::Value,)> =
+            sqlx::query_as("SELECT value FROM user_config WHERE key = 'versioning_max_history'")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
-        Ok(result.map(|r| r.0.as_i64().unwrap_or(50) as i32).unwrap_or(50))
+        Ok(result
+            .map(|r| r.0.as_i64().unwrap_or(50) as i32)
+            .unwrap_or(50))
     }
 
     /// Set versioning enabled/disabled.
@@ -432,7 +443,7 @@ impl VersioningRepository {
             INSERT INTO user_config (key, value)
             VALUES ('versioning_enabled', $1::jsonb)
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-            "#
+            "#,
         )
         .bind(serde_json::json!(enabled))
         .execute(&self.pool)

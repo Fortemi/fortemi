@@ -113,7 +113,11 @@ mod tests {
         assert_eq!(results[0].note_id, id1);
         assert!(results[0].score > results[1].score);
         // First result should have normalized score of 1.0 (rank 0 in only list)
-        assert!((results[0].score - 1.0).abs() < 0.001, "First result should be ~1.0, got {}", results[0].score);
+        assert!(
+            (results[0].score - 1.0).abs() < 0.001,
+            "First result should be ~1.0, got {}",
+            results[0].score
+        );
         // Verify metadata is preserved
         assert_eq!(results[0].title, Some("First Note".to_string()));
         assert_eq!(results[0].tags, vec!["tag1".to_string()]);
@@ -201,23 +205,46 @@ mod tests {
 
         // Document appears at rank 0 in both lists (maximum score)
         let list1 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.5, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id1,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.5,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
-        let list2 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-        ];
+        let list2 = vec![SearchHit {
+            note_id: id1,
+            score: 1.0,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let results = rrf_fuse(vec![list1, list2], 10);
 
         // id1 is rank 0 in both lists, should have score = 1.0
         let id1_result = results.iter().find(|h| h.note_id == id1).unwrap();
-        assert!((id1_result.score - 1.0).abs() < 0.001, "Top result should be ~1.0, got {}", id1_result.score);
+        assert!(
+            (id1_result.score - 1.0).abs() < 0.001,
+            "Top result should be ~1.0, got {}",
+            id1_result.score
+        );
 
         // All scores should be in 0.0-1.0 range
         for result in &results {
-            assert!(result.score >= 0.0 && result.score <= 1.0,
-                "Score {} out of range", result.score);
+            assert!(
+                result.score >= 0.0 && result.score <= 1.0,
+                "Score {} out of range",
+                result.score
+            );
         }
     }
 
@@ -248,15 +275,13 @@ mod tests {
     #[test]
     fn test_rrf_fuse_single_result() {
         let id1 = Uuid::new_v4();
-        let list = vec![
-            SearchHit {
-                note_id: id1,
-                score: 0.9,
-                snippet: Some("single".to_string()),
-                title: Some("Single Note".to_string()),
-                tags: vec!["tag1".to_string()],
-            },
-        ];
+        let list = vec![SearchHit {
+            note_id: id1,
+            score: 0.9,
+            snippet: Some("single".to_string()),
+            title: Some("Single Note".to_string()),
+            tags: vec!["tag1".to_string()],
+        }];
 
         let results = rrf_fuse(vec![list], 10);
         assert_eq!(results.len(), 1);
@@ -269,15 +294,13 @@ mod tests {
     #[test]
     fn test_rrf_fuse_limit_zero() {
         let id1 = Uuid::new_v4();
-        let list = vec![
-            SearchHit {
-                note_id: id1,
-                score: 1.0,
-                snippet: None,
-                title: None,
-                tags: Vec::new(),
-            },
-        ];
+        let list = vec![SearchHit {
+            note_id: id1,
+            score: 1.0,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let results = rrf_fuse(vec![list], 0);
         assert_eq!(results.len(), 0);
@@ -336,25 +359,21 @@ mod tests {
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
 
-        let list1 = vec![
-            SearchHit {
-                note_id: id1,
-                score: 0.9,
-                snippet: Some("snippet1".to_string()),
-                title: Some("Title1".to_string()),
-                tags: vec!["tag1".to_string(), "tag2".to_string()],
-            },
-        ];
+        let list1 = vec![SearchHit {
+            note_id: id1,
+            score: 0.9,
+            snippet: Some("snippet1".to_string()),
+            title: Some("Title1".to_string()),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
+        }];
 
-        let list2 = vec![
-            SearchHit {
-                note_id: id1,
-                score: 0.8,
-                snippet: None,
-                title: None,
-                tags: Vec::new(),
-            },
-        ];
+        let list2 = vec![SearchHit {
+            note_id: id1,
+            score: 0.8,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let results = rrf_fuse(vec![list1, list2], 10);
 
@@ -369,26 +388,22 @@ mod tests {
         let id1 = Uuid::new_v4();
 
         // First list has no metadata
-        let list1 = vec![
-            SearchHit {
-                note_id: id1,
-                score: 0.9,
-                snippet: None,
-                title: None,
-                tags: Vec::new(),
-            },
-        ];
+        let list1 = vec![SearchHit {
+            note_id: id1,
+            score: 0.9,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         // Second list has metadata
-        let list2 = vec![
-            SearchHit {
-                note_id: id1,
-                score: 0.8,
-                snippet: Some("snippet2".to_string()),
-                title: Some("Title2".to_string()),
-                tags: vec!["tag2".to_string()],
-            },
-        ];
+        let list2 = vec![SearchHit {
+            note_id: id1,
+            score: 0.8,
+            snippet: Some("snippet2".to_string()),
+            title: Some("Title2".to_string()),
+            tags: vec!["tag2".to_string()],
+        }];
 
         let results = rrf_fuse(vec![list1, list2], 10);
 
@@ -404,8 +419,20 @@ mod tests {
         let id2 = Uuid::new_v4();
 
         let list = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.5, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id1,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.5,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let results = rrf_fuse(vec![list], 10);
@@ -428,13 +455,29 @@ mod tests {
         let id2 = Uuid::new_v4();
 
         // id1 appears at rank 0 in both lists
-        let list1 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-        ];
+        let list1 = vec![SearchHit {
+            note_id: id1,
+            score: 1.0,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+        }];
 
         let list2 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.5, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id1,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.5,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let results = rrf_fuse(vec![list1, list2], 10);
@@ -458,17 +501,39 @@ mod tests {
         let id3 = Uuid::new_v4();
 
         let list1 = vec![
-            SearchHit { note_id: id3, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.9, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id1, score: 0.8, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id3,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.9,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id1,
+                score: 0.8,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let results = rrf_fuse(vec![list1], 10);
 
         // Results should be sorted by score descending
         for i in 0..results.len() - 1 {
-            assert!(results[i].score >= results[i + 1].score,
-                "Results not sorted: {} < {}", results[i].score, results[i + 1].score);
+            assert!(
+                results[i].score >= results[i + 1].score,
+                "Results not sorted: {} < {}",
+                results[i].score,
+                results[i + 1].score
+            );
         }
     }
 
@@ -481,13 +546,37 @@ mod tests {
 
         // Completely different IDs in each list
         let list1 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.9, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id1,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.9,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let list2 = vec![
-            SearchHit { note_id: id3, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id4, score: 0.9, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id3,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id4,
+                score: 0.9,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let results = rrf_fuse(vec![list1, list2], 10);
@@ -508,14 +597,44 @@ mod tests {
 
         // id1 and id2 in both lists, id3 only in list2
         let list1 = vec![
-            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id2, score: 0.9, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id1,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id2,
+                score: 0.9,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let list2 = vec![
-            SearchHit { note_id: id2, score: 1.0, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id1, score: 0.9, snippet: None, title: None, tags: Vec::new() },
-            SearchHit { note_id: id3, score: 0.8, snippet: None, title: None, tags: Vec::new() },
+            SearchHit {
+                note_id: id2,
+                score: 1.0,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id1,
+                score: 0.9,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
+            SearchHit {
+                note_id: id3,
+                score: 0.8,
+                snippet: None,
+                title: None,
+                tags: Vec::new(),
+            },
         ];
 
         let results = rrf_fuse(vec![list1, list2], 10);

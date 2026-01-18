@@ -70,7 +70,7 @@ pub use search::PgFtsSearch;
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
 pub use versioning::{
-    NoteVersions, OriginalVersion, RevisionVersionSummary, VersioningRepository, VersionSummary,
+    NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };
 
 // Re-export SKOS repository and traits

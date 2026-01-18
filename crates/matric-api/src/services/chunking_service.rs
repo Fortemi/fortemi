@@ -189,9 +189,8 @@ More content."#;
     #[test]
     fn test_should_chunk_with_real_tokenizer() {
         let config = ChunkerConfig::default();
-        let tokenizer = Box::new(
-            TiktokenTokenizer::for_embeddings().expect("Failed to create tokenizer")
-        );
+        let tokenizer =
+            Box::new(TiktokenTokenizer::for_embeddings().expect("Failed to create tokenizer"));
         let service = ChunkingService::new(config, tokenizer);
 
         let short_text = "This is a short text.";
@@ -251,7 +250,10 @@ After code"#;
         let chunks = service.chunk_document(&long_content);
 
         for chunk in &chunks {
-            assert!(chunk.text.len() <= 1000, "Should respect custom max_chunk_size");
+            assert!(
+                chunk.text.len() <= 1000,
+                "Should respect custom max_chunk_size"
+            );
         }
     }
 }

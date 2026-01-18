@@ -483,7 +483,10 @@ mod tests {
             "gen".to_string(),
             768,
         );
-        assert_eq!(backend.base_url, "http://user:pass@host:1234/path?query=value");
+        assert_eq!(
+            backend.base_url,
+            "http://user:pass@host:1234/path?query=value"
+        );
     }
 }
 

@@ -446,7 +446,10 @@ mod tests {
         };
 
         match event {
-            WorkerEvent::JobStarted { job_id: id, job_type } => {
+            WorkerEvent::JobStarted {
+                job_id: id,
+                job_type,
+            } => {
                 assert_eq!(id, job_id);
                 assert_eq!(job_type, JobType::Embedding);
             }
@@ -464,7 +467,11 @@ mod tests {
         };
 
         match event {
-            WorkerEvent::JobProgress { job_id: id, percent, message } => {
+            WorkerEvent::JobProgress {
+                job_id: id,
+                percent,
+                message,
+            } => {
                 assert_eq!(id, job_id);
                 assert_eq!(percent, 50);
                 assert_eq!(message, Some("halfway".to_string()));
@@ -483,7 +490,9 @@ mod tests {
         };
 
         match event {
-            WorkerEvent::JobProgress { percent, message, .. } => {
+            WorkerEvent::JobProgress {
+                percent, message, ..
+            } => {
                 assert_eq!(percent, 75);
                 assert!(message.is_none());
             }
@@ -500,7 +509,10 @@ mod tests {
         };
 
         match event {
-            WorkerEvent::JobCompleted { job_id: id, job_type } => {
+            WorkerEvent::JobCompleted {
+                job_id: id,
+                job_type,
+            } => {
                 assert_eq!(id, job_id);
                 assert_eq!(job_type, JobType::Linking);
             }
@@ -518,7 +530,11 @@ mod tests {
         };
 
         match event {
-            WorkerEvent::JobFailed { job_id: id, job_type, error } => {
+            WorkerEvent::JobFailed {
+                job_id: id,
+                job_type,
+                error,
+            } => {
                 assert_eq!(id, job_id);
                 assert_eq!(job_type, JobType::AiRevision);
                 assert_eq!(error, "test error");
@@ -551,8 +567,14 @@ mod tests {
 
         match (event1, event2) {
             (
-                WorkerEvent::JobStarted { job_id: id1, job_type: jt1 },
-                WorkerEvent::JobStarted { job_id: id2, job_type: jt2 },
+                WorkerEvent::JobStarted {
+                    job_id: id1,
+                    job_type: jt1,
+                },
+                WorkerEvent::JobStarted {
+                    job_id: id2,
+                    job_type: jt2,
+                },
             ) => {
                 assert_eq!(id1, id2);
                 assert_eq!(jt1, jt2);
