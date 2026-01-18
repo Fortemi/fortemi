@@ -31,7 +31,7 @@ By default, all semantic search operates on the "default" embedding set, which c
 - Maintain project-specific semantic relationships
 
 **Temporal Segmentation:**
-- Archive historical notes in separate sets
+- Shard historical notes in separate sets
 - Focus search on recent content only
 - Maintain different retention policies per set
 

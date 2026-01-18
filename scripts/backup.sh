@@ -447,18 +447,18 @@ distribute_backup() {
 
     # Local destination
     if [[ -z "$SPECIFIC_DEST" ]] || [[ "$SPECIFIC_DEST" == "local" ]] || [[ "$SPECIFIC_DEST" == "all" ]]; then
-        ((total++))
+        ((++total))
         if copy_to_local "$file"; then
-            ((success++))
+            ((++success))
         fi
     fi
 
     # Rsync destination
     if [[ -n "$BACKUP_REMOTE_RSYNC" ]]; then
         if [[ -z "$SPECIFIC_DEST" ]] || [[ "$SPECIFIC_DEST" == "rsync" ]] || [[ "$SPECIFIC_DEST" == "all" ]]; then
-            ((total++))
+            ((++total))
             if sync_to_remote "$file"; then
-                ((success++))
+                ((++success))
             fi
         fi
     fi
@@ -466,9 +466,9 @@ distribute_backup() {
     # S3 destination
     if [[ -n "$BACKUP_REMOTE_S3" ]]; then
         if [[ -z "$SPECIFIC_DEST" ]] || [[ "$SPECIFIC_DEST" == "s3" ]] || [[ "$SPECIFIC_DEST" == "all" ]]; then
-            ((total++))
+            ((++total))
             if upload_to_s3 "$file"; then
-                ((success++))
+                ((++success))
             fi
         fi
     fi
@@ -498,7 +498,7 @@ cleanup_old_backups() {
         while IFS= read -r -d '' file; do
             rm -f "$file"
             log_verbose "Deleted old backup: $file"
-            ((deleted++))
+            ((++deleted))
         done < <(find "$BACKUP_DEST" -name "matric_backup_*.sql*" -type f -mtime "+$BACKUP_RETAIN" -print0 2>/dev/null)
 
         if [[ $deleted -gt 0 ]]; then

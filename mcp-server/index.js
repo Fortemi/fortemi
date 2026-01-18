@@ -408,11 +408,11 @@ function createMcpServer() {
           break;
         }
 
-        case "backup_archive": {
-          // Create full backup archive with all data including embeddings and links
-          const archiveParams = new URLSearchParams();
+        case "knowledge_shard": {
+          // Create full knowledge shard with all data including embeddings and links
+          const shardParams = new URLSearchParams();
           if (args.include) {
-            archiveParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
+            shardParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
           }
 
           // Get token from context for authorization
@@ -424,17 +424,17 @@ function createMcpServer() {
             headers["Authorization"] = `Bearer ${API_KEY}`;
           }
 
-          const archiveResponse = await fetch(`${API_BASE}/api/v1/backup/archive?${archiveParams}`, { headers });
-          if (!archiveResponse.ok) {
-            throw new Error(`Archive creation failed: ${archiveResponse.status}`);
+          const shardResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-shard?${shardParams}`, { headers });
+          if (!shardResponse.ok) {
+            throw new Error(`Shard creation failed: ${shardResponse.status}`);
           }
 
-          // Get archive as binary and convert to base64
-          const arrayBuffer = await archiveResponse.arrayBuffer();
+          // Get shard as binary and convert to base64
+          const arrayBuffer = await shardResponse.arrayBuffer();
           const base64Data = Buffer.from(arrayBuffer).toString('base64');
 
           // Get content-disposition for filename
-          const contentDisposition = archiveResponse.headers.get('content-disposition');
+          const contentDisposition = shardResponse.headers.get('content-disposition');
           const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
           const filename = filenameMatch ? filenameMatch[1] : `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
 
@@ -452,17 +452,72 @@ function createMcpServer() {
           break;
         }
 
-        case "archive_import": {
-          // Import a full backup archive from tar.gz
+        case "knowledge_shard_import": {
+          // Import a full knowledge shard from tar.gz
           const importBody = {
-            archive_base64: args.archive_base64,
+            shard_base64: args.shard_base64,
             include: args.include,
             dry_run: args.dry_run || false,
             on_conflict: args.on_conflict || "skip",
             skip_embedding_regen: args.skip_embedding_regen || false,
           };
 
-          result = await apiRequest("POST", "/api/v1/backup/archive/import", importBody);
+          result = await apiRequest("POST", "/api/v1/backup/knowledge-shard/import", importBody);
+          break;
+        }
+
+        case "database_snapshot": {
+          // Create a named database snapshot with metadata
+          const snapshotBody = {
+            name: args.name,
+            title: args.title,
+            description: args.description,
+          };
+          result = await apiRequest("POST", "/api/v1/backup/database/snapshot", snapshotBody);
+          break;
+        }
+
+        case "database_restore": {
+          // Restore from a database backup
+          const restoreBody = {
+            filename: args.filename,
+            skip_snapshot: args.skip_snapshot || false,
+          };
+          result = await apiRequest("POST", "/api/v1/backup/database/restore", restoreBody);
+          break;
+        }
+
+        case "list_backups": {
+          // List all backup files
+          result = await apiRequest("GET", "/api/v1/backup/list");
+          break;
+        }
+
+        case "get_backup_info": {
+          // Get detailed info about a specific backup
+          result = await apiRequest("GET", `/api/v1/backup/list/${encodeURIComponent(args.filename)}`);
+          break;
+        }
+
+        case "get_backup_metadata": {
+          // Get metadata for a backup
+          result = await apiRequest("GET", `/api/v1/backup/metadata/${encodeURIComponent(args.filename)}`);
+          break;
+        }
+
+        case "update_backup_metadata": {
+          // Update metadata for a backup
+          const metaBody = {
+            title: args.title,
+            description: args.description,
+          };
+          result = await apiRequest("PUT", `/api/v1/backup/metadata/${encodeURIComponent(args.filename)}`, metaBody);
+          break;
+        }
+
+        case "memory_info": {
+          // Get detailed memory/storage sizing info
+          result = await apiRequest("GET", "/api/v1/memory/info");
           break;
         }
 
@@ -1345,39 +1400,24 @@ Returns count of queued and failed operations.`,
   // ============================================================================
   {
     name: "export_all_notes",
-    description: `Export all notes from the knowledge base as a complete backup archive.
+    description: `Export notes to portable JSON format. NO embeddings (regenerated on import).
 
-Returns a JSON structure containing:
-- manifest: Archive metadata (version, timestamps, counts)
-- notes: All notes with original content, revised content, tags, and links
-- collections: All collections (folders)
-- tags: All tags with usage counts
-- templates: All note templates
+RETURNS: {manifest, notes[], collections[], tags[], templates[]}
 
-Options:
-- filter.starred_only: Only export starred notes
-- filter.tags: Only export notes with these tags
-- filter.created_after/before: Date range filter
+USE WHEN: Need portable backup, migration, or filtered export.
+USE INSTEAD: knowledge_shard for tar.gz with links/embeddings, database_snapshot for full pg_dump.
 
-Use this for:
-- Complete knowledge base backup
-- Migrating to another instance
-- Offline analysis of your notes
-- Creating snapshots before major changes
-
-Note: Embeddings are not included (they can be regenerated).
-For database-level backup with compression and shipping, use backup_now.`,
+FILTERS: starred_only, tags[], created_after/before (ISO 8601)`,
     inputSchema: {
       type: "object",
       properties: {
         filter: {
           type: "object",
-          description: "Optional filters to restrict export",
           properties: {
-            starred_only: { type: "boolean", description: "Only export starred notes" },
-            tags: { type: "array", items: { type: "string" }, description: "Only notes with these tags" },
-            created_after: { type: "string", description: "Only notes created after this date (ISO 8601)" },
-            created_before: { type: "string", description: "Only notes created before this date (ISO 8601)" },
+            starred_only: { type: "boolean" },
+            tags: { type: "array", items: { type: "string" } },
+            created_after: { type: "string", description: "ISO 8601" },
+            created_before: { type: "string", description: "ISO 8601" },
           },
         },
       },
@@ -1385,62 +1425,34 @@ For database-level backup with compression and shipping, use backup_now.`,
   },
   {
     name: "backup_now",
-    description: `Trigger an immediate database backup.
+    description: `Run backup script: pg_dump → compress → ship to destinations (local/s3/rsync).
 
-Runs the backup script to create a compressed pg_dump backup and optionally
-ship it to configured destinations (local, rsync, S3).
+RETURNS: {status, output, timestamp} - Check output for success/failure details.
 
-Options:
-- destinations: Specific destinations to use (default: all enabled)
-  - "local": Local filesystem backup
-  - "s3": S3-compatible storage
-  - "rsync": Remote rsync destination
-- dry_run: Show what would be done without executing
-
-The backup includes:
-- Complete PostgreSQL database dump (pg_dump format)
-- Compression (gzip or zstd based on configuration)
-- Optional encryption (age)
-- Retention policy enforcement
-
-Configure destinations via environment variables:
-- BACKUP_DEST: Local backup directory
-- BACKUP_REMOTE_S3: S3 bucket path
-- BACKUP_REMOTE_RSYNC: rsync target
-
-Use backup_status to check the result after triggering.`,
+USE WHEN: Need automated backup with compression and remote shipping.
+USE INSTEAD: database_snapshot for manual named backup with metadata.
+NEXT: backup_status to verify, list_backups to see result.`,
     inputSchema: {
       type: "object",
       properties: {
         destinations: {
           type: "array",
           items: { type: "string", enum: ["local", "s3", "rsync"] },
-          description: "Specific destinations (default: all enabled)",
+          description: "Limit to specific destinations (default: all configured)",
         },
-        dry_run: {
-          type: "boolean",
-          description: "Show what would be done without executing",
-          default: false,
-        },
+        dry_run: { type: "boolean", default: false },
       },
     },
   },
   {
     name: "backup_status",
-    description: `Get the current status of the backup system.
+    description: `Get backup system health: total size, backup count, latest backup info.
 
-Returns:
-- backup_directory: Where backups are stored
-- disk_usage: Total space used by backups
-- latest_backup: Details of the most recent backup (path, size, timestamp)
-- recent_backups: List of recent backup files
-- status: "healthy" if backups exist, "no_backups" if none, "error" on failure
+RETURNS: {backup_directory, total_size_bytes, total_size_human, backup_count, latest_backup{path,size,modified}, status}
+STATUS: "healthy" | "no_backups" | "error"
 
-Use this to:
-- Verify backups are being created
-- Check when the last backup was taken
-- Monitor disk usage
-- Troubleshoot backup issues`,
+USE WHEN: Check if backups exist, verify system health, monitor disk usage.
+NEXT: list_backups for full file listing, memory_info for storage breakdown.`,
     inputSchema: {
       type: "object",
       properties: {},
@@ -1448,61 +1460,39 @@ Use this to:
   },
   {
     name: "backup_download",
-    description: `Download a complete backup archive as a JSON file.
+    description: `Same as export_all_notes but with download headers. Use for file saving.
 
-Returns the same data as export_all_notes but with Content-Disposition header
-for direct file download in HTTP contexts. Use this when you need to save
-the backup to a file.
-
-Options:
-- starred_only: Only include starred notes
-- tags: Filter by tags
-- created_after/before: Date range filter
-
-Returns the complete backup JSON that can be used with backup_import.`,
+USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.gz format.`,
     inputSchema: {
       type: "object",
       properties: {
-        starred_only: { type: "boolean", description: "Only include starred notes" },
-        tags: { type: "array", items: { type: "string" }, description: "Filter by tags" },
-        created_after: { type: "string", description: "Only notes created after this date (ISO 8601)" },
-        created_before: { type: "string", description: "Only notes created before this date (ISO 8601)" },
+        starred_only: { type: "boolean" },
+        tags: { type: "array", items: { type: "string" } },
+        created_after: { type: "string", description: "ISO 8601" },
+        created_before: { type: "string", description: "ISO 8601" },
       },
     },
   },
   {
     name: "backup_import",
-    description: `Import a backup archive into the system.
+    description: `Import notes from JSON backup (from export_all_notes/backup_download).
 
-Restores notes, collections, and templates from a backup created by
-export_all_notes or backup_download.
+RETURNS: {status, imported{notes,collections,templates}, skipped, errors[]}
+CONFLICTS: "skip" (keep existing) | "replace" (overwrite) | "merge" (add new only)
 
-Options:
-- backup: The backup data (with manifest, notes, collections, templates)
-- dry_run: Validate without actually importing (default: false)
-- on_conflict: How to handle existing notes with same ID
-  - "skip" (default): Keep existing, skip imported
-  - "replace": Delete existing, import new
-  - "merge": Keep existing, only add new
-
-Returns:
-- status: "success" or "partial" (if some errors)
-- imported: Count of notes/collections/templates imported
-- skipped: Count of items skipped
-- errors: List of error messages
-
-Use dry_run=true first to validate the backup before importing.`,
+USE WHEN: Restore from JSON export, migrate between instances.
+USE INSTEAD: knowledge_shard_import for tar.gz, database_restore for pg_dump.
+TIP: Use dry_run=true first to validate.`,
     inputSchema: {
       type: "object",
       properties: {
         backup: {
           type: "object",
-          description: "The backup data from export_all_notes or backup_download",
+          description: "Data from export_all_notes",
           properties: {
-            manifest: { type: "object", description: "Backup manifest (optional)" },
+            manifest: { type: "object" },
             notes: {
               type: "array",
-              description: "Array of notes to import",
               items: {
                 type: "object",
                 properties: {
@@ -1534,108 +1524,176 @@ Use dry_run=true first to validate the backup before importing.`,
     },
   },
   {
-    name: "backup_archive",
-    description: `Create a comprehensive backup archive as a tar.gz file.
+    name: "knowledge_shard",
+    description: `Create knowledge shard with notes, links, collections, tags, templates. Optionally include embeddings.
 
-Unlike export_all_notes (JSON only), this creates a complete tar.gz archive containing:
-- manifest.json: Archive metadata, version, checksums
-- notes.jsonl: All notes with content, revisions, metadata
-- collections.json: Folder hierarchy
-- tags.json: All tags with counts
-- templates.json: Note templates
-- links.jsonl: Semantic relationship graph
-- embedding_sets.json: Embedding set definitions
-- embedding_set_members.jsonl: Set membership data
-- embedding_configs.json: Embedding model configurations
-- embeddings/vectors.jsonl: Vector embeddings (optional, large)
-- checksums.sha256: SHA256 integrity verification
+RETURNS: {filename, size_bytes, size_human, base64_data} - Decode base64_data and save as .tar.gz
 
-Component selection:
-- Default: notes,collections,tags,templates,links,embedding_sets
-- Add 'embeddings' for vector data (warning: can be very large)
-- Add 'all' to include everything
+COMPONENTS: notes, collections, tags, templates, links, embedding_sets, embeddings (large!), or "all"
+DEFAULT: notes,collections,tags,templates,links,embedding_sets (no embeddings)
 
-Returns:
-- filename: Suggested filename
-- size_bytes/size_human: Archive size
-- base64_data: The archive as base64 (decode and save as .tar.gz)
-
-Use this for:
-- Complete system backup including semantic graph and embeddings
-- Migrating to another instance with full fidelity
-- Disaster recovery archives
-- Offline analysis with all metadata
-
-For database-level pg_dump backups, use backup_now instead.`,
+USE WHEN: Need knowledge shard with semantic links. Embeddings regenerate on import.
+USE INSTEAD: database_snapshot for full pg_dump with everything, export_all_notes for simple JSON.
+RESTORE: knowledge_shard_import with the base64_data`,
     inputSchema: {
       type: "object",
       properties: {
         include: {
           oneOf: [
-            { type: "string", description: "Comma-separated components" },
-            { type: "array", items: { type: "string" }, description: "Array of components" },
+            { type: "string", description: "Comma-separated: notes,links,embeddings" },
+            { type: "array", items: { type: "string" } },
           ],
-          description: "Components to include: notes, collections, tags, templates, links, embedding_sets, embeddings, or 'all'",
         },
       },
     },
   },
   {
-    name: "archive_import",
-    description: `Import a full backup archive from tar.gz format.
+    name: "knowledge_shard_import",
+    description: `Import knowledge shard from knowledge_shard.
 
-Restores data from an archive created by backup_archive. Supports:
-- Notes with original/revised content, metadata, tags
-- Collections (folder hierarchy)
-- Templates
-- Links (semantic relationships)
-- Embedding sets (definitions, not yet fully supported)
+RETURNS: {status, manifest, imported{}, skipped{}, errors[]}
+CONFLICTS: "skip" | "replace" | "merge"
 
-Options:
-- archive_base64: The tar.gz archive as base64-encoded string (from backup_archive)
-- include: Components to import (default: all available in archive)
-- dry_run: Validate without actually importing
-- on_conflict: How to handle existing notes (skip, replace, merge)
-- skip_embedding_regen: Skip regenerating embeddings (use if archive has embeddings)
-
-Returns:
-- status: success, partial, or failed
-- manifest: Archive manifest if present
-- imported/skipped: Counts by component type
-- errors: List of any errors encountered
-
-Use with backup_archive for complete backup/restore workflow:
-1. Create backup: backup_archive() -> save base64_data
-2. Restore: archive_import(archive_base64: saved_data)`,
+USE WHEN: Restore from knowledge shard created by knowledge_shard.
+USE INSTEAD: backup_import for JSON, database_restore for pg_dump.
+TIP: dry_run=true first, skip_embedding_regen=true if shard has embeddings.`,
     inputSchema: {
       type: "object",
       properties: {
-        archive_base64: {
-          type: "string",
-          description: "The tar.gz archive as base64-encoded string (from backup_archive.base64_data)",
-        },
-        include: {
-          type: "string",
-          description: "Comma-separated components to import (default: all available)",
-        },
-        dry_run: {
-          type: "boolean",
-          description: "Validate archive without importing (default: false)",
-          default: false,
-        },
-        on_conflict: {
-          type: "string",
-          enum: ["skip", "replace", "merge"],
-          description: "Conflict resolution for existing notes (default: skip)",
-          default: "skip",
-        },
-        skip_embedding_regen: {
-          type: "boolean",
-          description: "Skip embedding regeneration after import (default: false)",
-          default: false,
-        },
+        shard_base64: { type: "string", description: "From knowledge_shard.base64_data" },
+        include: { type: "string", description: "Components to import (default: all)" },
+        dry_run: { type: "boolean", default: false },
+        on_conflict: { type: "string", enum: ["skip", "replace", "merge"], default: "skip" },
+        skip_embedding_regen: { type: "boolean", default: false },
       },
-      required: ["archive_base64"],
+      required: ["shard_base64"],
+    },
+  },
+
+  // ============================================================================
+  // DATABASE BACKUP MANAGEMENT
+  // Full pg_dump backups with metadata
+  // ============================================================================
+  {
+    name: "database_snapshot",
+    description: `Create full pg_dump backup with metadata. INCLUDES embeddings (unlike shard exports).
+
+RETURNS: {success, filename, path, size_bytes, size_human, backup_type, created_at}
+FILENAME: snapshot_database_YYYYMMDD_HHMMSS_[name].sql.gz
+METADATA: Saved to .meta.json sidecar (title, description, note_count)
+
+USE WHEN: Before major changes, manual checkpoint, disaster recovery prep.
+USE INSTEAD: backup_now for automated/scheduled backups with shipping.
+NEXT: list_backups to see it, get_backup_metadata to read metadata, database_restore to restore.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Filename suffix (alphanumeric/-/_)" },
+        title: { type: "string", description: "Human-readable title" },
+        description: { type: "string", description: "Why this backup was created" },
+      },
+    },
+  },
+  {
+    name: "database_restore",
+    description: `DESTRUCTIVE: Replace entire database from backup file. Auto-creates prerestore snapshot.
+
+RETURNS: {success, message, prerestore_backup, restored_from, reconnect_delay_ms}
+
+PROCESS: prerestore snapshot → drop tables → restore → reconnect
+RECOVERY: If restore fails, use prerestore_backup filename to restore again.
+
+USE WHEN: Disaster recovery, rollback to previous state.
+FIRST: list_backups to find filename, get_backup_metadata to verify correct backup.
+WARNING: skip_snapshot=true is dangerous, always keep prerestore backup.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Backup file from list_backups (e.g., snapshot_database_*.sql.gz)" },
+        skip_snapshot: { type: "boolean", default: false, description: "DANGEROUS: Skip prerestore backup" },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "list_backups",
+    description: `List all backup files with size, hash, type. Sorted newest first.
+
+RETURNS: {shards: [{filename, path, size_bytes, size_human, modified, sha256, backup_type}]}
+TYPES: snapshot, upload, prerestore, auto, shard (tar.gz), unknown
+
+USE WHEN: Browse backups before restore, verify integrity, check disk usage.
+NEXT: get_backup_info for details, get_backup_metadata for title/description, database_restore to restore.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_backup_info",
+    description: `Get file details for a specific backup: size, sha256, type, manifest (for shards).
+
+RETURNS: {filename, path, size_bytes, size_human, sha256, backup_type, manifest?}
+
+USE WHEN: Verify backup integrity before restore, check shard contents.
+USE INSTEAD: get_backup_metadata for title/description, list_backups for all files.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "From list_backups" },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "get_backup_metadata",
+    description: `Get human-readable metadata from .meta.json sidecar: title, description, note_count.
+
+RETURNS: {has_metadata, filename, metadata?: {title, description, backup_type, created_at, note_count, source}}
+NO METADATA: Returns {has_metadata: false, backup_type, message} - use update_backup_metadata to add.
+
+USE WHEN: Identify what a backup contains, verify correct backup before restore.
+WORKFLOW: list_backups → get_backup_metadata → database_restore`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "From list_backups" },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "update_backup_metadata",
+    description: `Set/update title and description for a backup. Creates .meta.json if missing.
+
+RETURNS: {success, filename, metadata}
+
+USE WHEN: Document old backups, fix missing descriptions, organize backup library.
+TIP: database_snapshot auto-creates metadata if title/description provided.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "From list_backups" },
+        title: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "memory_info",
+    description: `Get storage sizing and hardware recommendations for capacity planning.
+
+RETURNS: {summary, embedding_sets[], storage, recommendations}
+SUMMARY: total_notes, total_embeddings, total_links, total_collections, total_tags, total_templates
+STORAGE: database_total_bytes, embedding_table_bytes, notes_table_bytes, estimated_memory_for_search
+RECOMMENDATIONS: min_ram_gb, recommended_ram_gb, notes[] (GPU vs CPU usage explained)
+
+USE WHEN: Plan hardware, estimate scaling costs, understand storage breakdown.
+KEY INSIGHT: GPU = embedding generation (Ollama), CPU = vector search (pgvector). More RAM = faster search.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
     },
   },
 ];

@@ -9,12 +9,13 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
 use tracing::info;
@@ -330,18 +331,27 @@ async fn main() -> anyhow::Result<()> {
         // API key management
         .route("/api/v1/api-keys", get(list_api_keys).post(create_api_key))
         .route("/api/v1/api-keys/:id", delete(revoke_api_key))
-        // Backup endpoints
+        // Legacy backup endpoints (JSON export/import)
         .route("/api/v1/backup/export", get(backup_export))
         .route("/api/v1/backup/download", get(backup_download))
         .route("/api/v1/backup/import", post(backup_import))
         .route("/api/v1/backup/trigger", post(backup_trigger))
         .route("/api/v1/backup/status", get(backup_status))
-        .route("/api/v1/backup/archive", get(backup_archive))
-        .route("/api/v1/backup/archive/import", post(archive_import))
-        // Archive browser and swap
-        .route("/api/v1/backup/archives", get(list_backup_archives))
-        .route("/api/v1/backup/archives/:filename", get(get_backup_archive_info))
+        // Knowledge shards (portable, app-level exports)
+        .route("/api/v1/backup/knowledge-shard", get(knowledge_shard))
+        .route("/api/v1/backup/knowledge-shard/import", post(knowledge_shard_import))
+        // Database backups (full pg_dump, includes embeddings)
+        .route("/api/v1/backup/database", get(database_backup_download))
+        .route("/api/v1/backup/database/snapshot", post(database_backup_snapshot))
+        .route("/api/v1/backup/database/upload", post(database_backup_upload))
+        .route("/api/v1/backup/database/restore", post(database_backup_restore))
+        // Backup browser (lists all backups)
+        .route("/api/v1/backup/list", get(list_backups))
+        .route("/api/v1/backup/list/:filename", get(get_backup_info))
         .route("/api/v1/backup/swap", post(swap_backup))
+        // Backup metadata
+        .route("/api/v1/backup/metadata/:filename", get(get_backup_metadata))
+        .route("/api/v1/backup/metadata/:filename", put(update_backup_metadata))
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
         // Middleware
@@ -352,6 +362,8 @@ async fn main() -> anyhow::Result<()> {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        // Allow up to 2GB uploads for database backups and knowledge shards
+        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024 * 1024)) // 2 GB
         .with_state(state);
 
     // Start server
@@ -2520,7 +2532,7 @@ struct BackupExportResponse {
     templates: Vec<serde_json::Value>,
 }
 
-/// Export all notes as a JSON archive.
+/// Export all notes as a JSON export.
 async fn backup_export(
     State(state): State<AppState>,
     Query(query): Query<BackupExportQuery>,
@@ -2845,7 +2857,7 @@ struct ImportCounts {
     templates: usize,
 }
 
-/// Import a backup archive.
+/// Import a knowledge shard.
 async fn backup_import(
     State(state): State<AppState>,
     Json(body): Json<BackupImportBody>,
@@ -3081,7 +3093,7 @@ struct BackupStatusResponse {
     disk_usage: Option<String>,
     backup_count: usize,
     /// Breakdown by type
-    archive_count: usize,
+    shard_count: usize,
     pgdump_count: usize,
     latest_backup: Option<LatestBackupInfo>,
     status: String,
@@ -3108,7 +3120,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         total_size_human: "0 B".to_string(),
         disk_usage: None,
         backup_count: 0,
-        archive_count: 0,
+        shard_count: 0,
         pgdump_count: 0,
         latest_backup: None,
         status: "unknown".to_string(),
@@ -3121,7 +3133,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         return Ok(Json(response));
     }
 
-    // List ALL backup files (archives, pgdump, json)
+    // List ALL backup files (shards, pgdump, json)
     let mut backups: Vec<(String, std::fs::Metadata, &str)> = Vec::new();
     let mut total_size: u64 = 0;
 
@@ -3130,7 +3142,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 let backup_type = if name.ends_with(".tar.gz") {
-                    Some("archive")
+                    Some("shard")
                 } else if name.ends_with(".sql.gz") || name.ends_with(".sql") {
                     Some("pgdump")
                 } else if name.ends_with(".json") {
@@ -3152,7 +3164,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
     response.total_size_bytes = total_size;
     response.total_size_human = format_size(total_size);
     response.backup_count = backups.len();
-    response.archive_count = backups.iter().filter(|(_, _, t)| *t == "archive").count();
+    response.shard_count = backups.iter().filter(|(_, _, t)| *t == "shard").count();
     response.pgdump_count = backups.iter().filter(|(_, _, t)| *t == "pgdump").count();
 
     // Find latest backup (any type)
@@ -3202,24 +3214,24 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
-struct ArchiveExportQuery {
+struct ShardExportQuery {
     /// Components to include (comma-separated): notes,collections,tags,templates,links,embedding_sets,embeddings
     /// Default: notes,collections,tags,templates,links,embedding_sets
     include: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ArchiveManifest {
+struct ShardManifest {
     version: String,
     format: String,
     created_at: chrono::DateTime<chrono::Utc>,
     components: Vec<String>,
-    counts: ArchiveCounts,
+    counts: ShardCounts,
     checksums: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct ArchiveCounts {
+struct ShardCounts {
     notes: usize,
     collections: usize,
     tags: usize,
@@ -3231,10 +3243,10 @@ struct ArchiveCounts {
     embedding_configs: usize,
 }
 
-/// Create a full backup archive with selected components.
-async fn backup_archive(
+/// Create a knowledge shard (portable tar.gz export) with selected components.
+async fn knowledge_shard(
     State(state): State<AppState>,
-    Query(query): Query<ArchiveExportQuery>,
+    Query(query): Query<ShardExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
@@ -3249,16 +3261,16 @@ async fn backup_archive(
     });
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
 
-    let mut counts = ArchiveCounts::default();
+    let mut counts = ShardCounts::default();
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     // Create tar.gz in memory
-    let mut archive_data = Vec::new();
+    let mut shard_data = Vec::new();
     {
-        let encoder = GzEncoder::new(&mut archive_data, Compression::default());
+        let encoder = GzEncoder::new(&mut shard_data, Compression::default());
         let mut tar = Builder::new(encoder);
 
-        // Helper to add JSON file to archive
+        // Helper to add JSON file to shard
         let mut add_json_file = |name: &str, data: &[u8]| -> std::io::Result<()> {
             // Calculate checksum
             let mut hasher = Sha256::new();
@@ -3308,7 +3320,7 @@ async fn backup_archive(
             counts.notes = notes_json.len();
             let notes_data = notes_json.join("\n").into_bytes();
             add_json_file("notes.jsonl", &notes_data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add notes to archive: {}", e))
+                ApiError::BadRequest(format!("Failed to add notes to shard: {}", e))
             })?;
         }
 
@@ -3488,9 +3500,9 @@ async fn backup_archive(
         }
 
         // Create manifest (added last)
-        let manifest = ArchiveManifest {
+        let manifest = ShardManifest {
             version: "1.0.0".to_string(),
-            format: "matric-archive".to_string(),
+            format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
             components: components.iter().map(|s| s.to_string()).collect(),
             counts,
@@ -3498,7 +3510,7 @@ async fn backup_archive(
         };
         let manifest_data = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
 
-        // Add manifest to archive
+        // Add manifest to shard
         let mut header = tar::Header::new_gnu();
         header.set_size(manifest_data.len() as u64);
         header.set_mode(0o644);
@@ -3509,12 +3521,12 @@ async fn backup_archive(
 
         // Finalize tar
         tar.finish()
-            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize archive: {}", e)))?;
+            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize shard: {}", e)))?;
     }
 
     // Generate filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("matric-archive-{}.tar.gz", timestamp);
+    let filename = format!("matric-shard-{}.tar.gz", timestamp);
 
     // Return as downloadable file
     let mut headers = HeaderMap::new();
@@ -3529,17 +3541,17 @@ async fn backup_archive(
             .unwrap(),
     );
 
-    Ok((StatusCode::OK, headers, archive_data))
+    Ok((StatusCode::OK, headers, shard_data))
 }
 
 // =============================================================================
-// ARCHIVE IMPORT (Full restore from tar.gz archive)
+// ARCHIVE IMPORT (Full restore from knowledge shard)
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
-struct ArchiveImportBody {
-    /// Base64-encoded tar.gz archive data
-    archive_base64: String,
+struct ShardImportBody {
+    /// Base64-encoded knowledge shard data
+    shard_base64: String,
     /// Components to import (comma-separated). If not specified, imports all available.
     include: Option<String>,
     /// Dry run - validate without importing
@@ -3554,17 +3566,17 @@ struct ArchiveImportBody {
 }
 
 #[derive(Debug, Serialize)]
-struct ArchiveImportResponse {
+struct ShardImportResponse {
     status: String,
-    manifest: Option<ArchiveManifest>,
-    imported: ArchiveImportCounts,
-    skipped: ArchiveImportCounts,
+    manifest: Option<ShardManifest>,
+    imported: ShardImportCounts,
+    skipped: ShardImportCounts,
     errors: Vec<String>,
     dry_run: bool,
 }
 
 #[derive(Debug, Serialize, Default)]
-struct ArchiveImportCounts {
+struct ShardImportCounts {
     notes: usize,
     collections: usize,
     tags: usize,
@@ -3575,47 +3587,47 @@ struct ArchiveImportCounts {
     embeddings: usize,
 }
 
-/// Import a full backup archive from tar.gz.
-async fn archive_import(
+/// Import a full knowledge shard from tar.gz.
+async fn knowledge_shard_import(
     State(state): State<AppState>,
-    Json(body): Json<ArchiveImportBody>,
+    Json(body): Json<ShardImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use base64::Engine;
     use flate2::read::GzDecoder;
     use matric_core::{CreateNoteRequest, NoteRepository, TemplateRepository};
     use tar::Archive;
 
-    // Decode base64 archive
-    let archive_bytes = base64::engine::general_purpose::STANDARD
-        .decode(&body.archive_base64)
+    // Decode base64 shard
+    let shard_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&body.shard_base64)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
     // Decompress gzip
-    let decoder = GzDecoder::new(archive_bytes.as_slice());
-    let mut archive = Archive::new(decoder);
+    let decoder = GzDecoder::new(shard_bytes.as_slice());
+    let mut tar_reader = Archive::new(decoder);
 
     // Parse included components filter
     let include_filter: Option<Vec<String>> = body.include.as_ref().map(|s| {
         s.split(',').map(|c| c.trim().to_lowercase()).collect()
     });
 
-    let mut imported = ArchiveImportCounts::default();
-    let mut skipped = ArchiveImportCounts::default();
+    let mut imported = ShardImportCounts::default();
+    let mut skipped = ShardImportCounts::default();
     let mut errors: Vec<String> = Vec::new();
-    let mut manifest: Option<ArchiveManifest> = None;
+    let mut manifest: Option<ShardManifest> = None;
 
     // First pass: read all entries into memory for processing
     let mut files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
 
-    for entry_result in archive.entries().map_err(|e| {
-        ApiError::BadRequest(format!("Failed to read archive: {}", e))
+    for entry_result in tar_reader.entries().map_err(|e| {
+        ApiError::BadRequest(format!("Failed to read shard: {}", e))
     })? {
         let mut entry = entry_result.map_err(|e| {
-            ApiError::BadRequest(format!("Failed to read archive entry: {}", e))
+            ApiError::BadRequest(format!("Failed to read shard entry: {}", e))
         })?;
 
         let path = entry.path().map_err(|e| {
-            ApiError::BadRequest(format!("Invalid path in archive: {}", e))
+            ApiError::BadRequest(format!("Invalid path in shard: {}", e))
         })?;
         let filename = path.to_string_lossy().to_string();
 
@@ -3629,7 +3641,7 @@ async fn archive_import(
 
     // Parse manifest first
     if let Some(manifest_data) = files.get("manifest.json") {
-        match serde_json::from_slice::<ArchiveManifest>(manifest_data) {
+        match serde_json::from_slice::<ShardManifest>(manifest_data) {
             Ok(m) => manifest = Some(m),
             Err(e) => errors.push(format!("Failed to parse manifest: {}", e)),
         }
@@ -3699,7 +3711,7 @@ async fn archive_import(
                                     .to_string(),
                                 source: note_json.get("source")
                                     .and_then(|v| v.as_str())
-                                    .unwrap_or("archive-import")
+                                    .unwrap_or("shard-import")
                                     .to_string(),
                                 collection_id: note_json.get("collection_id")
                                     .and_then(|v| v.as_str())
@@ -3725,7 +3737,7 @@ async fn archive_import(
                                     // Update revised content if available
                                     if let Some(revised) = note_json.get("revised_content").and_then(|v| v.as_str()) {
                                         if !revised.is_empty() {
-                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported from archive")).await;
+                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported from shard")).await;
                                         }
                                     }
 
@@ -3889,7 +3901,7 @@ async fn archive_import(
         "failed".to_string()
     };
 
-    Ok(Json(ArchiveImportResponse {
+    Ok(Json(ShardImportResponse {
         status,
         manifest,
         imported,
@@ -3944,9 +3956,9 @@ impl IntoResponse for ApiError {
 // BACKUP ARCHIVE BROWSER
 // =============================================================================
 
-/// Info about a single backup archive file
+/// Info about a single knowledge shard file
 #[derive(Debug, Serialize)]
-struct BackupArchiveInfo {
+struct BackupShardInfo {
     filename: String,
     path: String,
     size_bytes: u64,
@@ -3954,20 +3966,20 @@ struct BackupArchiveInfo {
     modified: chrono::DateTime<chrono::Utc>,
     /// ISO 8601 timestamp string for easy display
     modified_iso: String,
-    /// Archive type: "archive" (tar.gz), "pgdump" (.sql.gz), "json" (.json)
-    archive_type: String,
+    /// Shard type: "shard" (tar.gz), "pgdump" (.sql.gz), "json" (.json)
+    shard_type: String,
     /// SHA256 hash of the file (first 16 chars for display)
     sha256_short: Option<String>,
     /// Full SHA256 hash
     sha256: Option<String>,
-    /// Manifest info if available (for tar.gz archives)
-    manifest: Option<ArchiveManifest>,
+    /// Manifest info if available (for knowledge shards)
+    manifest: Option<ShardManifest>,
 }
 
 #[derive(Debug, Serialize)]
 struct ListBackupArchivesResponse {
     backup_directory: String,
-    archives: Vec<BackupArchiveInfo>,
+    shards: Vec<BackupShardInfo>,
     total_size_bytes: u64,
     total_size_human: String,
 }
@@ -3988,8 +4000,8 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-/// List all backup archives in the backup directory.
-async fn list_backup_archives(
+/// List all knowledge shards in the backup directory.
+async fn list_backups(
     State(_state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     use std::fs;
@@ -4001,21 +4013,21 @@ async fn list_backup_archives(
     if !backup_path.exists() {
         return Ok(Json(ListBackupArchivesResponse {
             backup_directory: backup_dir,
-            archives: vec![],
+            shards: vec![],
             total_size_bytes: 0,
             total_size_human: "0 B".to_string(),
         }));
     }
 
-    let mut archives = Vec::new();
+    let mut shards = Vec::new();
     let mut total_size = 0u64;
 
     if let Ok(entries) = fs::read_dir(backup_path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                let archive_type = if name.ends_with(".tar.gz") {
-                    "archive"
+                let shard_type = if name.ends_with(".tar.gz") {
+                    "shard"
                 } else if name.ends_with(".sql.gz") || name.ends_with(".sql") {
                     "pgdump"
                 } else if name.ends_with(".json") {
@@ -4049,21 +4061,21 @@ async fn list_backup_archives(
                         (None, None)
                     };
 
-                    // Try to extract manifest from tar.gz archives
-                    let manifest = if archive_type == "archive" {
-                        extract_manifest_from_archive(&path).ok()
+                    // Try to extract manifest from knowledge shards
+                    let manifest = if shard_type == "shard" {
+                        extract_manifest_from_shard(&path).ok()
                     } else {
                         None
                     };
 
-                    archives.push(BackupArchiveInfo {
+                    shards.push(BackupShardInfo {
                         filename: name.to_string(),
                         path: path.to_string_lossy().to_string(),
                         size_bytes: size,
                         size_human: format_size(size),
                         modified,
                         modified_iso: modified.to_rfc3339(),
-                        archive_type: archive_type.to_string(),
+                        shard_type: shard_type.to_string(),
                         sha256_short,
                         sha256,
                         manifest,
@@ -4074,11 +4086,11 @@ async fn list_backup_archives(
     }
 
     // Sort by modified date, newest first
-    archives.sort_by(|a, b| b.modified.cmp(&a.modified));
+    shards.sort_by(|a, b| b.modified.cmp(&a.modified));
 
     Ok(Json(ListBackupArchivesResponse {
         backup_directory: backup_dir,
-        archives,
+        shards,
         total_size_bytes: total_size,
         total_size_human: format_size(total_size),
     }))
@@ -4106,17 +4118,17 @@ fn calculate_file_sha256(path: &std::path::Path) -> Option<String> {
     Some(hex::encode(hasher.finalize()))
 }
 
-/// Extract manifest from a tar.gz archive without loading entire file.
-fn extract_manifest_from_archive(path: &std::path::Path) -> Result<ArchiveManifest, String> {
+/// Extract manifest from a knowledge shard without loading entire file.
+fn extract_manifest_from_shard(path: &std::path::Path) -> Result<ShardManifest, String> {
     use flate2::read::GzDecoder;
     use std::fs::File;
     use tar::Archive;
 
     let file = File::open(path).map_err(|e| e.to_string())?;
     let decoder = GzDecoder::new(file);
-    let mut archive = Archive::new(decoder);
+    let mut tar_reader = Archive::new(decoder);
 
-    for entry in archive.entries().map_err(|e| e.to_string())? {
+    for entry in tar_reader.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
         let entry_path = entry.path().map_err(|e| e.to_string())?;
 
@@ -4128,11 +4140,11 @@ fn extract_manifest_from_archive(path: &std::path::Path) -> Result<ArchiveManife
         }
     }
 
-    Err("No manifest.json found in archive".to_string())
+    Err("No manifest.json found in shard".to_string())
 }
 
-/// Get detailed info about a specific backup archive.
-async fn get_backup_archive_info(
+/// Get detailed info about a specific knowledge shard.
+async fn get_backup_info(
     State(_state): State<AppState>,
     Path(filename): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -4154,8 +4166,8 @@ async fn get_backup_archive_info(
     let meta = fs::metadata(&path)
         .map_err(|e| ApiError::BadRequest(format!("Cannot read file: {}", e)))?;
 
-    let archive_type = if filename.ends_with(".tar.gz") {
-        "archive"
+    let shard_type = if filename.ends_with(".tar.gz") {
+        "shard"
     } else if filename.ends_with(".sql.gz") || filename.ends_with(".sql") {
         "pgdump"
     } else if filename.ends_with(".json") {
@@ -4175,8 +4187,8 @@ async fn get_backup_archive_info(
         })
         .unwrap_or_else(|_| chrono::Utc::now());
 
-    let manifest = if archive_type == "archive" {
-        extract_manifest_from_archive(&path).ok()
+    let manifest = if shard_type == "shard" {
+        extract_manifest_from_shard(&path).ok()
     } else {
         None
     };
@@ -4186,14 +4198,14 @@ async fn get_backup_archive_info(
         .map(|h| (Some(h.clone()), Some(h[..16].to_string())))
         .unwrap_or((None, None));
 
-    Ok(Json(BackupArchiveInfo {
+    Ok(Json(BackupShardInfo {
         filename,
         path: path.to_string_lossy().to_string(),
         size_bytes: meta.len(),
         size_human: format_size(meta.len()),
         modified,
         modified_iso: modified.to_rfc3339(),
-        archive_type: archive_type.to_string(),
+        shard_type: shard_type.to_string(),
         sha256_short,
         sha256,
         manifest,
@@ -4206,7 +4218,7 @@ async fn get_backup_archive_info(
 
 #[derive(Debug, Deserialize)]
 struct SwapBackupRequest {
-    /// Filename of the archive to restore from
+    /// Filename of the shard to restore from
     filename: String,
     /// If true, just validate without actually restoring
     dry_run: Option<bool>,
@@ -4219,11 +4231,11 @@ struct SwapBackupResponse {
     status: String,
     message: String,
     /// Stats about what was/would be restored
-    stats: Option<ArchiveImportCounts>,
+    stats: Option<ShardImportCounts>,
     dry_run: bool,
 }
 
-/// Swap to a different backup (restore from archive file on disk).
+/// Swap to a different backup (restore from shard file on disk).
 async fn swap_backup(
     State(state): State<AppState>,
     Json(req): Json<SwapBackupRequest>,
@@ -4247,22 +4259,22 @@ async fn swap_backup(
         return Err(ApiError::NotFound(format!("Archive not found: {}", req.filename)));
     }
 
-    // Only support tar.gz archives for now
+    // Only support knowledge shards for now
     if !req.filename.ends_with(".tar.gz") {
         return Err(ApiError::BadRequest(
-            "Only tar.gz archives are supported for swap. Use pg_restore for .sql.gz files.".to_string()
+            "Only knowledge shards are supported for swap. Use pg_restore for .sql.gz files.".to_string()
         ));
     }
 
-    // Read archive file
+    // Read shard file
     let mut file = File::open(&path)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot read archive: {}", e)))?;
-    let mut archive_data = Vec::new();
-    file.read_to_end(&mut archive_data)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot read archive: {}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
+    let mut shard_data = Vec::new();
+    file.read_to_end(&mut shard_data)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
 
     // Encode as base64 for the import handler
-    let archive_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &archive_data);
+    let shard_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &shard_data);
 
     // If strategy is "wipe", purge existing data first
     if strategy == "wipe" && !dry_run {
@@ -4291,17 +4303,17 @@ async fn swap_backup(
         }
     }
 
-    // Import from archive
-    let import_body = ArchiveImportBody {
-        archive_base64,
+    // Import from shard
+    let import_body = ShardImportBody {
+        shard_base64,
         include: None,
         dry_run,
         on_conflict: ConflictStrategy::Replace,
         skip_embedding_regen: false,
     };
 
-    // Call the archive import logic
-    let result = archive_import_internal(&state, import_body).await?;
+    // Call the shard import logic
+    let result = knowledge_shard_import_internal(&state, import_body).await?;
 
     Ok(Json(SwapBackupResponse {
         status: result.status.clone(),
@@ -4319,26 +4331,26 @@ async fn swap_backup(
     }))
 }
 
-/// Internal archive import function (reused by both endpoints).
-async fn archive_import_internal(
+/// Internal shard import function (reused by both endpoints).
+async fn knowledge_shard_import_internal(
     state: &AppState,
-    body: ArchiveImportBody,
-) -> Result<ArchiveImportResponse, ApiError> {
+    body: ShardImportBody,
+) -> Result<ShardImportResponse, ApiError> {
     use flate2::read::GzDecoder;
     use std::collections::HashMap;
     use std::io::Read;
     use tar::Archive;
 
-    // Decode base64 archive
-    let archive_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &body.archive_base64)
+    // Decode base64 shard
+    let shard_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &body.shard_base64)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
 
     // Parse tar.gz
-    let decoder = GzDecoder::new(&archive_bytes[..]);
-    let mut archive = Archive::new(decoder);
+    let decoder = GzDecoder::new(&shard_bytes[..]);
+    let mut tar_reader = Archive::new(decoder);
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
-    for entry in archive.entries().map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))? {
+    for entry in tar_reader.entries().map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))? {
         let mut entry = entry.map_err(|e| ApiError::BadRequest(format!("Invalid tar entry: {}", e)))?;
         let entry_path = entry.path().map_err(|e| ApiError::BadRequest(e.to_string()))?;
         let name = entry_path.to_string_lossy().to_string();
@@ -4350,10 +4362,10 @@ async fn archive_import_internal(
 
     // Parse manifest
     let manifest = files.get("manifest.json")
-        .and_then(|data| serde_json::from_slice::<ArchiveManifest>(data).ok());
+        .and_then(|data| serde_json::from_slice::<ShardManifest>(data).ok());
 
-    let mut imported = ArchiveImportCounts::default();
-    let mut skipped = ArchiveImportCounts::default();
+    let mut imported = ShardImportCounts::default();
+    let mut skipped = ShardImportCounts::default();
     let mut errors: Vec<String> = Vec::new();
 
     // Determine what to import
@@ -4534,7 +4546,7 @@ async fn archive_import_internal(
 
     let status = if errors.is_empty() { "success" } else if imported.notes > 0 { "partial" } else { "failed" };
 
-    Ok(ArchiveImportResponse {
+    Ok(ShardImportResponse {
         status: status.to_string(),
         manifest,
         imported,
@@ -4542,6 +4554,608 @@ async fn archive_import_internal(
         errors,
         dry_run: body.dry_run,
     })
+}
+
+// =============================================================================
+// DATABASE BACKUP HANDLERS (Full pg_dump with embeddings)
+// =============================================================================
+
+/// Backup naming prefixes for identification
+mod backup_prefix {
+    pub const AUTO: &str = "auto";           // Automated/scheduled backup
+    pub const SNAPSHOT: &str = "snapshot";   // User-requested snapshot
+    pub const PRERESTORE: &str = "prerestore"; // Auto-created before restore
+    pub const UPLOAD: &str = "upload";       // Uploaded by user
+}
+
+/// Metadata for a backup file (stored as .meta.json sidecar file)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BackupMetadata {
+    /// Display title for the backup
+    title: String,
+    /// Detailed description of backup contents/purpose
+    description: Option<String>,
+    /// Backup type (snapshot, upload, prerestore, auto)
+    backup_type: String,
+    /// When the backup was created
+    created_at: chrono::DateTime<chrono::Utc>,
+    /// Number of notes at time of backup (if known)
+    note_count: Option<i64>,
+    /// Total database size at time of backup (if known)
+    db_size_bytes: Option<i64>,
+    /// System-generated or user-provided
+    source: String,
+    /// Additional key-value metadata
+    #[serde(default)]
+    extra: std::collections::HashMap<String, String>,
+}
+
+impl BackupMetadata {
+    /// Create metadata for an automated backup
+    fn auto(note_count: Option<i64>, db_size_bytes: Option<i64>) -> Self {
+        Self {
+            title: format!("Automated backup {}", chrono::Utc::now().format("%Y-%m-%d %H:%M")),
+            description: Some("Scheduled backup created by matric-backup service".to_string()),
+            backup_type: backup_prefix::AUTO.to_string(),
+            created_at: chrono::Utc::now(),
+            note_count,
+            db_size_bytes,
+            source: "system".to_string(),
+            extra: Default::default(),
+        }
+    }
+
+    /// Create metadata for a user snapshot
+    fn snapshot(title: Option<String>, description: Option<String>, note_count: Option<i64>) -> Self {
+        Self {
+            title: title.unwrap_or_else(|| format!("Snapshot {}", chrono::Utc::now().format("%Y-%m-%d %H:%M"))),
+            description,
+            backup_type: backup_prefix::SNAPSHOT.to_string(),
+            created_at: chrono::Utc::now(),
+            note_count,
+            db_size_bytes: None,
+            source: "user".to_string(),
+            extra: Default::default(),
+        }
+    }
+
+    /// Create metadata for a pre-restore backup
+    fn prerestore(restoring_from: &str, note_count: Option<i64>) -> Self {
+        Self {
+            title: format!("Pre-restore backup"),
+            description: Some(format!("Auto-created before restoring from: {}", restoring_from)),
+            backup_type: backup_prefix::PRERESTORE.to_string(),
+            created_at: chrono::Utc::now(),
+            note_count,
+            db_size_bytes: None,
+            source: "system".to_string(),
+            extra: [("restoring_from".to_string(), restoring_from.to_string())].into_iter().collect(),
+        }
+    }
+
+    /// Create metadata for an uploaded backup
+    fn upload(title: Option<String>, description: Option<String>, original_filename: &str) -> Self {
+        Self {
+            title: title.unwrap_or_else(|| format!("Uploaded: {}", original_filename)),
+            description,
+            backup_type: backup_prefix::UPLOAD.to_string(),
+            created_at: chrono::Utc::now(),
+            note_count: None,
+            db_size_bytes: None,
+            source: "user".to_string(),
+            extra: [("original_filename".to_string(), original_filename.to_string())].into_iter().collect(),
+        }
+    }
+
+    /// Save metadata to sidecar file
+    fn save(&self, backup_path: &std::path::Path) -> std::io::Result<()> {
+        let meta_path = backup_path.with_extension(
+            format!("{}.meta.json", backup_path.extension().unwrap_or_default().to_string_lossy())
+        );
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(&meta_path, json)?;
+        Ok(())
+    }
+
+    /// Load metadata from sidecar file
+    fn load(backup_path: &std::path::Path) -> Option<Self> {
+        let meta_path = backup_path.with_extension(
+            format!("{}.meta.json", backup_path.extension().unwrap_or_default().to_string_lossy())
+        );
+        std::fs::read_to_string(&meta_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DatabaseBackupResponse {
+    success: bool,
+    filename: String,
+    path: String,
+    size_bytes: u64,
+    size_human: String,
+    backup_type: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SnapshotRequest {
+    /// Optional name for the snapshot (will be sanitized for filename)
+    name: Option<String>,
+    /// Human-readable title for the backup
+    title: Option<String>,
+    /// Detailed description of the backup
+    description: Option<String>,
+}
+
+/// Download a fresh database backup (pg_dump).
+async fn database_backup_download(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("{}_database_{}.sql.gz", backup_prefix::SNAPSHOT, timestamp);
+
+    // Run pg_dump and stream output
+    let output = std::process::Command::new("pg_dump")
+        .args(["-U", "matric", "-h", "localhost", "matric"])
+        .env("PGPASSWORD", "matric")
+        .output()
+        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+    }
+
+    // Compress with gzip
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&output.stdout)
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+    let compressed = encoder.finish()
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+
+    let headers = [
+        (header::CONTENT_TYPE, "application/gzip".to_string()),
+        (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename)),
+    ];
+
+    Ok((headers, compressed))
+}
+
+/// Create a named snapshot and save to backup directory.
+async fn database_backup_snapshot(
+    State(state): State<AppState>,
+    Json(req): Json<SnapshotRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Ensure backup directory exists
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+
+    let timestamp = chrono::Utc::now();
+    let ts_str = timestamp.format("%Y%m%d_%H%M%S");
+
+    // Get note count for metadata
+    let note_count = state.db.notes
+        .list(ListNotesRequest { limit: Some(1), ..Default::default() })
+        .await
+        .map(|r| r.total)
+        .ok();
+
+    // Sanitize optional name
+    let name_suffix = req.name
+        .map(|n| format!("_{}", n.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .take(32)
+            .collect::<String>()))
+        .unwrap_or_default();
+
+    let filename = format!("{}_database_{}{}.sql.gz", backup_prefix::SNAPSHOT, ts_str, name_suffix);
+    let path = std::path::Path::new(&backup_dir).join(&filename);
+
+    // Run pg_dump
+    let output = std::process::Command::new("pg_dump")
+        .args(["-U", "matric", "-h", "localhost", "matric"])
+        .env("PGPASSWORD", "matric")
+        .output()
+        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+    }
+
+    // Compress and save
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let file = std::fs::File::create(&path)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot create file: {}", e)))?;
+    let mut encoder = GzEncoder::new(file, Compression::default());
+    encoder.write_all(&output.stdout)
+        .map_err(|e| ApiError::BadRequest(format!("Write failed: {}", e)))?;
+    encoder.finish()
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+
+    let size = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    // Save metadata sidecar file
+    let metadata = BackupMetadata::snapshot(req.title, req.description, note_count);
+    if let Err(e) = metadata.save(&path) {
+        tracing::warn!("Failed to save backup metadata: {}", e);
+    }
+
+    Ok(Json(DatabaseBackupResponse {
+        success: true,
+        filename,
+        path: path.to_string_lossy().to_string(),
+        size_bytes: size,
+        size_human: format_size(size),
+        backup_type: "snapshot".to_string(),
+        created_at: timestamp,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DatabaseUploadRequest {
+    /// Base64-encoded .sql.gz file
+    data_base64: String,
+    /// Original filename (for reference)
+    original_filename: Option<String>,
+    /// Human-readable title for the backup
+    title: Option<String>,
+    /// Detailed description of the backup
+    description: Option<String>,
+}
+
+/// Upload a database backup file (adds to backup list, does not restore).
+async fn database_backup_upload(
+    State(_state): State<AppState>,
+    Json(req): Json<DatabaseUploadRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+
+    // Decode base64
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.data_base64)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
+
+    let timestamp = chrono::Utc::now();
+    let ts_str = timestamp.format("%Y%m%d_%H%M%S");
+
+    // Create filename with upload prefix
+    let original_filename = req.original_filename.clone().unwrap_or_else(|| "unknown".to_string());
+    let orig_suffix = req.original_filename
+        .map(|n| {
+            let sanitized: String = n.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+                .take(50)
+                .collect();
+            format!("_{}", sanitized.trim_end_matches(".sql.gz").trim_end_matches(".sql"))
+        })
+        .unwrap_or_default();
+
+    let filename = format!("{}_database_{}{}.sql.gz", backup_prefix::UPLOAD, ts_str, orig_suffix);
+    let path = std::path::Path::new(&backup_dir).join(&filename);
+
+    // Write file
+    std::fs::write(&path, &data)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot write file: {}", e)))?;
+
+    // Save metadata sidecar file
+    let metadata = BackupMetadata::upload(req.title, req.description, &original_filename);
+    if let Err(e) = metadata.save(&path) {
+        tracing::warn!("Failed to save backup metadata: {}", e);
+    }
+
+    Ok(Json(DatabaseBackupResponse {
+        success: true,
+        filename,
+        path: path.to_string_lossy().to_string(),
+        size_bytes: data.len() as u64,
+        size_human: format_size(data.len() as u64),
+        backup_type: "upload".to_string(),
+        created_at: timestamp,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct DatabaseRestoreRequest {
+    /// Filename of the backup to restore
+    filename: String,
+    /// Skip creating a pre-restore snapshot (not recommended)
+    #[serde(default)]
+    skip_snapshot: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct DatabaseRestoreResponse {
+    success: bool,
+    message: String,
+    prerestore_backup: Option<String>,
+    restored_from: String,
+    /// Time to wait for DB reconnection
+    reconnect_delay_ms: u64,
+}
+
+/// Restore from a database backup file.
+/// Creates a pre-restore snapshot first (unless skip_snapshot=true).
+/// The API will attempt to reconnect after restore.
+async fn database_backup_restore(
+    State(state): State<AppState>,
+    Json(req): Json<DatabaseRestoreRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: prevent path traversal
+    if req.filename.contains("..") || req.filename.contains('/') || req.filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let backup_path = std::path::Path::new(&backup_dir).join(&req.filename);
+    if !backup_path.exists() {
+        return Err(ApiError::NotFound(format!("Backup not found: {}", req.filename)));
+    }
+
+    // Must be a .sql.gz or .sql file
+    if !req.filename.ends_with(".sql.gz") && !req.filename.ends_with(".sql") {
+        return Err(ApiError::BadRequest("Only .sql.gz or .sql files can be restored".to_string()));
+    }
+
+    // Get current note count for metadata
+    let note_count = state.db.notes
+        .list(ListNotesRequest { limit: Some(1), ..Default::default() })
+        .await
+        .map(|r| r.total)
+        .ok();
+
+    // Step 1: Create pre-restore snapshot
+    let prerestore_filename = if !req.skip_snapshot {
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("{}_database_{}.sql.gz", backup_prefix::PRERESTORE, timestamp);
+        let prerestore_path = std::path::Path::new(&backup_dir).join(&filename);
+
+        let output = std::process::Command::new("pg_dump")
+            .args(["-U", "matric", "-h", "localhost", "matric"])
+            .env("PGPASSWORD", "matric")
+            .output()
+            .map_err(|e| ApiError::BadRequest(format!("Pre-restore snapshot failed: {}", e)))?;
+
+        if output.status.success() {
+            use flate2::write::GzEncoder;
+            use flate2::Compression;
+            use std::io::Write;
+
+            let file = std::fs::File::create(&prerestore_path)
+                .map_err(|e| ApiError::BadRequest(format!("Cannot create snapshot: {}", e)))?;
+            let mut encoder = GzEncoder::new(file, Compression::default());
+            let _ = encoder.write_all(&output.stdout);
+            let _ = encoder.finish();
+
+            // Save metadata for pre-restore backup
+            let metadata = BackupMetadata::prerestore(&req.filename, note_count);
+            if let Err(e) = metadata.save(&prerestore_path) {
+                tracing::warn!("Failed to save prerestore metadata: {}", e);
+            }
+        }
+
+        Some(filename)
+    } else {
+        None
+    };
+
+    // Step 2: Perform restore
+    // First, decompress if needed
+    let sql_content = if req.filename.ends_with(".sql.gz") {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+
+        let file = std::fs::File::open(&backup_path)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot open backup: {}", e)))?;
+        let mut decoder = GzDecoder::new(file);
+        let mut content = String::new();
+        decoder.read_to_string(&mut content)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot decompress: {}", e)))?;
+        content
+    } else {
+        std::fs::read_to_string(&backup_path)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot read backup: {}", e)))?
+    };
+
+    // Run psql to restore (drop and recreate)
+    let mut child = std::process::Command::new("psql")
+        .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
+        .env("PGPASSWORD", "matric")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ApiError::BadRequest(format!("Cannot start psql: {}", e)))?;
+
+    use std::io::Write;
+    if let Some(mut stdin) = child.stdin.take() {
+        // First drop all tables in a transaction-safe way
+        let drop_script = r#"
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+"#;
+        let _ = stdin.write_all(drop_script.as_bytes());
+        let _ = stdin.write_all(sql_content.as_bytes());
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
+
+    let reconnect_delay_ms = 2000; // 2 seconds for DB to stabilize
+
+    // Step 3: Wait and attempt reconnection
+    tokio::time::sleep(std::time::Duration::from_millis(reconnect_delay_ms as u64)).await;
+
+    // Try to verify connection by doing a simple query
+    // The connection pool should auto-reconnect
+    let db_ok = state.db.notes.list(ListNotesRequest { limit: Some(1), ..Default::default() }).await.is_ok();
+
+    let success = output.status.success() && db_ok;
+
+    Ok(Json(DatabaseRestoreResponse {
+        success,
+        message: if success {
+            format!("Database restored from {}", req.filename)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            format!("Restore may have issues: {}", stderr)
+        },
+        prerestore_backup: prerestore_filename,
+        restored_from: req.filename,
+        reconnect_delay_ms,
+    }))
+}
+
+// =============================================================================
+// BACKUP METADATA HANDLERS
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct UpdateMetadataRequest {
+    /// Human-readable title for the backup
+    title: Option<String>,
+    /// Detailed description of the backup
+    description: Option<String>,
+}
+
+/// Get metadata for a specific backup file.
+async fn get_backup_metadata(
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: prevent path traversal
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let backup_path = std::path::Path::new(&backup_dir).join(&filename);
+    if !backup_path.exists() {
+        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+    }
+
+    // Try to load metadata from sidecar file
+    match BackupMetadata::load(&backup_path) {
+        Some(meta) => Ok(Json(serde_json::json!({
+            "has_metadata": true,
+            "filename": filename,
+            "metadata": meta
+        }))),
+        None => {
+            // No metadata file - return basic info from filename
+            let backup_type = if filename.starts_with(backup_prefix::AUTO) {
+                "auto"
+            } else if filename.starts_with(backup_prefix::SNAPSHOT) {
+                "snapshot"
+            } else if filename.starts_with(backup_prefix::PRERESTORE) {
+                "prerestore"
+            } else if filename.starts_with(backup_prefix::UPLOAD) {
+                "upload"
+            } else {
+                "unknown"
+            };
+
+            Ok(Json(serde_json::json!({
+                "has_metadata": false,
+                "filename": filename,
+                "backup_type": backup_type,
+                "message": "No metadata file found. Use PUT to add metadata."
+            })))
+        }
+    }
+}
+
+/// Update or create metadata for a backup file.
+async fn update_backup_metadata(
+    Path(filename): Path<String>,
+    Json(req): Json<UpdateMetadataRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: prevent path traversal
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let backup_path = std::path::Path::new(&backup_dir).join(&filename);
+    if !backup_path.exists() {
+        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+    }
+
+    // Determine backup type from filename prefix
+    let backup_type = if filename.starts_with(backup_prefix::AUTO) {
+        backup_prefix::AUTO
+    } else if filename.starts_with(backup_prefix::SNAPSHOT) {
+        backup_prefix::SNAPSHOT
+    } else if filename.starts_with(backup_prefix::PRERESTORE) {
+        backup_prefix::PRERESTORE
+    } else if filename.starts_with(backup_prefix::UPLOAD) {
+        backup_prefix::UPLOAD
+    } else {
+        "unknown"
+    };
+
+    // Load existing metadata or create new
+    let mut metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| {
+        BackupMetadata {
+            title: filename.clone(),
+            description: None,
+            backup_type: backup_type.to_string(),
+            created_at: std::fs::metadata(&backup_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| chrono::DateTime::from(t))
+                .unwrap_or_else(chrono::Utc::now),
+            note_count: None,
+            db_size_bytes: None,
+            source: "user".to_string(),
+            extra: Default::default(),
+        }
+    });
+
+    // Update fields if provided
+    if let Some(title) = req.title {
+        metadata.title = title;
+    }
+    if let Some(description) = req.description {
+        metadata.description = Some(description);
+    }
+
+    // Save updated metadata
+    metadata.save(&backup_path)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to save metadata: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "filename": filename,
+        "metadata": metadata
+    })))
 }
 
 // =============================================================================
@@ -4799,8 +5413,12 @@ mod tests {
     fn test_backup_status_response_serialization() {
         let response = BackupStatusResponse {
             backup_directory: "/var/backups/test".to_string(),
+            total_size_bytes: 1258291,
+            total_size_human: "1.20 MB".to_string(),
             disk_usage: Some("1.2G".to_string()),
             backup_count: 5,
+            shard_count: 2,
+            pgdump_count: 3,
             latest_backup: Some(LatestBackupInfo {
                 path: "/var/backups/test/backup.sql.gz".to_string(),
                 filename: "backup.sql.gz".to_string(),
@@ -4814,6 +5432,7 @@ mod tests {
         assert!(json.contains("\"backup_directory\":\"/var/backups/test\""));
         assert!(json.contains("\"disk_usage\":\"1.2G\""));
         assert!(json.contains("\"backup_count\":5"));
+        assert!(json.contains("\"total_size_bytes\":1258291"));
         assert!(json.contains("\"status\":\"healthy\""));
     }
 
@@ -4974,26 +5593,26 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_archive_export_query_defaults() {
-        let query: ArchiveExportQuery = serde_json::from_str("{}").unwrap();
+    fn test_shard_export_query_defaults() {
+        let query: ShardExportQuery = serde_json::from_str("{}").unwrap();
         assert!(query.include.is_none());
     }
 
     #[test]
-    fn test_archive_export_query_with_components() {
+    fn test_shard_export_query_with_components() {
         let json = r#"{"include": "notes,links,embeddings"}"#;
-        let query: ArchiveExportQuery = serde_json::from_str(json).unwrap();
+        let query: ShardExportQuery = serde_json::from_str(json).unwrap();
         assert_eq!(query.include, Some("notes,links,embeddings".to_string()));
     }
 
     #[test]
-    fn test_archive_manifest_serialization() {
-        let manifest = ArchiveManifest {
+    fn test_shard_manifest_serialization() {
+        let manifest = ShardManifest {
             version: "1.0.0".to_string(),
-            format: "matric-archive".to_string(),
+            format: "matric-shard".to_string(),
             created_at: chrono::Utc::now(),
             components: vec!["notes".to_string(), "links".to_string()],
-            counts: ArchiveCounts {
+            counts: ShardCounts {
                 notes: 100,
                 collections: 5,
                 tags: 20,
@@ -5009,17 +5628,17 @@ mod tests {
 
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(json.contains("\"version\":\"1.0.0\""));
-        assert!(json.contains("\"format\":\"matric-archive\""));
+        assert!(json.contains("\"format\":\"matric-shard\""));
         assert!(json.contains("\"notes\":100"));
         assert!(json.contains("\"links\":50"));
         assert!(json.contains("\"embeddings\":500"));
     }
 
     #[test]
-    fn test_archive_manifest_deserialization() {
+    fn test_shard_manifest_deserialization() {
         let json = r#"{
             "version": "1.0.0",
-            "format": "matric-archive",
+            "format": "matric-shard",
             "created_at": "2024-01-15T10:30:00Z",
             "components": ["notes", "links"],
             "counts": {
@@ -5035,9 +5654,9 @@ mod tests {
             },
             "checksums": {}
         }"#;
-        let manifest: ArchiveManifest = serde_json::from_str(json).unwrap();
+        let manifest: ShardManifest = serde_json::from_str(json).unwrap();
         assert_eq!(manifest.version, "1.0.0");
-        assert_eq!(manifest.format, "matric-archive");
+        assert_eq!(manifest.format, "matric-shard");
         assert_eq!(manifest.components.len(), 2);
         assert_eq!(manifest.counts.notes, 10);
         assert_eq!(manifest.counts.links, 8);
@@ -5045,8 +5664,8 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_counts_default() {
-        let counts = ArchiveCounts::default();
+    fn test_shard_counts_default() {
+        let counts = ShardCounts::default();
         assert_eq!(counts.notes, 0);
         assert_eq!(counts.collections, 0);
         assert_eq!(counts.tags, 0);
@@ -5059,10 +5678,10 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_import_body_defaults() {
-        let json = r#"{"archive_base64": "H4sIAAAAAAAA"}"#;
-        let body: ArchiveImportBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.archive_base64, "H4sIAAAAAAAA");
+    fn test_knowledge_shard_import_body_defaults() {
+        let json = r#"{"shard_base64": "H4sIAAAAAAAA"}"#;
+        let body: ShardImportBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.shard_base64, "H4sIAAAAAAAA");
         assert!(body.include.is_none());
         assert!(!body.dry_run);
         assert!(matches!(body.on_conflict, ConflictStrategy::Skip));
@@ -5070,16 +5689,16 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_import_body_with_options() {
+    fn test_knowledge_shard_import_body_with_options() {
         let json = r#"{
-            "archive_base64": "H4sIAAAAAAAA",
+            "shard_base64": "H4sIAAAAAAAA",
             "include": "notes,collections",
             "dry_run": true,
             "on_conflict": "replace",
             "skip_embedding_regen": true
         }"#;
-        let body: ArchiveImportBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.archive_base64, "H4sIAAAAAAAA");
+        let body: ShardImportBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.shard_base64, "H4sIAAAAAAAA");
         assert_eq!(body.include, Some("notes,collections".to_string()));
         assert!(body.dry_run);
         assert!(matches!(body.on_conflict, ConflictStrategy::Replace));
@@ -5087,18 +5706,18 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_import_response_serialization() {
-        let response = ArchiveImportResponse {
+    fn test_knowledge_shard_import_response_serialization() {
+        let response = ShardImportResponse {
             status: "success".to_string(),
-            manifest: Some(ArchiveManifest {
+            manifest: Some(ShardManifest {
                 version: "1.0.0".to_string(),
-                format: "matric-archive".to_string(),
+                format: "matric-shard".to_string(),
                 created_at: chrono::Utc::now(),
                 components: vec!["notes".to_string()],
-                counts: ArchiveCounts::default(),
+                counts: ShardCounts::default(),
                 checksums: std::collections::HashMap::new(),
             }),
-            imported: ArchiveImportCounts {
+            imported: ShardImportCounts {
                 notes: 10,
                 collections: 2,
                 tags: 0,
@@ -5108,7 +5727,7 @@ mod tests {
                 embedding_set_members: 0,
                 embeddings: 0,
             },
-            skipped: ArchiveImportCounts::default(),
+            skipped: ShardImportCounts::default(),
             errors: vec![],
             dry_run: false,
         };
@@ -5121,8 +5740,8 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_import_counts_default() {
-        let counts = ArchiveImportCounts::default();
+    fn test_knowledge_shard_import_counts_default() {
+        let counts = ShardImportCounts::default();
         assert_eq!(counts.notes, 0);
         assert_eq!(counts.collections, 0);
         assert_eq!(counts.tags, 0);

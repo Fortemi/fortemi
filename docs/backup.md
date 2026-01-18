@@ -9,14 +9,14 @@ Matric Memory provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Archive Export** | Full portable backup | tar.gz | Notes, links, embeddings, sets, checksums |
+| **Knowledge Shard Export** | Full portable backup | tar.gz | Notes, links, embeddings, sets, checksums |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
 | **Manual pg_dump** | Quick one-off backups | SQL/custom | Full database |
 
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.
-- **Archive Export** (`/api/v1/backup/archive`): Complete backup with semantic links and embeddings. Best for full restore.
+- **Knowledge Shard Export** (`/api/v1/backup/knowledge-shard`): Complete backup with semantic links and embeddings. Best for full restore.
 - **pg_dump** (`scripts/backup.sh`): Database-level backup. Best for disaster recovery.
 
 ## Quick Start
@@ -27,11 +27,11 @@ Matric Memory provides multiple backup options:
 # Export all notes as JSON
 curl http://localhost:3000/api/v1/backup/export
 
-# Create full archive (tar.gz with links, embeddings)
-curl http://localhost:3000/api/v1/backup/archive -o backup.tar.gz
+# Create knowledge shard (tar.gz with links, embeddings)
+curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.tar.gz
 
-# Create archive with specific components
-curl "http://localhost:3000/api/v1/backup/archive?include=notes,links,embeddings" -o backup.tar.gz
+# Create shard with specific components
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o backup.tar.gz
 
 # Trigger database backup
 curl -X POST http://localhost:3000/api/v1/backup/trigger
@@ -46,14 +46,14 @@ curl http://localhost:3000/api/v1/backup/status
 // Export all notes to JSON
 export_all_notes()
 
-// Create full archive with embeddings and links
-backup_archive()
+// Create knowledge shard with embeddings and links
+knowledge_shard()
 
-// Create archive with specific components
-backup_archive({ include: "notes,links" })
+// Create shard with specific components
+knowledge_shard({ include: "notes,links" })
 
-// Restore from archive
-archive_import({ archive_base64: "...", dry_run: true })
+// Restore from shard
+knowledge_shard_import({ shard_base64: "...", dry_run: true })
 
 // Trigger database backup
 backup_now()
@@ -93,7 +93,7 @@ systemctl list-timers matric-backup.timer
 
 ### export_all_notes
 
-Exports all notes as a complete JSON archive.
+Exports all notes as a complete JSON export.
 
 **Parameters:**
 - `filter.starred_only` - Only export starred notes
@@ -162,9 +162,9 @@ Check the status of the backup system.
 }
 ```
 
-### backup_archive
+### knowledge_shard
 
-Create a comprehensive tar.gz archive with full data including semantic links and embeddings.
+Create a comprehensive knowledge shard with full data including semantic links and embeddings.
 
 **Parameters:**
 - `include` - Components to include (comma-separated or array):
@@ -181,7 +181,7 @@ Create a comprehensive tar.gz archive with full data including semantic links an
 ```json
 {
   "success": true,
-  "filename": "matric-archive-20260117-143800.tar.gz",
+  "filename": "matric-shard-20260117-143800.tar.gz",
   "size_bytes": 52428,
   "size_human": "51.20 KB",
   "content_type": "application/gzip",
@@ -190,7 +190,7 @@ Create a comprehensive tar.gz archive with full data including semantic links an
 }
 ```
 
-**Archive contents:**
+**Shard contents:**
 ```
 manifest.json           # Version, counts, SHA256 checksums
 notes.jsonl             # Notes in streaming JSONL format
@@ -204,13 +204,13 @@ embedding_configs.json  # Model configurations
 embeddings.jsonl        # Vector data (if included)
 ```
 
-### archive_import
+### knowledge_shard_import
 
-Restore from a tar.gz archive created by `backup_archive`.
+Restore from a knowledge shard created by `knowledge_shard`.
 
 **Parameters:**
-- `archive_base64` - The archive as base64 string (from backup_archive.base64_data)
-- `include` - Components to import (default: all in archive)
+- `shard_base64` - The shard as base64 string (from knowledge_shard.base64_data)
+- `include` - Components to import (default: all in shard)
 - `dry_run` - Validate without importing (default: false)
 - `on_conflict` - For existing notes: `skip`, `replace`, `merge` (default: skip)
 - `skip_embedding_regen` - Don't regenerate embeddings (default: false)
@@ -228,8 +228,8 @@ Restore from a tar.gz archive created by `backup_archive`.
 ```
 
 **Conflict behavior:**
-- Same archive twice → `on_conflict` determines behavior
-- Different archive → New IDs create new notes (merge)
+- Same shard twice → `on_conflict` determines behavior
+- Different shard → New IDs create new notes (merge)
 
 ## REST API Endpoints
 
@@ -237,7 +237,7 @@ The backup system exposes REST API endpoints that can be called directly or via 
 
 ### GET /api/v1/backup/export
 
-Export all notes as a complete JSON archive.
+Export all notes as a complete JSON export.
 
 **Query Parameters:**
 - `starred_only` - Only export starred notes (boolean)
@@ -332,9 +332,9 @@ curl http://localhost:3000/api/v1/backup/status
 - `no_backups` - No backup files found
 - `no_backup_directory` - Backup directory doesn't exist
 
-### GET /api/v1/backup/archive
+### GET /api/v1/backup/knowledge-shard
 
-Create a comprehensive tar.gz archive with selected components.
+Create a comprehensive knowledge shard with selected components.
 
 **Query Parameters:**
 - `include` - Comma-separated components: `notes,collections,tags,templates,links,embedding_sets,embeddings`
@@ -342,19 +342,19 @@ Create a comprehensive tar.gz archive with selected components.
 
 **Example:**
 ```bash
-# Full archive with all data
-curl http://localhost:3000/api/v1/backup/archive -o backup.tar.gz
+# Knowledge shard with all data
+curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.tar.gz
 
-# Archive with specific components
-curl "http://localhost:3000/api/v1/backup/archive?include=notes,links" -o backup.tar.gz
+# Shard with specific components
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.tar.gz
 
 # Include embeddings (large)
-curl "http://localhost:3000/api/v1/backup/archive?include=notes,links,embeddings" -o full-backup.tar.gz
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o full-backup.tar.gz
 ```
 
 **Response:** Binary tar.gz file with `Content-Disposition: attachment` header.
 
-**Verify archive:**
+**Verify shard:**
 ```bash
 # List contents
 tar -tzf backup.tar.gz
@@ -363,14 +363,14 @@ tar -tzf backup.tar.gz
 tar -xzf backup.tar.gz -O manifest.json | jq .
 ```
 
-### POST /api/v1/backup/archive/import
+### POST /api/v1/backup/knowledge-shard/import
 
-Restore from a tar.gz archive.
+Restore from a knowledge shard.
 
 **Request Body:**
 ```json
 {
-  "archive_base64": "H4sIAAAAAAAA...",
+  "shard_base64": "H4sIAAAAAAAA...",
   "include": "notes,collections",
   "dry_run": false,
   "on_conflict": "skip",
@@ -380,11 +380,11 @@ Restore from a tar.gz archive.
 
 **Example:**
 ```bash
-# Encode archive and import
+# Encode shard and import
 ARCHIVE=$(base64 -w0 backup.tar.gz)
-curl -X POST http://localhost:3000/api/v1/backup/archive/import \
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
   -H "Content-Type: application/json" \
-  -d "{\"archive_base64\": \"$ARCHIVE\", \"dry_run\": true}"
+  -d "{\"shard_base64\": \"$ARCHIVE\", \"dry_run\": true}"
 ```
 
 **Response:**
@@ -514,7 +514,7 @@ journalctl -u matric-backup.service -f
 
 ### From JSON Export (export_all_notes)
 
-1. Parse the JSON archive
+1. Parse the JSON export
 2. Use `create_note` or `bulk_create_notes` MCP tools to recreate notes
 3. Use `create_collection` to recreate collections
 4. Use `create_template` to recreate templates
