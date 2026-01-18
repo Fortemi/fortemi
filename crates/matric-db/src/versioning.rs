@@ -249,8 +249,7 @@ impl VersioningRepository {
                 if restore_tags {
                     // Parse snapshot_tags from frontmatter
                     for line in frontmatter.lines() {
-                        if line.starts_with("snapshot_tags: ") {
-                            let tags_json = &line[15..];
+                        if let Some(tags_json) = line.strip_prefix("snapshot_tags: ") {
                             if let Ok(tags) = serde_json::from_str::<Vec<String>>(tags_json) {
                                 // Delete current tags
                                 sqlx::query("DELETE FROM note_tag WHERE note_id = $1")
@@ -456,9 +455,9 @@ impl VersioningRepository {
 
 /// Strip YAML frontmatter from content.
 fn strip_frontmatter(content: &str) -> String {
-    if content.starts_with("---\n") {
-        if let Some(end_idx) = content[4..].find("\n---\n") {
-            return content[4 + end_idx + 5..].to_string();
+    if let Some(stripped) = content.strip_prefix("---\n") {
+        if let Some(end_idx) = stripped.find("\n---\n") {
+            return stripped[end_idx + 5..].to_string();
         }
     }
     content.to_string()

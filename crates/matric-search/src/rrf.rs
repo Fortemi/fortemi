@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn test_rrf_fuse_metadata_preservation() {
         let id1 = Uuid::new_v4();
-        let id2 = Uuid::new_v4();
+        let _id2 = Uuid::new_v4();
 
         let list1 = vec![SearchHit {
             note_id: id1,

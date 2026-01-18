@@ -161,7 +161,7 @@ mod tests {
 
         // "The quick brown fox jumps over the lazy dog." is typically ~10 tokens
         assert!(
-            count >= 8 && count <= 12,
+            (8..=12).contains(&count),
             "Expected ~10 tokens, got {}",
             count
         );
@@ -262,7 +262,7 @@ mod tests {
             // (it's a rough heuristic, not meant to be precise)
             let ratio = estimate as f32 / actual as f32;
             assert!(
-                ratio >= 0.5 && ratio <= 2.0,
+                (0.5..=2.0).contains(&ratio),
                 "Estimate {} should be within 50%-200% of actual {} for text: {:?}",
                 estimate,
                 actual,
@@ -350,7 +350,7 @@ mod tests {
         // So estimation might be less accurate but should still be in range
         let ratio = estimate as f32 / actual as f32;
         assert!(
-            ratio >= 0.3 && ratio <= 3.0,
+            (0.3..=3.0).contains(&ratio),
             "Code estimation {} should be reasonably close to actual {}",
             estimate,
             actual
@@ -394,7 +394,7 @@ mod tests {
 
         // "token " repeated 8 times = ~8-16 tokens depending on encoding
         assert!(
-            count >= 8 && count <= 20,
+            (8..=20).contains(&count),
             "Repetitive text tokenization seems off: {}",
             count
         );

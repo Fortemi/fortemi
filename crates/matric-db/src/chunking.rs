@@ -173,7 +173,7 @@ impl SentenceChunker {
                 && text[..before_punct]
                     .chars()
                     .last()
-                    .map_or(false, |c| c.is_ascii_digit())
+                    .is_some_and(|c| c.is_ascii_digit())
             {
                 continue;
             }
@@ -344,6 +344,16 @@ impl SemanticChunker {
         Self { config }
     }
 
+    /// Check if a line is a numbered list item (e.g., "1.", "12.")
+    fn is_numbered_list_item(line: &str) -> bool {
+        let trimmed = line.trim();
+        if let Some(dot_pos) = trimmed.find('.') {
+            trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) && dot_pos > 0
+        } else {
+            false
+        }
+    }
+
     /// Identify semantic boundaries and element types.
     fn find_semantic_elements(&self, text: &str) -> Vec<(usize, usize, String)> {
         let mut elements = Vec::new();
@@ -397,8 +407,6 @@ impl SemanticChunker {
                         list_end = current_offset + lines[i].len() + 1;
                         current_offset = list_end;
                         i += 1;
-                    } else if next_line.is_empty() {
-                        break;
                     } else {
                         break;
                     }
@@ -406,7 +414,7 @@ impl SemanticChunker {
 
                 elements.push((list_start, list_end, "list".to_string()));
                 continue;
-            } else if Regex::new(r"^\d+\.").unwrap().is_match(line.trim()) {
+            } else if Self::is_numbered_list_item(line.trim()) {
                 // Numbered list
                 let list_start = line_start;
                 let mut list_end = line_end;
@@ -416,12 +424,10 @@ impl SemanticChunker {
 
                 while i < lines.len() {
                     let next_line = lines[i].trim();
-                    if Regex::new(r"^\d+\.").unwrap().is_match(next_line) {
+                    if Self::is_numbered_list_item(next_line) {
                         list_end = current_offset + lines[i].len() + 1;
                         current_offset = list_end;
                         i += 1;
-                    } else if next_line.is_empty() {
-                        break;
                     } else {
                         break;
                     }
@@ -505,7 +511,7 @@ impl Chunker for SemanticChunker {
                 current_chunk = elem_text.to_string();
                 current_start = start;
                 current_type = elem_type.clone();
-            } else if current_chunk.len() + elem_text.len() + 1 <= self.config.max_chunk_size {
+            } else if current_chunk.len() + elem_text.len() < self.config.max_chunk_size {
                 current_chunk.push('\n');
                 current_chunk.push_str(elem_text);
             } else {

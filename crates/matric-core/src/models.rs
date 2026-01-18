@@ -1673,7 +1673,7 @@ mod tests {
         // Empty tags should be skipped
         assert!(
             !json.as_object().unwrap().contains_key("tags")
-                || json["tags"].as_array().map_or(true, |a| a.is_empty())
+                || json["tags"].as_array().is_none_or(|a| a.is_empty())
         );
     }
 

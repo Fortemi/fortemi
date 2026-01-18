@@ -14,14 +14,14 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
-use governor::{Quota, RateLimiter};
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroU32;
 use tower_http::{
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
+use governor::{Quota, RateLimiter};
+use std::num::NonZeroU32;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -180,11 +180,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!(
         "Rate limiting: {} ({} requests per {} seconds)",
-        if rate_limit_enabled {
-            "enabled"
-        } else {
-            "disabled"
-        },
+        if rate_limit_enabled { "enabled" } else { "disabled" },
         rate_limit_requests,
         rate_limit_period_secs
     );
@@ -266,21 +262,14 @@ async fn main() -> anyhow::Result<()> {
     let rate_limiter = if rate_limit_enabled {
         let quota = Quota::with_period(std::time::Duration::from_secs(rate_limit_period_secs))
             .expect("Rate limit period must be non-zero")
-            .allow_burst(
-                NonZeroU32::new(rate_limit_requests as u32).expect("Rate limit must be non-zero"),
-            );
+            .allow_burst(NonZeroU32::new(rate_limit_requests as u32).expect("Rate limit must be non-zero"));
         Some(Arc::new(RateLimiter::direct(quota)))
     } else {
         None
     };
 
     // Create app state
-    let state = AppState {
-        db,
-        search,
-        issuer,
-        rate_limiter,
-    };
+    let state = AppState { db, search, issuer, rate_limiter };
 
     // Build router
     let app = Router::new()
@@ -358,9 +347,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/concepts/autocomplete", get(autocomplete_concepts))
         .route(
             "/api/v1/concepts/:id",
-            get(get_concept)
-                .patch(update_concept)
-                .delete(delete_concept),
+            get(get_concept).patch(update_concept).delete(delete_concept),
         )
         .route("/api/v1/concepts/:id/full", get(get_concept_full))
         .route("/api/v1/concepts/:id/ancestors", get(get_ancestors))
@@ -524,10 +511,7 @@ async fn main() -> anyhow::Result<()> {
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            rate_limit_middleware,
-        ))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -660,9 +644,7 @@ async fn get_notes_timeline(
     let periods_back = query.periods.unwrap_or(30);
 
     // Calculate the cutoff date
-    let since = query
-        .since
-        .as_ref()
+    let since = query.since.as_ref()
         .and_then(|s| parse_relative_time(s))
         .unwrap_or_else(|| {
             let duration = match period {
@@ -698,9 +680,8 @@ async fn get_notes_timeline(
             "week" => {
                 // Get start of week (Monday)
                 let days_since_monday = note.created_at_utc.weekday().num_days_from_monday() as i64;
-                (note.created_at_utc - chrono::Duration::days(days_since_monday)).timestamp()
-                    / 86400
-                    / 7
+                (note.created_at_utc - chrono::Duration::days(days_since_monday))
+                    .timestamp() / 86400 / 7
             }
             "month" => {
                 // Year-month as a single number
@@ -729,27 +710,20 @@ async fn get_notes_timeline(
                 "month" => {
                     let year = (key / 12) as i32;
                     let month = ((key % 12) + 1) as u32;
-                    let start = chrono::DateTime::parse_from_rfc3339(&format!(
-                        "{:04}-{:02}-01T00:00:00Z",
-                        year, month
-                    ))
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-                    .unwrap_or_else(|_| chrono::Utc::now());
+                    let start = chrono::DateTime::parse_from_rfc3339(
+                        &format!("{:04}-{:02}-01T00:00:00Z", year, month)
+                    ).map(|dt| dt.with_timezone(&chrono::Utc))
+                     .unwrap_or_else(|_| chrono::Utc::now());
                     let end = if month == 12 {
-                        chrono::DateTime::parse_from_rfc3339(&format!(
-                            "{:04}-01-01T00:00:00Z",
-                            year + 1
-                        ))
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now())
+                        chrono::DateTime::parse_from_rfc3339(
+                            &format!("{:04}-01-01T00:00:00Z", year + 1)
+                        ).map(|dt| dt.with_timezone(&chrono::Utc))
+                         .unwrap_or_else(|_| chrono::Utc::now())
                     } else {
-                        chrono::DateTime::parse_from_rfc3339(&format!(
-                            "{:04}-{:02}-01T00:00:00Z",
-                            year,
-                            month + 1
-                        ))
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now())
+                        chrono::DateTime::parse_from_rfc3339(
+                            &format!("{:04}-{:02}-01T00:00:00Z", year, month + 1)
+                        ).map(|dt| dt.with_timezone(&chrono::Utc))
+                         .unwrap_or_else(|_| chrono::Utc::now())
                     };
                     (start, end)
                 }
@@ -804,9 +778,7 @@ async fn get_notes_activity(
     State(state): State<AppState>,
     Query(query): Query<ActivityQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let since = query
-        .since
-        .as_ref()
+    let since = query.since.as_ref()
         .and_then(|s| parse_relative_time(s))
         .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
 
@@ -851,27 +823,21 @@ async fn get_notes_activity(
     let updated_notes = updated_response?;
 
     // Combine and deduplicate
-    let mut activity: std::collections::HashMap<Uuid, ActivityEntry> =
-        std::collections::HashMap::new();
+    let mut activity: std::collections::HashMap<Uuid, ActivityEntry> = std::collections::HashMap::new();
 
     for note in &created_notes.notes {
-        activity.insert(
-            note.id,
-            ActivityEntry {
-                note_id: note.id,
-                title: Some(note.title.clone()),
-                created_at: note.created_at_utc,
-                updated_at: note.updated_at_utc,
-                is_recently_created: true,
-                is_recently_updated: note.updated_at_utc
-                    > note.created_at_utc + chrono::Duration::seconds(60),
-            },
-        );
+        activity.insert(note.id, ActivityEntry {
+            note_id: note.id,
+            title: Some(note.title.clone()),
+            created_at: note.created_at_utc,
+            updated_at: note.updated_at_utc,
+            is_recently_created: true,
+            is_recently_updated: note.updated_at_utc > note.created_at_utc + chrono::Duration::seconds(60),
+        });
     }
 
     for note in &updated_notes.notes {
-        activity
-            .entry(note.id)
+        activity.entry(note.id)
             .and_modify(|e| e.is_recently_updated = true)
             .or_insert(ActivityEntry {
                 note_id: note.id,
@@ -921,37 +887,30 @@ async fn get_knowledge_health(
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
     // Get total note count
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(10000),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
-        .await?;
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
 
     let total_notes = all_notes.total;
 
     // Count stale notes
-    let stale_count = all_notes
-        .notes
-        .iter()
+    let stale_count = all_notes.notes.iter()
         .filter(|n| n.updated_at_utc < stale_threshold)
         .count();
 
     // Get notes without any links (unlinked)
     let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
-    let linked_note_ids: std::collections::HashSet<Uuid> = all_links
-        .iter()
+    let linked_note_ids: std::collections::HashSet<Uuid> = all_links.iter()
         .flat_map(|link| {
             let mut ids = vec![link.from_note_id];
             if let Some(to_id) = link.to_note_id {
@@ -960,9 +919,7 @@ async fn get_knowledge_health(
             ids
         })
         .collect();
-    let unlinked_count = all_notes
-        .notes
-        .iter()
+    let unlinked_count = all_notes.notes.iter()
         .filter(|n| !linked_note_ids.contains(&n.id))
         .count();
 
@@ -971,12 +928,7 @@ async fn get_knowledge_health(
     let mut tag_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut notes_with_tags: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
-            .await
-            .unwrap_or_default();
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
         if !note_tags.is_empty() {
             notes_with_tags.insert(note.id);
         }
@@ -995,9 +947,8 @@ async fn get_knowledge_health(
         let unlinked_ratio = unlinked_count as f64 / total_notes as f64;
         let untagged_ratio = notes_without_tags as f64 / total_notes as f64;
 
-        let score =
-            100.0 - (stale_ratio * 30.0) - (unlinked_ratio * 40.0) - (untagged_ratio * 30.0);
-        score.clamp(0.0, 100.0) as i64
+        let score = 100.0 - (stale_ratio * 30.0) - (unlinked_ratio * 40.0) - (untagged_ratio * 30.0);
+        score.max(0.0).min(100.0) as i64
     } else {
         100
     };
@@ -1023,50 +974,37 @@ async fn get_orphan_tags(
     let limit = query.limit.unwrap_or(100) as usize;
 
     // Get all notes and their tags
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(10000),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
-        .await?;
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
 
     // Count tag usage
-    let mut tag_usage: std::collections::HashMap<String, Vec<Uuid>> =
-        std::collections::HashMap::new();
+    let mut tag_usage: std::collections::HashMap<String, Vec<Uuid>> = std::collections::HashMap::new();
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
-            .await
-            .unwrap_or_default();
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
         for tag in note_tags {
             tag_usage.entry(tag).or_default().push(note.id);
         }
     }
 
     // Filter to orphan tags (used exactly once)
-    let orphan_tags: Vec<serde_json::Value> = tag_usage
-        .into_iter()
+    let orphan_tags: Vec<serde_json::Value> = tag_usage.into_iter()
         .filter(|(_, note_ids)| note_ids.len() == 1)
         .take(limit)
-        .map(|(tag, note_ids)| {
-            serde_json::json!({
-                "tag": tag,
-                "note_id": note_ids[0]
-            })
-        })
+        .map(|(tag, note_ids)| serde_json::json!({
+            "tag": tag,
+            "note_id": note_ids[0]
+        }))
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -1085,27 +1023,21 @@ async fn get_stale_notes(
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
     // Get notes updated before the threshold
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(10000),
-            offset: None,
-            filter: None,
-            sort_by: Some("updated_at".to_string()),
-            sort_order: Some("asc".to_string()),
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: Some(stale_threshold),
-        })
-        .await?;
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: Some("updated_at".to_string()),
+        sort_order: Some("asc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: Some(stale_threshold),
+    }).await?;
 
-    let stale_notes: Vec<serde_json::Value> = all_notes
-        .notes
-        .iter()
+    let stale_notes: Vec<serde_json::Value> = all_notes.notes.iter()
         .take(limit)
         .map(|n| {
             let days_stale = (chrono::Utc::now() - n.updated_at_utc).num_days();
@@ -1134,8 +1066,7 @@ async fn get_unlinked_notes(
 
     // Get all links to find linked notes
     let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
-    let linked_note_ids: std::collections::HashSet<Uuid> = all_links
-        .iter()
+    let linked_note_ids: std::collections::HashSet<Uuid> = all_links.iter()
         .flat_map(|link| {
             let mut ids = vec![link.from_note_id];
             if let Some(to_id) = link.to_note_id {
@@ -1146,37 +1077,29 @@ async fn get_unlinked_notes(
         .collect();
 
     // Get all notes
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(10000),
-            offset: None,
-            filter: None,
-            sort_by: Some("created_at".to_string()),
-            sort_order: Some("desc".to_string()),
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
-        .await?;
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
 
     // Filter to unlinked notes
-    let unlinked_notes: Vec<serde_json::Value> = all_notes
-        .notes
-        .iter()
+    let unlinked_notes: Vec<serde_json::Value> = all_notes.notes.iter()
         .filter(|n| !linked_note_ids.contains(&n.id))
         .take(limit)
-        .map(|n| {
-            serde_json::json!({
-                "id": n.id,
-                "title": n.title,
-                "created_at": n.created_at_utc
-            })
-        })
+        .map(|n| serde_json::json!({
+            "id": n.id,
+            "title": n.title,
+            "created_at": n.created_at_utc
+        }))
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -1195,35 +1118,25 @@ async fn get_tag_cooccurrence(
     let limit = query.limit.unwrap_or(50) as usize;
 
     // Get all notes
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(10000),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
-        .await?;
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
 
     // Build co-occurrence matrix
-    let mut cooccurrence: std::collections::HashMap<(String, String), i64> =
-        std::collections::HashMap::new();
+    let mut cooccurrence: std::collections::HashMap<(String, String), i64> = std::collections::HashMap::new();
 
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
-            .await
-            .unwrap_or_default();
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
         // Generate all pairs
         for i in 0..note_tags.len() {
             for j in (i + 1)..note_tags.len() {
@@ -1241,16 +1154,13 @@ async fn get_tag_cooccurrence(
     let mut pairs: Vec<_> = cooccurrence.into_iter().collect();
     pairs.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let top_pairs: Vec<serde_json::Value> = pairs
-        .into_iter()
+    let top_pairs: Vec<serde_json::Value> = pairs.into_iter()
         .take(limit)
-        .map(|((tag_a, tag_b), count)| {
-            serde_json::json!({
-                "tag_a": tag_a,
-                "tag_b": tag_b,
-                "count": count
-            })
-        })
+        .map(|((tag_a, tag_b), count)| serde_json::json!({
+            "tag_a": tag_a,
+            "tag_b": tag_b,
+            "count": count
+        }))
         .collect();
 
     Ok(Json(serde_json::json!({
@@ -1294,9 +1204,9 @@ async fn list_notes(
     });
 
     // Parse relative time (e.g., "7d", "1w") and use as created_after if provided
-    let created_after = query
-        .created_after
-        .or_else(|| query.since.as_ref().and_then(|s| parse_relative_time(s)));
+    let created_after = query.created_after.or_else(|| {
+        query.since.as_ref().and_then(|s| parse_relative_time(s))
+    });
 
     let req = ListNotesRequest {
         limit: query.limit,
@@ -2718,10 +2628,7 @@ async fn diff_note_versions(
 
     // Return as plain text (unified diff format)
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        "text/plain; charset=utf-8".parse().unwrap(),
-    );
+    headers.insert(header::CONTENT_TYPE, "text/plain; charset=utf-8".parse().unwrap());
 
     Ok((StatusCode::OK, headers, diff))
 }
@@ -2784,9 +2691,9 @@ async fn search_notes(
     };
 
     // Parse relative time (e.g., "7d", "1w") and use as created_after if provided
-    let created_after = query
-        .created_after
-        .or_else(|| query.since.as_ref().and_then(|s| parse_relative_time(s)));
+    let created_after = query.created_after.or_else(|| {
+        query.since.as_ref().and_then(|s| parse_relative_time(s))
+    });
 
     let mut request = SearchRequest::new(&query.q)
         .with_limit(limit)

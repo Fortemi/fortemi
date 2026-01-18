@@ -198,7 +198,10 @@ mod tests {
 
     #[test]
     fn test_result_type_ok() {
-        let result: Result<i32> = Ok(42);
+        fn get_result() -> Result<i32> {
+            Ok(42)
+        }
+        let result = get_result();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
     }

@@ -289,7 +289,12 @@ mod tests {
     #[test]
     fn test_default_dimension_is_standard() {
         // 768 is standard for many embedding models
-        assert!(DEFAULT_DIMENSION == 768 || DEFAULT_DIMENSION == 384 || DEFAULT_DIMENSION == 1536);
+        let valid_dims = [384, 768, 1536];
+        assert!(
+            valid_dims.contains(&DEFAULT_DIMENSION),
+            "DEFAULT_DIMENSION {} should be a standard embedding dimension",
+            DEFAULT_DIMENSION
+        );
     }
 
     // ==========================================================================

@@ -64,7 +64,7 @@ mod tests {
 
     impl Tokenizer for MockTokenizer {
         fn count_tokens(&self, text: &str) -> usize {
-            (text.len() + self.chars_per_token - 1) / self.chars_per_token
+            text.len().div_ceil(self.chars_per_token)
         }
 
         fn encode(&self, text: &str) -> Vec<u32> {

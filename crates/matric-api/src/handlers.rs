@@ -514,7 +514,8 @@ impl JobHandler for LinkingHandler {
         };
 
         let mut created = 0;
-        let mut wiki_links_found = 0;
+        #[allow(clippy::needless_late_init)]
+        let wiki_links_found;
         let mut wiki_links_resolved = 0;
 
         // First, parse wiki-style [[links]] from note content

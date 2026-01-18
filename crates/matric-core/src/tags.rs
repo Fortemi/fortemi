@@ -131,9 +131,11 @@ impl std::str::FromStr for SkosMappingRelation {
 /// to support various use cases (display, search, aliases).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SkosLabelType {
     /// `skos:prefLabel` - Preferred label for display.
     /// Maximum one per language per concept.
+    #[default]
     PrefLabel,
 
     /// `skos:altLabel` - Alternative label (synonym, abbreviation).
@@ -145,11 +147,6 @@ pub enum SkosLabelType {
     HiddenLabel,
 }
 
-impl Default for SkosLabelType {
-    fn default() -> Self {
-        Self::PrefLabel
-    }
-}
 
 impl std::fmt::Display for SkosLabelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -180,6 +177,7 @@ impl std::str::FromStr for SkosLabelType {
 /// supporting different documentation purposes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SkosNoteType {
     /// `skos:definition` - Formal definition of the concept.
     Definition,
@@ -200,14 +198,10 @@ pub enum SkosNoteType {
     ChangeNote,
 
     /// `skos:note` - General note (catch-all).
+    #[default]
     Note,
 }
 
-impl Default for SkosNoteType {
-    fn default() -> Self {
-        Self::Note
-    }
-}
 
 impl std::fmt::Display for SkosNoteType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -298,9 +292,11 @@ impl std::str::FromStr for PmestFacet {
 /// Tag/concept status for workflow management.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TagStatus {
     /// Candidate: Proposed but not yet approved for general use.
     /// Requires literary warrant (3+ notes) for automatic promotion.
+    #[default]
     Candidate,
 
     /// Approved: Validated and available for general tagging.
@@ -314,11 +310,6 @@ pub enum TagStatus {
     Obsolete,
 }
 
-impl Default for TagStatus {
-    fn default() -> Self {
-        Self::Candidate
-    }
-}
 
 impl std::fmt::Display for TagStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

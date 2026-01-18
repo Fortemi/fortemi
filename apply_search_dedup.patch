@@ -1,0 +1,49 @@
+--- a/crates/matric-api/src/main.rs
++++ b/crates/matric-api/src/main.rs
+@@ -91,7 +91,7 @@
+ }
+ use matric_inference::OllamaBackend;
+ use matric_jobs::{JobWorker, WorkerConfig};
+-use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
++use matric_search::{deduplicate_search_results, DeduplicationConfig, EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
+
+ use handlers::{
+     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
+@@ -2657,11 +2657,15 @@
+     updated_before: Option<chrono::DateTime<chrono::Utc>>,
+     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
+     since: Option<String>,
++    /// Deduplicate chunks from the same document (default: true)
++    deduplicate_chains: Option<bool>,
++    /// Expand chains to include full document content (default: false)
++    expand_chains: Option<bool>,
+ }
+
+ #[derive(Debug, Serialize)]
+ struct SearchResponse {
+-    results: Vec<SearchHit>,
++    results: Vec<EnhancedSearchHit>,
+     query: String,
+     total: usize,
+ }
+@@ -2716,9 +2720,18 @@
+     }
+
+     let results = request.execute(&state.search).await?;
+-    let total = results.len();
++
++    // Apply deduplication based on query parameters
++    let dedup_config = DeduplicationConfig {
++        deduplicate_chains: query.deduplicate_chains.unwrap_or(true),
++        expand_chains: query.expand_chains.unwrap_or(false),
++    };
++
++    let deduplicated = deduplicate_search_results(results, &dedup_config);
++    let total = deduplicated.len();
+
+     Ok(Json(SearchResponse {
+-        results,
++        results: deduplicated,
+         query: query.q,
+         total,
+     }))
