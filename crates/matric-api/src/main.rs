@@ -89,8 +89,8 @@ use matric_jobs::{JobWorker, WorkerConfig};
 use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
-    AiRevisionHandler, ContextUpdateHandler, EmbeddingHandler, LinkingHandler,
-    PurgeNoteHandler, TitleGenerationHandler,
+    AiRevisionHandler, ContextUpdateHandler, EmbeddingHandler, LinkingHandler, PurgeNoteHandler,
+    TitleGenerationHandler,
 };
 
 /// Application state shared across handlers.
@@ -339,22 +339,46 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/backup/status", get(backup_status))
         // Knowledge shards (portable, app-level exports)
         .route("/api/v1/backup/knowledge-shard", get(knowledge_shard))
-        .route("/api/v1/backup/knowledge-shard/import", post(knowledge_shard_import))
+        .route(
+            "/api/v1/backup/knowledge-shard/import",
+            post(knowledge_shard_import),
+        )
         // Database backups (full pg_dump, includes embeddings)
         .route("/api/v1/backup/database", get(database_backup_download))
-        .route("/api/v1/backup/database/snapshot", post(database_backup_snapshot))
-        .route("/api/v1/backup/database/upload", post(database_backup_upload))
-        .route("/api/v1/backup/database/restore", post(database_backup_restore))
+        .route(
+            "/api/v1/backup/database/snapshot",
+            post(database_backup_snapshot),
+        )
+        .route(
+            "/api/v1/backup/database/upload",
+            post(database_backup_upload),
+        )
+        .route(
+            "/api/v1/backup/database/restore",
+            post(database_backup_restore),
+        )
         // Knowledge archives (backup + metadata bundled as .archive)
-        .route("/api/v1/backup/knowledge-archive/:filename", get(knowledge_archive_download))
-        .route("/api/v1/backup/knowledge-archive", post(knowledge_archive_upload))
+        .route(
+            "/api/v1/backup/knowledge-archive/:filename",
+            get(knowledge_archive_download),
+        )
+        .route(
+            "/api/v1/backup/knowledge-archive",
+            post(knowledge_archive_upload),
+        )
         // Backup browser (lists all backups)
         .route("/api/v1/backup/list", get(list_backups))
         .route("/api/v1/backup/list/:filename", get(get_backup_info))
         .route("/api/v1/backup/swap", post(swap_backup))
         // Backup metadata
-        .route("/api/v1/backup/metadata/:filename", get(get_backup_metadata))
-        .route("/api/v1/backup/metadata/:filename", put(update_backup_metadata))
+        .route(
+            "/api/v1/backup/metadata/:filename",
+            get(get_backup_metadata),
+        )
+        .route(
+            "/api/v1/backup/metadata/:filename",
+            put(update_backup_metadata),
+        )
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
         // Middleware
@@ -1317,9 +1341,7 @@ async fn search_notes(
 use matric_core::{AddMembersRequest, CreateEmbeddingSetRequest, UpdateEmbeddingSetRequest};
 
 /// List all embedding sets for discovery
-async fn list_embedding_sets(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+async fn list_embedding_sets(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let sets = state.db.embedding_sets.list().await?;
     Ok(Json(sets))
 }
@@ -1380,7 +1402,11 @@ async fn list_embedding_set_members(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
     let offset = query.offset.unwrap_or(0);
-    let members = state.db.embedding_sets.list_members(&slug, limit, offset).await?;
+    let members = state
+        .db
+        .embedding_sets
+        .list_members(&slug, limit, offset)
+        .await?;
     Ok(Json(members))
 }
 
@@ -1399,7 +1425,11 @@ async fn remove_embedding_set_member(
     State(state): State<AppState>,
     Path((slug, note_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let removed = state.db.embedding_sets.remove_member(&slug, note_id).await?;
+    let removed = state
+        .db
+        .embedding_sets
+        .remove_member(&slug, note_id)
+        .await?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -2576,7 +2606,12 @@ async fn backup_export(
     for note in notes_response.notes {
         // Fetch full note with content
         if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-            let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+            let note_tags = state
+                .db
+                .tags
+                .get_for_note(note.id)
+                .await
+                .unwrap_or_default();
             exported_notes.push(serde_json::json!({
                 "id": full_note.note.id,
                 "title": full_note.note.title,
@@ -2694,7 +2729,12 @@ async fn backup_download(
 
     for note in notes_response.notes {
         if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-            let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+            let note_tags = state
+                .db
+                .tags
+                .get_for_note(note.id)
+                .await
+                .unwrap_or_default();
             exported_notes.push(serde_json::json!({
                 "id": full_note.note.id,
                 "title": full_note.note.title,
@@ -2884,7 +2924,9 @@ async fn backup_import(
         if content.is_empty() {
             errors.push(format!(
                 "Note {:?} has no content, skipping",
-                note_data.id.or(note_data.title.as_ref().map(|_| Uuid::nil()))
+                note_data
+                    .id
+                    .or(note_data.title.as_ref().map(|_| Uuid::nil()))
             ));
             skipped.notes += 1;
             continue;
@@ -2917,8 +2959,14 @@ async fn backup_import(
             // Create the note
             let req = CreateNoteRequest {
                 content,
-                format: note_data.format.clone().unwrap_or_else(|| "markdown".to_string()),
-                source: note_data.source.clone().unwrap_or_else(|| "import".to_string()),
+                format: note_data
+                    .format
+                    .clone()
+                    .unwrap_or_else(|| "markdown".to_string()),
+                source: note_data
+                    .source
+                    .clone()
+                    .unwrap_or_else(|| "import".to_string()),
                 collection_id: note_data.collection_id,
                 tags: note_data.tags.clone(),
             };
@@ -2987,9 +3035,15 @@ async fn backup_import(
                 use matric_core::{CreateTemplateRequest, TemplateRepository};
                 let req = CreateTemplateRequest {
                     name: name.to_string(),
-                    description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                    description: tmpl
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     content: content.to_string(),
-                    format: tmpl.get("format").and_then(|v| v.as_str()).map(String::from),
+                    format: tmpl
+                        .get("format")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     default_tags: None,
                     collection_id: None,
                 };
@@ -3003,7 +3057,11 @@ async fn backup_import(
         }
     }
 
-    let status = if errors.is_empty() { "success" } else { "partial" };
+    let status = if errors.is_empty() {
+        "success"
+    } else {
+        "partial"
+    };
 
     Ok(Json(BackupImportResponse {
         status: status.to_string(),
@@ -3060,9 +3118,9 @@ async fn backup_trigger(
     }
 
     // Execute backup script
-    let output = cmd.output().map_err(|e| {
-        ApiError::BadRequest(format!("Failed to execute backup script: {}", e))
-    })?;
+    let output = cmd
+        .output()
+        .map_err(|e| ApiError::BadRequest(format!("Failed to execute backup script: {}", e)))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -3114,8 +3172,8 @@ struct LatestBackupInfo {
 async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     use std::fs;
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     let mut response = BackupStatusResponse {
         backup_directory: backup_dir.clone(),
@@ -3183,9 +3241,7 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         let modified = meta
             .modified()
             .map(|t| {
-                let duration = t
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default();
+                let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                 chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
                     .unwrap_or_else(chrono::Utc::now)
             })
@@ -3259,9 +3315,9 @@ async fn knowledge_shard(
     use tar::Builder;
 
     // Parse included components
-    let include_str = query.include.unwrap_or_else(|| {
-        "notes,collections,tags,templates,links,embedding_sets".to_string()
-    });
+    let include_str = query
+        .include
+        .unwrap_or_else(|| "notes,collections,tags,templates,links,embedding_sets".to_string());
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
 
     let mut counts = ShardCounts::default();
@@ -3302,7 +3358,12 @@ async fn knowledge_shard(
 
             for note in &notes_response.notes {
                 if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-                    let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+                    let note_tags = state
+                        .db
+                        .tags
+                        .get_for_note(note.id)
+                        .await
+                        .unwrap_or_default();
                     let note_obj = serde_json::json!({
                         "id": full_note.note.id,
                         "title": full_note.note.title,
@@ -3333,19 +3394,20 @@ async fn knowledge_shard(
             counts.collections = collections.len();
             let collections_json: Vec<serde_json::Value> = collections
                 .iter()
-                .map(|c| serde_json::json!({
-                    "id": c.id,
-                    "name": c.name,
-                    "description": c.description,
-                    "parent_id": c.parent_id,
-                    "created_at": c.created_at_utc,
-                    "note_count": c.note_count,
-                }))
+                .map(|c| {
+                    serde_json::json!({
+                        "id": c.id,
+                        "name": c.name,
+                        "description": c.description,
+                        "parent_id": c.parent_id,
+                        "created_at": c.created_at_utc,
+                        "note_count": c.note_count,
+                    })
+                })
                 .collect();
             let data = serde_json::to_vec_pretty(&collections_json).unwrap_or_default();
-            add_json_file("collections.json", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add collections: {}", e))
-            })?;
+            add_json_file("collections.json", &data)
+                .map_err(|e| ApiError::BadRequest(format!("Failed to add collections: {}", e)))?;
         }
 
         // Export tags
@@ -3354,15 +3416,16 @@ async fn knowledge_shard(
             counts.tags = tags.len();
             let tags_json: Vec<serde_json::Value> = tags
                 .iter()
-                .map(|t| serde_json::json!({
-                    "name": t.name,
-                    "created_at": t.created_at_utc,
-                }))
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "created_at": t.created_at_utc,
+                    })
+                })
                 .collect();
             let data = serde_json::to_vec_pretty(&tags_json).unwrap_or_default();
-            add_json_file("tags.json", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add tags: {}", e))
-            })?;
+            add_json_file("tags.json", &data)
+                .map_err(|e| ApiError::BadRequest(format!("Failed to add tags: {}", e)))?;
         }
 
         // Export templates
@@ -3371,22 +3434,23 @@ async fn knowledge_shard(
             counts.templates = templates.len();
             let templates_json: Vec<serde_json::Value> = templates
                 .iter()
-                .map(|t| serde_json::json!({
-                    "id": t.id,
-                    "name": t.name,
-                    "description": t.description,
-                    "content": t.content,
-                    "format": t.format,
-                    "default_tags": t.default_tags,
-                    "collection_id": t.collection_id,
-                    "created_at": t.created_at_utc,
-                    "updated_at": t.updated_at_utc,
-                }))
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "name": t.name,
+                        "description": t.description,
+                        "content": t.content,
+                        "format": t.format,
+                        "default_tags": t.default_tags,
+                        "collection_id": t.collection_id,
+                        "created_at": t.created_at_utc,
+                        "updated_at": t.updated_at_utc,
+                    })
+                })
                 .collect();
             let data = serde_json::to_vec_pretty(&templates_json).unwrap_or_default();
-            add_json_file("templates.json", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add templates: {}", e))
-            })?;
+            add_json_file("templates.json", &data)
+                .map_err(|e| ApiError::BadRequest(format!("Failed to add templates: {}", e)))?;
         }
 
         // Export links
@@ -3408,9 +3472,8 @@ async fn knowledge_shard(
                 links_jsonl.push(serde_json::to_string(&link_obj).unwrap_or_default());
             }
             let data = links_jsonl.join("\n").into_bytes();
-            add_json_file("links.jsonl", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add links: {}", e))
-            })?;
+            add_json_file("links.jsonl", &data)
+                .map_err(|e| ApiError::BadRequest(format!("Failed to add links: {}", e)))?;
         }
 
         // Export embedding sets
@@ -3420,19 +3483,21 @@ async fn knowledge_shard(
             counts.embedding_sets = sets.len();
             let sets_json: Vec<serde_json::Value> = sets
                 .iter()
-                .map(|s| serde_json::json!({
-                    "id": s.id,
-                    "name": s.name,
-                    "slug": s.slug,
-                    "description": s.description,
-                    "purpose": s.purpose,
-                    "document_count": s.document_count,
-                    "embedding_count": s.embedding_count,
-                    "is_system": s.is_system,
-                    "keywords": s.keywords,
-                    "model": s.model,
-                    "dimension": s.dimension,
-                }))
+                .map(|s| {
+                    serde_json::json!({
+                        "id": s.id,
+                        "name": s.name,
+                        "slug": s.slug,
+                        "description": s.description,
+                        "purpose": s.purpose,
+                        "document_count": s.document_count,
+                        "embedding_count": s.embedding_count,
+                        "is_system": s.is_system,
+                        "keywords": s.keywords,
+                        "model": s.model,
+                        "dimension": s.dimension,
+                    })
+                })
                 .collect();
             let data = serde_json::to_vec_pretty(&sets_json).unwrap_or_default();
             add_json_file("embedding_sets.json", &data).map_err(|e| {
@@ -3440,7 +3505,12 @@ async fn knowledge_shard(
             })?;
 
             // Export set members
-            let members = state.db.embedding_sets.list_all_members(100000, 0).await.unwrap_or_default();
+            let members = state
+                .db
+                .embedding_sets
+                .list_all_members(100000, 0)
+                .await
+                .unwrap_or_default();
             counts.embedding_set_members = members.len();
             let mut members_jsonl = Vec::new();
             for m in &members {
@@ -3459,20 +3529,27 @@ async fn knowledge_shard(
             })?;
 
             // Export embedding configs
-            let configs = state.db.embedding_sets.list_configs().await.unwrap_or_default();
+            let configs = state
+                .db
+                .embedding_sets
+                .list_configs()
+                .await
+                .unwrap_or_default();
             counts.embedding_configs = configs.len();
             let configs_json: Vec<serde_json::Value> = configs
                 .iter()
-                .map(|c| serde_json::json!({
-                    "id": c.id,
-                    "name": c.name,
-                    "description": c.description,
-                    "model": c.model,
-                    "dimension": c.dimension,
-                    "chunk_size": c.chunk_size,
-                    "chunk_overlap": c.chunk_overlap,
-                    "is_default": c.is_default,
-                }))
+                .map(|c| {
+                    serde_json::json!({
+                        "id": c.id,
+                        "name": c.name,
+                        "description": c.description,
+                        "model": c.model,
+                        "dimension": c.dimension,
+                        "chunk_size": c.chunk_size,
+                        "chunk_overlap": c.chunk_overlap,
+                        "is_default": c.is_default,
+                    })
+                })
                 .collect();
             let data = serde_json::to_vec_pretty(&configs_json).unwrap_or_default();
             add_json_file("embedding_configs.json", &data).map_err(|e| {
@@ -3482,7 +3559,12 @@ async fn knowledge_shard(
 
         // Export embeddings (optional, can be large)
         if components.contains(&"embeddings") {
-            let embeddings = state.db.embeddings.list_all(100000, 0).await.unwrap_or_default();
+            let embeddings = state
+                .db
+                .embeddings
+                .list_all(100000, 0)
+                .await
+                .unwrap_or_default();
             counts.embeddings = embeddings.len();
             let mut embeddings_jsonl = Vec::new();
             for emb in &embeddings {
@@ -3497,9 +3579,8 @@ async fn knowledge_shard(
                 embeddings_jsonl.push(serde_json::to_string(&emb_obj).unwrap_or_default());
             }
             let data = embeddings_jsonl.join("\n").into_bytes();
-            add_json_file("embeddings.jsonl", &data).map_err(|e| {
-                ApiError::BadRequest(format!("Failed to add embeddings: {}", e))
-            })?;
+            add_json_file("embeddings.jsonl", &data)
+                .map_err(|e| ApiError::BadRequest(format!("Failed to add embeddings: {}", e)))?;
         }
 
         // Create manifest (added last)
@@ -3533,10 +3614,7 @@ async fn knowledge_shard(
 
     // Return as downloadable file
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        "application/gzip".parse().unwrap(),
-    );
+    headers.insert(header::CONTENT_TYPE, "application/gzip".parse().unwrap());
     headers.insert(
         header::CONTENT_DISPOSITION,
         format!("attachment; filename=\"{}\"", filename)
@@ -3610,9 +3688,10 @@ async fn knowledge_shard_import(
     let mut tar_reader = Archive::new(decoder);
 
     // Parse included components filter
-    let include_filter: Option<Vec<String>> = body.include.as_ref().map(|s| {
-        s.split(',').map(|c| c.trim().to_lowercase()).collect()
-    });
+    let include_filter: Option<Vec<String>> = body
+        .include
+        .as_ref()
+        .map(|s| s.split(',').map(|c| c.trim().to_lowercase()).collect());
 
     let mut imported = ShardImportCounts::default();
     let mut skipped = ShardImportCounts::default();
@@ -3622,16 +3701,16 @@ async fn knowledge_shard_import(
     // First pass: read all entries into memory for processing
     let mut files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
 
-    for entry_result in tar_reader.entries().map_err(|e| {
-        ApiError::BadRequest(format!("Failed to read shard: {}", e))
-    })? {
-        let mut entry = entry_result.map_err(|e| {
-            ApiError::BadRequest(format!("Failed to read shard entry: {}", e))
-        })?;
+    for entry_result in tar_reader
+        .entries()
+        .map_err(|e| ApiError::BadRequest(format!("Failed to read shard: {}", e)))?
+    {
+        let mut entry = entry_result
+            .map_err(|e| ApiError::BadRequest(format!("Failed to read shard entry: {}", e)))?;
 
-        let path = entry.path().map_err(|e| {
-            ApiError::BadRequest(format!("Invalid path in shard: {}", e))
-        })?;
+        let path = entry
+            .path()
+            .map_err(|e| ApiError::BadRequest(format!("Invalid path in shard: {}", e)))?;
         let filename = path.to_string_lossy().to_string();
 
         let mut contents = Vec::new();
@@ -3669,7 +3748,8 @@ async fn knowledge_shard_import(
 
                 match serde_json::from_str::<serde_json::Value>(line) {
                     Ok(note_json) => {
-                        let content = note_json.get("original_content")
+                        let content = note_json
+                            .get("original_content")
                             .or(note_json.get("content"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
@@ -3681,7 +3761,8 @@ async fn knowledge_shard_import(
                         }
 
                         // Check for existing note by ID
-                        let existing_id = note_json.get("id")
+                        let existing_id = note_json
+                            .get("id")
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok());
 
@@ -3708,45 +3789,68 @@ async fn knowledge_shard_import(
                         if !body.dry_run {
                             let req = CreateNoteRequest {
                                 content,
-                                format: note_json.get("format")
+                                format: note_json
+                                    .get("format")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("markdown")
                                     .to_string(),
-                                source: note_json.get("source")
+                                source: note_json
+                                    .get("source")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("shard-import")
                                     .to_string(),
-                                collection_id: note_json.get("collection_id")
+                                collection_id: note_json
+                                    .get("collection_id")
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok()),
-                                tags: note_json.get("tags")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
+                                tags: note_json.get("tags").and_then(|v| v.as_array()).map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|t| t.as_str().map(String::from))
+                                        .collect::<Vec<_>>()
+                                }),
                             };
 
                             match state.db.notes.insert(req).await {
                                 Ok(new_id) => {
                                     // Update status if specified
-                                    let starred = note_json.get("starred").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    let archived = note_json.get("archived").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let starred = note_json
+                                        .get("starred")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    let archived = note_json
+                                        .get("archived")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
                                     if starred || archived {
                                         let status_req = matric_core::UpdateNoteStatusRequest {
                                             starred: Some(starred),
                                             archived: Some(archived),
                                         };
-                                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                                        let _ =
+                                            state.db.notes.update_status(new_id, status_req).await;
                                     }
 
                                     // Update revised content if available
-                                    if let Some(revised) = note_json.get("revised_content").and_then(|v| v.as_str()) {
+                                    if let Some(revised) =
+                                        note_json.get("revised_content").and_then(|v| v.as_str())
+                                    {
                                         if !revised.is_empty() {
-                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported from shard")).await;
+                                            let _ = state
+                                                .db
+                                                .notes
+                                                .update_revised(
+                                                    new_id,
+                                                    revised,
+                                                    Some("Imported from shard"),
+                                                )
+                                                .await;
                                         }
                                     }
 
                                     // Queue NLP pipeline if not skipping regen
                                     if !body.skip_embedding_regen {
-                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None)
+                                            .await;
                                     }
 
                                     imported.notes += 1;
@@ -3774,19 +3878,30 @@ async fn knowledge_shard_import(
                 Ok(collections) => {
                     for coll in collections {
                         let name = coll.get("name").and_then(|v| v.as_str());
-                        let id = coll.get("id").and_then(|v| v.as_str())
+                        let id = coll
+                            .get("id")
+                            .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok());
 
                         if let (Some(name), Some(_id)) = (name, id) {
                             if !body.dry_run {
-                                match state.db.collections.create(
-                                    name,
-                                    coll.get("description").and_then(|v| v.as_str()),
-                                    coll.get("parent_id").and_then(|v| v.as_str())
-                                        .and_then(|s| Uuid::parse_str(s).ok()),
-                                ).await {
+                                match state
+                                    .db
+                                    .collections
+                                    .create(
+                                        name,
+                                        coll.get("description").and_then(|v| v.as_str()),
+                                        coll.get("parent_id")
+                                            .and_then(|v| v.as_str())
+                                            .and_then(|s| Uuid::parse_str(s).ok()),
+                                    )
+                                    .await
+                                {
                                     Ok(_) => imported.collections += 1,
-                                    Err(e) => errors.push(format!("Failed to import collection {}: {}", name, e)),
+                                    Err(e) => errors.push(format!(
+                                        "Failed to import collection {}: {}",
+                                        name, e
+                                    )),
                                 }
                             } else {
                                 imported.collections += 1;
@@ -3812,20 +3927,35 @@ async fn knowledge_shard_import(
                             if !body.dry_run {
                                 let req = matric_core::CreateTemplateRequest {
                                     name: name.to_string(),
-                                    description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                                    description: tmpl
+                                        .get("description")
+                                        .and_then(|v| v.as_str())
+                                        .map(String::from),
                                     content: content.to_string(),
-                                    format: Some(tmpl.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string()),
-                                    default_tags: tmpl.get("default_tags")
+                                    format: Some(
+                                        tmpl.get("format")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("markdown")
+                                            .to_string(),
+                                    ),
+                                    default_tags: tmpl
+                                        .get("default_tags")
                                         .and_then(|v| v.as_array())
-                                        .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
-                                    collection_id: tmpl.get("collection_id")
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|t| t.as_str().map(String::from))
+                                                .collect::<Vec<_>>()
+                                        }),
+                                    collection_id: tmpl
+                                        .get("collection_id")
                                         .and_then(|v| v.as_str())
                                         .and_then(|s| Uuid::parse_str(s).ok()),
                                 };
 
                                 match state.db.templates.create(req).await {
                                     Ok(_) => imported.templates += 1,
-                                    Err(e) => errors.push(format!("Failed to import template {}: {}", name, e)),
+                                    Err(e) => errors
+                                        .push(format!("Failed to import template {}: {}", name, e)),
                                 }
                             } else {
                                 imported.templates += 1;
@@ -3849,23 +3979,32 @@ async fn knowledge_shard_import(
 
                 match serde_json::from_str::<serde_json::Value>(line) {
                     Ok(link_json) => {
-                        let from_id = link_json.get("from_note_id")
+                        let from_id = link_json
+                            .get("from_note_id")
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok());
-                        let to_id = link_json.get("to_note_id")
+                        let to_id = link_json
+                            .get("to_note_id")
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok());
-                        let kind = link_json.get("kind")
+                        let kind = link_json
+                            .get("kind")
                             .and_then(|v| v.as_str())
                             .unwrap_or("semantic");
-                        let score = link_json.get("score")
+                        let score = link_json
+                            .get("score")
                             .and_then(|v| v.as_f64())
                             .unwrap_or(0.7) as f32;
 
                         if let (Some(from_id), Some(to_id)) = (from_id, to_id) {
                             if !body.dry_run {
                                 let metadata = link_json.get("metadata").cloned();
-                                match state.db.links.create(from_id, to_id, kind, score, metadata).await {
+                                match state
+                                    .db
+                                    .links
+                                    .create(from_id, to_id, kind, score, metadata)
+                                    .await
+                                {
                                     Ok(_) => imported.links += 1,
                                     Err(_) => skipped.links += 1, // Link may already exist
                                 }
@@ -3886,13 +4025,18 @@ async fn knowledge_shard_import(
 
     if should_import("embedding_sets") {
         if files.contains_key("embedding_sets.json") {
-            errors.push("Embedding set import not yet implemented - sets will be regenerated".to_string());
+            errors.push(
+                "Embedding set import not yet implemented - sets will be regenerated".to_string(),
+            );
         }
     }
 
     if should_import("embeddings") {
         if files.contains_key("embeddings.jsonl") {
-            errors.push("Direct embedding import not yet implemented - embeddings will be regenerated".to_string());
+            errors.push(
+                "Direct embedding import not yet implemented - embeddings will be regenerated"
+                    .to_string(),
+            );
         }
     }
 
@@ -4004,13 +4148,11 @@ fn format_size(bytes: u64) -> String {
 }
 
 /// List all knowledge shards in the backup directory.
-async fn list_backups(
-    State(_state): State<AppState>,
-) -> Result<impl IntoResponse, ApiError> {
+async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     use std::fs;
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     let backup_path = std::path::Path::new(&backup_dir);
     if !backup_path.exists() {
@@ -4046,9 +4188,8 @@ async fn list_backups(
                     let modified = meta
                         .modified()
                         .map(|t| {
-                            let duration = t
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default();
+                            let duration =
+                                t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                             chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
                                 .unwrap_or_else(chrono::Utc::now)
                         })
@@ -4138,7 +4279,9 @@ fn extract_manifest_from_shard(path: &std::path::Path) -> Result<ShardManifest, 
         if entry_path.to_string_lossy() == "manifest.json" {
             use std::io::Read;
             let mut contents = String::new();
-            entry.read_to_string(&mut contents).map_err(|e| e.to_string())?;
+            entry
+                .read_to_string(&mut contents)
+                .map_err(|e| e.to_string())?;
             return serde_json::from_str(&contents).map_err(|e| e.to_string());
         }
     }
@@ -4153,8 +4296,8 @@ async fn get_backup_info(
 ) -> Result<impl IntoResponse, ApiError> {
     use std::fs;
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: ensure filename doesn't contain path traversal
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -4163,7 +4306,10 @@ async fn get_backup_info(
 
     let path = std::path::Path::new(&backup_dir).join(&filename);
     if !path.exists() {
-        return Err(ApiError::NotFound(format!("Archive not found: {}", filename)));
+        return Err(ApiError::NotFound(format!(
+            "Archive not found: {}",
+            filename
+        )));
     }
 
     let meta = fs::metadata(&path)
@@ -4182,9 +4328,7 @@ async fn get_backup_info(
     let modified = meta
         .modified()
         .map(|t| {
-            let duration = t
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
+            let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
             chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
                 .unwrap_or_else(chrono::Utc::now)
         })
@@ -4249,8 +4393,8 @@ async fn swap_backup(
     let dry_run = req.dry_run.unwrap_or(false);
     let strategy = req.strategy.as_deref().unwrap_or("wipe");
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: ensure filename doesn't contain path traversal
     if req.filename.contains("..") || req.filename.contains('/') || req.filename.contains('\\') {
@@ -4259,25 +4403,30 @@ async fn swap_backup(
 
     let path = std::path::Path::new(&backup_dir).join(&req.filename);
     if !path.exists() {
-        return Err(ApiError::NotFound(format!("Archive not found: {}", req.filename)));
+        return Err(ApiError::NotFound(format!(
+            "Archive not found: {}",
+            req.filename
+        )));
     }
 
     // Only support knowledge shards for now
     if !req.filename.ends_with(".tar.gz") {
         return Err(ApiError::BadRequest(
-            "Only knowledge shards are supported for swap. Use pg_restore for .sql.gz files.".to_string()
+            "Only knowledge shards are supported for swap. Use pg_restore for .sql.gz files."
+                .to_string(),
         ));
     }
 
     // Read shard file
-    let mut file = File::open(&path)
-        .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
+    let mut file =
+        File::open(&path).map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
     let mut shard_data = Vec::new();
     file.read_to_end(&mut shard_data)
         .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
 
     // Encode as base64 for the import handler
-    let shard_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &shard_data);
+    let shard_base64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &shard_data);
 
     // If strategy is "wipe", purge existing data first
     if strategy == "wipe" && !dry_run {
@@ -4300,7 +4449,8 @@ async fn swap_backup(
         }
 
         // Purge templates
-        let templates: Vec<matric_core::NoteTemplate> = state.db.templates.list().await.unwrap_or_default();
+        let templates: Vec<matric_core::NoteTemplate> =
+            state.db.templates.list().await.unwrap_or_default();
         for tmpl in templates {
             let _ = state.db.templates.delete(tmpl.id).await;
         }
@@ -4321,13 +4471,21 @@ async fn swap_backup(
     Ok(Json(SwapBackupResponse {
         status: result.status.clone(),
         message: if dry_run {
-            format!("Dry run: would restore {} notes, {} collections, {} templates, {} links",
-                result.imported.notes, result.imported.collections,
-                result.imported.templates, result.imported.links)
+            format!(
+                "Dry run: would restore {} notes, {} collections, {} templates, {} links",
+                result.imported.notes,
+                result.imported.collections,
+                result.imported.templates,
+                result.imported.links
+            )
         } else {
-            format!("Restored {} notes, {} collections, {} templates, {} links",
-                result.imported.notes, result.imported.collections,
-                result.imported.templates, result.imported.links)
+            format!(
+                "Restored {} notes, {} collections, {} templates, {} links",
+                result.imported.notes,
+                result.imported.collections,
+                result.imported.templates,
+                result.imported.links
+            )
         },
         stats: Some(result.imported),
         dry_run,
@@ -4345,26 +4503,38 @@ async fn knowledge_shard_import_internal(
     use tar::Archive;
 
     // Decode base64 shard
-    let shard_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &body.shard_base64)
-        .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
+    let shard_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &body.shard_base64,
+    )
+    .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
 
     // Parse tar.gz
     let decoder = GzDecoder::new(&shard_bytes[..]);
     let mut tar_reader = Archive::new(decoder);
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
-    for entry in tar_reader.entries().map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))? {
-        let mut entry = entry.map_err(|e| ApiError::BadRequest(format!("Invalid tar entry: {}", e)))?;
-        let entry_path = entry.path().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    for entry in tar_reader
+        .entries()
+        .map_err(|e| ApiError::BadRequest(format!("Invalid tar: {}", e)))?
+    {
+        let mut entry =
+            entry.map_err(|e| ApiError::BadRequest(format!("Invalid tar entry: {}", e)))?;
+        let entry_path = entry
+            .path()
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
         let name = entry_path.to_string_lossy().to_string();
 
         let mut contents = Vec::new();
-        entry.read_to_end(&mut contents).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+        entry
+            .read_to_end(&mut contents)
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
         files.insert(name, contents);
     }
 
     // Parse manifest
-    let manifest = files.get("manifest.json")
+    let manifest = files
+        .get("manifest.json")
         .and_then(|data| serde_json::from_slice::<ShardManifest>(data).ok());
 
     let mut imported = ShardImportCounts::default();
@@ -4372,7 +4542,10 @@ async fn knowledge_shard_import_internal(
     let mut errors: Vec<String> = Vec::new();
 
     // Determine what to import
-    let include_str = body.include.as_deref().unwrap_or("notes,collections,tags,templates,links");
+    let include_str = body
+        .include
+        .as_deref()
+        .unwrap_or("notes,collections,tags,templates,links");
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
     let should_import = |c: &str| components.contains(&c) || components.contains(&"all");
 
@@ -4383,26 +4556,37 @@ async fn knowledge_shard_import_internal(
         if let Some(notes_data) = files.get("notes.jsonl") {
             let notes_str = String::from_utf8_lossy(notes_data);
             for line in notes_str.lines() {
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 match serde_json::from_str::<serde_json::Value>(line) {
                     Ok(note_json) => {
-                        let original_id = note_json.get("id")
+                        let original_id = note_json
+                            .get("id")
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok());
-                        let content = note_json.get("original_content")
+                        let content = note_json
+                            .get("original_content")
                             .and_then(|v| v.as_str())
                             .unwrap_or_default();
 
-                        if content.is_empty() { continue; }
+                        if content.is_empty() {
+                            continue;
+                        }
 
                         // Check if note exists
                         let exists = if let Some(id) = original_id {
                             state.db.notes.fetch(id).await.is_ok()
-                        } else { false };
+                        } else {
+                            false
+                        };
 
                         if exists {
                             match on_conflict {
-                                ConflictStrategy::Skip => { skipped.notes += 1; continue; }
+                                ConflictStrategy::Skip => {
+                                    skipped.notes += 1;
+                                    continue;
+                                }
                                 ConflictStrategy::Replace => {
                                     if let Some(id) = original_id {
                                         if !body.dry_run {
@@ -4417,34 +4601,55 @@ async fn knowledge_shard_import_internal(
                         if !body.dry_run {
                             let req = CreateNoteRequest {
                                 content: content.to_string(),
-                                format: note_json.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string(),
-                                source: note_json.get("source").and_then(|v| v.as_str()).unwrap_or("import").to_string(),
-                                collection_id: note_json.get("collection_id")
+                                format: note_json
+                                    .get("format")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("markdown")
+                                    .to_string(),
+                                source: note_json
+                                    .get("source")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("import")
+                                    .to_string(),
+                                collection_id: note_json
+                                    .get("collection_id")
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok()),
-                                tags: note_json.get("tags")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect::<Vec<_>>()),
+                                tags: note_json.get("tags").and_then(|v| v.as_array()).map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|t| t.as_str().map(String::from))
+                                        .collect::<Vec<_>>()
+                                }),
                             };
 
                             match state.db.notes.insert(req).await {
                                 Ok(new_id) => {
                                     // Update starred status if present
-                                    if let Some(starred) = note_json.get("starred").and_then(|v| v.as_bool()) {
+                                    if let Some(starred) =
+                                        note_json.get("starred").and_then(|v| v.as_bool())
+                                    {
                                         let status_req = UpdateNoteStatusRequest {
                                             starred: Some(starred),
                                             archived: None,
                                         };
-                                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                                        let _ =
+                                            state.db.notes.update_status(new_id, status_req).await;
                                     }
                                     // Update revised content if available
-                                    if let Some(revised) = note_json.get("revised_content").and_then(|v| v.as_str()) {
+                                    if let Some(revised) =
+                                        note_json.get("revised_content").and_then(|v| v.as_str())
+                                    {
                                         if !revised.is_empty() {
-                                            let _ = state.db.notes.update_revised(new_id, revised, Some("Imported")).await;
+                                            let _ = state
+                                                .db
+                                                .notes
+                                                .update_revised(new_id, revised, Some("Imported"))
+                                                .await;
                                         }
                                     }
                                     if !body.skip_embedding_regen {
-                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None)
+                                            .await;
                                     }
                                     imported.notes += 1;
                                 }
@@ -4467,11 +4672,18 @@ async fn knowledge_shard_import_internal(
                 for coll in collections {
                     if let Some(name) = coll.get("name").and_then(|v| v.as_str()) {
                         if !body.dry_run {
-                            match state.db.collections.create(
-                                name,
-                                coll.get("description").and_then(|v| v.as_str()),
-                                coll.get("parent_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
-                            ).await {
+                            match state
+                                .db
+                                .collections
+                                .create(
+                                    name,
+                                    coll.get("description").and_then(|v| v.as_str()),
+                                    coll.get("parent_id")
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|s| Uuid::parse_str(s).ok()),
+                                )
+                                .await
+                            {
                                 Ok(_) => imported.collections += 1,
                                 Err(_) => skipped.collections += 1,
                             }
@@ -4497,13 +4709,27 @@ async fn knowledge_shard_import_internal(
                         if !body.dry_run {
                             let req = matric_core::CreateTemplateRequest {
                                 name: name.to_string(),
-                                description: tmpl.get("description").and_then(|v| v.as_str()).map(String::from),
+                                description: tmpl
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from),
                                 content: content.to_string(),
-                                format: Some(tmpl.get("format").and_then(|v| v.as_str()).unwrap_or("markdown").to_string()),
-                                default_tags: tmpl.get("default_tags")
+                                format: Some(
+                                    tmpl.get("format")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("markdown")
+                                        .to_string(),
+                                ),
+                                default_tags: tmpl
+                                    .get("default_tags")
                                     .and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect()),
-                                collection_id: tmpl.get("collection_id")
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|t| t.as_str().map(String::from))
+                                            .collect()
+                                    }),
+                                collection_id: tmpl
+                                    .get("collection_id")
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok()),
                             };
@@ -4525,16 +4751,31 @@ async fn knowledge_shard_import_internal(
         if let Some(data) = files.get("links.jsonl") {
             let links_str = String::from_utf8_lossy(data);
             for line in links_str.lines() {
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 if let Ok(link) = serde_json::from_str::<serde_json::Value>(line) {
                     if let (Some(from_id), Some(to_id)) = (
-                        link.get("from_note_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
-                        link.get("to_note_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
+                        link.get("from_note_id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok()),
+                        link.get("to_note_id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| Uuid::parse_str(s).ok()),
                     ) {
                         if !body.dry_run {
-                            let kind = link.get("kind").and_then(|v| v.as_str()).unwrap_or("semantic");
-                            let score = link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
-                            match state.db.links.create(from_id, to_id, kind, score, None).await {
+                            let kind = link
+                                .get("kind")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("semantic");
+                            let score =
+                                link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
+                            match state
+                                .db
+                                .links
+                                .create(from_id, to_id, kind, score, None)
+                                .await
+                            {
                                 Ok(_) => imported.links += 1,
                                 Err(_) => skipped.links += 1,
                             }
@@ -4547,7 +4788,13 @@ async fn knowledge_shard_import_internal(
         }
     }
 
-    let status = if errors.is_empty() { "success" } else if imported.notes > 0 { "partial" } else { "failed" };
+    let status = if errors.is_empty() {
+        "success"
+    } else if imported.notes > 0 {
+        "partial"
+    } else {
+        "failed"
+    };
 
     Ok(ShardImportResponse {
         status: status.to_string(),
@@ -4565,10 +4812,10 @@ async fn knowledge_shard_import_internal(
 
 /// Backup naming prefixes for identification
 mod backup_prefix {
-    pub const AUTO: &str = "auto";           // Automated/scheduled backup
-    pub const SNAPSHOT: &str = "snapshot";   // User-requested snapshot
+    pub const AUTO: &str = "auto"; // Automated/scheduled backup
+    pub const SNAPSHOT: &str = "snapshot"; // User-requested snapshot
     pub const PRERESTORE: &str = "prerestore"; // Auto-created before restore
-    pub const UPLOAD: &str = "upload";       // Uploaded by user
+    pub const UPLOAD: &str = "upload"; // Uploaded by user
 }
 
 /// Metadata for a backup file (stored as .meta.json sidecar file)
@@ -4597,7 +4844,10 @@ impl BackupMetadata {
     /// Create metadata for an automated backup
     fn auto(note_count: Option<i64>, db_size_bytes: Option<i64>) -> Self {
         Self {
-            title: format!("Automated backup {}", chrono::Utc::now().format("%Y-%m-%d %H:%M")),
+            title: format!(
+                "Automated backup {}",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M")
+            ),
             description: Some("Scheduled backup created by matric-backup service".to_string()),
             backup_type: backup_prefix::AUTO.to_string(),
             created_at: chrono::Utc::now(),
@@ -4609,9 +4859,15 @@ impl BackupMetadata {
     }
 
     /// Create metadata for a user snapshot
-    fn snapshot(title: Option<String>, description: Option<String>, note_count: Option<i64>) -> Self {
+    fn snapshot(
+        title: Option<String>,
+        description: Option<String>,
+        note_count: Option<i64>,
+    ) -> Self {
         Self {
-            title: title.unwrap_or_else(|| format!("Snapshot {}", chrono::Utc::now().format("%Y-%m-%d %H:%M"))),
+            title: title.unwrap_or_else(|| {
+                format!("Snapshot {}", chrono::Utc::now().format("%Y-%m-%d %H:%M"))
+            }),
             description,
             backup_type: backup_prefix::SNAPSHOT.to_string(),
             created_at: chrono::Utc::now(),
@@ -4626,13 +4882,18 @@ impl BackupMetadata {
     fn prerestore(restoring_from: &str, note_count: Option<i64>) -> Self {
         Self {
             title: format!("Pre-restore backup"),
-            description: Some(format!("Auto-created before restoring from: {}", restoring_from)),
+            description: Some(format!(
+                "Auto-created before restoring from: {}",
+                restoring_from
+            )),
             backup_type: backup_prefix::PRERESTORE.to_string(),
             created_at: chrono::Utc::now(),
             note_count,
             db_size_bytes: None,
             source: "system".to_string(),
-            extra: [("restoring_from".to_string(), restoring_from.to_string())].into_iter().collect(),
+            extra: [("restoring_from".to_string(), restoring_from.to_string())]
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -4646,15 +4907,24 @@ impl BackupMetadata {
             note_count: None,
             db_size_bytes: None,
             source: "user".to_string(),
-            extra: [("original_filename".to_string(), original_filename.to_string())].into_iter().collect(),
+            extra: [(
+                "original_filename".to_string(),
+                original_filename.to_string(),
+            )]
+            .into_iter()
+            .collect(),
         }
     }
 
     /// Save metadata to sidecar file
     fn save(&self, backup_path: &std::path::Path) -> std::io::Result<()> {
-        let meta_path = backup_path.with_extension(
-            format!("{}.meta.json", backup_path.extension().unwrap_or_default().to_string_lossy())
-        );
+        let meta_path = backup_path.with_extension(format!(
+            "{}.meta.json",
+            backup_path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(&meta_path, json)?;
         Ok(())
@@ -4662,9 +4932,13 @@ impl BackupMetadata {
 
     /// Load metadata from sidecar file
     fn load(backup_path: &std::path::Path) -> Option<Self> {
-        let meta_path = backup_path.with_extension(
-            format!("{}.meta.json", backup_path.extension().unwrap_or_default().to_string_lossy())
-        );
+        let meta_path = backup_path.with_extension(format!(
+            "{}.meta.json",
+            backup_path
+                .extension()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ));
         std::fs::read_to_string(&meta_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -4717,14 +4991,19 @@ async fn database_backup_download(
     use std::io::Write;
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(&output.stdout)
+    encoder
+        .write_all(&output.stdout)
         .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
-    let compressed = encoder.finish()
+    let compressed = encoder
+        .finish()
         .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
 
     let headers = [
         (header::CONTENT_TYPE, "application/gzip".to_string()),
-        (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename)),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename),
+        ),
     ];
 
     Ok((headers, compressed))
@@ -4735,8 +5014,8 @@ async fn database_backup_snapshot(
     State(state): State<AppState>,
     Json(req): Json<SnapshotRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Ensure backup directory exists
     std::fs::create_dir_all(&backup_dir)
@@ -4746,21 +5025,37 @@ async fn database_backup_snapshot(
     let ts_str = timestamp.format("%Y%m%d_%H%M%S");
 
     // Get note count for metadata
-    let note_count = state.db.notes
-        .list(ListNotesRequest { limit: Some(1), ..Default::default() })
+    let note_count = state
+        .db
+        .notes
+        .list(ListNotesRequest {
+            limit: Some(1),
+            ..Default::default()
+        })
         .await
         .map(|r| r.total)
         .ok();
 
     // Sanitize optional name
-    let name_suffix = req.name
-        .map(|n| format!("_{}", n.chars()
-            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-            .take(32)
-            .collect::<String>()))
+    let name_suffix = req
+        .name
+        .map(|n| {
+            format!(
+                "_{}",
+                n.chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .take(32)
+                    .collect::<String>()
+            )
+        })
         .unwrap_or_default();
 
-    let filename = format!("{}_database_{}{}.sql.gz", backup_prefix::SNAPSHOT, ts_str, name_suffix);
+    let filename = format!(
+        "{}_database_{}{}.sql.gz",
+        backup_prefix::SNAPSHOT,
+        ts_str,
+        name_suffix
+    );
     let path = std::path::Path::new(&backup_dir).join(&filename);
 
     // Run pg_dump
@@ -4783,14 +5078,14 @@ async fn database_backup_snapshot(
     let file = std::fs::File::create(&path)
         .map_err(|e| ApiError::BadRequest(format!("Cannot create file: {}", e)))?;
     let mut encoder = GzEncoder::new(file, Compression::default());
-    encoder.write_all(&output.stdout)
+    encoder
+        .write_all(&output.stdout)
         .map_err(|e| ApiError::BadRequest(format!("Write failed: {}", e)))?;
-    encoder.finish()
+    encoder
+        .finish()
         .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
 
-    let size = std::fs::metadata(&path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
     // Save metadata sidecar file
     let metadata = BackupMetadata::snapshot(req.title, req.description, note_count);
@@ -4826,8 +5121,8 @@ async fn database_backup_upload(
     State(_state): State<AppState>,
     Json(req): Json<DatabaseUploadRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     std::fs::create_dir_all(&backup_dir)
         .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
@@ -4840,18 +5135,33 @@ async fn database_backup_upload(
     let ts_str = timestamp.format("%Y%m%d_%H%M%S");
 
     // Create filename with upload prefix
-    let original_filename = req.original_filename.clone().unwrap_or_else(|| "unknown".to_string());
-    let orig_suffix = req.original_filename
+    let original_filename = req
+        .original_filename
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let orig_suffix = req
+        .original_filename
         .map(|n| {
-            let sanitized: String = n.chars()
+            let sanitized: String = n
+                .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
                 .take(50)
                 .collect();
-            format!("_{}", sanitized.trim_end_matches(".sql.gz").trim_end_matches(".sql"))
+            format!(
+                "_{}",
+                sanitized
+                    .trim_end_matches(".sql.gz")
+                    .trim_end_matches(".sql")
+            )
         })
         .unwrap_or_default();
 
-    let filename = format!("{}_database_{}{}.sql.gz", backup_prefix::UPLOAD, ts_str, orig_suffix);
+    let filename = format!(
+        "{}_database_{}{}.sql.gz",
+        backup_prefix::UPLOAD,
+        ts_str,
+        orig_suffix
+    );
     let path = std::path::Path::new(&backup_dir).join(&filename);
 
     // Write file
@@ -4901,8 +5211,8 @@ async fn database_backup_restore(
     State(state): State<AppState>,
     Json(req): Json<DatabaseRestoreRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: prevent path traversal
     if req.filename.contains("..") || req.filename.contains('/') || req.filename.contains('\\') {
@@ -4911,17 +5221,27 @@ async fn database_backup_restore(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&req.filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!("Backup not found: {}", req.filename)));
+        return Err(ApiError::NotFound(format!(
+            "Backup not found: {}",
+            req.filename
+        )));
     }
 
     // Must be a .sql.gz or .sql file
     if !req.filename.ends_with(".sql.gz") && !req.filename.ends_with(".sql") {
-        return Err(ApiError::BadRequest("Only .sql.gz or .sql files can be restored".to_string()));
+        return Err(ApiError::BadRequest(
+            "Only .sql.gz or .sql files can be restored".to_string(),
+        ));
     }
 
     // Get current note count for metadata
-    let note_count = state.db.notes
-        .list(ListNotesRequest { limit: Some(1), ..Default::default() })
+    let note_count = state
+        .db
+        .notes
+        .list(ListNotesRequest {
+            limit: Some(1),
+            ..Default::default()
+        })
         .await
         .map(|r| r.total)
         .ok();
@@ -4929,7 +5249,11 @@ async fn database_backup_restore(
     // Step 1: Create pre-restore snapshot
     let prerestore_filename = if !req.skip_snapshot {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let filename = format!("{}_database_{}.sql.gz", backup_prefix::PRERESTORE, timestamp);
+        let filename = format!(
+            "{}_database_{}.sql.gz",
+            backup_prefix::PRERESTORE,
+            timestamp
+        );
         let prerestore_path = std::path::Path::new(&backup_dir).join(&filename);
 
         let output = std::process::Command::new("pg_dump")
@@ -4971,7 +5295,8 @@ async fn database_backup_restore(
             .map_err(|e| ApiError::BadRequest(format!("Cannot open backup: {}", e)))?;
         let mut decoder = GzDecoder::new(file);
         let mut content = String::new();
-        decoder.read_to_string(&mut content)
+        decoder
+            .read_to_string(&mut content)
             .map_err(|e| ApiError::BadRequest(format!("Cannot decompress: {}", e)))?;
         content
     } else {
@@ -5005,7 +5330,8 @@ END $$;
         let _ = stdin.write_all(sql_content.as_bytes());
     }
 
-    let output = child.wait_with_output()
+    let output = child
+        .wait_with_output()
         .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
 
     let reconnect_delay_ms = 2000; // 2 seconds for DB to stabilize
@@ -5015,7 +5341,15 @@ END $$;
 
     // Try to verify connection by doing a simple query
     // The connection pool should auto-reconnect
-    let db_ok = state.db.notes.list(ListNotesRequest { limit: Some(1), ..Default::default() }).await.is_ok();
+    let db_ok = state
+        .db
+        .notes
+        .list(ListNotesRequest {
+            limit: Some(1),
+            ..Default::default()
+        })
+        .await
+        .is_ok();
 
     let success = output.status.success() && db_ok;
 
@@ -5047,8 +5381,8 @@ async fn knowledge_archive_download(
     use axum::http::HeaderValue;
     use tar::Builder;
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: prevent path traversal
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -5057,7 +5391,10 @@ async fn knowledge_archive_download(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+        return Err(ApiError::NotFound(format!(
+            "Backup not found: {}",
+            filename
+        )));
     }
 
     // Read backup file
@@ -5115,19 +5452,32 @@ async fn knowledge_archive_download(
         meta_header.set_mtime(chrono::Utc::now().timestamp() as u64);
         meta_header.set_cksum();
         tar.append_data(&mut meta_header, "metadata.json", metadata_bytes)
-            .map_err(|e| ApiError::BadRequest(format!("Failed to add metadata to archive: {}", e)))?;
+            .map_err(|e| {
+                ApiError::BadRequest(format!("Failed to add metadata to archive: {}", e))
+            })?;
 
         tar.finish()
             .map_err(|e| ApiError::BadRequest(format!("Failed to finalize archive: {}", e)))?;
     }
 
     // Generate archive filename
-    let archive_name = format!("{}.archive", filename.trim_end_matches(".sql.gz").trim_end_matches(".tar.gz"));
+    let archive_name = format!(
+        "{}.archive",
+        filename
+            .trim_end_matches(".sql.gz")
+            .trim_end_matches(".tar.gz")
+    );
     let content_disposition = format!("attachment; filename=\"{}\"", archive_name);
 
     let headers = [
-        (header::CONTENT_TYPE, HeaderValue::from_static("application/x-tar")),
-        (header::CONTENT_DISPOSITION, HeaderValue::from_str(&content_disposition).unwrap()),
+        (
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/x-tar"),
+        ),
+        (
+            header::CONTENT_DISPOSITION,
+            HeaderValue::from_str(&content_disposition).unwrap(),
+        ),
     ];
 
     Ok((StatusCode::OK, headers, tar_data))
@@ -5139,8 +5489,8 @@ async fn knowledge_archive_upload(
 ) -> Result<impl IntoResponse, ApiError> {
     use tar::Archive;
 
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Ensure backup directory exists
     std::fs::create_dir_all(&backup_dir)
@@ -5150,20 +5500,27 @@ async fn knowledge_archive_upload(
     let mut original_filename: Option<String> = None;
 
     // Read the multipart upload
-    while let Some(field) = multipart.next_field().await
+    while let Some(field) = multipart
+        .next_field()
+        .await
         .map_err(|e| ApiError::BadRequest(format!("Failed to read upload: {}", e)))?
     {
         if field.name() == Some("file") || field.name() == Some("archive") {
             original_filename = field.file_name().map(|s| s.to_string());
-            archive_data = Some(field.bytes().await
-                .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
-                .to_vec());
+            archive_data = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
+                    .to_vec(),
+            );
             break;
         }
     }
 
-    let archive_data = archive_data
-        .ok_or_else(|| ApiError::BadRequest("No file uploaded. Use field name 'file' or 'archive'.".to_string()))?;
+    let archive_data = archive_data.ok_or_else(|| {
+        ApiError::BadRequest("No file uploaded. Use field name 'file' or 'archive'.".to_string())
+    })?;
 
     // Parse the tar archive
     let mut tar_reader = Archive::new(archive_data.as_slice());
@@ -5172,12 +5529,14 @@ async fn knowledge_archive_upload(
     let mut backup_data: Option<Vec<u8>> = None;
     let mut metadata: Option<BackupMetadata> = None;
 
-    for entry in tar_reader.entries()
+    for entry in tar_reader
+        .entries()
         .map_err(|e| ApiError::BadRequest(format!("Invalid tar archive: {}", e)))?
     {
-        let mut entry = entry
-            .map_err(|e| ApiError::BadRequest(format!("Failed to read tar entry: {}", e)))?;
-        let path = entry.path()
+        let mut entry =
+            entry.map_err(|e| ApiError::BadRequest(format!("Failed to read tar entry: {}", e)))?;
+        let path = entry
+            .path()
             .map_err(|e| ApiError::BadRequest(format!("Invalid path in archive: {}", e)))?
             .to_string_lossy()
             .to_string();
@@ -5194,13 +5553,21 @@ async fn knowledge_archive_upload(
         }
     }
 
-    let backup_filename = backup_filename
-        .ok_or_else(|| ApiError::BadRequest("No backup file found in archive. Expected .sql.gz or .tar.gz file.".to_string()))?;
+    let backup_filename = backup_filename.ok_or_else(|| {
+        ApiError::BadRequest(
+            "No backup file found in archive. Expected .sql.gz or .tar.gz file.".to_string(),
+        )
+    })?;
     let backup_data = backup_data.unwrap();
 
     // Security: prevent overwriting with path traversal
-    if backup_filename.contains("..") || backup_filename.contains('/') || backup_filename.contains('\\') {
-        return Err(ApiError::BadRequest("Invalid filename in archive".to_string()));
+    if backup_filename.contains("..")
+        || backup_filename.contains('/')
+        || backup_filename.contains('\\')
+    {
+        return Err(ApiError::BadRequest(
+            "Invalid filename in archive".to_string(),
+        ));
     }
 
     // Rename with upload prefix if it doesn't have a recognized prefix
@@ -5228,7 +5595,8 @@ async fn knowledge_archive_upload(
             original_filename.as_deref().unwrap_or("unknown.archive"),
         )
     });
-    final_metadata.save(&backup_path)
+    final_metadata
+        .save(&backup_path)
         .map_err(|e| ApiError::BadRequest(format!("Failed to write metadata: {}", e)))?;
 
     let size_bytes = backup_data.len() as u64;
@@ -5262,11 +5630,9 @@ struct UpdateMetadataRequest {
 }
 
 /// Get metadata for a specific backup file.
-async fn get_backup_metadata(
-    Path(filename): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoResponse, ApiError> {
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: prevent path traversal
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -5275,7 +5641,10 @@ async fn get_backup_metadata(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+        return Err(ApiError::NotFound(format!(
+            "Backup not found: {}",
+            filename
+        )));
     }
 
     // Try to load metadata from sidecar file
@@ -5314,8 +5683,8 @@ async fn update_backup_metadata(
     Path(filename): Path<String>,
     Json(req): Json<UpdateMetadataRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let backup_dir = std::env::var("BACKUP_DEST")
-        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
     // Security: prevent path traversal
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -5324,7 +5693,10 @@ async fn update_backup_metadata(
 
     let backup_path = std::path::Path::new(&backup_dir).join(&filename);
     if !backup_path.exists() {
-        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+        return Err(ApiError::NotFound(format!(
+            "Backup not found: {}",
+            filename
+        )));
     }
 
     // Determine backup type from filename prefix
@@ -5341,21 +5713,19 @@ async fn update_backup_metadata(
     };
 
     // Load existing metadata or create new
-    let mut metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| {
-        BackupMetadata {
-            title: filename.clone(),
-            description: None,
-            backup_type: backup_type.to_string(),
-            created_at: std::fs::metadata(&backup_path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(|t| chrono::DateTime::from(t))
-                .unwrap_or_else(chrono::Utc::now),
-            note_count: None,
-            db_size_bytes: None,
-            source: "user".to_string(),
-            extra: Default::default(),
-        }
+    let mut metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| BackupMetadata {
+        title: filename.clone(),
+        description: None,
+        backup_type: backup_type.to_string(),
+        created_at: std::fs::metadata(&backup_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(|t| chrono::DateTime::from(t))
+            .unwrap_or_else(chrono::Utc::now),
+        note_count: None,
+        db_size_bytes: None,
+        source: "user".to_string(),
+        extra: Default::default(),
     });
 
     // Update fields if provided
@@ -5367,7 +5737,8 @@ async fn update_backup_metadata(
     }
 
     // Save updated metadata
-    metadata.save(&backup_path)
+    metadata
+        .save(&backup_path)
         .map_err(|e| ApiError::BadRequest(format!("Failed to save metadata: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -5462,14 +5833,18 @@ async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse,
     use matric_core::TemplateRepository;
 
     // Get summary counts
-    let notes_req = ListNotesRequest { limit: Some(1), ..Default::default() };
+    let notes_req = ListNotesRequest {
+        limit: Some(1),
+        ..Default::default()
+    };
     let notes_resp = state.db.notes.list(notes_req).await?;
 
     let _links = state.db.links.list_all(1, 0).await.unwrap_or_default();
     let link_count = state.db.links.count().await.unwrap_or(0);
     let collections = state.db.collections.list(None).await.unwrap_or_default();
     let tags = state.db.tags.list().await.unwrap_or_default();
-    let templates: Vec<matric_core::NoteTemplate> = state.db.templates.list().await.unwrap_or_default();
+    let templates: Vec<matric_core::NoteTemplate> =
+        state.db.templates.list().await.unwrap_or_default();
 
     // Get embedding set info
     let embedding_sets = state.db.embedding_sets.list().await.unwrap_or_default();
@@ -5513,25 +5888,29 @@ async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse,
         min_inference_ram_gb: min_ram_gb,
         recommended_ram_gb,
         gpu_vram_needed_gb: embedding_model_size_gb + 1.0, // Model + workspace
-        gpu_required: false, // Ollama can run on CPU (slower)
+        gpu_required: false,                               // Ollama can run on CPU (slower)
         notes: vec![
             // Storage explanation
-            format!("Vector storage: {} ({} embeddings × {} dimensions × 4 bytes/float)",
-                format_size(total_vector_bytes as u64), total_embeddings, dimension),
-
+            format!(
+                "Vector storage: {} ({} embeddings × {} dimensions × 4 bytes/float)",
+                format_size(total_vector_bytes as u64),
+                total_embeddings,
+                dimension
+            ),
             // GPU role - embedding GENERATION
             "GPU usage: EMBEDDING GENERATION via Ollama (runs the embedding model)".to_string(),
-            format!("  └─ With GPU: ~{}MB VRAM for nomic-embed-text + workspace",
-                (embedding_model_size_gb * 1024.0) as i64),
+            format!(
+                "  └─ With GPU: ~{}MB VRAM for nomic-embed-text + workspace",
+                (embedding_model_size_gb * 1024.0) as i64
+            ),
             "  └─ Without GPU: Falls back to CPU (functional but slower)".to_string(),
-
             // CPU role - vector SEARCH
             "CPU usage: VECTOR SEARCH via pgvector (runs in PostgreSQL)".to_string(),
             "  └─ HNSW index traversal and cosine similarity are CPU-bound".to_string(),
             "  └─ More RAM = more vectors cached = faster search performance".to_string(),
-
             // Practical summary
-            "Practical: GPU speeds up creating/updating notes; all searches use CPU/RAM".to_string(),
+            "Practical: GPU speeds up creating/updating notes; all searches use CPU/RAM"
+                .to_string(),
         ],
     };
 
@@ -5556,7 +5935,8 @@ async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
     let db_size = get_db_size_via_psql("pg_database_size(current_database())").unwrap_or(0);
     let embedding_size = get_db_size_via_psql("pg_total_relation_size('embedding')").unwrap_or(0);
     let notes_size = get_db_size_via_psql("pg_total_relation_size('note')").unwrap_or(0);
-    let fts_size = get_db_size_via_psql("pg_total_relation_size('note_revised_current')").unwrap_or(0);
+    let fts_size =
+        get_db_size_via_psql("pg_total_relation_size('note_revised_current')").unwrap_or(0);
 
     // Estimate index size as 20% of table size (rough heuristic)
     let embedding_index_size = embedding_size / 5;
@@ -5579,12 +5959,16 @@ async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
 fn get_db_size_via_psql(expr: &str) -> Option<i64> {
     let output = std::process::Command::new("psql")
         .args([
-            "-U", "matric",
-            "-h", "localhost",
-            "-d", "matric",
-            "-t",  // Tuples only (no header)
-            "-A",  // Unaligned output
-            "-c", &format!("SELECT {}", expr),
+            "-U",
+            "matric",
+            "-h",
+            "localhost",
+            "-d",
+            "matric",
+            "-t", // Tuples only (no header)
+            "-A", // Unaligned output
+            "-c",
+            &format!("SELECT {}", expr),
         ])
         .env("PGPASSWORD", "matric")
         .output()
@@ -5705,7 +6089,10 @@ mod tests {
             "dry_run": true
         }"#;
         let body: BackupTriggerBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.destinations, Some(vec!["local".to_string(), "s3".to_string()]));
+        assert_eq!(
+            body.destinations,
+            Some(vec!["local".to_string(), "s3".to_string()])
+        );
         assert!(body.dry_run);
     }
 
@@ -5796,7 +6183,10 @@ mod tests {
         assert_eq!(note.revised_content, Some("Enhanced content".to_string()));
         assert_eq!(note.format, Some("markdown".to_string()));
         assert_eq!(note.starred, Some(true));
-        assert_eq!(note.tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+        assert_eq!(
+            note.tags,
+            Some(vec!["tag1".to_string(), "tag2".to_string()])
+        );
     }
 
     #[test]

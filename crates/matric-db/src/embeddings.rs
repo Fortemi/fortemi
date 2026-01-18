@@ -202,7 +202,6 @@ impl PgEmbeddingRepository {
         Ok(row.get("count"))
     }
 
-
     /// Find similar embeddings within a specific embedding set.
     pub async fn find_similar_in_set(
         &self,

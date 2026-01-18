@@ -15,7 +15,8 @@ use matric_core::{
 pub const DEFAULT_EMBEDDING_SET_ID: Uuid = Uuid::from_u128(0x00000000_0000_0000_0000_000000000001);
 
 /// Well-known UUID for the default embedding config
-pub const DEFAULT_EMBEDDING_CONFIG_ID: Uuid = Uuid::from_u128(0x00000000_0000_0000_0000_000000000001);
+pub const DEFAULT_EMBEDDING_CONFIG_ID: Uuid =
+    Uuid::from_u128(0x00000000_0000_0000_0000_000000000001);
 
 /// PostgreSQL implementation of embedding set repository.
 pub struct PgEmbeddingSetRepository {
@@ -169,7 +170,9 @@ impl PgEmbeddingSetRepository {
         let agent_metadata_json = serde_json::to_value(&req.agent_metadata)
             .map_err(|e| Error::Internal(e.to_string()))?;
 
-        let config_id = req.embedding_config_id.or(Some(DEFAULT_EMBEDDING_CONFIG_ID));
+        let config_id = req
+            .embedding_config_id
+            .or(Some(DEFAULT_EMBEDDING_CONFIG_ID));
 
         sqlx::query(
             r#"
@@ -208,9 +211,10 @@ impl PgEmbeddingSetRepository {
     /// Update an embedding set.
     pub async fn update(&self, slug: &str, req: UpdateEmbeddingSetRequest) -> Result<EmbeddingSet> {
         // First check if it exists and is not a system set (for certain updates)
-        let existing = self.get_by_slug(slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", slug))
-        })?;
+        let existing = self
+            .get_by_slug(slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
 
         let mut updates = Vec::new();
         let mut params: Vec<Box<dyn std::any::Any + Send + Sync>> = Vec::new();
@@ -283,13 +287,16 @@ impl PgEmbeddingSetRepository {
         }
 
         if let Some(criteria) = &req.criteria {
-            let json = serde_json::to_value(criteria).map_err(|e| Error::Internal(e.to_string()))?;
-            sqlx::query("UPDATE embedding_set SET criteria = $1, updated_at = NOW() WHERE slug = $2")
-                .bind(&json)
-                .bind(slug)
-                .execute(&self.pool)
-                .await
-                .map_err(Error::Database)?;
+            let json =
+                serde_json::to_value(criteria).map_err(|e| Error::Internal(e.to_string()))?;
+            sqlx::query(
+                "UPDATE embedding_set SET criteria = $1, updated_at = NOW() WHERE slug = $2",
+            )
+            .bind(&json)
+            .bind(slug)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
         }
 
         if let Some(agent_metadata) = &req.agent_metadata {
@@ -337,12 +344,14 @@ impl PgEmbeddingSetRepository {
         }
 
         if let Some(purpose) = &req.purpose {
-            sqlx::query("UPDATE embedding_set SET purpose = $1, updated_at = NOW() WHERE slug = $2")
-                .bind(purpose)
-                .bind(slug)
-                .execute(&self.pool)
-                .await
-                .map_err(Error::Database)?;
+            sqlx::query(
+                "UPDATE embedding_set SET purpose = $1, updated_at = NOW() WHERE slug = $2",
+            )
+            .bind(purpose)
+            .bind(slug)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
         }
 
         if let Some(usage_hints) = &req.usage_hints {
@@ -411,9 +420,10 @@ impl PgEmbeddingSetRepository {
 
     /// Delete an embedding set (not allowed for system sets).
     pub async fn delete(&self, slug: &str) -> Result<()> {
-        let existing = self.get_by_slug(slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", slug))
-        })?;
+        let existing = self
+            .get_by_slug(slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
 
         if existing.is_system {
             return Err(Error::InvalidInput(
@@ -441,9 +451,10 @@ impl PgEmbeddingSetRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<EmbeddingSetMember>> {
-        let set = self.get_by_slug(set_slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", set_slug))
-        })?;
+        let set = self
+            .get_by_slug(set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         let rows = sqlx::query(
             r#"
@@ -477,9 +488,10 @@ impl PgEmbeddingSetRepository {
 
     /// Add notes to an embedding set.
     pub async fn add_members(&self, set_slug: &str, req: AddMembersRequest) -> Result<i64> {
-        let set = self.get_by_slug(set_slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", set_slug))
-        })?;
+        let set = self
+            .get_by_slug(set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         let mut count = 0i64;
         for note_id in &req.note_ids {
@@ -515,9 +527,10 @@ impl PgEmbeddingSetRepository {
 
     /// Remove a note from an embedding set.
     pub async fn remove_member(&self, set_slug: &str, note_id: Uuid) -> Result<bool> {
-        let set = self.get_by_slug(set_slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", set_slug))
-        })?;
+        let set = self
+            .get_by_slug(set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         let result = sqlx::query(
             "DELETE FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
@@ -561,9 +574,10 @@ impl PgEmbeddingSetRepository {
 
     /// Find notes matching the criteria of an embedding set.
     pub async fn find_matching_notes(&self, set_id: Uuid, limit: i64) -> Result<Vec<Uuid>> {
-        let set = self.get_by_id(set_id).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", set_id))
-        })?;
+        let set = self
+            .get_by_id(set_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
 
         let criteria = &set.criteria;
 
@@ -639,9 +653,10 @@ impl PgEmbeddingSetRepository {
 
     /// Refresh an embedding set by re-evaluating criteria.
     pub async fn refresh(&self, set_slug: &str) -> Result<i64> {
-        let set = self.get_by_slug(set_slug).await?.ok_or_else(|| {
-            Error::NotFound(format!("Embedding set not found: {}", set_slug))
-        })?;
+        let set = self
+            .get_by_slug(set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         if set.mode == EmbeddingSetMode::Manual {
             return Ok(0); // Manual sets don't auto-refresh
@@ -804,15 +819,17 @@ impl PgEmbeddingSetRepository {
     /// Get all embedding set IDs that a note is a member of.
     /// Used to track which sets need stats updates after note deletion.
     pub async fn get_sets_for_note(&self, note_id: Uuid) -> Result<Vec<Uuid>> {
-        let rows = sqlx::query(
-            "SELECT embedding_set_id FROM embedding_set_member WHERE note_id = $1",
-        )
-        .bind(note_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let rows =
+            sqlx::query("SELECT embedding_set_id FROM embedding_set_member WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(Error::Database)?;
 
-        Ok(rows.into_iter().map(|r| r.get("embedding_set_id")).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| r.get("embedding_set_id"))
+            .collect())
     }
 
     /// Refresh statistics for an embedding set.
@@ -832,7 +849,11 @@ impl PgEmbeddingSetRepository {
     // =========================================================================
 
     /// Export all embedding set members (for backup).
-    pub async fn list_all_members(&self, limit: i64, offset: i64) -> Result<Vec<EmbeddingSetMember>> {
+    pub async fn list_all_members(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<EmbeddingSetMember>> {
         let rows = sqlx::query(
             r#"
             SELECT embedding_set_id, note_id, membership_type, added_at, added_by

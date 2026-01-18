@@ -47,7 +47,9 @@ pub use matric_core::*;
 
 // Re-export repository implementations
 pub use collections::PgCollectionRepository;
-pub use embedding_sets::{PgEmbeddingSetRepository, DEFAULT_EMBEDDING_CONFIG_ID, DEFAULT_EMBEDDING_SET_ID};
+pub use embedding_sets::{
+    PgEmbeddingSetRepository, DEFAULT_EMBEDDING_CONFIG_ID, DEFAULT_EMBEDDING_SET_ID,
+};
 pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
 pub use jobs::PgJobRepository;
 pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};

@@ -1218,8 +1218,15 @@ mod tests {
     #[test]
     fn test_embedding_set_job_types_priority() {
         // Embedding set jobs should have lower priority (background tasks)
-        assert!(JobType::Embedding.default_priority() > JobType::CreateEmbeddingSet.default_priority());
-        assert!(JobType::Embedding.default_priority() > JobType::RefreshEmbeddingSet.default_priority());
-        assert!(JobType::BuildSetIndex.default_priority() > JobType::CreateEmbeddingSet.default_priority());
+        assert!(
+            JobType::Embedding.default_priority() > JobType::CreateEmbeddingSet.default_priority()
+        );
+        assert!(
+            JobType::Embedding.default_priority() > JobType::RefreshEmbeddingSet.default_priority()
+        );
+        assert!(
+            JobType::BuildSetIndex.default_priority()
+                > JobType::CreateEmbeddingSet.default_priority()
+        );
     }
 }
