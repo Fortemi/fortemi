@@ -31,5 +31,8 @@ sqlx.workspace = true
 # HTTP client (for error type compatibility)
 reqwest.workspace = true
 
+# Tokenization
+tiktoken-rs = "0.5"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

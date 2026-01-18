@@ -1,0 +1,347 @@
+# SKOS Hierarchical Tagging System
+
+Matric Memory implements a full W3C SKOS-compliant hierarchical tagging system that automatically manages concept tags for all notes. This document covers the architecture, API, and usage patterns.
+
+## Quick Start: Tag Formats
+
+### Flat Path Format (Recommended)
+
+The simplest way to use tags is with hierarchical paths using `/` separator:
+
+```
+# Simple tags
+archive
+reviewed
+important
+
+# Hierarchical tags (max 5 levels)
+programming/rust
+ai/ml/transformers
+projects/matric/features/search
+topics/computer-science/databases/postgres
+```
+
+These paths are automatically converted to proper SKOS concepts with:
+- **Broader/narrower relationships** created from the hierarchy
+- **Auto-created concepts** for each path component
+- **Full SKOS compliance** behind the scenes
+
+### Examples in API/MCP
+
+```json
+// Creating a note with hierarchical tags
+{
+  "content": "Learning about Rust ownership...",
+  "tags": ["programming/rust", "learning", "memory-management"]
+}
+
+// Setting tags on a note
+{
+  "tags": ["ai/ml/deep-learning", "projects/research"]
+}
+```
+
+### Long Form (SKOS YAML)
+
+For advanced use cases requiring full SKOS properties:
+
+```yaml
+pref_label: Machine Learning
+alt_labels:
+  - ML
+  - machine-learning
+definition: A subset of AI that enables systems to learn from data
+scope_note: Use for supervised, unsupervised, and reinforcement learning
+broader:
+  - artificial-intelligence
+related:
+  - deep-learning
+  - neural-networks
+facet_type: personality
+facet_domain: computer-science
+```
+
+---
+
+## Overview
+
+The SKOS (Simple Knowledge Organization System) tagging system replaces the legacy flat tag system with a rich, semantically-aware hierarchical structure. Key features include:
+
+- **W3C SKOS Compliance**: Full support for concept schemes, concepts, labels, semantic relations, and mapping relations
+- **Automatic AI Tagging**: Notes are automatically tagged with relevant concepts during the NLP pipeline
+- **Hierarchical Relationships**: Broader/narrower/related semantic relations for concept organization
+- **PMEST Faceted Classification**: Built-in facets for type, source, domain, status, and scope
+- **Anti-pattern Detection**: Automatic warnings for poor tagging practices
+- **MCP Tools**: Full MCP integration for agentic access
+
+## Architecture
+
+### Database Schema
+
+The SKOS schema consists of the following core tables:
+
+```sql
+-- Concept Schemes (namespaces/vocabularies)
+skos_concept_scheme
+  ├── id (UUID, PK)
+  ├── notation (unique identifier)
+  ├── title
+  ├── description
+  └── is_active
+
+-- Concepts (the actual tags)
+skos_concept
+  ├── id (UUID, PK)
+  ├── scheme_id (FK)
+  ├── notation (auto-generated if null)
+  ├── status (candidate, controlled, deprecated)
+  ├── is_top_concept
+  ├── facet_type, facet_source, facet_domain, facet_scope
+  ├── definition, scope_note
+  └── antipatterns (detected issues)
+
+-- Labels (pref, alt, hidden)
+skos_concept_label
+  ├── concept_id (FK)
+  ├── label_type (pref_label, alt_label, hidden_label)
+  ├── value
+  └── language
+
+-- Semantic Relations (broader, narrower, related)
+skos_semantic_relation
+  ├── from_concept_id (FK)
+  ├── to_concept_id (FK)
+  └── relation_type (broader, narrower, related)
+
+-- Note Tagging (links notes to concepts)
+note_skos_concept
+  ├── note_id (FK)
+  ├── concept_id (FK)
+  ├── source (api, ai_auto, import)
+  ├── confidence
+  ├── relevance_score
+  └── is_primary
+```
+
+### Validation Rules (ANSI/NISO Z39.19 Compliant)
+
+The system enforces these validation rules:
+
+| Rule | Limit | Description |
+|------|-------|-------------|
+| Max Depth | 5 levels | Maximum hierarchy depth |
+| Max Breadth | 10 children | Maximum children per concept |
+| Max Polyhierarchy | 3 parents | Maximum broader concepts |
+| Literary Warrant | 3+ notes | Notes needed before "controlled" status |
+
+### Anti-Pattern Detection
+
+The system automatically detects and warns about these anti-patterns:
+
+- **Over-Nesting** (`over_nesting`): Hierarchy deeper than 4 levels
+- **Meta Tags** (`meta_tag`): Generic tags like "important", "todo", "remember"
+- **Orphan Tags** (`orphan`): Tags with no associated notes
+- **Synonym Sprawl** (`synonym_sprawl`): Similar tags that should be consolidated
+- **Mixed Hierarchy** (`mixed_hierarchy`): Tags mixing unrelated domains
+
+## API Reference
+
+### Concept Schemes
+
+```
+GET    /api/v1/concepts/schemes           List all schemes
+POST   /api/v1/concepts/schemes           Create a new scheme
+GET    /api/v1/concepts/schemes/:id       Get scheme by ID
+PATCH  /api/v1/concepts/schemes/:id       Update a scheme
+GET    /api/v1/concepts/schemes/:id/top-concepts  Get top-level concepts
+```
+
+### Concepts
+
+```
+GET    /api/v1/concepts                   Search concepts
+POST   /api/v1/concepts                   Create a concept
+GET    /api/v1/concepts/autocomplete      Autocomplete search
+GET    /api/v1/concepts/:id               Get concept by ID
+GET    /api/v1/concepts/:id/full          Get concept with all relations
+PATCH  /api/v1/concepts/:id               Update a concept
+DELETE /api/v1/concepts/:id               Delete a concept (if unused)
+```
+
+### Hierarchy Operations
+
+```
+GET    /api/v1/concepts/:id/broader       Get broader concepts
+POST   /api/v1/concepts/:id/broader       Add broader relation
+DELETE /api/v1/concepts/:id/broader/:broader_id  Remove broader relation
+
+GET    /api/v1/concepts/:id/narrower      Get narrower concepts
+POST   /api/v1/concepts/:id/narrower      Add narrower relation
+
+GET    /api/v1/concepts/:id/related       Get related concepts
+POST   /api/v1/concepts/:id/related       Add related relation
+DELETE /api/v1/concepts/:id/related/:related_id  Remove related relation
+```
+
+### Note Tagging
+
+```
+GET    /api/v1/notes/:id/concepts         Get concepts for a note
+POST   /api/v1/notes/:id/concepts         Tag note with concept
+DELETE /api/v1/notes/:id/concepts/:concept_id  Remove concept from note
+```
+
+### Governance
+
+```
+GET    /api/v1/concepts/governance/stats  Get governance statistics
+```
+
+## MCP Tools
+
+The following MCP tools are available for AI agents:
+
+### Scheme Management
+- `list_concept_schemes` - List all concept schemes
+- `create_concept_scheme` - Create a new scheme
+
+### Concept Management
+- `search_concepts` - Search for concepts
+- `create_concept` - Create a new concept
+- `get_concept_full` - Get concept with all details
+- `update_concept` - Update concept properties
+- `delete_concept` - Delete an unused concept
+
+### Hierarchy
+- `add_broader` - Add a broader relation
+- `add_narrower` - Add a narrower relation
+- `add_related` - Add a related relation
+- `get_broader` - Get broader concepts
+- `get_narrower` - Get narrower concepts
+- `get_related` - Get related concepts
+
+### Tagging
+- `tag_note_concept` - Tag a note with a concept
+- `untag_note_concept` - Remove a concept from a note
+- `get_note_concepts` - Get all concepts for a note
+
+### Governance
+- `get_governance_stats` - Get usage and quality statistics
+
+## Automatic Tagging Pipeline
+
+Notes are automatically tagged with SKOS concepts as part of the NLP processing pipeline. When a note is created or updated, the system:
+
+1. **Queues the `ConceptTagging` job** - Added to the job queue with priority 4
+2. **Analyzes content** - Uses AI to identify 3-7 relevant concepts
+3. **Matches or creates concepts** - Searches for existing concepts; creates new ones as candidates
+4. **Tags the note** - Associates concepts with relevance scores
+
+### Job Types and Priorities
+
+| Job Type | Priority | Description |
+|----------|----------|-------------|
+| AiRevision | 8 | Content enhancement |
+| Embedding | 5 | Vector generation |
+| **ConceptTagging** | **4** | SKOS tagging |
+| Linking | 3 | Semantic linking |
+| TitleGeneration | 2 | Title generation |
+| ContextUpdate | 1 | Context enrichment |
+
+### Tagging Sources
+
+Concept tags are attributed to their source:
+
+- `api` - Manually added via API
+- `ai_auto` - Automatically generated by AI
+- `import` - Imported from external source
+- `user` - Added by user interface
+
+## Usage Examples
+
+### Creating a Concept Hierarchy
+
+```bash
+# Create a top-level concept
+curl -X POST http://localhost:3000/api/v1/concepts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scheme_id": "...",
+    "pref_label": "Programming Languages",
+    "status": "controlled"
+  }'
+
+# Create a child concept
+curl -X POST http://localhost:3000/api/v1/concepts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scheme_id": "...",
+    "pref_label": "Rust",
+    "broader_ids": ["programming-languages-id"]
+  }'
+```
+
+### Searching Concepts
+
+```bash
+# Autocomplete search
+curl "http://localhost:3000/api/v1/concepts/autocomplete?q=rust&limit=5"
+
+# Full search with filters
+curl "http://localhost:3000/api/v1/concepts?query=programming&status=controlled"
+```
+
+### Manually Queueing Concept Tagging
+
+```bash
+# Re-run concept tagging for a note
+curl -X POST http://localhost:3000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "note_id": "...",
+    "job_type": "concept_tagging"
+  }'
+```
+
+## PMEST Facets
+
+The system supports PMEST-based faceted classification:
+
+| Facet | Field | Values |
+|-------|-------|--------|
+| Personality (Type) | `facet_type` | note, project, reference, journal |
+| Matter (Source) | `facet_source` | book, article, video, conversation |
+| Energy (Domain) | `facet_domain` | Hierarchical subject areas |
+| Space (Scope) | `facet_scope` | personal, work, public |
+| Time (Status) | Tag status | active, archived, someday |
+
+## Migration from Flat Tags
+
+The SKOS system completely replaces the legacy flat tag system. No migration is needed - the flat tag tables can be deprecated. The new system:
+
+1. Automatically creates concepts from AI analysis
+2. Maintains full hierarchy support
+3. Tracks provenance (source, confidence, relevance)
+4. Supports governance workflows
+
+## Best Practices
+
+### For AI Agents
+
+1. **Use specific labels**: Prefer "Rust programming" over "programming"
+2. **Check for existing concepts**: Search before creating duplicates
+3. **Set appropriate status**: Use "candidate" for auto-created concepts
+4. **Add alt_labels**: Include common synonyms for better matching
+
+### For Manual Curation
+
+1. **Review candidates regularly**: Promote good concepts to "controlled"
+2. **Build hierarchy**: Connect related concepts with broader/narrower
+3. **Add scope notes**: Document concept boundaries for disambiguation
+4. **Monitor anti-patterns**: Address over-nesting and meta-tag warnings
+
+## Related Documentation
+
+- [API Reference](./api.md)
+- [MCP Tools](./mcp.md)
+- [Database Schema](../migrations/20260118000000_skos_tags.sql)

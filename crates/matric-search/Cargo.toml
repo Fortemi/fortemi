@@ -1,37 +1,16 @@
 [package]
 name = "matric-search"
-description = "Hybrid search engine (FTS + semantic) for matric-memory"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-authors.workspace = true
+version = "0.1.0"
+edition = "2021"
 
 [dependencies]
-# Internal
-matric-core.workspace = true
-matric-db.workspace = true
+matric-core = { path = "../matric-core" }
+matric-db = { path = "../matric-db" }
 
-# Vector support
-pgvector.workspace = true
-
-# Serialization
-serde.workspace = true
-serde_json.workspace = true
-
-# Types
-uuid.workspace = true
-chrono.workspace = true
-
-# Error handling
-thiserror.workspace = true
-
-# Async
-tokio.workspace = true
-async-trait.workspace = true
-
-# Logging
-tracing.workspace = true
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
+async-trait = "0.1"
+pgvector = { version = "0.4", features = ["sqlx"] }
+uuid = { version = "1.11", features = ["serde", "v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"

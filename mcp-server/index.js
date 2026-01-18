@@ -806,7 +806,7 @@ Use cases:
         limit: { type: "number", description: "Maximum notes to return (default: 50)", default: 50 },
         offset: { type: "number", description: "Pagination offset (default: 0)", default: 0 },
         filter: { type: "string", description: "Filter: 'starred' or 'archived'", enum: ["starred", "archived"] },
-        tags: { type: "array", items: { type: "string" }, description: "Filter by tags (notes must have ALL specified tags)" },
+        tags: { type: "array", items: { type: "string" }, description: "Filter by tags - use hierarchical paths like 'topic/subtopic' (notes must have ALL specified tags)" },
         created_after: { type: "string", description: "Filter notes created after this date (ISO 8601 format, e.g. '2024-01-01T00:00:00Z')" },
         created_before: { type: "string", description: "Filter notes created before this date (ISO 8601 format)" },
         updated_after: { type: "string", description: "Filter notes updated after this date (ISO 8601 format)" },
@@ -870,7 +870,10 @@ Use semantic mode when looking for conceptually related content even if exact ke
   },
   {
     name: "list_tags",
-    description: "List all tags in the knowledge base with usage counts.",
+    description: `List all tags (SKOS concepts) in the knowledge base with usage counts.
+
+Tags are organized hierarchically using "/" separator (e.g., "programming/rust", "ai/ml/transformers").
+This returns the flattened list of all tag paths with their note counts.`,
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -972,12 +975,30 @@ Best practices:
 - Write in markdown format for best results
 - Include context and specifics - the more detail, the better the enhancement
 - Use #tags inline for explicit categorization
-- For factual/personal notes, use "light" mode to prevent hallucination`,
+- For factual/personal notes, use "light" mode to prevent hallucination
+
+**TAG FORMAT (SKOS-compliant hierarchical tags):**
+
+Tags support hierarchical paths using "/" separator (max 5 levels):
+- Simple: "archive", "reviewed", "important"
+- Hierarchical: "programming/rust", "ai/ml/transformers"
+- Multi-level: "projects/matric/features/search"
+
+Examples:
+- ["archive"] - flat tag
+- ["programming/rust", "learning"] - mixed tags
+- ["ai/ml/deep-learning", "projects/research"] - hierarchical tags
+
+Tags are automatically converted to W3C SKOS concepts with proper broader/narrower relationships.`,
     inputSchema: {
       type: "object",
       properties: {
         content: { type: "string", description: "Note content in markdown format" },
-        tags: { type: "array", items: { type: "string" }, description: "Optional explicit tags" },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional tags. Use hierarchical paths like 'topic/subtopic' (max 5 levels). Examples: 'archive', 'programming/rust', 'ai/ml/transformers'"
+        },
         revision_mode: {
           type: "string",
           enum: ["full", "light", "none"],
@@ -1021,7 +1042,7 @@ Best practices:
             type: "object",
             properties: {
               content: { type: "string", description: "Note content in markdown format" },
-              tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
+              tags: { type: "array", items: { type: "string" }, description: "Optional hierarchical tags (e.g., 'topic/subtopic', max 5 levels)" },
               revision_mode: {
                 type: "string",
                 enum: ["full", "light", "none"],
@@ -1086,12 +1107,21 @@ The note is marked as deleted but not permanently removed. Use restore endpoint 
     name: "set_note_tags",
     description: `Set tags for a note (replaces all existing user tags).
 
-AI-generated tags are preserved separately. This only affects user-defined tags.`,
+AI-generated tags are preserved separately. This only affects user-defined tags.
+
+**TAG FORMAT (SKOS-compliant hierarchical tags):**
+- Simple: "archive", "reviewed"
+- Hierarchical: "programming/rust", "ai/ml/transformers" (max 5 levels)
+- Tags are auto-converted to SKOS concepts with broader/narrower relationships`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "UUID of the note" },
-        tags: { type: "array", items: { type: "string" }, description: "New tags (replaces existing)" },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "New tags (replaces existing). Use hierarchical paths like 'topic/subtopic' (max 5 levels)"
+        },
       },
       required: ["id", "tags"],
     },

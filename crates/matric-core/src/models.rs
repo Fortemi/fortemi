@@ -1273,10 +1273,22 @@ mod tests {
 
     #[test]
     fn test_embedding_set_mode_from_str_valid() {
-        assert_eq!("auto".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Auto);
-        assert_eq!("AUTO".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Auto);
-        assert_eq!("manual".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Manual);
-        assert_eq!("mixed".parse::<EmbeddingSetMode>().unwrap(), EmbeddingSetMode::Mixed);
+        assert_eq!(
+            "auto".parse::<EmbeddingSetMode>().unwrap(),
+            EmbeddingSetMode::Auto
+        );
+        assert_eq!(
+            "AUTO".parse::<EmbeddingSetMode>().unwrap(),
+            EmbeddingSetMode::Auto
+        );
+        assert_eq!(
+            "manual".parse::<EmbeddingSetMode>().unwrap(),
+            EmbeddingSetMode::Manual
+        );
+        assert_eq!(
+            "mixed".parse::<EmbeddingSetMode>().unwrap(),
+            EmbeddingSetMode::Mixed
+        );
     }
 
     #[test]
@@ -1297,16 +1309,27 @@ mod tests {
 
     #[test]
     fn test_embedding_index_status_from_str_valid() {
-        assert_eq!("pending".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Pending);
-        assert_eq!("BUILDING".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Building);
-        assert_eq!("ready".parse::<EmbeddingIndexStatus>().unwrap(), EmbeddingIndexStatus::Ready);
+        assert_eq!(
+            "pending".parse::<EmbeddingIndexStatus>().unwrap(),
+            EmbeddingIndexStatus::Pending
+        );
+        assert_eq!(
+            "BUILDING".parse::<EmbeddingIndexStatus>().unwrap(),
+            EmbeddingIndexStatus::Building
+        );
+        assert_eq!(
+            "ready".parse::<EmbeddingIndexStatus>().unwrap(),
+            EmbeddingIndexStatus::Ready
+        );
     }
 
     #[test]
     fn test_embedding_index_status_from_str_invalid() {
         let result = "unknown".parse::<EmbeddingIndexStatus>();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid embedding index status"));
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid embedding index status"));
     }
 
     #[test]
@@ -1471,7 +1494,10 @@ mod tests {
 
     #[test]
     fn test_token_auth_method_default() {
-        assert_eq!(TokenAuthMethod::default(), TokenAuthMethod::ClientSecretBasic);
+        assert_eq!(
+            TokenAuthMethod::default(),
+            TokenAuthMethod::ClientSecretBasic
+        );
     }
 
     #[test]
@@ -1590,7 +1616,10 @@ mod tests {
 
     #[test]
     fn test_embedding_index_status_default() {
-        assert_eq!(EmbeddingIndexStatus::default(), EmbeddingIndexStatus::Pending);
+        assert_eq!(
+            EmbeddingIndexStatus::default(),
+            EmbeddingIndexStatus::Pending
+        );
     }
 
     #[test]
@@ -1642,8 +1671,10 @@ mod tests {
 
         let json = serde_json::to_value(&hit).unwrap();
         // Empty tags should be skipped
-        assert!(!json.as_object().unwrap().contains_key("tags") ||
-                json["tags"].as_array().map_or(true, |a| a.is_empty()));
+        assert!(
+            !json.as_object().unwrap().contains_key("tags")
+                || json["tags"].as_array().map_or(true, |a| a.is_empty())
+        );
     }
 
     #[test]

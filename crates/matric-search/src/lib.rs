@@ -6,6 +6,7 @@
 //! - Full-text search using PostgreSQL tsvector/GIN
 //! - Semantic search using pgvector similarity
 //! - Hybrid search with Reciprocal Rank Fusion (RRF)
+//! - Search result deduplication for chunked documents
 //!
 //! ## Example
 //!
@@ -30,6 +31,7 @@
 //!     .await?;
 //! ```
 
+pub mod deduplication;
 pub mod hybrid;
 pub mod rrf;
 
@@ -37,5 +39,6 @@ pub mod rrf;
 pub use matric_core::*;
 
 // Re-export search types
+pub use deduplication::{ChainSearchInfo, DeduplicationConfig, EnhancedSearchHit};
 pub use hybrid::{HybridSearch, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 pub use rrf::*;
