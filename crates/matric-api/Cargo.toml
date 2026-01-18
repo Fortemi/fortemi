@@ -20,7 +20,7 @@ matric-jobs.workspace = true
 matric-inference.workspace = true
 
 # Web framework
-axum = { version = "0.7", features = ["json", "tower-log"] }
+axum = { version = "0.7", features = ["json", "tower-log", "multipart"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
 

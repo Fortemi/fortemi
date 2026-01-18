@@ -487,6 +487,59 @@ function createMcpServer() {
           break;
         }
 
+        case "knowledge_archive_download": {
+          // Download backup + metadata as bundled .archive file
+          const response = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive/${encodeURIComponent(args.filename)}`, { headers });
+          if (!response.ok) {
+            throw new Error(`Download failed: ${response.status}`);
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          const base64Data = Buffer.from(arrayBuffer).toString('base64');
+          const contentDisposition = response.headers.get('content-disposition');
+          const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+          const archiveFilename = filenameMatch ? filenameMatch[1] : `${args.filename}.archive`;
+          result = {
+            success: true,
+            filename: archiveFilename,
+            size_bytes: arrayBuffer.byteLength,
+            base64_data: base64Data,
+            message: `Knowledge archive downloaded: ${archiveFilename}. Contains backup file + metadata.json.`,
+          };
+          break;
+        }
+
+        case "knowledge_archive_upload": {
+          // Upload a .archive file (backup + metadata bundled)
+          // This requires FormData which is complex in Node.js, so we use base64
+          const boundary = '----KnowledgeArchiveBoundary' + Date.now();
+          const archiveBuffer = Buffer.from(args.archive_base64, 'base64');
+          const filename = args.filename || 'upload.archive';
+
+          const body = Buffer.concat([
+            Buffer.from(`--${boundary}\r\n`),
+            Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`),
+            Buffer.from('Content-Type: application/x-tar\r\n\r\n'),
+            archiveBuffer,
+            Buffer.from(`\r\n--${boundary}--\r\n`),
+          ]);
+
+          const uploadResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive`, {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            },
+            body: body,
+          });
+
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
+          }
+          result = await uploadResponse.json();
+          break;
+        }
+
         case "list_backups": {
           // List all backup files
           result = await apiRequest("GET", "/api/v1/backup/list");
@@ -1615,6 +1668,50 @@ WARNING: skip_snapshot=true is dangerous, always keep prerestore backup.`,
       required: ["filename"],
     },
   },
+
+  // ============================================================================
+  // KNOWLEDGE ARCHIVES (.archive format)
+  // Bundles backup file + metadata.json into a portable tar archive
+  // ============================================================================
+  {
+    name: "knowledge_archive_download",
+    description: `Download backup + metadata bundled as .archive file (portable tar archive).
+
+RETURNS: {success, filename, size_bytes, base64_data}
+FORMAT: Tar containing backup file (.sql.gz/.tar.gz) + metadata.json
+EXTENSION: .archive (knowledge archive)
+
+USE WHEN: Export backup for transfer to another system, offline storage, sharing.
+ADVANTAGE: Metadata travels WITH backup - never lose title/description/context.
+WORKFLOW: list_backups → knowledge_archive_download → transfer → knowledge_archive_upload`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Backup filename from list_backups (e.g., snapshot_database_*.sql.gz)" },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "knowledge_archive_upload",
+    description: `Upload .archive file (backup + metadata bundled). Extracts both to backup directory.
+
+RETURNS: {success, filename, path, size_bytes, size_human, metadata}
+EXTRACTS: Backup file → backup directory, metadata.json → .meta.json sidecar
+
+USE WHEN: Restore backup from another system, import transferred archive.
+WORKFLOW: knowledge_archive_download (source) → transfer → knowledge_archive_upload (target) → database_restore
+TIP: Metadata is automatically extracted and preserved.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        archive_base64: { type: "string", description: "Base64-encoded .archive file" },
+        filename: { type: "string", description: "Original filename (optional, for logging)" },
+      },
+      required: ["archive_base64"],
+    },
+  },
+
   {
     name: "list_backups",
     description: `List all backup files with size, hash, type. Sorted newest first.

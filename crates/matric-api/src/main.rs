@@ -345,6 +345,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/backup/database/snapshot", post(database_backup_snapshot))
         .route("/api/v1/backup/database/upload", post(database_backup_upload))
         .route("/api/v1/backup/database/restore", post(database_backup_restore))
+        // Knowledge archives (backup + metadata bundled as .archive)
+        .route("/api/v1/backup/knowledge-archive/:filename", get(knowledge_archive_download))
+        .route("/api/v1/backup/knowledge-archive", post(knowledge_archive_upload))
         // Backup browser (lists all backups)
         .route("/api/v1/backup/list", get(list_backups))
         .route("/api/v1/backup/list/:filename", get(get_backup_info))
@@ -3526,7 +3529,7 @@ async fn knowledge_shard(
 
     // Generate filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("matric-shard-{}.tar.gz", timestamp);
+    let filename = format!("matric-shard-{}.shard", timestamp);
 
     // Return as downloadable file
     let mut headers = HeaderMap::new();
@@ -5028,6 +5031,222 @@ END $$;
         restored_from: req.filename,
         reconnect_delay_ms,
     }))
+}
+
+// =============================================================================
+// KNOWLEDGE ARCHIVE HANDLERS (.archive format)
+// A knowledge archive bundles a backup file + its metadata sidecar into a single
+// portable tar file with the .archive extension.
+// =============================================================================
+
+/// Download a backup as a knowledge archive (.archive).
+/// Bundles the backup file and its metadata sidecar into a tar stream.
+async fn knowledge_archive_download(
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use axum::http::HeaderValue;
+    use tar::Builder;
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Security: prevent path traversal
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename".to_string()));
+    }
+
+    let backup_path = std::path::Path::new(&backup_dir).join(&filename);
+    if !backup_path.exists() {
+        return Err(ApiError::NotFound(format!("Backup not found: {}", filename)));
+    }
+
+    // Read backup file
+    let backup_data = std::fs::read(&backup_path)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to read backup: {}", e)))?;
+
+    // Load or create metadata
+    let metadata = BackupMetadata::load(&backup_path).unwrap_or_else(|| {
+        // Generate basic metadata if none exists
+        let backup_type = if filename.starts_with(backup_prefix::AUTO) {
+            backup_prefix::AUTO
+        } else if filename.starts_with(backup_prefix::SNAPSHOT) {
+            backup_prefix::SNAPSHOT
+        } else if filename.starts_with(backup_prefix::PRERESTORE) {
+            backup_prefix::PRERESTORE
+        } else if filename.starts_with(backup_prefix::UPLOAD) {
+            backup_prefix::UPLOAD
+        } else {
+            "unknown"
+        };
+        BackupMetadata {
+            title: filename.clone(),
+            description: None,
+            backup_type: backup_type.to_string(),
+            created_at: chrono::Utc::now(),
+            note_count: None,
+            db_size_bytes: Some(backup_data.len() as i64),
+            source: "system".to_string(),
+            extra: Default::default(),
+        }
+    });
+
+    let metadata_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to serialize metadata: {}", e)))?;
+
+    // Create tar in memory
+    let mut tar_data = Vec::new();
+    {
+        let mut tar = Builder::new(&mut tar_data);
+
+        // Add backup file
+        let mut header = tar::Header::new_gnu();
+        header.set_size(backup_data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(chrono::Utc::now().timestamp() as u64);
+        header.set_cksum();
+        tar.append_data(&mut header, &filename, backup_data.as_slice())
+            .map_err(|e| ApiError::BadRequest(format!("Failed to add backup to archive: {}", e)))?;
+
+        // Add metadata file
+        let metadata_bytes = metadata_json.as_bytes();
+        let mut meta_header = tar::Header::new_gnu();
+        meta_header.set_size(metadata_bytes.len() as u64);
+        meta_header.set_mode(0o644);
+        meta_header.set_mtime(chrono::Utc::now().timestamp() as u64);
+        meta_header.set_cksum();
+        tar.append_data(&mut meta_header, "metadata.json", metadata_bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Failed to add metadata to archive: {}", e)))?;
+
+        tar.finish()
+            .map_err(|e| ApiError::BadRequest(format!("Failed to finalize archive: {}", e)))?;
+    }
+
+    // Generate archive filename
+    let archive_name = format!("{}.archive", filename.trim_end_matches(".sql.gz").trim_end_matches(".tar.gz"));
+    let content_disposition = format!("attachment; filename=\"{}\"", archive_name);
+
+    let headers = [
+        (header::CONTENT_TYPE, HeaderValue::from_static("application/x-tar")),
+        (header::CONTENT_DISPOSITION, HeaderValue::from_str(&content_disposition).unwrap()),
+    ];
+
+    Ok((StatusCode::OK, headers, tar_data))
+}
+
+/// Upload a knowledge archive (.archive) and extract backup + metadata.
+async fn knowledge_archive_upload(
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    use tar::Archive;
+
+    let backup_dir = std::env::var("BACKUP_DEST")
+        .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+
+    // Ensure backup directory exists
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to create backup directory: {}", e)))?;
+
+    let mut archive_data: Option<Vec<u8>> = None;
+    let mut original_filename: Option<String> = None;
+
+    // Read the multipart upload
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to read upload: {}", e)))?
+    {
+        if field.name() == Some("file") || field.name() == Some("archive") {
+            original_filename = field.file_name().map(|s| s.to_string());
+            archive_data = Some(field.bytes().await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
+                .to_vec());
+            break;
+        }
+    }
+
+    let archive_data = archive_data
+        .ok_or_else(|| ApiError::BadRequest("No file uploaded. Use field name 'file' or 'archive'.".to_string()))?;
+
+    // Parse the tar archive
+    let mut tar_reader = Archive::new(archive_data.as_slice());
+
+    let mut backup_filename: Option<String> = None;
+    let mut backup_data: Option<Vec<u8>> = None;
+    let mut metadata: Option<BackupMetadata> = None;
+
+    for entry in tar_reader.entries()
+        .map_err(|e| ApiError::BadRequest(format!("Invalid tar archive: {}", e)))?
+    {
+        let mut entry = entry
+            .map_err(|e| ApiError::BadRequest(format!("Failed to read tar entry: {}", e)))?;
+        let path = entry.path()
+            .map_err(|e| ApiError::BadRequest(format!("Invalid path in archive: {}", e)))?
+            .to_string_lossy()
+            .to_string();
+
+        let mut contents = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut contents)
+            .map_err(|e| ApiError::BadRequest(format!("Failed to read entry contents: {}", e)))?;
+
+        if path == "metadata.json" {
+            metadata = serde_json::from_slice(&contents).ok();
+        } else if path.ends_with(".sql.gz") || path.ends_with(".tar.gz") {
+            backup_filename = Some(path);
+            backup_data = Some(contents);
+        }
+    }
+
+    let backup_filename = backup_filename
+        .ok_or_else(|| ApiError::BadRequest("No backup file found in archive. Expected .sql.gz or .tar.gz file.".to_string()))?;
+    let backup_data = backup_data.unwrap();
+
+    // Security: prevent overwriting with path traversal
+    if backup_filename.contains("..") || backup_filename.contains('/') || backup_filename.contains('\\') {
+        return Err(ApiError::BadRequest("Invalid filename in archive".to_string()));
+    }
+
+    // Rename with upload prefix if it doesn't have a recognized prefix
+    let final_filename = if backup_filename.starts_with(backup_prefix::AUTO)
+        || backup_filename.starts_with(backup_prefix::SNAPSHOT)
+        || backup_filename.starts_with(backup_prefix::PRERESTORE)
+        || backup_filename.starts_with(backup_prefix::UPLOAD)
+    {
+        backup_filename.clone()
+    } else {
+        format!("{}_{}", backup_prefix::UPLOAD, backup_filename)
+    };
+
+    let backup_path = std::path::Path::new(&backup_dir).join(&final_filename);
+
+    // Write backup file
+    std::fs::write(&backup_path, &backup_data)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to write backup: {}", e)))?;
+
+    // Write or update metadata
+    let final_metadata = metadata.unwrap_or_else(|| {
+        BackupMetadata::upload(
+            None,
+            Some("Uploaded via knowledge archive".to_string()),
+            original_filename.as_deref().unwrap_or("unknown.archive"),
+        )
+    });
+    final_metadata.save(&backup_path)
+        .map_err(|e| ApiError::BadRequest(format!("Failed to write metadata: {}", e)))?;
+
+    let size_bytes = backup_data.len() as u64;
+    let size_human = if size_bytes > 1024 * 1024 {
+        format!("{:.2} MB", size_bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} KB", size_bytes as f64 / 1024.0)
+    };
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "filename": final_filename,
+        "path": backup_path.display().to_string(),
+        "size_bytes": size_bytes,
+        "size_human": size_human,
+        "metadata": final_metadata,
+        "message": "Knowledge archive uploaded and extracted successfully"
+    })))
 }
 
 // =============================================================================

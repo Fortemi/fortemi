@@ -9,15 +9,17 @@ Matric Memory provides multiple backup options:
 | Method | Use Case | Format | Includes |
 |--------|----------|--------|----------|
 | **JSON Export** | App-level backup | JSON | Notes, collections, tags, templates |
-| **Knowledge Shard Export** | Full portable backup | tar.gz | Notes, links, embeddings, sets, checksums |
+| **Knowledge Shard** | Full portable backup | .shard | Notes, links, embeddings, sets, checksums |
+| **Knowledge Archive** | Backup + metadata bundle | .archive | Backup file + metadata.json |
+| **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
-| **Manual pg_dump** | Quick one-off backups | SQL/custom | Full database |
 
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.
-- **Knowledge Shard Export** (`/api/v1/backup/knowledge-shard`): Complete backup with semantic links and embeddings. Best for full restore.
-- **pg_dump** (`scripts/backup.sh`): Database-level backup. Best for disaster recovery.
+- **Knowledge Shard** (`/api/v1/backup/knowledge-shard`): Complete app-level backup with semantic links. Best for full restore.
+- **Knowledge Archive** (`/api/v1/backup/knowledge-archive`): Bundles any backup with its metadata sidecar. Best for transferring backups between systems.
+- **Database Snapshot** (`/api/v1/backup/database/snapshot`): Full pg_dump backup. Best for disaster recovery.
 
 ## Quick Start
 
@@ -27,11 +29,11 @@ Matric Memory provides multiple backup options:
 # Export all notes as JSON
 curl http://localhost:3000/api/v1/backup/export
 
-# Create knowledge shard (tar.gz with links, embeddings)
-curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.tar.gz
+# Create knowledge shard (with links, embeddings)
+curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.shard
 
 # Create shard with specific components
-curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o backup.tar.gz
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o backup.shard
 
 # Trigger database backup
 curl -X POST http://localhost:3000/api/v1/backup/trigger
@@ -54,6 +56,12 @@ knowledge_shard({ include: "notes,links" })
 
 // Restore from shard
 knowledge_shard_import({ shard_base64: "...", dry_run: true })
+
+// Download backup as portable knowledge archive (.archive)
+knowledge_archive_download({ filename: "snapshot_database_20260117.sql.gz" })
+
+// Upload and extract knowledge archive
+knowledge_archive_upload({ archive_base64: "..." })
 
 // Trigger database backup
 backup_now()
@@ -231,6 +239,62 @@ Restore from a knowledge shard created by `knowledge_shard`.
 - Same shard twice → `on_conflict` determines behavior
 - Different shard → New IDs create new notes (merge)
 
+### knowledge_archive_download
+
+Download a backup file bundled with its metadata as a portable `.archive` file.
+
+**Parameters:**
+- `filename` - Backup filename from list_backups (e.g., `snapshot_database_20260117.sql.gz`)
+
+**Returns:**
+```json
+{
+  "success": true,
+  "filename": "snapshot_database_20260117.archive",
+  "size_bytes": 1234567,
+  "base64_data": "..."
+}
+```
+
+**Archive contents:**
+```
+snapshot_database_20260117.archive (tar format)
+├── snapshot_database_20260117.sql.gz  # The backup file
+└── metadata.json                       # Title, description, note_count, etc.
+```
+
+**Use case:** Transfer backups between systems while preserving metadata context.
+
+### knowledge_archive_upload
+
+Upload a `.archive` file and extract both the backup and its metadata.
+
+**Parameters:**
+- `archive_base64` - Base64-encoded .archive file
+- `filename` - Original filename (optional, for logging)
+
+**Returns:**
+```json
+{
+  "success": true,
+  "filename": "upload_snapshot_database_20260117.sql.gz",
+  "path": "/var/backups/matric-memory/upload_snapshot_database_20260117.sql.gz",
+  "size_bytes": 1234567,
+  "size_human": "1.23 MB",
+  "metadata": {
+    "title": "Pre-migration backup",
+    "description": "Full backup before schema changes",
+    "backup_type": "snapshot",
+    "note_count": 42
+  }
+}
+```
+
+**Workflow for transferring backups:**
+1. Source system: `list_backups` → `knowledge_archive_download`
+2. Transfer the .archive file
+3. Target system: `knowledge_archive_upload` → `database_restore`
+
 ## REST API Endpoints
 
 The backup system exposes REST API endpoints that can be called directly or via MCP tools.
@@ -343,24 +407,24 @@ Create a comprehensive knowledge shard with selected components.
 **Example:**
 ```bash
 # Knowledge shard with all data
-curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.tar.gz
+curl http://localhost:3000/api/v1/backup/knowledge-shard -o backup.shard
 
 # Shard with specific components
-curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.tar.gz
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links" -o backup.shard
 
 # Include embeddings (large)
-curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o full-backup.tar.gz
+curl "http://localhost:3000/api/v1/backup/knowledge-shard?include=notes,links,embeddings" -o full-backup.shard
 ```
 
-**Response:** Binary tar.gz file with `Content-Disposition: attachment` header.
+**Response:** Binary .shard file (gzipped tar) with `Content-Disposition: attachment` header.
 
 **Verify shard:**
 ```bash
-# List contents
-tar -tzf backup.tar.gz
+# List contents (it's a gzipped tar internally)
+tar -tzf backup.shard
 
 # View manifest
-tar -xzf backup.tar.gz -O manifest.json | jq .
+tar -xzf backup.shard -O manifest.json | jq .
 ```
 
 ### POST /api/v1/backup/knowledge-shard/import
@@ -381,7 +445,7 @@ Restore from a knowledge shard.
 **Example:**
 ```bash
 # Encode shard and import
-ARCHIVE=$(base64 -w0 backup.tar.gz)
+ARCHIVE=$(base64 -w0 backup.shard)
 curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
   -H "Content-Type: application/json" \
   -d "{\"shard_base64\": \"$ARCHIVE\", \"dry_run\": true}"
