@@ -295,6 +295,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/links", get(get_note_links))
         .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/:id/export", get(export_note))
+        // Note versioning (#104)
+        .route("/api/v1/notes/:id/versions", get(list_note_versions))
+        .route(
+            "/api/v1/notes/:id/versions/:version",
+            get(get_note_version).delete(delete_note_version),
+        )
+        .route(
+            "/api/v1/notes/:id/versions/:version/restore",
+            post(restore_note_version),
+        )
+        .route("/api/v1/notes/:id/versions/diff", get(diff_note_versions))
         // Search
         .route("/api/v1/search", get(search_notes))
         // Temporal queries
@@ -2456,6 +2467,170 @@ async fn export_note(
     );
 
     Ok((StatusCode::OK, headers, output))
+}
+
+// =============================================================================
+// NOTE VERSIONING HANDLERS (#104)
+// =============================================================================
+
+/// List all versions for a note (both original and revision tracks).
+async fn list_note_versions(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let versions = state.db.versioning.list_versions(id).await?;
+
+    Ok(Json(serde_json::json!({
+        "note_id": versions.note_id,
+        "current_original_version": versions.current_original_version,
+        "current_revision_number": versions.current_revision_number,
+        "original_versions": versions.original_versions.iter().map(|v| serde_json::json!({
+            "version_number": v.version_number,
+            "created_at_utc": v.created_at_utc.to_rfc3339(),
+            "created_by": v.created_by,
+            "is_current": v.is_current
+        })).collect::<Vec<_>>(),
+        "revised_versions": versions.revised_versions.iter().map(|v| serde_json::json!({
+            "id": v.id,
+            "revision_number": v.revision_number,
+            "created_at_utc": v.created_at_utc.to_rfc3339(),
+            "model": v.model,
+            "is_user_edited": v.is_user_edited
+        })).collect::<Vec<_>>()
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct GetVersionQuery {
+    /// Track to get version from: "original" or "revision" (default: "original")
+    track: Option<String>,
+}
+
+/// Get a specific version of a note.
+async fn get_note_version(
+    State(state): State<AppState>,
+    Path((id, version)): Path<(Uuid, i32)>,
+    Query(query): Query<GetVersionQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let track = query.track.as_deref().unwrap_or("original");
+
+    match track {
+        "original" => {
+            let version_data = state
+                .db
+                .versioning
+                .get_original_version(id, version)
+                .await?
+                .ok_or_else(|| ApiError::NotFound(format!("Version {} not found", version)))?;
+
+            Ok(Json(serde_json::json!({
+                "track": "original",
+                "id": version_data.id,
+                "note_id": version_data.note_id,
+                "version_number": version_data.version_number,
+                "content": version_data.content,
+                "hash": version_data.hash,
+                "created_at_utc": version_data.created_at_utc.to_rfc3339(),
+                "created_by": version_data.created_by
+            })))
+        }
+        "revision" => {
+            let revision = state
+                .db
+                .versioning
+                .get_revision_version(id, version)
+                .await?
+                .ok_or_else(|| ApiError::NotFound(format!("Revision {} not found", version)))?;
+
+            Ok(Json(serde_json::json!({
+                "track": "revision",
+                "id": revision.id,
+                "note_id": revision.note_id,
+                "revision_number": revision.revision_number,
+                "content": revision.content,
+                "type": revision.revision_type,
+                "summary": revision.summary,
+                "rationale": revision.rationale,
+                "created_at_utc": revision.created_at_utc.to_rfc3339(),
+                "model": revision.model,
+                "is_user_edited": revision.is_user_edited
+            })))
+        }
+        _ => Err(ApiError::BadRequest(
+            "Invalid track. Use 'original' or 'revision'".to_string(),
+        )),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RestoreVersionRequest {
+    /// Whether to restore tags from the version snapshot (default: false)
+    #[serde(default)]
+    restore_tags: bool,
+}
+
+/// Restore a previous version of a note.
+async fn restore_note_version(
+    State(state): State<AppState>,
+    Path((id, version)): Path<(Uuid, i32)>,
+    Json(request): Json<RestoreVersionRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let new_version = state
+        .db
+        .versioning
+        .restore_original_version(id, version, request.restore_tags)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "restored_from_version": version,
+        "new_version": new_version,
+        "restore_tags": request.restore_tags
+    })))
+}
+
+/// Delete a specific version from history.
+async fn delete_note_version(
+    State(state): State<AppState>,
+    Path((id, version)): Path<(Uuid, i32)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let deleted = state.db.versioning.delete_version(id, version).await?;
+
+    if deleted {
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "deleted_version": version
+        })))
+    } else {
+        Err(ApiError::NotFound(format!("Version {} not found", version)))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DiffVersionsQuery {
+    /// Version to diff from
+    from: i32,
+    /// Version to diff to
+    to: i32,
+}
+
+/// Generate a diff between two versions.
+async fn diff_note_versions(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<DiffVersionsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let diff = state
+        .db
+        .versioning
+        .diff_versions(id, query.from, query.to)
+        .await?;
+
+    // Return as plain text (unified diff format)
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "text/plain; charset=utf-8".parse().unwrap());
+
+    Ok((StatusCode::OK, headers, diff))
 }
 
 // =============================================================================

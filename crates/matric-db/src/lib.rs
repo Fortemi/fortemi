@@ -7,6 +7,7 @@
 //! - Repository implementations for all core entities
 //! - Full-text search with PostgreSQL tsvector
 //! - Vector search with pgvector
+//! - W3C SKOS-compliant hierarchical tag system
 //!
 //! ## Example
 //!
@@ -39,8 +40,10 @@ pub mod notes;
 pub mod oauth;
 pub mod pool;
 pub mod search;
+pub mod skos_tags;
 pub mod tags;
 pub mod templates;
+pub mod versioning;
 
 // Re-export core types
 pub use matric_core::*;
@@ -59,6 +62,15 @@ pub use pool::{create_pool, create_pool_with_config, PoolConfig};
 pub use search::PgFtsSearch;
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
+pub use versioning::{
+    NoteVersions, OriginalVersion, RevisionVersionSummary, VersioningRepository, VersionSummary,
+};
+
+// Re-export SKOS repository and traits
+pub use skos_tags::{
+    PgSkosRepository, SkosConceptRepository, SkosConceptSchemeRepository, SkosGovernanceRepository,
+    SkosLabelRepository, SkosNoteRepository, SkosRelationRepository, SkosTaggingRepository,
+};
 
 /// Combined database context with all repositories.
 pub struct Database {
@@ -72,8 +84,10 @@ pub struct Database {
     pub embedding_sets: PgEmbeddingSetRepository,
     /// Link repository for note relationships.
     pub links: PgLinkRepository,
-    /// Tag repository for tag management.
+    /// Tag repository for simple tag management (legacy).
     pub tags: PgTagRepository,
+    /// SKOS repository for W3C-compliant hierarchical tags.
+    pub skos: PgSkosRepository,
     /// Collection repository for folder hierarchy.
     pub collections: PgCollectionRepository,
     /// Job repository for background processing.
@@ -84,6 +98,8 @@ pub struct Database {
     pub oauth: PgOAuthRepository,
     /// Note template repository.
     pub templates: PgTemplateRepository,
+    /// Note version history repository.
+    pub versioning: VersioningRepository,
 }
 
 impl Database {
@@ -95,11 +111,13 @@ impl Database {
             embedding_sets: PgEmbeddingSetRepository::new(pool.clone()),
             links: PgLinkRepository::new(pool.clone()),
             tags: PgTagRepository::new(pool.clone()),
+            skos: PgSkosRepository::new(pool.clone()),
             collections: PgCollectionRepository::new(pool.clone()),
             jobs: PgJobRepository::new(pool.clone()),
             search: PgFtsSearch::new(pool.clone()),
             oauth: PgOAuthRepository::new(pool.clone()),
             templates: PgTemplateRepository::new(pool.clone()),
+            versioning: VersioningRepository::new(pool.clone()),
             pool,
         }
     }

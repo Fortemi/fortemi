@@ -574,6 +574,187 @@ function createMcpServer() {
           break;
         }
 
+        // ============================================================================
+        // SKOS CONCEPT OPERATIONS (Hierarchical Tags)
+        // ============================================================================
+
+        case "list_concept_schemes":
+          result = await apiRequest("GET", "/api/v1/concepts/schemes");
+          break;
+
+        case "create_concept_scheme":
+          result = await apiRequest("POST", "/api/v1/concepts/schemes", {
+            notation: args.notation,
+            title: args.title,
+            description: args.description,
+            uri: args.uri,
+          });
+          break;
+
+        case "get_concept_scheme":
+          result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.id}`);
+          break;
+
+        case "search_concepts": {
+          const conceptParams = new URLSearchParams();
+          if (args.q) conceptParams.set("q", args.q);
+          if (args.scheme_id) conceptParams.set("scheme_id", args.scheme_id);
+          if (args.status) conceptParams.set("status", args.status);
+          if (args.top_only) conceptParams.set("top_only", "true");
+          if (args.limit) conceptParams.set("limit", args.limit);
+          if (args.offset) conceptParams.set("offset", args.offset);
+          result = await apiRequest("GET", `/api/v1/concepts?${conceptParams}`);
+          break;
+        }
+
+        case "create_concept":
+          result = await apiRequest("POST", "/api/v1/concepts", {
+            scheme_id: args.scheme_id,
+            pref_label: args.pref_label,
+            notation: args.notation,
+            alt_labels: args.alt_labels || [],
+            definition: args.definition,
+            scope_note: args.scope_note,
+            broader_ids: args.broader_ids || [],
+            related_ids: args.related_ids || [],
+            facet_type: args.facet_type,
+            facet_domain: args.facet_domain,
+          });
+          break;
+
+        case "get_concept":
+          result = await apiRequest("GET", `/api/v1/concepts/${args.id}`);
+          break;
+
+        case "get_concept_full":
+          result = await apiRequest("GET", `/api/v1/concepts/${args.id}/full`);
+          break;
+
+        case "update_concept":
+          result = await apiRequest("PATCH", `/api/v1/concepts/${args.id}`, {
+            notation: args.notation,
+            status: args.status,
+            deprecation_reason: args.deprecation_reason,
+            replaced_by_id: args.replaced_by_id,
+            facet_type: args.facet_type,
+          });
+          break;
+
+        case "delete_concept":
+          await apiRequest("DELETE", `/api/v1/concepts/${args.id}`);
+          result = { success: true };
+          break;
+
+        case "autocomplete_concepts": {
+          const acParams = new URLSearchParams();
+          acParams.set("q", args.q);
+          if (args.limit) acParams.set("limit", args.limit);
+          result = await apiRequest("GET", `/api/v1/concepts/autocomplete?${acParams}`);
+          break;
+        }
+
+        case "get_broader":
+          result = await apiRequest("GET", `/api/v1/concepts/${args.id}/broader`);
+          break;
+
+        case "add_broader":
+          result = await apiRequest("POST", `/api/v1/concepts/${args.id}/broader`, {
+            target_id: args.target_id,
+          });
+          break;
+
+        case "get_narrower":
+          result = await apiRequest("GET", `/api/v1/concepts/${args.id}/narrower`);
+          break;
+
+        case "add_narrower":
+          result = await apiRequest("POST", `/api/v1/concepts/${args.id}/narrower`, {
+            target_id: args.target_id,
+          });
+          break;
+
+        case "get_related":
+          result = await apiRequest("GET", `/api/v1/concepts/${args.id}/related`);
+          break;
+
+        case "add_related":
+          result = await apiRequest("POST", `/api/v1/concepts/${args.id}/related`, {
+            target_id: args.target_id,
+          });
+          break;
+
+        case "tag_note_concept":
+          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/concepts`, {
+            concept_id: args.concept_id,
+            is_primary: args.is_primary || false,
+          });
+          break;
+
+        case "untag_note_concept":
+          await apiRequest("DELETE", `/api/v1/notes/${args.note_id}/concepts/${args.concept_id}`);
+          result = { success: true };
+          break;
+
+        case "get_note_concepts":
+          result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/concepts`);
+          break;
+
+        case "get_governance_stats": {
+          const govParams = new URLSearchParams();
+          if (args.scheme_id) govParams.set("scheme_id", args.scheme_id);
+          result = await apiRequest("GET", `/api/v1/concepts/governance?${govParams}`);
+          break;
+        }
+
+        case "get_top_concepts":
+          result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.scheme_id}/top-concepts`);
+          break;
+
+        // =======================================================================
+        // NOTE VERSIONING (#104)
+        // =======================================================================
+
+        case "list_note_versions":
+          result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/versions`);
+          break;
+
+        case "get_note_version": {
+          const versionParams = new URLSearchParams();
+          if (args.track) versionParams.set("track", args.track);
+          result = await apiRequest(
+            "GET",
+            `/api/v1/notes/${args.note_id}/versions/${args.version}?${versionParams}`
+          );
+          break;
+        }
+
+        case "restore_note_version":
+          result = await apiRequest(
+            "POST",
+            `/api/v1/notes/${args.note_id}/versions/${args.version}/restore`,
+            { restore_tags: args.restore_tags || false }
+          );
+          break;
+
+        case "delete_note_version":
+          await apiRequest(
+            "DELETE",
+            `/api/v1/notes/${args.note_id}/versions/${args.version}`
+          );
+          result = { success: true };
+          break;
+
+        case "diff_note_versions": {
+          const diffParams = new URLSearchParams();
+          diffParams.set("from", args.from_version);
+          diffParams.set("to", args.to_version);
+          result = await apiRequest(
+            "GET",
+            `/api/v1/notes/${args.note_id}/versions/diff?${diffParams}`
+          );
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -1791,6 +1972,410 @@ KEY INSIGHT: GPU = embedding generation (Ollama), CPU = vector search (pgvector)
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+  // ============================================================================
+  // SKOS CONCEPTS - W3C SKOS-compliant hierarchical tag system
+  // ============================================================================
+  {
+    name: "list_concept_schemes",
+    description: `List all SKOS concept schemes (vocabularies/namespaces).
+
+A concept scheme is a container for related concepts, like "topics", "domains", or "imported:library_of_congress".
+
+USE WHEN: Discover available vocabularies, check which schemes exist.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "create_concept_scheme",
+    description: `Create a new concept scheme (vocabulary namespace).
+
+Use schemes to organize related concepts, e.g., "projects", "technologies", "domains".
+
+RETURNS: {id} - UUID of the new scheme.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        notation: { type: "string", description: "Short code (e.g., 'topics', 'domains')" },
+        title: { type: "string", description: "Human-readable title" },
+        description: { type: "string", description: "Purpose and scope of this vocabulary" },
+        uri: { type: "string", description: "Optional canonical URI" },
+      },
+      required: ["notation", "title"],
+    },
+  },
+  {
+    name: "get_concept_scheme",
+    description: "Get details of a specific concept scheme by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept scheme" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "search_concepts",
+    description: `Search and filter SKOS concepts (hierarchical tags).
+
+Searches across prefLabel, altLabel, and hiddenLabel. Returns concepts with their preferred labels and metadata.
+
+USE WHEN: Find existing concepts before creating new ones, browse taxonomy.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Search query (matches labels)" },
+        scheme_id: { type: "string", description: "Filter by scheme UUID" },
+        status: { type: "string", enum: ["candidate", "approved", "deprecated"], description: "Filter by status" },
+        top_only: { type: "boolean", description: "Only return top-level concepts (no broader)" },
+        limit: { type: "number", default: 50 },
+        offset: { type: "number", default: 0 },
+      },
+    },
+  },
+  {
+    name: "create_concept",
+    description: `Create a new SKOS concept (hierarchical tag).
+
+Concepts support:
+- prefLabel: Primary display name (required)
+- altLabel: Alternative names/synonyms
+- hiddenLabel: Hidden search terms (typos, codes)
+- definition: Formal definition
+- scope_note: Usage guidance
+- broader_ids: Parent concepts (max 3 for polyhierarchy)
+- related_ids: Non-hierarchical associations
+- facet_type: PMEST classification (personality, matter, energy, space, time)
+
+RETURNS: {id} - UUID of the new concept.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        scheme_id: { type: "string", description: "UUID of the scheme" },
+        pref_label: { type: "string", description: "Primary label (required)" },
+        notation: { type: "string", description: "Short code within scheme" },
+        alt_labels: { type: "array", items: { type: "string" }, description: "Alternative labels/synonyms" },
+        definition: { type: "string", description: "Formal definition" },
+        scope_note: { type: "string", description: "Usage guidance" },
+        broader_ids: { type: "array", items: { type: "string" }, description: "Parent concept UUIDs (max 3)" },
+        related_ids: { type: "array", items: { type: "string" }, description: "Related concept UUIDs" },
+        facet_type: { type: "string", enum: ["personality", "matter", "energy", "space", "time"], description: "PMEST facet" },
+        facet_domain: { type: "string", description: "Domain context" },
+      },
+      required: ["scheme_id", "pref_label"],
+    },
+  },
+  {
+    name: "get_concept",
+    description: "Get a concept with its preferred label.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_concept_full",
+    description: `Get full concept details including all labels, notes, and relationships.
+
+RETURNS: concept + labels[] + notes[] + broader[] + narrower[] + related[] + mappings[] + schemes[]
+
+USE WHEN: Need complete context about a concept including its position in the hierarchy.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "update_concept",
+    description: "Update a concept's properties (notation, status, facet).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+        notation: { type: "string" },
+        status: { type: "string", enum: ["candidate", "approved", "deprecated", "obsolete"] },
+        deprecation_reason: { type: "string" },
+        replaced_by_id: { type: "string", description: "UUID of replacement concept when deprecating" },
+        facet_type: { type: "string", enum: ["personality", "matter", "energy", "space", "time"] },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_concept",
+    description: "Delete a concept (must have no tags applied to notes).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "autocomplete_concepts",
+    description: `Fast autocomplete for concept labels. Searches across pref/alt/hidden labels.
+
+USE WHEN: Building tag input UIs, quick lookup while typing.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Prefix to match" },
+        limit: { type: "number", default: 10 },
+      },
+      required: ["q"],
+    },
+  },
+  {
+    name: "get_broader",
+    description: "Get broader (parent) concepts for a concept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "add_broader",
+    description: `Add a broader (parent) relationship. Max 3 parents allowed (polyhierarchy limit).
+
+Example: add_broader({id: rust_concept, target_id: programming_languages_concept})`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the child concept" },
+        target_id: { type: "string", description: "UUID of the parent concept" },
+      },
+      required: ["id", "target_id"],
+    },
+  },
+  {
+    name: "get_narrower",
+    description: "Get narrower (child) concepts for a concept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "add_narrower",
+    description: "Add a narrower (child) relationship (inverse of broader).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the parent concept" },
+        target_id: { type: "string", description: "UUID of the child concept" },
+      },
+      required: ["id", "target_id"],
+    },
+  },
+  {
+    name: "get_related",
+    description: "Get related (associative, non-hierarchical) concepts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "add_related",
+    description: `Add a related (associative) relationship. Symmetric - both concepts will be related to each other.
+
+Example: Python related to Data Science (not hierarchical, just associated).`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept" },
+        target_id: { type: "string", description: "UUID of the related concept" },
+      },
+      required: ["id", "target_id"],
+    },
+  },
+  {
+    name: "tag_note_concept",
+    description: `Tag a note with a SKOS concept.
+
+is_primary: Mark as the primary/main concept for this note.
+
+RETURNS: {success: true}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        concept_id: { type: "string", description: "UUID of the concept" },
+        is_primary: { type: "boolean", default: false, description: "Mark as primary tag" },
+      },
+      required: ["note_id", "concept_id"],
+    },
+  },
+  {
+    name: "untag_note_concept",
+    description: "Remove a concept tag from a note.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        concept_id: { type: "string", description: "UUID of the concept" },
+      },
+      required: ["note_id", "concept_id"],
+    },
+  },
+  {
+    name: "get_note_concepts",
+    description: "Get all SKOS concepts tagged on a note with their labels.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+      },
+      required: ["note_id"],
+    },
+  },
+  {
+    name: "get_governance_stats",
+    description: `Get taxonomy governance statistics for a scheme.
+
+RETURNS: {total_concepts, candidates, approved, deprecated, orphans, under_used, avg_note_count, max_depth}
+
+USE WHEN: Audit taxonomy health, find issues like orphan tags or under-used concepts.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        scheme_id: { type: "string", description: "UUID of the scheme (uses default if not provided)" },
+      },
+    },
+  },
+  {
+    name: "get_top_concepts",
+    description: "Get top-level concepts in a scheme (concepts with no broader relations).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scheme_id: { type: "string", description: "UUID of the scheme" },
+      },
+      required: ["scheme_id"],
+    },
+  },
+  // ============================================================================
+  // NOTE VERSIONING (#104) - Dual-track version history
+  // ============================================================================
+  {
+    name: "list_note_versions",
+    description: `List all versions for a note (both original and AI revision tracks).
+
+Returns version history for both user content (original track) and AI-enhanced content (revision track).
+
+RETURNS: {
+  note_id, current_original_version, current_revision_number,
+  original_versions: [{version_number, created_at_utc, created_by, is_current}],
+  revised_versions: [{id, revision_number, created_at_utc, model, is_user_edited}]
+}
+
+USE WHEN: Review edit history, find when content changed, prepare for restore.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+      },
+      required: ["note_id"],
+    },
+  },
+  {
+    name: "get_note_version",
+    description: `Get a specific version of a note content.
+
+track: "original" for user content history, "revision" for AI-enhanced history
+
+RETURNS: Version content with metadata (hash, created_at, created_by for original; model, summary for revision).
+
+USE WHEN: View a previous version before deciding to restore.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        version: { type: "integer", description: "Version number to retrieve" },
+        track: {
+          type: "string",
+          enum: ["original", "revision"],
+          default: "original",
+          description: "Which track: original (user content) or revision (AI enhanced)"
+        },
+      },
+      required: ["note_id", "version"],
+    },
+  },
+  {
+    name: "restore_note_version",
+    description: `Restore a note to a previous version (creates new version, doesn't overwrite history).
+
+restore_tags: If true, also restore the tags that were present at that version snapshot.
+
+WARNING: This modifies the note content! A new version is created from the restored content.
+
+RETURNS: {success, restored_from_version, new_version, restore_tags}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        version: { type: "integer", description: "Version number to restore" },
+        restore_tags: {
+          type: "boolean",
+          default: false,
+          description: "Also restore tags from the version snapshot"
+        },
+      },
+      required: ["note_id", "version"],
+    },
+  },
+  {
+    name: "delete_note_version",
+    description: `Delete a specific version from history (cannot delete current version).
+
+WARNING: This permanently removes the version from history!
+
+RETURNS: {success, deleted_version}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        version: { type: "integer", description: "Version number to delete" },
+      },
+      required: ["note_id", "version"],
+    },
+  },
+  {
+    name: "diff_note_versions",
+    description: `Generate a unified diff between two versions of a note.
+
+RETURNS: Plain text unified diff (--- version N / +++ version M format).
+
+USE WHEN: See exactly what changed between versions.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", description: "UUID of the note" },
+        from_version: { type: "integer", description: "Version to diff from (older)" },
+        to_version: { type: "integer", description: "Version to diff to (newer)" },
+      },
+      required: ["note_id", "from_version", "to_version"],
     },
   },
 ];

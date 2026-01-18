@@ -60,6 +60,23 @@ pub struct NoteFull {
     pub links: Vec<Link>,
 }
 
+/// A revision version entry from note_revision table (AI-enhanced content track).
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RevisionVersion {
+    pub id: Uuid,
+    pub note_id: Uuid,
+    pub revision_number: i32,
+    pub content: String,
+    #[sqlx(rename = "type")]
+    #[serde(rename = "type")]
+    pub revision_type: String,
+    pub summary: Option<String>,
+    pub rationale: Option<String>,
+    pub created_at_utc: DateTime<Utc>,
+    pub model: Option<String>,
+    pub is_user_edited: bool,
+}
+
 /// Summary view of a note for listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteSummary {
