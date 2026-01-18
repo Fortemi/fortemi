@@ -5,6 +5,8 @@ mod handlers;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use chrono::Datelike;
+
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
@@ -18,6 +20,8 @@ use tower_http::{
     limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
+use governor::{Quota, RateLimiter};
+use std::num::NonZeroU32;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -77,6 +81,7 @@ async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: Revisio
         JobType::Embedding,
         JobType::TitleGeneration,
         JobType::Linking,
+        JobType::ConceptTagging, // SKOS auto-tagging
     ] {
         let _ = db
             .jobs
@@ -89,9 +94,16 @@ use matric_jobs::{JobWorker, WorkerConfig};
 use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
-    AiRevisionHandler, ContextUpdateHandler, EmbeddingHandler, LinkingHandler, PurgeNoteHandler,
-    TitleGenerationHandler,
+    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
+    LinkingHandler, PurgeNoteHandler, TitleGenerationHandler,
 };
+
+/// Global rate limiter type (direct quota, no keyed bucketing for personal server).
+type GlobalRateLimiter = RateLimiter<
+    governor::state::NotKeyed,
+    governor::state::InMemoryState,
+    governor::clock::DefaultClock,
+>;
 
 /// Application state shared across handlers.
 #[derive(Clone)]
@@ -100,6 +112,8 @@ struct AppState {
     search: Arc<HybridSearchEngine>,
     /// OAuth2 issuer URL (base URL of the server).
     issuer: String,
+    /// Global rate limiter (None if rate limiting is disabled).
+    rate_limiter: Option<Arc<GlobalRateLimiter>>,
 }
 
 /// OpenAPI documentation
@@ -148,6 +162,28 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "3000".to_string())
         .parse()
         .unwrap_or(3000);
+
+    // Rate limiting configuration (generous for personal server)
+    // RATE_LIMIT_REQUESTS: requests per period (default: 100)
+    // RATE_LIMIT_PERIOD_SECS: period in seconds (default: 60 = 1 minute)
+    let rate_limit_requests: u64 = std::env::var("RATE_LIMIT_REQUESTS")
+        .unwrap_or_else(|_| "100".to_string())
+        .parse()
+        .unwrap_or(100);
+    let rate_limit_period_secs: u64 = std::env::var("RATE_LIMIT_PERIOD_SECS")
+        .unwrap_or_else(|_| "60".to_string())
+        .parse()
+        .unwrap_or(60);
+    let rate_limit_enabled: bool = std::env::var("RATE_LIMIT_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
+    info!(
+        "Rate limiting: {} ({} requests per {} seconds)",
+        if rate_limit_enabled { "enabled" } else { "disabled" },
+        rate_limit_requests,
+        rate_limit_period_secs
+    );
 
     // Connect to database
     info!("Connecting to database...");
@@ -203,6 +239,12 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(PurgeNoteHandler::new(db.clone()))
             .await;
+        worker
+            .register_handler(ConceptTaggingHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+            ))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");
@@ -216,8 +258,18 @@ async fn main() -> anyhow::Result<()> {
     let issuer =
         std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
+    // Create rate limiter if enabled
+    let rate_limiter = if rate_limit_enabled {
+        let quota = Quota::with_period(std::time::Duration::from_secs(rate_limit_period_secs))
+            .expect("Rate limit period must be non-zero")
+            .allow_burst(NonZeroU32::new(rate_limit_requests as u32).expect("Rate limit must be non-zero"));
+        Some(Arc::new(RateLimiter::direct(quota)))
+    } else {
+        None
+    };
+
     // Create app state
-    let state = AppState { db, search, issuer };
+    let state = AppState { db, search, issuer, rate_limiter };
 
     // Build router
     let app = Router::new()
@@ -241,9 +293,19 @@ async fn main() -> anyhow::Result<()> {
             get(get_note_tags).put(set_note_tags),
         )
         .route("/api/v1/notes/:id/links", get(get_note_links))
+        .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/:id/export", get(export_note))
         // Search
         .route("/api/v1/search", get(search_notes))
+        // Temporal queries
+        .route("/api/v1/notes/timeline", get(get_notes_timeline))
+        .route("/api/v1/notes/activity", get(get_notes_activity))
+        // Knowledge health dashboard
+        .route("/api/v1/health/knowledge", get(get_knowledge_health))
+        .route("/api/v1/health/orphan-tags", get(get_orphan_tags))
+        .route("/api/v1/health/stale-notes", get(get_stale_notes))
+        .route("/api/v1/health/unlinked-notes", get(get_unlinked_notes))
+        .route("/api/v1/health/tag-cooccurrence", get(get_tag_cooccurrence))
         // Note status shortcut
         .route("/api/v1/notes/:id/status", patch(update_note_status))
         // Jobs
@@ -251,8 +313,62 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs/:id", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
         .route("/api/v1/jobs/stats", get(queue_stats))
-        // Tags
+        // Tags (legacy)
         .route("/api/v1/tags", get(list_tags))
+        // SKOS Concept Schemes
+        .route(
+            "/api/v1/concepts/schemes",
+            get(list_concept_schemes).post(create_concept_scheme),
+        )
+        .route(
+            "/api/v1/concepts/schemes/:id",
+            get(get_concept_scheme).patch(update_concept_scheme),
+        )
+        .route(
+            "/api/v1/concepts/schemes/:id/top-concepts",
+            get(get_top_concepts),
+        )
+        // SKOS Concepts
+        .route(
+            "/api/v1/concepts",
+            get(search_concepts).post(create_concept),
+        )
+        .route("/api/v1/concepts/autocomplete", get(autocomplete_concepts))
+        .route(
+            "/api/v1/concepts/:id",
+            get(get_concept).patch(update_concept).delete(delete_concept),
+        )
+        .route("/api/v1/concepts/:id/full", get(get_concept_full))
+        .route("/api/v1/concepts/:id/ancestors", get(get_ancestors))
+        .route("/api/v1/concepts/:id/descendants", get(get_descendants))
+        .route(
+            "/api/v1/concepts/:id/broader",
+            get(get_broader).post(add_broader),
+        )
+        .route(
+            "/api/v1/concepts/:id/narrower",
+            get(get_narrower).post(add_narrower),
+        )
+        .route(
+            "/api/v1/concepts/:id/related",
+            get(get_related).post(add_related),
+        )
+        // SKOS Tagging
+        .route(
+            "/api/v1/notes/:id/concepts",
+            get(get_note_concepts).post(tag_note_with_concept),
+        )
+        .route(
+            "/api/v1/notes/:id/concepts/:concept_id",
+            delete(untag_note_concept),
+        )
+        // SKOS Governance
+        .route("/api/v1/concepts/governance", get(get_governance_stats))
+        // SKOS Export
+        .route(
+            "/api/v1/concepts/schemes/:id/export/turtle",
+            get(export_scheme_turtle),
+        )
         // Collections
         .route(
             "/api/v1/collections",
@@ -381,7 +497,10 @@ async fn main() -> anyhow::Result<()> {
         )
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
+        // Rate limiting status endpoint
+        .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -403,6 +522,41 @@ async fn main() -> anyhow::Result<()> {
 }
 
 // =============================================================================
+// RATE LIMITING MIDDLEWARE
+// =============================================================================
+
+async fn rate_limit_middleware(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<impl IntoResponse, StatusCode> {
+    // If rate limiting is disabled, pass through
+    if let Some(limiter) = &state.rate_limiter {
+        // Check rate limit
+        if limiter.check().is_err() {
+            tracing::warn!("Rate limit exceeded");
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+    }
+    Ok(next.run(request).await)
+}
+
+/// Get rate limiting status.
+async fn rate_limit_status(State(state): State<AppState>) -> impl IntoResponse {
+    if let Some(_limiter) = &state.rate_limiter {
+        Json(serde_json::json!({
+            "enabled": true,
+            "message": "Rate limiting is active"
+        }))
+    } else {
+        Json(serde_json::json!({
+            "enabled": false,
+            "message": "Rate limiting is disabled"
+        }))
+    }
+}
+
+// =============================================================================
 // HEALTH CHECK
 // =============================================================================
 
@@ -416,6 +570,593 @@ async fn health_check() -> impl IntoResponse {
 // =============================================================================
 // NOTE HANDLERS
 // =============================================================================
+
+/// Parse relative time string (e.g., "7d", "1w", "2h") into a DateTime.
+fn parse_relative_time(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let s = s.trim().to_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Parse the number and unit
+    let mut num_str = String::new();
+    let mut unit = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num_str.push(c);
+        } else {
+            unit.push(c);
+        }
+    }
+
+    let num: i64 = num_str.parse().ok()?;
+    let duration = match unit.as_str() {
+        "h" | "hr" | "hrs" | "hour" | "hours" => chrono::Duration::hours(num),
+        "d" | "day" | "days" => chrono::Duration::days(num),
+        "w" | "wk" | "week" | "weeks" => chrono::Duration::weeks(num),
+        "m" | "mo" | "month" | "months" => chrono::Duration::days(num * 30),
+        "min" | "mins" | "minute" | "minutes" => chrono::Duration::minutes(num),
+        _ => return None,
+    };
+
+    Some(chrono::Utc::now() - duration)
+}
+
+// =============================================================================
+// TEMPORAL QUERY HANDLERS
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct TimelineQuery {
+    /// Time period to group by: "day", "week", "month" (default: "day")
+    period: Option<String>,
+    /// How many periods to look back (default: 30)
+    periods: Option<i64>,
+    /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month)
+    since: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct TimelineBucket {
+    period_start: chrono::DateTime<chrono::Utc>,
+    period_end: chrono::DateTime<chrono::Utc>,
+    count: i64,
+    note_ids: Vec<Uuid>,
+}
+
+/// Get notes grouped by time periods for timeline visualization.
+async fn get_notes_timeline(
+    State(state): State<AppState>,
+    Query(query): Query<TimelineQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let period = query.period.as_deref().unwrap_or("day");
+    let periods_back = query.periods.unwrap_or(30);
+
+    // Calculate the cutoff date
+    let since = query.since.as_ref()
+        .and_then(|s| parse_relative_time(s))
+        .unwrap_or_else(|| {
+            let duration = match period {
+                "week" => chrono::Duration::weeks(periods_back),
+                "month" => chrono::Duration::days(periods_back * 30),
+                _ => chrono::Duration::days(periods_back), // default: day
+            };
+            chrono::Utc::now() - duration
+        });
+
+    // Query notes created since the cutoff
+    let req = ListNotesRequest {
+        limit: Some(1000), // reasonable limit
+        offset: None,
+        filter: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: Some(since),
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    };
+
+    let response = state.db.notes.list(req).await?;
+
+    // Group notes by period
+    let mut buckets: std::collections::HashMap<i64, Vec<Uuid>> = std::collections::HashMap::new();
+
+    for note in &response.notes {
+        let bucket_key = match period {
+            "week" => {
+                // Get start of week (Monday)
+                let days_since_monday = note.created_at_utc.weekday().num_days_from_monday() as i64;
+                (note.created_at_utc - chrono::Duration::days(days_since_monday))
+                    .timestamp() / 86400 / 7
+            }
+            "month" => {
+                // Year-month as a single number
+                note.created_at_utc.year() as i64 * 12 + note.created_at_utc.month() as i64
+            }
+            _ => {
+                // Day: timestamp / seconds_per_day
+                note.created_at_utc.timestamp() / 86400
+            }
+        };
+
+        buckets.entry(bucket_key).or_default().push(note.id);
+    }
+
+    // Convert to response format
+    let mut timeline: Vec<TimelineBucket> = buckets
+        .into_iter()
+        .map(|(key, note_ids)| {
+            let (period_start, period_end) = match period {
+                "week" => {
+                    let start = chrono::DateTime::from_timestamp(key * 7 * 86400, 0)
+                        .unwrap_or_else(chrono::Utc::now);
+                    let end = start + chrono::Duration::weeks(1);
+                    (start, end)
+                }
+                "month" => {
+                    let year = (key / 12) as i32;
+                    let month = ((key % 12) + 1) as u32;
+                    let start = chrono::DateTime::parse_from_rfc3339(
+                        &format!("{:04}-{:02}-01T00:00:00Z", year, month)
+                    ).map(|dt| dt.with_timezone(&chrono::Utc))
+                     .unwrap_or_else(|_| chrono::Utc::now());
+                    let end = if month == 12 {
+                        chrono::DateTime::parse_from_rfc3339(
+                            &format!("{:04}-01-01T00:00:00Z", year + 1)
+                        ).map(|dt| dt.with_timezone(&chrono::Utc))
+                         .unwrap_or_else(|_| chrono::Utc::now())
+                    } else {
+                        chrono::DateTime::parse_from_rfc3339(
+                            &format!("{:04}-{:02}-01T00:00:00Z", year, month + 1)
+                        ).map(|dt| dt.with_timezone(&chrono::Utc))
+                         .unwrap_or_else(|_| chrono::Utc::now())
+                    };
+                    (start, end)
+                }
+                _ => {
+                    let start = chrono::DateTime::from_timestamp(key * 86400, 0)
+                        .unwrap_or_else(chrono::Utc::now);
+                    let end = start + chrono::Duration::days(1);
+                    (start, end)
+                }
+            };
+
+            TimelineBucket {
+                period_start,
+                period_end,
+                count: note_ids.len() as i64,
+                note_ids,
+            }
+        })
+        .collect();
+
+    // Sort by period_start descending (most recent first)
+    timeline.sort_by(|a, b| b.period_start.cmp(&a.period_start));
+
+    Ok(Json(serde_json::json!({
+        "period": period,
+        "since": since,
+        "total_notes": response.notes.len(),
+        "buckets": timeline
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct ActivityQuery {
+    /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month)
+    since: Option<String>,
+    /// Limit number of results (default: 50)
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct ActivityEntry {
+    note_id: Uuid,
+    title: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    is_recently_created: bool,
+    is_recently_updated: bool,
+}
+
+/// Get recent note activity (created and modified notes).
+async fn get_notes_activity(
+    State(state): State<AppState>,
+    Query(query): Query<ActivityQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let since = query.since.as_ref()
+        .and_then(|s| parse_relative_time(s))
+        .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
+
+    let limit = query.limit.unwrap_or(50);
+
+    // Get recently created notes
+    let created_req = ListNotesRequest {
+        limit: Some(limit),
+        offset: None,
+        filter: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: Some(since),
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    };
+
+    // Get recently updated notes
+    let updated_req = ListNotesRequest {
+        limit: Some(limit),
+        offset: None,
+        filter: None,
+        sort_by: Some("updated_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: Some(since),
+        updated_before: None,
+    };
+
+    let (created_response, updated_response) = tokio::join!(
+        state.db.notes.list(created_req),
+        state.db.notes.list(updated_req)
+    );
+
+    let created_notes = created_response?;
+    let updated_notes = updated_response?;
+
+    // Combine and deduplicate
+    let mut activity: std::collections::HashMap<Uuid, ActivityEntry> = std::collections::HashMap::new();
+
+    for note in &created_notes.notes {
+        activity.insert(note.id, ActivityEntry {
+            note_id: note.id,
+            title: Some(note.title.clone()),
+            created_at: note.created_at_utc,
+            updated_at: note.updated_at_utc,
+            is_recently_created: true,
+            is_recently_updated: note.updated_at_utc > note.created_at_utc + chrono::Duration::seconds(60),
+        });
+    }
+
+    for note in &updated_notes.notes {
+        activity.entry(note.id)
+            .and_modify(|e| e.is_recently_updated = true)
+            .or_insert(ActivityEntry {
+                note_id: note.id,
+                title: Some(note.title.clone()),
+                created_at: note.created_at_utc,
+                updated_at: note.updated_at_utc,
+                is_recently_created: note.created_at_utc >= since,
+                is_recently_updated: true,
+            });
+    }
+
+    // Sort by most recent activity
+    let mut entries: Vec<ActivityEntry> = activity.into_values().collect();
+    entries.sort_by(|a, b| {
+        let a_time = a.updated_at.max(a.created_at);
+        let b_time = b.updated_at.max(b.created_at);
+        b_time.cmp(&a_time)
+    });
+    entries.truncate(limit as usize);
+
+    Ok(Json(serde_json::json!({
+        "since": since,
+        "activity": entries,
+        "created_count": created_notes.notes.len(),
+        "updated_count": updated_notes.notes.len()
+    })))
+}
+
+// =============================================================================
+// KNOWLEDGE HEALTH DASHBOARD
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct HealthQuery {
+    /// Staleness threshold in days (default: 90)
+    stale_days: Option<i64>,
+    /// Limit for results (default: 100)
+    limit: Option<i64>,
+}
+
+/// Get overall knowledge health metrics.
+async fn get_knowledge_health(
+    State(state): State<AppState>,
+    Query(query): Query<HealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let stale_days = query.stale_days.unwrap_or(90);
+    let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
+
+    // Get total note count
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
+
+    let total_notes = all_notes.total;
+
+    // Count stale notes
+    let stale_count = all_notes.notes.iter()
+        .filter(|n| n.updated_at_utc < stale_threshold)
+        .count();
+
+    // Get notes without any links (unlinked)
+    let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
+    let linked_note_ids: std::collections::HashSet<Uuid> = all_links.iter()
+        .flat_map(|link| {
+            let mut ids = vec![link.from_note_id];
+            if let Some(to_id) = link.to_note_id {
+                ids.push(to_id);
+            }
+            ids
+        })
+        .collect();
+    let unlinked_count = all_notes.notes.iter()
+        .filter(|n| !linked_note_ids.contains(&n.id))
+        .count();
+
+    // Get orphan tags (used only once)
+    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let mut tag_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut notes_with_tags: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    for note in &all_notes.notes {
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+        if !note_tags.is_empty() {
+            notes_with_tags.insert(note.id);
+        }
+        for tag in note_tags {
+            *tag_counts.entry(tag).or_insert(0) += 1;
+        }
+    }
+    let orphan_tag_count = tag_counts.iter().filter(|(_, &count)| count == 1).count();
+
+    // Get notes without any tags/concepts
+    let notes_without_tags = all_notes.notes.len() - notes_with_tags.len();
+
+    // Calculate health score (0-100)
+    let health_score = if total_notes > 0 {
+        let stale_ratio = stale_count as f64 / total_notes as f64;
+        let unlinked_ratio = unlinked_count as f64 / total_notes as f64;
+        let untagged_ratio = notes_without_tags as f64 / total_notes as f64;
+
+        let score = 100.0 - (stale_ratio * 30.0) - (unlinked_ratio * 40.0) - (untagged_ratio * 30.0);
+        score.max(0.0).min(100.0) as i64
+    } else {
+        100
+    };
+
+    Ok(Json(serde_json::json!({
+        "health_score": health_score,
+        "total_notes": total_notes,
+        "stale_notes": stale_count,
+        "stale_threshold_days": stale_days,
+        "unlinked_notes": unlinked_count,
+        "notes_without_tags": notes_without_tags,
+        "orphan_tags": orphan_tag_count,
+        "total_tags": all_tags.len(),
+        "total_links": all_links.len()
+    })))
+}
+
+/// Get tags used only once (orphan tags).
+async fn get_orphan_tags(
+    State(state): State<AppState>,
+    Query(query): Query<HealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(100) as usize;
+
+    // Get all notes and their tags
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
+
+    // Count tag usage
+    let mut tag_usage: std::collections::HashMap<String, Vec<Uuid>> = std::collections::HashMap::new();
+    for note in &all_notes.notes {
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+        for tag in note_tags {
+            tag_usage.entry(tag).or_default().push(note.id);
+        }
+    }
+
+    // Filter to orphan tags (used exactly once)
+    let orphan_tags: Vec<serde_json::Value> = tag_usage.into_iter()
+        .filter(|(_, note_ids)| note_ids.len() == 1)
+        .take(limit)
+        .map(|(tag, note_ids)| serde_json::json!({
+            "tag": tag,
+            "note_id": note_ids[0]
+        }))
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "orphan_tags": orphan_tags,
+        "count": orphan_tags.len()
+    })))
+}
+
+/// Get notes not updated in a long time.
+async fn get_stale_notes(
+    State(state): State<AppState>,
+    Query(query): Query<HealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let stale_days = query.stale_days.unwrap_or(90);
+    let limit = query.limit.unwrap_or(100) as usize;
+    let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
+
+    // Get notes updated before the threshold
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: Some("updated_at".to_string()),
+        sort_order: Some("asc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: Some(stale_threshold),
+    }).await?;
+
+    let stale_notes: Vec<serde_json::Value> = all_notes.notes.iter()
+        .take(limit)
+        .map(|n| {
+            let days_stale = (chrono::Utc::now() - n.updated_at_utc).num_days();
+            serde_json::json!({
+                "id": n.id,
+                "title": n.title,
+                "updated_at": n.updated_at_utc,
+                "days_stale": days_stale
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "stale_threshold_days": stale_days,
+        "stale_notes": stale_notes,
+        "count": stale_notes.len()
+    })))
+}
+
+/// Get notes with no incoming or outgoing links.
+async fn get_unlinked_notes(
+    State(state): State<AppState>,
+    Query(query): Query<HealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(100) as usize;
+
+    // Get all links to find linked notes
+    let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
+    let linked_note_ids: std::collections::HashSet<Uuid> = all_links.iter()
+        .flat_map(|link| {
+            let mut ids = vec![link.from_note_id];
+            if let Some(to_id) = link.to_note_id {
+                ids.push(to_id);
+            }
+            ids
+        })
+        .collect();
+
+    // Get all notes
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
+
+    // Filter to unlinked notes
+    let unlinked_notes: Vec<serde_json::Value> = all_notes.notes.iter()
+        .filter(|n| !linked_note_ids.contains(&n.id))
+        .take(limit)
+        .map(|n| serde_json::json!({
+            "id": n.id,
+            "title": n.title,
+            "created_at": n.created_at_utc
+        }))
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "unlinked_notes": unlinked_notes,
+        "count": unlinked_notes.len(),
+        "total_notes": all_notes.total,
+        "linked_notes": linked_note_ids.len()
+    })))
+}
+
+/// Get tag co-occurrence patterns.
+async fn get_tag_cooccurrence(
+    State(state): State<AppState>,
+    Query(query): Query<HealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50) as usize;
+
+    // Get all notes
+    let all_notes = state.db.notes.list(ListNotesRequest {
+        limit: Some(10000),
+        offset: None,
+        filter: None,
+        sort_by: None,
+        sort_order: None,
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    }).await?;
+
+    // Build co-occurrence matrix
+    let mut cooccurrence: std::collections::HashMap<(String, String), i64> = std::collections::HashMap::new();
+
+    for note in &all_notes.notes {
+        let note_tags = state.db.tags.get_for_note(note.id).await.unwrap_or_default();
+        // Generate all pairs
+        for i in 0..note_tags.len() {
+            for j in (i + 1)..note_tags.len() {
+                let (a, b) = if note_tags[i] < note_tags[j] {
+                    (note_tags[i].clone(), note_tags[j].clone())
+                } else {
+                    (note_tags[j].clone(), note_tags[i].clone())
+                };
+                *cooccurrence.entry((a, b)).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Sort by frequency and take top pairs
+    let mut pairs: Vec<_> = cooccurrence.into_iter().collect();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let top_pairs: Vec<serde_json::Value> = pairs.into_iter()
+        .take(limit)
+        .map(|((tag_a, tag_b), count)| serde_json::json!({
+            "tag_a": tag_a,
+            "tag_b": tag_b,
+            "count": count
+        }))
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "cooccurrence_pairs": top_pairs,
+        "count": top_pairs.len()
+    })))
+}
 
 #[derive(Debug, Deserialize)]
 struct ListNotesQuery {
@@ -435,6 +1176,8 @@ struct ListNotesQuery {
     updated_after: Option<chrono::DateTime<chrono::Utc>>,
     /// Filter: notes updated before this timestamp (ISO 8601)
     updated_before: Option<chrono::DateTime<chrono::Utc>>,
+    /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
+    since: Option<String>,
 }
 
 async fn list_notes(
@@ -449,6 +1192,11 @@ async fn list_notes(
             .collect::<Vec<_>>()
     });
 
+    // Parse relative time (e.g., "7d", "1w") and use as created_after if provided
+    let created_after = query.created_after.or_else(|| {
+        query.since.as_ref().and_then(|s| parse_relative_time(s))
+    });
+
     let req = ListNotesRequest {
         limit: query.limit,
         offset: query.offset,
@@ -457,7 +1205,7 @@ async fn list_notes(
         sort_order: query.sort_order,
         collection_id: query.collection_id,
         tags,
-        created_after: query.created_after,
+        created_after,
         created_before: query.created_before,
         updated_after: query.updated_after,
         updated_before: query.updated_before,
@@ -821,6 +1569,446 @@ async fn list_tags(State(state): State<AppState>) -> Result<impl IntoResponse, A
 }
 
 // =============================================================================
+// SKOS CONCEPT HANDLERS
+// =============================================================================
+
+use matric_db::{
+    SkosConceptRepository, SkosConceptSchemeRepository, SkosGovernanceRepository,
+    SkosLabelRepository, SkosRelationRepository, SkosTaggingRepository,
+};
+
+// --- Concept Scheme Handlers ---
+
+async fn list_concept_schemes(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let schemes = state.db.skos.list_schemes(false).await?;
+    Ok(Json(schemes))
+}
+
+async fn create_concept_scheme(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateConceptSchemeRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.skos.create_scheme(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+async fn get_concept_scheme(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let scheme = state
+        .db
+        .skos
+        .get_scheme(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Concept scheme not found".to_string()))?;
+    Ok(Json(scheme))
+}
+
+async fn update_concept_scheme(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<matric_core::UpdateConceptSchemeRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.update_scheme(id, body).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_top_concepts(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let concepts = state.db.skos.get_top_concepts(id).await?;
+    Ok(Json(concepts))
+}
+
+// --- Concept Handlers ---
+
+#[derive(Debug, Deserialize)]
+struct SearchConceptsQuery {
+    q: Option<String>,
+    scheme_id: Option<Uuid>,
+    status: Option<String>,
+    facet_type: Option<String>,
+    top_only: Option<bool>,
+    include_deprecated: Option<bool>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn search_concepts(
+    State(state): State<AppState>,
+    Query(query): Query<SearchConceptsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = matric_core::SearchConceptsRequest {
+        query: query.q,
+        scheme_id: query.scheme_id,
+        status: query.status.and_then(|s| s.parse().ok()),
+        facet_type: query.facet_type.and_then(|f| f.parse().ok()),
+        top_concepts_only: query.top_only.unwrap_or(false),
+        include_deprecated: query.include_deprecated.unwrap_or(false),
+        limit: query.limit.unwrap_or(50),
+        offset: query.offset.unwrap_or(0),
+        max_depth: None,
+        has_antipattern: None,
+    };
+    let result = state.db.skos.search_concepts(req).await?;
+    Ok(Json(result))
+}
+
+async fn create_concept(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateConceptRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.skos.create_concept(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+#[derive(Debug, Deserialize)]
+struct AutocompleteQuery {
+    q: String,
+    limit: Option<i64>,
+}
+
+async fn autocomplete_concepts(
+    State(state): State<AppState>,
+    Query(query): Query<AutocompleteQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let concepts = state
+        .db
+        .skos
+        .search_labels(&query.q, query.limit.unwrap_or(10))
+        .await?;
+    Ok(Json(concepts))
+}
+
+async fn get_concept(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let concept = state
+        .db
+        .skos
+        .get_concept_with_label(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Concept not found".to_string()))?;
+    Ok(Json(concept))
+}
+
+async fn get_concept_full(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let concept = state
+        .db
+        .skos
+        .get_concept_full(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Concept not found".to_string()))?;
+    Ok(Json(concept))
+}
+
+async fn update_concept(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<matric_core::UpdateConceptRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.update_concept(id, body).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_concept(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.delete_concept(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// --- Hierarchy Handlers ---
+
+async fn get_ancestors(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get broader relations which represent ancestors
+    let relations = state
+        .db
+        .skos
+        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Broader))
+        .await?;
+    Ok(Json(relations))
+}
+
+async fn get_descendants(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get narrower relations which represent descendants
+    let relations = state
+        .db
+        .skos
+        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Narrower))
+        .await?;
+    Ok(Json(relations))
+}
+
+async fn get_broader(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let relations = state
+        .db
+        .skos
+        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Broader))
+        .await?;
+    Ok(Json(relations))
+}
+
+async fn get_narrower(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let relations = state
+        .db
+        .skos
+        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Narrower))
+        .await?;
+    Ok(Json(relations))
+}
+
+async fn get_related(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let relations = state
+        .db
+        .skos
+        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Related))
+        .await?;
+    Ok(Json(relations))
+}
+
+#[derive(Debug, Deserialize)]
+struct AddRelationBody {
+    target_id: Uuid,
+}
+
+async fn add_broader(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<AddRelationBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = matric_core::CreateSemanticRelationRequest {
+        subject_id: id,
+        object_id: body.target_id,
+        relation_type: matric_core::SkosSemanticRelation::Broader,
+        inference_score: None,
+        is_inferred: false,
+        created_by: Some("api".to_string()),
+    };
+    state.db.skos.create_semantic_relation(req).await?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn add_narrower(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<AddRelationBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = matric_core::CreateSemanticRelationRequest {
+        subject_id: id,
+        object_id: body.target_id,
+        relation_type: matric_core::SkosSemanticRelation::Narrower,
+        inference_score: None,
+        is_inferred: false,
+        created_by: Some("api".to_string()),
+    };
+    state.db.skos.create_semantic_relation(req).await?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn add_related(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<AddRelationBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = matric_core::CreateSemanticRelationRequest {
+        subject_id: id,
+        object_id: body.target_id,
+        relation_type: matric_core::SkosSemanticRelation::Related,
+        inference_score: None,
+        is_inferred: false,
+        created_by: Some("api".to_string()),
+    };
+    state.db.skos.create_semantic_relation(req).await?;
+    Ok(StatusCode::CREATED)
+}
+
+// --- Tagging Handlers ---
+
+async fn get_note_concepts(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let concepts = state.db.skos.get_note_tags_with_labels(id).await?;
+    Ok(Json(concepts))
+}
+
+#[derive(Debug, Deserialize)]
+struct TagNoteBody {
+    concept_id: Uuid,
+    is_primary: Option<bool>,
+}
+
+async fn tag_note_with_concept(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<TagNoteBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let req = matric_core::TagNoteRequest {
+        note_id: id,
+        concept_id: body.concept_id,
+        source: "api".to_string(),
+        confidence: None,
+        relevance_score: 1.0,
+        is_primary: body.is_primary.unwrap_or(false),
+        created_by: None,
+    };
+    state.db.skos.tag_note(req).await?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn untag_note_concept(
+    State(state): State<AppState>,
+    Path((note_id, concept_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.untag_note(note_id, concept_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// --- Governance Handlers ---
+
+#[derive(Debug, Deserialize)]
+struct GovernanceQuery {
+    scheme_id: Option<Uuid>,
+}
+
+async fn get_governance_stats(
+    State(state): State<AppState>,
+    Query(query): Query<GovernanceQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Use default scheme if none provided
+    let scheme_id = query
+        .scheme_id
+        .unwrap_or_else(matric_db::PgSkosRepository::default_scheme_id);
+    let stats = state.db.skos.get_governance_stats(scheme_id).await?;
+    Ok(Json(stats))
+}
+
+/// Export a concept scheme in W3C SKOS Turtle format.
+async fn export_scheme_turtle(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get the scheme
+    let scheme = state
+        .db
+        .skos
+        .get_scheme(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Concept scheme not found".to_string()))?;
+
+    // Get all concepts in the scheme
+    let search_req = matric_core::SearchConceptsRequest {
+        scheme_id: Some(id),
+        limit: 10000,
+        ..Default::default()
+    };
+    let concepts_resp = state.db.skos.search_concepts(search_req).await?;
+
+    // Build Turtle output
+    let mut turtle = String::new();
+
+    // Prefixes
+    turtle.push_str("@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n");
+    turtle.push_str("@prefix dct: <http://purl.org/dc/terms/> .\n");
+    turtle.push_str("@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n");
+    turtle.push_str(&format!(
+        "@prefix : <urn:matric:scheme:{}:> .\n\n",
+        scheme.notation
+    ));
+
+    // Scheme definition
+    turtle.push_str(&format!(
+        ":scheme a skos:ConceptScheme ;\n    dct:title \"{}\"@en",
+        escape_turtle(&scheme.title)
+    ));
+    if let Some(desc) = &scheme.description {
+        turtle.push_str(&format!(
+            " ;\n    dct:description \"{}\"@en",
+            escape_turtle(desc)
+        ));
+    }
+    turtle.push_str(" .\n\n");
+
+    // Concepts
+    for concept in &concepts_resp.concepts {
+        let id_str = concept.concept.id.to_string();
+        let notation = concept.concept.notation.as_deref().unwrap_or(&id_str);
+        let concept_uri = format!(":{}", notation);
+
+        turtle.push_str(&format!("{} a skos:Concept", concept_uri));
+        turtle.push_str(" ;\n    skos:inScheme :scheme");
+
+        // Preferred label
+        if let Some(pref) = &concept.pref_label {
+            turtle.push_str(&format!(
+                " ;\n    skos:prefLabel \"{}\"@{}",
+                escape_turtle(pref),
+                concept.label_language.as_deref().unwrap_or("en")
+            ));
+        }
+
+        // Status note
+        turtle.push_str(&format!(
+            " ;\n    skos:note \"status: {:?}\"@en",
+            concept.concept.status
+        ));
+
+        // PMEST facets as notes
+        if let Some(facet) = &concept.concept.facet_domain {
+            turtle.push_str(&format!(
+                " ;\n    skos:note \"domain: {}\"@en",
+                escape_turtle(facet)
+            ));
+        }
+
+        turtle.push_str(" .\n\n");
+    }
+
+    // Return with proper content type
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/turtle; charset=utf-8",
+        )],
+        turtle,
+    ))
+}
+
+/// Escape special characters for Turtle string literals.
+fn escape_turtle(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+// =============================================================================
 // COLLECTION HANDLERS
 // =============================================================================
 
@@ -1162,6 +2350,19 @@ async fn get_note_links(
     Ok(Json(NoteLinksResponse { outgoing, incoming }))
 }
 
+/// Get backlinks (notes that link TO this note).
+async fn get_note_backlinks(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let backlinks = state.db.links.get_incoming(id).await?;
+    Ok(Json(serde_json::json!({
+        "note_id": id,
+        "backlinks": backlinks,
+        "count": backlinks.len()
+    })))
+}
+
 // =============================================================================
 // EXPORT HANDLERS
 // =============================================================================
@@ -1279,6 +2480,8 @@ struct SearchQuery {
     updated_after: Option<chrono::DateTime<chrono::Utc>>,
     /// Filter: notes updated before this timestamp (ISO 8601)
     updated_before: Option<chrono::DateTime<chrono::Utc>>,
+    /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
+    since: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1312,6 +2515,11 @@ async fn search_notes(
         None
     };
 
+    // Parse relative time (e.g., "7d", "1w") and use as created_after if provided
+    let created_after = query.created_after.or_else(|| {
+        query.since.as_ref().and_then(|s| parse_relative_time(s))
+    });
+
     let mut request = SearchRequest::new(&query.q)
         .with_limit(limit)
         .with_config(config);
@@ -1322,6 +2530,14 @@ async fn search_notes(
 
     if let Some(vec) = query_embedding {
         request = request.with_embedding(vec);
+    }
+
+    // Apply temporal filters
+    if let Some(ts) = created_after {
+        request = request.with_created_after(ts);
+    }
+    if let Some(ts) = query.created_before {
+        request = request.with_created_before(ts);
     }
 
     let results = request.execute(&state.search).await?;
@@ -1492,6 +2708,7 @@ async fn create_job(
         "linking" => JobType::Linking,
         "context_update" => JobType::ContextUpdate,
         "title_generation" => JobType::TitleGeneration,
+        "concept_tagging" => JobType::ConceptTagging,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",

@@ -475,6 +475,30 @@ impl LinkingHandler {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
+
+    /// Parse [[wiki-style]] links from content and return target titles.
+    fn parse_wiki_links(content: &str) -> Vec<String> {
+        let re = regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
+        re.captures_iter(content)
+            .filter_map(|cap| cap.get(1).map(|m| m.as_str().trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// Resolve a wiki-link title to a note ID by searching for matching titles.
+    async fn resolve_wiki_link(&self, title: &str) -> Option<uuid::Uuid> {
+        // Search for notes with matching title (case-insensitive)
+        let results = self.db.search.search(title, 5, true).await.ok()?;
+
+        for hit in results {
+            if let Some(hit_title) = &hit.title {
+                if hit_title.to_lowercase() == title.to_lowercase() {
+                    return Some(hit.note_id);
+                }
+            }
+        }
+        None
+    }
 }
 
 #[async_trait]
@@ -489,22 +513,77 @@ impl JobHandler for LinkingHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        ctx.report_progress(20, Some("Finding embeddings..."));
+        let mut created = 0;
+        let mut wiki_links_found = 0;
+        let mut wiki_links_resolved = 0;
+
+        // First, parse wiki-style [[links]] from note content
+        ctx.report_progress(10, Some("Parsing wiki-style links..."));
+
+        let note = match self.db.notes.fetch(note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+
+        // Use revised content if available, otherwise original
+        let content = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        let wiki_links = Self::parse_wiki_links(content);
+        wiki_links_found = wiki_links.len();
+
+        ctx.report_progress(20, Some(&format!("Found {} wiki-links", wiki_links_found)));
+
+        // Resolve and create explicit links from wiki-style links
+        for link_title in &wiki_links {
+            if let Some(target_id) = self.resolve_wiki_link(link_title).await {
+                if target_id != note_id {
+                    // Create explicit wiki link with title in metadata
+                    let metadata = serde_json::json!({"wiki_title": link_title});
+                    if let Err(e) = self
+                        .db
+                        .links
+                        .create(note_id, target_id, "wiki", 1.0, Some(metadata))
+                        .await
+                    {
+                        debug!(error = %e, target = %link_title, "Failed to create wiki link (may already exist)");
+                    } else {
+                        created += 1;
+                        wiki_links_resolved += 1;
+                    }
+                }
+            } else {
+                debug!(target = %link_title, "Wiki-link target not found");
+            }
+        }
+
+        ctx.report_progress(40, Some("Finding embeddings for semantic linking..."));
 
         // Get embeddings for this note
         let embeddings = match self.db.embeddings.get_for_note(note_id).await {
             Ok(e) => e,
             Err(e) => {
-                warn!(error = %e, "No embeddings for note, skipping linking");
-                return JobResult::Success(Some(serde_json::json!({"links_created": 0})));
+                warn!(error = %e, "No embeddings for note, skipping semantic linking");
+                return JobResult::Success(Some(serde_json::json!({
+                    "links_created": created,
+                    "wiki_links_found": wiki_links_found,
+                    "wiki_links_resolved": wiki_links_resolved
+                })));
             }
         };
 
         if embeddings.is_empty() {
-            return JobResult::Success(Some(serde_json::json!({"links_created": 0})));
+            return JobResult::Success(Some(serde_json::json!({
+                "links_created": created,
+                "wiki_links_found": wiki_links_found,
+                "wiki_links_resolved": wiki_links_resolved
+            })));
         }
 
-        ctx.report_progress(40, Some("Searching for similar notes..."));
+        ctx.report_progress(60, Some("Searching for similar notes..."));
 
         // Use the first embedding to find similar notes
         let similar = match self
@@ -517,9 +596,8 @@ impl JobHandler for LinkingHandler {
             Err(e) => return JobResult::Failed(format!("Failed to find similar: {}", e)),
         };
 
-        ctx.report_progress(60, Some("Creating bidirectional links..."));
+        ctx.report_progress(80, Some("Creating bidirectional semantic links..."));
 
-        let mut created = 0;
         for hit in similar {
             // Skip self and low scores (threshold 0.7 for semantic links)
             if hit.note_id == note_id || hit.score < 0.7 {
@@ -552,10 +630,18 @@ impl JobHandler for LinkingHandler {
         }
 
         ctx.report_progress(100, Some("Linking complete"));
-        info!(note_id = %note_id, links = created, "Created {} bidirectional links", created);
+        info!(
+            note_id = %note_id,
+            links = created,
+            wiki_found = wiki_links_found,
+            wiki_resolved = wiki_links_resolved,
+            "Created {} links ({} from wiki-links)", created, wiki_links_resolved
+        );
 
         JobResult::Success(Some(serde_json::json!({
-            "links_created": created
+            "links_created": created,
+            "wiki_links_found": wiki_links_found,
+            "wiki_links_resolved": wiki_links_resolved
         })))
     }
 }
@@ -788,6 +874,236 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         JobResult::Success(Some(serde_json::json!({
             "updated": true,
             "links_referenced": links.len()
+        })))
+    }
+}
+
+/// Handler for AI-driven SKOS concept tagging - replaces flat tags with hierarchical concepts.
+pub struct ConceptTaggingHandler {
+    db: Database,
+    backend: OllamaBackend,
+}
+
+impl ConceptTaggingHandler {
+    pub fn new(db: Database, backend: OllamaBackend) -> Self {
+        Self { db, backend }
+    }
+
+    /// Get or create a concept by preferred label.
+    async fn get_or_create_concept(&self, label: &str, scheme_id: uuid::Uuid) -> Option<uuid::Uuid> {
+        use matric_db::SkosConceptRepository;
+        use matric_db::SkosLabelRepository;
+
+        // First, search for existing concept with this label
+        let results = self.db.skos.search_labels(label, 5).await.ok()?;
+
+        // Check for exact match (case-insensitive)
+        let label_lower = label.to_lowercase();
+        for concept in &results {
+            if let Some(pref) = &concept.pref_label {
+                if pref.to_lowercase() == label_lower {
+                    return Some(concept.concept.id);
+                }
+            }
+        }
+
+        // No exact match found - create new concept
+        let req = matric_core::CreateConceptRequest {
+            scheme_id,
+            notation: None, // Auto-generated
+            pref_label: label.to_string(),
+            language: "en".to_string(),
+            status: matric_core::TagStatus::Candidate,
+            facet_type: None,
+            facet_source: None,
+            facet_domain: None,
+            facet_scope: None,
+            definition: Some("Auto-created by AI concept tagging".to_string()),
+            scope_note: None,
+            broader_ids: vec![],
+            related_ids: vec![],
+            alt_labels: vec![],
+        };
+
+        self.db.skos.create_concept(req).await.ok()
+    }
+}
+
+#[async_trait]
+impl JobHandler for ConceptTaggingHandler {
+    fn job_type(&self) -> JobType {
+        JobType::ConceptTagging
+    }
+
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        use matric_db::{SkosConceptSchemeRepository, SkosTaggingRepository};
+
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        ctx.report_progress(10, Some("Fetching note content..."));
+
+        // Get the note
+        let note = match self.db.notes.fetch(note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+
+        // Use revised content if available, otherwise original
+        let content: &str = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        if content.trim().is_empty() {
+            return JobResult::Success(Some(serde_json::json!({"concepts": 0, "reason": "empty_content"})));
+        }
+
+        ctx.report_progress(20, Some("Getting default concept scheme..."));
+
+        // Get or use default scheme
+        let scheme_id = match self.db.skos.list_schemes(false).await {
+            Ok(schemes) if !schemes.is_empty() => schemes[0].id,
+            Ok(_) => {
+                // Create default scheme if none exists
+                let req = matric_core::CreateConceptSchemeRequest {
+                    notation: "default".to_string(),
+                    title: "Default Concept Scheme".to_string(),
+                    uri: None,
+                    description: Some("Auto-created default scheme for AI-generated concepts".to_string()),
+                    creator: None,
+                    publisher: None,
+                    rights: None,
+                    version: None,
+                };
+                match self.db.skos.create_scheme(req).await {
+                    Ok(id) => id,
+                    Err(e) => return JobResult::Failed(format!("Failed to create default scheme: {}", e)),
+                }
+            }
+            Err(e) => return JobResult::Failed(format!("Failed to get schemes: {}", e)),
+        };
+
+        ctx.report_progress(30, Some("Analyzing content for concepts..."));
+
+        // Take content preview for analysis
+        let content_preview: String = content.chars().take(2000).collect();
+
+        // Generate concept suggestions using AI
+        let prompt = format!(
+            r#"You are a knowledge organization specialist. Analyze the following note content and suggest 3-7 specific SKOS-style concept labels that describe its main topics.
+
+Content:
+{}
+
+Guidelines:
+1. Use specific, descriptive terms (not generic words like "note", "important", "todo")
+2. Use noun phrases or compound terms (e.g., "machine learning", "database optimization", "rust programming")
+3. Focus on the actual subject matter and key concepts
+4. Keep labels concise (1-4 words each)
+5. Order by relevance (most relevant first)
+
+Output ONLY a JSON array of concept labels, nothing else. Example:
+["machine learning", "neural networks", "python programming", "data preprocessing"]"#,
+            content_preview
+        );
+
+        let ai_response = match self.backend.generate(&prompt).await {
+            Ok(r) => r.trim().to_string(),
+            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
+        };
+
+        ctx.report_progress(50, Some("Parsing concept suggestions..."));
+
+        // Parse the AI response as JSON array
+        let concept_labels: Vec<String> = match serde_json::from_str(&ai_response) {
+            Ok(labels) => labels,
+            Err(_) => {
+                // Try to extract labels if response isn't clean JSON
+                let cleaned = ai_response
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                match serde_json::from_str(cleaned) {
+                    Ok(labels) => labels,
+                    Err(e) => {
+                        warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                    }
+                }
+            }
+        };
+
+        if concept_labels.is_empty() {
+            return JobResult::Success(Some(serde_json::json!({
+                "concepts": 0,
+                "reason": "no_concepts_suggested"
+            })));
+        }
+
+        ctx.report_progress(60, Some("Creating/matching concepts..."));
+
+        // Get or create concepts and tag the note
+        let mut tagged_count = 0;
+        let total = concept_labels.len();
+
+        for (i, label) in concept_labels.iter().enumerate() {
+            // Skip empty or too-short labels
+            if label.trim().len() < 2 {
+                continue;
+            }
+
+            let is_primary = i == 0; // First concept is primary
+            let relevance = 1.0_f32 - (i as f32 * 0.1); // Decreasing relevance
+
+            // Check if concept already exists by searching labels
+            let concept_id = match self.get_or_create_concept(label.trim(), scheme_id).await {
+                Some(id) => id,
+                None => {
+                    warn!(label = %label, "Failed to get or create concept");
+                    continue;
+                }
+            };
+
+            // Tag the note with this concept
+            let tag_req = matric_core::TagNoteRequest {
+                note_id,
+                concept_id,
+                source: "ai_auto".to_string(),
+                confidence: Some(0.8),
+                relevance_score: relevance,
+                is_primary,
+                created_by: None,
+            };
+
+            if let Err(e) = self.db.skos.tag_note(tag_req).await {
+                debug!(error = %e, concept_id = %concept_id, "Failed to tag note (may already exist)");
+            } else {
+                tagged_count += 1;
+            }
+
+            // Update progress
+            let progress = 60 + ((i + 1) * 30 / total) as i32;
+            ctx.report_progress(progress, Some(&format!("Tagged with: {}", label)));
+        }
+
+        ctx.report_progress(100, Some("Concept tagging complete"));
+        info!(
+            note_id = %note_id,
+            concepts_tagged = tagged_count,
+            concepts_suggested = concept_labels.len(),
+            "SKOS concept tagging completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "concepts_tagged": tagged_count,
+            "concepts_suggested": concept_labels.len(),
+            "labels": concept_labels
         })))
     }
 }

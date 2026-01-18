@@ -128,6 +128,22 @@ impl PgFtsSearch {
                     params.push(uuid.to_string());
                     sql.push_str(&format!(" AND n.collection_id = ${}::uuid", params.len()));
                 }
+            } else if let Some(ts) = token.strip_prefix("created_after:") {
+                // Temporal filter: notes created after this ISO 8601 timestamp
+                params.push(ts.to_string());
+                sql.push_str(&format!(" AND n.created_at >= ${}::timestamptz", params.len()));
+            } else if let Some(ts) = token.strip_prefix("created_before:") {
+                // Temporal filter: notes created before this ISO 8601 timestamp
+                params.push(ts.to_string());
+                sql.push_str(&format!(" AND n.created_at <= ${}::timestamptz", params.len()));
+            } else if let Some(ts) = token.strip_prefix("updated_after:") {
+                // Temporal filter: notes updated after this ISO 8601 timestamp
+                params.push(ts.to_string());
+                sql.push_str(&format!(" AND n.updated_at >= ${}::timestamptz", params.len()));
+            } else if let Some(ts) = token.strip_prefix("updated_before:") {
+                // Temporal filter: notes updated before this ISO 8601 timestamp
+                params.push(ts.to_string());
+                sql.push_str(&format!(" AND n.updated_at <= ${}::timestamptz", params.len()));
             }
         }
 

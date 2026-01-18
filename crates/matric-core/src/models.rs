@@ -522,6 +522,8 @@ pub enum JobType {
     BuildSetIndex,
     /// Permanently delete a note and all related data
     PurgeNote,
+    /// Auto-generate SKOS concept tags using AI analysis
+    ConceptTagging,
 }
 
 impl JobType {
@@ -539,6 +541,8 @@ impl JobType {
             JobType::BuildSetIndex => 3,
             // Purge is high priority to complete cleanup quickly
             JobType::PurgeNote => 9,
+            // Concept tagging runs after embedding (needs content analysis)
+            JobType::ConceptTagging => 4,
         }
     }
 }

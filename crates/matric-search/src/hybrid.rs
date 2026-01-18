@@ -312,6 +312,10 @@ pub struct SearchRequest {
     filters: Option<String>,
     limit: i64,
     config: HybridSearchConfig,
+    /// Filter: notes created after this timestamp
+    created_after: Option<chrono::DateTime<chrono::Utc>>,
+    /// Filter: notes created before this timestamp
+    created_before: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl SearchRequest {
@@ -323,7 +327,21 @@ impl SearchRequest {
             filters: None,
             limit: 20,
             config: HybridSearchConfig::default(),
+            created_after: None,
+            created_before: None,
         }
+    }
+
+    /// Filter to notes created after this timestamp.
+    pub fn with_created_after(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
+        self.created_after = Some(ts);
+        self
+    }
+
+    /// Filter to notes created before this timestamp.
+    pub fn with_created_before(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
+        self.created_before = Some(ts);
+        self
     }
 
     /// Add an embedding for semantic search.
@@ -370,12 +388,25 @@ impl SearchRequest {
 
     /// Execute the search request.
     pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<SearchHit>> {
-        if let Some(filters) = &self.filters {
+        // Build filters string with temporal filters
+        let mut filter_parts: Vec<String> = Vec::new();
+        if let Some(f) = &self.filters {
+            filter_parts.push(f.clone());
+        }
+        if let Some(ts) = &self.created_after {
+            filter_parts.push(format!("created_after:{}", ts.to_rfc3339()));
+        }
+        if let Some(ts) = &self.created_before {
+            filter_parts.push(format!("created_before:{}", ts.to_rfc3339()));
+        }
+
+        if !filter_parts.is_empty() {
+            let combined_filters = filter_parts.join(" ");
             engine
                 .search_filtered(
                     &self.query,
                     self.embedding.as_ref(),
-                    filters,
+                    &combined_filters,
                     self.limit,
                     &self.config,
                 )

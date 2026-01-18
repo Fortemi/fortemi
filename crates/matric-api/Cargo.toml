@@ -23,6 +23,7 @@ matric-inference.workspace = true
 axum = { version = "0.7", features = ["json", "tower-log", "multipart"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
+governor = "0.6"
 
 # Vector support
 pgvector.workspace = true
@@ -38,6 +39,7 @@ chrono.workspace = true
 # Utilities
 base64.workspace = true
 urlencoding = "2.1"
+regex = "1"
 
 # Archive support
 tar = "0.4"

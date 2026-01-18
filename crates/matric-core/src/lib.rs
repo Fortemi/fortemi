@@ -7,9 +7,11 @@
 
 pub mod error;
 pub mod models;
+pub mod tags;
 pub mod traits;
 
 // Re-export commonly used types at crate root
 pub use error::{Error, Result};
 pub use models::*;
+pub use tags::*;
 pub use traits::*;

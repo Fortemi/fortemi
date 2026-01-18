@@ -18,10 +18,12 @@ struct HitMetadata {
 /// Fuse multiple ranked lists using Reciprocal Rank Fusion.
 ///
 /// Each input is a list of (note_id, score) pairs, ranked by score descending.
-/// The output combines all lists using RRF scoring.
+/// The output combines all lists using RRF scoring, normalized to 0.0-1.0 range.
 pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHit> {
     let mut scores: HashMap<Uuid, f32> = HashMap::new();
     let mut metadata: HashMap<Uuid, HitMetadata> = HashMap::new();
+
+    let num_lists = ranked_lists.len();
 
     for list in ranked_lists {
         for (rank, hit) in list.into_iter().enumerate() {
@@ -37,10 +39,25 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
         }
     }
 
+    if scores.is_empty() {
+        return Vec::new();
+    }
+
+    // Calculate the maximum possible RRF score for normalization
+    // Max score is achieved when a document is rank 0 in all lists
+    let max_possible_score = num_lists as f32 / (RRF_K + 1.0);
+
     // Sort by RRF score descending
     let mut results: Vec<SearchHit> = scores
         .into_iter()
         .map(|(note_id, score)| {
+            // Normalize score to 0.0-1.0 range
+            let normalized_score = if max_possible_score > 0.0 {
+                (score / max_possible_score).min(1.0)
+            } else {
+                0.0
+            };
+
             let meta = metadata.remove(&note_id).unwrap_or(HitMetadata {
                 snippet: None,
                 title: None,
@@ -48,7 +65,7 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
             });
             SearchHit {
                 note_id,
-                score,
+                score: normalized_score,
                 snippet: meta.snippet,
                 title: meta.title,
                 tags: meta.tags,
@@ -95,6 +112,8 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].note_id, id1);
         assert!(results[0].score > results[1].score);
+        // First result should have normalized score of 1.0 (rank 0 in only list)
+        assert!((results[0].score - 1.0).abs() < 0.001, "First result should be ~1.0, got {}", results[0].score);
         // Verify metadata is preserved
         assert_eq!(results[0].title, Some("First Note".to_string()));
         assert_eq!(results[0].tags, vec!["tag1".to_string()]);
@@ -173,5 +192,32 @@ mod tests {
 
         let results = rrf_fuse(vec![hits], 10);
         assert_eq!(results.len(), 10);
+    }
+
+    #[test]
+    fn test_rrf_scores_normalized_to_0_1_range() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        // Document appears at rank 0 in both lists (maximum score)
+        let list1 = vec![
+            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
+            SearchHit { note_id: id2, score: 0.5, snippet: None, title: None, tags: Vec::new() },
+        ];
+        let list2 = vec![
+            SearchHit { note_id: id1, score: 1.0, snippet: None, title: None, tags: Vec::new() },
+        ];
+
+        let results = rrf_fuse(vec![list1, list2], 10);
+
+        // id1 is rank 0 in both lists, should have score = 1.0
+        let id1_result = results.iter().find(|h| h.note_id == id1).unwrap();
+        assert!((id1_result.score - 1.0).abs() < 0.001, "Top result should be ~1.0, got {}", id1_result.score);
+
+        // All scores should be in 0.0-1.0 range
+        for result in &results {
+            assert!(result.score >= 0.0 && result.score <= 1.0,
+                "Score {} out of range", result.score);
+        }
     }
 }
