@@ -1,0 +1,9 @@
+{
+  "iteration": 0,
+  "started_at": "2026-01-17T15:15:00-05:00",
+  "status": "in_progress",
+  "task": "extended-backup-shard-system",
+  "completion_criteria": "cargo test passes AND API endpoint GET /api/v1/backup/knowledge-shard exists with component selection AND exports include links, embedding_sets, embeddings AND MCP tool knowledge_shard calls API AND tar.gz packaging works",
+  "max_iterations": 5,
+  "timeout_minutes": 60
+}

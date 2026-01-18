@@ -2846,6 +2846,7 @@ struct BackupImportBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Fields validated during deserialization, used for future features
 struct BackupImportData {
     manifest: Option<serde_json::Value>,
     notes: Vec<BackupNoteData>,
@@ -3311,7 +3312,7 @@ async fn knowledge_shard(
     use flate2::Compression;
     use matric_core::{NoteRepository, TemplateRepository};
     use sha2::{Digest, Sha256};
-    use std::io::Write;
+
     use tar::Builder;
 
     // Parse included components
@@ -4023,21 +4024,17 @@ async fn knowledge_shard_import(
     // additional repository methods. For now, we skip these as they can be
     // regenerated from the notes.
 
-    if should_import("embedding_sets") {
-        if files.contains_key("embedding_sets.json") {
-            errors.push(
-                "Embedding set import not yet implemented - sets will be regenerated".to_string(),
-            );
-        }
+    if should_import("embedding_sets") && files.contains_key("embedding_sets.json") {
+        errors.push(
+            "Embedding set import not yet implemented - sets will be regenerated".to_string(),
+        );
     }
 
-    if should_import("embeddings") {
-        if files.contains_key("embeddings.jsonl") {
-            errors.push(
-                "Direct embedding import not yet implemented - embeddings will be regenerated"
-                    .to_string(),
-            );
-        }
+    if should_import("embeddings") && files.contains_key("embeddings.jsonl") {
+        errors.push(
+            "Direct embedding import not yet implemented - embeddings will be regenerated"
+                .to_string(),
+        );
     }
 
     let status = if errors.is_empty() {
@@ -4842,6 +4839,7 @@ struct BackupMetadata {
 
 impl BackupMetadata {
     /// Create metadata for an automated backup
+    #[allow(dead_code)] // Reserved for scheduled backup feature
     fn auto(note_count: Option<i64>, db_size_bytes: Option<i64>) -> Self {
         Self {
             title: format!(
@@ -4881,7 +4879,7 @@ impl BackupMetadata {
     /// Create metadata for a pre-restore backup
     fn prerestore(restoring_from: &str, note_count: Option<i64>) -> Self {
         Self {
-            title: format!("Pre-restore backup"),
+            title: "Pre-restore backup".to_string(),
             description: Some(format!(
                 "Auto-created before restoring from: {}",
                 restoring_from
@@ -5337,7 +5335,7 @@ END $$;
     let reconnect_delay_ms = 2000; // 2 seconds for DB to stabilize
 
     // Step 3: Wait and attempt reconnection
-    tokio::time::sleep(std::time::Duration::from_millis(reconnect_delay_ms as u64)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(reconnect_delay_ms)).await;
 
     // Try to verify connection by doing a simple query
     // The connection pool should auto-reconnect
@@ -5720,7 +5718,7 @@ async fn update_backup_metadata(
         created_at: std::fs::metadata(&backup_path)
             .ok()
             .and_then(|m| m.modified().ok())
-            .map(|t| chrono::DateTime::from(t))
+            .map(chrono::DateTime::from)
             .unwrap_or_else(chrono::Utc::now),
         note_count: None,
         db_size_bytes: None,
