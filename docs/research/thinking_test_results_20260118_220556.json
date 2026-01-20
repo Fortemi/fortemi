@@ -1,0 +1,46 @@
+[
+  {
+    "model": "deepseek-r1:14b",
+    "timestamp": "2026-01-18T22:05:14.491501",
+    "is_thinking_model": true,
+    "thinking_patterns_found": [
+      "</think>",
+      "Let me think",
+      "I need to"
+    ],
+    "thinking_tags_found": true,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 1166,
+        "patterns_found": [
+          "</think>",
+          "Let me think",
+          "I need to"
+        ],
+        "has_thinking_tags": true,
+        "response_preview": " Hmm, okay. So I need to multiply 17 by 23. Let me think about how to do this.\n\nMaybe I can break it down into smaller parts. I remember that when multiplying two numbers, you can split one of them into easier-to-handle components. For example, 23 is close to 20, so maybe I can use that.\n\nSo if I ta..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 498,
+        "patterns_found": [
+          "</think>",
+          "I need to"
+        ],
+        "has_thinking_tags": true,
+        "response_preview": " Hmm, let me try to figure out this problem. So, the farmer has a total of 17 sheep. The problem says that all but 9 run away. I need to find out how many sheep are left with the farmer.\n\nFirst, let's break down what \"all but 9\" means. In English, when we say \"all but something,\" it usually means ev..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 2048,
+        "patterns_found": [
+          "Let me think"
+        ],
+        "response_preview": " Use the rules of syllogism.\n\nOkay, so I have this logic problem here: If all roses are flowers, and some flowers fade quickly, can we conclude that some roses fade quickly? Hmm, let me try to figure this out step by step using syllogism rules. \n\nFirst, I remember that syllogisms involve categorical..."
+      }
+    ],
+    "thinking_type": "explicit_tags"
+  }
+]

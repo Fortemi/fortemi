@@ -1,0 +1,127 @@
+[
+  {
+    "model": "gpt-oss:20b",
+    "timestamp": "2026-01-18T03:41:50.583709",
+    "default_context": 3412,
+    "max_context_with_num_ctx": 98382,
+    "recommended_context": 78705,
+    "tests": [
+      {
+        "success": true,
+        "target_tokens": 2000,
+        "actual_tokens_approx": 1883,
+        "num_ctx": null,
+        "prompt_eval_count": 1742,
+        "eval_count": 100,
+        "response_time_s": 3.92,
+        "truncated": false,
+        "utilization": 92.5
+      },
+      {
+        "success": true,
+        "target_tokens": 4000,
+        "actual_tokens_approx": 3762,
+        "num_ctx": null,
+        "prompt_eval_count": 3412,
+        "eval_count": 100,
+        "response_time_s": 0.85,
+        "truncated": false,
+        "utilization": 90.7
+      },
+      {
+        "success": true,
+        "target_tokens": 8000,
+        "actual_tokens_approx": 7508,
+        "num_ctx": null,
+        "prompt_eval_count": 6742,
+        "eval_count": 100,
+        "response_time_s": 1.02,
+        "truncated": true,
+        "utilization": 89.8
+      },
+      {
+        "success": true,
+        "target_tokens": 7372,
+        "actual_tokens_approx": 6923,
+        "num_ctx": 8192,
+        "prompt_eval_count": 6222,
+        "eval_count": 100,
+        "response_time_s": 0.71,
+        "truncated": true,
+        "utilization": 89.9
+      },
+      {
+        "success": true,
+        "target_tokens": 14745,
+        "actual_tokens_approx": 13831,
+        "num_ctx": 16384,
+        "prompt_eval_count": 12362,
+        "eval_count": 100,
+        "response_time_s": 5.01,
+        "truncated": true,
+        "utilization": 89.4
+      },
+      {
+        "success": true,
+        "target_tokens": 29491,
+        "actual_tokens_approx": 27657,
+        "num_ctx": 32768,
+        "prompt_eval_count": 24652,
+        "eval_count": 100,
+        "response_time_s": 6.53,
+        "truncated": true,
+        "utilization": 89.1
+      },
+      {
+        "success": true,
+        "target_tokens": 58982,
+        "actual_tokens_approx": 55310,
+        "num_ctx": 65536,
+        "prompt_eval_count": 49232,
+        "eval_count": 100,
+        "response_time_s": 9.9,
+        "truncated": true,
+        "utilization": 89.0
+      },
+      {
+        "success": true,
+        "target_tokens": 117964,
+        "actual_tokens_approx": 110603,
+        "num_ctx": 131072,
+        "prompt_eval_count": 98382,
+        "eval_count": 100,
+        "response_time_s": 22.06,
+        "truncated": true,
+        "utilization": 89.0
+      }
+    ],
+    "optimal_num_ctx": 131072,
+    "performance": [
+      {
+        "context_size": 2000,
+        "time_s": 0.83,
+        "tokens_per_sec": 2098.8
+      },
+      {
+        "context_size": 4000,
+        "time_s": 0.84,
+        "tokens_per_sec": 4061.9
+      },
+      {
+        "context_size": 8000,
+        "time_s": 1.03,
+        "tokens_per_sec": 6545.6
+      },
+      {
+        "context_size": 16000,
+        "time_s": 1.49,
+        "tokens_per_sec": 9001.3
+      },
+      {
+        "context_size": 32000,
+        "time_s": 2.43,
+        "tokens_per_sec": 11004.9
+      }
+    ]
+  }
+]

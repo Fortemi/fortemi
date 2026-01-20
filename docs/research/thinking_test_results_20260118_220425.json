@@ -1,0 +1,35 @@
+[
+  {
+    "model": "deepseek-r1:14b",
+    "timestamp": "2026-01-18T22:03:58.681004",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [
+      "\\*?\\*?Step \\d+[:\\*]"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 271,
+        "patterns_found": [
+          "\\*?\\*?Step \\d+[:\\*]"
+        ],
+        "response_preview": "Certainly! Let's solve \\(17 \\times 23\\) step by step.\n\n### Step 1: Break Down the Numbers\nWe can break down the multiplication into smaller, more manageable parts using the distributive property of multiplication over addition:\n\n\\[\n17 \\times 23 = (10 + 7) \\times 23\n\\]\n\n### Step 2: Multiply Each Part..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 766,
+        "patterns_found": [],
+        "response_preview": "The farmer has 9 sheep left.\n\n**Explanation:**\nThe phrase \"All but 9 run away\" means that only 9 sheep remain with the farmer. Therefore, starting with 17 sheep and having 9 left implies that 9 are still there after others have run away. \n\nSo, the number of sheep remaining is 9."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 1100,
+        "patterns_found": [],
+        "response_preview": "The conclusion that some roses fade quickly cannot be drawn from the given premises.\n\n**Step-by-Step Explanation:**\n\n1. **Premises Analysis:**\n   - All roses are flowers (R \u2192 F).\n   - Some flowers fade quickly (\u2203x(F(x) \u2227 Q(x))).\n\n2. **Logical Structure:**\n   - The first premise states that every ros..."
+      }
+    ],
+    "thinking_type": "none"
+  }
+]
