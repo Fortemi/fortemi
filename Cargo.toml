@@ -5,6 +5,7 @@ members = [
     "crates/matric-db",
     "crates/matric-search",
     "crates/matric-inference",
+    "crates/matric-crypto",
     "crates/matric-jobs",
     "crates/matric-api",
 ]
@@ -22,6 +23,7 @@ matric-core = { path = "crates/matric-core" }
 matric-db = { path = "crates/matric-db" }
 matric-search = { path = "crates/matric-search" }
 matric-inference = { path = "crates/matric-inference" }
+matric-crypto = { path = "crates/matric-crypto" }
 matric-jobs = { path = "crates/matric-jobs" }
 matric-api = { path = "crates/matric-api" }
 
