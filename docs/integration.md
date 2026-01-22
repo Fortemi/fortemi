@@ -6,7 +6,7 @@ This guide covers integrating matric-memory into your application.
 
 - PostgreSQL 14+ with pgvector extension
 - Rust 1.70+ (if building from source)
-- Ollama (optional, for local inference)
+- Ollama (optional, for local inference) OR OpenAI API key (for cloud inference)
 
 ## Installation
 
@@ -181,6 +181,7 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 
 ### 3. Available Tools
 
+**Note Management:**
 | Tool | Description |
 |------|-------------|
 | list_notes | List all notes |
@@ -194,15 +195,60 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 | get_note_links | Get note relationships |
 | create_job | Queue background job |
 
+**Backup & Export:**
+| Tool | Description |
+|------|-------------|
+| export_all_notes | Export notes as JSON |
+| knowledge_shard | Create knowledge shard backup |
+| knowledge_shard_import | Import from knowledge shard |
+| backup_now | Trigger database backup |
+| backup_status | Check backup health |
+
+**Encryption:**
+| Tool | Description |
+|------|-------------|
+| encrypt_file | Encrypt data with passphrase/keyfile |
+| decrypt_file | Decrypt standard encrypted file |
+| encrypt_e2e | Encrypt for multiple recipients |
+| decrypt_e2e | Decrypt E2E encrypted file |
+| detect_format | Detect encryption format |
+| get_recipients | List E2E recipients |
+| generate_keyfile | Generate encryption keyfile |
+
+See [Encryption Guide](./encryption.md) for encryption details.
+
 ## Configuration Reference
+
+### Core Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | DATABASE_URL | Required | PostgreSQL connection URL |
 | HOST | 0.0.0.0 | API server bind address |
 | PORT | 3000 | API server port |
-| OLLAMA_URL | http://localhost:11434 | Ollama endpoint |
 | RUST_LOG | info | Log level |
+
+### Inference Backend (Ollama)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| OLLAMA_URL | http://localhost:11434 | Ollama endpoint |
+| OLLAMA_EMBEDDING_MODEL | nomic-embed-text | Model for embeddings |
+| OLLAMA_GENERATION_MODEL | llama3.2:3b | Model for generation |
+| OLLAMA_EMBEDDING_DIMENSION | 768 | Embedding vector size |
+
+### Inference Backend (OpenAI)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| OPENAI_API_KEY | Required | API key for OpenAI |
+| OPENAI_BASE_URL | https://api.openai.com/v1 | API base URL |
+| OPENAI_EMBEDDING_MODEL | text-embedding-3-small | Model for embeddings |
+| OPENAI_GENERATION_MODEL | gpt-4o-mini | Model for generation |
+| OPENAI_EMBEDDING_DIMENSION | 1536 | Embedding vector size |
+| INFERENCE_BACKEND | ollama | Backend to use (ollama or openai) |
+
+See [Inference Backends Guide](./inference-backends.md) for detailed configuration.
 
 ## Error Handling
 

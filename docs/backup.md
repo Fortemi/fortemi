@@ -14,6 +14,17 @@ Matric Memory provides multiple backup options:
 | **Database Snapshot** | Full database backup | pg_dump | Complete database with embeddings |
 | **Shell script** | Automated scheduled backups | pg_dump | Full database with compression |
 
+### Encryption Options
+
+All backup methods support optional encryption:
+
+| Encryption | Format | Use Case |
+|------------|--------|----------|
+| **Standard** | .enc (MMENC01) | Personal backups with passphrase/keyfile |
+| **E2E** | .e2e (MME2E01) | Shared shards with multiple recipients |
+
+See [Encryption Guide](./encryption.md) for details.
+
 ### Choosing a Backup Method
 
 - **JSON Export** (`/api/v1/backup/export`): Quick export of note content. Best for migration to other systems.

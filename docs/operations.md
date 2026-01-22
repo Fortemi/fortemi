@@ -735,12 +735,30 @@ curl http://localhost:3000/health
 
 The service is configured via environment variables in the systemd service file.
 
-**Current configuration:**
+**Core configuration:**
 
 - `DATABASE_URL` - PostgreSQL connection string
 - `HOST` - Bind address (0.0.0.0 = all interfaces)
 - `PORT` - HTTP port (default: 3000)
 - `RUST_LOG` - Logging level (matric_api=info,tower_http=info)
+
+**Inference backend (Ollama - default):**
+
+- `OLLAMA_URL` - Ollama endpoint (default: http://localhost:11434)
+- `OLLAMA_EMBEDDING_MODEL` - Model for embeddings (default: nomic-embed-text)
+- `OLLAMA_GENERATION_MODEL` - Model for generation (default: llama3.2:3b)
+- `OLLAMA_EMBEDDING_DIMENSION` - Vector dimension (default: 768)
+
+**Inference backend (OpenAI - optional):**
+
+- `INFERENCE_BACKEND` - Set to "openai" to use OpenAI backend
+- `OPENAI_API_KEY` - API key for OpenAI
+- `OPENAI_BASE_URL` - API endpoint (default: https://api.openai.com/v1)
+- `OPENAI_EMBEDDING_MODEL` - Model for embeddings (default: text-embedding-3-small)
+- `OPENAI_GENERATION_MODEL` - Model for generation (default: gpt-4o-mini)
+- `OPENAI_EMBEDDING_DIMENSION` - Vector dimension (default: 1536)
+
+See [Inference Backends Guide](./inference-backends.md) for detailed configuration.
 
 **To modify:**
 

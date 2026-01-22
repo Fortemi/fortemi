@@ -2,7 +2,7 @@
 
 ## Overview
 
-matric-memory is a Rust workspace consisting of 6 crates that together provide vector-enhanced note storage, hybrid search, and NLP pipeline management.
+matric-memory is a Rust workspace consisting of 7 crates that together provide vector-enhanced note storage, hybrid search, NLP pipeline management, and secure data encryption.
 
 ## System Context
 
@@ -48,6 +48,10 @@ matric-core (traits, types, errors)
      │        └── matric-jobs (job processing)
      │
      ├── matric-inference (LLM abstraction)
+     │        │
+     │        └── ollama, openai backends
+     │
+     ├── matric-crypto (encryption)
      │
      └── matric-api (HTTP server)
               │
@@ -109,9 +113,34 @@ LLM inference abstraction for text generation and embeddings.
 
 **Key Components:**
 - `InferenceBackend` trait - Pluggable backend interface
-- `OllamaBackend` - Ollama local inference
+- `OllamaBackend` - Ollama local inference (default)
+- `OpenAIBackend` - OpenAI-compatible API inference (feature-gated)
 - `EmbeddingRequest/Response` - Embedding generation
 - `GenerateRequest/Response` - Text generation
+- `ModelRegistry` - Model profiles and recommendations
+
+**Backends:**
+- **Ollama** - Local inference via Ollama API
+- **OpenAI** - Cloud or local OpenAI-compatible APIs (OpenAI, vLLM, LocalAI, etc.)
+
+### matric-crypto
+
+Encryption primitives for backup and sharing.
+
+**Key Components:**
+- `encrypt_with_passphrase` / `decrypt_standard` - Single-key encryption
+- `encrypt_e2e` / `decrypt_e2e` - Multi-recipient envelope encryption
+- `detect_format` - Auto-detect encrypted file formats
+- `DerivedKey` - Secure key wrapper with zeroize
+
+**Cryptographic Primitives:**
+- AES-256-GCM (symmetric encryption)
+- Argon2id (key derivation)
+- ChaCha20-based CSPRNG (random generation)
+
+**File Formats:**
+- MMENC01 - Standard single-key encryption
+- MME2E01 - E2E multi-recipient encryption
 
 ### matric-jobs
 
@@ -322,5 +351,7 @@ cargo run -p matric-api
 | ADR-002 | PostgreSQL + pgvector | Simplicity, proven at 100k docs |
 | ADR-003 | InferenceBackend trait | Pluggable backends (Ollama, OpenAI) |
 | ADR-004 | RRF fusion | Industry standard for hybrid search |
+| ADR-005 | AES-256-GCM + Argon2id | Industry standard encryption, memory-hard KDF |
+| ADR-006 | Envelope encryption for E2E | Efficient multi-recipient without re-encryption |
 
 See `.aiwg/intake/option-matrix.md` for detailed analysis.
