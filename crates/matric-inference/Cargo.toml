@@ -28,6 +28,12 @@ async-trait.workspace = true
 # Logging
 tracing.workspace = true
 
+# Time
+chrono = { workspace = true }
+
+# Regex for LLM-as-Judge parsing
+regex.workspace = true
+
 # Streaming (for OpenAI backend)
 futures = { workspace = true, optional = true }
 bytes = { version = "1", optional = true }
@@ -44,3 +50,7 @@ openai = ["futures", "bytes"]
 all-backends = ["ollama", "openai"]
 # Enable integration tests that require live inference server
 integration = []
+
+[[bin]]
+name = "matric-eval"
+path = "src/bin/eval.rs"
