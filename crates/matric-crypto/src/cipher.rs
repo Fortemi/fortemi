@@ -51,13 +51,14 @@ pub fn aes_gcm_decrypt(
     nonce: &[u8; 12],
     ciphertext: &[u8],
 ) -> CryptoResult<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::Decryption)?;
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|_| CryptoError::Decryption("Invalid key".to_string()))?;
 
     let nonce = Nonce::from_slice(nonce);
 
     cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|_| CryptoError::Decryption)
+        .map_err(|_| CryptoError::Decryption("AES-GCM decryption failed".to_string()))
 }
 
 #[cfg(test)]
@@ -118,7 +119,7 @@ mod tests {
         let ciphertext = aes_gcm_encrypt(&key1, &nonce, plaintext).unwrap();
         let result = aes_gcm_decrypt(&key2, &nonce, &ciphertext);
 
-        assert!(matches!(result, Err(CryptoError::Decryption)));
+        assert!(matches!(result, Err(CryptoError::Decryption(_))));
     }
 
     #[test]
@@ -131,7 +132,7 @@ mod tests {
         let ciphertext = aes_gcm_encrypt(&key, &nonce1, plaintext).unwrap();
         let result = aes_gcm_decrypt(&key, &nonce2, &ciphertext);
 
-        assert!(matches!(result, Err(CryptoError::Decryption)));
+        assert!(matches!(result, Err(CryptoError::Decryption(_))));
     }
 
     #[test]
@@ -146,7 +147,7 @@ mod tests {
         ciphertext[0] ^= 0xFF;
 
         let result = aes_gcm_decrypt(&key, &nonce, &ciphertext);
-        assert!(matches!(result, Err(CryptoError::Decryption)));
+        assert!(matches!(result, Err(CryptoError::Decryption(_))));
     }
 
     #[test]

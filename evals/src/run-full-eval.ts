@@ -21,12 +21,18 @@ const EMBEDDING_MODELS = [
 ];
 
 const LLM_MODELS = [
-  'qwen2.5:7b',
-  'qwen2.5:14b',
+  // Baseline models
+  'gpt-oss:20b',        // Current production model
+  'qwen2.5:14b',        // Strong medium model
+  'qwen2.5:7b',         // Smaller baseline
+  'llama3.1:8b',        // Meta baseline
+  // DeepSeek models (evaluation target)
+  'deepseek-r1:14b',    // DeepSeek reasoning model with <think> tags
+  'deepseek-coder-v2:16b', // DeepSeek coder model
+  'exaone-deep:7.8b',   // EXAONE reasoning model
+  // Additional models
   'mistral:latest',
-  'llama3.1:8b',
   'hermes3:8b',
-  'gpt-oss:20b',
   'cogito:8b',
   'command-r7b:latest',
 ];

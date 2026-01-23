@@ -1,0 +1,399 @@
+============================================================
+SMART CONTEXT & OUTPUT TESTING
+Started: 2026-01-18T19:44:23.870910
+============================================================
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: nemotron-mini:4b
+============================================================
+  Family: nemotron
+  Size: 4.2B
+  Testing 4K... OK (2061 tokens, 1.8s)
+  Testing 8K... OK (4096 tokens, 1.57s)
+  Testing 16K... NATIVE LIMIT FOUND: 4096 tokens
+
+  Native context limit: 4096 tokens
+  Recommended input:    3686 tokens
+
+  Testing output limit...
+    num_predict=1024... 43 tokens (28.0 tok/s)
+    num_predict=2048... 34 tokens (141.1 tok/s)
+    Output limit found: 34
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: phi3:mini
+============================================================
+  Family: phi3
+  Size: 3.8B
+  Testing 4K... OK (2062 tokens, 4.21s)
+  Testing 8K... OK (4110 tokens, 1.47s)
+  Testing 16K... OK (8206 tokens, 1.67s)
+  Testing 32K... OK (16398 tokens, 2.86s)
+  Testing 64K... ============================================================
+SMART CONTEXT & OUTPUT TESTING
+Started: 2026-01-18T20:52:29.044269
+============================================================
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: phi3:mini
+============================================================
+  Family: phi3
+  Size: 3.8B
+  Testing 4K... OK (2062 tokens, 0.96s)
+  Testing 8K... OK (4110 tokens, 1.48s)
+  Testing 16K... OK (8206 tokens, 1.79s)
+  Testing 32K... OK (16398 tokens, 2.55s)
+  Testing 64K... OK (32782 tokens, 31.99s)
+  Testing 128K... OK (65550 tokens, 140.24s)
+  Testing 192K... OK (98318 tokens, 276.19s)
+
+  Native context limit: 98318 tokens
+  Recommended input:    88486 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (21.5 tok/s)
+    num_predict=2048... ERROR: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701040>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5-coder:1.5b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701590>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701bf0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5-coder:14b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7633127017b0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701150>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5-coder:7b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312700270>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701f20>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5:14b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312702580>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312702140>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5:32b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312700f30>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701040>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen2.5:7b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701590>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701bf0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: qwen3:8b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701bf0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701590>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: smollm2:1.7b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701040>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312700f30>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: starcoder2:7b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312702140>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312702580>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: yi-coder:9b
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312701f20>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTPConnectionPool(host='localhost', port=11434): 
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... ERROR: HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/generate (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x763312700270>: Failed to establish a new connection: [Errno 111] Connection refused'))
+
+============================================================
+SUMMARY
+============================================================
+
+Model                       Native CTX   Max Output Output tok/s
+-----------------------------------------------------------------
+                                     0            0            0
+phi3:mini                        98318         1024         21.5
+                                     0            0            0
+qwen2.5-coder:1.5b                   0            0            0
+                                     0            0            0
+qwen2.5-coder:14b                    0            0            0
+                                     0            0            0
+qwen2.5-coder:7b                     0            0            0
+                                     0            0            0
+qwen2.5:14b                          0            0            0
+                                     0            0            0
+qwen2.5:32b                          0            0            0
+                                     0            0            0
+qwen2.5:7b                           0            0            0
+                                     0            0            0
+qwen3:8b                             0            0            0
+                                     0            0            0
+smollm2:1.7b                         0            0            0
+                                     0            0            0
+starcoder2:7b                        0            0            0
+                                     0            0            0
+yi-coder:9b                          0            0            0
+                                     0            0            0
+
+Results saved to: /home/roctinam/dev/matric-memory/docs/research/smart_context_results_20260118_210122.json

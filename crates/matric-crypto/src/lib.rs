@@ -1,224 +1,196 @@
 //! # matric-crypto
 //!
-//! Encryption primitives for matric-memory backup and sharing.
+//! Cryptographic primitives for matric-memory.
 //!
-//! This crate provides:
-//!
-//! - **Standard encryption** - Single-key encryption using passphrase or keyfile
-//! - **E2E encryption** - Multi-recipient envelope encryption for secure sharing
-//! - **Format detection** - Auto-detect encrypted vs unencrypted files
+//! This crate provides public-key encryption (PKE) for secure data sharing
+//! using wallet-style addresses. Users share their public key address (`mm:...`)
+//! and senders can encrypt data without needing to exchange passphrases.
 //!
 //! ## Cryptographic Primitives
 //!
+//! - **Key exchange**: X25519 (Curve25519 ECDH)
 //! - **Symmetric cipher**: AES-256-GCM (AEAD)
-//! - **Key derivation**: Argon2id (memory-hard, GPU/ASIC resistant)
+//! - **Key derivation**: HKDF-SHA256 (for KEK), Argon2id (for private key storage)
+//! - **Address format**: BLAKE3 hash with Base58Check encoding
 //! - **Random generation**: ChaCha20-based CSPRNG
 //!
-//! ## File Formats
-//!
-//! ### Standard Encrypted (MMENC01)
-//!
-//! Single-key encryption for backup archives and shards.
+//! ## File Format (MMPKE01)
 //!
 //! ```text
-//! +------------------+
-//! | Magic: "MMENC01" | 8 bytes
-//! +------------------+
-//! | Header Length    | 4 bytes (little-endian)
-//! +------------------+
-//! | Header (JSON)    | Variable
-//! +------------------+
-//! | Encrypted Data   | Variable (includes 16-byte auth tag)
-//! +------------------+
-//! ```
-//!
-//! ### E2E Encrypted (MME2E01)
-//!
-//! Multi-recipient envelope encryption for secure shard sharing.
-//!
-//! ```text
-//! +------------------+
-//! | Magic: "MME2E01" | 8 bytes
-//! +------------------+
-//! | Header Length    | 4 bytes (little-endian)
-//! +------------------+
-//! | Header (JSON)    | Variable (includes encrypted DEKs)
-//! +------------------+
-//! | Encrypted Data   | Variable (includes 16-byte auth tag)
-//! +------------------+
+//! ┌─────────────────────────────────────────────────┐
+//! │ Magic: "MMPKE01\n" (8 bytes)                    │
+//! ├─────────────────────────────────────────────────┤
+//! │ Header Length: u32 LE (4 bytes)                 │
+//! ├─────────────────────────────────────────────────┤
+//! │ Header (JSON with ephemeral key, recipients)   │
+//! ├─────────────────────────────────────────────────┤
+//! │ Encrypted Data (AES-256-GCM)                   │
+//! └─────────────────────────────────────────────────┘
 //! ```
 //!
 //! ## Examples
 //!
-//! ### Standard Encryption
+//! ### Generate a Keypair
 //!
 //! ```rust
-//! use matric_crypto::{encrypt_with_passphrase, decrypt_standard, KeySource};
+//! use matric_crypto::pke::{Keypair, save_private_key, save_public_key};
 //!
-//! // Encrypt
-//! let data = b"My secret data";
-//! let encrypted = encrypt_with_passphrase(data, "my-secure-passphrase", None).unwrap();
+//! let keypair = Keypair::generate();
+//! let my_address = keypair.public.to_address();
+//! println!("My address: {}", my_address);  // mm:1abc...xyz
 //!
-//! // Decrypt
-//! let (decrypted, header) = decrypt_standard(&encrypted, KeySource::Passphrase("my-secure-passphrase")).unwrap();
-//! assert_eq!(data.as_slice(), decrypted.as_slice());
+//! # let temp = tempfile::tempdir().unwrap();
+//! # let private_path = temp.path().join("private.key");
+//! # let public_path = temp.path().join("public.key");
+//! save_private_key(&keypair.private, &private_path, "my-passphrase!").unwrap();
+//! save_public_key(&keypair.public, &public_path, Some("My Key")).unwrap();
 //! ```
 //!
-//! ### E2E Multi-Recipient Encryption
+//! ### Encrypt for Recipients
 //!
 //! ```rust
-//! use matric_crypto::{encrypt_e2e, decrypt_e2e, RecipientInput};
+//! use matric_crypto::pke::{encrypt_pke, Keypair};
 //!
-//! // Encrypt for multiple recipients
-//! let data = b"Shared secret";
-//! let recipients = vec![
-//!     RecipientInput { id: "alice".into(), passphrase: "alice-secret-123".into() },
-//!     RecipientInput { id: "bob".into(), passphrase: "bob-secret-456!!".into() },
-//! ];
-//! let encrypted = encrypt_e2e(data, &recipients, None).unwrap();
+//! let alice = Keypair::generate();
+//! let bob = Keypair::generate();
 //!
-//! // Either recipient can decrypt
-//! let (decrypted, _) = decrypt_e2e(&encrypted, "alice", "alice-secret-123").unwrap();
-//! assert_eq!(data.as_slice(), decrypted.as_slice());
+//! let secret_data = b"Confidential information";
+//! let encrypted = encrypt_pke(
+//!     secret_data,
+//!     &[alice.public.clone(), bob.public.clone()],
+//!     Some("data.json".into())
+//! ).unwrap();
+//! ```
+//!
+//! ### Decrypt with Private Key
+//!
+//! ```rust
+//! use matric_crypto::pke::{encrypt_pke, decrypt_pke, Keypair};
+//!
+//! let alice = Keypair::generate();
+//! let encrypted = encrypt_pke(b"Secret", &[alice.public.clone()], None).unwrap();
+//!
+//! let (plaintext, header) = decrypt_pke(&encrypted, &alice.private).unwrap();
+//! assert_eq!(plaintext, b"Secret");
 //! ```
 //!
 //! ### Format Detection
 //!
 //! ```rust
-//! use matric_crypto::{detect_format, FileFormat};
+//! use matric_crypto::{detect_format, is_encrypted, is_pke_encrypted, FileFormat};
 //!
 //! let data = b"Some data";
 //! match detect_format(data) {
-//!     FileFormat::Standard => println!("Standard encrypted"),
-//!     FileFormat::E2E => println!("E2E encrypted"),
+//!     FileFormat::Pke => println!("PKE encrypted"),
 //!     FileFormat::Unencrypted => println!("Not encrypted"),
+//!     _ => println!("Unknown format"),
 //! }
 //! ```
 
 pub mod cipher;
 pub mod detect;
-pub mod e2e;
 pub mod error;
 pub mod format;
 pub mod kdf;
-pub mod standard;
+pub mod pke;
 
 // Re-export commonly used types
-pub use detect::{detect_format, is_e2e_encrypted, is_encrypted, is_standard_encrypted};
-pub use e2e::{decrypt_e2e, decrypt_e2e_auto, encrypt_e2e, get_recipient_ids, RecipientInput};
+pub use detect::{detect_format, is_encrypted, is_pke_encrypted};
 pub use error::{CryptoError, CryptoResult};
-pub use format::{E2EHeader, EncryptedFile, FileFormat, Header, KeyType, Recipient};
-pub use kdf::{
-    derive_key, generate_keyfile, load_keyfile, validate_passphrase, DerivedKey, KdfParams,
-};
-pub use standard::{
-    decrypt_standard, encrypt_standard, encrypt_with_keyfile, encrypt_with_passphrase,
-    EncryptOptions, KeySource,
+pub use format::{base64_decode, base64_encode, FileFormat};
+pub use kdf::{derive_key, validate_passphrase, DerivedKey, KdfParams};
+
+// Re-export PKE types at crate level for convenience
+pub use pke::{
+    can_decrypt_pke, decrypt_pke, encrypt_pke, get_pke_recipients, load_private_key,
+    load_public_key, save_private_key, save_public_key, Address, Keypair, PkeHeader, PrivateKey,
+    PublicKey,
 };
 
 #[cfg(test)]
 mod integration_tests {
     use super::*;
 
-    /// Verify that standard and E2E formats have distinct magic bytes.
+    /// Test full PKE workflow: generate -> encrypt -> detect -> decrypt.
     #[test]
-    fn test_formats_are_distinct() {
-        let plaintext = b"Test data for format distinction";
+    fn test_full_pke_workflow() {
+        let alice = Keypair::generate();
+        let bob = Keypair::generate();
 
-        let standard = encrypt_with_passphrase(plaintext, "standard-passphrase", None).unwrap();
-        let e2e = encrypt_e2e(
-            plaintext,
-            &[RecipientInput {
-                id: "test".into(),
-                passphrase: "e2e-passphrase-123".into(),
-            }],
-            None,
+        let original = b"Shared secret data for the team";
+
+        // Encrypt for both recipients
+        let encrypted = encrypt_pke(
+            original,
+            &[alice.public.clone(), bob.public.clone()],
+            Some("secret.txt".into()),
         )
         .unwrap();
 
-        // Different magic bytes
-        assert_ne!(&standard[0..8], &e2e[0..8]);
-
-        // Format detection works
-        assert_eq!(detect_format(&standard), FileFormat::Standard);
-        assert_eq!(detect_format(&e2e), FileFormat::E2E);
-    }
-
-    /// Test cross-decryption fails (E2E format with standard decrypt).
-    #[test]
-    fn test_cross_decryption_fails() {
-        let plaintext = b"Test data";
-
-        let e2e = encrypt_e2e(
-            plaintext,
-            &[RecipientInput {
-                id: "test".into(),
-                passphrase: "passphrase-12345".into(),
-            }],
-            None,
-        )
-        .unwrap();
-
-        let result = decrypt_standard(&e2e, KeySource::Passphrase("passphrase-12345"));
-        assert!(result.is_err());
-    }
-
-    /// Test full workflow: encrypt -> detect -> decrypt.
-    #[test]
-    fn test_full_workflow_standard() {
-        let original = b"Important backup data that must be protected";
-        let passphrase = "strong-passphrase-123";
-
-        // Encrypt
-        let encrypted =
-            encrypt_with_passphrase(original, passphrase, Some("backup.tar.gz".into())).unwrap();
-
-        // Detect
+        // Detect format
         assert!(is_encrypted(&encrypted));
-        assert!(is_standard_encrypted(&encrypted));
+        assert!(is_pke_encrypted(&encrypted));
+        assert_eq!(detect_format(&encrypted), FileFormat::Pke);
 
-        // Decrypt
-        let (decrypted, header) =
-            decrypt_standard(&encrypted, KeySource::Passphrase(passphrase)).unwrap();
+        // Get recipients
+        let recipients = get_pke_recipients(&encrypted).unwrap();
+        assert_eq!(recipients.len(), 2);
+        assert!(recipients.contains(&alice.public.to_address()));
+        assert!(recipients.contains(&bob.public.to_address()));
 
-        assert_eq!(original.as_slice(), decrypted.as_slice());
-        assert_eq!(header.original_filename, Some("backup.tar.gz".to_string()));
+        // Both can decrypt
+        let (decrypted_alice, header_alice) = decrypt_pke(&encrypted, &alice.private).unwrap();
+        let (decrypted_bob, _) = decrypt_pke(&encrypted, &bob.private).unwrap();
+
+        assert_eq!(original.as_slice(), decrypted_alice.as_slice());
+        assert_eq!(original.as_slice(), decrypted_bob.as_slice());
+        assert_eq!(header_alice.original_filename, Some("secret.txt".into()));
+
+        // Eve cannot decrypt
+        let eve = Keypair::generate();
+        assert!(decrypt_pke(&encrypted, &eve.private).is_err());
     }
 
-    /// Test full workflow: E2E encrypt -> detect -> auto-decrypt.
+    /// Test key persistence workflow.
     #[test]
-    fn test_full_workflow_e2e() {
-        let original = b"Shared knowledge shard for team collaboration";
-        let recipients = vec![
-            RecipientInput {
-                id: "alice@example.com".into(),
-                passphrase: "alice-secure-phrase".into(),
-            },
-            RecipientInput {
-                id: "bob@example.com".into(),
-                passphrase: "bob-secure-phrase!!".into(),
-            },
-        ];
+    fn test_key_persistence() {
+        let temp = tempfile::tempdir().unwrap();
+        let private_path = temp.path().join("test.key.enc");
+        let public_path = temp.path().join("test.pub");
 
-        // Encrypt
-        let encrypted = encrypt_e2e(original, &recipients, Some("team.shard".into())).unwrap();
+        // Generate and save
+        let original = Keypair::generate();
+        save_private_key(&original.private, &private_path, "secure-pass-123").unwrap();
+        save_public_key(&original.public, &public_path, Some("Test Key")).unwrap();
 
-        // Detect
-        assert!(is_encrypted(&encrypted));
-        assert!(is_e2e_encrypted(&encrypted));
+        // Load back
+        let loaded_private = load_private_key(&private_path, "secure-pass-123").unwrap();
+        let loaded_public = load_public_key(&public_path).unwrap();
 
-        // Get recipients without decrypting
-        let ids = get_recipient_ids(&encrypted).unwrap();
-        assert_eq!(ids.len(), 2);
-        assert!(ids.contains(&"alice@example.com".to_string()));
-        assert!(ids.contains(&"bob@example.com".to_string()));
+        // Verify
+        assert_eq!(original.private.as_bytes(), loaded_private.as_bytes());
+        assert_eq!(original.public.as_bytes(), loaded_public.as_bytes());
 
-        // Auto-decrypt (Bob)
-        let (decrypted, header, found_id) =
-            decrypt_e2e_auto(&encrypted, "bob-secure-phrase!!").unwrap();
+        // Use loaded keys for encryption
+        let message = b"Test message";
+        let encrypted = encrypt_pke(message, &[loaded_public], None).unwrap();
+        let (decrypted, _) = decrypt_pke(&encrypted, &loaded_private).unwrap();
+        assert_eq!(message.as_slice(), decrypted.as_slice());
+    }
 
-        assert_eq!(original.as_slice(), decrypted.as_slice());
-        assert_eq!(header.original_filename, Some("team.shard".to_string()));
-        assert_eq!(found_id, "bob@example.com");
+    /// Test address format.
+    #[test]
+    fn test_address_format() {
+        let keypair = Keypair::generate();
+        let address = keypair.public.to_address();
+
+        // Address starts with mm: prefix
+        let addr_str = address.to_string();
+        assert!(addr_str.starts_with("mm:"));
+        assert!(addr_str.len() > 10); // Should be a reasonable length
+
+        // Parse back
+        let parsed: Address = addr_str.parse().unwrap();
+        assert_eq!(address, parsed);
     }
 }

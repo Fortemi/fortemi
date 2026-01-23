@@ -26,8 +26,8 @@ pub enum CryptoError {
     Encryption(String),
 
     /// Decryption failed - wrong key or corrupted data.
-    #[error("Decryption failed - wrong key or corrupted data")]
-    Decryption,
+    #[error("Decryption failed: {0}")]
+    Decryption(String),
 
     /// Authentication failed - data may be tampered.
     #[error("Authentication failed - data may be tampered")]
@@ -48,6 +48,18 @@ pub enum CryptoError {
     /// Invalid recipient ID.
     #[error("Invalid recipient ID: {0}")]
     InvalidRecipientId(String),
+
+    /// Invalid address format.
+    #[error("Invalid address: {0}")]
+    InvalidAddress(String),
+
+    /// Invalid input.
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    /// Invalid format.
+    #[error("Invalid format: {0}")]
+    InvalidFormat(String),
 
     /// I/O error.
     #[error("IO error: {0}")]
