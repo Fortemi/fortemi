@@ -603,7 +603,7 @@ impl SkosConceptRepository for PgSkosRepository {
                 id, primary_scheme_id, notation, facet_type, facet_source,
                 facet_domain, facet_scope, status, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+            VALUES ($1, $2, $3, $4::pmest_facet, $5, $6, $7, $8::tag_status, $9, $9)
             "#,
         )
         .bind(id)
@@ -1406,7 +1406,7 @@ impl SkosLabelRepository for PgSkosRepository {
         sqlx::query(
             r#"
             INSERT INTO skos_concept_label (id, concept_id, label_type, value, language, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3::skos_label_type, $4, $5, $6)
             "#,
         )
         .bind(id)

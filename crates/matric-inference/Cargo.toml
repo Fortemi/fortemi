@@ -54,3 +54,7 @@ integration = []
 [[bin]]
 name = "matric-eval"
 path = "src/bin/eval.rs"
+
+[[example]]
+name = "openrouter_headers"
+required-features = ["openai"]

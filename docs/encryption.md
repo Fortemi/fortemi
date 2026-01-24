@@ -1,15 +1,19 @@
 # Encryption Guide
 
-This guide covers the encryption features in Matric Memory for securing backup archives and knowledge shards.
+This guide covers the encryption features in Matric Memory for securing data using public-key encryption.
 
 ## Overview
 
-Matric Memory provides application-level encryption to protect your data at rest. The system supports two encryption modes:
+Matric Memory uses Public Key Encryption (PKE) for all encryption operations. This provides wallet-style encryption where users share public key addresses (similar to cryptocurrency wallets) instead of exchanging passphrases.
 
-| Mode | Use Case | Format | Recipients |
-|------|----------|--------|------------|
-| **Standard** | Personal backups | `.enc` (MMENC01) | Single passphrase or keyfile |
-| **E2E** | Shared knowledge shards | `.e2e` (MME2E01) | Multiple recipients |
+| Feature | Description |
+|---------|-------------|
+| **Format** | MMPKE01 |
+| **Key Exchange** | X25519 (Curve25519 ECDH) |
+| **Encryption** | AES-256-GCM |
+| **Address Format** | `mm:` prefix + Base58Check |
+
+For detailed PKE documentation, see the [PKE Encryption Guide](./pke-encryption.md).
 
 ## Security Properties
 
@@ -17,250 +21,79 @@ The encryption system provides:
 
 - **Confidentiality** - AES-256-GCM encryption (256-bit key)
 - **Integrity** - AEAD authentication tag prevents tampering
-- **Key Protection** - Argon2id memory-hard key derivation
-- **Forward Secrecy** - Random salt per file prevents rainbow tables
+- **Key Protection** - Private keys encrypted with Argon2id + AES-256-GCM
+- **Forward Secrecy** - Ephemeral keypair per encryption operation
 - **Secure Memory** - Keys zeroized immediately after use
+- **Multi-Recipient** - Encrypt once for multiple recipients
 
 ### Cryptographic Primitives
 
 | Component | Algorithm | Parameters |
 |-----------|-----------|------------|
+| Key Exchange | X25519 | Curve25519 ECDH |
+| KEK Derivation | HKDF-SHA256 | With domain separation |
 | Symmetric Cipher | AES-256-GCM | 256-bit key, 96-bit nonce |
-| Key Derivation | Argon2id | 64 MiB memory, 3 iterations, 4 parallelism |
+| Address Hash | BLAKE3 | 20-byte truncated + 4-byte checksum |
+| Private Key Storage | Argon2id + AES-256-GCM | 64 MiB, 3 iterations |
 | Random Generation | ChaCha20 | OS entropy source |
 
-## Standard Encryption
+## Quick Start
 
-Standard encryption protects files with a single passphrase or keyfile. Use this for personal backups.
-
-### Encrypting with Passphrase
+### Generate a Keypair
 
 ```bash
-# Via API - encrypt a backup
-curl -X POST http://localhost:3000/api/v1/backup/export \
-  -H "Content-Type: application/json" \
-  -d '{"encrypt": true, "passphrase": "your-secure-passphrase"}' \
-  -o backup.enc
+# Using CLI
+matric-pke keygen -p "your-secure-passphrase-123" -o ~/.matric-keys
 
-# Via MCP tool
-export_all_notes({ encrypt: true, passphrase: "your-secure-passphrase" })
+# Output:
+# {
+#   "address": "mm:ULnxkCj4TCc8QnFsar8Be4DVV4TkWivXE",
+#   "private_key_path": "/home/user/.matric-keys/private.key.enc",
+#   "public_key_path": "/home/user/.matric-keys/public.key"
+# }
 ```
 
-### Encrypting with Keyfile
+### Share Your Address
 
-Keyfiles provide stronger security than passphrases and can be stored separately.
+Share your public address (`mm:...`) with anyone who needs to send you encrypted data. Your address is safe to share publicly - it cannot be used to decrypt anything.
+
+### Encrypt for Recipients
 
 ```bash
-# Generate a keyfile (32 random bytes, base64 encoded)
-curl -X POST http://localhost:3000/api/v1/crypto/generate-keyfile \
-  -o backup.key
-
-# Encrypt using keyfile
-curl -X POST http://localhost:3000/api/v1/backup/export \
-  -H "Content-Type: application/json" \
-  -d '{"encrypt": true, "keyfile_base64": "'$(base64 -w0 backup.key)'"}' \
-  -o backup.enc
+# Encrypt for one or more recipients
+matric-pke encrypt \
+  -i document.pdf \
+  -o document.pdf.mmpke \
+  -r /path/to/alice.pub \
+  -r /path/to/bob.pub
 ```
 
-### Decrypting
+### Decrypt with Your Private Key
 
 ```bash
-# Decrypt with passphrase
-curl -X POST http://localhost:3000/api/v1/backup/import \
-  -H "Content-Type: application/json" \
-  -d '{
-    "backup_base64": "'$(base64 -w0 backup.enc)'",
-    "passphrase": "your-secure-passphrase"
-  }'
-
-# Decrypt with keyfile
-curl -X POST http://localhost:3000/api/v1/backup/import \
-  -H "Content-Type: application/json" \
-  -d '{
-    "backup_base64": "'$(base64 -w0 backup.enc)'",
-    "keyfile_base64": "'$(base64 -w0 backup.key)'"
-  }'
+# Decrypt using your private key
+matric-pke decrypt \
+  -i document.pdf.mmpke \
+  -o document.pdf \
+  -k ~/.matric-keys/private.key.enc \
+  -p "your-secure-passphrase-123"
 ```
 
-### Passphrase Requirements
-
-- Minimum 12 characters
-- No maximum length
-- All UTF-8 characters supported
-- Stronger passphrases recommended (20+ characters, mixed case, numbers, symbols)
-
-## E2E Multi-Recipient Encryption
-
-E2E encryption allows sharing knowledge shards with multiple recipients. Each recipient has their own passphrase, and any recipient can decrypt the shard.
-
-### How It Works
-
-```
-                    ┌─────────────────────────┐
-                    │  Generate random DEK    │
-                    │  (Data Encryption Key)  │
-                    └───────────┬─────────────┘
-                                │
-                    ┌───────────▼─────────────┐
-                    │  Encrypt data with DEK  │
-                    │       (AES-256-GCM)     │
-                    └───────────┬─────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-┌───────▼───────┐       ┌───────▼───────┐       ┌───────▼───────┐
-│ Alice's KEK   │       │ Bob's KEK     │       │ Carol's KEK   │
-│ (from pass)   │       │ (from pass)   │       │ (from pass)   │
-└───────┬───────┘       └───────┬───────┘       └───────┬───────┘
-        │                       │                       │
-┌───────▼───────┐       ┌───────▼───────┐       ┌───────▼───────┐
-│Encrypt DEK    │       │Encrypt DEK    │       │Encrypt DEK    │
-│with Alice KEK │       │with Bob KEK   │       │with Carol KEK │
-└───────┬───────┘       └───────┬───────┘       └───────┬───────┘
-        │                       │                       │
-        └───────────────────────┼───────────────────────┘
-                                │
-                    ┌───────────▼─────────────┐
-                    │   Store all encrypted   │
-                    │   DEKs in header        │
-                    └─────────────────────────┘
-```
-
-### Creating E2E Encrypted Shards
-
-```bash
-# Via API
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard \
-  -H "Content-Type: application/json" \
-  -d '{
-    "e2e": true,
-    "recipients": [
-      {"id": "alice@example.com", "passphrase": "alice-secure-phrase"},
-      {"id": "bob@example.com", "passphrase": "bob-secure-phrase"}
-    ]
-  }' \
-  -o shared.shard.e2e
-
-# Via MCP tool
-knowledge_shard({
-  e2e: true,
-  recipients: [
-    { id: "alice@example.com", passphrase: "alice-secure-phrase" },
-    { id: "bob@example.com", passphrase: "bob-secure-phrase" }
-  ]
-})
-```
-
-### Decrypting E2E Shards
-
-Any recipient can decrypt with their credentials:
-
-```bash
-# Alice decrypts
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shard_base64": "'$(base64 -w0 shared.shard.e2e)'",
-    "recipient_id": "alice@example.com",
-    "passphrase": "alice-secure-phrase"
-  }'
-
-# Or auto-detect recipient (tries each until one works)
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shard_base64": "'$(base64 -w0 shared.shard.e2e)'",
-    "passphrase": "alice-secure-phrase"
-  }'
-```
-
-### Listing Recipients
-
-View who can decrypt an E2E shard without needing the passphrase:
-
-```bash
-curl -X POST http://localhost:3000/api/v1/crypto/recipients \
-  -H "Content-Type: application/json" \
-  -d '{"file_base64": "'$(base64 -w0 shared.shard.e2e)'"}'
-
-# Response:
-{
-  "format": "e2e",
-  "recipients": ["alice@example.com", "bob@example.com"]
-}
-```
-
-### Recipient Limits
-
-- Maximum 10 recipients per shard
-- Recipient IDs: 1-64 characters
-- Allowed characters: alphanumeric, underscore, dash, dot, @
-
-## Format Detection
-
-The system automatically detects encrypted files:
-
-```bash
-# Check if a file is encrypted
-curl -X POST http://localhost:3000/api/v1/crypto/detect \
-  -H "Content-Type: application/json" \
-  -d '{"file_base64": "'$(base64 -w0 backup.enc)'"}'
-
-# Response:
-{
-  "encrypted": true,
-  "format": "standard",  # or "e2e" or "unencrypted"
-  "version": 1
-}
-```
-
-## File Formats
-
-### Standard Format (MMENC01)
+## File Format (MMPKE01)
 
 ```
 ┌──────────────────────────────────────┐
-│ Magic: "MMENC01\0"                   │ 8 bytes
+│ Magic: "MMPKE01\n"                   │ 8 bytes
 ├──────────────────────────────────────┤
 │ Header Length                        │ 4 bytes (little-endian u32)
 ├──────────────────────────────────────┤
 │ Header (JSON)                        │ Variable
 │ {                                    │
 │   "version": 1,                      │
-│   "algorithm": "AES-256-GCM",        │
-│   "kdf": "argon2id",                 │
-│   "kdf_params": {...},               │
-│   "salt": "<base64>",                │
-│   "nonce": "<base64>",               │
-│   "key_type": "passphrase",          │
-│   "created_at": "2026-01-22T...",    │
-│   "original_filename": "backup.tar"  │
-│ }                                    │
-├──────────────────────────────────────┤
-│ Encrypted Data                       │ Variable
-│ (ciphertext + 16-byte auth tag)      │
-└──────────────────────────────────────┘
-```
-
-### E2E Format (MME2E01)
-
-```
-┌──────────────────────────────────────┐
-│ Magic: "MME2E01\0"                   │ 8 bytes
-├──────────────────────────────────────┤
-│ Header Length                        │ 4 bytes (little-endian u32)
-├──────────────────────────────────────┤
-│ Header (JSON)                        │ Variable
-│ {                                    │
-│   "version": 1,                      │
-│   "algorithm": "AES-256-GCM",        │
-│   "dek_algorithm": "AES-256-GCM",    │
+│   "ephemeral_pubkey": "<base64>",    │
 │   "recipients": [                    │
 │     {                                │
-│       "id": "alice@example.com",     │
-│       "kdf": "argon2id",             │
-│       "kdf_params": {...},           │
-│       "salt": "<base64>",            │
+│       "address": "mm:...",           │
 │       "encrypted_dek": "<base64>",   │
 │       "dek_nonce": "<base64>"        │
 │     },                               │
@@ -268,7 +101,7 @@ curl -X POST http://localhost:3000/api/v1/crypto/detect \
 │   ],                                 │
 │   "data_nonce": "<base64>",          │
 │   "created_at": "2026-01-22T...",    │
-│   "original_filename": "shared.shard"│
+│   "original_filename": "doc.pdf"     │
 │ }                                    │
 ├──────────────────────────────────────┤
 │ Encrypted Data                       │ Variable
@@ -278,112 +111,101 @@ curl -X POST http://localhost:3000/api/v1/crypto/detect \
 
 ## MCP Tools
 
-### encrypt_file
+### pke_generate_keypair
 
-Encrypt arbitrary data with standard encryption.
+Generate a new X25519 keypair.
 
 ```javascript
-encrypt_file({
-  data_base64: "<base64 data>",
-  passphrase: "your-secure-passphrase",
-  // OR
-  keyfile_base64: "<base64 keyfile>",
-  original_filename: "document.pdf"  // optional
+pke_generate_keypair({
+  passphrase: "secure-passphrase-123",
+  output_dir: "/path/to/keys",
+  label: "My Key"  // optional
 })
 ```
 
-### decrypt_file
+### pke_encrypt
 
-Decrypt a standard encrypted file.
+Encrypt data for recipients.
 
 ```javascript
-decrypt_file({
-  file_base64: "<base64 encrypted>",
-  passphrase: "your-secure-passphrase"
-  // OR
-  keyfile_base64: "<base64 keyfile>"
+pke_encrypt({
+  input: "/path/to/file.pdf",
+  output: "/path/to/file.pdf.mmpke",
+  recipients: ["/path/to/alice.pub", "/path/to/bob.pub"]
 })
 ```
 
-### encrypt_e2e
+### pke_decrypt
 
-Encrypt data for multiple recipients.
+Decrypt data with your private key.
 
 ```javascript
-encrypt_e2e({
-  data_base64: "<base64 data>",
-  recipients: [
-    { id: "alice", passphrase: "alice-secret" },
-    { id: "bob", passphrase: "bob-secret" }
-  ],
-  original_filename: "shared-notes.shard"
+pke_decrypt({
+  input: "/path/to/file.pdf.mmpke",
+  output: "/path/to/file.pdf",
+  private_key: "/path/to/private.key.enc",
+  passphrase: "your-passphrase"
 })
 ```
 
-### decrypt_e2e
+### pke_list_recipients
 
-Decrypt E2E encrypted data.
+List recipient addresses without decrypting.
 
 ```javascript
-decrypt_e2e({
-  file_base64: "<base64 encrypted>",
-  recipient_id: "alice",  // optional - auto-detect if omitted
-  passphrase: "alice-secret"
+pke_list_recipients({
+  input: "/path/to/file.mmpke"
 })
+// Returns: { recipients: ["mm:abc...", "mm:xyz..."], count: 2 }
 ```
 
-### detect_format
+### pke_get_address
 
-Check if a file is encrypted and what format it uses.
+Get the address for a public key.
 
 ```javascript
-detect_format({ file_base64: "<base64 data>" })
-// Returns: { encrypted: true, format: "standard" | "e2e" | "unencrypted" }
+pke_get_address({
+  public_key: "/path/to/public.key"
+})
+// Returns: { address: "mm:..." }
 ```
 
-### get_recipients
+### pke_verify_address
 
-List recipients of an E2E encrypted file.
-
-```javascript
-get_recipients({ file_base64: "<base64 e2e file>" })
-// Returns: { recipients: ["alice", "bob"] }
-```
-
-### generate_keyfile
-
-Generate a new keyfile for encryption.
+Verify an address checksum.
 
 ```javascript
-generate_keyfile()
-// Returns: { keyfile_base64: "<32 random bytes, base64>" }
+pke_verify_address({
+  address: "mm:ULnxkCj4TCc8QnFsar8Be4DVV4TkWivXE"
+})
+// Returns: { valid: true, version: 1 }
 ```
 
 ## Best Practices
 
+### Key Management
+
+1. **Protect your private key** - Use a strong passphrase (20+ characters)
+2. **Back up your keys** - Store copies in secure, separate locations
+3. **Share only addresses** - Never share private keys or passphrases
+
 ### Passphrase Selection
 
-1. **Use a strong passphrase** - At least 20 characters mixing letters, numbers, and symbols
-2. **Don't reuse passphrases** - Use unique passphrases for each encrypted backup
-3. **Consider a password manager** - Store passphrases securely
+1. **Use strong passphrases** - At least 12 characters (20+ recommended)
+2. **Use a password manager** - Store passphrases securely
+3. **Don't reuse passphrases** - Use unique passphrases for each key
 
-### Keyfile Security
+### Recipient Management
 
-1. **Store keyfiles separately** - Don't keep keyfiles with encrypted data
-2. **Back up keyfiles** - Loss of keyfile = loss of data
-3. **Use secure storage** - Hardware security keys, encrypted volumes
-
-### E2E Encryption
-
-1. **Distribute passphrases securely** - Use secure channels (Signal, in-person)
-2. **Verify recipient IDs** - Ensure you're sharing with intended recipients
-3. **Rotate passphrases** - Create new shards with new passphrases periodically
+1. **Verify addresses** - Confirm addresses through a trusted channel
+2. **Check recipients before encrypting** - Use `pke_list_recipients` to verify
+3. **Limit recipients** - Maximum 100 recipients per file
 
 ### General
 
-1. **Test decryption** - Always verify you can decrypt before deleting originals
-2. **Keep format version** - Store version info to ensure future compatibility
-3. **Multiple backups** - Encrypted backups should also follow 3-2-1 rule
+1. **Test decryption** - Verify you can decrypt before deleting originals
+2. **Multiple backups** - Follow the 3-2-1 backup rule
+3. **Rotate keys periodically** - Generate new keypairs for long-term security
 
 ## Troubleshooting
 
@@ -391,26 +213,28 @@ generate_keyfile()
 
 Passphrases must be at least 12 characters. Use a longer, more secure passphrase.
 
-### "Authentication failed" / "Decryption failed"
+### "No recipient block found for address"
 
-- Wrong passphrase or keyfile
-- File was corrupted or tampered with
-- Wrong encryption format (standard vs E2E)
+- Your address is not in the recipient list
+- Use `pke_list_recipients` to see valid recipient addresses
+- Ask the sender to re-encrypt with your public key
 
-### "No matching recipient"
+### "Failed to decrypt DEK - wrong key?"
 
-For E2E encryption:
-- The recipient ID doesn't match any in the file
-- The passphrase is for a different recipient
-- Use `get_recipients` to see valid recipient IDs
+- Wrong private key
+- File was corrupted during transfer
+- Check that your key matches one of the recipients
 
 ### "Invalid magic bytes"
 
-The file is not encrypted with Matric Memory encryption, or is corrupted.
+The file is not in MMPKE01 format. It may be:
+- A different encryption format
+- Not encrypted at all
+- Corrupted
 
-### Memory issues during decryption
+### Memory issues during key derivation
 
-Argon2id uses 64 MiB of memory by default. On constrained systems, files encrypted with `low_memory` KDF params use only 16 MiB.
+Argon2id uses 64 MiB of memory by default for private key encryption. This is intentional to resist GPU/ASIC attacks.
 
 ## Security Considerations
 
@@ -419,29 +243,31 @@ Argon2id uses 64 MiB of memory by default. On constrained systems, files encrypt
 - File contents (confidentiality)
 - File integrity (tampering detection)
 - Key material in memory (zeroized after use)
+- Forward secrecy (ephemeral keys per encryption)
 
 ### What's NOT Protected
 
 - File existence (encrypted files are visible)
 - File size (length is observable)
+- Recipient addresses (visible in header without decryption)
 - Encryption metadata (algorithm, timestamp visible in header)
-- Recipient IDs in E2E format (visible without decryption)
 
 ### Threat Model
 
-The encryption is designed to protect against:
-- Unauthorized access to backup files
+The encryption protects against:
+- Unauthorized access to files
 - Data theft from storage devices
 - Cloud storage provider access
+- Passive network attackers
 
 It does NOT protect against:
 - Compromised endpoints (malware on your system)
-- Weak passphrases (brute force attacks)
+- Private key compromise
 - Coerced disclosure (legal/physical threats)
 
 ## Related Documentation
 
+- [PKE Encryption Guide](./pke-encryption.md) - Detailed PKE documentation
 - [Shard Exchange Primer](./shard-exchange.md) - Practical workflows for sharing and recovering knowledge
 - [Backup Guide](./backup.md) - Backup and restore procedures
 - [Architecture](./architecture.md) - System design overview
-- [Operations](./operations.md) - Deployment and maintenance

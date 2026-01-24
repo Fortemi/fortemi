@@ -94,18 +94,25 @@ PostgreSQL database layer with pgvector support.
 
 ### matric-search
 
-Hybrid search engine combining FTS and semantic search.
+Hybrid search engine combining FTS and semantic search with strict tag filtering.
 
 **Key Components:**
 - `HybridSearchEngine` - Main search coordinator
-- `HybridSearchConfig` - Search mode configuration
+- `HybridSearchConfig` - Search mode configuration with optional strict filter
 - `SearchRequest` - Query builder pattern
+- `StrictTagFilter` - Guaranteed tag-based isolation
 - `rrf_fusion()` - Reciprocal Rank Fusion algorithm
 
 **Search Modes:**
 1. **FTS Only** - PostgreSQL tsvector/GIN full-text search
 2. **Semantic Only** - pgvector cosine similarity
 3. **Hybrid** (default) - Combined with RRF fusion
+
+**Strict Filtering:**
+- Pre-search WHERE clause applied before fuzzy matching
+- Guarantees 100% isolation by SKOS concepts/schemes
+- Supports AND/OR/NOT logic on tags
+- Foundation for multi-tenancy
 
 ### matric-inference
 
@@ -125,22 +132,25 @@ LLM inference abstraction for text generation and embeddings.
 
 ### matric-crypto
 
-Encryption primitives for backup and sharing.
+Public-key encryption (PKE) for secure data sharing.
 
 **Key Components:**
-- `encrypt_with_passphrase` / `decrypt_standard` - Single-key encryption
-- `encrypt_e2e` / `decrypt_e2e` - Multi-recipient envelope encryption
+- `encrypt_pke` / `decrypt_pke` - Multi-recipient public-key encryption
+- `Keypair` / `Address` - X25519 keypairs and wallet-style addresses
+- `save_private_key` / `load_private_key` - Encrypted key storage
 - `detect_format` - Auto-detect encrypted file formats
 - `DerivedKey` - Secure key wrapper with zeroize
 
 **Cryptographic Primitives:**
+- X25519 (Curve25519 ECDH key exchange)
 - AES-256-GCM (symmetric encryption)
-- Argon2id (key derivation)
+- HKDF-SHA256 (key derivation from shared secrets)
+- BLAKE3 (address hashing)
+- Argon2id (private key storage encryption)
 - ChaCha20-based CSPRNG (random generation)
 
-**File Formats:**
-- MMENC01 - Standard single-key encryption
-- MME2E01 - E2E multi-recipient encryption
+**File Format:**
+- MMPKE01 - Public-key multi-recipient encryption (wallet-style)
 
 ### matric-jobs
 
@@ -289,11 +299,16 @@ semantic_weight = 0.5
 ### Search Pipeline
 
 1. Parse query string
-2. Execute FTS query (tsvector match)
-3. Execute semantic query (embedding similarity)
-4. Merge results with RRF
-5. Apply filters (tags, dates)
-6. Return top-k results
+2. **Apply strict tag filter (if provided)** - pre-filters note IDs via SQL WHERE
+3. Execute FTS query (tsvector match) within filtered set
+4. Execute semantic query (embedding similarity) within filtered set
+5. Merge results with RRF
+6. Apply soft filters (tags, dates)
+7. Return top-k results
+
+**Strict vs Soft Filtering:**
+- **Strict filter**: Guaranteed isolation, applied before search (via `strict_filter` parameter)
+- **Soft filter**: Combined with fuzzy search, may have false positives (query string syntax)
 
 ## Security Considerations
 
@@ -351,7 +366,10 @@ cargo run -p matric-api
 | ADR-002 | PostgreSQL + pgvector | Simplicity, proven at 100k docs |
 | ADR-003 | InferenceBackend trait | Pluggable backends (Ollama, OpenAI) |
 | ADR-004 | RRF fusion | Industry standard for hybrid search |
-| ADR-005 | AES-256-GCM + Argon2id | Industry standard encryption, memory-hard KDF |
-| ADR-006 | Envelope encryption for E2E | Efficient multi-recipient without re-encryption |
+| ADR-005 | X25519 + AES-256-GCM | Wallet-style PKE with ephemeral keys for forward secrecy |
+| ADR-006 | Envelope encryption | Efficient multi-recipient without re-encryption |
+| ADR-007 | Argon2id for key storage | Memory-hard KDF protects private keys at rest |
+| ADR-008 | Strict tag filtering | Pre-search WHERE clause for guaranteed SKOS tag isolation |
 
 See `.aiwg/intake/option-matrix.md` for detailed analysis.
+See `docs/adr/ADR-001-strict-tag-filtering.md` for strict filtering details.

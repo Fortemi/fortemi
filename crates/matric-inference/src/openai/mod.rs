@@ -30,6 +30,8 @@
 //!         embed_dimension: 768,
 //!         timeout_seconds: 120,
 //!         skip_tls_verify: false,
+//!         http_referer: None,
+//!         x_title: None,
 //!     };
 //!     let backend = OpenAIBackend::new(config).unwrap();
 //!

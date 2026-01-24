@@ -16,12 +16,11 @@ Matric Memory provides multiple backup options:
 
 ### Encryption Options
 
-All backup methods support optional encryption:
+All backup methods support optional PKE encryption:
 
 | Encryption | Format | Use Case |
 |------------|--------|----------|
-| **Standard** | .enc (MMENC01) | Personal backups with passphrase/keyfile |
-| **E2E** | .e2e (MME2E01) | Shared shards with multiple recipients |
+| **PKE** | .mmpke (MMPKE01) | Multi-recipient wallet-style encryption |
 
 See [Encryption Guide](./encryption.md) for cryptographic details and [Shard Exchange Primer](./shard-exchange.md) for practical sharing workflows.
 

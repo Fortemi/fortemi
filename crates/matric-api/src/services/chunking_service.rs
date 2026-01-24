@@ -3,6 +3,40 @@
 //! This service handles automatic splitting of oversized content into multiple
 //! linked notes, enabling proper processing of large documents that exceed
 //! the model's context window.
+//!
+//! ## Chunk Metadata
+//!
+//! When a note is chunked, the `chunk_metadata` JSONB field in the `note` table
+//! should be populated with information about the chunking operation. This allows
+//! the system to track which notes are chunks and how they relate to each other.
+//!
+//! ### Example Metadata Structure
+//!
+//! For a parent note that has been split into chunks:
+//! ```json
+//! {
+//!   "total_chunks": 3,
+//!   "chunking_strategy": "semantic",
+//!   "chunk_sequence": ["uuid-1", "uuid-2", "uuid-3"],
+//!   "overlap_tokens": 50
+//! }
+//! ```
+//!
+//! For individual chunk notes:
+//! ```json
+//! {
+//!   "parent_note_id": "parent-uuid",
+//!   "chunk_index": 0,
+//!   "total_chunks": 3,
+//!   "chunking_strategy": "semantic"
+//! }
+//! ```
+//!
+//! This metadata enables:
+//! - Reconstruction of the original document from chunks
+//! - Navigation between related chunks
+//! - Tracking of chunking strategies for analytics
+//! - Efficient querying of chunked vs. non-chunked notes
 
 use matric_core::Tokenizer;
 use matric_db::chunking::{Chunk, Chunker, ChunkerConfig, SemanticChunker};
@@ -47,6 +81,12 @@ impl ChunkingService {
     ///
     /// # Returns
     /// Vector of chunks with their text and metadata
+    ///
+    /// # Chunk Metadata Population
+    ///
+    /// When creating notes from these chunks, populate the `chunk_metadata`
+    /// field in the note table to track the chunking relationship. See the
+    /// module-level documentation for the expected metadata structure.
     pub fn chunk_document(&self, content: &str) -> Vec<Chunk> {
         self.chunker.chunk(content)
     }

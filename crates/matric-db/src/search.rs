@@ -3,7 +3,9 @@
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Error, Result, SearchHit};
+use matric_core::{Error, Result, SearchHit, StrictTagFilter};
+
+use crate::strict_filter::{QueryParam, StrictFilterQueryBuilder};
 
 /// Full-text search provider using PostgreSQL tsvector.
 pub struct PgFtsSearch {
@@ -55,6 +57,105 @@ impl PgFtsSearch {
             .fetch_all(&self.pool)
             .await
             .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Perform full-text search with strict tag filter.
+    ///
+    /// Uses a CTE approach to filter notes by SKOS concepts before applying FTS,
+    /// ensuring precise taxonomy-based result segregation.
+    pub async fn search_with_strict_filter(
+        &self,
+        query: &str,
+        strict_filter: Option<&StrictTagFilter>,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        // If no filter provided, fall back to regular search
+        let Some(filter) = strict_filter else {
+            return self.search(query, limit, exclude_archived).await;
+        };
+
+        // If filter is empty, fall back to regular search
+        if filter.is_empty() {
+            return self.search(query, limit, exclude_archived).await;
+        }
+
+        let archive_clause = if exclude_archived {
+            "(n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "n.deleted_at IS NULL"
+        };
+
+        // Build strict filter SQL using the query builder
+        let builder = StrictFilterQueryBuilder::new(filter.clone(), 1); // param $1 is query, strict filter starts at $2
+        let (strict_filter_clause, filter_params) = builder.build();
+
+        // Build the query with CTE for filtered notes
+        let sql = format!(
+            r#"
+            WITH filtered_notes AS (
+                SELECT n.id
+                FROM note n
+                WHERE {}
+                  AND {}
+            )
+            SELECT n.id as note_id,
+                   ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM filtered_notes fn
+            JOIN note n ON n.id = fn.id
+            JOIN note_revised_current nrc ON nrc.note_id = n.id
+            WHERE nrc.tsv @@ plainto_tsquery('english', $1)
+            ORDER BY score DESC
+            LIMIT ${}
+            "#,
+            archive_clause,
+            strict_filter_clause,
+            filter_params.len() + 2 // +1 for query, +1 for limit
+        );
+
+        // Build the query with dynamic parameters
+        let mut q = sqlx::query(&sql);
+        q = q.bind(query); // $1
+
+        // Bind strict filter parameters
+        for param in &filter_params {
+            q = match param {
+                QueryParam::Uuid(id) => q.bind(id),
+                QueryParam::UuidArray(ids) => q.bind(ids),
+                QueryParam::Int(val) => q.bind(val),
+            };
+        }
+
+        q = q.bind(limit); // Final parameter
+
+        let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()

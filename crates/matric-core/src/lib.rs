@@ -8,6 +8,7 @@
 pub mod error;
 pub mod hardware;
 pub mod models;
+pub mod search;
 pub mod tags;
 pub mod tokenizer;
 pub mod traits;
@@ -16,6 +17,7 @@ pub mod traits;
 pub use error::{Error, Result};
 pub use hardware::{ContextBudget, HardwareConfig};
 pub use models::*;
+pub use search::*;
 pub use tags::*;
 pub use tokenizer::*;
 pub use traits::*;

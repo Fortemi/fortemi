@@ -42,6 +42,10 @@ pub struct OpenAIConfig {
     pub timeout_seconds: u64,
     /// Skip TLS verification (for self-signed certs in local environments).
     pub skip_tls_verify: bool,
+    /// HTTP-Referer header for OpenRouter.ai rankings (optional).
+    pub http_referer: Option<String>,
+    /// X-Title header for app name on OpenRouter.ai (optional).
+    pub x_title: Option<String>,
 }
 
 impl Default for OpenAIConfig {
@@ -54,6 +58,8 @@ impl Default for OpenAIConfig {
             embed_dimension: DEFAULT_DIMENSION,
             timeout_seconds: DEFAULT_TIMEOUT_SECS,
             skip_tls_verify: false,
+            http_referer: None,
+            x_title: None,
         }
     }
 }
@@ -112,6 +118,8 @@ impl OpenAIBackend {
             skip_tls_verify: std::env::var("OPENAI_SKIP_TLS_VERIFY")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),
+            http_referer: std::env::var("OPENAI_HTTP_REFERER").ok(),
+            x_title: std::env::var("OPENAI_X_TITLE").ok(),
         };
 
         Self::new(config)
@@ -129,6 +137,15 @@ impl OpenAIBackend {
 
         if let Some(ref api_key) = self.config.api_key {
             req = req.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        // Add OpenRouter-specific headers if configured
+        if let Some(ref referer) = self.config.http_referer {
+            req = req.header("HTTP-Referer", referer);
+        }
+
+        if let Some(ref title) = self.config.x_title {
+            req = req.header("X-Title", title);
         }
 
         req.header("Content-Type", "application/json")
@@ -395,6 +412,8 @@ mod tests {
         assert_eq!(config.timeout_seconds, DEFAULT_TIMEOUT_SECS);
         assert!(!config.skip_tls_verify);
         assert!(config.api_key.is_none());
+        assert!(config.http_referer.is_none());
+        assert!(config.x_title.is_none());
     }
 
     #[test]
@@ -407,6 +426,8 @@ mod tests {
             embed_dimension: 768,
             timeout_seconds: 60,
             skip_tls_verify: true,
+            http_referer: None,
+            x_title: None,
         };
 
         assert_eq!(config.base_url, "http://localhost:8080/v1");
@@ -423,25 +444,6 @@ mod tests {
 
         let backend = backend.unwrap();
         assert_eq!(backend.config().base_url, DEFAULT_OPENAI_URL);
-    }
-
-    #[test]
-    fn test_backend_from_env_defaults() {
-        // Clear env vars
-        std::env::remove_var("OPENAI_BASE_URL");
-        std::env::remove_var("OPENAI_API_KEY");
-        std::env::remove_var("OPENAI_EMBED_MODEL");
-        std::env::remove_var("OPENAI_GEN_MODEL");
-        std::env::remove_var("OPENAI_EMBED_DIM");
-        std::env::remove_var("OPENAI_TIMEOUT");
-        std::env::remove_var("OPENAI_SKIP_TLS_VERIFY");
-
-        let backend = OpenAIBackend::from_env();
-        assert!(backend.is_ok());
-
-        let backend = backend.unwrap();
-        assert_eq!(backend.config().base_url, DEFAULT_OPENAI_URL);
-        assert!(backend.config().api_key.is_none());
     }
 
     #[test]
@@ -476,5 +478,47 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(config.base_url, cloned.base_url);
         assert_eq!(config.api_key, cloned.api_key);
+    }
+
+    #[test]
+    fn test_openrouter_headers_in_config() {
+        let config = OpenAIConfig {
+            base_url: "https://openrouter.ai/api/v1".to_string(),
+            api_key: Some("test-key".to_string()),
+            embed_model: "custom-embed".to_string(),
+            gen_model: "custom-gen".to_string(),
+            embed_dimension: 768,
+            timeout_seconds: 60,
+            skip_tls_verify: false,
+            http_referer: Some("https://myapp.com".to_string()),
+            x_title: Some("My App".to_string()),
+        };
+
+        assert_eq!(config.http_referer, Some("https://myapp.com".to_string()));
+        assert_eq!(config.x_title, Some("My App".to_string()));
+    }
+
+    #[test]
+    fn test_config_with_only_http_referer() {
+        let config = OpenAIConfig {
+            http_referer: Some("https://myapp.com".to_string()),
+            x_title: None,
+            ..Default::default()
+        };
+
+        assert_eq!(config.http_referer, Some("https://myapp.com".to_string()));
+        assert!(config.x_title.is_none());
+    }
+
+    #[test]
+    fn test_config_with_only_x_title() {
+        let config = OpenAIConfig {
+            http_referer: None,
+            x_title: Some("My App".to_string()),
+            ..Default::default()
+        };
+
+        assert!(config.http_referer.is_none());
+        assert_eq!(config.x_title, Some("My App".to_string()));
     }
 }

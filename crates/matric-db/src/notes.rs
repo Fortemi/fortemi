@@ -228,7 +228,7 @@ impl NoteRepository for PgNoteRepository {
         // Fetch note metadata
         let note_row = sqlx::query(
             "SELECT id, collection_id, format, source, created_at_utc, updated_at_utc,
-                    starred, archived, last_accessed_at, title, metadata
+                    starred, archived, last_accessed_at, title, metadata, chunk_metadata
              FROM note WHERE id = $1",
         )
         .bind(id)
@@ -315,6 +315,7 @@ impl NoteRepository for PgNoteRepository {
                 metadata: note_row
                     .get::<Option<serde_json::Value>, _>("metadata")
                     .unwrap_or_else(|| serde_json::json!({})),
+                chunk_metadata: note_row.get("chunk_metadata"),
             },
             original: NoteOriginal {
                 content: original_row.get("content"),

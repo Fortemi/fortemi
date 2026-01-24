@@ -1,49 +1,63 @@
 {
   "active": false,
-  "task": "Implement #142 - Evaluation Framework aligned with matric-cli methodology",
-  "completion": "cargo test --package matric-inference passes, 200+ test cases in ~/data/evals/matric/",
-  "maxIterations": 55,
-  "currentIteration": 6,
-  "startTime": "2026-01-23T18:34:00Z",
-  "timeoutMinutes": 120,
+  "task": "Implement Strict Tag Filtering feature (Epic #145)",
+  "completion": "cargo test passes, strict filter types exist, SQL query builder works, API accepts filters, MCP tools expose filtering",
+  "maxIterations": 50,
+  "currentIteration": 4,
+  "startTime": "2026-01-24T15:30:00Z",
+  "endTime": "2026-01-24T16:15:00Z",
+  "timeoutMinutes": 180,
+  "status": "SUCCESS",
+  "issues": [146, 147, 148, 149, 150, 151, 152, 153],
+  "epic": 145,
   "iterations": [
     {
       "number": 1,
-      "action": "Create test data directory and JSONL files",
-      "result": "SUCCESS - Created 282 test cases across 7 JSONL files",
-      "learnings": "Parallel agents efficiently generated diverse test data"
+      "description": "Core types, SQL builder, and database indexes",
+      "filesModified": [
+        "crates/matric-core/src/search.rs",
+        "crates/matric-db/src/strict_filter.rs",
+        "crates/matric-db/src/lib.rs",
+        "migrations/20260124000000_strict_filter_indexes.sql"
+      ],
+      "result": "success"
     },
     {
       "number": 2,
-      "action": "Expand eval.rs with new test case types",
-      "result": "SUCCESS - Added TagTestCase, FormatTestCase, ContextTestCase, LongContextTestCase, EvalTier",
-      "learnings": "Serde handles nested JSON structures well with proper annotations"
+      "description": "TagResolver service and HybridSearchConfig integration",
+      "filesModified": [
+        "crates/matric-api/src/services/tag_resolver.rs",
+        "crates/matric-api/src/services/mod.rs",
+        "crates/matric-search/src/hybrid.rs",
+        "crates/matric-db/src/search.rs"
+      ],
+      "result": "success"
     },
     {
       "number": 3,
-      "action": "Build JSONL loader infrastructure",
-      "result": "SUCCESS - Added load_*_tests() functions with generic load_jsonl<T>()",
-      "learnings": "Generic loader simplifies adding new test types"
+      "description": "API endpoint integration and MCP tools",
+      "filesModified": [
+        "crates/matric-api/src/main.rs",
+        "crates/matric-api/src/openapi.yaml",
+        "mcp-server/index.js"
+      ],
+      "result": "success"
     },
     {
       "number": 4,
-      "action": "Create matric-eval binary crate",
-      "result": "SUCCESS - Added src/bin/eval.rs with CLI, tier sampling, report generation",
-      "learnings": "Binary added to existing crate cleaner than new workspace member"
-    },
-    {
-      "number": 5,
-      "action": "Implement LLM-as-Judge",
-      "result": "SUCCESS - Added JudgePrompt, JudgeResult, parse_judge_score, parse_pairwise_winner",
-      "learnings": "Regex patterns handle various LLM output formats"
-    },
-    {
-      "number": 6,
-      "action": "Final verification",
-      "result": "SUCCESS - 230 tests pass, smoke tier runs correctly",
-      "learnings": "Framework ready for live model evaluation"
+      "description": "Integration tests and bug fixes",
+      "filesModified": [
+        "crates/matric-api/tests/strict_filter_integration_test.rs",
+        "crates/matric-api/src/services/tag_resolver.rs",
+        "crates/matric-db/src/skos_tags.rs"
+      ],
+      "result": "success",
+      "notes": "Fixed database enum casting issues for pmest_facet, tag_status, and skos_label_type columns. Added unique suffixes to test data to prevent duplicate key violations."
     }
   ],
-  "lastResult": "SUCCESS - 230 tests pass, eval binary works, smoke tier completes",
-  "learnings": "Aligned eval framework with matric-cli: 282 test cases, 4 tiers, LLM-as-Judge, JSONL loaders"
+  "learnings": [
+    "PostgreSQL enum columns require explicit casting (::enum_type) when binding string values from Rust",
+    "Integration tests that create database records need unique identifiers to avoid duplicate key violations on repeated runs",
+    "The create_concept and add_label functions in skos_tags.rs were missing enum casts for facet_type, status, and label_type columns"
+  ]
 }

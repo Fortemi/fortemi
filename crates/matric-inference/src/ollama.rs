@@ -8,6 +8,9 @@ use tracing::{debug, info, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
+use crate::model_config::requires_raw_mode;
+use crate::profiles::{ModelProfile, ModelRegistry};
+
 /// Default Ollama endpoint.
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
@@ -33,6 +36,7 @@ pub struct OllamaBackend {
     embed_model: String,
     gen_model: String,
     dimension: usize,
+    registry: ModelRegistry,
 }
 
 impl OllamaBackend {
@@ -69,6 +73,7 @@ impl OllamaBackend {
             embed_model,
             gen_model,
             dimension,
+            registry: ModelRegistry::new(),
         }
     }
 
@@ -86,6 +91,60 @@ impl OllamaBackend {
             .unwrap_or(DEFAULT_DIMENSION);
 
         Self::with_config(base_url, embed_model, gen_model, dimension)
+    }
+
+    /// Get the model registry.
+    pub fn registry(&self) -> &ModelRegistry {
+        &self.registry
+    }
+
+    /// Get the profile for the current generation model.
+    pub fn gen_model_profile(&self) -> Option<&ModelProfile> {
+        self.registry.get(&self.gen_model)
+    }
+
+    /// Set the generation model to use.
+    pub fn set_gen_model(&mut self, model_name: String) {
+        info!(
+            "Switching generation model from {} to {}",
+            self.gen_model, model_name
+        );
+        self.gen_model = model_name;
+    }
+
+    /// Set generation model to the best model for general inference.
+    pub fn use_best_general(&mut self) {
+        if let Some(profile) = self.registry.get_best_general() {
+            self.set_gen_model(profile.name.clone());
+        }
+    }
+
+    /// Set generation model to the best model for fast queries.
+    pub fn use_best_fast(&mut self) {
+        if let Some(profile) = self.registry.get_best_fast() {
+            self.set_gen_model(profile.name.clone());
+        }
+    }
+
+    /// Set generation model to the best model for code generation.
+    pub fn use_best_code(&mut self) {
+        if let Some(profile) = self.registry.get_best_code() {
+            self.set_gen_model(profile.name.clone());
+        }
+    }
+
+    /// Set generation model to the best model for reasoning/thinking tasks.
+    pub fn use_best_reasoning(&mut self) {
+        if let Some(profile) = self.registry.get_best_reasoning() {
+            self.set_gen_model(profile.name.clone());
+        }
+    }
+
+    /// Set generation model to the best model for long documents.
+    pub fn use_best_long_context(&mut self) {
+        if let Some(profile) = self.registry.get_best_long_context() {
+            self.set_gen_model(profile.name.clone());
+        }
     }
 }
 
@@ -113,6 +172,8 @@ struct GenerateRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -183,10 +244,13 @@ impl GenerationBackend for OllamaBackend {
     }
 
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        let use_raw_mode = requires_raw_mode(&self.gen_model);
+
         debug!(
-            "Generating with model {}, prompt length: {}",
+            "Generating with model {}, prompt length: {}, raw_mode: {}",
             self.gen_model,
-            prompt.len()
+            prompt.len(),
+            use_raw_mode
         );
 
         let request = GenerateRequest {
@@ -198,6 +262,7 @@ impl GenerationBackend for OllamaBackend {
             } else {
                 Some(system.to_string())
             },
+            raw: if use_raw_mode { Some(true) } else { None },
         };
 
         let response = self
@@ -416,11 +481,27 @@ mod tests {
             prompt: "Hello".to_string(),
             stream: false,
             system: Some("Be helpful".to_string()),
+            raw: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("llama3"));
         assert!(json.contains("Hello"));
         assert!(json.contains("Be helpful"));
+        assert!(!json.contains("raw")); // Should not serialize None
+    }
+
+    #[test]
+    fn test_generate_request_with_raw_mode() {
+        let request = GenerateRequest {
+            model: "deepseek-r1:14b".to_string(),
+            prompt: "Think about this".to_string(),
+            stream: false,
+            system: None,
+            raw: Some(true),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("deepseek-r1:14b"));
+        assert!(json.contains("\"raw\":true"));
     }
 
     #[test]
@@ -430,6 +511,7 @@ mod tests {
             prompt: "Hello".to_string(),
             stream: false,
             system: None,
+            raw: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("system")); // Should skip serializing None
@@ -440,6 +522,128 @@ mod tests {
         let json = r#"{"response": "Hello there!"}"#;
         let response: GenerateResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.response, "Hello there!");
+    }
+
+    // ==========================================================================
+    // Raw Mode Configuration Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_raw_mode_applied_for_thinking_models() {
+        // Test that thinking models would trigger raw mode
+        // This tests the configuration logic
+        assert!(requires_raw_mode("deepseek-r1:14b"));
+        assert!(requires_raw_mode("Mistral-Nemo-12B-Thinking"));
+    }
+
+    #[test]
+    fn test_raw_mode_not_applied_for_regular_models() {
+        // Test that regular models don't trigger raw mode
+        assert!(!requires_raw_mode("llama3.1:8b"));
+        assert!(!requires_raw_mode("gpt-oss:20b"));
+    }
+
+    // ==========================================================================
+    // Model Profile Integration Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_registry_accessor() {
+        let backend = OllamaBackend::new();
+        let registry = backend.registry();
+        assert!(registry.count() > 0);
+    }
+
+    #[test]
+    fn test_gen_model_profile() {
+        let backend = OllamaBackend::new();
+        let profile = backend.gen_model_profile();
+        assert!(profile.is_some());
+        assert_eq!(profile.unwrap().name, DEFAULT_GEN_MODEL);
+    }
+
+    #[test]
+    fn test_gen_model_profile_custom() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "embed".to_string(),
+            "qwen2.5-coder:7b".to_string(),
+            768,
+        );
+        let profile = backend.gen_model_profile();
+        assert!(profile.is_some());
+        assert_eq!(profile.unwrap().name, "qwen2.5-coder:7b");
+    }
+
+    #[test]
+    fn test_gen_model_profile_unknown_model() {
+        let backend = OllamaBackend::with_config(
+            "http://test".to_string(),
+            "embed".to_string(),
+            "unknown-model".to_string(),
+            768,
+        );
+        let profile = backend.gen_model_profile();
+        assert!(profile.is_none());
+    }
+
+    #[test]
+    fn test_set_gen_model() {
+        let mut backend = OllamaBackend::new();
+        assert_eq!(backend.gen_model, DEFAULT_GEN_MODEL);
+
+        backend.set_gen_model("qwen2.5-coder:7b".to_string());
+        assert_eq!(backend.gen_model, "qwen2.5-coder:7b");
+    }
+
+    #[test]
+    fn test_use_best_general() {
+        let mut backend = OllamaBackend::new();
+        backend.use_best_general();
+        assert_eq!(backend.gen_model, "gpt-oss:20b");
+    }
+
+    #[test]
+    fn test_use_best_fast() {
+        let mut backend = OllamaBackend::new();
+        backend.use_best_fast();
+        assert_eq!(backend.gen_model, "qwen2.5-coder:1.5b");
+    }
+
+    #[test]
+    fn test_use_best_code() {
+        let mut backend = OllamaBackend::new();
+        backend.use_best_code();
+        assert_eq!(backend.gen_model, "qwen2.5-coder:7b");
+    }
+
+    #[test]
+    fn test_use_best_reasoning() {
+        let mut backend = OllamaBackend::new();
+        backend.use_best_reasoning();
+        assert_eq!(backend.gen_model, "deepseek-r1:14b");
+    }
+
+    #[test]
+    fn test_use_best_long_context() {
+        let mut backend = OllamaBackend::new();
+        backend.use_best_long_context();
+        assert_eq!(backend.gen_model, "llama3.1:8b");
+    }
+
+    #[test]
+    fn test_model_switching_preserves_profile_access() {
+        let mut backend = OllamaBackend::new();
+
+        backend.use_best_fast();
+        let profile = backend.gen_model_profile();
+        assert!(profile.is_some());
+        assert!(profile.unwrap().is_fast());
+
+        backend.use_best_reasoning();
+        let profile = backend.gen_model_profile();
+        assert!(profile.is_some());
+        assert!(profile.unwrap().is_thinking_model());
     }
 
     // ==========================================================================

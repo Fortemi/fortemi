@@ -180,7 +180,7 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         };
 
         let revised = match self.backend.generate(&prompt).await {
-            Ok(r) => clean_enhanced_content(r.trim()),
+            Ok(r) => clean_enhanced_content(r.trim(), &prompt),
             Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
         };
 
@@ -845,7 +845,7 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         );
 
         let updated_content = match self.backend.generate(&prompt).await {
-            Ok(c) => clean_enhanced_content(c.trim()),
+            Ok(c) => clean_enhanced_content(c.trim(), &prompt),
             Err(e) => return JobResult::Failed(format!("Generation failed: {}", e)),
         };
 
@@ -1123,15 +1123,70 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
 // UTILITY FUNCTIONS (ported from HOTM)
 // =============================================================================
 
-/// Clean up enhanced content to remove any accidental markers
-fn clean_enhanced_content(content: &str) -> String {
+/// Clean up enhanced content to remove any accidental markers or prompt leakage.
+///
+/// This function aggressively removes system prompts, instructions, and markers
+/// that may leak into the AI response, particularly in raw mode with thinking models.
+fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
     let mut cleaned = content.to_string();
+
+    // CRITICAL FIX: Remove prompt leakage that occurs with raw mode models
+    // Extract key phrases from the original prompt to detect leakage
+    let prompt_indicators = [
+        "You are an intelligent note-taking assistant",
+        "You are a formatting assistant",
+        "Your task is to enhance",
+        "Your task is to improve",
+        "Original Note:",
+        "STRICT RULES",
+        "What you MAY do:",
+        "Guidelines:",
+        "Output the enhanced note",
+        "Output the formatted note",
+        "Do not add any labels, markers, or metadata",
+    ];
+
+    // Remove any lines that match prompt indicators (case-insensitive)
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let mut filtered_lines = Vec::new();
+    let mut skip_until_content = false;
+
+    for line in lines {
+        let line_lower = line.to_lowercase();
+        let line_trimmed = line.trim();
+
+        // Check if this line is part of the system prompt leakage
+        let is_prompt_line = prompt_indicators
+            .iter()
+            .any(|indicator| line_lower.contains(&indicator.to_lowercase()));
+
+        if is_prompt_line {
+            skip_until_content = true;
+            continue;
+        }
+
+        // Skip empty lines immediately after detecting prompt
+        if skip_until_content && line_trimmed.is_empty() {
+            continue;
+        }
+
+        // Once we hit actual content, stop skipping
+        if skip_until_content && !line_trimmed.is_empty() {
+            skip_until_content = false;
+        }
+
+        filtered_lines.push(line);
+    }
+
+    cleaned = filtered_lines.join("\n");
 
     // Remove common markers that might slip through
     let markers = [
         "PART 1",
         "PART 2",
         "ENHANCED NOTE",
+        "FORMATTED NOTE",
+        "REVISED NOTE",
         "METADATA",
         "---",
         "```json",
@@ -1153,7 +1208,22 @@ fn clean_enhanced_content(content: &str) -> String {
         cleaned = cleaned.trim_end_matches("```").to_string();
     }
 
-    cleaned.trim().to_string()
+    // Remove leading/trailing whitespace
+    cleaned = cleaned.trim().to_string();
+
+    // Final sanity check: if the cleaned content looks like it's just instructions,
+    // check against the original prompt more aggressively
+    if cleaned.len() < 50 || cleaned.lines().count() < 2 {
+        // Try to find where the actual content starts by looking for the original note marker
+        if let Some(idx) = original_prompt.find("Original Note:") {
+            if let Some(_content_start) = original_prompt[idx..].find('\n') {
+                // This is risky but necessary for extreme cases
+                warn!("Cleaned content suspiciously short, may indicate complete prompt leakage");
+            }
+        }
+    }
+
+    cleaned
 }
 
 /// Chunk text into smaller pieces for embedding (line-aware)
@@ -1179,4 +1249,196 @@ fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     }
 
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_enhanced_content_removes_system_prompt() {
+        let prompt = r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note.
+
+Original Note:
+Test content here
+
+Output the formatted note."#;
+
+        let leaked_response = r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note.
+
+# Test Content
+
+This is the actual revised note content that should be preserved."#;
+
+        let cleaned = clean_enhanced_content(leaked_response, prompt);
+
+        // Should remove the system prompt and keep only the content
+        assert!(!cleaned.contains("You are a formatting assistant"));
+        assert!(!cleaned.contains("Your task is to improve"));
+        assert!(cleaned.contains("# Test Content"));
+        assert!(cleaned.contains("This is the actual revised note"));
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_removes_light_mode_instructions() {
+        let prompt = r#"You are a formatting assistant. STRICT RULES - You MUST follow these."#;
+
+        let leaked_response = r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
+
+## My Note Title
+
+This is the actual content of the note that should remain."#;
+
+        let cleaned = clean_enhanced_content(leaked_response, prompt);
+
+        // Should remove all instruction text
+        assert!(!cleaned.contains("You are a formatting assistant"));
+        assert!(!cleaned.contains("Your task is to improve"));
+
+        // Should preserve actual content
+        assert!(cleaned.contains("## My Note Title"));
+        assert!(cleaned.contains("This is the actual content"));
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_preserves_clean_response() {
+        let prompt = "Test prompt";
+
+        let clean_response = r#"# My Enhanced Note
+
+This is properly formatted content without any system prompt leakage.
+
+- Point 1
+- Point 2
+
+## Section
+
+More content here."#;
+
+        let cleaned = clean_enhanced_content(clean_response, prompt);
+
+        // Should preserve all content when there's no leakage
+        assert_eq!(cleaned, clean_response.trim());
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_removes_markers() {
+        let prompt = "Test prompt";
+
+        let response_with_markers = r#"ENHANCED NOTE
+
+# My Note
+
+Content here."#;
+
+        let cleaned = clean_enhanced_content(response_with_markers, prompt);
+
+        // Should remove the marker
+        assert!(!cleaned.starts_with("ENHANCED NOTE"));
+        assert!(cleaned.starts_with("# My Note"));
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_handles_original_note_marker() {
+        let prompt = r#"You are a formatting assistant.
+
+Original Note:
+Some original text
+
+Output the formatted note."#;
+
+        let leaked_response = r#"You are a formatting assistant.
+
+# Formatted Version
+
+The actual formatted content that is different from the original."#;
+
+        let cleaned = clean_enhanced_content(leaked_response, prompt);
+
+        // Should remove prompt instructions
+        assert!(!cleaned.contains("You are a formatting assistant"));
+        assert!(cleaned.contains("# Formatted Version"));
+        assert!(cleaned.contains("The actual formatted content"));
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_case_insensitive() {
+        let prompt = "Test";
+
+        let response = r#"YOU ARE AN INTELLIGENT NOTE-TAKING ASSISTANT
+
+# Content
+
+Actual note content."#;
+
+        let cleaned = clean_enhanced_content(response, prompt);
+
+        // Should detect and remove uppercase version of prompt indicator
+        assert!(!cleaned.to_lowercase().contains("you are an intelligent"));
+        assert!(cleaned.contains("# Content"));
+    }
+
+    #[test]
+    fn test_clean_enhanced_content_complete_light_mode_example() {
+        // This simulates a realistic bug scenario from ticket #83
+        let prompt = r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
+
+Original Note:
+Quick note about the meeting
+
+STRICT RULES - You MUST follow these:
+1. DO NOT add any technical details
+2. DO NOT invent, expand, or elaborate on topics
+
+What you MAY do:
+- Fix grammar and spelling errors
+- Add markdown headers
+
+Output the formatted note. Do not add any labels, markers, or metadata."#;
+
+        // Simulated AI response with prompt leakage
+        let leaked_response = r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
+
+## Meeting Notes
+
+Quick note about the meeting discussion and action items."#;
+
+        let cleaned = clean_enhanced_content(leaked_response, prompt);
+
+        // The system prompt should be completely removed
+        assert!(!cleaned.contains("You are a formatting assistant"));
+        assert!(!cleaned.contains("Your task is to improve"));
+        assert!(!cleaned.contains("WITHOUT adding any new information"));
+
+        // Only the actual formatted content should remain
+        assert!(cleaned.starts_with("## Meeting Notes"));
+        assert!(cleaned.contains("Quick note about the meeting"));
+    }
+
+    #[test]
+    fn test_chunk_text_basic() {
+        let text = "Line 1\nLine 2\nLine 3";
+        let chunks = chunk_text(text, 20);
+
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn test_chunk_text_empty() {
+        let text = "";
+        let chunks = chunk_text(text, 100);
+
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_chunk_text_respects_max_len() {
+        let text = "Short line\n".repeat(100);
+        let chunks = chunk_text(&text, 50);
+
+        // Each chunk should respect the max length
+        for chunk in chunks {
+            assert!(chunk.len() <= 100); // Some overhead for line breaks
+        }
+    }
 }

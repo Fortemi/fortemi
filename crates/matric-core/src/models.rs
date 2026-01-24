@@ -26,6 +26,8 @@ pub struct NoteMeta {
     pub last_accessed_at: Option<DateTime<Utc>>,
     pub title: Option<String>,
     pub metadata: JsonValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_metadata: Option<JsonValue>,
 }
 
 /// Original immutable content of a note.
@@ -1078,11 +1080,65 @@ mod tests {
             last_accessed_at: None,
             title: None,
             metadata: json!({}),
+            chunk_metadata: None,
         };
 
         let serialized = serde_json::to_string(&note).unwrap();
         let deserialized: NoteMeta = serde_json::from_str(&serialized).unwrap();
         assert_eq!(note.id, deserialized.id);
+    }
+
+    #[test]
+    fn test_note_meta_with_chunk_metadata() {
+        let chunk_meta = json!({
+            "total_chunks": 3,
+            "chunking_strategy": "semantic",
+            "chunk_sequence": ["uuid-1", "uuid-2", "uuid-3"]
+        });
+
+        let note = NoteMeta {
+            id: Uuid::new_v4(),
+            collection_id: None,
+            format: "markdown".to_string(),
+            source: "test".to_string(),
+            created_at_utc: Utc::now(),
+            updated_at_utc: Utc::now(),
+            starred: false,
+            archived: false,
+            last_accessed_at: None,
+            title: None,
+            metadata: json!({}),
+            chunk_metadata: Some(chunk_meta.clone()),
+        };
+
+        let serialized = serde_json::to_string(&note).unwrap();
+        let deserialized: NoteMeta = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.chunk_metadata, Some(chunk_meta));
+    }
+
+    #[test]
+    fn test_chunk_metadata_skips_when_none() {
+        let note = NoteMeta {
+            id: Uuid::new_v4(),
+            collection_id: None,
+            format: "markdown".to_string(),
+            source: "test".to_string(),
+            created_at_utc: Utc::now(),
+            updated_at_utc: Utc::now(),
+            starred: false,
+            archived: false,
+            last_accessed_at: None,
+            title: None,
+            metadata: json!({}),
+            chunk_metadata: None,
+        };
+
+        let json_value = serde_json::to_value(&note).unwrap();
+        // chunk_metadata should be skipped when None
+        assert!(!json_value
+            .as_object()
+            .unwrap()
+            .contains_key("chunk_metadata"));
     }
 
     #[test]

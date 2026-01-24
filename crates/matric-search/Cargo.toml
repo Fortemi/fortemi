@@ -1,7 +1,8 @@
 [package]
 name = "matric-search"
-version = "0.1.0"
-edition = "2021"
+description = "Hybrid search engine for matric-memory"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 matric-core = { path = "../matric-core" }

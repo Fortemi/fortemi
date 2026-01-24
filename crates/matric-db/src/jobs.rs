@@ -765,11 +765,13 @@ mod tests {
     // Test that all JobStatus strings are unique
     #[test]
     fn test_job_status_strings_are_unique() {
-        let statuses = [JobStatus::Pending,
+        let statuses = [
+            JobStatus::Pending,
             JobStatus::Running,
             JobStatus::Completed,
             JobStatus::Failed,
-            JobStatus::Cancelled];
+            JobStatus::Cancelled,
+        ];
 
         let strings: Vec<&str> = statuses
             .iter()

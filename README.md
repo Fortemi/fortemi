@@ -8,6 +8,8 @@ matric-memory is a Rust library providing:
 
 - **Vector-enhanced PostgreSQL storage** - Store notes with embeddings using pgvector
 - **Hybrid search** - Full-text search (FTS) + semantic vector search with RRF fusion
+- **Strict tag filtering** - Guaranteed data segregation by SKOS tags/schemes for multi-tenancy
+- **W3C SKOS tagging** - Hierarchical tags with semantic relations and faceted classification
 - **Background job processing** - Async NLP pipelines for embedding generation, AI revision, and linking
 - **HTTP API** - RESTful API with OpenAPI documentation
 
@@ -148,6 +150,18 @@ cargo fmt
 # Run linter
 cargo clippy
 ```
+
+## CI/CD
+
+The project uses Gitea Actions for continuous integration. The pipeline runs:
+
+- `cargo fmt --check` - Code formatting
+- `cargo clippy` - Linting
+- `cargo test --workspace` - Unit and doc tests
+- Integration tests with GPU + Ollama
+- Docker image builds and registry push
+
+See [docs/ci-cd.md](docs/ci-cd.md) for details.
 
 ## API Documentation
 

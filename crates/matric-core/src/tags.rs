@@ -147,7 +147,6 @@ pub enum SkosLabelType {
     HiddenLabel,
 }
 
-
 impl std::fmt::Display for SkosLabelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -201,7 +200,6 @@ pub enum SkosNoteType {
     #[default]
     Note,
 }
-
 
 impl std::fmt::Display for SkosNoteType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -309,7 +307,6 @@ pub enum TagStatus {
     /// Obsolete: No longer valid; kept only for historical reference.
     Obsolete,
 }
-
 
 impl std::fmt::Display for TagStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

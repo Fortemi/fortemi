@@ -451,6 +451,36 @@ paths:
                     items:
                       $ref: '#/components/schemas/Link'
 
+
+  /api/v1/notes/{id}/full:
+    get:
+      summary: Get full reconstructed document
+      description: |
+        Retrieves the full reconstructed document for a note. For chunked documents,
+        this stitches all chunks back together in order, removing overlaps. For regular
+        notes, it returns the content as-is.
+        
+        This endpoint is useful for:
+        - Downloading complete documents that were split during ingestion
+        - Viewing the full original content before it was chunked
+        - Exporting documents with metadata about chunking
+      operationId: getFullDocument
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: Full reconstructed document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullDocumentResponse'
+        '404':
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/search:
     get:
       summary: Search notes
@@ -661,6 +691,84 @@ components:
           items:
             $ref: '#/components/schemas/Link'
 
+
+    FullDocumentResponse:
+      type: object
+      description: Full reconstructed document with metadata about chunking
+      required:
+        - id
+        - title
+        - content
+        - is_chunked
+        - tags
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The note ID (or chain ID for chunked documents)
+        title:
+          type: string
+          description: Original document title (with chunk suffixes removed)
+        content:
+          type: string
+          description: Full reconstructed content (stitched from chunks if chunked)
+        chunks:
+          type: array
+          nullable: true
+          description: Chunk summaries (null for regular notes)
+          items:
+            $ref: '#/components/schemas/ChunkSummary'
+        total_chunks:
+          type: integer
+          nullable: true
+          description: Total number of chunks (null for regular notes)
+        is_chunked:
+          type: boolean
+          description: Whether this document was chunked
+        tags:
+          type: array
+          items:
+            type: string
+          description: All tags from all chunks (deduplicated)
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp (latest of all chunks)
+
+    ChunkSummary:
+      type: object
+      description: Summary information about a single chunk in a document chain
+      required:
+        - id
+        - sequence
+        - title
+        - byte_range
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The chunk's note ID
+        sequence:
+          type: integer
+          minimum: 1
+          description: Sequence number in the document chain
+        title:
+          type: string
+          description: Chunk title (includes "Part X/Y" suffix)
+        byte_range:
+          type: array
+          description: Start and end byte positions in the original document
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+          example: [0, 1000]
     NoteMeta:
       type: object
       properties:
@@ -840,6 +948,51 @@ components:
           type: number
         snippet:
           type: string
+
+
+    StrictTagFilterInput:
+      type: object
+      description: Strict tag filter for SKOS-based filtering with notation resolution
+      properties:
+        required_tags:
+          type: array
+          items:
+            type: string
+          description: Required tag notations (AND logic) - all must be present
+          example: ["programming/rust", "tutorial"]
+        any_tags:
+          type: array
+          items:
+            type: string
+          description: Any tag notations (OR logic) - at least one must be present
+          example: ["guide", "documentation"]
+        excluded_tags:
+          type: array
+          items:
+            type: string
+          description: Excluded tag notations (NOT logic) - none must be present
+          example: ["archive", "draft"]
+        required_schemes:
+          type: array
+          items:
+            type: string
+          description: Required scheme notations - notes must have tags from these schemes
+          example: ["topics"]
+        excluded_schemes:
+          type: array
+          items:
+            type: string
+          description: Excluded scheme notations - notes must not have tags from these schemes
+          example: ["deprecated"]
+        min_tag_count:
+          type: integer
+          minimum: 0
+          description: Minimum number of tags required
+          example: 2
+        include_untagged:
+          type: boolean
+          default: true
+          description: Whether to include notes with no tags
 
     Job:
       type: object

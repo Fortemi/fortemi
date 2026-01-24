@@ -25,18 +25,20 @@ mod tests {
     /// Test that chunked notes are properly linked
     #[test]
     fn test_chunked_notes_linking() {
-        // First chunk
+        // Create UUIDs for the chunks
         let chunk1_id = Uuid::new_v4();
+        let chunk2_id = Uuid::new_v4();
+        let chunk3_id = Uuid::new_v4();
+
+        // First chunk
         let chunk1_prev: Option<Uuid> = None;
-        let chunk1_next = Some(Uuid::new_v4());
+        let chunk1_next = Some(chunk2_id);
 
         // Middle chunk
-        let chunk2_id = chunk1_next.unwrap();
         let chunk2_prev = Some(chunk1_id);
-        let chunk2_next = Some(Uuid::new_v4());
+        let chunk2_next = Some(chunk3_id);
 
         // Last chunk
-        let chunk3_id = chunk2_next.unwrap();
         let chunk3_prev = Some(chunk2_id);
         let chunk3_next: Option<Uuid> = None;
 

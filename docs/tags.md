@@ -340,6 +340,127 @@ The SKOS system completely replaces the legacy flat tag system. No migration is 
 3. **Add scope notes**: Document concept boundaries for disambiguation
 4. **Monitor anti-patterns**: Address over-nesting and meta-tag warnings
 
+## Strict Tag Filtering
+
+While SKOS tags power fuzzy semantic search, they also support **strict filtering** for guaranteed data segregation. This is critical for:
+
+- **Client isolation**: Ensure searches never return data from other clients
+- **Project segregation**: Keep project-specific notes separated
+- **Access control foundation**: Building block for multi-tenancy
+
+### Filter Types
+
+| Filter | Logic | Use Case |
+|--------|-------|----------|
+| `required_tags` | AND | Notes MUST have ALL these tags |
+| `any_tags` | OR | Notes MUST have AT LEAST ONE |
+| `excluded_tags` | NOT | Notes MUST NOT have ANY of these |
+| `required_schemes` | Isolation | Notes ONLY from these vocabularies |
+| `excluded_schemes` | Exclusion | Notes NOT from these vocabularies |
+
+### How It Works
+
+Strict filters are applied as **pre-search WHERE clauses** at the database level:
+
+```
+┌─────────────────────────────────────────────────┐
+│  All Notes                                       │
+│  ┌───────────────────────────────────────────┐  │
+│  │  Strict Filter (guaranteed isolation)      │  │
+│  │  ┌─────────────────────────────────────┐  │  │
+│  │  │  Fuzzy Search (FTS + Semantic)      │  │  │
+│  │  │  - Only within filtered set         │  │  │
+│  │  └─────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+```
+
+### API Usage
+
+```bash
+# Search within a specific client's notes
+curl "http://localhost:3000/api/v1/search?query=authentication" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strict_filter": {
+      "required_schemes": ["client-acme"]
+    }
+  }'
+
+# Find high-priority project notes, excluding archived
+curl "http://localhost:3000/api/v1/search?query=api" \
+  -d '{
+    "strict_filter": {
+      "required_tags": ["project:matric"],
+      "any_tags": ["priority:high", "priority:critical"],
+      "excluded_tags": ["status:archived"]
+    }
+  }'
+```
+
+### MCP Tool Usage
+
+```javascript
+// Using search_notes with strict filter
+search_notes({
+  query: "authentication",
+  strict_filter: {
+    required_schemes: ["client-acme"]
+  }
+})
+
+// Dedicated strict search tool
+search_notes_strict({
+  query: "API design",
+  required_tags: ["project:matric"],
+  any_tags: ["status:active", "status:review"],
+  excluded_tags: ["draft"],
+  mode: "hybrid"
+})
+```
+
+### Important: Opt-In Model
+
+Strict filtering is **entirely optional**. The system provides the capability but doesn't enforce it:
+
+- Without filters: Full corpus search (existing behavior)
+- With filters: Guaranteed isolation
+
+This is by design - not all use cases need tenancy. Applications requiring strict isolation should:
+
+1. Apply filters consistently at the API/middleware layer
+2. Use scheme-based isolation for strong boundaries
+3. Consider auditing unfiltered queries for compliance
+
+### Scheme-Based Isolation
+
+For strongest isolation, use **scheme-based filtering**:
+
+```javascript
+// Create a scheme per client/tenant
+create_concept_scheme({
+  notation: "client-acme",
+  title: "ACME Corporation"
+})
+
+// All ACME tags go in this scheme
+create_concept({
+  scheme_id: "client-acme",
+  pref_label: "Project Alpha"
+})
+
+// Search guarantees ONLY ACME data
+search_notes_strict({
+  required_schemes: ["client-acme"],
+  query: "quarterly report"
+})
+```
+
+### See Also
+
+- [ADR-001: Strict Tag Filtering](./adr/ADR-001-strict-tag-filtering.md) - Architecture decision
+- [Strict Tag Filtering Design](./strict-tag-filtering-design.md) - Implementation details
+
 ## Related Documentation
 
 - [API Reference](./api.md)

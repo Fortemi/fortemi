@@ -25,6 +25,9 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
 governor = "0.6"
 
+# Database
+sqlx.workspace = true
+
 # Vector support
 pgvector.workspace = true
 
@@ -40,6 +43,7 @@ chrono.workspace = true
 base64.workspace = true
 urlencoding = "2.1"
 regex = "1"
+lru = "0.12"
 
 # Archive support
 tar = "0.4"

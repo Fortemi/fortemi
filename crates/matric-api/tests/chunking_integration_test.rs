@@ -5,6 +5,7 @@ use serde_json::json;
 /// Test response format for create note with chunking metadata
 #[derive(Debug, serde::Deserialize)]
 struct CreateNoteResponse {
+    #[allow(dead_code)]
     id: uuid::Uuid,
     #[serde(default)]
     is_chunked: bool,

@@ -42,6 +42,7 @@ pub mod oauth;
 pub mod pool;
 pub mod search;
 pub mod skos_tags;
+pub mod strict_filter;
 pub mod tags;
 pub mod templates;
 pub mod versioning;
@@ -67,6 +68,7 @@ pub use notes::PgNoteRepository;
 pub use oauth::PgOAuthRepository;
 pub use pool::{create_pool, create_pool_with_config, PoolConfig};
 pub use search::PgFtsSearch;
+pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
 pub use versioning::{

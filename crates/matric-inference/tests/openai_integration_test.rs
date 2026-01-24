@@ -329,6 +329,8 @@ async fn test_custom_config() {
             .unwrap_or(768),
         timeout_seconds: 120,
         skip_tls_verify: false,
+        http_referer: None,
+        x_title: None,
     };
 
     let backend = OpenAIBackend::new(config).expect("Should create backend with custom config");

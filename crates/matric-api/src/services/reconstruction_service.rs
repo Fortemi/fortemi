@@ -130,10 +130,7 @@ impl ReconstructionService {
             .unwrap_or_else(|| "Untitled Document".to_string());
 
         // Deduplicate tags across all chunks
-        let mut all_tags: Vec<String> = sorted_notes
-            .iter()
-            .flat_map(|n| n.tags.clone())
-            .collect();
+        let mut all_tags: Vec<String> = sorted_notes.iter().flat_map(|n| n.tags.clone()).collect();
         all_tags.sort();
         all_tags.dedup();
 
@@ -353,10 +350,7 @@ mod tests {
 
     #[test]
     fn test_extract_original_title_no_suffix() {
-        assert_eq!(
-            extract_original_title("Regular Title"),
-            "Regular Title"
-        );
+        assert_eq!(extract_original_title("Regular Title"), "Regular Title");
     }
 
     #[test]
@@ -370,11 +364,11 @@ mod tests {
 
     #[test]
     fn test_detect_overlap_with_exact_match() {
-        let accumulated = "This is the first chunk with some overlap text";
-        let next_chunk = "overlap text and this is new content";
+        let accumulated = "This is the first chunk with some overlap text that continues for more than fifty characters to meet the minimum overlap threshold";
+        let next_chunk = "overlap text that continues for more than fifty characters to meet the minimum overlap threshold and this is new content";
 
         let overlap = detect_overlap(accumulated, next_chunk);
-        assert_eq!(overlap, "overlap text".len());
+        assert_eq!(overlap, "overlap text that continues for more than fifty characters to meet the minimum overlap threshold".len());
     }
 
     #[test]

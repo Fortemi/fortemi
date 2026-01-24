@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use pgvector::Vector;
 use uuid::Uuid;
 
-use matric_core::{EmbeddingRepository, Result, SearchHit};
+use matric_core::{EmbeddingRepository, Result, SearchHit, StrictTagFilter};
 use matric_db::Database;
 
+use crate::deduplication::{deduplicate_search_results, DeduplicationConfig, EnhancedSearchHit};
 use crate::rrf::rrf_fuse;
 
 /// Configuration for hybrid search.
@@ -22,6 +23,10 @@ pub struct HybridSearchConfig {
     pub min_score: f32,
     /// Optional embedding set to search within (None = default/all embeddings)
     pub embedding_set_id: Option<Uuid>,
+    /// Deduplication configuration for handling chunked documents
+    pub deduplication: DeduplicationConfig,
+    /// Strict tag filter for precise taxonomy-based filtering
+    pub strict_filter: Option<StrictTagFilter>,
 }
 
 impl Default for HybridSearchConfig {
@@ -32,6 +37,8 @@ impl Default for HybridSearchConfig {
             exclude_archived: true,
             min_score: 0.0,
             embedding_set_id: None,
+            deduplication: DeduplicationConfig::default(),
+            strict_filter: None,
         }
     }
 }
@@ -81,21 +88,47 @@ impl HybridSearchConfig {
         self.embedding_set_id = Some(set_id);
         self
     }
+
+    /// Set deduplication configuration.
+    pub fn with_deduplication(mut self, config: DeduplicationConfig) -> Self {
+        self.deduplication = config;
+        self
+    }
+
+    /// Enable deduplication (on by default).
+    pub fn with_deduplication_enabled(mut self, enabled: bool) -> Self {
+        self.deduplication.deduplicate_chains = enabled;
+        self
+    }
+
+    /// Enable chain expansion.
+    pub fn with_chain_expansion(mut self, expand: bool) -> Self {
+        self.deduplication.expand_chains = expand;
+        self
+    }
+
+    /// Set strict tag filter for taxonomy-based filtering.
+    pub fn with_strict_filter(mut self, filter: StrictTagFilter) -> Self {
+        self.strict_filter = Some(filter);
+        self
+    }
 }
 
 /// Trait for hybrid search operations.
 #[async_trait]
 pub trait HybridSearch: Send + Sync {
     /// Perform hybrid search with text query and optional embedding.
+    /// Returns enhanced search results with deduplication and chain info.
     async fn search(
         &self,
         query: &str,
         query_embedding: Option<&Vector>,
         limit: i64,
         config: &HybridSearchConfig,
-    ) -> Result<Vec<SearchHit>>;
+    ) -> Result<Vec<EnhancedSearchHit>>;
 
     /// Perform filtered hybrid search.
+    /// Returns enhanced search results with deduplication and chain info.
     async fn search_filtered(
         &self,
         query: &str,
@@ -103,7 +136,7 @@ pub trait HybridSearch: Send + Sync {
         filters: &str,
         limit: i64,
         config: &HybridSearchConfig,
-    ) -> Result<Vec<SearchHit>>;
+    ) -> Result<Vec<EnhancedSearchHit>>;
 
     /// Find similar notes by embedding only.
     async fn find_similar(
@@ -156,16 +189,27 @@ impl HybridSearch for HybridSearchEngine {
         query_embedding: Option<&Vector>,
         limit: i64,
         config: &HybridSearchConfig,
-    ) -> Result<Vec<SearchHit>> {
+    ) -> Result<Vec<EnhancedSearchHit>> {
         let mut ranked_lists = Vec::new();
 
         // FTS search (if weight > 0 and query is not empty)
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
-            let fts_results = self
-                .db
-                .search
-                .search(query, limit * 2, config.exclude_archived)
-                .await?;
+            let fts_results = if let Some(ref strict_filter) = config.strict_filter {
+                self.db
+                    .search
+                    .search_with_strict_filter(
+                        query,
+                        Some(strict_filter),
+                        limit * 2,
+                        config.exclude_archived,
+                    )
+                    .await?
+            } else {
+                self.db
+                    .search
+                    .search(query, limit * 2, config.exclude_archived)
+                    .await?
+            };
 
             if !fts_results.is_empty() {
                 ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
@@ -210,7 +254,10 @@ impl HybridSearch for HybridSearchEngine {
             results.retain(|hit| hit.score >= config.min_score);
         }
 
-        Ok(results)
+        // Apply deduplication
+        let deduplicated = deduplicate_search_results(results, &config.deduplication);
+
+        Ok(deduplicated)
     }
 
     async fn search_filtered(
@@ -220,7 +267,7 @@ impl HybridSearch for HybridSearchEngine {
         filters: &str,
         limit: i64,
         config: &HybridSearchConfig,
-    ) -> Result<Vec<SearchHit>> {
+    ) -> Result<Vec<EnhancedSearchHit>> {
         let mut ranked_lists = Vec::new();
 
         // FTS search with filters
@@ -271,7 +318,10 @@ impl HybridSearch for HybridSearchEngine {
             results.retain(|hit| hit.score >= config.min_score);
         }
 
-        Ok(results)
+        // Apply deduplication
+        let deduplicated = deduplicate_search_results(results, &config.deduplication);
+
+        Ok(deduplicated)
     }
 
     async fn find_similar(
@@ -311,7 +361,7 @@ pub struct SearchRequest {
     embedding: Option<Vector>,
     filters: Option<String>,
     limit: i64,
-    config: HybridSearchConfig,
+    pub config: HybridSearchConfig,
     /// Filter: notes created after this timestamp
     created_after: Option<chrono::DateTime<chrono::Utc>>,
     /// Filter: notes created before this timestamp
@@ -386,8 +436,20 @@ impl SearchRequest {
         self
     }
 
+    /// Enable or disable deduplication.
+    pub fn with_deduplication(mut self, enabled: bool) -> Self {
+        self.config.deduplication.deduplicate_chains = enabled;
+        self
+    }
+
+    /// Set strict tag filter for taxonomy-based filtering.
+    pub fn with_strict_filter(mut self, filter: StrictTagFilter) -> Self {
+        self.config.strict_filter = Some(filter);
+        self
+    }
+
     /// Execute the search request.
-    pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<SearchHit>> {
+    pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<EnhancedSearchHit>> {
         // Build filters string with temporal filters
         let mut filter_parts: Vec<String> = Vec::new();
         if let Some(f) = &self.filters {
@@ -436,6 +498,9 @@ mod tests {
         assert!(config.exclude_archived);
         assert_eq!(config.min_score, 0.0);
         assert!(config.embedding_set_id.is_none());
+        assert!(config.deduplication.deduplicate_chains);
+        assert!(!config.deduplication.expand_chains);
+        assert!(config.strict_filter.is_none());
     }
 
     #[test]
@@ -509,7 +574,119 @@ mod tests {
         assert_eq!(request.config.fts_weight, 0.0);
     }
 
-    // ========== NEW COMPREHENSIVE TESTS ==========
+    #[test]
+    fn test_config_with_strict_filter() {
+        let filter = StrictTagFilter::new()
+            .require_concept(Uuid::new_v4())
+            .any_concept(Uuid::new_v4());
+
+        let config = HybridSearchConfig::default().with_strict_filter(filter.clone());
+        assert!(config.strict_filter.is_some());
+        let stored_filter = config.strict_filter.unwrap();
+        assert_eq!(stored_filter.required_concepts.len(), 1);
+        assert_eq!(stored_filter.any_concepts.len(), 1);
+    }
+
+    #[test]
+    fn test_search_request_with_strict_filter() {
+        let filter = StrictTagFilter::new()
+            .exclude_concept(Uuid::new_v4())
+            .with_min_tag_count(3);
+
+        let request = SearchRequest::new("test").with_strict_filter(filter.clone());
+        assert!(request.config.strict_filter.is_some());
+        let stored_filter = request.config.strict_filter.unwrap();
+        assert_eq!(stored_filter.excluded_concepts.len(), 1);
+        assert_eq!(stored_filter.min_tag_count, Some(3));
+    }
+
+    // ========== DEDUPLICATION TESTS ==========
+
+    #[test]
+    fn test_config_with_deduplication() {
+        let dedup_config = DeduplicationConfig {
+            deduplicate_chains: false,
+            expand_chains: true,
+        };
+        let config = HybridSearchConfig::default().with_deduplication(dedup_config.clone());
+        assert_eq!(
+            config.deduplication.deduplicate_chains,
+            dedup_config.deduplicate_chains
+        );
+        assert_eq!(
+            config.deduplication.expand_chains,
+            dedup_config.expand_chains
+        );
+    }
+
+    #[test]
+    fn test_config_with_deduplication_enabled() {
+        let config = HybridSearchConfig::default().with_deduplication_enabled(false);
+        assert!(!config.deduplication.deduplicate_chains);
+
+        let config2 = HybridSearchConfig::default().with_deduplication_enabled(true);
+        assert!(config2.deduplication.deduplicate_chains);
+    }
+
+    #[test]
+    fn test_config_with_chain_expansion() {
+        let config = HybridSearchConfig::default().with_chain_expansion(true);
+        assert!(config.deduplication.expand_chains);
+
+        let config2 = HybridSearchConfig::default().with_chain_expansion(false);
+        assert!(!config2.deduplication.expand_chains);
+    }
+
+    #[test]
+    fn test_search_request_with_deduplication() {
+        let request = SearchRequest::new("test").with_deduplication(false);
+        assert!(!request.config.deduplication.deduplicate_chains);
+
+        let request2 = SearchRequest::new("test").with_deduplication(true);
+        assert!(request2.config.deduplication.deduplicate_chains);
+    }
+
+    #[test]
+    fn test_config_chaining_with_deduplication() {
+        let set_id = Uuid::new_v4();
+        let config = HybridSearchConfig::default()
+            .with_min_score(0.3)
+            .with_exclude_archived(false)
+            .with_embedding_set(set_id)
+            .with_deduplication_enabled(false)
+            .with_chain_expansion(true);
+
+        assert_eq!(config.min_score, 0.3);
+        assert!(!config.exclude_archived);
+        assert_eq!(config.embedding_set_id, Some(set_id));
+        assert!(!config.deduplication.deduplicate_chains);
+        assert!(config.deduplication.expand_chains);
+    }
+
+    #[test]
+    fn test_config_chaining_with_strict_filter() {
+        let set_id = Uuid::new_v4();
+        let filter = StrictTagFilter::new()
+            .require_concept(Uuid::new_v4())
+            .exclude_concept(Uuid::new_v4());
+
+        let config = HybridSearchConfig::default()
+            .with_min_score(0.3)
+            .with_exclude_archived(false)
+            .with_embedding_set(set_id)
+            .with_deduplication_enabled(false)
+            .with_chain_expansion(true)
+            .with_strict_filter(filter.clone());
+
+        assert_eq!(config.min_score, 0.3);
+        assert!(!config.exclude_archived);
+        assert_eq!(config.embedding_set_id, Some(set_id));
+        assert!(!config.deduplication.deduplicate_chains);
+        assert!(config.deduplication.expand_chains);
+        assert!(config.strict_filter.is_some());
+    }
+
+    // ========== EXISTING COMPREHENSIVE TESTS ==========
 
     #[test]
     fn test_config_with_weights_custom_values() {

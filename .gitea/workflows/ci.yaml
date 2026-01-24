@@ -3,12 +3,15 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  REGISTRY: git.integrolabs.net
+  IMAGE_NAME: roctinam/matric-memory
 
 jobs:
   lint:
@@ -87,16 +90,13 @@ jobs:
         run: |
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
-  publish:
-    name: Publish
+  # Dev image - pushes on every main branch commit
+  publish-dev:
+    name: Publish Dev Image
     runs-on: gpu
     needs: build
-    env:
-      REGISTRY: git.integrolabs.net
-      IMAGE_NAME: roctinam/matric-memory
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      - run: echo "Starting publish job"
-
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
@@ -105,15 +105,105 @@ jobs:
       - name: Log in to registry
         run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
-      - name: Build and push
+      - name: Build and push dev image
         run: |
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          docker build -t ${IMAGE}:${SHORT_SHA} .
+          docker build \
+            --build-arg VERSION=dev-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:dev .
 
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:${GITHUB_REF_NAME}
-          docker push ${IMAGE}:${GITHUB_REF_NAME}
+          docker tag ${IMAGE}:dev ${IMAGE}:sha-${SHORT_SHA}
+          docker tag ${IMAGE}:dev ${IMAGE}:main
 
-          docker tag ${IMAGE}:${SHORT_SHA} ${IMAGE}:sha-${SHORT_SHA}
+          docker push ${IMAGE}:dev
           docker push ${IMAGE}:sha-${SHORT_SHA}
+          docker push ${IMAGE}:main
+
+  # Release image - pushes on version tags only
+  publish-release:
+    name: Publish Release Image
+    runs-on: gpu
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registry
+        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build and push release image
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "Building release image for version: ${VERSION}"
+
+          docker build \
+            --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:${VERSION} .
+
+          # Tag as latest for releases
+          docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
+
+          # Push all tags
+          docker push ${IMAGE}:${VERSION}
+          docker push ${IMAGE}:latest
+
+          echo "Published release images:"
+          echo "  - ${IMAGE}:${VERSION}"
+          echo "  - ${IMAGE}:latest"
+
+  # Create Gitea release on tag push
+  create-release:
+    name: Create Gitea Release
+    runs-on: titan
+    needs: publish-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Extract changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog for version ${VERSION}"
+
+          # Extract section from CHANGELOG.md
+          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md || true
+
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog found, using default message"
+            echo "Release ${GITHUB_REF_NAME}" > release_notes.md
+          fi
+
+          cat release_notes.md
+
+      - name: Create release
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          # Create release via Gitea API
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/releases" \
+            -d "{
+              \"tag_name\": \"${VERSION}\",
+              \"name\": \"${VERSION}\",
+              \"body\": $(cat release_notes.md | jq -Rs .),
+              \"draft\": false,
+              \"prerelease\": false
+            }" || echo "Release may already exist"

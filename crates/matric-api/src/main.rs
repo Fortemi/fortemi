@@ -32,7 +32,8 @@ use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, ClientRegistrationRequest, CreateApiKeyRequest,
     CreateNoteRequest, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
-    OAuthError, RevisionMode, SearchHit, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    OAuthError, RevisionMode, StrictTagFilterInput, TagRepository, TokenRequest,
+    UpdateNoteStatusRequest,
 };
 use matric_db::Database;
 
@@ -89,9 +90,10 @@ async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: Revisio
             .await;
     }
 }
+use matric_api::services::TagResolver;
 use matric_inference::OllamaBackend;
 use matric_jobs::{JobWorker, WorkerConfig};
-use matric_search::{HybridSearchConfig, HybridSearchEngine, SearchRequest};
+use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
@@ -114,6 +116,8 @@ struct AppState {
     issuer: String,
     /// Global rate limiter (None if rate limiting is disabled).
     rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    /// Tag resolver for strict filter resolution.
+    tag_resolver: TagResolver,
 }
 
 /// OpenAPI documentation
@@ -275,11 +279,13 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Create app state
+    let tag_resolver = TagResolver::new(db.clone());
     let state = AppState {
         db,
         search,
         issuer,
         rate_limiter,
+        tag_resolver,
     };
 
     // Build router
@@ -306,6 +312,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/links", get(get_note_links))
         .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/:id/export", get(export_note))
+        .route("/api/v1/notes/:id/full", get(get_full_document))
         // Note versioning (#104)
         .route("/api/v1/notes/:id/versions", get(list_note_versions))
         .route(
@@ -2560,6 +2567,31 @@ async fn export_note(
 }
 
 // =============================================================================
+// DOCUMENT RECONSTRUCTION HANDLER (#111)
+// =============================================================================
+
+/// Get the full reconstructed document for a note (works with both chunked and regular notes).
+///
+/// For chunked documents, this endpoint:
+/// - Identifies all chunks in the document chain
+/// - Stitches them back together in order
+/// - Removes overlaps between chunks
+/// - Returns the full content with metadata about chunks
+///
+/// For regular notes, it simply returns the note content as-is.
+async fn get_full_document(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_api::services::ReconstructionService;
+
+    let reconstruction_service = ReconstructionService::new(state.db.clone());
+    let full_document = reconstruction_service.get_full_document(id).await?;
+
+    Ok(Json(full_document))
+}
+
+// =============================================================================
 // NOTE VERSIONING HANDLERS (#104)
 // =============================================================================
 
@@ -2750,11 +2782,14 @@ struct SearchQuery {
     updated_before: Option<chrono::DateTime<chrono::Utc>>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
     since: Option<String>,
+    /// Strict tag filter for SKOS-based filtering.
+    #[serde(default)]
+    strict_filter: Option<StrictTagFilterInput>,
 }
 
 #[derive(Debug, Serialize)]
 struct SearchResponse {
-    results: Vec<SearchHit>,
+    results: Vec<EnhancedSearchHit>,
     query: String,
     total: usize,
 }
@@ -2765,12 +2800,17 @@ async fn search_notes(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(20);
 
-    let config = match query.mode.as_deref() {
+    let mut config = match query.mode.as_deref() {
         Some("fts") => HybridSearchConfig::fts_only(),
         Some("semantic") => HybridSearchConfig::semantic_only(),
         _ => HybridSearchConfig::default(),
     };
 
+    // Resolve strict filter if provided
+    if let Some(filter_input) = query.strict_filter {
+        let strict_filter = state.tag_resolver.resolve_filter(filter_input).await?;
+        config.strict_filter = Some(strict_filter);
+    }
     // Generate query embedding for semantic/hybrid search
     let query_embedding = if config.semantic_weight > 0.0 && !query.q.trim().is_empty() {
         let backend = OllamaBackend::from_env();

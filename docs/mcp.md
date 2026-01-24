@@ -9,7 +9,7 @@ The MCP server enables AI assistants (Claude, etc.) to interact with your knowle
 | Category | Tools | Description |
 |----------|-------|-------------|
 | Notes | 12 | Create, read, update, delete notes |
-| Search | 2 | Hybrid semantic + full-text search |
+| Search | 3 | Hybrid semantic + full-text + strict filtering |
 | Collections | 6 | Hierarchical folder organization |
 | Templates | 5 | Reusable note structures |
 | Embedding Sets | 6 | Focused search contexts |
@@ -126,6 +126,49 @@ Hybrid search combining full-text and semantic similarity.
 | `semantic` | Finding conceptually related content |
 
 **Embedding Sets:** Use `set` parameter to restrict search to specific contexts (e.g., "work-projects", "research-papers").
+
+**Strict Filtering:** Use `strict_filter` parameter for guaranteed tag-based isolation:
+
+```json
+{
+  "query": "authentication",
+  "strict_filter": {
+    "required_tags": ["project:matric"],
+    "excluded_tags": ["draft", "archived"]
+  }
+}
+```
+
+#### `search_notes_strict`
+
+Dedicated tool for strict tag-filtered search. Guarantees results match filter criteria exactly.
+
+**Filter Types:**
+
+| Parameter | Logic | Description |
+|-----------|-------|-------------|
+| `required_tags` | AND | Notes MUST have ALL these tags |
+| `any_tags` | OR | Notes MUST have AT LEAST ONE |
+| `excluded_tags` | NOT | Notes MUST NOT have ANY of these |
+| `required_schemes` | Isolation | Notes ONLY from these vocabularies |
+| `excluded_schemes` | Exclusion | Notes NOT from these vocabularies |
+
+**Use Cases:**
+
+- **Client isolation**: `required_schemes: ["client-acme"]`
+- **Project + priority**: `required_tags: ["project:x"], any_tags: ["high", "critical"]`
+- **Exclude drafts**: `excluded_tags: ["draft", "wip"]`
+
+```javascript
+search_notes_strict({
+  query: "API design",
+  required_tags: ["project:matric"],
+  any_tags: ["status:active", "status:review"],
+  excluded_schemes: ["internal"],
+  mode: "hybrid",
+  limit: 20
+})
+```
 
 #### `get_note_links`
 
@@ -312,7 +355,8 @@ Common error responses:
 
 | Tool | Description |
 |------|-------------|
-| `search_notes` | Hybrid/FTS/semantic search |
+| `search_notes` | Hybrid/FTS/semantic search with optional strict filtering |
+| `search_notes_strict` | Strict tag-filtered search with guaranteed isolation |
 | `list_tags` | List all tags with counts |
 
 ### Collections

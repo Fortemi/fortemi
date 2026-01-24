@@ -84,6 +84,43 @@ curl "http://localhost:3000/api/v1/search?q=markdown&mode=fts"
 curl "http://localhost:3000/api/v1/search?q=markdown&mode=semantic"
 ```
 
+### Strict Tag Filtering
+
+Use strict filters for guaranteed data isolation (e.g., multi-tenancy, client segregation):
+
+```bash
+# Search within a specific client's notes only
+curl -X POST "http://localhost:3000/api/v1/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "quarterly report",
+    "strict_filter": {
+      "required_schemes": ["client-acme"]
+    }
+  }'
+
+# Search with multiple filter conditions
+curl -X POST "http://localhost:3000/api/v1/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "api design",
+    "strict_filter": {
+      "required_tags": ["project:matric"],
+      "any_tags": ["priority:high", "priority:critical"],
+      "excluded_tags": ["status:archived", "draft"]
+    }
+  }'
+```
+
+**Filter Types:**
+- `required_tags`: Notes MUST have ALL these (AND logic)
+- `any_tags`: Notes MUST have AT LEAST ONE (OR logic)
+- `excluded_tags`: Notes MUST NOT have ANY (exclusion)
+- `required_schemes`: Notes ONLY from these SKOS vocabulary schemes
+- `excluded_schemes`: Notes NOT from these schemes
+
+See [Strict Tag Filtering](./tags.md#strict-tag-filtering) for details.
+
 ### Managing Tags
 
 ```bash
@@ -189,7 +226,8 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 | create_note | Create new note |
 | update_note | Update existing note |
 | delete_note | Soft delete note |
-| search_notes | Hybrid search |
+| search_notes | Hybrid search with optional strict filtering |
+| search_notes_strict | Strict tag-filtered search (guaranteed isolation) |
 | list_tags | List all tags |
 | set_note_tags | Update note tags |
 | get_note_links | Get note relationships |
@@ -204,16 +242,15 @@ Add to `~/.config/claude/claude_desktop_config.json`:
 | backup_now | Trigger database backup |
 | backup_status | Check backup health |
 
-**Encryption:**
+**Encryption (PKE):**
 | Tool | Description |
 |------|-------------|
-| encrypt_file | Encrypt data with passphrase/keyfile |
-| decrypt_file | Decrypt standard encrypted file |
-| encrypt_e2e | Encrypt for multiple recipients |
-| decrypt_e2e | Decrypt E2E encrypted file |
-| detect_format | Detect encryption format |
-| get_recipients | List E2E recipients |
-| generate_keyfile | Generate encryption keyfile |
+| pke_generate_keypair | Generate X25519 keypair |
+| pke_encrypt | Encrypt for multiple recipients |
+| pke_decrypt | Decrypt with private key |
+| pke_list_recipients | List recipient addresses |
+| pke_get_address | Get address from public key |
+| pke_verify_address | Verify address checksum |
 
 See [Encryption Guide](./encryption.md) for encryption details.
 

@@ -48,6 +48,33 @@ async function apiRequest(method, path, body = null) {
 }
 
 /**
+ * Build strict filter JSON from filter parameters.
+ * Converts MCP tool arguments into API filter format.
+ */
+function buildStrictFilter(strictFilter) {
+  if (!strictFilter) return null;
+
+  const filter = {};
+  if (strictFilter.required_tags && strictFilter.required_tags.length > 0) {
+    filter.required_tags = strictFilter.required_tags;
+  }
+  if (strictFilter.any_tags && strictFilter.any_tags.length > 0) {
+    filter.any_tags = strictFilter.any_tags;
+  }
+  if (strictFilter.excluded_tags && strictFilter.excluded_tags.length > 0) {
+    filter.excluded_tags = strictFilter.excluded_tags;
+  }
+  if (strictFilter.required_schemes && strictFilter.required_schemes.length > 0) {
+    filter.required_schemes = strictFilter.required_schemes;
+  }
+  if (strictFilter.excluded_schemes && strictFilter.excluded_schemes.length > 0) {
+    filter.excluded_schemes = strictFilter.excluded_schemes;
+  }
+
+  return Object.keys(filter).length > 0 ? JSON.stringify(filter) : null;
+}
+
+/**
  * Create a new MCP server instance.
  * Each connection gets its own server (required for proper session isolation).
  */
@@ -130,6 +157,36 @@ function createMcpServer() {
           if (args.limit) params.set("limit", args.limit);
           if (args.mode) params.set("mode", args.mode);
           if (args.set) params.set("set", args.set);
+
+          // Handle strict_filter
+          const filterJson = buildStrictFilter(args.strict_filter);
+          if (filterJson) {
+            params.set("filters", filterJson);
+          }
+
+          result = await apiRequest("GET", `/api/v1/search?${params}`);
+          break;
+        }
+        case "search_notes_strict": {
+          const params = new URLSearchParams();
+          if (args.query) params.set("q", args.query);
+          if (args.limit) params.set("limit", args.limit);
+          if (args.mode) params.set("mode", args.mode);
+
+          // Build strict filter from direct arguments
+          const strictFilter = {
+            required_tags: args.required_tags,
+            any_tags: args.any_tags,
+            excluded_tags: args.excluded_tags,
+            required_schemes: args.required_schemes,
+            excluded_schemes: args.excluded_schemes
+          };
+
+          const filterJson = buildStrictFilter(strictFilter);
+          if (filterJson) {
+            params.set("filters", filterJson);
+          }
+
           result = await apiRequest("GET", `/api/v1/search?${params}`);
           break;
         }
@@ -755,6 +812,34 @@ function createMcpServer() {
           break;
         }
 
+
+        // ============================================================================
+        // CHUNK-AWARE DOCUMENT HANDLING (Ticket #113)
+        // ============================================================================
+        case "get_full_document":
+          result = await apiRequest("GET", `/api/v1/notes/${args.id}/full`);
+          break;
+
+        case "search_with_dedup": {
+          const dedupParams = new URLSearchParams({ q: args.query });
+          if (args.limit) dedupParams.set("limit", args.limit);
+          if (args.mode) dedupParams.set("mode", args.mode);
+          if (args.set) dedupParams.set("set", args.set);
+          // Deduplication is enabled by default in the API
+          result = await apiRequest("GET", `/api/v1/search?${dedupParams}`);
+          break;
+        }
+
+        case "get_chunk_chain": {
+          const chainParams = new URLSearchParams();
+          if (args.include_content !== undefined) {
+            chainParams.set("include_content", args.include_content.toString());
+          }
+          // Note: The API endpoint needs to be implemented as /api/v1/notes/:chain_id/chain
+          // For now, we'll use the /full endpoint which provides chunk metadata
+          result = await apiRequest("GET", `/api/v1/notes/${args.chain_id}/full?${chainParams}`);
+          break;
+        }
         case "get_documentation": {
           const topic = args.topic || "overview";
           const content = DOCUMENTATION[topic];
@@ -762,6 +847,65 @@ function createMcpServer() {
             throw new Error(`Unknown documentation topic: ${topic}. Available: ${Object.keys(DOCUMENTATION).join(", ")}`);
           }
           result = { topic, content };
+          break;
+        }
+
+        // ============================================================================
+        // PUBLIC KEY ENCRYPTION (PKE) - Local wallet-style encryption
+        // These operations run locally via the matric-pke CLI
+        // ============================================================================
+        case "pke_generate_keypair": {
+          const { execSync } = await import("node:child_process");
+          const cliArgs = ["keygen", "-p", args.passphrase];
+          if (args.output_dir) cliArgs.push("-o", args.output_dir);
+          if (args.label) cliArgs.push("-l", args.label);
+          const output = execSync(`matric-pke ${cliArgs.join(" ")}`, { encoding: "utf8" });
+          result = JSON.parse(output);
+          break;
+        }
+
+        case "pke_get_address": {
+          const { execSync } = await import("node:child_process");
+          const output = execSync(`matric-pke address -p "${args.public_key_path}"`, { encoding: "utf8" });
+          result = JSON.parse(output);
+          break;
+        }
+
+        case "pke_encrypt": {
+          const { execSync } = await import("node:child_process");
+          const recipientArgs = args.recipients.map(r => `-r "${r}"`).join(" ");
+          const output = execSync(`matric-pke encrypt -i "${args.input_path}" -o "${args.output_path}" ${recipientArgs}`, { encoding: "utf8" });
+          result = JSON.parse(output);
+          break;
+        }
+
+        case "pke_decrypt": {
+          const { execSync } = await import("node:child_process");
+          const output = execSync(`matric-pke decrypt -i "${args.input_path}" -o "${args.output_path}" -k "${args.private_key_path}" -p "${args.passphrase}"`, { encoding: "utf8" });
+          result = JSON.parse(output);
+          break;
+        }
+
+        case "pke_list_recipients": {
+          const { execSync } = await import("node:child_process");
+          const output = execSync(`matric-pke recipients -i "${args.input_path}"`, { encoding: "utf8" });
+          result = JSON.parse(output);
+          break;
+        }
+
+        case "pke_verify_address": {
+          const { execSync } = await import("node:child_process");
+          try {
+            const output = execSync(`matric-pke verify "${args.address}"`, { encoding: "utf8" });
+            result = JSON.parse(output);
+          } catch (e) {
+            // Parse the JSON output even on error (verification failure)
+            if (e.stdout) {
+              result = JSON.parse(e.stdout);
+            } else {
+              throw e;
+            }
+          }
           break;
         }
 
@@ -864,9 +1008,72 @@ Use semantic mode when looking for conceptually related content even if exact ke
         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
         set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
+        strict_filter: {
+          type: "object",
+          description: "Strict tag filtering (pre-search, guaranteed isolation)",
+          properties: {
+            required_tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Notes MUST have ALL these tags (AND logic)"
+            },
+            any_tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Notes MUST have AT LEAST ONE (OR logic)"
+            },
+            excluded_tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Notes MUST NOT have ANY of these"
+            },
+            required_schemes: {
+              type: "array",
+              items: { type: "string" },
+              description: "Notes ONLY from these schemes (tenancy isolation)"
+            },
+            excluded_schemes: {
+              type: "array",
+              items: { type: "string" },
+              description: "Notes NOT from these schemes"
+            }
+          }
+        }
       },
       required: ["query"],
     },
+  },
+  {
+    name: "search_notes_strict",
+    description: `Search notes with GUARANTEED tag filtering.
+
+Unlike fuzzy search, strict filters ensure 100% result isolation.
+Critical for: client isolation, project segregation, compliance.
+
+Filter logic:
+- required_tags: ALL must match (AND)
+- any_tags: AT LEAST ONE must match (OR)
+- excluded_tags: NONE may match (NOT)
+- required_schemes: ONLY from these vocabularies
+- excluded_schemes: NOT from these vocabularies
+
+Examples:
+- Client isolation: { required_schemes: ["client-acme"] }
+- Project filter: { required_tags: ["project:matric"] }
+- Priority OR: { any_tags: ["urgent", "high-priority"] }`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Optional text query" },
+        required_tags: { type: "array", items: { type: "string" }, description: "Notes MUST have ALL these tags (AND)" },
+        any_tags: { type: "array", items: { type: "string" }, description: "Notes MUST have AT LEAST ONE (OR)" },
+        excluded_tags: { type: "array", items: { type: "string" }, description: "Notes MUST NOT have ANY of these" },
+        required_schemes: { type: "array", items: { type: "string" }, description: "Notes ONLY from these schemes" },
+        excluded_schemes: { type: "array", items: { type: "string" }, description: "Notes NOT from these schemes" },
+        mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
+        limit: { type: "number", description: "Maximum results (default: 20)", default: 20 }
+      }
+    }
   },
   {
     name: "list_tags",
@@ -2420,6 +2627,122 @@ USE WHEN: See exactly what changed between versions.`,
   },
 
   // ============================================================================
+  // CHUNK-AWARE DOCUMENT HANDLING (Ticket #113)
+  // ============================================================================
+  {
+    name: "get_full_document",
+    description: `Get the full reconstructed document for a note.
+
+For chunked documents (large documents split during ingestion), this stitches all chunks back together in order, removing overlaps to reconstruct the original content.
+
+For regular notes, returns the content as-is.
+
+Returns:
+- id: Note ID (or chain ID for chunked documents)
+- title: Document title (with chunk suffixes removed)
+- content: Full reconstructed content
+- is_chunked: Whether this is a chunked document
+- chunks: Array of chunk metadata (null for regular notes)
+  - id: Chunk note ID
+  - sequence: Chunk number in sequence
+  - title: Chunk title
+  - byte_range: [start, end] byte positions
+- total_chunks: Number of chunks (null for regular notes)
+- tags: All tags from all chunks (deduplicated)
+- created_at, updated_at: Timestamps
+
+Use cases:
+- Downloading complete documents that were split during ingestion
+- Viewing full original content before chunking
+- Exporting documents with chunk metadata`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the note or chain ID" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "search_with_dedup",
+    description: `Search notes with explicit deduplication enabled (same as search_notes but more explicit about chunk handling).
+
+When searching chunked documents, multiple chunks from the same document can match. Deduplication groups these chunks and returns only the best-scoring chunk per document, with metadata about how many chunks matched.
+
+This is the default behavior of search_notes, but this tool makes it explicit for clarity.
+
+Search modes:
+- 'hybrid' (default): Combines keyword matching with semantic similarity
+- 'fts': Full-text search only
+- 'semantic': Vector similarity only
+
+Returns:
+- results: Array of deduplicated search hits with chunk metadata
+  - note_id: Best matching chunk ID
+  - score: Relevance score
+  - snippet: Text excerpt
+  - title: Note title
+  - tags: Associated tags
+  - chain_info: Chunk metadata (if chunked)
+    - chain_id: Document chain ID
+    - total_chunks: Total chunks in document
+    - chunks_matched: How many chunks matched
+- query: Original search query
+- total: Number of results
+
+Use when you want to:
+- Search large documents without duplicate results
+- Understand which chunks matched from chunked documents
+- Get document-level results rather than chunk-level`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (natural language or keywords)" },
+        limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
+        mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
+        set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_chunk_chain",
+    description: `Get all chunks in a document chain with metadata.
+
+For chunked documents, this returns information about all chunks in the chain, including their sequence, titles, and byte ranges in the original document.
+
+For regular (non-chunked) notes, this returns the single note with is_chunked: false.
+
+Returns same structure as get_full_document:
+- id: Chain ID
+- title: Original document title
+- content: Full reconstructed content (if include_content=true)
+- is_chunked: true for chunked documents
+- chunks: Array of all chunks with:
+  - id: Chunk note ID
+  - sequence: Position in chain (1, 2, 3...)
+  - title: Chunk title with "Part X/Y" suffix
+  - byte_range: [start, end] positions in original
+- total_chunks: Number of chunks
+- tags: Deduplicated tags from all chunks
+- created_at, updated_at: Timestamps
+
+Use cases:
+- Inspecting how a document was chunked
+- Getting individual chunk IDs for targeted retrieval
+- Understanding chunk boundaries and overlap
+- Debugging chunking strategy`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chain_id: { type: "string", description: "UUID of the chain (first chunk ID or any chunk in chain)" },
+        include_content: { type: "boolean", description: "Include full reconstructed content (default: true)", default: true },
+      },
+      required: ["chain_id"],
+    },
+  },
+
+  // ============================================================================
   // DOCUMENTATION - Expanded help for AI agents
   // ============================================================================
   {
@@ -2457,6 +2780,168 @@ USE THIS TOOL when you need:
           default: "overview"
         },
       },
+    },
+  },
+
+  // ============================================================================
+  // PUBLIC KEY ENCRYPTION (PKE) - Wallet-style E2E encryption
+  // These tools enable secure data sharing using public key addresses
+  // ============================================================================
+  {
+    name: "pke_generate_keypair",
+    description: `Generate a new X25519 keypair for public-key encryption.
+
+Creates a wallet-style identity consisting of:
+- **Private key** - Stored encrypted with your passphrase (never share this!)
+- **Public key** - Can be shared freely
+- **Address** - Human-friendly identifier (mm:...) that others use to encrypt data for you
+
+The address is derived from your public key using BLAKE3 hashing with a checksum,
+similar to cryptocurrency wallet addresses. Share your address with anyone who
+wants to send you encrypted data.
+
+**Security Notes:**
+- Use a strong passphrase (12+ characters) to protect your private key
+- Back up your private key file - losing it means losing access to encrypted data
+- Generate separate keypairs for different purposes (work, personal, etc.)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        passphrase: {
+          type: "string",
+          description: "Passphrase to protect the private key (minimum 12 characters)"
+        },
+        output_dir: {
+          type: "string",
+          description: "Directory to save keys (default: current directory)"
+        },
+        label: {
+          type: "string",
+          description: "Optional label for the key (e.g., 'Work Key')"
+        },
+      },
+      required: ["passphrase"],
+    },
+  },
+  {
+    name: "pke_get_address",
+    description: `Get the public address from a public key file.
+
+Returns the mm:... address that can be shared with others.
+This address is what senders use to encrypt data for you.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        public_key_path: {
+          type: "string",
+          description: "Path to the public key file"
+        },
+      },
+      required: ["public_key_path"],
+    },
+  },
+  {
+    name: "pke_encrypt",
+    description: `Encrypt a file for one or more recipients using public-key encryption.
+
+This uses the MMPKE01 format which provides:
+- **Multi-recipient support** - Encrypt once for multiple people
+- **Forward secrecy** - Each encryption uses fresh ephemeral keys
+- **Authenticated encryption** - AES-256-GCM detects tampering
+
+Recipients are specified by their public key files. To encrypt for someone,
+you need their public key file (which contains their mm:... address).
+
+The encrypted file can only be decrypted by someone with the corresponding
+private key for one of the recipient public keys.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        input_path: {
+          type: "string",
+          description: "Path to the file to encrypt"
+        },
+        output_path: {
+          type: "string",
+          description: "Path for the encrypted output file"
+        },
+        recipients: {
+          type: "array",
+          items: { type: "string" },
+          description: "Paths to recipient public key files"
+        },
+      },
+      required: ["input_path", "output_path", "recipients"],
+    },
+  },
+  {
+    name: "pke_decrypt",
+    description: `Decrypt a file using your private key.
+
+Decrypts a file that was encrypted for your public key address.
+You must have the private key file and its passphrase.
+
+Returns the decrypted content and metadata (original filename, creation date).`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        input_path: {
+          type: "string",
+          description: "Path to the encrypted file"
+        },
+        output_path: {
+          type: "string",
+          description: "Path for the decrypted output"
+        },
+        private_key_path: {
+          type: "string",
+          description: "Path to your encrypted private key file"
+        },
+        passphrase: {
+          type: "string",
+          description: "Passphrase for the private key"
+        },
+      },
+      required: ["input_path", "output_path", "private_key_path", "passphrase"],
+    },
+  },
+  {
+    name: "pke_list_recipients",
+    description: `List the recipient addresses that can decrypt an encrypted file.
+
+Returns the mm:... addresses of all recipients without decrypting the file.
+Useful for determining if you can decrypt a file or who it was intended for.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        input_path: {
+          type: "string",
+          description: "Path to the encrypted file"
+        },
+      },
+      required: ["input_path"],
+    },
+  },
+  {
+    name: "pke_verify_address",
+    description: `Verify that a public key address is valid.
+
+Checks that the mm:... address has:
+- Correct prefix
+- Valid Base58 encoding
+- Correct checksum (catches typos)
+- Supported version
+
+Returns validation status and version info.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "The address to verify (mm:...)"
+        },
+      },
+      required: ["address"],
     },
   },
 ];
