@@ -23,7 +23,7 @@ All backup methods support optional encryption:
 | **Standard** | .enc (MMENC01) | Personal backups with passphrase/keyfile |
 | **E2E** | .e2e (MME2E01) | Shared shards with multiple recipients |
 
-See [Encryption Guide](./encryption.md) for details.
+See [Encryption Guide](./encryption.md) for cryptographic details and [Shard Exchange Primer](./shard-exchange.md) for practical sharing workflows.
 
 ### Choosing a Backup Method
 

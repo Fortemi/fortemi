@@ -441,6 +441,7 @@ It does NOT protect against:
 
 ## Related Documentation
 
+- [Shard Exchange Primer](./shard-exchange.md) - Practical workflows for sharing and recovering knowledge
 - [Backup Guide](./backup.md) - Backup and restore procedures
 - [Architecture](./architecture.md) - System design overview
 - [Operations](./operations.md) - Deployment and maintenance
