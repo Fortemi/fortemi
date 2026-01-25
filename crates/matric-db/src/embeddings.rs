@@ -6,7 +6,7 @@ use pgvector::Vector;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Embedding, EmbeddingRepository, Error, Result, SearchHit};
+use matric_core::{new_v7, Embedding, EmbeddingRepository, Error, Result, SearchHit};
 
 /// PostgreSQL implementation of EmbeddingRepository.
 pub struct PgEmbeddingRepository {
@@ -42,7 +42,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                 "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)",
             )
-            .bind(Uuid::new_v4())
+            .bind(new_v7())
             .bind(note_id)
             .bind(i as i32)
             .bind(&text)

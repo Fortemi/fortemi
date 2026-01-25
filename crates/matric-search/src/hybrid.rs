@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use pgvector::Vector;
 use uuid::Uuid;
 
-use matric_core::{EmbeddingRepository, Result, SearchHit, StrictTagFilter};
+use matric_core::{EmbeddingRepository, Result, SearchHit, StrictFilter, StrictTagFilter};
 use matric_db::Database;
 
 use crate::deduplication::{deduplicate_search_results, DeduplicationConfig, EnhancedSearchHit};
@@ -25,8 +25,11 @@ pub struct HybridSearchConfig {
     pub embedding_set_id: Option<Uuid>,
     /// Deduplication configuration for handling chunked documents
     pub deduplication: DeduplicationConfig,
-    /// Strict tag filter for precise taxonomy-based filtering
+    /// Strict tag filter for precise taxonomy-based filtering (legacy - prefer unified_filter)
     pub strict_filter: Option<StrictTagFilter>,
+    /// Unified strict filter for multi-dimensional filtering.
+    /// When set, takes precedence over strict_filter for FTS.
+    pub unified_filter: Option<StrictFilter>,
 }
 
 impl Default for HybridSearchConfig {
@@ -39,6 +42,7 @@ impl Default for HybridSearchConfig {
             embedding_set_id: None,
             deduplication: DeduplicationConfig::default(),
             strict_filter: None,
+            unified_filter: None,
         }
     }
 }
@@ -110,6 +114,13 @@ impl HybridSearchConfig {
     /// Set strict tag filter for taxonomy-based filtering.
     pub fn with_strict_filter(mut self, filter: StrictTagFilter) -> Self {
         self.strict_filter = Some(filter);
+        self
+    }
+
+    /// Set unified strict filter for multi-dimensional filtering.
+    /// This takes precedence over strict_filter when both are set.
+    pub fn with_unified_filter(mut self, filter: StrictFilter) -> Self {
+        self.unified_filter = Some(filter);
         self
     }
 }

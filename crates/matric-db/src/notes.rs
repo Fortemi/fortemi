@@ -8,9 +8,13 @@ use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
-    CreateNoteRequest, Error, Link, ListNotesRequest, ListNotesResponse, NoteFull, NoteMeta,
-    NoteOriginal, NoteRepository, NoteRevised, NoteSummary, Result, UpdateNoteStatusRequest,
+    new_v7, CreateNoteRequest, Error, Link, ListNotesRequest, ListNotesResponse, NoteFull,
+    NoteMeta, NoteOriginal, NoteRepository, NoteRevised, NoteSummary, Result, StrictFilter,
+    UpdateNoteStatusRequest,
 };
+
+use crate::strict_filter::QueryParam;
+use crate::unified_filter::UnifiedFilterQueryBuilder;
 
 /// PostgreSQL implementation of NoteRepository.
 pub struct PgNoteRepository {
@@ -34,7 +38,7 @@ impl PgNoteRepository {
 #[async_trait]
 impl NoteRepository for PgNoteRepository {
     async fn insert(&self, req: CreateNoteRequest) -> Result<Uuid> {
-        let note_id = Uuid::new_v4();
+        let note_id = new_v7();
         let now = Utc::now();
         let hash = Self::hash_content(&req.content);
 
@@ -58,7 +62,7 @@ impl NoteRepository for PgNoteRepository {
         sqlx::query(
             "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(note_id)
         .bind(&req.content)
         .bind(&hash)
@@ -70,7 +74,7 @@ impl NoteRepository for PgNoteRepository {
         sqlx::query(
             "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(note_id)
         .bind(&req.content)
         .bind(now)
@@ -83,7 +87,7 @@ impl NoteRepository for PgNoteRepository {
             "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
              VALUES ($1, $2, 'user', 'create_note', $3, '{}'::jsonb)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(now)
         .bind(note_id)
         .execute(&mut *tx)
@@ -130,7 +134,7 @@ impl NoteRepository for PgNoteRepository {
         let now = Utc::now();
 
         for req in notes {
-            let note_id = Uuid::new_v4();
+            let note_id = new_v7();
             let hash = Self::hash_content(&req.content);
 
             // Insert note metadata
@@ -151,7 +155,7 @@ impl NoteRepository for PgNoteRepository {
             sqlx::query(
                 "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
             )
-            .bind(Uuid::new_v4())
+            .bind(new_v7())
             .bind(note_id)
             .bind(&req.content)
             .bind(&hash)
@@ -163,7 +167,7 @@ impl NoteRepository for PgNoteRepository {
             sqlx::query(
                 "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
             )
-            .bind(Uuid::new_v4())
+            .bind(new_v7())
             .bind(note_id)
             .bind(&req.content)
             .bind(now)
@@ -202,7 +206,7 @@ impl NoteRepository for PgNoteRepository {
             "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
              VALUES ($1, $2, 'user', 'bulk_create', NULL, $3::jsonb)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(now)
         .bind(serde_json::json!({ "count": ids.len() }))
         .execute(&mut *tx)
@@ -619,7 +623,7 @@ impl NoteRepository for PgNoteRepository {
             "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
              VALUES ($1, $2, 'user', 'update_original', $3, '{}'::jsonb)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(now)
         .bind(id)
         .execute(&mut *tx)
@@ -637,7 +641,7 @@ impl NoteRepository for PgNoteRepository {
         rationale: Option<&str>,
     ) -> Result<Uuid> {
         let now = Utc::now();
-        let revision_id = Uuid::new_v4();
+        let revision_id = new_v7();
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
@@ -668,7 +672,7 @@ impl NoteRepository for PgNoteRepository {
             "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
              VALUES ($1, $2, 'user', 'revise', $3, '{}'::jsonb)",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(now)
         .bind(id)
         .execute(&mut *tx)
@@ -729,6 +733,218 @@ impl NoteRepository for PgNoteRepository {
             .await
             .map_err(Error::Database)?;
         Ok(())
+    }
+}
+
+// =============================================================================
+// STRICT FILTER EXTENSION
+// =============================================================================
+
+/// Request for listing notes with unified strict filter.
+#[derive(Debug, Clone, Default)]
+pub struct ListNotesWithFilterRequest {
+    /// Multi-dimensional strict filter.
+    pub filter: StrictFilter,
+    /// Maximum number of notes to return.
+    pub limit: i64,
+    /// Offset for pagination.
+    pub offset: i64,
+    /// Sort field: "created_at", "updated_at", "accessed_at", "title".
+    pub sort_by: Option<String>,
+    /// Sort order: "asc" or "desc".
+    pub sort_order: Option<String>,
+}
+
+/// Response for filtered note listing.
+#[derive(Debug, Clone)]
+pub struct ListNotesWithFilterResponse {
+    /// Total count of matching notes (before pagination).
+    pub total: i64,
+    /// Notes in this page.
+    pub notes: Vec<NoteSummary>,
+    /// Whether UUIDv7 temporal optimization was applied.
+    pub used_uuid_temporal_opt: bool,
+    /// Whether recursive CTE was used for collections.
+    pub used_recursive_cte: bool,
+    /// Number of active filter dimensions.
+    pub active_dimensions: usize,
+}
+
+impl PgNoteRepository {
+    /// List notes using the unified strict filter system.
+    ///
+    /// This method provides multi-dimensional filtering with optimizations:
+    /// - UUIDv7 temporal optimization for created time filtering
+    /// - Recursive CTE for hierarchical collection filtering
+    /// - SKOS concept-based tag filtering
+    /// - Security and visibility filtering
+    pub async fn list_with_strict_filter(
+        &self,
+        req: ListNotesWithFilterRequest,
+    ) -> Result<ListNotesWithFilterResponse> {
+        let sort_by = req.sort_by.as_deref().unwrap_or("created_at");
+        let sort_order = req.sort_order.as_deref().unwrap_or("desc");
+
+        // Build filter query
+        let builder = UnifiedFilterQueryBuilder::new(req.filter, 0);
+        let filter_result = builder.build();
+
+        // Build order clause
+        let order_clause = match sort_by {
+            "updated_at" => format!("n.updated_at_utc {}", sort_order),
+            "accessed_at" => format!(
+                "COALESCE(n.last_accessed_at, n.created_at_utc) {}",
+                sort_order
+            ),
+            "title" => format!("n.title {} NULLS LAST", sort_order),
+            _ => format!("n.created_at_utc {}", sort_order),
+        };
+
+        // Build full query with optional CTE
+        let cte_prefix = filter_result
+            .cte_clause
+            .as_ref()
+            .map(|cte| format!("WITH RECURSIVE {} ", cte))
+            .unwrap_or_default();
+
+        // Count query
+        let count_sql = format!(
+            "{}SELECT COUNT(*) as count FROM note n WHERE {}",
+            cte_prefix, filter_result.where_clause
+        );
+
+        // Build and execute count query
+        let mut count_q = sqlx::query(&count_sql);
+        for param in &filter_result.params {
+            count_q = match param {
+                QueryParam::Uuid(id) => count_q.bind(id),
+                QueryParam::UuidArray(ids) => count_q.bind(ids),
+                QueryParam::Int(val) => count_q.bind(val),
+                QueryParam::Timestamp(ts) => count_q.bind(ts),
+                QueryParam::Bool(b) => count_q.bind(b),
+                QueryParam::String(s) => count_q.bind(s),
+            };
+        }
+
+        let count_row = count_q.fetch_one(&self.pool).await.map_err(Error::Database)?;
+        let total: i64 = count_row.get("count");
+
+        // Notes query with pagination
+        let limit_param = filter_result.params.len() + 1;
+        let offset_param = filter_result.params.len() + 2;
+
+        let notes_sql = format!(
+            r#"
+            {}
+            SELECT
+                n.id, n.created_at_utc, n.updated_at_utc, n.starred, n.archived,
+                n.title, n.metadata,
+                no.content as original_content,
+                nrc.content as revised_content,
+                (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id) as tags
+            FROM note n
+            LEFT JOIN note_original no ON no.note_id = n.id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
+            WHERE {}
+            ORDER BY {}
+            LIMIT ${} OFFSET ${}
+            "#,
+            cte_prefix, filter_result.where_clause, order_clause, limit_param, offset_param
+        );
+
+        // Build and execute notes query
+        let mut notes_q = sqlx::query(&notes_sql);
+        for param in &filter_result.params {
+            notes_q = match param {
+                QueryParam::Uuid(id) => notes_q.bind(id),
+                QueryParam::UuidArray(ids) => notes_q.bind(ids),
+                QueryParam::Int(val) => notes_q.bind(val),
+                QueryParam::Timestamp(ts) => notes_q.bind(ts),
+                QueryParam::Bool(b) => notes_q.bind(b),
+                QueryParam::String(s) => notes_q.bind(s),
+            };
+        }
+        notes_q = notes_q.bind(req.limit).bind(req.offset);
+
+        let rows = notes_q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+
+        let notes = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: Option<String> = row.get("tags");
+                let tags = tags_str
+                    .map(|s| s.split(',').map(String::from).collect())
+                    .unwrap_or_default();
+
+                let revised: Option<String> = row.get("revised_content");
+                let original: Option<String> = row.get("original_content");
+                let has_revision = revised.is_some();
+                let snippet = revised
+                    .or(original)
+                    .map(|c| c.chars().take(200).collect())
+                    .unwrap_or_default();
+
+                NoteSummary {
+                    id: row.get("id"),
+                    created_at_utc: row.get("created_at_utc"),
+                    updated_at_utc: row.get("updated_at_utc"),
+                    starred: row.get("starred"),
+                    archived: row.get("archived"),
+                    title: row.get::<Option<String>, _>("title").unwrap_or_default(),
+                    snippet,
+                    tags,
+                    has_revision,
+                    metadata: row.get("metadata"),
+                }
+            })
+            .collect();
+
+        Ok(ListNotesWithFilterResponse {
+            total,
+            notes,
+            used_uuid_temporal_opt: filter_result.used_uuid_temporal_opt,
+            used_recursive_cte: filter_result.used_recursive_cte,
+            active_dimensions: filter_result.active_dimensions,
+        })
+    }
+
+    /// Get note IDs matching a strict filter (lightweight version for batch operations).
+    pub async fn get_ids_with_strict_filter(
+        &self,
+        filter: StrictFilter,
+        limit: i64,
+    ) -> Result<Vec<Uuid>> {
+        let builder = UnifiedFilterQueryBuilder::new(filter, 0);
+        let filter_result = builder.build();
+
+        let cte_prefix = filter_result
+            .cte_clause
+            .as_ref()
+            .map(|cte| format!("WITH RECURSIVE {} ", cte))
+            .unwrap_or_default();
+
+        let sql = format!(
+            "{}SELECT n.id FROM note n WHERE {} ORDER BY n.created_at_utc DESC LIMIT ${}",
+            cte_prefix,
+            filter_result.where_clause,
+            filter_result.params.len() + 1
+        );
+
+        let mut q = sqlx::query(&sql);
+        for param in &filter_result.params {
+            q = match param {
+                QueryParam::Uuid(id) => q.bind(id),
+                QueryParam::UuidArray(ids) => q.bind(ids),
+                QueryParam::Int(val) => q.bind(val),
+                QueryParam::Timestamp(ts) => q.bind(ts),
+                QueryParam::Bool(b) => q.bind(b),
+                QueryParam::String(s) => q.bind(s),
+            };
+        }
+        q = q.bind(limit);
+
+        let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
     }
 }
 

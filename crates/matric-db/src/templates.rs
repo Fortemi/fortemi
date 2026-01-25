@@ -6,7 +6,8 @@ use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
-    CreateTemplateRequest, Error, NoteTemplate, Result, TemplateRepository, UpdateTemplateRequest,
+    new_v7, CreateTemplateRequest, Error, NoteTemplate, Result, TemplateRepository,
+    UpdateTemplateRequest,
 };
 
 /// PostgreSQL implementation of TemplateRepository.
@@ -24,7 +25,7 @@ impl PgTemplateRepository {
 #[async_trait]
 impl TemplateRepository for PgTemplateRepository {
     async fn create(&self, req: CreateTemplateRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
         let format = req.format.unwrap_or_else(|| "markdown".to_string());
         let default_tags: Vec<String> = req.default_tags.unwrap_or_default();

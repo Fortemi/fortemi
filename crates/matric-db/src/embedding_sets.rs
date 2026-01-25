@@ -6,9 +6,10 @@ use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
-    AddMembersRequest, CreateEmbeddingSetRequest, EmbeddingConfigProfile, EmbeddingIndexStatus,
-    EmbeddingSet, EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetMember,
-    EmbeddingSetMode, EmbeddingSetSummary, Error, Result, UpdateEmbeddingSetRequest,
+    new_v7, AddMembersRequest, CreateEmbeddingSetRequest, EmbeddingConfigProfile,
+    EmbeddingIndexStatus, EmbeddingSet, EmbeddingSetAgentMetadata, EmbeddingSetCriteria,
+    EmbeddingSetHealth, EmbeddingSetMember, EmbeddingSetMode, EmbeddingSetSummary, Error,
+    GarbageCollectionResult, Result, UpdateEmbeddingSetRequest,
 };
 
 /// Well-known UUID for the default embedding set
@@ -161,7 +162,7 @@ impl PgEmbeddingSetRepository {
 
     /// Create a new embedding set.
     pub async fn create(&self, req: CreateEmbeddingSetRequest) -> Result<EmbeddingSet> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let slug = req.slug.unwrap_or_else(|| slugify(&req.name));
         let now = Utc::now();
 
@@ -889,6 +890,226 @@ impl PgEmbeddingSetRepository {
             .await
             .map_err(Error::Database)?;
         Ok(row.get("count"))
+    }
+
+    // =========================================================================
+    // LIFECYCLE MANAGEMENT
+    // =========================================================================
+
+    /// Find stale embeddings: embeddings for notes that have been updated
+    /// after the embedding was generated.
+    ///
+    /// Returns note IDs with stale embeddings along with their embedding count.
+    pub async fn find_stale_embeddings(
+        &self,
+        set_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<(Uuid, i64)>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT e.note_id, COUNT(*) as embedding_count
+            FROM embedding e
+            JOIN note n ON n.id = e.note_id
+            WHERE e.embedding_set_id = $1
+              AND e.created_at < n.updated_at_utc
+            GROUP BY e.note_id
+            ORDER BY MAX(n.updated_at_utc - e.created_at) DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(set_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.get("note_id"), r.get("embedding_count")))
+            .collect())
+    }
+
+    /// Count stale embeddings in a set.
+    pub async fn count_stale_embeddings(&self, set_id: Uuid) -> Result<i64> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(DISTINCT e.note_id) as count
+            FROM embedding e
+            JOIN note n ON n.id = e.note_id
+            WHERE e.embedding_set_id = $1
+              AND e.created_at < n.updated_at_utc
+            "#,
+        )
+        .bind(set_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("count"))
+    }
+
+    /// Find orphaned embeddings: embeddings for notes that no longer exist
+    /// or are not members of the set.
+    pub async fn find_orphaned_embeddings(&self, set_id: Uuid, limit: i64) -> Result<Vec<Uuid>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT e.note_id
+            FROM embedding e
+            WHERE e.embedding_set_id = $1
+              AND (
+                -- Note deleted
+                NOT EXISTS (SELECT 1 FROM note n WHERE n.id = e.note_id AND n.deleted_at IS NULL)
+                -- Or no longer a member
+                OR NOT EXISTS (SELECT 1 FROM embedding_set_member esm
+                               WHERE esm.embedding_set_id = e.embedding_set_id
+                                 AND esm.note_id = e.note_id)
+              )
+            LIMIT $2
+            "#,
+        )
+        .bind(set_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows.into_iter().map(|r| r.get("note_id")).collect())
+    }
+
+    /// Prune orphaned embeddings from a set.
+    /// Returns the number of embeddings removed.
+    pub async fn prune_orphaned_embeddings(&self, set_id: Uuid) -> Result<i64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM embedding e
+            WHERE e.embedding_set_id = $1
+              AND (
+                NOT EXISTS (SELECT 1 FROM note n WHERE n.id = e.note_id AND n.deleted_at IS NULL)
+                OR NOT EXISTS (SELECT 1 FROM embedding_set_member esm
+                               WHERE esm.embedding_set_id = e.embedding_set_id
+                                 AND esm.note_id = e.note_id)
+              )
+            "#,
+        )
+        .bind(set_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        // Refresh stats after pruning
+        self.refresh_stats(set_id).await?;
+
+        Ok(result.rows_affected() as i64)
+    }
+
+    /// Prune orphaned memberships: memberships for notes that no longer exist.
+    pub async fn prune_orphaned_memberships(&self, set_id: Uuid) -> Result<i64> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM embedding_set_member esm
+            WHERE esm.embedding_set_id = $1
+              AND NOT EXISTS (SELECT 1 FROM note n WHERE n.id = esm.note_id AND n.deleted_at IS NULL)
+            "#,
+        )
+        .bind(set_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(result.rows_affected() as i64)
+    }
+
+    /// Get lifecycle health summary for a set.
+    pub async fn get_lifecycle_health(&self, set_id: Uuid) -> Result<EmbeddingSetHealth> {
+        let set = self
+            .get_by_id(set_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
+
+        let stale_count = self.count_stale_embeddings(set_id).await?;
+        let orphaned_embeddings = self.find_orphaned_embeddings(set_id, 1).await?.len() as i64;
+
+        // Check for notes without embeddings
+        let missing_embeddings = sqlx::query(
+            r#"
+            SELECT COUNT(*) as count
+            FROM embedding_set_member esm
+            WHERE esm.embedding_set_id = $1
+              AND NOT EXISTS (SELECT 1 FROM embedding e
+                              WHERE e.embedding_set_id = esm.embedding_set_id
+                                AND e.note_id = esm.note_id)
+            "#,
+        )
+        .bind(set_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        let missing_count: i64 = missing_embeddings.get("count");
+
+        let health_score = if set.document_count == 0 {
+            100.0
+        } else {
+            let total = set.document_count as f64;
+            let issues = (stale_count + orphaned_embeddings + missing_count) as f64;
+            ((total - issues) / total * 100.0).max(0.0)
+        };
+
+        Ok(EmbeddingSetHealth {
+            set_id,
+            total_documents: set.document_count,
+            total_embeddings: set.embedding_count,
+            stale_embeddings: stale_count,
+            orphaned_embeddings,
+            missing_embeddings: missing_count,
+            health_score,
+            needs_refresh: stale_count > 0 || missing_count > 0,
+            needs_pruning: orphaned_embeddings > 0,
+        })
+    }
+
+    /// Full garbage collection: prune orphans and refresh stats.
+    pub async fn garbage_collect(&self, set_id: Uuid) -> Result<GarbageCollectionResult> {
+        let orphaned_memberships = self.prune_orphaned_memberships(set_id).await?;
+        let orphaned_embeddings = self.prune_orphaned_embeddings(set_id).await?;
+
+        // Refresh stats
+        self.refresh_stats(set_id).await?;
+
+        Ok(GarbageCollectionResult {
+            set_id,
+            orphaned_memberships_removed: orphaned_memberships,
+            orphaned_embeddings_removed: orphaned_embeddings,
+        })
+    }
+
+    /// Find all sets needing garbage collection.
+    pub async fn find_sets_needing_gc(&self) -> Result<Vec<Uuid>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT es.id
+            FROM embedding_set es
+            WHERE es.is_active = TRUE
+              AND (
+                -- Has orphaned memberships
+                EXISTS (
+                    SELECT 1 FROM embedding_set_member esm
+                    WHERE esm.embedding_set_id = es.id
+                      AND NOT EXISTS (SELECT 1 FROM note n WHERE n.id = esm.note_id AND n.deleted_at IS NULL)
+                )
+                -- Or has orphaned embeddings
+                OR EXISTS (
+                    SELECT 1 FROM embedding e
+                    WHERE e.embedding_set_id = es.id
+                      AND NOT EXISTS (SELECT 1 FROM note n WHERE n.id = e.note_id AND n.deleted_at IS NULL)
+                )
+              )
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
     }
 
     // =========================================================================

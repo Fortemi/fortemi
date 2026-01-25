@@ -19,12 +19,94 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================================
+-- UUIDv7 GENERATION FUNCTION (RFC 9562)
+-- ============================================================================
+-- Generates time-ordered UUIDs with millisecond-precision timestamps.
+-- Structure: 48-bit Unix timestamp (ms) | 4-bit version (7) | 12-bit rand_a |
+--            2-bit variant (10) | 62-bit rand_b
+--
+-- Benefits:
+-- - Naturally time-ordered for efficient B-tree indexing
+-- - Timestamp extractable for temporal queries without additional columns
+-- - Compatible with standard UUID storage and comparison
+
+CREATE OR REPLACE FUNCTION gen_uuid_v7() RETURNS uuid AS $$
+DECLARE
+    unix_ts_ms bigint;
+    rand_a int;
+    rand_b bigint;
+    uuid_bytes bytea;
+BEGIN
+    -- Get current Unix timestamp in milliseconds
+    unix_ts_ms := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
+
+    -- Generate random bits
+    rand_a := (random() * 4095)::int;  -- 12 bits
+    rand_b := (random() * 4611686018427387903)::bigint;  -- 62 bits
+
+    -- Build UUID bytes
+    uuid_bytes :=
+        -- First 6 bytes: Unix timestamp (ms), big-endian
+        set_byte(E'\\x000000000000'::bytea, 0, (unix_ts_ms >> 40)::int & 255) ||
+        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 32)::int & 255) ||
+        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 24)::int & 255) ||
+        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 16)::int & 255) ||
+        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 8)::int & 255) ||
+        set_byte(E'\\x00'::bytea, 0, unix_ts_ms::int & 255);
+
+    -- Byte 7: version (0111) + top 4 bits of rand_a
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, 112 | ((rand_a >> 8) & 15));
+
+    -- Byte 8: bottom 8 bits of rand_a
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, rand_a & 255);
+
+    -- Byte 9: variant (10) + top 6 bits of rand_b
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, 128 | ((rand_b >> 56)::int & 63));
+
+    -- Bytes 10-16: remaining 56 bits of rand_b
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 48)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 40)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 32)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 24)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 16)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 8)::int & 255);
+    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, rand_b::int & 255);
+
+    RETURN encode(uuid_bytes, 'hex')::uuid;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+
+-- Function to extract timestamp from UUIDv7 (useful for queries)
+CREATE OR REPLACE FUNCTION extract_uuid_v7_timestamp(uuid_val uuid) RETURNS timestamptz AS $$
+DECLARE
+    uuid_bytes bytea;
+    unix_ts_ms bigint;
+BEGIN
+    uuid_bytes := decode(replace(uuid_val::text, '-', ''), 'hex');
+
+    -- Extract 48-bit timestamp from first 6 bytes
+    unix_ts_ms :=
+        (get_byte(uuid_bytes, 0)::bigint << 40) |
+        (get_byte(uuid_bytes, 1)::bigint << 32) |
+        (get_byte(uuid_bytes, 2)::bigint << 24) |
+        (get_byte(uuid_bytes, 3)::bigint << 16) |
+        (get_byte(uuid_bytes, 4)::bigint << 8) |
+        get_byte(uuid_bytes, 5)::bigint;
+
+    RETURN to_timestamp(unix_ts_ms / 1000.0);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- ============================================================================
 -- ENUMS
 -- ============================================================================
 
 -- Job status and type enums
 CREATE TYPE job_status AS ENUM ('pending', 'running', 'completed', 'failed', 'cancelled');
 CREATE TYPE job_type AS ENUM ('ai_revision', 'embedding', 'linking', 'context_update', 'title_generation');
+
+-- Visibility levels for notes (security filter)
+CREATE TYPE note_visibility AS ENUM ('private', 'shared', 'internal', 'public');
 
 -- ============================================================================
 -- CORE TABLES
@@ -44,7 +126,24 @@ CREATE TABLE note (
   access_count INTEGER DEFAULT 0,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   title TEXT,
-  deleted_at TIMESTAMPTZ DEFAULT NULL
+  deleted_at TIMESTAMPTZ DEFAULT NULL,
+  -- Security fields (Phase 4: Unified Strict Filter)
+  owner_id UUID,                                -- Owner user ID
+  tenant_id UUID,                               -- Tenant ID for multi-tenant isolation
+  visibility note_visibility DEFAULT 'private'  -- Visibility level
+);
+
+-- Share grants for fine-grained note sharing
+CREATE TABLE note_share_grant (
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
+  note_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+  grantee_id UUID NOT NULL,                    -- User or group receiving access
+  permission TEXT NOT NULL DEFAULT 'read',      -- 'read', 'write', 'admin'
+  granted_by UUID,                              -- User who granted access
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,                       -- Optional expiration
+  revoked_at TIMESTAMPTZ,                       -- Soft revocation timestamp
+  UNIQUE(note_id, grantee_id)
 );
 
 -- Original note content (immutable)
@@ -122,7 +221,7 @@ CREATE TABLE link (
 
 -- User-defined metadata labels
 CREATE TABLE user_metadata_label (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   note_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
   label TEXT NOT NULL,
   color TEXT,
@@ -139,7 +238,7 @@ CREATE TABLE user_config (
 
 -- Activity log for audit trail
 CREATE TABLE activity_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   actor TEXT NOT NULL,
   action TEXT NOT NULL,
@@ -149,7 +248,7 @@ CREATE TABLE activity_log (
 
 -- Embeddings table for vector search
 CREATE TABLE embedding (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   note_id UUID REFERENCES note(id) ON DELETE CASCADE,
   chunk_index INTEGER NOT NULL,
   text TEXT NOT NULL,
@@ -161,7 +260,7 @@ CREATE TABLE embedding (
 
 -- Provenance edges for tracking content relationships
 CREATE TABLE provenance_edge (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   revision_id UUID REFERENCES note_revision(id) ON DELETE CASCADE,
   source_note_id UUID REFERENCES note(id) ON DELETE SET NULL,
   source_url TEXT,
@@ -175,7 +274,7 @@ CREATE TABLE provenance_edge (
 
 -- Job queue for ML pipeline operations
 CREATE TABLE job_queue (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   note_id UUID REFERENCES note(id) ON DELETE CASCADE,
   job_type job_type NOT NULL,
   status job_status NOT NULL DEFAULT 'pending',
@@ -197,7 +296,7 @@ CREATE TABLE job_queue (
 
 -- Job history for calculating estimates
 CREATE TABLE job_history (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
   job_type job_type NOT NULL,
   duration_ms INTEGER NOT NULL,
   payload_size INTEGER,
@@ -220,6 +319,18 @@ CREATE INDEX idx_note_last_accessed ON note(last_accessed_at DESC NULLS LAST);
 CREATE INDEX idx_note_access_count ON note(access_count DESC);
 CREATE INDEX idx_note_title ON note(title);
 CREATE INDEX idx_note_deleted_at ON note(deleted_at) WHERE deleted_at IS NULL;
+
+-- Security field indices
+CREATE INDEX idx_note_owner ON note(owner_id) WHERE owner_id IS NOT NULL;
+CREATE INDEX idx_note_tenant ON note(tenant_id) WHERE tenant_id IS NOT NULL;
+CREATE INDEX idx_note_visibility ON note(visibility);
+CREATE INDEX idx_note_security_compound ON note(tenant_id, owner_id, visibility);
+
+-- Share grant indices
+CREATE INDEX idx_share_grant_note ON note_share_grant(note_id);
+CREATE INDEX idx_share_grant_grantee ON note_share_grant(grantee_id);
+CREATE INDEX idx_share_grant_active ON note_share_grant(grantee_id, note_id)
+  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW());
 
 -- Note original indices
 CREATE INDEX idx_note_original_user_edited ON note_original(user_last_edited_at DESC);

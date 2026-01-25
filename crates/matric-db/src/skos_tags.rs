@@ -21,7 +21,7 @@ use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
-    AddLabelRequest, AddNoteRequest, BatchTagNoteRequest, CreateConceptRequest,
+    new_v7, AddLabelRequest, AddNoteRequest, BatchTagNoteRequest, CreateConceptRequest,
     CreateConceptSchemeRequest, CreateMappingRelationRequest, CreateSemanticRelationRequest, Error,
     MergeConceptsRequest, NoteSkosConceptTag, ResolvedTag, Result, SearchConceptsRequest,
     SearchConceptsResponse, SkosAuditLogEntry, SkosConcept, SkosConceptFull, SkosConceptHierarchy,
@@ -287,7 +287,7 @@ impl PgSkosRepository {
 #[async_trait]
 impl SkosConceptSchemeRepository for PgSkosRepository {
     async fn create_scheme(&self, req: CreateConceptSchemeRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -582,7 +582,7 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
 impl SkosConceptRepository for PgSkosRepository {
     async fn create_concept(&self, req: CreateConceptRequest) -> Result<Uuid> {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         // Generate notation if not provided
@@ -1400,7 +1400,7 @@ impl SkosConceptRepository for PgSkosRepository {
 #[async_trait]
 impl SkosLabelRepository for PgSkosRepository {
     async fn add_label(&self, req: AddLabelRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -1512,7 +1512,7 @@ impl SkosLabelRepository for PgSkosRepository {
 #[async_trait]
 impl SkosNoteRepository for PgSkosRepository {
     async fn add_note(&self, req: AddNoteRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -1598,7 +1598,7 @@ impl SkosNoteRepository for PgSkosRepository {
 #[async_trait]
 impl SkosRelationRepository for PgSkosRepository {
     async fn create_semantic_relation(&self, req: CreateSemanticRelationRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -1688,7 +1688,7 @@ impl SkosRelationRepository for PgSkosRepository {
     }
 
     async fn create_mapping_relation(&self, req: CreateMappingRelationRequest) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -2031,7 +2031,7 @@ impl SkosTaggingRepository for PgSkosRepository {
 #[async_trait]
 impl SkosGovernanceRepository for PgSkosRepository {
     async fn merge_concepts(&self, req: MergeConceptsRequest) -> Result<Uuid> {
-        let merge_id = Uuid::new_v4();
+        let merge_id = new_v7();
         let now = Utc::now();
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
@@ -2261,7 +2261,7 @@ impl SkosGovernanceRepository for PgSkosRepository {
         actor: &str,
         actor_type: &str,
     ) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(

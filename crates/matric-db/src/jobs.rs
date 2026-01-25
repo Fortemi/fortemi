@@ -6,7 +6,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result};
+use matric_core::{new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result};
 
 /// PostgreSQL implementation of JobRepository.
 pub struct PgJobRepository {
@@ -107,7 +107,7 @@ impl JobRepository for PgJobRepository {
         priority: i32,
         payload: Option<JsonValue>,
     ) -> Result<Uuid> {
-        let job_id = Uuid::new_v4();
+        let job_id = new_v7();
         let now = Utc::now();
         let job_type_str = Self::job_type_to_str(job_type);
 
@@ -253,7 +253,7 @@ impl JobRepository for PgJobRepository {
                 "INSERT INTO job_history (id, job_type, duration_ms, payload_size, success, created_at)
                  VALUES ($1, $2::job_type, $3, NULL, true, $4)",
             )
-            .bind(Uuid::new_v4())
+            .bind(new_v7())
             .bind(&job_type)
             .bind(duration)
             .bind(now)
@@ -319,7 +319,7 @@ impl JobRepository for PgJobRepository {
                 "INSERT INTO job_history (id, job_type, duration_ms, payload_size, success, created_at)
                  VALUES ($1, $2::job_type, 0, NULL, false, $3)",
             )
-            .bind(Uuid::new_v4())
+            .bind(new_v7())
             .bind(&job_type)
             .bind(now)
             .execute(&mut *tx)

@@ -6,7 +6,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Error, Link, LinkRepository, Result};
+use matric_core::{new_v7, Error, Link, LinkRepository, Result};
 
 /// PostgreSQL implementation of LinkRepository.
 pub struct PgLinkRepository {
@@ -30,7 +30,7 @@ impl LinkRepository for PgLinkRepository {
         score: f32,
         metadata: Option<JsonValue>,
     ) -> Result<Uuid> {
-        let link_id = Uuid::new_v4();
+        let link_id = new_v7();
         let now = Utc::now();
 
         sqlx::query(
@@ -76,7 +76,7 @@ impl LinkRepository for PgLinkRepository {
                  WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
              )",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(note_a)
         .bind(note_b)
         .bind(kind)
@@ -96,7 +96,7 @@ impl LinkRepository for PgLinkRepository {
                  WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
              )",
         )
-        .bind(Uuid::new_v4())
+        .bind(new_v7())
         .bind(note_b)
         .bind(note_a)
         .bind(kind)

@@ -150,6 +150,9 @@ impl PgFtsSearch {
                 QueryParam::Uuid(id) => q.bind(id),
                 QueryParam::UuidArray(ids) => q.bind(ids),
                 QueryParam::Int(val) => q.bind(val),
+                QueryParam::Timestamp(ts) => q.bind(ts),
+                QueryParam::Bool(b) => q.bind(b),
+                QueryParam::String(s) => q.bind(s),
             };
         }
 

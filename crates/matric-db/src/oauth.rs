@@ -8,7 +8,7 @@ use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
-    ApiKey, ClientRegistrationRequest, ClientRegistrationResponse, CreateApiKeyRequest,
+    new_v7, ApiKey, ClientRegistrationRequest, ClientRegistrationResponse, CreateApiKeyRequest,
     CreateApiKeyResponse, Error, OAuthAuthorizationCode, OAuthClient, OAuthToken, Result,
     TokenIntrospectionResponse,
 };
@@ -58,7 +58,7 @@ impl PgOAuthRepository {
         req: ClientRegistrationRequest,
     ) -> Result<ClientRegistrationResponse> {
         let now = Utc::now();
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let client_id = format!("mm_{}", Self::generate_secret(24));
         let client_secret = Self::generate_secret(48);
         let client_secret_hash = Self::hash_secret(&client_secret);
@@ -390,7 +390,7 @@ impl PgOAuthRepository {
         include_refresh: bool,
     ) -> Result<(String, Option<String>, OAuthToken)> {
         let now = Utc::now();
-        let id = Uuid::new_v4();
+        let id = new_v7();
 
         let access_token = format!("mm_at_{}", Self::generate_secret(48));
         let access_token_hash = Self::hash_secret(&access_token);
@@ -657,7 +657,7 @@ impl PgOAuthRepository {
     /// Create an API key.
     pub async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse> {
         let now = Utc::now();
-        let id = Uuid::new_v4();
+        let id = new_v7();
 
         // Generate API key: mm_key_<random>
         let key = format!("mm_key_{}", Self::generate_secret(32));

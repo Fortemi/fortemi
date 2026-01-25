@@ -14,6 +14,12 @@ pub enum QueryParam {
     UuidArray(Vec<Uuid>),
     /// Integer parameter.
     Int(i32),
+    /// Timestamp parameter.
+    Timestamp(chrono::DateTime<chrono::Utc>),
+    /// Boolean parameter.
+    Bool(bool),
+    /// String parameter.
+    String(String),
 }
 
 /// Generates SQL WHERE clause fragments for strict tag filtering.

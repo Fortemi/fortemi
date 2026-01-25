@@ -492,6 +492,45 @@ pub struct AddMembersRequest {
 }
 
 // =============================================================================
+// EMBEDDING SET LIFECYCLE TYPES
+// =============================================================================
+
+/// Health summary for an embedding set.
+///
+/// Provides metrics on staleness, orphaned data, and missing embeddings
+/// to guide maintenance operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingSetHealth {
+    pub set_id: Uuid,
+    /// Total documents in the set.
+    pub total_documents: i32,
+    /// Total embeddings in the set.
+    pub total_embeddings: i32,
+    /// Embeddings that are older than their source notes (need regeneration).
+    pub stale_embeddings: i64,
+    /// Embeddings for notes that no longer exist or are not members.
+    pub orphaned_embeddings: i64,
+    /// Members without any embeddings.
+    pub missing_embeddings: i64,
+    /// Health score (0-100): percentage of documents with current embeddings.
+    pub health_score: f64,
+    /// Whether the set needs a refresh operation.
+    pub needs_refresh: bool,
+    /// Whether the set needs garbage collection.
+    pub needs_pruning: bool,
+}
+
+/// Result of a garbage collection operation on an embedding set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GarbageCollectionResult {
+    pub set_id: Uuid,
+    /// Number of orphaned memberships removed.
+    pub orphaned_memberships_removed: i64,
+    /// Number of orphaned embeddings removed.
+    pub orphaned_embeddings_removed: i64,
+}
+
+// =============================================================================
 // JOB TYPES
 // =============================================================================
 

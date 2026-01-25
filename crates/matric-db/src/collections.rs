@@ -5,7 +5,7 @@ use chrono::Utc;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
-use matric_core::{Collection, CollectionRepository, Error, NoteSummary, Result};
+use matric_core::{new_v7, Collection, CollectionRepository, Error, NoteSummary, Result};
 
 /// PostgreSQL implementation of CollectionRepository.
 pub struct PgCollectionRepository {
@@ -27,7 +27,7 @@ impl CollectionRepository for PgCollectionRepository {
         description: Option<&str>,
         parent_id: Option<Uuid>,
     ) -> Result<Uuid> {
-        let id = Uuid::new_v4();
+        let id = new_v7();
         let now = Utc::now();
 
         sqlx::query(

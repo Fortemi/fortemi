@@ -243,7 +243,8 @@ impl TagResolver {
 mod tests {
     use super::*;
     use matric_core::{
-        AddLabelRequest, CreateConceptRequest, CreateConceptSchemeRequest, SkosLabelType, TagStatus,
+        new_v7, AddLabelRequest, CreateConceptRequest, CreateConceptSchemeRequest, SkosLabelType,
+        TagStatus,
     };
     use matric_db::skos_tags::{
         SkosConceptRepository, SkosConceptSchemeRepository, SkosLabelRepository,
@@ -257,9 +258,14 @@ mod tests {
             .expect("Failed to connect to test database")
     }
 
-    /// Generate a unique test ID suffix to avoid collisions between test runs
+    /// Generate a unique test ID suffix to avoid collisions between test runs.
+    /// Uses 16 hex chars from UUIDv7 (including random bits) to ensure uniqueness
+    /// even for tests running within the same millisecond.
     fn unique_suffix() -> String {
-        Uuid::new_v4().to_string()[..8].to_string()
+        // Use full UUID (without hyphens) to guarantee uniqueness even for parallel tests
+        // UUIDv7's first 12 hex chars are timestamp (ms resolution), so parallel tests
+        // in same millisecond need the full 32 chars for the random portion
+        new_v7().to_string().replace('-', "")
     }
 
     async fn create_test_scheme(db: &Database, base_notation: &str) -> (Uuid, String) {
