@@ -1,12 +1,12 @@
 # Inference Backends Guide
 
-This guide covers configuring and using different LLM inference backends in Matric Memory.
+This guide covers configuring and using different LLM inference backends in matric-memory.
 
 ## Overview
 
-Matric Memory uses pluggable inference backends for:
-- **Embeddings** - Converting text to vector representations for semantic search
-- **Generation** - AI-powered note revision, title generation, and summaries
+matric-memory uses pluggable inference backends for:
+- **Sentence Embeddings** - Converting text to fixed-dimensional vector representations for dense retrieval (Reimers & Gurevych, 2019)
+- **Text Generation** - Retrieval-Augmented Generation (RAG) for note revision, title generation, and summaries (Lewis et al., 2020)
 
 ## Supported Backends
 
@@ -429,8 +429,24 @@ curl -X POST http://localhost:3000/api/v1/jobs/batch \
   -d '{"job_type": "regenerate_embeddings", "scope": "all"}'
 ```
 
+## Technical Background
+
+### Sentence Embeddings
+
+matric-memory uses **bi-encoder architecture** (Sentence-BERT) for embedding generation. This produces fixed-dimensional representations that can be compared efficiently using cosine similarity. See [Research Background](./technical/research-background.md#sentence-embeddings) for details.
+
+### Embedding Aggregation
+
+The default aggregation strategy is **mean pooling** over token embeddings, which outperforms CLS token extraction for sentence-level similarity tasks (Reimers & Gurevych, 2019).
+
+### Dense Retrieval
+
+Generated embeddings power the **dense retrieval** component of hybrid search. Documents are encoded offline; queries are encoded at search time. Similarity is computed via cosine distance in the shared embedding space (Karpukhin et al., 2020).
+
 ## Related Documentation
 
 - [Architecture](./architecture.md) - System design overview
+- [Research Background](./technical/research-background.md) - Technical foundation
 - [Operations](./operations.md) - Deployment and maintenance
 - [Embedding Sets](./embedding-sets.md) - Managing embedding configurations
+- [Glossary](./glossary.md) - Professional terminology definitions
