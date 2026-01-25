@@ -70,9 +70,9 @@ pub use oauth::PgOAuthRepository;
 pub use pool::{create_pool, create_pool_with_config, PoolConfig};
 pub use search::PgFtsSearch;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
-pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
+pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };

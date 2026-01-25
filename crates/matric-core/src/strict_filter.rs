@@ -534,7 +534,8 @@ mod tests {
 
     #[test]
     fn test_single_dimension() {
-        let filter = StrictFilter::new().with_tags(StrictTagFilter::new().require_concept(Uuid::new_v4()));
+        let filter =
+            StrictFilter::new().with_tags(StrictTagFilter::new().require_concept(Uuid::new_v4()));
 
         assert!(!filter.is_empty());
         assert!(filter.has_tag_constraints());
@@ -563,20 +564,23 @@ mod tests {
         assert!(!filter.can_use_uuid_temporal_optimization());
 
         // With created constraints - optimization available
-        let filter =
-            StrictFilter::new().with_temporal(StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisWeek));
+        let filter = StrictFilter::new().with_temporal(
+            StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisWeek),
+        );
         assert!(filter.can_use_uuid_temporal_optimization());
 
         // With only updated constraints - no optimization (uses separate column)
-        let filter =
-            StrictFilter::new().with_temporal(StrictTemporalFilter::new().updated_within(NamedTemporalRange::ThisWeek));
+        let filter = StrictFilter::new().with_temporal(
+            StrictTemporalFilter::new().updated_within(NamedTemporalRange::ThisWeek),
+        );
         assert!(!filter.can_use_uuid_temporal_optimization());
     }
 
     #[test]
     fn test_recursive_cte_detection() {
         // Without descendants - no CTE
-        let filter = StrictFilter::new().with_collections(StrictCollectionFilter::new().in_collection(Uuid::new_v4()));
+        let filter = StrictFilter::new()
+            .with_collections(StrictCollectionFilter::new().in_collection(Uuid::new_v4()));
         assert!(!filter.requires_recursive_cte());
 
         // With descendants - needs CTE

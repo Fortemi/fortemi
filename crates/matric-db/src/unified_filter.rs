@@ -155,7 +155,8 @@ impl UnifiedFilterQueryBuilder {
         // SECURITY FILTER
         // =====================================================================
         if let Some(ref security) = self.filter.security {
-            let (sec_clauses, sec_params, next_idx) = self.build_security_filter(security, param_idx);
+            let (sec_clauses, sec_params, next_idx) =
+                self.build_security_filter(security, param_idx);
             clauses.extend(sec_clauses);
             params.extend(sec_params);
             param_idx = next_idx;
@@ -176,7 +177,8 @@ impl UnifiedFilterQueryBuilder {
         // METADATA FILTER
         // =====================================================================
         if let Some(ref metadata) = self.filter.metadata {
-            let (meta_clauses, meta_params, next_idx) = self.build_metadata_filter(metadata, param_idx);
+            let (meta_clauses, meta_params, next_idx) =
+                self.build_metadata_filter(metadata, param_idx);
             clauses.extend(meta_clauses);
             params.extend(meta_params);
             let _ = next_idx; // Silence unused warning
@@ -223,8 +225,7 @@ impl UnifiedFilterQueryBuilder {
                 if let Some(after_time) = after {
                     param_idx += 1;
                     clauses.push(format!("n.id >= ${}", param_idx));
-                    let floor_uuid =
-                        matric_core::uuid_utils::v7_from_timestamp(&after_time);
+                    let floor_uuid = matric_core::uuid_utils::v7_from_timestamp(&after_time);
                     params.push(QueryParam::Uuid(floor_uuid));
                 }
 
@@ -335,9 +336,7 @@ impl UnifiedFilterQueryBuilder {
                 // Override if uncategorized should be excluded
                 if !collections.include_uncategorized {
                     clauses.pop();
-                    clauses.push(
-                        "n.collection_id IN (SELECT id FROM collection_tree)".to_string(),
-                    );
+                    clauses.push("n.collection_id IN (SELECT id FROM collection_tree)".to_string());
                 }
             } else {
                 // Simple collection filtering without recursion
@@ -376,7 +375,9 @@ impl UnifiedFilterQueryBuilder {
                     param_idx
                 ));
             }
-            params.push(QueryParam::UuidArray(collections.excluded_collections.clone()));
+            params.push(QueryParam::UuidArray(
+                collections.excluded_collections.clone(),
+            ));
         }
 
         (clauses, params, param_idx, cte, recursive)
@@ -460,8 +461,7 @@ impl UnifiedFilterQueryBuilder {
             && tags.any_concepts.is_empty()
         {
             clauses.push(
-                "EXISTS (SELECT 1 FROM note_skos_concept nsc WHERE nsc.note_id = n.id)"
-                    .to_string(),
+                "EXISTS (SELECT 1 FROM note_skos_concept nsc WHERE nsc.note_id = n.id)".to_string(),
             );
         }
 
@@ -677,8 +677,9 @@ mod tests {
 
     #[test]
     fn test_temporal_uuid_optimization() {
-        let filter = StrictFilter::new()
-            .with_temporal(StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisWeek));
+        let filter = StrictFilter::new().with_temporal(
+            StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisWeek),
+        );
 
         let builder = UnifiedFilterQueryBuilder::new(filter, 0);
         let result = builder.build();
@@ -709,7 +710,9 @@ mod tests {
     fn test_multi_dimension_filter() {
         let filter = StrictFilter::new()
             .with_tags(StrictTagFilter::new().require_concept(Uuid::new_v4()))
-            .with_temporal(StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisMonth))
+            .with_temporal(
+                StrictTemporalFilter::new().created_within(NamedTemporalRange::ThisMonth),
+            )
             .with_collections(StrictCollectionFilter::new().in_collection(Uuid::new_v4()))
             .with_metadata(MetadataFilter::new().starred_only().exclude_archived());
 
@@ -725,8 +728,8 @@ mod tests {
 
     #[test]
     fn test_param_offset() {
-        let filter = StrictFilter::new()
-            .with_tags(StrictTagFilter::new().require_concept(Uuid::new_v4()));
+        let filter =
+            StrictFilter::new().with_tags(StrictTagFilter::new().require_concept(Uuid::new_v4()));
 
         // Start with offset 5 (as if there are already 5 params in the query)
         let builder = UnifiedFilterQueryBuilder::new(filter, 5);

@@ -826,7 +826,10 @@ impl PgNoteRepository {
             };
         }
 
-        let count_row = count_q.fetch_one(&self.pool).await.map_err(Error::Database)?;
+        let count_row = count_q
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
         let total: i64 = count_row.get("count");
 
         // Notes query with pagination
@@ -866,7 +869,10 @@ impl PgNoteRepository {
         }
         notes_q = notes_q.bind(req.limit).bind(req.offset);
 
-        let rows = notes_q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+        let rows = notes_q
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         let notes = rows
             .into_iter()

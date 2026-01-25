@@ -80,7 +80,13 @@ pub fn v7_from_millis(millis: u64) -> Uuid {
         0x70, // Version 7 + 4 zero bits of rand_a
         0x00, // Remaining 8 bits of rand_a (zeros)
         0x80, // Variant (10) + 6 zero bits of rand_b
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // rand_b (zeros)
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00, // rand_b (zeros)
     ];
     Uuid::from_bytes(bytes)
 }
@@ -106,7 +112,13 @@ pub fn v7_ceiling_from_millis(millis: u64) -> Uuid {
         0x7F, // Version 7 + max rand_a bits
         0xFF, // Remaining rand_a (max)
         0xBF, // Variant (10) + max rand_b bits
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rand_b (max)
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF, // rand_b (max)
     ];
     Uuid::from_bytes(bytes)
 }
@@ -177,10 +189,7 @@ pub fn is_v4(uuid: &Uuid) -> bool {
 ///
 /// Returns (floor_uuid, ceiling_uuid) suitable for SQL range queries:
 /// `WHERE id >= floor AND id < ceiling`
-pub fn range_boundaries(
-    start: &DateTime<Utc>,
-    end: &DateTime<Utc>,
-) -> (Uuid, Uuid) {
+pub fn range_boundaries(start: &DateTime<Utc>, end: &DateTime<Utc>) -> (Uuid, Uuid) {
     (v7_from_timestamp(start), v7_ceiling_from_timestamp(end))
 }
 
@@ -228,10 +237,7 @@ mod tests {
 
         let extracted = extract_timestamp(&id).expect("should extract");
         // Should match to millisecond precision
-        assert_eq!(
-            ts.timestamp_millis(),
-            extracted.timestamp_millis()
-        );
+        assert_eq!(ts.timestamp_millis(), extracted.timestamp_millis());
     }
 
     #[test]
