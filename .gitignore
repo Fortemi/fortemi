@@ -25,6 +25,9 @@ Thumbs.db
 *.db
 *.sqlite
 
+# Database backups
+backup_*.sql
+
 # Coverage reports
 coverage/
 *.profraw
