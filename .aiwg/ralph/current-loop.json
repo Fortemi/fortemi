@@ -1,63 +1,72 @@
 {
   "active": false,
-  "task": "Implement Strict Tag Filtering feature (Epic #145)",
-  "completion": "cargo test passes, strict filter types exist, SQL query builder works, API accepts filters, MCP tools expose filtering",
-  "maxIterations": 50,
-  "currentIteration": 4,
-  "startTime": "2026-01-24T15:30:00Z",
-  "endTime": "2026-01-24T16:15:00Z",
-  "timeoutMinutes": 180,
+  "task": "Acquire, catalog, and evaluate research papers for matric-memory with comprehensive findings review",
+  "completion": "All core papers (REF-027 to REF-033) have comprehensive documentation, halo papers (REF-048 to REF-050) enhanced to full depth, matric-memory has citable-claims-index.md (33 claims), research-gap-analysis.md, and findings-review.md with detailed application analysis",
+  "maxIterations": 20,
+  "currentIteration": 5,
+  "startTime": "2026-01-25T12:00:00Z",
+  "endTime": "2026-01-25T14:30:00Z",
+  "timeoutMinutes": 120,
   "status": "SUCCESS",
-  "issues": [146, 147, 148, 149, 150, 151, 152, 153],
-  "epic": 145,
   "iterations": [
     {
       "number": 1,
-      "description": "Core types, SQL builder, and database indexes",
+      "description": "Core paper documentation (REF-027 to REF-033)",
       "filesModified": [
-        "crates/matric-core/src/search.rs",
-        "crates/matric-db/src/strict_filter.rs",
-        "crates/matric-db/src/lib.rs",
-        "migrations/20260124000000_strict_filter_indexes.sql"
+        "research-papers/documentation/references/REF-027-reciprocal-rank-fusion.md",
+        "research-papers/documentation/references/REF-028-bm25-probabilistic-relevance.md",
+        "research-papers/documentation/references/REF-029-dense-passage-retrieval.md",
+        "research-papers/documentation/references/REF-030-sentence-bert.md",
+        "research-papers/documentation/references/REF-031-hnsw-approximate-nn.md",
+        "research-papers/documentation/references/REF-032-knowledge-graphs-survey.md",
+        "research-papers/documentation/references/REF-033-skos-reference.md"
       ],
       "result": "success"
     },
     {
       "number": 2,
-      "description": "TagResolver service and HybridSearchConfig integration",
+      "description": "PDF downloads and halo paper documentation",
       "filesModified": [
-        "crates/matric-api/src/services/tag_resolver.rs",
-        "crates/matric-api/src/services/mod.rs",
-        "crates/matric-search/src/hybrid.rs",
-        "crates/matric-db/src/search.rs"
+        "research-papers/pdfs/full/REF-027-cormack-2009-rrf.pdf",
+        "research-papers/pdfs/full/REF-029-karpukhin-2020-dpr.pdf",
+        "research-papers/pdfs/full/REF-030-reimers-2019-sbert.pdf",
+        "research-papers/pdfs/full/REF-031-malkov-2018-hnsw.pdf",
+        "research-papers/pdfs/full/REF-032-hogan-2021-knowledge-graphs.pdf",
+        "research-papers/documentation/references/REF-048-colbert-late-interaction.md",
+        "research-papers/documentation/references/REF-049-contriever-unsupervised.md",
+        "research-papers/documentation/references/REF-050-e5-text-embeddings.md"
       ],
       "result": "success"
     },
     {
       "number": 3,
-      "description": "API endpoint integration and MCP tools",
+      "description": "Project-specific research documentation",
       "filesModified": [
-        "crates/matric-api/src/main.rs",
-        "crates/matric-api/src/openapi.yaml",
-        "mcp-server/index.js"
+        "matric-memory/.aiwg/research/citable-claims-index.md",
+        "matric-memory/.aiwg/research/research-gap-analysis.md",
+        "research-papers/INDEX.md",
+        "research-papers/indices/by-topic.md"
       ],
       "result": "success"
     },
     {
       "number": 4,
-      "description": "Integration tests and bug fixes",
+      "description": "Verification and REF number conflict resolution",
       "filesModified": [
-        "crates/matric-api/tests/strict_filter_integration_test.rs",
-        "crates/matric-api/src/services/tag_resolver.rs",
-        "crates/matric-db/src/skos_tags.rs"
+        "research-papers/INDEX.md",
+        "research-papers/indices/by-topic.md",
+        "matric-memory/.aiwg/research/citable-claims-index.md",
+        "matric-memory/.aiwg/research/research-gap-analysis.md"
       ],
       "result": "success",
-      "notes": "Fixed database enum casting issues for pmest_facet, tag_status, and skos_label_type columns. Added unique suffixes to test data to prevent duplicate key violations."
+      "notes": "Resolved REF number conflicts (blockchain papers REF-034 to REF-039 already existed). Renumbered halo IR papers to REF-048 to REF-050."
     }
   ],
   "learnings": [
-    "PostgreSQL enum columns require explicit casting (::enum_type) when binding string values from Rust",
-    "Integration tests that create database records need unique identifiers to avoid duplicate key violations on repeated runs",
-    "The create_concept and add_label functions in skos_tags.rs were missing enum casts for facet_type, status, and label_type columns"
+    "research-papers repo already had REF-034 to REF-039 for blockchain economics papers",
+    "Use higher REF numbers (REF-048+) to avoid conflicts with existing catalog",
+    "matric-memory research docs should be in .aiwg/research/ (not docs/research/)",
+    "BM25 paper (REF-028) is paywalled but formula is well-documented",
+    "SKOS (REF-033) is a W3C spec, not a traditional paper"
   ]
 }
