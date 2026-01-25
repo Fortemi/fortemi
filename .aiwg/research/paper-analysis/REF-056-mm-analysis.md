@@ -1,4 +1,4 @@
-# REF-048: ColBERT Late Interaction - matric-memory Analysis
+# REF-056: ColBERT Late Interaction - matric-memory Analysis
 
 **Paper:** Khattab, O. & Zaharia, M. (2020). ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT.
 
@@ -135,7 +135,7 @@ ON note_token_embeddings (note_id, chunk_index);
 
 use rayon::prelude::*;
 
-/// ColBERT reranker based on REF-048
+/// ColBERT reranker based on REF-056
 pub struct ColBERTReranker {
     pool: PgPool,
     model: ColBERTModel,  // Ollama or dedicated
@@ -418,7 +418,7 @@ Total:           46ms (acceptable)
 
 ## Summary
 
-REF-048 (ColBERT) represents a significant potential enhancement for matric-memory's search precision. By preserving token-level embeddings and using late interaction scoring, ColBERT can improve multi-concept query matching and provide explainable results. The main trade-off is storage (25 GB+ at scale).
+REF-056 (ColBERT) represents a significant potential enhancement for matric-memory's search precision. By preserving token-level embeddings and using late interaction scoring, ColBERT can improve multi-concept query matching and provide explainable results. The main trade-off is storage (25 GB+ at scale).
 
 **Implementation Status:** Not implemented
 **Priority:** Medium

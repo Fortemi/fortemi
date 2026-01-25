@@ -28,9 +28,9 @@ This analysis identifies 10 core papers currently supporting the implementation 
 | REF-031 | HNSW (Malkov & Yashunin, 2020) | Vector index algorithm | COMPLETE |
 | REF-032 | Knowledge Graphs (Hogan et al., 2021) | Semantic linking patterns | COMPLETE |
 | REF-033 | SKOS (Miles & Bechhofer, 2009) | Tagging system foundation | COMPLETE |
-| REF-048 | ColBERT (Khattab & Zaharia, 2020) | Late interaction (future) | COMPLETE |
-| REF-049 | Contriever (Izacard et al., 2022) | Unsupervised retrieval | COMPLETE |
-| REF-050 | E5 (Wang et al., 2022) | State-of-the-art embeddings | COMPLETE |
+| REF-056 | ColBERT (Khattab & Zaharia, 2020) | Late interaction (future) | COMPLETE |
+| REF-057 | Contriever (Izacard et al., 2022) | Unsupervised retrieval | COMPLETE |
+| REF-058 | E5 (Wang et al., 2022) | State-of-the-art embeddings | COMPLETE |
 
 ### Coverage by Feature Area
 
@@ -41,8 +41,8 @@ This analysis identifies 10 core papers currently supporting the implementation 
 | Knowledge Graph | REF-032 | Strong |
 | SKOS Tagging | REF-033 | Strong |
 | AI Revision | REF-008 | Moderate |
-| Re-ranking | REF-048 | Documented (not implemented) |
-| Embeddings | REF-049, REF-050 | Strong alternatives |
+| Re-ranking | REF-056 | Documented (not implemented) |
+| Embeddings | REF-057, REF-058 | Strong alternatives |
 
 ## Gap Analysis: Papers Needed (P1 - Critical)
 
@@ -175,7 +175,7 @@ bibliographies/master.bib (append entry)
 
 ### Immediate (Current Iteration)
 - [x] Document REF-027 to REF-033 (core papers)
-- [x] Document REF-048 to REF-050 (halo papers)
+- [x] Document REF-056 to REF-058 (halo papers)
 - [x] Create citable-claims-index.md
 - [x] Create research-gap-analysis.md
 

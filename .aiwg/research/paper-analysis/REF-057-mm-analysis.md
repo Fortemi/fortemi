@@ -1,4 +1,4 @@
-# REF-049: Contriever Unsupervised Training - matric-memory Analysis
+# REF-057: Contriever Unsupervised Training - matric-memory Analysis
 
 **Paper:** Izacard, G., et al. (2022). Unsupervised Dense Information Retrieval with Contrastive Learning. TMLR.
 
@@ -333,7 +333,7 @@ pub async fn search_ab_test(
 |-------|---------------------------|
 | REF-029 (DPR) | Supervised baseline Contriever improves |
 | REF-030 (SBERT) | Similar architecture, different training |
-| REF-050 (E5) | Alternative with weak supervision |
+| REF-058 (E5) | Alternative with weak supervision |
 
 ### Planned Code Locations
 
@@ -369,7 +369,7 @@ pub async fn search_ab_test(
           ┌─────────────────┐   ┌─────────────────┐
           │  Consider       │   │  Try E5 or      │
           │  Contriever     │   │  other model    │
-          │  fine-tuning    │   │  (REF-050)      │
+          │  fine-tuning    │   │  (REF-058)      │
           └─────────────────┘   └─────────────────┘
 ```
 
@@ -425,7 +425,7 @@ pub async fn search_ab_test(
 
 ## Summary
 
-REF-049 (Contriever) offers a path to domain-specific embedding improvement without labeled data. By using Independent Cropping on existing matric-memory notes, a fine-tuned model could better understand user-specific terminology and concepts. This is a lower priority enhancement to explore if search quality issues arise with specific content types.
+REF-057 (Contriever) offers a path to domain-specific embedding improvement without labeled data. By using Independent Cropping on existing matric-memory notes, a fine-tuned model could better understand user-specific terminology and concepts. This is a lower priority enhancement to explore if search quality issues arise with specific content types.
 
 **Implementation Status:** Not implemented
 **Priority:** Low (consider if domain issues arise)

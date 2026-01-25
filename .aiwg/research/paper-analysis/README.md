@@ -40,9 +40,9 @@ These analyses go beyond academic summaries to show **how each paper directly ap
 
 | Paper | Analysis | Primary Impact |
 |-------|----------|----------------|
-| REF-048 | [REF-048-mm-analysis.md](REF-048-mm-analysis.md) | ColBERT reranking (future) |
-| REF-049 | [REF-049-mm-analysis.md](REF-049-mm-analysis.md) | Contriever domain adaptation (future) |
-| REF-050 | [REF-050-mm-analysis.md](REF-050-mm-analysis.md) | E5 embedding evaluation (future) |
+| REF-056 | [REF-056-mm-analysis.md](REF-056-mm-analysis.md) | ColBERT reranking (future) |
+| REF-057 | [REF-057-mm-analysis.md](REF-057-mm-analysis.md) | Contriever domain adaptation (future) |
+| REF-058 | [REF-058-mm-analysis.md](REF-058-mm-analysis.md) | E5 embedding evaluation (future) |
 
 ## Cross-Cutting Themes
 
@@ -96,15 +96,15 @@ Notes → [Similarity > 0.7] → Semantic Links (REF-032)
 
 ### 4. Future Enhancements
 
-Papers: REF-048, REF-049, REF-050
+Papers: REF-056, REF-057, REF-058
 
 Potential improvements identified from research:
 
 | Enhancement | Paper | Benefit | Complexity |
 |-------------|-------|---------|------------|
-| ColBERT reranking | REF-048 | +5% precision | High (token storage) |
-| Domain adaptation | REF-049 | Better domain fit | Medium (fine-tuning) |
-| E5 embeddings | REF-050 | SOTA quality | Low (model swap) |
+| ColBERT reranking | REF-056 | +5% precision | High (token storage) |
+| Domain adaptation | REF-057 | Better domain fit | Medium (fine-tuning) |
+| E5 embeddings | REF-058 | SOTA quality | Low (model swap) |
 
 ## Quick Reference: Paper → Code
 

@@ -265,7 +265,7 @@ pub fn weighted_rrf_score(
 |-------|---------------------|
 | REF-028 (BM25) | Provides lexical ranks for fusion |
 | REF-029 (DPR) | Provides semantic ranks for fusion |
-| REF-048 (ColBERT) | Could add third ranker to fusion |
+| REF-056 (ColBERT) | Could add third ranker to fusion |
 
 ### Related Code Locations
 

@@ -279,9 +279,9 @@ For future fine-tuning:
 | REF-027 (RRF) | Fuses DPR results with BM25 |
 | REF-030 (SBERT) | Alternative embedding approach |
 | REF-031 (HNSW) | Index structure for DPR vectors |
-| REF-048 (ColBERT) | Alternative dense retrieval |
-| REF-049 (Contriever) | Unsupervised DPR training |
-| REF-050 (E5) | Alternative embedding model |
+| REF-056 (ColBERT) | Alternative dense retrieval |
+| REF-057 (Contriever) | Unsupervised DPR training |
+| REF-058 (E5) | Alternative embedding model |
 
 ### Related Code Locations
 

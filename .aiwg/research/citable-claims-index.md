@@ -77,22 +77,22 @@ This document indexes technical claims and implementation decisions in matric-me
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| ColBERT's MaxSim achieves 100x speedup over BERT re-ranking with 2% quality loss | REF-048 | Khattab & Zaharia (2020), Table 1 | planned: re-ranking stage |
-| Token-level interaction provides finer-grained matching than single-vector similarity | REF-048 | Khattab & Zaharia (2020), Section 3 | planned enhancement |
+| ColBERT's MaxSim achieves 100x speedup over BERT re-ranking with 2% quality loss | REF-056 | Khattab & Zaharia (2020), Table 1 | planned: re-ranking stage |
+| Token-level interaction provides finer-grained matching than single-vector similarity | REF-056 | Khattab & Zaharia (2020), Section 3 | planned enhancement |
 
 ### Unsupervised Dense Retrieval
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| Contriever's unsupervised training outperforms BM25 on 11/15 BEIR datasets | REF-049 | Izacard et al. (2022), Table 2 | alternative embedding approach |
-| Independent cropping creates effective positive pairs without labels | REF-049 | Izacard et al. (2022), Section 3 | training methodology |
+| Contriever's unsupervised training outperforms BM25 on 11/15 BEIR datasets | REF-057 | Izacard et al. (2022), Table 2 | alternative embedding approach |
+| Independent cropping creates effective positive pairs without labels | REF-057 | Izacard et al. (2022), Section 3 | training methodology |
 
 ### State-of-the-Art Embeddings
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| E5 is first embedding model to beat BM25 zero-shot on BEIR | REF-050 | Wang et al. (2022), Table 1 | potential model upgrade |
-| Weakly-supervised training on web-scraped pairs achieves SOTA with 40x fewer parameters | REF-050 | Wang et al. (2022), Section 4 | efficiency consideration |
+| E5 is first embedding model to beat BM25 zero-shot on BEIR | REF-058 | Wang et al. (2022), Table 1 | potential model upgrade |
+| Weakly-supervised training on web-scraped pairs achieves SOTA with 40x fewer parameters | REF-058 | Wang et al. (2022), Section 4 | efficiency consideration |
 
 ## Implementation Statistics
 
@@ -105,7 +105,7 @@ This document indexes technical claims and implementation decisions in matric-me
 | Vector Indexing | 4 | REF-031 |
 | Knowledge Graphs | 4 | REF-032 |
 | SKOS Tagging | 5 | REF-033 |
-| Future Enhancements | 5 | REF-048, REF-049, REF-050 |
+| Future Enhancements | 5 | REF-056, REF-057, REF-058 |
 | **Total** | **33** | **10** |
 
 ## Usage Guidelines

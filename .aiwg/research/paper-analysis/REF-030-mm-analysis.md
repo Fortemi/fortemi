@@ -243,7 +243,7 @@ nomic-embed-text incorporates SBERT principles with improvements:
 | REF-029 (DPR) | Alternative sentence embedding approach |
 | REF-031 (HNSW) | Index for SBERT embeddings |
 | REF-032 (KG) | Linked using SBERT similarity |
-| REF-050 (E5) | Potential SBERT alternative |
+| REF-058 (E5) | Potential SBERT alternative |
 
 ### Related Code Locations
 

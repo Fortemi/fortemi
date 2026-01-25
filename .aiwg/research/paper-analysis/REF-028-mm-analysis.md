@@ -257,7 +257,7 @@ b = 1.0: Full normalization (short docs heavily boosted)
 |-------|---------------------|
 | REF-027 (RRF) | BM25 ranks fused with semantic |
 | REF-029 (DPR) | Dense retrieval alternative/complement |
-| REF-048 (ColBERT) | Potential reranker over BM25 results |
+| REF-056 (ColBERT) | Potential reranker over BM25 results |
 
 ### Related Code Locations
 

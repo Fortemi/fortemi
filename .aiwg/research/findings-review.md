@@ -17,9 +17,9 @@ matric-memory's architecture is built on a solid foundation of peer-reviewed res
 - W3C SKOS tagging system with hierarchical relations (REF-033)
 
 **Future Enhancement Opportunities:**
-- ColBERT late-interaction reranking for precision (REF-048)
-- Contriever-style domain adaptation without labels (REF-049)
-- E5 embeddings for potential quality improvement (REF-050)
+- ColBERT late-interaction reranking for precision (REF-056)
+- Contriever-style domain adaptation without labels (REF-057)
+- E5 embeddings for potential quality improvement (REF-058)
 
 ---
 
@@ -232,7 +232,7 @@ CREATE TABLE skos_labels (
 
 ## Part III: Future Enhancement Opportunities
 
-### 8. ColBERT Late Interaction (REF-048)
+### 8. ColBERT Late Interaction (REF-056)
 
 **Finding:** Token-level matching via MaxSim achieves 100x speedup over BERT reranking while maintaining 98% of quality.
 
@@ -259,7 +259,7 @@ Proposed: Query → BM25+Semantic → RRF (top 100) → ColBERT → Top 10
 
 ---
 
-### 9. Contriever Unsupervised Training (REF-049)
+### 9. Contriever Unsupervised Training (REF-057)
 
 **Finding:** Dense retrieval can be trained without labeled data using Independent Cropping, achieving 4% improvement over BM25 on BEIR.
 
@@ -281,7 +281,7 @@ Proposed: Query → BM25+Semantic → RRF (top 100) → ColBERT → Top 10
 
 ---
 
-### 10. E5 Text Embeddings (REF-050)
+### 10. E5 Text Embeddings (REF-058)
 
 **Finding:** Weakly-supervised pre-training on 270M web pairs achieves SOTA performance at 40x fewer parameters than alternatives.
 

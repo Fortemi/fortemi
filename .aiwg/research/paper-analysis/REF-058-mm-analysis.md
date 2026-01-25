@@ -1,4 +1,4 @@
-# REF-050: E5 Text Embeddings - matric-memory Analysis
+# REF-058: E5 Text Embeddings - matric-memory Analysis
 
 **Paper:** Wang, L., et al. (2022). Text Embeddings by Weakly-Supervised Contrastive Pre-training.
 
@@ -356,7 +356,7 @@ pub async fn evaluate_model(
 |-------|-------------------|
 | REF-029 (DPR) | Supervised baseline E5 improves |
 | REF-030 (SBERT) | Training methodology inspiration |
-| REF-049 (Contriever) | Unsupervised alternative |
+| REF-057 (Contriever) | Unsupervised alternative |
 
 ### Planned Code Locations
 
@@ -457,7 +457,7 @@ If decision is to migrate:
 
 ## Summary
 
-REF-050 (E5) offers a potential quality improvement for matric-memory's embeddings. Key trade-offs:
+REF-058 (E5) offers a potential quality improvement for matric-memory's embeddings. Key trade-offs:
 
 | Aspect | nomic-embed-text | E5-base |
 |--------|------------------|---------|
