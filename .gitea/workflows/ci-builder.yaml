@@ -79,10 +79,26 @@ jobs:
 
       - name: Run migrations
         run: |
+          set -e
+          echo "Database URL: postgres://matric:***@postgres:5432/matric_test"
+
+          # Verify pgvector extension is available
+          psql "$DATABASE_URL" -c "SELECT * FROM pg_available_extensions WHERE name = 'vector';" || true
+
+          # Run migrations in order
           for f in migrations/*.sql; do
+            echo "======================================"
             echo "Running migration: $f"
-            psql "$DATABASE_URL" -f "$f"
+            echo "======================================"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+            echo "Migration $f completed successfully"
           done
+
+          # Verify tables were created
+          echo "======================================"
+          echo "Verifying database schema..."
+          echo "======================================"
+          psql "$DATABASE_URL" -c "\dt" | head -30
 
       - name: Run unit tests
         run: cargo test --workspace
