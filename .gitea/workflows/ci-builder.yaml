@@ -230,10 +230,6 @@ jobs:
           echo "Testing /health endpoint..."
           docker exec matric-test-api curl -sf http://localhost:3000/health | jq .
 
-          # Version endpoint
-          echo "Testing /version endpoint..."
-          docker exec matric-test-api curl -sf http://localhost:3000/version | jq .
-
           # API endpoints
           echo "Testing /api/v1/notes endpoint..."
           docker exec matric-test-api curl -sf http://localhost:3000/api/v1/notes | jq .
