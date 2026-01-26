@@ -328,10 +328,8 @@ mod tests {
     #[test]
     fn test_revision_prompt_with_examples() {
         let examples = default_revision_examples();
-        let builder = FewShotPromptBuilder::new(
-            examples,
-            "Enhance with structure and clarity.".to_string(),
-        );
+        let builder =
+            FewShotPromptBuilder::new(examples, "Enhance with structure and clarity.".to_string());
 
         let prompt = builder.build_revision_prompt("some raw note", "related context");
         assert!(prompt.contains("Example 1"));
@@ -344,8 +342,7 @@ mod tests {
 
     #[test]
     fn test_revision_prompt_no_examples() {
-        let builder =
-            FewShotPromptBuilder::new(vec![], "Enhance with structure.".to_string());
+        let builder = FewShotPromptBuilder::new(vec![], "Enhance with structure.".to_string());
 
         let prompt = builder.build_revision_prompt("raw note", "context");
         assert!(!prompt.contains("Example"));
@@ -356,8 +353,7 @@ mod tests {
     #[test]
     fn test_title_prompt_with_examples() {
         let examples = default_title_examples();
-        let builder =
-            FewShotPromptBuilder::new(examples, "Generate a concise title.".to_string());
+        let builder = FewShotPromptBuilder::new(examples, "Generate a concise title.".to_string());
 
         let prompt = builder.build_title_prompt("Some content about databases.");
         assert!(prompt.contains("Content:"));
@@ -374,8 +370,7 @@ mod tests {
             tags: vec![],
             quality_score: 0.9,
         }];
-        let builder =
-            FewShotPromptBuilder::new(examples, "Extract relevant tags.".to_string());
+        let builder = FewShotPromptBuilder::new(examples, "Extract relevant tags.".to_string());
 
         let prompt = builder.build_tag_prompt("Content about Docker containers.");
         assert!(prompt.contains("Tags:"));
@@ -386,8 +381,7 @@ mod tests {
     fn test_example_count() {
         let examples = default_revision_examples();
         let count = examples.len();
-        let builder =
-            FewShotPromptBuilder::new(examples, "task".to_string());
+        let builder = FewShotPromptBuilder::new(examples, "task".to_string());
         assert_eq!(builder.example_count(), count);
     }
 

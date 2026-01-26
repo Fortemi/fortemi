@@ -66,17 +66,15 @@ pub use capabilities::{
 pub use discovery::{
     ConfigRecommendation, DiscoveredModel, DiscoveryError, DiscoveryResult, ModelDiscovery,
 };
-pub use embedding_models::{
-    EmbeddingModelProfile, EmbeddingModelRegistry, EmbeddingSymmetry,
-};
-pub use few_shot::{
-    default_revision_examples, default_title_examples, ExampleType, FewShotConfig,
-    FewShotExample, FewShotPromptBuilder, SelectionStrategy,
-};
+pub use embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry, EmbeddingSymmetry};
 pub use eval::{
     content_revision_suite, cosine_similarity, evaluate_semantic, evaluate_title,
     semantic_similarity_suite, title_generation_suite, EvalReport, EvalResult, EvalSummary,
     RevisionTestCase, SemanticTestCase, TitleTestCase,
+};
+pub use few_shot::{
+    default_revision_examples, default_title_examples, ExampleType, FewShotConfig, FewShotExample,
+    FewShotPromptBuilder, SelectionStrategy,
 };
 pub use hardware::{
     cloud_comparisons, tier_model_recommendations, tier_quality_expectations, CloudComparison,
@@ -92,11 +90,11 @@ pub use link_types::{
 pub use model_config::{
     is_model_restricted, validate_model, ModelRestriction, ModelValidationError, RestrictionType,
 };
+pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use refinement::{
     parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
     reflexion_prompt, self_critique_prompt, Episode, EpisodeOutcome, ReActStep, ReActTrace,
     RefineIteration, ReflexionMemory, SelfRefineConfig, SelfRefineResult,
 };
-pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use selector::{KmOperation, ModelSelection, ModelSelector, RecommendedConfig};
 pub use thinking::{detect_thinking_type, parse_thinking_response, ThinkingResponse};
