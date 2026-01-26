@@ -192,8 +192,8 @@ CREATE TABLE skos_concept_label (
     -- Timestamps
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- Note: prefLabel uniqueness enforced via partial index below
-    PRIMARY KEY (concept_id, label_type, language, value)
+    -- Ensure no duplicate labels for the same concept
+    CONSTRAINT unique_label UNIQUE (concept_id, label_type, language, value)
 );
 
 -- Add partial unique index for pref_label constraint (PostgreSQL workaround)
