@@ -108,7 +108,7 @@ jobs:
 
   integration-test:
     name: Integration Tests (GPU)
-    runs-on: matric-builder-gpu
+    runs-on: titan
     needs: lint
     timeout-minutes: 30
     env:
