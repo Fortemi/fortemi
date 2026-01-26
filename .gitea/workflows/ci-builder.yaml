@@ -163,27 +163,30 @@ jobs:
 
           # Create docker-compose override to use local image
           cat > docker-compose.test-override.yml << 'EOF'
+          version: '3.8'
           services:
             api:
               image: matric-memory:test
           EOF
 
-          # Start test environment with isolated ports
-          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml up -d api db
+          # Start test environment with isolated ports (use docker-compose for V1 compatibility)
+          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml up -d api db
 
           # Wait for services to be healthy
           echo "Waiting for services to be healthy..."
           for i in {1..60}; do
-            if docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps | grep -q "healthy"; then
-              echo "Services are healthy!"
+            if docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps | grep -q "Up"; then
+              echo "Services are up!"
+              # Additional wait for healthcheck
+              sleep 10
               break
             fi
-            echo "Waiting for health check... ($i/60)"
+            echo "Waiting for containers to start... ($i/60)"
             sleep 2
           done
 
           # Show container status
-          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps
+          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps
 
       - name: Run container tests
         run: |
@@ -212,7 +215,7 @@ jobs:
         if: always()
         run: |
           echo "Cleaning up test environment..."
-          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml down -v --remove-orphans || true
+          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml down -v --remove-orphans || true
           rm -f docker-compose.test-override.yml
 
   integration-test:
