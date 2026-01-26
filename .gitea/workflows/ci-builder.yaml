@@ -205,10 +205,10 @@ jobs:
             -e PORT=3000 \
             matric-memory:test
 
-          # Wait for API to be healthy
+          # Wait for API to be healthy (use docker exec for DinD environment)
           echo "Waiting for API to start..."
           for i in {1..60}; do
-            if curl -sf http://localhost:13001/health >/dev/null 2>&1; then
+            if docker exec matric-test-api curl -sf http://localhost:3000/health >/dev/null 2>&1; then
               echo "API is healthy!"
               break
             fi
@@ -223,20 +223,20 @@ jobs:
         run: |
           set -e
           echo "======================================"
-          echo "Testing API on isolated port 3001"
+          echo "Testing API container via docker network"
           echo "======================================"
 
-          # Health check
+          # Health check (use docker exec since we're in DinD environment)
           echo "Testing /health endpoint..."
-          curl -sf http://localhost:13001/health | jq .
+          docker exec matric-test-api curl -sf http://localhost:3000/health | jq .
 
           # Version endpoint
           echo "Testing /version endpoint..."
-          curl -sf http://localhost:13001/version | jq .
+          docker exec matric-test-api curl -sf http://localhost:3000/version | jq .
 
           # API endpoints
           echo "Testing /api/v1/notes endpoint..."
-          curl -sf http://localhost:13001/api/v1/notes | jq .
+          docker exec matric-test-api curl -sf http://localhost:3000/api/v1/notes | jq .
 
           echo "======================================"
           echo "All container tests passed!"
