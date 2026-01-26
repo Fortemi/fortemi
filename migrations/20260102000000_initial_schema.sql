@@ -329,8 +329,9 @@ CREATE INDEX idx_note_security_compound ON note(tenant_id, owner_id, visibility)
 -- Share grant indices
 CREATE INDEX idx_share_grant_note ON note_share_grant(note_id);
 CREATE INDEX idx_share_grant_grantee ON note_share_grant(grantee_id);
+-- Active grants: not explicitly revoked (expiration checked at query time)
 CREATE INDEX idx_share_grant_active ON note_share_grant(grantee_id, note_id)
-  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW());
+  WHERE revoked_at IS NULL;
 
 -- Note original indices
 CREATE INDEX idx_note_original_user_edited ON note_original(user_last_edited_at DESC);
