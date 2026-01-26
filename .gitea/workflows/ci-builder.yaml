@@ -6,10 +6,18 @@
 #   2. Register runner with matric-builder label (see build/RUNNER_SETUP.md)
 #   3. Rename this file to ci.yaml
 #
+# Pipeline Order:
+#   1. Lint - Static analysis (fmt, clippy)
+#   2. Build - Compile release binaries + unit tests
+#   3. Build Image - Create Docker image
+#   4. Test Container - Deploy and test in isolated environment (port 3001)
+#   5. Integration Tests (GPU) - Ollama/inference tests on titan
+#   6. Publish - Push verified image to registry
+#
 # Benefits:
 #   - Consistent build environment across all runners
-#   - No need to install Rust/tools on runner hosts
-#   - Pinned tool versions in builder image
+#   - Tests run against actual deployed container, not just compiled code
+#   - Isolated test environment with dedicated ports (3001)
 #   - Reproducible builds
 
 name: CI (Builder)
@@ -37,16 +45,14 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      # No tool installation needed - everything in builder image
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  test:
-    name: Test
+  build:
+    name: Build & Unit Test
     runs-on: matric-builder
     needs: lint
     services:
@@ -100,16 +106,119 @@ jobs:
           echo "======================================"
           psql "$DATABASE_URL" -c "\dt" | head -30
 
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Verify binaries
+        run: |
+          ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
+
       - name: Run unit tests
         run: cargo test --workspace
 
       - name: Run doc tests
         run: cargo test --doc
 
+  build-image:
+    name: Build Docker Image
+    runs-on: matric-builder
+    needs: build
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build Docker image
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          docker build \
+            --build-arg VERSION=test-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t matric-memory:test .
+
+          echo "Built image: matric-memory:test"
+          docker images matric-memory:test
+
+  test-container:
+    name: Test Container (Isolated)
+    runs-on: matric-builder
+    needs: build-image
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Deploy test environment
+        run: |
+          echo "Starting isolated test environment on port 3001..."
+
+          # Use local test image
+          export IMAGE_TAG=test
+          export REGISTRY=""
+
+          # Create docker-compose override to use local image
+          cat > docker-compose.test-override.yml << 'EOF'
+          services:
+            api:
+              image: matric-memory:test
+          EOF
+
+          # Start test environment with isolated ports
+          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml up -d api db
+
+          # Wait for services to be healthy
+          echo "Waiting for services to be healthy..."
+          for i in {1..60}; do
+            if docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps | grep -q "healthy"; then
+              echo "Services are healthy!"
+              break
+            fi
+            echo "Waiting for health check... ($i/60)"
+            sleep 2
+          done
+
+          # Show container status
+          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps
+
+      - name: Run container tests
+        run: |
+          set -e
+          echo "======================================"
+          echo "Testing API on isolated port 3001"
+          echo "======================================"
+
+          # Health check
+          echo "Testing /health endpoint..."
+          curl -sf http://localhost:3001/health | jq .
+
+          # Version endpoint
+          echo "Testing /version endpoint..."
+          curl -sf http://localhost:3001/version | jq .
+
+          # API endpoints
+          echo "Testing /api/v1/notes endpoint..."
+          curl -sf http://localhost:3001/api/v1/notes | jq .
+
+          echo "======================================"
+          echo "All container tests passed!"
+          echo "======================================"
+
+      - name: Teardown test environment
+        if: always()
+        run: |
+          echo "Cleaning up test environment..."
+          docker compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml down -v --remove-orphans || true
+          rm -f docker-compose.test-override.yml
+
   integration-test:
     name: Integration Tests (GPU)
     runs-on: titan
-    needs: lint
+    needs: build
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
@@ -130,29 +239,11 @@ jobs:
       - name: Run integration tests
         run: cargo test --package matric-inference --features integration
 
-  build:
-    name: Build
-    runs-on: matric-builder
-    needs: [test, integration-test]
-    if: always() && needs.test.result == 'success'
-    steps:
-      - name: Checkout
-        run: |
-          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
-
-      - name: Build release
-        run: cargo build --release --workspace
-
-      - name: Verify binaries
-        run: |
-          ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
-
   # Dev image - pushes on every main branch commit
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: build
+    needs: [test-container, integration-test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout
@@ -186,7 +277,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: build
+    needs: [test-container, integration-test]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
