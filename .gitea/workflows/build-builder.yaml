@@ -1,0 +1,79 @@
+name: Build Builder Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: git.integrolabs.net
+  IMAGE_NAME: roctinam/matric-memory/builder
+
+jobs:
+  build-builder:
+    name: Build and Push Builder Image
+    runs-on: titan
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registry
+        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build builder image
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "Building builder image..."
+          docker build \
+            -f build/Dockerfile.builder \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:latest \
+            -t ${IMAGE}:sha-${SHORT_SHA} \
+            .
+
+      - name: Test builder image
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+
+          echo "Testing builder image..."
+
+          # Test Rust toolchain
+          docker run --rm ${IMAGE}:latest rustc --version
+          docker run --rm ${IMAGE}:latest cargo --version
+
+          # Test components
+          docker run --rm ${IMAGE}:latest cargo fmt --version
+          docker run --rm ${IMAGE}:latest cargo clippy --version
+
+          # Test sqlx
+          docker run --rm ${IMAGE}:latest sqlx --version
+
+          # Test Node.js
+          docker run --rm ${IMAGE}:latest node --version
+          docker run --rm ${IMAGE}:latest npm --version
+
+          # Test Docker CLI
+          docker run --rm ${IMAGE}:latest docker --version
+
+          echo "All tests passed!"
+
+      - name: Push builder image
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          echo "Pushing builder images..."
+          docker push ${IMAGE}:latest
+          docker push ${IMAGE}:sha-${SHORT_SHA}
+
+          echo "Published builder images:"
+          echo "  - ${IMAGE}:latest"
+          echo "  - ${IMAGE}:sha-${SHORT_SHA}"
