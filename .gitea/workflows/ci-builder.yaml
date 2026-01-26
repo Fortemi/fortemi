@@ -155,38 +155,63 @@ jobs:
 
       - name: Deploy test environment
         run: |
+          set -e
           echo "Starting isolated test environment on port 3001..."
 
-          # Use local test image
-          export IMAGE_TAG=test
-          export REGISTRY=""
+          # Create test network
+          docker network create matric-test-net || true
 
-          # Create docker-compose override to use local image
-          cat > docker-compose.test-override.yml << 'EOF'
-          version: '3.8'
-          services:
-            api:
-              image: matric-memory:test
-          EOF
+          # Start PostgreSQL with pgvector
+          echo "Starting PostgreSQL..."
+          docker run -d --name matric-test-db \
+            --network matric-test-net \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric \
+            pgvector/pgvector:pg16
 
-          # Start test environment with isolated ports (use docker-compose for V1 compatibility)
-          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml up -d api db
-
-          # Wait for services to be healthy
-          echo "Waiting for services to be healthy..."
-          for i in {1..60}; do
-            if docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps | grep -q "Up"; then
-              echo "Services are up!"
-              # Additional wait for healthcheck
-              sleep 10
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL..."
+          for i in {1..30}; do
+            if docker exec matric-test-db pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
               break
             fi
-            echo "Waiting for containers to start... ($i/60)"
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+          # Run migrations
+          echo "Running migrations..."
+          for f in migrations/*.sql; do
+            echo "Running $f..."
+            docker exec -i matric-test-db psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
+          done
+
+          # Start the API container on isolated port 3001
+          echo "Starting API container..."
+          docker run -d --name matric-test-api \
+            --network matric-test-net \
+            -p 3001:3000 \
+            -e DATABASE_URL=postgres://matric:matric@matric-test-db:5432/matric \
+            -e RUST_LOG=info \
+            -e HOST=0.0.0.0 \
+            -e PORT=3000 \
+            matric-memory:test
+
+          # Wait for API to be healthy
+          echo "Waiting for API to start..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+              echo "API is healthy!"
+              break
+            fi
+            echo "Waiting for API... ($i/60)"
             sleep 2
           done
 
           # Show container status
-          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml ps
+          docker ps --filter name=matric-test
 
       - name: Run container tests
         run: |
@@ -215,8 +240,9 @@ jobs:
         if: always()
         run: |
           echo "Cleaning up test environment..."
-          docker-compose -f build/docker-compose.test.yml -f docker-compose.test-override.yml down -v --remove-orphans || true
-          rm -f docker-compose.test-override.yml
+          docker stop matric-test-api matric-test-db 2>/dev/null || true
+          docker rm matric-test-api matric-test-db 2>/dev/null || true
+          docker network rm matric-test-net 2>/dev/null || true
 
   integration-test:
     name: Integration Tests (GPU)
