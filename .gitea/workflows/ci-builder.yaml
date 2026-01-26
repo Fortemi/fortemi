@@ -49,11 +49,40 @@ jobs:
     name: Test
     runs-on: matric-builder
     needs: lint
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: matric
+          POSTGRES_PASSWORD: matric
+          POSTGRES_DB: matric_test
+        options: >-
+          --health-cmd "pg_isready -U matric"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://matric:matric@postgres:5432/matric_test
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            pg_isready -h postgres -U matric && break
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          for f in migrations/*.sql; do
+            echo "Running migration: $f"
+            psql "$DATABASE_URL" -f "$f"
+          done
 
       - name: Run unit tests
         run: cargo test --workspace
