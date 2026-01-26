@@ -156,7 +156,7 @@ jobs:
       - name: Deploy test environment
         run: |
           set -e
-          echo "Starting isolated test environment on port 3001..."
+          echo "Starting isolated test environment on port 13001..."
 
           # Clean up any leftover containers from previous runs
           echo "Cleaning up any existing test containers..."
@@ -194,11 +194,11 @@ jobs:
             docker exec -i matric-test-db psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
           done
 
-          # Start the API container on isolated port 3001
+          # Start the API container on isolated port 13001
           echo "Starting API container..."
           docker run -d --name matric-test-api \
             --network matric-test-net \
-            -p 3001:3000 \
+            -p 13001:3000 \
             -e DATABASE_URL=postgres://matric:matric@matric-test-db:5432/matric \
             -e RUST_LOG=info \
             -e HOST=0.0.0.0 \
@@ -208,7 +208,7 @@ jobs:
           # Wait for API to be healthy
           echo "Waiting for API to start..."
           for i in {1..60}; do
-            if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+            if curl -sf http://localhost:13001/health >/dev/null 2>&1; then
               echo "API is healthy!"
               break
             fi
@@ -228,15 +228,15 @@ jobs:
 
           # Health check
           echo "Testing /health endpoint..."
-          curl -sf http://localhost:3001/health | jq .
+          curl -sf http://localhost:13001/health | jq .
 
           # Version endpoint
           echo "Testing /version endpoint..."
-          curl -sf http://localhost:3001/version | jq .
+          curl -sf http://localhost:13001/version | jq .
 
           # API endpoints
           echo "Testing /api/v1/notes endpoint..."
-          curl -sf http://localhost:3001/api/v1/notes | jq .
+          curl -sf http://localhost:13001/api/v1/notes | jq .
 
           echo "======================================"
           echo "All container tests passed!"
