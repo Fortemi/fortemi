@@ -158,6 +158,12 @@ jobs:
           set -e
           echo "Starting isolated test environment on port 3001..."
 
+          # Clean up any leftover containers from previous runs
+          echo "Cleaning up any existing test containers..."
+          docker stop matric-test-api matric-test-db 2>/dev/null || true
+          docker rm matric-test-api matric-test-db 2>/dev/null || true
+          docker network rm matric-test-net 2>/dev/null || true
+
           # Create test network
           docker network create matric-test-net || true
 
