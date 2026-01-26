@@ -18,7 +18,11 @@ impl PgFtsSearch {
         Self { pool }
     }
 
-    /// Perform full-text search on notes.
+    /// Perform full-text search on notes using BM25F field-weighted scoring.
+    ///
+    /// Combines weighted tsvectors from title (weight A), tags (weight B),
+    /// and content (weight C) to produce field-weighted ranking.
+    /// This implements BM25F-style scoring where title matches rank highest.
     pub async fn search(
         &self,
         query: &str,
@@ -31,10 +35,22 @@ impl PgFtsSearch {
             "AND n.deleted_at IS NULL"
         };
 
+        // BM25F field-weighted scoring: title (A=1.0) > tags (B=0.4) > content (C=0.2)
+        // Uses setweight() to assign different weights to different fields,
+        // then ts_rank with normalization flag 32 (divides by rank + 1) for BM25-like behavior.
         let sql = format!(
             r#"
             SELECT n.id as note_id,
-                   ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
+                   ts_rank(
+                       setweight(COALESCE(to_tsvector('english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE((
+                           SELECT to_tsvector('english', string_agg(tag_name, ' '))
+                           FROM note_tag WHERE note_id = n.id
+                       ), ''::tsvector), 'B') ||
+                       setweight(nrc.tsv, 'C'),
+                       plainto_tsquery('english', $1),
+                       32
+                   ) AS score,
                    substring(nrc.content for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -43,7 +59,8 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE nrc.tsv @@ plainto_tsquery('english', $1)
+            WHERE (nrc.tsv @@ plainto_tsquery('english', $1)
+                   OR to_tsvector('english', COALESCE(n.title, '')) @@ plainto_tsquery('english', $1))
               {}
             ORDER BY score DESC
             LIMIT $2
@@ -111,7 +128,7 @@ impl PgFtsSearch {
         let builder = StrictFilterQueryBuilder::new(filter.clone(), 1); // param $1 is query, strict filter starts at $2
         let (strict_filter_clause, filter_params) = builder.build();
 
-        // Build the query with CTE for filtered notes
+        // Build the query with CTE for filtered notes, using BM25F field-weighted scoring
         let sql = format!(
             r#"
             WITH filtered_notes AS (
@@ -121,7 +138,16 @@ impl PgFtsSearch {
                   AND {}
             )
             SELECT n.id as note_id,
-                   ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
+                   ts_rank(
+                       setweight(COALESCE(to_tsvector('english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE((
+                           SELECT to_tsvector('english', string_agg(tag_name, ' '))
+                           FROM note_tag WHERE note_id = n.id
+                       ), ''::tsvector), 'B') ||
+                       setweight(nrc.tsv, 'C'),
+                       plainto_tsquery('english', $1),
+                       32
+                   ) AS score,
                    substring(nrc.content for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -131,7 +157,8 @@ impl PgFtsSearch {
             FROM filtered_notes fn
             JOIN note n ON n.id = fn.id
             JOIN note_revised_current nrc ON nrc.note_id = n.id
-            WHERE nrc.tsv @@ plainto_tsquery('english', $1)
+            WHERE (nrc.tsv @@ plainto_tsquery('english', $1)
+                   OR to_tsvector('english', COALESCE(n.title, '')) @@ plainto_tsquery('english', $1))
             ORDER BY score DESC
             LIMIT ${}
             "#,
@@ -200,10 +227,20 @@ impl PgFtsSearch {
             "AND n.deleted_at IS NULL"
         };
 
+        // BM25F field-weighted scoring for filtered search
         let mut sql = format!(
             r#"
             SELECT n.id as note_id,
-                   ts_rank(nrc.tsv, plainto_tsquery('english', $1)) AS score,
+                   ts_rank(
+                       setweight(COALESCE(to_tsvector('english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE((
+                           SELECT to_tsvector('english', string_agg(tag_name, ' '))
+                           FROM note_tag WHERE note_id = n.id
+                       ), ''::tsvector), 'B') ||
+                       setweight(nrc.tsv, 'C'),
+                       plainto_tsquery('english', $1),
+                       32
+                   ) AS score,
                    substring(nrc.content for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -212,7 +249,8 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE nrc.tsv @@ plainto_tsquery('english', $1)
+            WHERE (nrc.tsv @@ plainto_tsquery('english', $1)
+                   OR to_tsvector('english', COALESCE(n.title, '')) @@ plainto_tsquery('english', $1))
               {}
             "#,
             archive_clause

@@ -33,11 +33,15 @@
 
 pub mod capabilities;
 pub mod discovery;
+pub mod embedding_models;
 pub mod eval;
+pub mod few_shot;
 pub mod hardware;
 pub mod latency;
+pub mod link_types;
 pub mod model_config;
 pub mod profiles;
+pub mod refinement;
 pub mod selector;
 pub mod thinking;
 
@@ -62,6 +66,13 @@ pub use capabilities::{
 pub use discovery::{
     ConfigRecommendation, DiscoveredModel, DiscoveryError, DiscoveryResult, ModelDiscovery,
 };
+pub use embedding_models::{
+    EmbeddingModelProfile, EmbeddingModelRegistry, EmbeddingSymmetry,
+};
+pub use few_shot::{
+    default_revision_examples, default_title_examples, ExampleType, FewShotConfig,
+    FewShotExample, FewShotPromptBuilder, SelectionStrategy,
+};
 pub use eval::{
     content_revision_suite, cosine_similarity, evaluate_semantic, evaluate_title,
     semantic_similarity_suite, title_generation_suite, EvalReport, EvalResult, EvalSummary,
@@ -75,8 +86,16 @@ pub use latency::{
     BatchEmbeddingConfig, ChunkingStrategy, ContextConfig, ContextOptimizer, LatencyOptimization,
     LatencyStats, LatencyTracker,
 };
+pub use link_types::{
+    link_classification_prompt, parse_link_type, LinkClassification, SemanticLinkType,
+};
 pub use model_config::{
     is_model_restricted, validate_model, ModelRestriction, ModelValidationError, RestrictionType,
+};
+pub use refinement::{
+    parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
+    reflexion_prompt, self_critique_prompt, Episode, EpisodeOutcome, ReActStep, ReActTrace,
+    RefineIteration, ReflexionMemory, SelfRefineConfig, SelfRefineResult,
 };
 pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use selector::{KmOperation, ModelSelection, ModelSelector, RecommendedConfig};

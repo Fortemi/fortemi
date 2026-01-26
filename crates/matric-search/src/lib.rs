@@ -31,7 +31,9 @@
 //!     .await?;
 //! ```
 
+pub mod adaptive_rrf;
 pub mod deduplication;
+pub mod hnsw_tuning;
 pub mod hybrid;
 pub mod rrf;
 
@@ -39,6 +41,10 @@ pub mod rrf;
 pub use matric_core::*;
 
 // Re-export search types
+pub use adaptive_rrf::{rrf_score, select_k, AdaptiveRrfConfig, QueryCharacteristics};
 pub use deduplication::{ChainSearchInfo, DeduplicationConfig, EnhancedSearchHit};
+pub use hnsw_tuning::{
+    compute_ef, estimated_latency_ms, estimated_recall, HnswTuningConfig, RecallTarget,
+};
 pub use hybrid::{HybridSearch, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 pub use rrf::*;

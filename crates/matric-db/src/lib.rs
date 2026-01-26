@@ -40,6 +40,7 @@ pub mod links;
 pub mod notes;
 pub mod oauth;
 pub mod pool;
+pub mod provenance;
 pub mod search;
 pub mod skos_tags;
 pub mod strict_filter;
@@ -68,6 +69,7 @@ pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};
 pub use oauth::PgOAuthRepository;
 pub use pool::{create_pool, create_pool_with_config, PoolConfig};
+pub use provenance::PgProvenanceRepository;
 pub use search::PgFtsSearch;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
 pub use tags::PgTagRepository;
@@ -105,6 +107,8 @@ pub struct Database {
     pub jobs: PgJobRepository,
     /// Full-text search provider.
     pub search: PgFtsSearch,
+    /// W3C PROV provenance tracking repository.
+    pub provenance: PgProvenanceRepository,
     /// OAuth2 and API key repository.
     pub oauth: PgOAuthRepository,
     /// Note template repository.
@@ -126,6 +130,7 @@ impl Database {
             collections: PgCollectionRepository::new(pool.clone()),
             jobs: PgJobRepository::new(pool.clone()),
             search: PgFtsSearch::new(pool.clone()),
+            provenance: PgProvenanceRepository::new(pool.clone()),
             oauth: PgOAuthRepository::new(pool.clone()),
             templates: PgTemplateRepository::new(pool.clone()),
             versioning: VersioningRepository::new(pool.clone()),

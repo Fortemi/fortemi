@@ -8,11 +8,21 @@ use tracing::{debug, info, warn};
 
 use matric_core::{
     EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobType, LinkRepository,
-    NoteRepository, RevisionMode, SearchHit,
+    NoteRepository, ProvRelation, RevisionMode, SearchHit,
 };
 use matric_db::Database;
 use matric_inference::OllamaBackend;
 use matric_jobs::{JobContext, JobHandler, JobResult};
+
+/// Maximum number of related notes to retrieve for AI context.
+/// Based on Miller's Law (7±2): cognitive limit for working memory items.
+/// We use 7 as the default, which is the center of the 5-9 range.
+const MAX_CONTEXT_NOTES: usize = 7;
+
+/// Maximum number of related note snippets to include in prompts.
+/// Capped lower than MAX_CONTEXT_NOTES to keep prompt size manageable
+/// while still respecting Miller's Law bounds (minimum of 5).
+const MAX_PROMPT_SNIPPETS: usize = 5;
 
 /// Handler for AI revision jobs - enhanced with context from related notes.
 pub struct AiRevisionHandler {
@@ -25,7 +35,10 @@ impl AiRevisionHandler {
         Self { db, backend }
     }
 
-    /// Get related notes for contextual enhancement (similarity > 50%)
+    /// Get related notes for contextual enhancement (similarity > 50%).
+    ///
+    /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2)
+    /// for optimal cognitive processing of context items.
     async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
         // Generate embedding for the content to find related notes
         let chunks = vec![content.chars().take(500).collect::<String>()];
@@ -39,25 +52,34 @@ impl AiRevisionHandler {
             None => return vec![],
         };
 
-        // Find similar notes
-        match self.db.embeddings.find_similar(&query_vec, 10, true).await {
+        // Fetch more candidates than needed, then filter and limit to Miller's Law bound
+        let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
+        match self
+            .db
+            .embeddings
+            .find_similar(&query_vec, fetch_limit, true)
+            .await
+        {
             Ok(hits) => hits
                 .into_iter()
                 .filter(|hit| hit.score > 0.5 && hit.note_id != note_id)
-                .take(5)
+                .take(MAX_CONTEXT_NOTES)
                 .collect(),
             Err(_) => vec![],
         }
     }
 
-    /// Build context string from related notes
+    /// Build context string from related notes.
+    ///
+    /// Includes up to MAX_PROMPT_SNIPPETS snippets in the prompt context,
+    /// staying within Miller's Law bounds for working memory.
     fn build_related_context(&self, related_notes: &[SearchHit]) -> String {
         if related_notes.is_empty() {
             return String::new();
         }
 
         let mut context = String::from("Related concepts from the knowledge base:\n");
-        for hit in related_notes.iter().take(3) {
+        for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
             if let Some(snippet) = &hit.snippet {
                 let preview: String = snippet.chars().take(150).collect();
                 context.push_str(&format!("- {}\n", preview));
@@ -108,13 +130,26 @@ impl JobHandler for AiRevisionHandler {
             return JobResult::Failed("Note has no content to revise".into());
         }
 
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "ai_revision",
+                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+            )
+            .await
+            .ok();
+
         // Build prompt based on revision mode
-        let (prompt, related_count) = match revision_mode {
+        let (prompt, related_count, related_note_ids) = match revision_mode {
             RevisionMode::Full => {
                 ctx.report_progress(20, Some("Finding related notes for context..."));
                 let related_notes = self.get_related_notes(note_id, original_content).await;
                 let related_context = self.build_related_context(&related_notes);
                 let count = related_notes.len();
+                let note_ids: Vec<uuid::Uuid> = related_notes.iter().map(|h| h.note_id).collect();
 
                 ctx.report_progress(40, Some("Generating AI-enhanced revision (full mode)..."));
 
@@ -143,7 +178,7 @@ Guidelines:
 Output the enhanced note in clean markdown format. Do not add any labels, markers, or metadata."#,
                     original_content, related_context
                 );
-                (prompt, count)
+                (prompt, count, note_ids)
             }
             RevisionMode::Light => {
                 ctx.report_progress(40, Some("Generating AI-enhanced revision (light mode)..."));
@@ -174,7 +209,7 @@ If the note is very short or simple, keep it short and simple. A one-line note s
 Output the formatted note. Do not add any labels, markers, or metadata."#,
                     original_content
                 );
-                (prompt, 0)
+                (prompt, 0, vec![])
             }
             RevisionMode::None => unreachable!(), // Already handled above
         };
@@ -204,6 +239,43 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             .await
         {
             return JobResult::Failed(format!("Failed to save revision: {}", e));
+        }
+
+        // Record W3C PROV provenance for the AI revision
+        ctx.report_progress(90, Some("Recording provenance..."));
+
+        // Get the current revision ID to attach provenance edges
+        if let Ok(Some(chain)) = self.db.provenance.get_chain(note_id).await {
+            let rev_id = chain.revision_id;
+
+            // Record "used" edges for each related note that contributed context
+            if !related_note_ids.is_empty() {
+                if let Err(e) = self
+                    .db
+                    .provenance
+                    .record_edges_batch(rev_id, &related_note_ids, &ProvRelation::Used)
+                    .await
+                {
+                    warn!(error = %e, "Failed to record provenance edges");
+                }
+            }
+
+            // Complete the provenance activity
+            if let Some(act_id) = activity_id {
+                let metadata = serde_json::json!({
+                    "revision_mode": format!("{:?}", revision_mode),
+                    "related_notes_used": related_count,
+                    "revised_length": revised.len(),
+                });
+                if let Err(e) = self
+                    .db
+                    .provenance
+                    .complete_activity(act_id, Some(rev_id), Some(metadata))
+                    .await
+                {
+                    warn!(error = %e, "Failed to complete provenance activity");
+                }
+            }
         }
 
         ctx.report_progress(100, Some("Revision complete"));
@@ -319,7 +391,9 @@ impl TitleGenerationHandler {
         Self { db, backend }
     }
 
-    /// Get related notes for title context
+    /// Get related notes for title context.
+    ///
+    /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2).
     async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
         let chunks = vec![content.chars().take(500).collect::<String>()];
         let vectors = match self.backend.embed_texts(&chunks).await {
@@ -332,11 +406,17 @@ impl TitleGenerationHandler {
             None => return vec![],
         };
 
-        match self.db.embeddings.find_similar(&query_vec, 10, true).await {
+        let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
+        match self
+            .db
+            .embeddings
+            .find_similar(&query_vec, fetch_limit, true)
+            .await
+        {
             Ok(hits) => hits
                 .into_iter()
                 .filter(|hit| hit.score > 0.5 && hit.note_id != note_id)
-                .take(5)
+                .take(MAX_CONTEXT_NOTES)
                 .collect(),
             Err(_) => vec![],
         }
@@ -382,11 +462,11 @@ impl JobHandler for TitleGenerationHandler {
         // Get related notes for context (ported from HOTM)
         let related_notes = self.get_related_notes(note_id, content).await;
 
-        // Build related context
+        // Build related context (limit to MAX_PROMPT_SNIPPETS per Miller's Law)
         let mut related_context = String::new();
         if !related_notes.is_empty() {
             related_context.push_str("Related concepts from your knowledge base:\n");
-            for hit in related_notes.iter().take(3) {
+            for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
                 if let Some(snippet) = &hit.snippet {
                     let preview: String = snippet.chars().take(100).collect();
                     related_context.push_str(&format!("- {}\n", preview));
@@ -760,12 +840,12 @@ impl JobHandler for ContextUpdateHandler {
 
         ctx.report_progress(20, Some("Finding linked notes..."));
 
-        // Get outgoing semantic links with high scores
+        // Get outgoing semantic links with high scores (limit per Miller's Law)
         let links = match self.db.links.get_outgoing(note_id).await {
             Ok(l) => l
                 .into_iter()
                 .filter(|l| l.score > 0.75)
-                .take(3)
+                .take(MAX_PROMPT_SNIPPETS)
                 .collect::<Vec<_>>(),
             Err(e) => {
                 warn!(error = %e, "Failed to get links");

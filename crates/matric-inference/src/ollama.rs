@@ -8,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
+use crate::embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry};
 use crate::model_config::requires_raw_mode;
 use crate::profiles::{ModelProfile, ModelRegistry};
 
@@ -37,6 +38,8 @@ pub struct OllamaBackend {
     gen_model: String,
     dimension: usize,
     registry: ModelRegistry,
+    embed_registry: EmbeddingModelRegistry,
+    embed_profile: EmbeddingModelProfile,
 }
 
 impl OllamaBackend {
@@ -67,6 +70,16 @@ impl OllamaBackend {
             base_url, embed_model, gen_model
         );
 
+        let embed_registry = EmbeddingModelRegistry::new();
+        let embed_profile = embed_registry.get_or_default(&embed_model);
+
+        if embed_profile.is_asymmetric() {
+            info!(
+                "Embedding model {} uses asymmetric prefixes (query/passage)",
+                embed_model
+            );
+        }
+
         Self {
             client,
             base_url,
@@ -74,6 +87,8 @@ impl OllamaBackend {
             gen_model,
             dimension,
             registry: ModelRegistry::new(),
+            embed_registry,
+            embed_profile,
         }
     }
 
@@ -144,6 +159,57 @@ impl OllamaBackend {
     pub fn use_best_long_context(&mut self) {
         if let Some(profile) = self.registry.get_best_long_context() {
             self.set_gen_model(profile.name.clone());
+        }
+    }
+
+    // ========================================================================
+    // E5 / Asymmetric Embedding Support
+    // ========================================================================
+
+    /// Get the embedding model profile (includes prefix configuration).
+    pub fn embed_model_profile(&self) -> &EmbeddingModelProfile {
+        &self.embed_profile
+    }
+
+    /// Get the embedding model registry.
+    pub fn embed_registry(&self) -> &EmbeddingModelRegistry {
+        &self.embed_registry
+    }
+
+    /// Returns true if the current embedding model uses asymmetric prefixes.
+    pub fn uses_asymmetric_embeddings(&self) -> bool {
+        self.embed_profile.is_asymmetric()
+    }
+
+    /// Embed texts as **queries** (applies "query: " prefix for E5/asymmetric models).
+    ///
+    /// Use this when embedding search queries or questions.
+    /// For symmetric models, this is identical to `embed_texts`.
+    pub async fn embed_queries(&self, texts: &[String]) -> Result<Vec<Vector>> {
+        let prefixed = self.embed_profile.prefix_queries(texts);
+        self.embed_texts(&prefixed).await
+    }
+
+    /// Embed texts as **passages** (applies "passage: " prefix for E5/asymmetric models).
+    ///
+    /// Use this when embedding documents/notes for storage and indexing.
+    /// For symmetric models, this is identical to `embed_texts`.
+    pub async fn embed_passages(&self, texts: &[String]) -> Result<Vec<Vector>> {
+        let prefixed = self.embed_profile.prefix_passages(texts);
+        self.embed_texts(&prefixed).await
+    }
+
+    /// Set the embedding model, updating the profile accordingly.
+    pub fn set_embed_model(&mut self, model_name: String) {
+        info!(
+            "Switching embedding model from {} to {}",
+            self.embed_model, model_name
+        );
+        self.embed_profile = self.embed_registry.get_or_default(&model_name);
+        self.embed_model = model_name;
+
+        if self.embed_profile.is_asymmetric() {
+            info!("New embedding model uses asymmetric prefixes (query/passage)");
         }
     }
 }

@@ -7,6 +7,7 @@
 
 pub mod collection_filter;
 pub mod error;
+pub mod fair;
 pub mod hardware;
 pub mod models;
 pub mod search;
@@ -20,6 +21,7 @@ pub mod uuid_utils;
 // Re-export commonly used types at crate root
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use error::{Error, Result};
+pub use fair::{DublinCoreExport, FairScore, JsonLdContext, JsonLdExport};
 pub use hardware::{ContextBudget, HardwareConfig};
 pub use models::*;
 pub use search::*;

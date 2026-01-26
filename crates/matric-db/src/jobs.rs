@@ -32,6 +32,7 @@ impl PgJobRepository {
             JobType::BuildSetIndex => "build_set_index",
             JobType::PurgeNote => "purge_note",
             JobType::ConceptTagging => "concept_tagging",
+            JobType::ReEmbedAll => "re_embed_all",
         }
     }
 
@@ -48,6 +49,7 @@ impl PgJobRepository {
             "build_set_index" => JobType::BuildSetIndex,
             "purge_note" => JobType::PurgeNote,
             "concept_tagging" => JobType::ConceptTagging,
+            "re_embed_all" => JobType::ReEmbedAll,
             _ => JobType::ContextUpdate, // fallback
         }
     }
@@ -539,6 +541,10 @@ mod tests {
             PgJobRepository::job_type_to_str(JobType::ConceptTagging),
             "concept_tagging"
         );
+        assert_eq!(
+            PgJobRepository::job_type_to_str(JobType::ReEmbedAll),
+            "re_embed_all"
+        );
     }
 
     // Test string to JobType conversion
@@ -583,6 +589,10 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("concept_tagging"),
             JobType::ConceptTagging
+        );
+        assert_eq!(
+            PgJobRepository::str_to_job_type("re_embed_all"),
+            JobType::ReEmbedAll
         );
     }
 
@@ -704,6 +714,7 @@ mod tests {
             JobType::BuildSetIndex,
             JobType::PurgeNote,
             JobType::ConceptTagging,
+            JobType::ReEmbedAll,
         ];
 
         for job_type in types {
@@ -745,6 +756,7 @@ mod tests {
             JobType::BuildSetIndex,
             JobType::PurgeNote,
             JobType::ConceptTagging,
+            JobType::ReEmbedAll,
         ];
 
         let strings: Vec<&str> = types

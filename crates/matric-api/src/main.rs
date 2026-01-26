@@ -313,6 +313,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/:id/export", get(export_note))
         .route("/api/v1/notes/:id/full", get(get_full_document))
+        // Provenance (W3C PROV)
+        .route("/api/v1/notes/:id/provenance", get(get_note_provenance))
         // Note versioning (#104)
         .route("/api/v1/notes/:id/versions", get(list_note_versions))
         .route(
@@ -2472,6 +2474,34 @@ async fn get_note_backlinks(
 }
 
 // =============================================================================
+// PROVENANCE HANDLERS (W3C PROV)
+// =============================================================================
+
+/// Get W3C PROV provenance chain for a note's AI revisions.
+///
+/// Returns the full provenance graph including:
+/// - Activities (AI processing operations)
+/// - Edges (derivation relationships to source notes)
+async fn get_note_provenance(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let chain = state.db.provenance.get_chain(id).await?;
+    let activities = state.db.provenance.get_activities_for_note(id).await?;
+    let edges = state.db.provenance.get_edges_for_note(id).await?;
+    let derived = state.db.provenance.get_derived_notes(id).await?;
+
+    Ok(Json(serde_json::json!({
+        "note_id": id,
+        "current_chain": chain,
+        "all_activities": activities,
+        "all_edges": edges,
+        "derived_notes": derived,
+        "derived_count": derived.len()
+    })))
+}
+
+// =============================================================================
 // EXPORT HANDLERS
 // =============================================================================
 
@@ -3017,6 +3047,7 @@ async fn create_job(
         "context_update" => JobType::ContextUpdate,
         "title_generation" => JobType::TitleGeneration,
         "concept_tagging" => JobType::ConceptTagging,
+        "re_embed_all" => JobType::ReEmbedAll,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",
