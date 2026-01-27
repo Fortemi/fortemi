@@ -229,7 +229,7 @@ impl PgProvenanceRepository {
             r#"
             SELECT id FROM note_revision
             WHERE note_id = $1
-            ORDER BY created_at DESC
+            ORDER BY created_at_utc DESC
             LIMIT 1
             "#,
         )

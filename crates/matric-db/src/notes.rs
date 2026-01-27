@@ -71,13 +71,25 @@ impl NoteRepository for PgNoteRepository {
         .map_err(Error::Database)?;
 
         // Insert initial revised content (same as original)
+        let revision_id = new_v7();
         sqlx::query(
             "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
         )
-        .bind(new_v7())
+        .bind(revision_id)
         .bind(note_id)
         .bind(&req.content)
         .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Populate current revised content
+        sqlx::query(
+            "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
+        )
+        .bind(note_id)
+        .bind(&req.content)
+        .bind(revision_id)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -164,13 +176,25 @@ impl NoteRepository for PgNoteRepository {
             .map_err(Error::Database)?;
 
             // Insert initial revised content (same as original)
+            let revision_id = new_v7();
             sqlx::query(
                 "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
             )
-            .bind(new_v7())
+            .bind(revision_id)
             .bind(note_id)
             .bind(&req.content)
             .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Populate current revised content
+            sqlx::query(
+                "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
+            )
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(revision_id)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
