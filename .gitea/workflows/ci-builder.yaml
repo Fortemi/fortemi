@@ -219,24 +219,12 @@ jobs:
           # Show container status
           docker ps --filter name=matric-test
 
-      - name: Run container tests
+      - name: Run container API tests
         run: |
-          set -e
-          echo "======================================"
-          echo "Testing API container via docker network"
-          echo "======================================"
-
-          # Health check (use docker exec since we're in DinD environment)
-          echo "Testing /health endpoint..."
-          docker exec matric-test-api curl -sf http://localhost:3000/health | jq .
-
-          # API endpoints
-          echo "Testing /api/v1/notes endpoint..."
-          docker exec matric-test-api curl -sf http://localhost:3000/api/v1/notes | jq .
-
-          echo "======================================"
-          echo "All container tests passed!"
-          echo "======================================"
+          CURL_CMD="docker exec matric-test-api curl" \
+          API_BASE="http://localhost:3000" \
+          VERBOSE=1 \
+            bash scripts/container-api-tests.sh
 
       - name: Teardown test environment
         if: always()

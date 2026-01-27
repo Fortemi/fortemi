@@ -56,37 +56,13 @@ services:
       api:
         condition: service_healthy
     environment:
-      - API_URL=http://api:3000
-      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - API_BASE=http://api:3000
+      - CURL_CMD=curl
+      - VERBOSE=1
     volumes:
       - ..:/build:ro
     working_dir: /build
-    entrypoint: ["bash", "-c"]
-    command:
-      - |
-        echo "Running integration tests..."
-
-        # Health check
-        echo "Checking API health..."
-        curl -sf http://api:3000/health || exit 1
-        echo "API healthy!"
-
-        # Version info
-        echo "Checking version endpoint..."
-        curl -sf http://api:3000/version | jq .
-
-        # Basic API tests
-        echo "Running basic API tests..."
-
-        # List notes (should be empty or return array)
-        echo "GET /api/v1/notes"
-        curl -sf http://api:3000/api/v1/notes | jq .
-
-        # Health endpoints
-        echo "GET /health"
-        curl -sf http://api:3000/health | jq .
-
-        echo "All integration tests passed!"
+    entrypoint: ["bash", "scripts/container-api-tests.sh"]
     networks:
       - matric-test
     profiles:
