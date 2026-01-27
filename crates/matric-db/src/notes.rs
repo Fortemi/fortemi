@@ -72,7 +72,7 @@ impl NoteRepository for PgNoteRepository {
 
         // Insert initial revised content (same as original)
         sqlx::query(
-            "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
         )
         .bind(new_v7())
         .bind(note_id)
@@ -165,7 +165,7 @@ impl NoteRepository for PgNoteRepository {
 
             // Insert initial revised content (same as original)
             sqlx::query(
-                "INSERT INTO note_revision (id, note_id, content, rationale, created_at) VALUES ($1, $2, $3, NULL, $4)",
+                "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
             )
             .bind(new_v7())
             .bind(note_id)
@@ -647,8 +647,8 @@ impl NoteRepository for PgNoteRepository {
 
         // Insert revision record (view note_revised_current automatically shows latest)
         sqlx::query(
-            "INSERT INTO note_revision (id, note_id, content, rationale, created_at)
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number)
+             VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(revision_number) FROM note_revision WHERE note_id = $2), 0) + 1)",
         )
         .bind(revision_id)
         .bind(id)
