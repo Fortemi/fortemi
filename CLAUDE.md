@@ -162,4 +162,4 @@ matric-memory uses **CalVer**: `YYYY.M.PATCH` (e.g., `2026.1.0`)
 
 4. **Create Gitea release** with highlights from CHANGELOG.md
 
-See `docs/releasing.md` for full details.
+See `docs/content/releasing.md` for full details.

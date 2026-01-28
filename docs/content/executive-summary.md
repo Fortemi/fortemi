@@ -60,4 +60,4 @@ Built on peer-reviewed research:
 
 ---
 
-*For technical details, see [Architecture](../architecture.md) and [Research Background](../technical/research-background.md).*
+*For technical details, see [Architecture](./architecture.md) and [Research Background](./research-background.md).*

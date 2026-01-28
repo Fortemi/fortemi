@@ -121,6 +121,22 @@ note_skos_concept
   ├── confidence
   ├── relevance_score
   └── is_primary
+
+-- Collections (grouping without hierarchy)
+skos_collection
+  ├── id (UUID, PK)
+  ├── uri (unique identifier)
+  ├── pref_label
+  ├── definition
+  ├── is_ordered (boolean)
+  └── scheme_id (FK, optional)
+
+-- Collection Membership
+skos_collection_member
+  ├── collection_id (FK)
+  ├── concept_id (FK)
+  ├── position (for ordered collections)
+  └── added_at
 ```
 
 ### Validation Rules (ANSI/NISO Z39.19 Compliant)
@@ -183,6 +199,20 @@ POST   /api/v1/concepts/:id/related       Add related relation
 DELETE /api/v1/concepts/:id/related/:related_id  Remove related relation
 ```
 
+### Collections (W3C SKOS Section 9)
+
+```
+GET    /api/v1/concepts/collections       List all collections
+POST   /api/v1/concepts/collections       Create a new collection
+GET    /api/v1/concepts/collections/:id   Get collection with members
+PATCH  /api/v1/concepts/collections/:id   Update collection properties
+DELETE /api/v1/concepts/collections/:id   Delete a collection
+
+PUT    /api/v1/concepts/collections/:id/members           Replace all members
+POST   /api/v1/concepts/collections/:id/members/:concept_id   Add member
+DELETE /api/v1/concepts/collections/:id/members/:concept_id   Remove member
+```
+
 ### Note Tagging
 
 ```
@@ -196,6 +226,140 @@ DELETE /api/v1/notes/:id/concepts/:concept_id  Remove concept from note
 ```
 GET    /api/v1/concepts/governance/stats  Get governance statistics
 ```
+
+## SKOS Collections
+
+Collections provide a way to group related concepts without imposing hierarchical relationships. This complements ConceptSchemes (which provide vocabulary namespaces) and semantic relations (which define broader/narrower hierarchies).
+
+### Purpose
+
+- **Thematic Grouping**: Organize concepts by topic, project, or context without hierarchy
+- **Learning Paths**: Use ordered collections to define sequences (e.g., "Rust Fundamentals" → "Ownership" → "Lifetimes")
+- **Workflows**: Define process steps or stages
+- **Reference Sets**: Curate collections of related concepts (e.g., "Programming Languages", "Data Science Tools")
+
+### Ordered vs Unordered Collections
+
+| Type | Use Case | Position Field |
+|------|----------|----------------|
+| **Unordered** | General grouping, reference sets | NULL |
+| **Ordered** | Learning paths, workflows, sequences | Integer (1, 2, 3...) |
+
+### Creating a Collection
+
+```bash
+# Create an unordered collection
+curl -X POST http://localhost:3000/api/v1/concepts/collections \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uri": "http://matric.local/collections/programming-langs",
+    "pref_label": "Programming Languages",
+    "definition": "Collection of programming language concepts",
+    "is_ordered": false,
+    "scheme_id": "scheme-uuid-here"
+  }'
+
+# Create an ordered collection (learning path)
+curl -X POST http://localhost:3000/api/v1/concepts/collections \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uri": "http://matric.local/collections/rust-learning-path",
+    "pref_label": "Rust Learning Path",
+    "definition": "Recommended sequence for learning Rust",
+    "is_ordered": true,
+    "scheme_id": "scheme-uuid-here"
+  }'
+```
+
+### Adding Members
+
+```bash
+# Add a concept to a collection
+curl -X POST http://localhost:3000/api/v1/concepts/collections/{collection-id}/members/{concept-id}
+
+# Replace all members at once (useful for reordering)
+curl -X PUT http://localhost:3000/api/v1/concepts/collections/{collection-id}/members \
+  -H "Content-Type: application/json" \
+  -d '{
+    "members": [
+      {"concept_id": "concept-1-uuid", "position": 1},
+      {"concept_id": "concept-2-uuid", "position": 2},
+      {"concept_id": "concept-3-uuid", "position": 3}
+    ]
+  }'
+
+# Remove a member
+curl -X DELETE http://localhost:3000/api/v1/concepts/collections/{collection-id}/members/{concept-id}
+```
+
+### Reordering Members (Ordered Collections)
+
+For ordered collections, use the `PUT /members` endpoint to replace all members with new positions:
+
+```bash
+curl -X PUT http://localhost:3000/api/v1/concepts/collections/{collection-id}/members \
+  -H "Content-Type: application/json" \
+  -d '{
+    "members": [
+      {"concept_id": "ownership-uuid", "position": 1},
+      {"concept_id": "borrowing-uuid", "position": 2},
+      {"concept_id": "lifetimes-uuid", "position": 3}
+    ]
+  }'
+```
+
+### Listing Collections
+
+```bash
+# List all collections
+curl http://localhost:3000/api/v1/concepts/collections
+
+# Filter by scheme
+curl "http://localhost:3000/api/v1/concepts/collections?scheme_id={scheme-uuid}"
+
+# Get collection with members
+curl http://localhost:3000/api/v1/concepts/collections/{collection-id}
+```
+
+### Example: Learning Path Collection
+
+```bash
+# 1. Create an ordered collection for Rust learning
+COLLECTION_ID=$(curl -X POST http://localhost:3000/api/v1/concepts/collections \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pref_label": "Rust Fundamentals",
+    "is_ordered": true
+  }' | jq -r '.id')
+
+# 2. Add concepts in sequence
+curl -X PUT http://localhost:3000/api/v1/concepts/collections/$COLLECTION_ID/members \
+  -H "Content-Type: application/json" \
+  -d '{
+    "members": [
+      {"concept_id": "basics-uuid", "position": 1},
+      {"concept_id": "ownership-uuid", "position": 2},
+      {"concept_id": "borrowing-uuid", "position": 3},
+      {"concept_id": "lifetimes-uuid", "position": 4},
+      {"concept_id": "traits-uuid", "position": 5}
+    ]
+  }'
+
+# 3. Retrieve the learning path
+curl http://localhost:3000/api/v1/concepts/collections/$COLLECTION_ID
+```
+
+### Collections vs Hierarchies
+
+| Feature | Collections | Hierarchies (broader/narrower) |
+|---------|-------------|-------------------------------|
+| Relationship | Membership | Semantic subsumption |
+| Ordering | Optional | None |
+| Purpose | Grouping, curation | Knowledge organization |
+| Constraint | None | Max depth, polyhierarchy limits |
+| Example | "ML Algorithms" collection | "Machine Learning" → "Deep Learning" |
+
+Use collections when you want to group concepts thematically without implying a broader/narrower relationship. Use hierarchies when concepts have true subsumption relationships.
 
 ## MCP Tools
 
@@ -458,11 +622,10 @@ search_notes_strict({
 
 ### See Also
 
-- [ADR-001: Strict Tag Filtering](./adr/ADR-001-strict-tag-filtering.md) - Architecture decision
 - [Strict Tag Filtering Design](./strict-tag-filtering-design.md) - Implementation details
 
 ## Related Documentation
 
 - [API Reference](./api.md)
 - [MCP Tools](./mcp.md)
-- [Database Schema](../migrations/20260118000000_skos_tags.sql)
+- [Database Schema](../../migrations/20260118000000_skos_tags.sql)

@@ -191,4 +191,4 @@ Notes on completely different topics won't link, even if you want to connect the
 
 ---
 
-*See also: [Search Guide](search-guide.md) | [Research Background](../technical/research-background.md)*
+*See also: [Search Guide](./search-guide.md) | [Research Background](./research-background.md)*

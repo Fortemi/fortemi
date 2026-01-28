@@ -433,7 +433,7 @@ curl -X POST http://localhost:3000/api/v1/jobs/batch \
 
 ### Sentence Embeddings
 
-matric-memory uses **bi-encoder architecture** (Sentence-BERT) for embedding generation. This produces fixed-dimensional representations that can be compared efficiently using cosine similarity. See [Research Background](./technical/research-background.md#sentence-embeddings) for details.
+matric-memory uses **bi-encoder architecture** (Sentence-BERT) for embedding generation. This produces fixed-dimensional representations that can be compared efficiently using cosine similarity. See [Research Background](./research-background.md#sentence-embeddings) for details.
 
 ### Embedding Aggregation
 
@@ -446,7 +446,7 @@ Generated embeddings power the **dense retrieval** component of hybrid search. D
 ## Related Documentation
 
 - [Architecture](./architecture.md) - System design overview
-- [Research Background](./technical/research-background.md) - Technical foundation
+- [Research Background](./research-background.md) - Technical foundation
 - [Operations](./operations.md) - Deployment and maintenance
 - [Embedding Sets](./embedding-sets.md) - Managing embedding configurations
 - [Glossary](./glossary.md) - Professional terminology definitions

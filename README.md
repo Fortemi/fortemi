@@ -15,7 +15,8 @@ A Rust implementation of Retrieval-Augmented Generation (RAG) combining full-tex
 |----------|------------|
 | **Executives** | [What It Does](#what-it-does) · [Key Capabilities](#key-capabilities) |
 | **Developers** | [Quick Start](#quick-start) · [API Reference](#api-endpoints) |
-| **Researchers** | [Technical Foundation](#technical-foundation) · [Architecture](docs/architecture.md) |
+| **Operators** | [Configuration](#configuration) · [Operators Guide](docs/content/operators-guide.md) |
+| **Researchers** | [Technical Foundation](#technical-foundation) · [Architecture](docs/content/architecture.md) |
 
 ---
 
@@ -50,7 +51,7 @@ matric-memory implements state-of-the-art information retrieval techniques:
 Combines **lexical retrieval** (BM25 via PostgreSQL tsvector) with **dense retrieval** (sentence embeddings via pgvector) using Reciprocal Rank Fusion:
 
 ```
-RRFscore(d) = Σ 1/(k + rank_i(d))    where k=60
+RRFscore(d) = Σ 1/(k + rank_i(d))    where k=20
 ```
 
 RRF consistently outperforms individual rankers and supervised learning-to-rank methods on TREC benchmarks (Cormack et al., 2009).
@@ -95,7 +96,7 @@ Approximate nearest neighbor search via Hierarchical Navigable Small World graph
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-See [docs/architecture.md](docs/architecture.md) for detailed system design with research citations.
+See [docs/content/architecture.md](docs/content/architecture.md) for detailed system design with research citations.
 
 ---
 
@@ -218,7 +219,7 @@ Gitea Actions runs:
 - GPU-enabled tests with Ollama
 - Docker image builds
 
-See [docs/ci-cd.md](docs/ci-cd.md) for details.
+See [docs/content/ci-cd.md](docs/content/ci-cd.md) for details.
 
 ---
 
@@ -226,9 +227,13 @@ See [docs/ci-cd.md](docs/ci-cd.md) for details.
 
 | Document | Audience | Description |
 |----------|----------|-------------|
-| [Architecture](docs/architecture.md) | Technical | System design with research citations |
-| [Glossary](docs/glossary.md) | All | Professional terminology definitions |
-| [Terminology Mapping](docs/terminology-mapping.md) | Contributors | Informal → professional term mapping |
+| [Executive Summary](docs/content/executive-summary.md) | Executives | Capabilities, performance targets, use cases |
+| [Search Guide](docs/content/search-guide.md) | Developers | Search modes, RRF tuning, query patterns |
+| [Knowledge Graph Guide](docs/content/knowledge-graph-guide.md) | Developers | Graph traversal, linking, exploration |
+| [Operators Guide](docs/content/operators-guide.md) | Operators | Deployment, monitoring, troubleshooting |
+| [Architecture](docs/content/architecture.md) | Technical | System design with research citations |
+| [Research Background](docs/content/research-background.md) | Researchers | Methodology and benchmark analysis |
+| [Glossary](docs/content/glossary.md) | All | Professional terminology definitions |
 | [ADR-001: Strict Filtering](docs/adr/ADR-001-strict-tag-filtering.md) | Technical | Tag-based isolation decision |
 
 ---

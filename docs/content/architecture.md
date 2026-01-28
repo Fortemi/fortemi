@@ -74,6 +74,12 @@ Core types and traits shared across all crates.
 - `SearchHit` - Search result model
 - Repository traits: `NoteRepository`, `TagRepository`, `LinkRepository`, `JobRepository`
 
+**Advanced Features:**
+- `fair.rs` - FAIR metadata export (Findable, Accessible, Interoperable, Reusable) with Dublin Core and JSON-LD support
+- `temporal.rs` - Temporal filtering for time-based queries
+- `uuid_utils.rs` - UUIDv7 generation for time-ordered identifiers
+- `strict_filter.rs` - Type-safe strict filtering predicates
+
 ### matric-db
 
 PostgreSQL database layer with pgvector extension for vector similarity search.
@@ -85,6 +91,14 @@ PostgreSQL database layer with pgvector extension for vector similarity search.
 - `PgLinkRepository` - Knowledge graph edge management
 - `PgJobRepository` - Job queue operations
 
+**Advanced Features:**
+- `provenance.rs` - W3C PROV tracking for AI revision operations (entities, activities, relations)
+- `versioning.rs` - Dual-track note history (original content versions + revision versions)
+- `unified_filter.rs` - Multi-dimensional filtering combining tags, dates, collections, metadata
+- `strict_filter.rs` - Pre-search WHERE clause implementation for guaranteed data isolation
+- `oauth.rs` - OAuth provider integration for authentication
+- `skos_tags.rs` - W3C SKOS semantic tagging with Collections support
+
 **Tables:**
 - `note` - Note metadata
 - `note_original` - Immutable original content
@@ -93,6 +107,7 @@ PostgreSQL database layer with pgvector extension for vector similarity search.
 - `skos_concepts`, `skos_labels`, `skos_relations` - W3C SKOS vocabulary[^6]
 - `note_links` - Knowledge graph edges with similarity scores
 - `job_queue` - Background NLP jobs
+- `provenance_edge`, `provenance_activity` - W3C PROV tracking tables
 
 ### matric-search
 
@@ -104,6 +119,13 @@ Hybrid retrieval engine implementing Reciprocal Rank Fusion (RRF)[^4] to combine
 - `SearchRequest` - Query builder pattern
 - `StrictTagFilter` - Pre-search WHERE clause for guaranteed SKOS-based isolation
 - `rrf_fusion()` - RRF algorithm implementation (k=60)
+
+**Advanced Features:**
+- `adaptive_rrf.rs` - Query-dependent RRF k parameter selection (default k=20, adapts to query length and type)
+- `adaptive_weights.rs` - FTS/semantic weight selection based on query characteristics (keyword vs conceptual queries)
+- `rsf.rs` - Relative Score Fusion as alternative to RRF using min-max normalization
+- `deduplication.rs` - Result deduplication for chunked documents
+- `hnsw_tuning.rs` - Dynamic HNSW ef_search parameter tuning based on recall targets and corpus size
 
 **Search Modes:**
 1. **FTS Only** - BM25-based ranking[^2] via PostgreSQL tsvector/GIN
@@ -127,6 +149,14 @@ LLM inference abstraction for text generation and sentence embedding computation
 - `EmbeddingRequest/Response` - Sentence embedding generation
 - `GenerateRequest/Response` - Text generation for RAG
 - `ModelRegistry` - Model profiles and capability recommendations
+
+**Advanced Features:**
+- `capabilities.rs` - Model capability detection and classification
+- `discovery.rs` - Automatic discovery of available models from inference backends
+- `eval.rs` - Model evaluation and performance tracking
+- `few_shot.rs` - In-context learning prompt construction with curated examples (3-5 optimal)
+- `selector.rs` - Intelligent model selection based on task requirements
+- `thinking.rs` - Thinking model detection and response parsing (explicit tags, verbose reasoning, pattern-based)
 
 **Embedding Approach:**
 Uses contrastive learning-based models[^8] (nomic-embed-text) producing 768-dimensional sentence embeddings with mean pooling aggregation[^7].
@@ -249,14 +279,16 @@ The HNSW (Hierarchical Navigable Small World)[^9] index provides approximate nea
 
 ### Reciprocal Rank Fusion (RRF)
 
-matric-memory implements RRF[^4] for combining lexical and semantic retrieval results:
+matric-memory implements adaptive RRF[^4] for combining lexical and semantic retrieval results:
 
 ```rust
 // RRF score calculation (Cormack et al., 2009)
 score(doc) = Σ 1/(k + rank_i(doc))
 
-// Parameters
-k = 60  // smoothing constant (paper recommendation)
+// Adaptive k parameter (default k=20)
+// Short queries (≤2 tokens): k *= 0.7 (tighter fusion)
+// Long queries (≥6 tokens): k *= 1.3 (looser fusion)
+// Quoted queries: k *= 0.6 (precision focus)
 ```
 
 RRF was chosen over alternatives like Condorcet fusion or CombMNZ because it:
@@ -264,15 +296,43 @@ RRF was chosen over alternatives like Condorcet fusion or CombMNZ because it:
 - Outperforms individual rankers by 4-5% on TREC benchmarks
 - Achieves better results than supervised learning-to-rank methods[^4]
 
+The k parameter was optimized from the original k=60 recommendation to k=20 based on Elasticsearch BEIR benchmark analysis (2024), which showed improved performance for knowledge base retrieval.
+
+### Relative Score Fusion (RSF)
+
+Alternative to RRF using min-max normalization:
+
+```rust
+// Normalize scores to [0,1] via min-max scaling
+normalized_score = (score - min) / (max - min)
+
+// Combine with weighted sum
+final_score = w_fts * norm_fts + w_sem * norm_sem
+```
+
+RSF preserves score magnitude differences, unlike RRF which only uses rank position. Weaviate made RSF their default fusion in v1.24 (2024) after measuring +6% recall on the FIQA benchmark.
+
+### Adaptive Weights
+
+Query-dependent FTS/semantic weight selection:
+
+| Query Type | FTS | Semantic | Rationale |
+|------------|-----|----------|-----------|
+| Quoted phrases | 0.7 | 0.3 | Lexical precision matters |
+| Keywords (1-2 tokens) | 0.6 | 0.4 | FTS handles keywords well |
+| Natural language (3-5) | 0.5 | 0.5 | Balanced |
+| Conceptual (6+ tokens) | 0.35 | 0.65 | Semantic captures intent |
+
 ### Hybrid Retrieval Pipeline
 
 1. Parse query string and extract filters
 2. **Apply strict tag filter** - Pre-filters via SQL WHERE on SKOS concepts
 3. Execute **lexical retrieval** (BM25 via tsvector) within filtered set
 4. Execute **dense retrieval** (embedding similarity) within filtered set
-5. **Fuse results with RRF** - Combine rankings from both systems
+5. **Fuse results with RRF or RSF** - Combine rankings from both systems
 6. Apply additional soft filters (dates, metadata)
-7. Return top-k results with combined scores
+7. **Deduplicate chunked documents** - Keep best-scoring chunk per document
+8. Return top-k results with combined scores
 
 **Strict vs Soft Filtering:**
 - **Strict filter**: Guaranteed isolation via pre-search WHERE clause (100% precision)

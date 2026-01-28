@@ -36,7 +36,7 @@ Where:
 - `d` = document being scored
 - `R` = set of input rankings
 - `r(d)` = rank of document d in ranking r
-- `k` = smoothing constant (k=60, empirically determined)
+- `k` = smoothing constant (k=20, optimized via BEIR benchmarks)
 
 **Why RRF?**
 
@@ -376,4 +376,4 @@ Nested embeddings that can be truncated for efficiency (Kusupati et al., 2022):
 
 ---
 
-*See also: [Architecture](../architecture.md) | [Glossary](../glossary.md) | [Terminology Mapping](../terminology-mapping.md)*
+*See also: [Architecture](./architecture.md) | [Glossary](./glossary.md)*

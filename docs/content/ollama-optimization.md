@@ -456,7 +456,7 @@ With optimizations enabled:
 
 - [Architecture Overview](./architecture.md) - Matric Memory system architecture
 - [Inference Backends](./encryption.md#inference-backends) - Ollama vs OpenAI configuration
-- [Model Research](./research/all_models_test_1.log) - Performance testing results
+- [Model Research](../research/all_models_test_1.log) - Performance testing results
 
 ## Changelog
 

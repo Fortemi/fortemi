@@ -21,7 +21,7 @@ This glossary provides mappings between informal terminology used in the codebas
 | **Citation** | Cormack, Clarke, & Büttcher (2009) |
 | **REF** | REF-027 |
 
-**Definition:** An unsupervised rank aggregation method that combines document rankings from multiple retrieval systems. RRF computes a fused score using the formula `RRFscore(d) = Σ 1/(k + rank(d))` where k is a constant (typically 60). This gives higher-ranked documents more weight while still allowing lower-ranked documents to contribute.
+**Definition:** An unsupervised rank aggregation method that combines document rankings from multiple retrieval systems. RRF computes a fused score using the formula `RRFscore(d) = Σ 1/(k + rank(d))` where k is a smoothing constant. matric-memory uses k=20 (optimized via Elasticsearch BEIR benchmark grid search, 2024), which emphasizes top-ranked results more strongly than the original k=60 default. This gives higher-ranked documents more weight while still allowing lower-ranked documents to contribute.
 
 **Why It Matters:** RRF consistently outperforms individual rankers and supervised learning-to-rank methods. It requires no training data and works with any number of input rankings.
 
