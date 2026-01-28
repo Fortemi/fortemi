@@ -1498,6 +1498,73 @@ pub struct ResolvedTag {
 }
 
 // =============================================================================
+// SKOS COLLECTIONS (W3C SKOS Reference, Section 9)
+// =============================================================================
+
+/// A SKOS Collection — a labeled group of concepts.
+///
+/// Unlike ConceptSchemes which provide namespace/vocabulary organization,
+/// Collections group concepts for presentation or organizational purposes.
+/// An ordered collection preserves sequence (e.g., learning paths, workflows).
+///
+/// Reference: W3C SKOS Reference Section 9 — "SKOS collections are labeled
+/// and/or ordered groups of SKOS concepts"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkosCollection {
+    pub id: Uuid,
+    pub uri: Option<String>,
+    pub pref_label: String,
+    pub definition: Option<String>,
+    pub is_ordered: bool,
+    pub scheme_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A SKOS Collection with its member concepts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkosCollectionWithMembers {
+    #[serde(flatten)]
+    pub collection: SkosCollection,
+    pub members: Vec<SkosCollectionMember>,
+}
+
+/// A member entry in a SKOS Collection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkosCollectionMember {
+    pub concept_id: Uuid,
+    pub pref_label: Option<String>,
+    pub position: Option<i32>,
+    pub added_at: DateTime<Utc>,
+}
+
+/// Request to create a SKOS Collection.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSkosCollectionRequest {
+    pub pref_label: String,
+    pub definition: Option<String>,
+    pub is_ordered: bool,
+    pub scheme_id: Option<Uuid>,
+    /// Initial concept IDs to add as members (order preserved for ordered collections)
+    pub concept_ids: Option<Vec<Uuid>>,
+}
+
+/// Request to update a SKOS Collection.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateSkosCollectionRequest {
+    pub pref_label: Option<String>,
+    pub definition: Option<String>,
+    pub is_ordered: Option<bool>,
+}
+
+/// Request to update member ordering in a SKOS Collection.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateCollectionMembersRequest {
+    /// Ordered list of concept IDs (replaces current member list)
+    pub concept_ids: Vec<Uuid>,
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 

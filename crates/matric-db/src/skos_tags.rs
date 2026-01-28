@@ -2602,6 +2602,305 @@ impl SkosTagResolutionRepository for PgSkosRepository {
 }
 
 // =============================================================================
+// SKOS COLLECTION REPOSITORY
+// =============================================================================
+
+use matric_core::{
+    CreateSkosCollectionRequest, SkosCollection, SkosCollectionMember, SkosCollectionWithMembers,
+    UpdateCollectionMembersRequest, UpdateSkosCollectionRequest,
+};
+
+/// Repository trait for SKOS Collection operations.
+#[async_trait]
+pub trait SkosCollectionRepository: Send + Sync {
+    /// Create a new SKOS collection, optionally with initial members.
+    async fn create_collection(&self, req: CreateSkosCollectionRequest) -> Result<Uuid>;
+
+    /// Get a collection by ID (without members).
+    async fn get_collection(&self, id: Uuid) -> Result<Option<SkosCollection>>;
+
+    /// Get a collection with its member concepts.
+    async fn get_collection_with_members(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<SkosCollectionWithMembers>>;
+
+    /// List all collections, optionally filtered by scheme.
+    async fn list_collections(&self, scheme_id: Option<Uuid>) -> Result<Vec<SkosCollection>>;
+
+    /// Update a collection's metadata.
+    async fn update_collection(&self, id: Uuid, req: UpdateSkosCollectionRequest) -> Result<()>;
+
+    /// Delete a collection (members are cascade-deleted).
+    async fn delete_collection(&self, id: Uuid) -> Result<()>;
+
+    /// Add a concept to a collection.
+    async fn add_collection_member(
+        &self,
+        collection_id: Uuid,
+        concept_id: Uuid,
+        position: Option<i32>,
+    ) -> Result<()>;
+
+    /// Remove a concept from a collection.
+    async fn remove_collection_member(&self, collection_id: Uuid, concept_id: Uuid) -> Result<()>;
+
+    /// Replace all members (for reordering ordered collections).
+    async fn replace_collection_members(
+        &self,
+        collection_id: Uuid,
+        req: UpdateCollectionMembersRequest,
+    ) -> Result<()>;
+}
+
+#[async_trait]
+impl SkosCollectionRepository for PgSkosRepository {
+    async fn create_collection(&self, req: CreateSkosCollectionRequest) -> Result<Uuid> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO skos_collection (pref_label, definition, is_ordered, scheme_id)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+            "#,
+        )
+        .bind(&req.pref_label)
+        .bind(&req.definition)
+        .bind(req.is_ordered)
+        .bind(req.scheme_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let id: Uuid = row.get("id");
+
+        // Add initial members if provided
+        if let Some(concept_ids) = req.concept_ids {
+            for (idx, concept_id) in concept_ids.iter().enumerate() {
+                let position = if req.is_ordered {
+                    Some(idx as i32)
+                } else {
+                    None
+                };
+                sqlx::query(
+                    r#"
+                    INSERT INTO skos_collection_member (collection_id, concept_id, position)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (collection_id, concept_id) DO NOTHING
+                    "#,
+                )
+                .bind(id)
+                .bind(concept_id)
+                .bind(position)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+            }
+        }
+
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(id)
+    }
+
+    async fn get_collection(&self, id: Uuid) -> Result<Option<SkosCollection>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, uri, pref_label, definition, is_ordered,
+                   scheme_id, created_at, updated_at
+            FROM skos_collection
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| SkosCollection {
+            id: r.get("id"),
+            uri: r.get("uri"),
+            pref_label: r.get("pref_label"),
+            definition: r.get("definition"),
+            is_ordered: r.get("is_ordered"),
+            scheme_id: r.get("scheme_id"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }))
+    }
+
+    async fn get_collection_with_members(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<SkosCollectionWithMembers>> {
+        let collection = match self.get_collection(id).await? {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        let rows = sqlx::query(
+            r#"
+            SELECT m.concept_id, l.value as pref_label, m.position, m.added_at
+            FROM skos_collection_member m
+            LEFT JOIN skos_concept_label l
+                ON l.concept_id = m.concept_id
+                AND l.label_type = 'pref_label'
+                AND l.language = 'en'
+            WHERE m.collection_id = $1
+            ORDER BY CASE WHEN $2 THEN m.position ELSE 0 END, l.value
+            "#,
+        )
+        .bind(id)
+        .bind(collection.is_ordered)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let members = rows
+            .into_iter()
+            .map(|r| SkosCollectionMember {
+                concept_id: r.get("concept_id"),
+                pref_label: r.get("pref_label"),
+                position: r.get("position"),
+                added_at: r.get("added_at"),
+            })
+            .collect();
+
+        Ok(Some(SkosCollectionWithMembers {
+            collection,
+            members,
+        }))
+    }
+
+    async fn list_collections(&self, scheme_id: Option<Uuid>) -> Result<Vec<SkosCollection>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, uri, pref_label, definition, is_ordered,
+                   scheme_id, created_at, updated_at
+            FROM skos_collection
+            WHERE ($1::uuid IS NULL OR scheme_id = $1)
+            ORDER BY pref_label
+            "#,
+        )
+        .bind(scheme_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| SkosCollection {
+                id: r.get("id"),
+                uri: r.get("uri"),
+                pref_label: r.get("pref_label"),
+                definition: r.get("definition"),
+                is_ordered: r.get("is_ordered"),
+                scheme_id: r.get("scheme_id"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+            .collect())
+    }
+
+    async fn update_collection(&self, id: Uuid, req: UpdateSkosCollectionRequest) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE skos_collection
+            SET pref_label = COALESCE($2, pref_label),
+                definition = COALESCE($3, definition),
+                is_ordered = COALESCE($4, is_ordered)
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(&req.pref_label)
+        .bind(&req.definition)
+        .bind(req.is_ordered)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    async fn delete_collection(&self, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM skos_collection WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    async fn add_collection_member(
+        &self,
+        collection_id: Uuid,
+        concept_id: Uuid,
+        position: Option<i32>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO skos_collection_member (collection_id, concept_id, position)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (collection_id, concept_id) DO UPDATE SET position = $3
+            "#,
+        )
+        .bind(collection_id)
+        .bind(concept_id)
+        .bind(position)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    async fn remove_collection_member(&self, collection_id: Uuid, concept_id: Uuid) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM skos_collection_member WHERE collection_id = $1 AND concept_id = $2",
+        )
+        .bind(collection_id)
+        .bind(concept_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    async fn replace_collection_members(
+        &self,
+        collection_id: Uuid,
+        req: UpdateCollectionMembersRequest,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        // Remove existing members
+        sqlx::query("DELETE FROM skos_collection_member WHERE collection_id = $1")
+            .bind(collection_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        // Insert new members with positions
+        for (idx, concept_id) in req.concept_ids.iter().enumerate() {
+            sqlx::query(
+                r#"
+                INSERT INTO skos_collection_member (collection_id, concept_id, position)
+                VALUES ($1, $2, $3)
+                "#,
+            )
+            .bind(collection_id)
+            .bind(concept_id)
+            .bind(idx as i32)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(())
+    }
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 
