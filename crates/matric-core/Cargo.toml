@@ -31,6 +31,9 @@ sqlx.workspace = true
 # HTTP client (for error type compatibility)
 reqwest.workspace = true
 
+# Logging
+tracing.workspace = true
+
 # Tokenization
 tiktoken-rs = "0.5"
 

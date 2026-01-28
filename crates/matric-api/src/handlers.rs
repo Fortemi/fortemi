@@ -3,8 +3,10 @@
 //! Ported from HOTM's enhanced NLP pipeline for contextual note enhancement.
 //! Supports multiple revision modes to control AI enhancement aggressiveness.
 
+use std::time::Instant;
+
 use async_trait::async_trait;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
     EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobType, LinkRepository,
@@ -96,7 +98,12 @@ impl JobHandler for AiRevisionHandler {
         JobType::AiRevision
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "ai_revision", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -283,8 +290,8 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             note_id = %note_id,
             mode = ?revision_mode,
             related_count = related_count,
-            "AI revision completed in {:?} mode",
-            revision_mode
+            duration_ms = start.elapsed().as_millis() as u64,
+            "AI revision completed"
         );
 
         JobResult::Success(Some(serde_json::json!({
@@ -313,7 +320,12 @@ impl JobHandler for EmbeddingHandler {
         JobType::Embedding
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "embedding", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -372,7 +384,12 @@ impl JobHandler for EmbeddingHandler {
         }
 
         ctx.report_progress(100, Some("Embeddings complete"));
-        info!(note_id = %note_id, chunks = chunk_count, "Embeddings generated");
+        info!(
+            note_id = %note_id,
+            chunk_count = chunk_count,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Embeddings generated"
+        );
 
         JobResult::Success(Some(serde_json::json!({
             "chunks": chunk_count
@@ -429,7 +446,12 @@ impl JobHandler for TitleGenerationHandler {
         JobType::TitleGeneration
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "title_gen", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -535,7 +557,12 @@ Generate only the title, no quotes, no explanations."#,
             return JobResult::Failed(format!("Failed to save title: {}", e));
         }
 
-        info!(note_id = %note_id, title = %title, "Title generated and saved");
+        info!(
+            note_id = %note_id,
+            title = %title,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Title generated"
+        );
 
         ctx.report_progress(100, Some("Title generation completed"));
 
@@ -587,7 +614,12 @@ impl JobHandler for LinkingHandler {
         JobType::Linking
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "linking", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -713,10 +745,11 @@ impl JobHandler for LinkingHandler {
         ctx.report_progress(100, Some("Linking complete"));
         info!(
             note_id = %note_id,
-            links = created,
+            result_count = created,
             wiki_found = wiki_links_found,
             wiki_resolved = wiki_links_resolved,
-            "Created {} links ({} from wiki-links)", created, wiki_links_resolved
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Linking completed"
         );
 
         JobResult::Success(Some(serde_json::json!({
@@ -746,7 +779,12 @@ impl JobHandler for PurgeNoteHandler {
         JobType::PurgeNote
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "purge", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -803,7 +841,8 @@ impl JobHandler for PurgeNoteHandler {
             note_id = %note_id,
             affected_sets = affected_sets.len(),
             stats_updated = stats_updated,
-            "Note permanently deleted with all related data"
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Note purged"
         );
 
         JobResult::Success(Some(serde_json::json!({
@@ -832,7 +871,12 @@ impl JobHandler for ContextUpdateHandler {
         JobType::ContextUpdate
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "context_update", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -950,7 +994,12 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         }
 
         ctx.report_progress(100, Some("Context update complete"));
-        info!(note_id = %note_id, links = links.len(), "Added Related Context section");
+        info!(
+            note_id = %note_id,
+            result_count = links.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Context update completed"
+        );
 
         JobResult::Success(Some(serde_json::json!({
             "updated": true,
@@ -1020,9 +1069,14 @@ impl JobHandler for ConceptTaggingHandler {
         JobType::ConceptTagging
     }
 
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "concept_tagging", op = "execute")
+    )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         use matric_db::{SkosConceptSchemeRepository, SkosTaggingRepository};
 
+        let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
@@ -1186,9 +1240,10 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
         ctx.report_progress(100, Some("Concept tagging complete"));
         info!(
             note_id = %note_id,
-            concepts_tagged = tagged_count,
+            result_count = tagged_count,
             concepts_suggested = concept_labels.len(),
-            "SKOS concept tagging completed"
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Concept tagging completed"
         );
 
         JobResult::Success(Some(serde_json::json!({

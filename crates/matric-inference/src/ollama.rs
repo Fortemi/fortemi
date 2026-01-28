@@ -3,8 +3,8 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use tracing::{debug, info, warn};
+use std::time::{Duration, Instant};
+use tracing::{debug, info, instrument, warn};
 
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
@@ -249,16 +249,13 @@ struct GenerateResponse {
 
 #[async_trait]
 impl EmbeddingBackend for OllamaBackend {
+    #[instrument(skip(self, texts), fields(subsystem = "inference", component = "ollama", op = "embed_texts", model = %self.embed_model, input_count = texts.len()))]
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vector>> {
         if texts.is_empty() {
             return Ok(vec![]);
         }
 
-        debug!(
-            "Embedding {} texts with model {}",
-            texts.len(),
-            self.embed_model
-        );
+        let start = Instant::now();
 
         let request = EmbeddingRequest {
             model: self.embed_model.clone(),
@@ -289,8 +286,21 @@ impl EmbeddingBackend for OllamaBackend {
             .map_err(|e| Error::Embedding(format!("Failed to parse response: {}", e)))?;
 
         let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
+        let elapsed = start.elapsed().as_millis() as u64;
 
-        debug!("Generated {} embeddings", vectors.len());
+        debug!(
+            result_count = vectors.len(),
+            duration_ms = elapsed,
+            "Embedding complete"
+        );
+        if elapsed > 5000 {
+            warn!(
+                duration_ms = elapsed,
+                input_count = texts.len(),
+                slow = true,
+                "Slow embedding operation"
+            );
+        }
         Ok(vectors)
     }
 
@@ -309,15 +319,12 @@ impl GenerationBackend for OllamaBackend {
         self.generate_with_system("", prompt).await
     }
 
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate", model = %self.gen_model, prompt_len = prompt.len()))]
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        let start = Instant::now();
         let use_raw_mode = requires_raw_mode(&self.gen_model);
 
-        debug!(
-            "Generating with model {}, prompt length: {}, raw_mode: {}",
-            self.gen_model,
-            prompt.len(),
-            use_raw_mode
-        );
+        debug!(raw_mode = use_raw_mode, "Starting generation");
 
         let request = GenerateRequest {
             model: self.gen_model.clone(),
@@ -354,10 +361,20 @@ impl GenerationBackend for OllamaBackend {
             .await
             .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
 
+        let elapsed = start.elapsed().as_millis() as u64;
         debug!(
-            "Generation complete, response length: {}",
-            result.response.len()
+            response_len = result.response.len(),
+            duration_ms = elapsed,
+            "Generation complete"
         );
+        if elapsed > 30000 {
+            warn!(
+                duration_ms = elapsed,
+                prompt_len = prompt.len(),
+                slow = true,
+                "Slow generation operation"
+            );
+        }
         Ok(result.response)
     }
 

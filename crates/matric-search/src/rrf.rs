@@ -1,12 +1,19 @@
 //! Reciprocal Rank Fusion (RRF) for combining search results.
 
 use std::collections::HashMap;
+use tracing::debug;
 use uuid::Uuid;
 
 use matric_core::SearchHit;
 
-/// RRF constant (typically 60)
-pub const RRF_K: f32 = 60.0;
+/// RRF constant. K=20 emphasizes top-ranked results more strongly than the
+/// original K=60 default. Validated by Elasticsearch's BEIR grid search (2024)
+/// which found K=20 optimal across diverse retrieval benchmarks.
+/// Lower K is particularly suited for small-to-medium corpora where precision
+/// matters more than deep recall.
+///
+/// Reference: Cormack et al. (2009), Elasticsearch BEIR analysis (2024)
+pub const RRF_K: f32 = 20.0;
 
 /// Metadata preserved from search results during RRF fusion.
 struct HitMetadata {
@@ -79,6 +86,14 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     results.truncate(limit);
+
+    debug!(
+        input_lists = num_lists,
+        rrf_k = RRF_K,
+        result_count = results.len(),
+        "RRF fusion complete"
+    );
+
     results
 }
 
@@ -652,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_rrf_constant_value() {
-        // Verify RRF_K has the expected value
-        assert_eq!(RRF_K, 60.0);
+        // Verify RRF_K has the optimized value (K=20 per BEIR benchmarks)
+        assert_eq!(RRF_K, 20.0);
     }
 }

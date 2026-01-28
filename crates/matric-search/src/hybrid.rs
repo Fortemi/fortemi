@@ -1,7 +1,10 @@
 //! Hybrid search combining FTS and semantic vector search.
 
+use std::time::Instant;
+
 use async_trait::async_trait;
 use pgvector::Vector;
+use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
 use matric_core::{EmbeddingRepository, Result, SearchHit, StrictFilter, StrictTagFilter};
@@ -194,6 +197,14 @@ impl HybridSearchEngine {
 
 #[async_trait]
 impl HybridSearch for HybridSearchEngine {
+    #[instrument(skip(self, query_embedding, config), fields(
+        subsystem = "search",
+        component = "hybrid_search",
+        op = "search",
+        query = %query,
+        fts_weight = config.fts_weight,
+        semantic_weight = config.semantic_weight,
+    ))]
     async fn search(
         &self,
         query: &str,
@@ -201,10 +212,14 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
+        let start = Instant::now();
         let mut ranked_lists = Vec::new();
+        let mut fts_count = 0usize;
+        let mut semantic_count = 0usize;
 
         // FTS search (if weight > 0 and query is not empty)
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
+            let fts_start = Instant::now();
             let fts_results = if let Some(ref strict_filter) = config.strict_filter {
                 self.db
                     .search
@@ -221,6 +236,12 @@ impl HybridSearch for HybridSearchEngine {
                     .search(query, limit * 2, config.exclude_archived)
                     .await?
             };
+            fts_count = fts_results.len();
+            debug!(
+                fts_hits = fts_count,
+                duration_ms = fts_start.elapsed().as_millis() as u64,
+                "FTS retrieval complete"
+            );
 
             if !fts_results.is_empty() {
                 ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
@@ -230,6 +251,7 @@ impl HybridSearch for HybridSearchEngine {
         // Semantic search (if weight > 0 and embedding is provided)
         if config.semantic_weight > 0.0 {
             if let Some(embedding) = query_embedding {
+                let sem_start = Instant::now();
                 // Use embedding set if specified, otherwise search all embeddings
                 let semantic_results = if let Some(set_id) = config.embedding_set_id {
                     self.db
@@ -242,6 +264,12 @@ impl HybridSearch for HybridSearchEngine {
                         .find_similar(embedding, limit * 2, config.exclude_archived)
                         .await?
                 };
+                semantic_count = semantic_results.len();
+                debug!(
+                    semantic_hits = semantic_count,
+                    duration_ms = sem_start.elapsed().as_millis() as u64,
+                    "Semantic retrieval complete"
+                );
 
                 if !semantic_results.is_empty() {
                     ranked_lists.push(Self::apply_weights(
@@ -254,11 +282,19 @@ impl HybridSearch for HybridSearchEngine {
 
         // If no results from either source, return empty
         if ranked_lists.is_empty() {
+            debug!("No results from any source");
             return Ok(Vec::new());
         }
 
         // Fuse results using RRF
+        let fusion_start = Instant::now();
         let mut results = rrf_fuse(ranked_lists, limit as usize);
+        debug!(
+            fusion_method = "rrf",
+            result_count = results.len(),
+            duration_ms = fusion_start.elapsed().as_millis() as u64,
+            "Fusion complete"
+        );
 
         // Apply minimum score filter
         if config.min_score > 0.0 {
@@ -268,9 +304,23 @@ impl HybridSearch for HybridSearchEngine {
         // Apply deduplication
         let deduplicated = deduplicate_search_results(results, &config.deduplication);
 
+        info!(
+            fts_hits = fts_count,
+            semantic_hits = semantic_count,
+            result_count = deduplicated.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Hybrid search completed"
+        );
+
         Ok(deduplicated)
     }
 
+    #[instrument(skip(self, query_embedding, config), fields(
+        subsystem = "search",
+        component = "hybrid_search",
+        op = "search_filtered",
+        query = %query,
+    ))]
     async fn search_filtered(
         &self,
         query: &str,
@@ -279,6 +329,7 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
+        let start = Instant::now();
         let mut ranked_lists = Vec::new();
 
         // FTS search with filters
@@ -288,6 +339,7 @@ impl HybridSearch for HybridSearchEngine {
                 .search
                 .search_filtered(query, filters, limit * 2, config.exclude_archived)
                 .await?;
+            debug!(fts_hits = fts_results.len(), "FTS filtered retrieval");
 
             if !fts_results.is_empty() {
                 ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
@@ -309,6 +361,7 @@ impl HybridSearch for HybridSearchEngine {
                         .find_similar(embedding, limit * 2, config.exclude_archived)
                         .await?
                 };
+                debug!(semantic_hits = semantic_results.len(), "Semantic retrieval");
 
                 if !semantic_results.is_empty() {
                     ranked_lists.push(Self::apply_weights(
@@ -331,6 +384,12 @@ impl HybridSearch for HybridSearchEngine {
 
         // Apply deduplication
         let deduplicated = deduplicate_search_results(results, &config.deduplication);
+
+        info!(
+            result_count = deduplicated.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Filtered hybrid search completed"
+        );
 
         Ok(deduplicated)
     }

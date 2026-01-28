@@ -9,6 +9,7 @@ pub mod collection_filter;
 pub mod error;
 pub mod fair;
 pub mod hardware;
+pub mod logging;
 pub mod models;
 pub mod search;
 pub mod strict_filter;

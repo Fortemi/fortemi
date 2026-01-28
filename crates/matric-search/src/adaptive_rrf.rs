@@ -6,6 +6,7 @@
 //! Reference: REF-027 - Cormack et al. "Reciprocal Rank Fusion"
 
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 /// Query characteristics extracted from user input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,9 +67,9 @@ impl Default for AdaptiveRrfConfig {
     fn default() -> Self {
         Self {
             adaptive_enabled: true,
-            default_k: 60,
-            min_k: 20,
-            max_k: 100,
+            default_k: 20,
+            min_k: 8,
+            max_k: 40,
         }
     }
 }
@@ -104,7 +105,17 @@ pub fn select_k(config: &AdaptiveRrfConfig, query: &QueryCharacteristics) -> u32
 
     // Clamp to configured bounds
     let k = k.round() as u32;
-    k.clamp(config.min_k, config.max_k)
+    let k = k.clamp(config.min_k, config.max_k);
+
+    debug!(
+        selected_k = k,
+        token_count = query.token_count,
+        has_quotes = query.has_quotes,
+        is_keyword = query.is_keyword_query,
+        "Adaptive RRF k selected"
+    );
+
+    k
 }
 
 /// Computes RRF score for a given rank and k parameter.
@@ -127,9 +138,9 @@ mod tests {
     fn test_default_config() {
         let config = AdaptiveRrfConfig::default();
         assert!(config.adaptive_enabled);
-        assert_eq!(config.default_k, 60);
-        assert_eq!(config.min_k, 20);
-        assert_eq!(config.max_k, 100);
+        assert_eq!(config.default_k, 20);
+        assert_eq!(config.min_k, 8);
+        assert_eq!(config.max_k, 40);
     }
 
     #[test]
@@ -172,12 +183,12 @@ mod tests {
     fn test_select_k_disabled() {
         let config = AdaptiveRrfConfig {
             adaptive_enabled: false,
-            default_k: 60,
-            min_k: 20,
-            max_k: 100,
+            default_k: 20,
+            min_k: 8,
+            max_k: 40,
         };
         let chars = QueryCharacteristics::analyze("any query");
-        assert_eq!(select_k(&config, &chars), 60);
+        assert_eq!(select_k(&config, &chars), 20);
     }
 
     #[test]
@@ -185,8 +196,8 @@ mod tests {
         let config = AdaptiveRrfConfig::default();
         let chars = QueryCharacteristics::analyze("rust");
         let k = select_k(&config, &chars);
-        // 60 * 0.7 = 42
-        assert_eq!(k, 42);
+        // 20 * 0.7 = 14
+        assert_eq!(k, 14);
     }
 
     #[test]
@@ -195,8 +206,8 @@ mod tests {
         let chars =
             QueryCharacteristics::analyze("how to implement semantic search in rust programming");
         let k = select_k(&config, &chars);
-        // 60 * 1.3 = 78
-        assert_eq!(k, 78);
+        // 20 * 1.3 = 26
+        assert_eq!(k, 26);
     }
 
     #[test]
@@ -205,8 +216,8 @@ mod tests {
         let chars =
             QueryCharacteristics::analyze(r#""machine learning" "neural networks" research"#);
         let k = select_k(&config, &chars);
-        // 3 tokens (not short, not long), has quotes: 60 * 0.6 = 36
-        assert_eq!(k, 36);
+        // 3 tokens (not short, not long), has quotes: 20 * 0.6 = 12
+        assert_eq!(k, 12);
     }
 
     #[test]
@@ -219,17 +230,17 @@ mod tests {
             is_keyword_query: true,
         };
         let k = select_k(&config, &chars);
-        // 60 * 0.7 * 0.6 = 25.2 -> 25
-        assert_eq!(k, 25);
+        // 20 * 0.7 * 0.6 = 8.4 -> 8
+        assert_eq!(k, 8);
     }
 
     #[test]
     fn test_select_k_clamping_min() {
         let config = AdaptiveRrfConfig {
             adaptive_enabled: true,
-            default_k: 30,
-            min_k: 25,
-            max_k: 100,
+            default_k: 15,
+            min_k: 10,
+            max_k: 40,
         };
         let chars = QueryCharacteristics {
             token_count: 1,
@@ -238,17 +249,17 @@ mod tests {
             is_keyword_query: true,
         };
         let k = select_k(&config, &chars);
-        // 30 * 0.7 * 0.6 = 12.6, clamped to 25
-        assert_eq!(k, 25);
+        // 15 * 0.7 * 0.6 = 6.3, clamped to 10
+        assert_eq!(k, 10);
     }
 
     #[test]
     fn test_select_k_clamping_max() {
         let config = AdaptiveRrfConfig {
             adaptive_enabled: true,
-            default_k: 90,
-            min_k: 20,
-            max_k: 100,
+            default_k: 35,
+            min_k: 8,
+            max_k: 40,
         };
         let chars = QueryCharacteristics {
             token_count: 8,
@@ -257,8 +268,8 @@ mod tests {
             is_keyword_query: false,
         };
         let k = select_k(&config, &chars);
-        // 90 * 1.3 = 117, clamped to 100
-        assert_eq!(k, 100);
+        // 35 * 1.3 = 45.5, clamped to 40
+        assert_eq!(k, 40);
     }
 
     #[test]
@@ -296,9 +307,9 @@ mod tests {
         let config = AdaptiveRrfConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: AdaptiveRrfConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.default_k, 60);
-        assert_eq!(deserialized.min_k, 20);
-        assert_eq!(deserialized.max_k, 100);
+        assert_eq!(deserialized.default_k, 20);
+        assert_eq!(deserialized.min_k, 8);
+        assert_eq!(deserialized.max_k, 40);
     }
 
     #[test]

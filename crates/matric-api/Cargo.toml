@@ -63,6 +63,7 @@ futures.workspace = true
 # Logging
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 
 # Configuration
 dotenvy = "0.15"

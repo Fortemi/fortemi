@@ -8,6 +8,7 @@ edition.workspace = true
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db" }
 
+tracing.workspace = true
 async-trait = "0.1"
 pgvector = { version = "0.4", features = ["sqlx"] }
 uuid = { version = "1.11", features = ["serde", "v4"] }

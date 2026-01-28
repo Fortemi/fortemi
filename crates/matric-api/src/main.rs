@@ -20,6 +20,7 @@ use std::num::NonZeroU32;
 use tower_http::{
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
+    request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     trace::TraceLayer,
 };
 use tracing::info;
@@ -36,6 +37,24 @@ use matric_core::{
     UpdateNoteStatusRequest,
 };
 use matric_db::Database;
+
+// =============================================================================
+// REQUEST ID (UUIDv7)
+// =============================================================================
+
+/// Generates time-ordered UUIDv7 request correlation IDs.
+///
+/// UUIDv7 embeds a Unix timestamp, so IDs sort chronologically — useful for
+/// log correlation, distributed tracing, and debugging production incidents.
+#[derive(Clone, Default)]
+struct MakeRequestUuidV7;
+
+impl MakeRequestId for MakeRequestUuidV7 {
+    fn make_request_id<B>(&mut self, _request: &axum::http::Request<B>) -> Option<RequestId> {
+        let id = Uuid::now_v7().to_string().parse().ok()?;
+        Some(RequestId::new(id))
+    }
+}
 
 // =============================================================================
 // NLP PIPELINE HELPER
@@ -149,14 +168,75 @@ async fn main() -> anyhow::Result<()> {
     // Load environment variables
     dotenvy::dotenv().ok();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "matric_api=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize tracing with configurable output
+    //
+    // Environment variables:
+    //   LOG_FORMAT  - "json" or "text" (default: "text")
+    //   LOG_FILE    - path to log file (optional, enables file logging)
+    //   LOG_ANSI    - "true"/"false" override ANSI colors (auto-detected by default)
+    //   RUST_LOG    - standard env filter (default: "matric_api=debug,tower_http=debug")
+    let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
+    let log_file = std::env::var("LOG_FILE").ok();
+    let log_ansi = std::env::var("LOG_ANSI")
+        .ok()
+        .map(|v| v == "true" || v == "1");
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "matric_api=debug,tower_http=debug".into());
+
+    let registry = tracing_subscriber::registry().with(env_filter);
+
+    // Optionally create a file appender with daily rotation
+    let _file_guard = if let Some(ref path) = log_file {
+        let file_dir = std::path::Path::new(path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("matric-api.log");
+        let file_appender = tracing_appender::rolling::daily(file_dir, file_name);
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        if log_format == "json" {
+            registry
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .json()
+                        .with_writer(non_blocking),
+                )
+                .init();
+        } else {
+            let mut layer = tracing_subscriber::fmt::layer().with_writer(non_blocking);
+            if let Some(ansi) = log_ansi {
+                layer = layer.with_ansi(ansi);
+            } else {
+                layer = layer.with_ansi(false); // no ANSI in files
+            }
+            registry.with(layer).init();
+        }
+        Some(guard)
+    } else {
+        // Console-only output
+        if log_format == "json" {
+            registry
+                .with(tracing_subscriber::fmt::layer().json())
+                .init();
+        } else {
+            let mut layer = tracing_subscriber::fmt::layer();
+            if let Some(ansi) = log_ansi {
+                layer = layer.with_ansi(ansi);
+            }
+            registry.with(layer).init();
+        }
+        None
+    };
+
+    info!(
+        log_format = %log_format,
+        log_file = log_file.as_deref().unwrap_or("(stdout)"),
+        "Logging initialized"
+    );
 
     // Get configuration from environment
     let database_url =
@@ -402,6 +482,25 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/concepts/schemes/:id/export/turtle",
             get(export_scheme_turtle),
         )
+        // SKOS Collections (W3C SKOS Section 9)
+        .route(
+            "/api/v1/concepts/collections",
+            get(list_skos_collections).post(create_skos_collection),
+        )
+        .route(
+            "/api/v1/concepts/collections/:id",
+            get(get_skos_collection)
+                .patch(update_skos_collection)
+                .delete(delete_skos_collection),
+        )
+        .route(
+            "/api/v1/concepts/collections/:id/members",
+            put(replace_skos_collection_members),
+        )
+        .route(
+            "/api/v1/concepts/collections/:id/members/:concept_id",
+            post(add_skos_collection_member).delete(remove_skos_collection_member),
+        )
         // Collections
         .route(
             "/api/v1/collections",
@@ -538,6 +637,8 @@ async fn main() -> anyhow::Result<()> {
             rate_limit_middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -1683,8 +1784,8 @@ async fn list_tags(State(state): State<AppState>) -> Result<impl IntoResponse, A
 // =============================================================================
 
 use matric_db::{
-    SkosConceptRepository, SkosConceptSchemeRepository, SkosGovernanceRepository,
-    SkosLabelRepository, SkosRelationRepository, SkosTaggingRepository,
+    SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository,
+    SkosGovernanceRepository, SkosLabelRepository, SkosRelationRepository, SkosTaggingRepository,
 };
 
 // --- Concept Scheme Handlers ---
@@ -2116,6 +2217,101 @@ fn escape_turtle(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+// =============================================================================
+// SKOS COLLECTION HANDLERS (W3C SKOS Section 9)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct ListSkosCollectionsQuery {
+    scheme_id: Option<Uuid>,
+}
+
+async fn list_skos_collections(
+    State(state): State<AppState>,
+    Query(query): Query<ListSkosCollectionsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let collections = state.db.skos.list_collections(query.scheme_id).await?;
+    Ok(Json(collections))
+}
+
+async fn create_skos_collection(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateSkosCollectionRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.skos.create_collection(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+async fn get_skos_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let collection = state
+        .db
+        .skos
+        .get_collection_with_members(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("SKOS collection not found".to_string()))?;
+    Ok(Json(collection))
+}
+
+async fn update_skos_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<matric_core::UpdateSkosCollectionRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.update_collection(id, body).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_skos_collection(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.delete_collection(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn replace_skos_collection_members(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<matric_core::UpdateCollectionMembersRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.replace_collection_members(id, body).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct AddMemberBody {
+    position: Option<i32>,
+}
+
+async fn add_skos_collection_member(
+    State(state): State<AppState>,
+    Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
+    body: Option<Json<AddMemberBody>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let position = body.and_then(|b| b.position);
+    state
+        .db
+        .skos
+        .add_collection_member(collection_id, concept_id, position)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn remove_skos_collection_member(
+    State(state): State<AppState>,
+    Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .db
+        .skos
+        .remove_collection_member(collection_id, concept_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // =============================================================================

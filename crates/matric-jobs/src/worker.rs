@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::sleep;
@@ -186,8 +186,13 @@ impl JobWorker {
     }
 
     /// Process the next available job.
-    #[instrument(skip(self))]
+    #[instrument(
+        skip(self),
+        fields(subsystem = "jobs", component = "worker", op = "process_next")
+    )]
     async fn process_next_job(&self) -> bool {
+        let start = Instant::now();
+
         // Claim the next job from the queue
         let job = match self.db.jobs.claim_next().await {
             Ok(Some(job)) => job,
@@ -243,7 +248,12 @@ impl JobWorker {
                 if let Err(e) = self.db.jobs.complete(job_id, result_data).await {
                     error!(error = ?e, ?job_id, "Failed to mark job as completed");
                 } else {
-                    info!(?job_id, ?job_type, "Job completed successfully");
+                    info!(
+                        ?job_id,
+                        ?job_type,
+                        duration_ms = start.elapsed().as_millis() as u64,
+                        "Job completed successfully"
+                    );
                     let _ = self
                         .event_tx
                         .send(WorkerEvent::JobCompleted { job_id, job_type });
@@ -253,7 +263,13 @@ impl JobWorker {
                 if let Err(e) = self.db.jobs.fail(job_id, &error).await {
                     error!(error = ?e, ?job_id, "Failed to mark job as failed");
                 } else {
-                    warn!(?job_id, ?job_type, %error, "Job failed");
+                    warn!(
+                        ?job_id,
+                        ?job_type,
+                        %error,
+                        duration_ms = start.elapsed().as_millis() as u64,
+                        "Job failed"
+                    );
                     let _ = self.event_tx.send(WorkerEvent::JobFailed {
                         job_id,
                         job_type,

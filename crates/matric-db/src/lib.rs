@@ -68,7 +68,7 @@ pub use jobs::PgJobRepository;
 pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};
 pub use oauth::PgOAuthRepository;
-pub use pool::{create_pool, create_pool_with_config, PoolConfig};
+pub use pool::{create_pool, create_pool_with_config, log_pool_metrics, PoolConfig};
 pub use provenance::PgProvenanceRepository;
 pub use search::PgFtsSearch;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
@@ -81,8 +81,9 @@ pub use versioning::{
 
 // Re-export SKOS repository and traits
 pub use skos_tags::{
-    PgSkosRepository, SkosConceptRepository, SkosConceptSchemeRepository, SkosGovernanceRepository,
-    SkosLabelRepository, SkosNoteRepository, SkosRelationRepository, SkosTaggingRepository,
+    PgSkosRepository, SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository,
+    SkosGovernanceRepository, SkosLabelRepository, SkosNoteRepository, SkosRelationRepository,
+    SkosTaggingRepository,
 };
 
 /// Combined database context with all repositories.

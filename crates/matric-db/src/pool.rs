@@ -1,9 +1,9 @@
 //! Database connection pool management.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use matric_core::{Error, Result};
 
@@ -87,9 +87,17 @@ pub async fn create_pool(database_url: &str) -> Result<PgPool> {
 
 /// Create a new PostgreSQL connection pool with custom configuration.
 pub async fn create_pool_with_config(database_url: &str, config: PoolConfig) -> Result<PgPool> {
+    let start = Instant::now();
+
     info!(
-        "Connecting to database with max {} connections, min {}",
-        config.max_connections, config.min_connections
+        subsystem = "database",
+        component = "pool",
+        op = "create",
+        max_connections = config.max_connections,
+        min_connections = config.min_connections,
+        connect_timeout_secs = config.connect_timeout.as_secs(),
+        idle_timeout_secs = config.idle_timeout.as_secs(),
+        "Creating database connection pool"
     );
 
     let mut options = PgPoolOptions::new()
@@ -107,8 +115,43 @@ pub async fn create_pool_with_config(database_url: &str, config: PoolConfig) -> 
         .await
         .map_err(Error::Database)?;
 
-    info!("Database connection pool established");
+    info!(
+        subsystem = "database",
+        component = "pool",
+        op = "established",
+        pool_size = pool.size(),
+        pool_idle = pool.num_idle(),
+        duration_ms = start.elapsed().as_millis() as u64,
+        "Database connection pool established"
+    );
     Ok(pool)
+}
+
+/// Log current pool health metrics.
+///
+/// Emits structured debug-level log with pool size, idle count,
+/// and warns if idle connections drop below 1 (potential exhaustion).
+pub fn log_pool_metrics(pool: &PgPool) {
+    let size = pool.size();
+    let idle = pool.num_idle();
+
+    debug!(
+        subsystem = "database",
+        component = "pool",
+        op = "metrics",
+        pool_size = size,
+        pool_idle = idle,
+        "Pool health check"
+    );
+
+    if idle == 0 && size > 0 {
+        warn!(
+            subsystem = "database",
+            component = "pool",
+            pool_size = size,
+            "Connection pool has no idle connections — potential exhaustion"
+        );
+    }
 }
 
 /// Create a new PostgreSQL connection pool with custom options (legacy API).
