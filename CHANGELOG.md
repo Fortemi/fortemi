@@ -7,6 +7,29 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.4] - 2026-01-29
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **Semantic Search Isolation Fix** | Critical fix: strict_filter now applies to vector search, preventing data leakage |
+| **SKOS ENUM Fixes** | All SKOS APIs now correctly handle PostgreSQL ENUM types |
+| **MCP strict_filter Fix** | MCP server correctly passes strict_filter parameter |
+
+### Fixed
+- **Critical: Semantic search data isolation** - strict_filter was only applied to FTS, not vector search
+- **SKOS ENUM type casting** (Issue #197) - All SELECT/INSERT queries now properly cast ENUMs
+- **MCP server strict_filter parameter** - Changed from "filters" to "strict_filter"
+- **API strict_filter JSON parsing** - Query string now correctly deserializes nested JSON
+
+### Added
+- `find_similar_with_strict_filter()` for isolated semantic search
+- `test-skos-regression.sh` - 17 regression tests for SKOS ENUM fixes
+- `test-strict-search.sh` - 7 data isolation tests for strict_filter
+
+## [2026.1.0] - 2026-01-24 (previous)
+
 ### Added
 
 #### Research-Backed Modules (#162-165, #167-170, #172, #174, #176-177)
