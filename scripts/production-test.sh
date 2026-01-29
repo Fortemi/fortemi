@@ -41,41 +41,43 @@ psql -U matric -h localhost -d matric -c "SELECT id FROM embedding_set WHERE is_
 psql -U matric -h localhost -d matric -c "SELECT id FROM embedding_config WHERE is_default = TRUE;" 2>/dev/null | grep -q "[a-f0-9-]" && pass "Default embedding config" || fail "Default embedding config"
 echo
 
-# 3. API Endpoints
+# 3. API Endpoints (all under /api/v1/)
 echo "=== 3. API Endpoints ==="
-curl -sf "$BASE_URL/notes?limit=1" | jq -e '.notes' >/dev/null 2>&1 && pass "GET /notes" || fail "GET /notes"
-curl -sf -X POST "$BASE_URL/search" -H "Content-Type: application/json" -d '{"query":"test","limit":1}' 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "POST /search" || fail "POST /search"
-curl -sf "$BASE_URL/collections" | jq -e '.' >/dev/null 2>&1 && pass "GET /collections" || fail "GET /collections"
-curl -sf "$BASE_URL/tags" | jq -e '.' >/dev/null 2>&1 && pass "GET /tags" || fail "GET /tags"
-curl -sf "$BASE_URL/embedding-sets" | jq -e '.' >/dev/null 2>&1 && pass "GET /embedding-sets" || fail "GET /embedding-sets"
-curl -sf "$BASE_URL/templates" | jq -e '.' >/dev/null 2>&1 && pass "GET /templates" || fail "GET /templates"
-curl -sf "$BASE_URL/queue/stats" | jq -e '.' >/dev/null 2>&1 && pass "GET /queue/stats" || fail "GET /queue/stats"
-curl -sf "$BASE_URL/backup/status" | jq -e '.' >/dev/null 2>&1 && pass "GET /backup/status" || fail "GET /backup/status"
+curl -sf "$BASE_URL/api/v1/notes?limit=1" | jq -e '.notes' >/dev/null 2>&1 && pass "GET /api/v1/notes" || fail "GET /api/v1/notes"
+curl -sf "$BASE_URL/api/v1/search?q=test&limit=1" 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "GET /api/v1/search" || fail "GET /api/v1/search"
+curl -sf "$BASE_URL/api/v1/collections" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/collections" || fail "GET /api/v1/collections"
+curl -sf "$BASE_URL/api/v1/tags" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/tags" || fail "GET /api/v1/tags"
+curl -sf "$BASE_URL/api/v1/embedding-sets" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/embedding-sets" || fail "GET /api/v1/embedding-sets"
+curl -sf "$BASE_URL/api/v1/templates" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/templates" || fail "GET /api/v1/templates"
+curl -sf "$BASE_URL/api/v1/jobs/stats" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/jobs/stats" || fail "GET /api/v1/jobs/stats"
+curl -sf "$BASE_URL/api/v1/backup/status" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/backup/status" || fail "GET /api/v1/backup/status"
 echo
 
-# 4. Search modes
+# 4. Search modes (search endpoint uses GET with q= param)
 echo "=== 4. Search Functionality ==="
-curl -sf -X POST "$BASE_URL/search" -H "Content-Type: application/json" -d '{"query":"knowledge","limit":5}' 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "Hybrid search" || fail "Hybrid search"
-curl -sf -X POST "$BASE_URL/search" -H "Content-Type: application/json" -d '{"query":"test","limit":5,"mode":"fts"}' 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "FTS search" || fail "FTS search"
-curl -sf -X POST "$BASE_URL/search" -H "Content-Type: application/json" -d '{"query":"semantic query","limit":5,"mode":"semantic"}' 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "Semantic search" || fail "Semantic search"
+curl -sf "$BASE_URL/api/v1/search?q=knowledge&limit=5" 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "Hybrid search" || fail "Hybrid search"
+curl -sf "$BASE_URL/api/v1/search?q=test&limit=5&mode=fts" 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "FTS search" || fail "FTS search"
+curl -sf "$BASE_URL/api/v1/search?q=semantic&limit=5&mode=semantic" 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "Semantic search" || fail "Semantic search"
 echo
 
-# 5. SKOS
+# 5. SKOS (concepts/schemes endpoints)
 echo "=== 5. SKOS Taxonomy ==="
-curl -sf "$BASE_URL/taxonomy/schemes" | jq -e '.' >/dev/null 2>&1 && pass "GET /taxonomy/schemes" || fail "GET /taxonomy/schemes"
-curl -sf "$BASE_URL/taxonomy/governance-stats" | jq -e '.' >/dev/null 2>&1 && pass "GET /taxonomy/governance-stats" || fail "GET /taxonomy/governance-stats"
+curl -sf "$BASE_URL/api/v1/concepts/schemes" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/concepts/schemes" || fail "GET /api/v1/concepts/schemes"
+curl -sf "$BASE_URL/api/v1/concepts/governance" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/concepts/governance" || fail "GET /api/v1/concepts/governance"
 echo
 
 # 6. Jobs
 echo "=== 6. Background Jobs ==="
-FAILED_JOBS=$(psql -U matric -h localhost -d matric -t -c "SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND created_at > NOW() - INTERVAL '1 hour';" 2>/dev/null | tr -d ' ' || echo "0")
-[ "${FAILED_JOBS:-0}" -lt 10 ] && pass "Failed jobs acceptable ($FAILED_JOBS)" || warn "High failed jobs ($FAILED_JOBS)"
+FAILED_JOBS=$(psql -U matric -h localhost -d matric -t -c "SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND created_at > NOW() - INTERVAL '1 hour';" 2>/dev/null | tr -d ' \n' || echo "0")
+FAILED_JOBS=${FAILED_JOBS:-0}
+[ "$FAILED_JOBS" -lt 10 ] 2>/dev/null && pass "Failed jobs acceptable ($FAILED_JOBS)" || warn "High failed jobs ($FAILED_JOBS)"
 echo
 
 # 7. Recent errors check
 echo "=== 7. Log Health ==="
-RECENT_ERRORS=$(journalctl -u matric-api --since "10 minutes ago" 2>/dev/null | grep -ci error || echo "0")
-[ "${RECENT_ERRORS:-0}" -lt 5 ] && pass "Recent errors acceptable ($RECENT_ERRORS)" || warn "Recent errors elevated ($RECENT_ERRORS)"
+RECENT_ERRORS=$(journalctl -u matric-api --since "10 minutes ago" 2>/dev/null | grep -ci error 2>/dev/null || echo "0")
+RECENT_ERRORS=${RECENT_ERRORS:-0}
+[ "$RECENT_ERRORS" -lt 5 ] 2>/dev/null && pass "Recent errors acceptable ($RECENT_ERRORS)" || warn "Recent errors elevated ($RECENT_ERRORS)"
 echo
 
 # Summary

@@ -14,7 +14,7 @@ curl -sf http://localhost:3000/health && echo "OK" || echo "FAILED"
 PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT 1;" >/dev/null && echo "DB OK" || echo "DB FAILED"
 
 # 3. Basic API response
-curl -sf http://localhost:3000/notes?limit=1 | jq -e '.notes' >/dev/null && echo "API OK" || echo "API FAILED"
+curl -sf http://localhost:3000/api/v1/notes?limit=1 | jq -e '.notes' >/dev/null && echo "API OK" || echo "API FAILED"
 ```
 
 ---
@@ -28,7 +28,7 @@ curl -sf http://localhost:3000/notes?limit=1 | jq -e '.notes' >/dev/null && echo
 | API service running | `systemctl is-active matric-api` | `active` |
 | PostgreSQL running | `systemctl is-active postgresql` | `active` |
 | API listening on port | `ss -tlnp \| grep 3000` | Socket listed |
-| Health endpoint | `curl http://localhost:3000/health` | `{"status":"ok"}` |
+| Health endpoint | `curl http://localhost:3000/health` | `{"status":"healthy","version":"..."}` |
 
 ```bash
 # Run infrastructure checks
@@ -95,28 +95,28 @@ BASE_URL="http://localhost:3000"
 curl -sf "$BASE_URL/health" >/dev/null && echo "✓ GET /health" || echo "✗ GET /health"
 
 # Notes list
-curl -sf "$BASE_URL/notes?limit=1" | jq -e '.notes' >/dev/null && echo "✓ GET /notes" || echo "✗ GET /notes"
+curl -sf "$BASE_URL/api/v1/notes?limit=1" | jq -e '.notes' >/dev/null && echo "✓ GET /api/v1/notes" || echo "✗ GET /api/v1/notes"
 
-# Search
-curl -sf -X POST "$BASE_URL/search" -H "Content-Type: application/json" -d '{"query":"test","limit":1}' | jq -e '.results' >/dev/null && echo "✓ POST /search" || echo "✗ POST /search"
+# Search (uses q= parameter)
+curl -sf "$BASE_URL/api/v1/search?q=test&limit=1" | jq -e '.results' >/dev/null && echo "✓ GET /api/v1/search" || echo "✗ GET /api/v1/search"
 
 # Collections
-curl -sf "$BASE_URL/collections" | jq -e '.' >/dev/null && echo "✓ GET /collections" || echo "✗ GET /collections"
+curl -sf "$BASE_URL/api/v1/collections" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/collections" || echo "✗ GET /api/v1/collections"
 
 # Tags
-curl -sf "$BASE_URL/tags" | jq -e '.' >/dev/null && echo "✓ GET /tags" || echo "✗ GET /tags"
+curl -sf "$BASE_URL/api/v1/tags" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/tags" || echo "✗ GET /api/v1/tags"
 
 # Embedding sets
-curl -sf "$BASE_URL/embedding-sets" | jq -e '.' >/dev/null && echo "✓ GET /embedding-sets" || echo "✗ GET /embedding-sets"
+curl -sf "$BASE_URL/api/v1/embedding-sets" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/embedding-sets" || echo "✗ GET /api/v1/embedding-sets"
 
 # Templates
-curl -sf "$BASE_URL/templates" | jq -e '.' >/dev/null && echo "✓ GET /templates" || echo "✗ GET /templates"
+curl -sf "$BASE_URL/api/v1/templates" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/templates" || echo "✗ GET /api/v1/templates"
 
 # Queue stats
-curl -sf "$BASE_URL/queue/stats" | jq -e '.' >/dev/null && echo "✓ GET /queue/stats" || echo "✗ GET /queue/stats"
+curl -sf "$BASE_URL/api/v1/jobs/stats" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/jobs/stats" || echo "✗ GET /api/v1/jobs/stats"
 
 # Backup status
-curl -sf "$BASE_URL/backup/status" | jq -e '.' >/dev/null && echo "✓ GET /backup/status" || echo "✗ GET /backup/status"
+curl -sf "$BASE_URL/api/v1/backup/status" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/backup/status" || echo "✗ GET /api/v1/backup/status"
 ```
 
 ### 4. CRUD Operations Test
@@ -129,7 +129,7 @@ BASE_URL="http://localhost:3000"
 
 # Create test note
 echo "Creating test note..."
-NOTE_RESPONSE=$(curl -sf -X POST "$BASE_URL/notes" \
+NOTE_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/v1/notes" \
     -H "Content-Type: application/json" \
     -d '{"content":"Production test note - can be deleted","revision_mode":"none","tags":["test/production-validation"]}')
 
@@ -143,7 +143,7 @@ fi
 
 # Read test note
 echo "Reading test note..."
-READ_RESPONSE=$(curl -sf "$BASE_URL/notes/$NOTE_ID")
+READ_RESPONSE=$(curl -sf "$BASE_URL/api/v1/notes/$NOTE_ID")
 if echo "$READ_RESPONSE" | jq -e '.id' >/dev/null; then
     echo "✓ READ note"
 else
@@ -152,7 +152,7 @@ fi
 
 # Update test note (star it)
 echo "Updating test note..."
-UPDATE_RESPONSE=$(curl -sf -X PUT "$BASE_URL/notes/$NOTE_ID" \
+UPDATE_RESPONSE=$(curl -sf -X PUT "$BASE_URL/api/v1/notes/$NOTE_ID" \
     -H "Content-Type: application/json" \
     -d '{"starred":true}')
 if echo "$UPDATE_RESPONSE" | jq -e '.starred == true' >/dev/null; then
@@ -163,7 +163,7 @@ fi
 
 # Delete test note
 echo "Deleting test note..."
-DELETE_RESPONSE=$(curl -sf -X DELETE "$BASE_URL/notes/$NOTE_ID")
+DELETE_RESPONSE=$(curl -sf -X DELETE "$BASE_URL/api/v1/notes/$NOTE_ID")
 echo "✓ DELETE note"
 
 echo "CRUD test completed successfully"
@@ -171,29 +171,20 @@ echo "CRUD test completed successfully"
 
 ### 5. Search Functionality Test
 
+Search endpoint uses GET with `q=` query parameter.
+
 ```bash
 echo "=== Search Functionality Test ==="
 BASE_URL="http://localhost:3000"
 
 # Hybrid search (default)
-curl -sf -X POST "$BASE_URL/search" \
-    -H "Content-Type: application/json" \
-    -d '{"query":"knowledge","limit":5}' | jq -e '.results' >/dev/null && echo "✓ Hybrid search" || echo "✗ Hybrid search"
+curl -sf "$BASE_URL/api/v1/search?q=knowledge&limit=5" | jq -e '.results' >/dev/null && echo "✓ Hybrid search" || echo "✗ Hybrid search"
 
 # FTS-only search
-curl -sf -X POST "$BASE_URL/search" \
-    -H "Content-Type: application/json" \
-    -d '{"query":"test","limit":5,"mode":"fts"}' | jq -e '.results' >/dev/null && echo "✓ FTS search" || echo "✗ FTS search"
+curl -sf "$BASE_URL/api/v1/search?q=test&limit=5&mode=fts" | jq -e '.results' >/dev/null && echo "✓ FTS search" || echo "✗ FTS search"
 
 # Semantic-only search
-curl -sf -X POST "$BASE_URL/search" \
-    -H "Content-Type: application/json" \
-    -d '{"query":"how does semantic search work","limit":5,"mode":"semantic"}' | jq -e '.results' >/dev/null && echo "✓ Semantic search" || echo "✗ Semantic search"
-
-# Search with strict filter
-curl -sf -X POST "$BASE_URL/search/strict" \
-    -H "Content-Type: application/json" \
-    -d '{"query":"test","limit":5}' | jq -e '.' >/dev/null && echo "✓ Strict filter search" || echo "✗ Strict filter search"
+curl -sf "$BASE_URL/api/v1/search?q=semantic&limit=5&mode=semantic" | jq -e '.results' >/dev/null && echo "✓ Semantic search" || echo "✗ Semantic search"
 ```
 
 ### 6. SKOS/Taxonomy Validation
@@ -203,13 +194,13 @@ echo "=== SKOS Taxonomy Validation ==="
 BASE_URL="http://localhost:3000"
 
 # List concept schemes
-curl -sf "$BASE_URL/taxonomy/schemes" | jq -e '.' >/dev/null && echo "✓ GET /taxonomy/schemes" || echo "✗ GET /taxonomy/schemes"
+curl -sf "$BASE_URL/api/v1/concepts/schemes" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/concepts/schemes" || echo "✗ GET /api/v1/concepts/schemes"
 
 # Search concepts
-curl -sf "$BASE_URL/taxonomy/concepts?q=test" | jq -e '.' >/dev/null && echo "✓ GET /taxonomy/concepts" || echo "✗ GET /taxonomy/concepts"
+curl -sf "$BASE_URL/api/v1/concepts?q=test" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/concepts" || echo "✗ GET /api/v1/concepts"
 
 # Governance stats
-curl -sf "$BASE_URL/taxonomy/governance-stats" | jq -e '.' >/dev/null && echo "✓ GET /taxonomy/governance-stats" || echo "✗ GET /taxonomy/governance-stats"
+curl -sf "$BASE_URL/api/v1/concepts/governance" | jq -e '.' >/dev/null && echo "✓ GET /api/v1/concepts/governance" || echo "✗ GET /api/v1/concepts/governance"
 ```
 
 ### 7. Background Jobs Validation
@@ -219,7 +210,7 @@ echo "=== Background Jobs Validation ==="
 BASE_URL="http://localhost:3000"
 
 # Queue stats
-QUEUE_STATS=$(curl -sf "$BASE_URL/queue/stats")
+QUEUE_STATS=$(curl -sf "$BASE_URL/api/v1/jobs/stats")
 echo "Queue stats: $QUEUE_STATS"
 
 # Check for stuck jobs
