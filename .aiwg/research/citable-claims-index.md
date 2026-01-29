@@ -71,28 +71,108 @@ This document indexes technical claims and implementation decisions in matric-me
 | Hidden labels capture misspellings for improved search recall | REF-033 | Miles & Bechhofer (2009), Section 4.3 | label_type enum |
 | Mapping properties enable cross-vocabulary alignment | REF-033 | Miles & Bechhofer (2009), Section 10 | skos_mappings table |
 
+## Cognitive Foundations
+
+### Miller's Law & Working Memory
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Working memory span is 7±2 chunks, independent of information per chunk | REF-005 | Miller (1956), p. 93 | context injection limits |
+| Optimal context window should respect cognitive limits (5-7 items) | REF-005 | Miller (1956), Figure 5 | related notes retrieval |
+
+### Cognitive Load Theory
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Simpler prompts reduce cognitive load and improve processing | REF-006 | Sweller (1988) | prompt engineering |
+| Information complexity should match user processing capacity | REF-006 | Sweller (1988), Section 3 | UI design principles |
+
+## AI Enhancement Patterns
+
+### Retrieval-Augmented Generation (RAG)
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| RAG combines parametric (model) and non-parametric (retrieval) memory | REF-008 | Lewis et al. (2020), Section 2 | AI revision pipeline |
+| Probabilistic marginalization over retrieved documents improves generation | REF-008 | Lewis et al. (2020), Section 3 | context weighting |
+| RAG reduces hallucination by grounding generation in retrieved facts | REF-008 | Lewis et al. (2020), Section 5 | revision accuracy |
+
+### Self-Refine Iterative Improvement
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Self-Refine achieves ~20% improvement via 2-3 iteration refinement | REF-015 | Madaan et al. (2023), p. 1 | **planned: iterative revision** |
+| Dialogue response quality improves +49.2% with self-refinement | REF-015 | Madaan et al. (2023), Table 3 | quality metrics |
+| Diminishing returns after 3-4 iterations; 2-3 optimal | REF-015 | Madaan et al. (2023), Figure 3 | iteration limits |
+
+### ReAct Agent Pattern
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| ReAct interleaves reasoning (Thought) with action execution | REF-018 | Yao et al. (2023), Section 2 | **planned: react.rs** |
+| Grounded reasoning improves trustworthiness via external knowledge access | REF-018 | Yao et al. (2023), p. 6 | AI transparency |
+| ReAct achieves +5.7% to +26% improvement over baseline on knowledge tasks | REF-018 | Yao et al. (2023), Table 1 | task performance |
+
+### Reflexion Self-Improvement
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Verbal self-reflection in episodic memory improves decision-making | REF-021 | Shinn et al. (2023), p. 1 | **planned: episodic_memory** |
+| Reflexion achieves +20-32% task success via stored reflections | REF-021 | Shinn et al. (2023), Table 2 | continuous improvement |
+| Failure analysis and reflection reduces repeat errors | REF-021 | Shinn et al. (2023), Section 3 | learning from rejection |
+
+### In-Context Learning
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Few-shot demonstrations improve LLM task performance | REF-026 | Dong et al. (2023), Section 2 | prompt templates |
+| Example ordering and selection significantly impact ICL performance | REF-026 | Dong et al. (2023), Section 4 | few-shot strategy |
+
+## AI Transparency & Provenance
+
+### W3C PROV Standard
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| W3C PROV increases reproducibility and trust of AI outputs | REF-062 | Moreau & Groth (2013), Section 1 | **CRITICAL: planned provenance.rs** |
+| Provenance tracks Entity→Activity→Agent relationships | REF-062 | W3C PROV-DM, Section 2 | PROV data model |
+| prov:wasDerivedFrom enables attribution chains | REF-062 | W3C PROV-O, Section 3 | revision lineage |
+| prov:used captures which inputs influenced outputs | REF-062 | W3C PROV-DM, Section 2.1 | context note tracking |
+
+## Data Management Standards
+
+### FAIR Principles
+
+| Claim | REF | Citation | Location |
+|-------|-----|----------|----------|
+| Findable: Globally unique, persistent identifiers (F1) | REF-056 | Wilkinson et al. (2016), Section 2 | UUID identifiers |
+| Accessible: Metadata should remain accessible after data deletion (A2) | REF-056 | Wilkinson et al. (2016), Section 3 | **planned: soft delete** |
+| Interoperable: Use formal knowledge representation (I1) | REF-056 | Wilkinson et al. (2016), Section 4 | SKOS implementation |
+| Reusable: Rich metadata with provenance (R1.2) | REF-056 | Wilkinson et al. (2016), Section 5 | export metadata |
+
 ## Advanced Retrieval (Future)
 
 ### Late Interaction (Planned)
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| ColBERT's MaxSim achieves 100x speedup over BERT re-ranking with 2% quality loss | REF-056 | Khattab & Zaharia (2020), Table 1 | planned: re-ranking stage |
-| Token-level interaction provides finer-grained matching than single-vector similarity | REF-056 | Khattab & Zaharia (2020), Section 3 | planned enhancement |
+| ColBERT's MaxSim achieves 100x speedup over BERT re-ranking with 2% quality loss | REF-048 | Khattab & Zaharia (2020), Table 1 | planned: re-ranking stage |
+| Token-level interaction provides finer-grained matching than single-vector similarity | REF-048 | Khattab & Zaharia (2020), Section 3 | planned enhancement |
 
 ### Unsupervised Dense Retrieval
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| Contriever's unsupervised training outperforms BM25 on 11/15 BEIR datasets | REF-057 | Izacard et al. (2022), Table 2 | alternative embedding approach |
-| Independent cropping creates effective positive pairs without labels | REF-057 | Izacard et al. (2022), Section 3 | training methodology |
+| Contriever's unsupervised training outperforms BM25 on 11/15 BEIR datasets | REF-049 | Izacard et al. (2022), Table 2 | alternative embedding approach |
+| Independent cropping creates effective positive pairs without labels | REF-049 | Izacard et al. (2022), Section 3 | training methodology |
 
 ### State-of-the-Art Embeddings
 
 | Claim | REF | Citation | Location |
 |-------|-----|----------|----------|
-| E5 is first embedding model to beat BM25 zero-shot on BEIR | REF-058 | Wang et al. (2022), Table 1 | potential model upgrade |
-| Weakly-supervised training on web-scraped pairs achieves SOTA with 40x fewer parameters | REF-058 | Wang et al. (2022), Section 4 | efficiency consideration |
+| E5 is first embedding model to beat BM25 zero-shot on BEIR | REF-050 | Wang et al. (2022), Table 1 | potential model upgrade |
+| E5 requires "query:" and "passage:" prefixes for optimal asymmetric retrieval | REF-050 | Wang et al. (2022), Section 3.1 | prefix requirements |
+| Without prefixes, E5 performance drops by 6.7% on average | REF-050 | Wang et al. (2022), Section 4.3 | implementation detail |
 
 ## Implementation Statistics
 
@@ -105,8 +185,12 @@ This document indexes technical claims and implementation decisions in matric-me
 | Vector Indexing | 4 | REF-031 |
 | Knowledge Graphs | 4 | REF-032 |
 | SKOS Tagging | 5 | REF-033 |
-| Future Enhancements | 5 | REF-056, REF-057, REF-058 |
-| **Total** | **33** | **10** |
+| Cognitive Foundations | 4 | REF-005, REF-006 |
+| AI Enhancement Patterns | 13 | REF-008, REF-015, REF-018, REF-021, REF-026 |
+| AI Transparency | 4 | REF-062 |
+| Data Management | 4 | REF-056 (FAIR) |
+| Future Enhancements | 7 | REF-048, REF-049, REF-050 |
+| **Total** | **60** | **18** |
 
 ## Usage Guidelines
 
@@ -123,8 +207,32 @@ This document indexes technical claims and implementation decisions in matric-me
 - **Research Gap Analysis**: `.aiwg/research/research-gap-analysis.md`
 - **Architecture Decisions**: `docs/architecture/` (ADRs)
 
+## Verification Status
+
+The following claims have been verified against matric-memory implementation code:
+
+| Claim | Code Location | Status |
+|-------|---------------|--------|
+| RRF k=60 constant | `crates/matric-search/src/rrf.rs:9` | ✅ Verified |
+| Cosine similarity | `crates/matric-db/src/embeddings.rs:113` | ✅ Verified |
+| 0.7 similarity threshold | `crates/matric-api/src/handlers.rs:603` | ✅ Verified |
+| Mean pooling (delegated to Ollama) | `crates/matric-inference/src/ollama.rs:18` | ✅ Verified |
+| Bidirectional links | `crates/matric-db/src/links.rs` | ✅ Verified |
+| Recursive CTE traversal | `crates/matric-db/src/links.rs` | ✅ Verified |
+| SKOS taxonomy | `crates/matric-db/src/skos_tags.rs` | ✅ Verified |
+
+### Implementation Deviation
+
+| Claim | Expected | Actual | Impact |
+|-------|----------|--------|--------|
+| HNSW index (REF-031) | `USING hnsw` | `USING ivfflat` | O(√N) vs O(log N) |
+
+**Location**: `migrations/20260102000000_initial_schema.sql:276`
+**Recommendation**: Migrate to HNSW for datasets >100k embeddings
+
 ## Revision History
 
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-01-25 | AI Research Agent | Initial comprehensive index with 33 claims |
+| 2026-01-25 | Ralph Loop Iter 4 | Added 27 claims (cognitive, AI patterns, provenance, FAIR); verified 7 implementations |

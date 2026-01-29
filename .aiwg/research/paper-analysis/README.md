@@ -36,6 +36,20 @@ These analyses go beyond academic summaries to show **how each paper directly ap
 | REF-032 | [REF-032-mm-analysis.md](REF-032-mm-analysis.md) | Semantic linking knowledge graph |
 | REF-033 | [REF-033-mm-analysis.md](REF-033-mm-analysis.md) | W3C SKOS tagging system |
 
+### AI Enhancement Patterns (NEW)
+
+| Paper | Analysis | Primary Impact |
+|-------|----------|----------------|
+| REF-015 | [REF-015-mm-analysis.md](REF-015-mm-analysis.md) | Self-Refine iterative revision (~20% quality) |
+| REF-018 | [REF-018-mm-analysis.md](REF-018-mm-analysis.md) | ReAct transparent reasoning traces |
+| REF-021 | [REF-021-mm-analysis.md](REF-021-mm-analysis.md) | Reflexion episodic memory learning |
+
+### AI Transparency & Standards (NEW)
+
+| Paper | Analysis | Primary Impact |
+|-------|----------|----------------|
+| REF-062 | [REF-062-mm-analysis.md](REF-062-mm-analysis.md) | W3C PROV provenance tracking |
+
 ### Advanced Retrieval (Halo Papers)
 
 | Paper | Analysis | Primary Impact |
@@ -94,7 +108,28 @@ Notes → [Similarity > 0.7] → Semantic Links (REF-032)
 - SKOS enables hierarchical and synonym-aware tagging (REF-033)
 - Bidirectional links support backlink discovery (REF-032)
 
-### 4. Future Enhancements
+### 4. AI Enhancement Pipeline
+
+Papers: REF-015, REF-018, REF-021, REF-062
+
+matric-memory's AI revision system enhancement roadmap:
+
+```
+User Creates Note → [AI Revision] → Revised Note
+                         ↓
+               [Self-Refine Loop] ← REF-015
+               [ReAct Traces] ← REF-018
+               [PROV Tracking] ← REF-062
+               [Reflexion Memory] ← REF-021
+```
+
+**Key insights:**
+- Self-Refine: 2-3 iterations yield ~20% quality improvement (REF-015)
+- ReAct: Thought→Action→Observation provides transparency (REF-018)
+- PROV: Track which notes influenced AI revisions (REF-062)
+- Reflexion: Learn from rejected revisions via episodic memory (REF-021)
+
+### 5. Future Enhancements
 
 Papers: REF-056, REF-057, REF-058
 
@@ -117,6 +152,10 @@ Potential improvements identified from research:
 | REF-031 | `migrations/*_hnsw_index.sql` | pgvector HNSW config |
 | REF-032 | `crates/matric-db/src/links.rs` | `traverse_graph()` |
 | REF-033 | `crates/matric-db/src/skos_tags.rs` | SKOS label types |
+| REF-015 | **planned**: `crates/matric-inference/src/self_refine.rs` | iterative revision loop |
+| REF-018 | **planned**: `crates/matric-inference/src/react.rs` | ReAct trace handler |
+| REF-021 | **planned**: `crates/matric-db/src/episodic_memory.rs` | reflection storage |
+| REF-062 | **planned**: `crates/matric-db/src/provenance.rs` | PROV tracking |
 
 ## Analysis Template
 

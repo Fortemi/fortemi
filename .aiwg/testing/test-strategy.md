@@ -3,7 +3,7 @@
 **Document ID:** TEST-STRATEGY-001
 **Status:** Active
 **Created:** 2026-01-25
-**Last Verified:** 2026-01-25 (against codebase)
+**Last Verified:** 2026-01-27 (against codebase)
 
 ---
 
@@ -18,18 +18,20 @@ matric-memory uses a multi-layered testing strategy optimized for a library crat
 
 ### Test Statistics (Current)
 
-| Crate | Unit Tests | Integration Tests | Total |
-|-------|------------|-------------------|-------|
-| matric-core | 181 `#[test]` | 5 `#[tokio::test]` | ~40 |
-| matric-db | 131 `#[test]` | - | ~67 |
-| matric-search | 81 `#[test]` | 1 integration file | ~14 |
-| matric-inference | 268 `#[test]` | 22 `#[tokio::test]` | ~10 active |
-| matric-crypto | 108 `#[test]` | - | ~108 |
-| matric-api | 127 `#[test]` | 16 `#[tokio::test]` | ~7 |
-| matric-jobs | 37 `#[test]` | 3 `#[tokio::test]` | ~2 |
-| **Total** | **933** | **47** | **~140 active** |
+| Crate | Unit Tests | Integration Tests | Doc Tests | Total Passing |
+|-------|------------|-------------------|-----------|---------------|
+| matric-core | 233 | - | - | 233 |
+| matric-db | 103 | - | - | 103 |
+| matric-search | 129 | 14 | - | 143 |
+| matric-inference | 287 | - | 7 | 294 |
+| matric-crypto | 108 | - | - | 108 |
+| matric-api | 65 | 52 | - | 117 |
+| matric-jobs | 40 | - | - | 40 |
+| **Total** | **965** | **66** | **7** | **1,056** |
 
-**Note:** Test counts include test attribute annotations. Some tests are ignored (`#[ignore]`) for CI performance.
+**Ignored:** 6 tests (E2E tests requiring external services).
+
+**Note:** Counts reflect `cargo test --workspace` output as of 2026-01-27.
 
 ---
 
@@ -38,13 +40,13 @@ matric-memory uses a multi-layered testing strategy optimized for a library crat
 ```
                     /\
                    /  \
-                  / E2E \        ← 3 tests (ignored in CI)
+                  / E2E \        ← 6 tests (ignored in CI)
                  /______\
                 /        \
-               /Integration\     ← 9 test files
+               /Integration\     ← 9 test files, 66 tests
               /____________\
              /              \
-            /   Unit Tests   \   ← 933+ test functions
+            /   Unit Tests   \   ← 965+ test functions
            /__________________\
 ```
 
@@ -404,7 +406,7 @@ Test strategy aligns with research findings:
 
 | Research | Test Implication |
 |----------|------------------|
-| REF-027 (RRF) | Comprehensive RRF algorithm tests verify k=60 behavior |
+| REF-027 (RRF) | Comprehensive RRF algorithm tests verify k=20 behavior |
 | REF-028 (BM25) | FTS integration tests validate ranking quality |
 | REF-030 (SBERT) | Embedding tests verify 0.7 threshold for semantic linking |
 | REF-031 (HNSW) | Vector search tests validate pgvector integration |
@@ -438,3 +440,4 @@ Test strategy aligns with research findings:
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-01-25 | AI Agent | Initial test strategy documentation |
+| 2026-01-27 | AI Agent | Updated test counts (933→1,056), fixed RRF k=60→k=20, updated pyramid |
