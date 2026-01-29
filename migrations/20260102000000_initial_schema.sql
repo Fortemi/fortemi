@@ -44,33 +44,29 @@ BEGIN
     rand_a := (random() * 4095)::int;  -- 12 bits
     rand_b := (random() * 4611686018427387903)::bigint;  -- 62 bits
 
-    -- Build UUID bytes
+    -- Build 16-byte UUID (each set_byte creates a single byte, then concatenate all 16)
+    -- Bytes 0-5: Unix timestamp (ms), big-endian
     uuid_bytes :=
-        -- First 6 bytes: Unix timestamp (ms), big-endian
-        set_byte(E'\\x000000000000'::bytea, 0, (unix_ts_ms >> 40)::int & 255) ||
-        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 32)::int & 255) ||
-        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 24)::int & 255) ||
-        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 16)::int & 255) ||
-        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms >> 8)::int & 255) ||
-        set_byte(E'\\x00'::bytea, 0, unix_ts_ms::int & 255);
-
-    -- Byte 7: version (0111) + top 4 bits of rand_a
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, 112 | ((rand_a >> 8) & 15));
-
-    -- Byte 8: bottom 8 bits of rand_a
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, rand_a & 255);
-
-    -- Byte 9: variant (10) + top 6 bits of rand_b
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, 128 | ((rand_b >> 56)::int & 63));
-
-    -- Bytes 10-16: remaining 56 bits of rand_b
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 48)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 40)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 32)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 24)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 16)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, (rand_b >> 8)::int & 255);
-    uuid_bytes := uuid_bytes || set_byte(E'\\x00'::bytea, 0, rand_b::int & 255);
+        set_byte(E'\\x00'::bytea, 0, ((unix_ts_ms >> 40) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((unix_ts_ms >> 32) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((unix_ts_ms >> 24) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((unix_ts_ms >> 16) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((unix_ts_ms >> 8) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, (unix_ts_ms & 255)::int) ||
+        -- Byte 6: version (0111) + top 4 bits of rand_a
+        set_byte(E'\\x00'::bytea, 0, 112 | ((rand_a >> 8) & 15)) ||
+        -- Byte 7: bottom 8 bits of rand_a
+        set_byte(E'\\x00'::bytea, 0, rand_a & 255) ||
+        -- Byte 8: variant (10) + top 6 bits of rand_b
+        set_byte(E'\\x00'::bytea, 0, 128 | ((rand_b >> 56) & 63)::int) ||
+        -- Bytes 9-15: remaining 56 bits of rand_b
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 48) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 40) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 32) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 24) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 16) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, ((rand_b >> 8) & 255)::int) ||
+        set_byte(E'\\x00'::bytea, 0, (rand_b & 255)::int);
 
     RETURN encode(uuid_bytes, 'hex')::uuid;
 END;

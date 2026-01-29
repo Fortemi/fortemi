@@ -287,7 +287,7 @@ INSERT INTO embedding_config (
     chunk_overlap,
     is_default
 ) VALUES (
-    '00000000-0000-0000-0000-000000000001',
+    gen_uuid_v7(),
     'default',
     'Default embedding configuration using nomic-embed-text (768 dimensions)',
     'nomic-embed-text',
@@ -313,7 +313,7 @@ INSERT INTO embedding_set (
     is_active,
     index_status
 ) VALUES (
-    '00000000-0000-0000-0000-000000000001',
+    gen_uuid_v7(),
     'Default',
     'default',
     'Primary embedding set containing all notes. Used for general semantic search.',
@@ -322,7 +322,7 @@ INSERT INTO embedding_set (
     ARRAY['all', 'general', 'default', 'everything', 'global'],
     'auto',
     '{"include_all": true, "exclude_archived": true}'::jsonb,
-    '00000000-0000-0000-0000-000000000001',
+    (SELECT id FROM embedding_config WHERE is_default = TRUE),
     TRUE,
     TRUE,
     'ready'
@@ -330,21 +330,21 @@ INSERT INTO embedding_set (
 
 -- Migrate existing embeddings to default set
 UPDATE embedding
-SET embedding_set_id = '00000000-0000-0000-0000-000000000001'
+SET embedding_set_id = (SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default')
 WHERE embedding_set_id IS NULL;
 
 -- Add existing notes with embeddings to default set membership
 INSERT INTO embedding_set_member (embedding_set_id, note_id, membership_type)
 SELECT DISTINCT
-    '00000000-0000-0000-0000-000000000001'::uuid,
+    (SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default'),
     note_id,
     'auto'
 FROM embedding
-WHERE embedding_set_id = '00000000-0000-0000-0000-000000000001'::uuid
+WHERE embedding_set_id = (SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default')
 ON CONFLICT DO NOTHING;
 
 -- Update stats for default set
-SELECT update_embedding_set_stats('00000000-0000-0000-0000-000000000001');
+SELECT update_embedding_set_stats((SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default'));
 
 -- ============================================================================
 -- COMMENTS

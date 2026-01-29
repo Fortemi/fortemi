@@ -150,7 +150,7 @@ Returns all active embedding sets with summary statistics.
 ```json
 [
   {
-    "id": "00000000-0000-0000-0000-000000000001",
+    "id": "019b76da-a800-7001-8000-000000000001",
     "name": "Default",
     "slug": "default",
     "description": "Primary embedding set containing all notes",
@@ -207,7 +207,7 @@ Returns detailed information about a specific embedding set.
     "tags": ["machine-learning", "research"],
     "exclude_archived": true
   },
-  "embedding_config_id": "00000000-0000-0000-0000-000000000001",
+  "embedding_config_id": "019b76da-a800-7001-8000-000000000001",
   "document_count": 237,
   "embedding_count": 1456,
   "index_status": "ready",

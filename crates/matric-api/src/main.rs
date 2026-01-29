@@ -2118,9 +2118,10 @@ async fn get_governance_stats(
     Query(query): Query<GovernanceQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Use default scheme if none provided
-    let scheme_id = query
-        .scheme_id
-        .unwrap_or_else(matric_db::PgSkosRepository::default_scheme_id);
+    let scheme_id = match query.scheme_id {
+        Some(id) => id,
+        None => state.db.skos.get_default_scheme_id().await?,
+    };
     let stats = state.db.skos.get_governance_stats(scheme_id).await?;
     Ok(Json(stats))
 }

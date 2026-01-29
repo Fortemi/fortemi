@@ -274,9 +274,17 @@ impl PgSkosRepository {
         Self { pool }
     }
 
-    /// Get the default scheme ID.
-    pub fn default_scheme_id() -> Uuid {
-        Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap()
+    /// Get the default scheme ID from the database.
+    pub async fn get_default_scheme_id(&self) -> Result<Uuid> {
+        let row = sqlx::query(
+            "SELECT id FROM skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        row.map(|r| r.get("id"))
+            .ok_or_else(|| Error::NotFound("Default concept scheme not found".to_string()))
     }
 }
 
@@ -2376,7 +2384,7 @@ impl SkosTagResolutionRepository for PgSkosRepository {
             None => {
                 // Use default scheme if specified scheme doesn't exist
                 if scheme_notation == DEFAULT_SCHEME_NOTATION {
-                    Self::default_scheme_id()
+                    self.get_default_scheme_id().await?
                 } else {
                     // Create the scheme if it doesn't exist
                     let scheme_id = self
@@ -2900,17 +2908,4 @@ impl SkosCollectionRepository for PgSkosRepository {
     }
 }
 
-// =============================================================================
-// TESTS
-// =============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_scheme_id() {
-        let id = PgSkosRepository::default_scheme_id();
-        assert_eq!(id.to_string(), "00000000-0000-0000-0000-000000000001");
-    }
-}
+// Default scheme ID tests removed - ID is now dynamically looked up from database

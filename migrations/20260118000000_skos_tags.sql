@@ -853,7 +853,7 @@ GROUP BY s.id, s.notation, s.title;
 -- Create default concept scheme
 INSERT INTO skos_concept_scheme (id, notation, uri, title, description, is_system)
 VALUES (
-    '00000000-0000-0000-0000-000000000001',
+    gen_uuid_v7(),
     'default',
     'https://matric.io/schemes/default',
     'Default Tags',
@@ -897,7 +897,7 @@ COMMENT ON COLUMN skos_concept.antipatterns IS 'Detected governance issues';
 -- Example migration query (run manually after review):
 --
 -- INSERT INTO skos_concept (primary_scheme_id, notation, status)
--- SELECT '00000000-0000-0000-0000-000000000001', name, 'approved'
+-- SELECT (SELECT id FROM skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'), name, 'approved'
 -- FROM tag;
 --
 -- INSERT INTO skos_concept_label (concept_id, label_type, value)

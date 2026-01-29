@@ -12,13 +12,6 @@ use matric_core::{
     GarbageCollectionResult, Result, UpdateEmbeddingSetRequest,
 };
 
-/// Well-known UUID for the default embedding set
-pub const DEFAULT_EMBEDDING_SET_ID: Uuid = Uuid::from_u128(0x00000000_0000_0000_0000_000000000001);
-
-/// Well-known UUID for the default embedding config
-pub const DEFAULT_EMBEDDING_CONFIG_ID: Uuid =
-    Uuid::from_u128(0x00000000_0000_0000_0000_000000000001);
-
 /// PostgreSQL implementation of embedding set repository.
 pub struct PgEmbeddingSetRepository {
     pool: Pool<Postgres>,
@@ -28,6 +21,29 @@ impl PgEmbeddingSetRepository {
     /// Create a new repository with the given connection pool.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
+    }
+
+    /// Get the default embedding config ID from the database.
+    pub async fn get_default_config_id(&self) -> Result<Uuid> {
+        let row = sqlx::query("SELECT id FROM embedding_config WHERE is_default = TRUE")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        row.map(|r| r.get("id"))
+            .ok_or_else(|| Error::NotFound("Default embedding config not found".to_string()))
+    }
+
+    /// Get the default embedding set ID from the database.
+    pub async fn get_default_set_id(&self) -> Result<Uuid> {
+        let row =
+            sqlx::query("SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default'")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+
+        row.map(|r| r.get("id"))
+            .ok_or_else(|| Error::NotFound("Default embedding set not found".to_string()))
     }
 
     // =========================================================================
@@ -171,9 +187,10 @@ impl PgEmbeddingSetRepository {
         let agent_metadata_json = serde_json::to_value(&req.agent_metadata)
             .map_err(|e| Error::Internal(e.to_string()))?;
 
-        let config_id = req
-            .embedding_config_id
-            .or(Some(DEFAULT_EMBEDDING_CONFIG_ID));
+        let config_id = match req.embedding_config_id {
+            Some(id) => Some(id),
+            None => Some(self.get_default_config_id().await?),
+        };
 
         sqlx::query(
             r#"
@@ -1210,24 +1227,6 @@ mod tests {
     fn test_slugify_empty_and_edge_cases() {
         assert_eq!(slugify(""), "");
         assert_eq!(slugify("a"), "a");
-    }
-
-    #[test]
-    fn test_default_uuids() {
-        assert_eq!(
-            DEFAULT_EMBEDDING_SET_ID.to_string(),
-            "00000000-0000-0000-0000-000000000001"
-        );
-        assert_eq!(
-            DEFAULT_EMBEDDING_CONFIG_ID.to_string(),
-            "00000000-0000-0000-0000-000000000001"
-        );
-    }
-
-    #[test]
-    fn test_default_uuids_are_same() {
-        // Verify the constants are the same UUID (since we use the same default for both)
-        assert_eq!(DEFAULT_EMBEDDING_SET_ID, DEFAULT_EMBEDDING_CONFIG_ID);
     }
 
     #[test]
