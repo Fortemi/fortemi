@@ -666,13 +666,19 @@ async fn rate_limit_middleware(
     State(state): State<AppState>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     // If rate limiting is disabled, pass through
     if let Some(limiter) = &state.rate_limiter {
         // Check rate limit
         if limiter.check().is_err() {
             tracing::warn!("Rate limit exceeded");
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": "rate_limit_exceeded",
+                    "error_description": "Too many requests. Please wait before retrying."
+                })),
+            ));
         }
     }
     Ok(next.run(request).await)
