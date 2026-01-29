@@ -9,7 +9,10 @@
   },
   "scripts": {
     "start": "node index.js",
-    "start:http": "MCP_TRANSPORT=http node index.js"
+    "start:http": "MCP_TRANSPORT=http node index.js",
+    "test": "node test-mcp-connectivity.js",
+    "test:local": "MATRIC_MEMORY_URL=http://localhost:3000 node test-mcp-connectivity.js",
+    "test:oauth": "echo 'Usage: MCP_CLIENT_ID=xxx MCP_CLIENT_SECRET=yyy npm run test'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

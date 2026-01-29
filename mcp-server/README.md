@@ -322,6 +322,58 @@ Purge operations queue high-priority background jobs that:
 
 Use `list_jobs({ status: "processing" })` to monitor purge job progress.
 
+## Testing
+
+Integration tests validate end-to-end MCP connectivity against the real API.
+
+### Quick Test (Recommended)
+
+If you have an API key:
+
+```bash
+MATRIC_MEMORY_URL=http://localhost:3000 \
+MATRIC_MEMORY_API_KEY=your-api-key \
+npm test
+```
+
+### Test with OAuth Credentials
+
+If you have OAuth client credentials:
+
+```bash
+MATRIC_MEMORY_URL=http://localhost:3000 \
+MCP_CLIENT_ID=mm_xxx \
+MCP_CLIENT_SECRET=xxx \
+npm test
+```
+
+### Auto-Registration (Development)
+
+The tests can automatically register an OAuth client if neither API key nor client credentials are provided (requires API to allow dynamic client registration):
+
+```bash
+MATRIC_MEMORY_URL=http://localhost:3000 npm test
+```
+
+### What the Tests Cover
+
+- **API Reachability**: Health endpoint and authentication
+- **HTTP Transport**: StreamableHTTP protocol, session management
+- **SSE Transport**: Server-Sent Events connection
+- **Tool Execution**: Calling tools through MCP (list_notes, search_notes, etc.)
+- **Session Isolation**: Multiple concurrent sessions work independently
+- **Stdio Transport**: Direct stdin/stdout communication
+
+### CI/CD Integration
+
+For CI/CD, ensure these environment variables are set:
+
+```yaml
+env:
+  MATRIC_MEMORY_URL: ${{ secrets.API_URL }}
+  MATRIC_MEMORY_API_KEY: ${{ secrets.API_KEY }}
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
