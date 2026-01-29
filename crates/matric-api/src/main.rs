@@ -2027,7 +2027,10 @@ async fn add_broader(
         created_by: Some("api".to_string()),
     };
     state.db.skos.create_semantic_relation(req).await?;
-    Ok(StatusCode::CREATED)
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "success": true })),
+    ))
 }
 
 async fn add_narrower(
@@ -2044,7 +2047,10 @@ async fn add_narrower(
         created_by: Some("api".to_string()),
     };
     state.db.skos.create_semantic_relation(req).await?;
-    Ok(StatusCode::CREATED)
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "success": true })),
+    ))
 }
 
 async fn add_related(
@@ -2061,7 +2067,10 @@ async fn add_related(
         created_by: Some("api".to_string()),
     };
     state.db.skos.create_semantic_relation(req).await?;
-    Ok(StatusCode::CREATED)
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "success": true })),
+    ))
 }
 
 // --- Tagging Handlers ---
@@ -2095,7 +2104,10 @@ async fn tag_note_with_concept(
         created_by: None,
     };
     state.db.skos.tag_note(req).await?;
-    Ok(StatusCode::CREATED)
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "success": true })),
+    ))
 }
 
 async fn untag_note_concept(
@@ -3015,9 +3027,10 @@ struct SearchQuery {
     updated_before: Option<chrono::DateTime<chrono::Utc>>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
     since: Option<String>,
-    /// Strict tag filter for SKOS-based filtering.
+    /// Strict tag filter for SKOS-based filtering (JSON string).
+    /// Example: {"required_tags":["tag1"],"excluded_tags":["tag2"]}
     #[serde(default)]
-    strict_filter: Option<StrictTagFilterInput>,
+    strict_filter: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3039,8 +3052,10 @@ async fn search_notes(
         _ => HybridSearchConfig::default(),
     };
 
-    // Resolve strict filter if provided
-    if let Some(filter_input) = query.strict_filter {
+    // Resolve strict filter if provided (parse JSON string)
+    if let Some(filter_json) = &query.strict_filter {
+        let filter_input: StrictTagFilterInput = serde_json::from_str(filter_json)
+            .map_err(|e| ApiError::BadRequest(format!("Invalid strict_filter JSON: {}", e)))?;
         let strict_filter = state.tag_resolver.resolve_filter(filter_input).await?;
         config.strict_filter = Some(strict_filter);
     }

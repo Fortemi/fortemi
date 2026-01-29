@@ -549,7 +549,7 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
     async fn get_top_concepts(&self, scheme_id: Uuid) -> Result<Vec<SkosConceptSummary>> {
         let rows = sqlx::query(
             r#"
-            SELECT c.id, c.notation, c.status, c.note_count, c.depth,
+            SELECT c.id, c.notation, c.status::text AS status, c.note_count, c.depth,
                    l.value AS pref_label, s.notation AS scheme_notation
             FROM skos_concept c
             LEFT JOIN skos_concept_label l ON c.id = l.concept_id
@@ -748,12 +748,12 @@ impl SkosConceptRepository for PgSkosRepository {
     async fn get_concept(&self, id: Uuid) -> Result<Option<SkosConcept>> {
         let row = sqlx::query(
             r#"
-            SELECT id, primary_scheme_id, uri, notation, facet_type, facet_source,
-                   facet_domain, facet_scope, status, promoted_at, deprecated_at,
-                   deprecation_reason, replaced_by_id, note_count, first_used_at,
-                   last_used_at, depth, broader_count, narrower_count, related_count,
-                   antipatterns, antipattern_checked_at, created_at, updated_at,
-                   embedding_model, embedded_at
+            SELECT id, primary_scheme_id, uri, notation, facet_type::text AS facet_type,
+                   facet_source, facet_domain, facet_scope, status::text AS status,
+                   promoted_at, deprecated_at, deprecation_reason, replaced_by_id,
+                   note_count, first_used_at, last_used_at, depth, broader_count,
+                   narrower_count, related_count, antipatterns, antipattern_checked_at,
+                   created_at, updated_at, embedding_model, embedded_at
             FROM skos_concept
             WHERE id = $1
             "#,
@@ -769,7 +769,8 @@ impl SkosConceptRepository for PgSkosRepository {
     async fn get_concept_with_label(&self, id: Uuid) -> Result<Option<SkosConceptWithLabel>> {
         let row = sqlx::query(
             r#"
-            SELECT c.*, l.value AS pref_label, l.language AS label_language,
+            SELECT c.*, c.status::text AS status, c.facet_type::text AS facet_type,
+                   l.value AS pref_label, l.language AS label_language,
                    s.notation AS scheme_notation, s.title AS scheme_title
             FROM skos_concept c
             LEFT JOIN skos_concept_label l ON c.id = l.concept_id
@@ -807,7 +808,7 @@ impl SkosConceptRepository for PgSkosRepository {
         // Get broader concepts
         let broader_rows = sqlx::query(
             r#"
-            SELECT c.id, c.notation, c.status, c.note_count, c.depth,
+            SELECT c.id, c.notation, c.status::text AS status, c.note_count, c.depth,
                    l.value AS pref_label, s.notation AS scheme_notation
             FROM skos_semantic_relation_edge e
             JOIN skos_concept c ON e.object_id = c.id
@@ -842,7 +843,7 @@ impl SkosConceptRepository for PgSkosRepository {
         // Get narrower concepts
         let narrower_rows = sqlx::query(
             r#"
-            SELECT c.id, c.notation, c.status, c.note_count, c.depth,
+            SELECT c.id, c.notation, c.status::text AS status, c.note_count, c.depth,
                    l.value AS pref_label, s.notation AS scheme_notation
             FROM skos_semantic_relation_edge e
             JOIN skos_concept c ON e.object_id = c.id
@@ -877,7 +878,7 @@ impl SkosConceptRepository for PgSkosRepository {
         // Get related concepts
         let related_rows = sqlx::query(
             r#"
-            SELECT c.id, c.notation, c.status, c.note_count, c.depth,
+            SELECT c.id, c.notation, c.status::text AS status, c.note_count, c.depth,
                    l.value AS pref_label, s.notation AS scheme_notation
             FROM skos_semantic_relation_edge e
             JOIN skos_concept c ON e.object_id = c.id
@@ -961,8 +962,8 @@ impl SkosConceptRepository for PgSkosRepository {
     ) -> Result<Option<SkosConcept>> {
         let row = sqlx::query(
             r#"
-            SELECT id, primary_scheme_id, uri, notation, facet_type, facet_source,
-                   facet_domain, facet_scope, status, promoted_at, deprecated_at,
+            SELECT id, primary_scheme_id, uri, notation, facet_type::text AS facet_type, facet_source,
+                   facet_domain, facet_scope, status::text AS status, promoted_at, deprecated_at,
                    deprecation_reason, replaced_by_id, note_count, first_used_at,
                    last_used_at, depth, broader_count, narrower_count, related_count,
                    antipatterns, antipattern_checked_at, created_at, updated_at,
@@ -990,11 +991,11 @@ impl SkosConceptRepository for PgSkosRepository {
             param_idx += 1;
         }
         if req.status.is_some() {
-            conditions.push(format!("c.status = ${}", param_idx));
+            conditions.push(format!("c.status = ${}::tag_status", param_idx));
             param_idx += 1;
         }
         if req.facet_type.is_some() {
-            conditions.push(format!("c.facet_type = ${}", param_idx));
+            conditions.push(format!("c.facet_type = ${}::pmest_facet", param_idx));
             param_idx += 1;
         }
         if req.max_depth.is_some() {
@@ -1005,7 +1006,10 @@ impl SkosConceptRepository for PgSkosRepository {
             conditions.push("c.broader_count = 0".to_string());
         }
         if req.has_antipattern.is_some() {
-            conditions.push(format!("${} = ANY(c.antipatterns)", param_idx));
+            conditions.push(format!(
+                "${}::tag_antipattern = ANY(c.antipatterns)",
+                param_idx
+            ));
             param_idx += 1;
         }
         if !req.include_deprecated {
@@ -1035,7 +1039,8 @@ impl SkosConceptRepository for PgSkosRepository {
         // Main query
         let main_query = format!(
             r#"
-            SELECT DISTINCT c.*, l2.value AS pref_label, l2.language AS label_language,
+            SELECT DISTINCT c.*, c.status::text AS status, c.facet_type::text AS facet_type,
+                   l2.value AS pref_label, l2.language AS label_language,
                    s.notation AS scheme_notation, s.title AS scheme_title
             FROM skos_concept c
             LEFT JOIN skos_concept_label l ON c.id = l.concept_id
@@ -1134,7 +1139,7 @@ impl SkosConceptRepository for PgSkosRepository {
             param_idx += 1;
         }
         if req.status.is_some() {
-            updates.push(format!("status = ${}", param_idx));
+            updates.push(format!("status = ${}::tag_status", param_idx));
             param_idx += 1;
         }
         if req.deprecation_reason.is_some() {
@@ -1146,7 +1151,7 @@ impl SkosConceptRepository for PgSkosRepository {
             param_idx += 1;
         }
         if req.facet_type.is_some() {
-            updates.push(format!("facet_type = ${}", param_idx));
+            updates.push(format!("facet_type = ${}::pmest_facet", param_idx));
             param_idx += 1;
         }
         if req.facet_source.is_some() {
@@ -1316,13 +1321,14 @@ impl SkosConceptRepository for PgSkosRepository {
     ) -> Result<Vec<SkosConceptWithLabel>> {
         let rows = sqlx::query(
             r#"
-            SELECT c.*, l.value AS pref_label, l.language AS label_language,
+            SELECT c.*, c.status::text AS status, c.facet_type::text AS facet_type,
+                   l.value AS pref_label, l.language AS label_language,
                    s.notation AS scheme_notation, s.title AS scheme_title
             FROM skos_concept c
             LEFT JOIN skos_concept_label l ON c.id = l.concept_id
                 AND l.label_type = 'pref_label' AND l.language = 'en'
             LEFT JOIN skos_concept_scheme s ON c.primary_scheme_id = s.id
-            WHERE $1 = ANY(c.antipatterns)
+            WHERE $1::tag_antipattern = ANY(c.antipatterns)
             ORDER BY c.updated_at DESC
             LIMIT $2
             "#,
@@ -1433,7 +1439,7 @@ impl SkosLabelRepository for PgSkosRepository {
     async fn get_labels(&self, concept_id: Uuid) -> Result<Vec<SkosConceptLabel>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, concept_id, label_type, value, language, created_at
+            SELECT id, concept_id, label_type::text AS label_type, value, language, created_at
             FROM skos_concept_label
             WHERE concept_id = $1
             ORDER BY label_type, language, value
@@ -1482,7 +1488,8 @@ impl SkosLabelRepository for PgSkosRepository {
     async fn search_labels(&self, query: &str, limit: i64) -> Result<Vec<SkosConceptWithLabel>> {
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT c.*, l2.value AS pref_label, l2.language AS label_language,
+            SELECT DISTINCT c.*, c.status::text AS status, c.facet_type::text AS facet_type,
+                   l2.value AS pref_label, l2.language AS label_language,
                    s.notation AS scheme_notation, s.title AS scheme_title
             FROM skos_concept_label l
             JOIN skos_concept c ON l.concept_id = c.id
@@ -1526,7 +1533,7 @@ impl SkosNoteRepository for PgSkosRepository {
         sqlx::query(
             r#"
             INSERT INTO skos_concept_note (id, concept_id, note_type, value, language, author, source, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            VALUES ($1, $2, $3::skos_note_type, $4, $5, $6, $7, $8, $8)
             "#,
         )
         .bind(id)
@@ -1547,7 +1554,7 @@ impl SkosNoteRepository for PgSkosRepository {
     async fn get_notes(&self, concept_id: Uuid) -> Result<Vec<SkosConceptNote>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, concept_id, note_type, value, language, author, source, created_at, updated_at
+            SELECT id, concept_id, note_type::text AS note_type, value, language, author, source, created_at, updated_at
             FROM skos_concept_note
             WHERE concept_id = $1
             ORDER BY note_type, language, created_at
@@ -1615,7 +1622,7 @@ impl SkosRelationRepository for PgSkosRepository {
                 id, subject_id, object_id, relation_type, inference_score,
                 is_inferred, created_at, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4::skos_semantic_relation, $5, $6, $7, $8)
             "#,
         )
         .bind(id)
@@ -1641,10 +1648,10 @@ impl SkosRelationRepository for PgSkosRepository {
         let rows = if let Some(rel_type) = relation_type {
             sqlx::query(
                 r#"
-                SELECT id, subject_id, object_id, relation_type, inference_score,
+                SELECT id, subject_id, object_id, relation_type::text AS relation_type, inference_score,
                        is_inferred, is_validated, created_at, created_by
                 FROM skos_semantic_relation_edge
-                WHERE subject_id = $1 AND relation_type = $2
+                WHERE subject_id = $1 AND relation_type = $2::skos_semantic_relation
                 "#,
             )
             .bind(concept_id)
@@ -1655,7 +1662,7 @@ impl SkosRelationRepository for PgSkosRepository {
         } else {
             sqlx::query(
                 r#"
-                SELECT id, subject_id, object_id, relation_type, inference_score,
+                SELECT id, subject_id, object_id, relation_type::text AS relation_type, inference_score,
                        is_inferred, is_validated, created_at, created_by
                 FROM skos_semantic_relation_edge
                 WHERE subject_id = $1
@@ -1705,7 +1712,7 @@ impl SkosRelationRepository for PgSkosRepository {
                 id, concept_id, target_uri, target_scheme_uri, target_label,
                 relation_type, confidence, created_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6::skos_mapping_relation, $7, $8)
             "#,
         )
         .bind(id)
@@ -1730,7 +1737,7 @@ impl SkosRelationRepository for PgSkosRepository {
         let rows = sqlx::query(
             r#"
             SELECT id, concept_id, target_uri, target_scheme_uri, target_label,
-                   relation_type, confidence, is_validated, created_at,
+                   relation_type::text AS relation_type, confidence, is_validated, created_at,
                    validated_at, validated_by
             FROM skos_mapping_relation_edge
             WHERE concept_id = $1

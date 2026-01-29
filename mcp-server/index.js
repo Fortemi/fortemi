@@ -161,7 +161,7 @@ function createMcpServer() {
           // Handle strict_filter
           const filterJson = buildStrictFilter(args.strict_filter);
           if (filterJson) {
-            params.set("filters", filterJson);
+            params.set("strict_filter", filterJson);
           }
 
           result = await apiRequest("GET", `/api/v1/search?${params}`);
@@ -184,7 +184,7 @@ function createMcpServer() {
 
           const filterJson = buildStrictFilter(strictFilter);
           if (filterJson) {
-            params.set("filters", filterJson);
+            params.set("strict_filter", filterJson);
           }
 
           result = await apiRequest("GET", `/api/v1/search?${params}`);

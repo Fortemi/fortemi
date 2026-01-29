@@ -271,6 +271,110 @@ impl PgEmbeddingRepository {
 
         Ok(results)
     }
+
+    /// Find similar embeddings with strict SKOS concept filtering.
+    ///
+    /// This applies strict tag filtering to ensure data isolation in multi-tenant scenarios.
+    /// Only notes that match the strict filter criteria will be included in results.
+    pub async fn find_similar_with_strict_filter(
+        &self,
+        query_vec: &Vector,
+        strict_filter: &matric_core::StrictTagFilter,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        use crate::strict_filter::StrictFilterQueryBuilder;
+
+        // If filter is empty, fall back to regular search
+        if strict_filter.is_empty() {
+            return self.find_similar(query_vec, limit, exclude_archived).await;
+        }
+
+        let archive_clause = if exclude_archived {
+            "(n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "n.deleted_at IS NULL"
+        };
+
+        // Build strict filter SQL using the query builder
+        // param $1 is query_vec, $2 is limit, strict filter starts at $3
+        let builder = StrictFilterQueryBuilder::new(strict_filter.clone(), 2);
+        let (strict_filter_clause, filter_params) = builder.build();
+
+        // Build the query with CTE for filtered notes
+        let query = format!(
+            r#"
+            WITH filtered_notes AS (
+                SELECT n.id
+                FROM note n
+                WHERE {}
+                  AND {}
+            )
+            SELECT DISTINCT ON (e.note_id)
+                   e.note_id AS note_id,
+                   1.0 - (e.vector <=> $1::vector) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM embedding e
+            JOIN filtered_notes fn ON fn.id = e.note_id
+            JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
+            ORDER BY e.note_id, e.vector <=> $1::vector
+            "#,
+            archive_clause, strict_filter_clause
+        );
+
+        // Wrap to re-order by score after deduplication
+        let wrapped_query = format!(
+            "SELECT note_id, score, snippet, title, tags FROM ({}) sub ORDER BY score DESC LIMIT $2",
+            query
+        );
+
+        // Build the query with dynamic parameters
+        let mut query_builder = sqlx::query(&wrapped_query).bind(query_vec).bind(limit);
+
+        // Bind all strict filter parameters
+        for param in filter_params {
+            query_builder = match param {
+                crate::strict_filter::QueryParam::Uuid(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::UuidArray(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::Int(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::Timestamp(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::Bool(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::String(v) => query_builder.bind(v),
+            };
+        }
+
+        let rows = query_builder
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<f64, _>("score") as f32,
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
 }
 
 /// Utility functions for embedding operations.

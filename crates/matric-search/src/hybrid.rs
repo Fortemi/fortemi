@@ -252,8 +252,19 @@ impl HybridSearch for HybridSearchEngine {
         if config.semantic_weight > 0.0 {
             if let Some(embedding) = query_embedding {
                 let sem_start = Instant::now();
-                // Use embedding set if specified, otherwise search all embeddings
-                let semantic_results = if let Some(set_id) = config.embedding_set_id {
+                // Apply strict filter, embedding set, or search all embeddings
+                let semantic_results = if let Some(ref strict_filter) = config.strict_filter {
+                    // Strict filter takes priority - ensures data isolation
+                    self.db
+                        .embeddings
+                        .find_similar_with_strict_filter(
+                            embedding,
+                            strict_filter,
+                            limit * 2,
+                            config.exclude_archived,
+                        )
+                        .await?
+                } else if let Some(set_id) = config.embedding_set_id {
                     self.db
                         .embeddings
                         .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
@@ -346,11 +357,22 @@ impl HybridSearch for HybridSearchEngine {
             }
         }
 
-        // Semantic search (filters not applied to vector search - we filter after fusion)
+        // Semantic search with optional strict filter for data isolation
         if config.semantic_weight > 0.0 {
             if let Some(embedding) = query_embedding {
-                // Use embedding set if specified, otherwise search all embeddings
-                let semantic_results = if let Some(set_id) = config.embedding_set_id {
+                // Apply strict filter, embedding set, or search all embeddings
+                let semantic_results = if let Some(ref strict_filter) = config.strict_filter {
+                    // Strict filter takes priority - ensures data isolation
+                    self.db
+                        .embeddings
+                        .find_similar_with_strict_filter(
+                            embedding,
+                            strict_filter,
+                            limit * 2,
+                            config.exclude_archived,
+                        )
+                        .await?
+                } else if let Some(set_id) = config.embedding_set_id {
                     self.db
                         .embeddings
                         .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
