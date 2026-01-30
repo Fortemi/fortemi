@@ -1,0 +1,112 @@
+matric-memory
+AI-Enhanced Knowledge Management System with Hybrid Retrieval
+
+Copyright (c) 2024-2026 Integro Labs
+
+This product is licensed under the Business Source License 1.1.
+See LICENSE for details.
+
+================================================================================
+
+THIRD-PARTY SOFTWARE
+
+This product includes or depends on the following third-party software:
+
+================================================================================
+
+Rust Ecosystem Dependencies
+----------------------------
+
+This project depends on numerous open-source Rust crates, primarily licensed
+under MIT and/or Apache-2.0. Key dependencies include:
+
+- tokio - MIT License
+  Asynchronous runtime for Rust
+  Copyright (c) Tokio Contributors
+  https://github.com/tokio-rs/tokio
+
+- sqlx - MIT OR Apache-2.0
+  Async SQL toolkit for Rust
+  Copyright (c) sqlx contributors
+  https://github.com/launchbadge/sqlx
+
+- axum - MIT License
+  Web framework built on tokio
+  Copyright (c) 2021 Tower Contributors
+  https://github.com/tokio-rs/axum
+
+- serde - MIT OR Apache-2.0
+  Serialization framework for Rust
+  Copyright (c) serde-rs contributors
+  https://github.com/serde-rs/serde
+
+- pgvector-rust - Apache-2.0
+  Rust client for pgvector
+  Copyright (c) Andrew Kane
+  https://github.com/pgvector/pgvector-rust
+
+For a complete list of dependencies and their licenses, see:
+- Cargo.lock (Rust dependencies)
+- mcp-server/package-lock.json (Node.js dependencies)
+
+================================================================================
+
+PostgreSQL Extensions
+---------------------
+
+pgvector - PostgreSQL Open Source License
+  Open-source vector similarity search extension
+  Copyright (c) pgvector contributors
+  https://github.com/pgvector/pgvector
+
+================================================================================
+
+Model Context Protocol
+----------------------
+
+@modelcontextprotocol/sdk - MIT License
+  SDK for Model Context Protocol server implementation
+  Copyright (c) Anthropic, PBC
+  https://github.com/modelcontextprotocol
+
+================================================================================
+
+Research & Methodologies
+-------------------------
+
+This implementation is based on peer-reviewed academic research:
+
+- Reciprocal Rank Fusion (RRF)
+  Cormack, G. V., Clarke, C. L. A., & Büttcher, S. (2009)
+  "Reciprocal rank fusion outperforms condorcet and individual rank learning methods"
+  SIGIR '09
+
+- Retrieval-Augmented Generation (RAG)
+  Lewis, P., et al. (2020)
+  "Retrieval-augmented generation for knowledge-intensive NLP tasks"
+  NeurIPS 2020
+
+- Sentence-BERT Embeddings
+  Reimers, N., & Gurevych, I. (2019)
+  "Sentence-BERT: Sentence embeddings using siamese BERT-networks"
+  EMNLP 2019
+
+- HNSW Vector Indexing
+  Malkov, Y. A., & Yashunin, D. A. (2020)
+  "Efficient and robust approximate nearest neighbor search using HNSW"
+  IEEE TPAMI
+
+- W3C SKOS Specification
+  Miles, A., & Bechhofer, S. (2009)
+  "SKOS simple knowledge organization system reference"
+  W3C Recommendation
+
+================================================================================
+
+DISCLAIMER
+
+This software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose and noninfringement.
+
+================================================================================

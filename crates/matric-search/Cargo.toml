@@ -3,6 +3,9 @@ name = "matric-search"
 description = "Hybrid search engine for matric-memory"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 matric-core = { path = "../matric-core" }

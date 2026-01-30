@@ -73,7 +73,7 @@ members = [
 [workspace.package]
 version = "2026.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "BSL-1.1"
 
 [workspace.dependencies]
 # Internal crates

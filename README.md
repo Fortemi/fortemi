@@ -5,7 +5,7 @@
 A Rust implementation of Retrieval-Augmented Generation (RAG) combining full-text search (BM25) with dense passage retrieval via Reciprocal Rank Fusion (RRF), automatic knowledge graph construction, and W3C SKOS-compliant controlled vocabulary management.
 
 [![Build Status](https://git.integrolabs.net/roctinam/matric-memory/actions/workflows/ci.yaml/badge.svg)](https://git.integrolabs.net/roctinam/matric-memory/actions)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)]()
+[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
 ---
 
@@ -259,4 +259,4 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## License
 
-MIT OR Apache-2.0
+This project is licensed under the Business Source License 1.1. See [LICENSE](LICENSE) for details and [docs/content/licensing.md](docs/content/licensing.md) for a plain-English explanation.
