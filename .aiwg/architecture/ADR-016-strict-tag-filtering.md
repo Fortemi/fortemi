@@ -1,4 +1,4 @@
-# ADR-001: Strict Tag Filtering for Search
+# ADR-016: Strict Tag Filtering for Search
 
 **Status:** Accepted (Implemented 2026-01-24)
 **Date:** 2026-01-24
