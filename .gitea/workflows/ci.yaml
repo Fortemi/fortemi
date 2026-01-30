@@ -4,8 +4,15 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      # Builder image changes trigger build-builder.yaml only
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
 
 env:
   CARGO_TERM_COLOR: always

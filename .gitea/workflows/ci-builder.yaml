@@ -26,8 +26,16 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      # Builder image changes trigger build-builder.yaml instead
+      # This prevents race conditions where ci-builder uses stale image
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
 
 env:
   CARGO_TERM_COLOR: always

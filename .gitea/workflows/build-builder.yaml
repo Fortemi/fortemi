@@ -77,3 +77,29 @@ jobs:
           echo "Published builder images:"
           echo "  - ${IMAGE}:latest"
           echo "  - ${IMAGE}:sha-${SHORT_SHA}"
+
+  # After builder is published, trigger CI to validate with new image
+  trigger-ci:
+    name: Trigger CI with New Builder
+    runs-on: titan
+    needs: build-builder
+    steps:
+      - name: Trigger CI workflows
+        run: |
+          echo "Triggering CI workflows to use new builder image..."
+
+          # Trigger ci-builder.yaml via workflow_dispatch
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
+            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+
+          # Also trigger ci.yaml
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yaml/dispatches" \
+            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+
+          echo "CI workflows triggered (or will run on next code push)"
