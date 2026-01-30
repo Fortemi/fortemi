@@ -7,6 +7,32 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.5] - 2026-01-29
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **SQL Parameter Fix** | `update_note` with single field (archived/starred only) now works correctly |
+| **String Tag Search** | `search_notes_strict` now accepts simple string tags, not just SKOS URIs |
+| **MCP Content-Type Handling** | `diff_note_versions` returns plain text correctly |
+| **PKE Deployment** | `matric-pke` encryption binary now deployed to production |
+
+### Fixed
+- **Issue #198**: SQL parameter mismatch in `update_note` when updating only `archived` or `starred`
+- **Issue #199**: `search_notes_strict` with `required_tags` now supports simple string tags via fallback
+- **Issue #201**: MCP server now handles `text/plain` responses (e.g., version diffs) correctly
+- **Issue #202**: `matric-pke` binary built and deployed to `/usr/local/bin`
+
+### Added
+- `StrictTagFilter` now supports `required_string_tags`, `any_string_tags`, `excluded_string_tags`
+- `simple_tag_exists()` method for simple tag lookup fallback
+- Content-Type aware response parsing in MCP server
+
+### Changed
+- Dynamic SQL parameter indexing in note update operations
+- Tag resolver tries SKOS concept first, falls back to simple tag if not found
+
 ## [2026.1.4] - 2026-01-29
 
 ### Highlights
