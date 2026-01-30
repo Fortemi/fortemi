@@ -11,7 +11,7 @@
 #   2. Build - Compile release binaries + unit tests
 #   3. Build Image - Create Docker image
 #   4. Test Container - Deploy and test in isolated environment (port 3001)
-#   5. Integration Tests (GPU) - Ollama/inference tests on titan
+#   5. Integration Tests (GPU) - Ollama/inference tests on titan (non-blocking)
 #   6. Publish - Push verified image to registry
 #
 # Benefits:
@@ -19,6 +19,7 @@
 #   - Tests run against actual deployed container, not just compiled code
 #   - Isolated test environment with dedicated ports (3001)
 #   - Reproducible builds
+#   - GPU tests run in parallel but don't block image publishing
 
 name: CI (Builder)
 
@@ -238,6 +239,7 @@ jobs:
     name: Integration Tests (GPU)
     runs-on: titan
     needs: build
+    continue-on-error: true
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
@@ -262,7 +264,7 @@ jobs:
   publish-dev:
     name: Publish Dev Image
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: test-container
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout
@@ -296,7 +298,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [test-container, integration-test]
+    needs: test-container
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout

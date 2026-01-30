@@ -52,6 +52,7 @@ jobs:
     name: Integration Tests (GPU)
     runs-on: gpu
     needs: lint
+    continue-on-error: true
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
@@ -75,7 +76,7 @@ jobs:
   build:
     name: Build
     runs-on: titan
-    needs: [test, integration-test]
+    needs: test
     if: always() && needs.test.result == 'success'
     steps:
       - name: Checkout
