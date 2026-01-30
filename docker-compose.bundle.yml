@@ -21,6 +21,7 @@ services:
         BUILD_DATE: ${BUILD_DATE:-unknown}
     ports:
       - "3000:3000"
+      - "3001:3001"
     environment:
       - RUST_LOG=info
       - POSTGRES_USER=matric

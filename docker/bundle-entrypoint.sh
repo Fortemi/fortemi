@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# bundle-entrypoint.sh - Initialize and run PostgreSQL + matric-api
+# bundle-entrypoint.sh - Initialize and run PostgreSQL + matric-api + MCP server
 #
 # This script:
 # 1. Initializes PostgreSQL if data directory is empty
@@ -9,7 +9,8 @@ set -e
 # 3. Waits for PostgreSQL to be ready
 # 4. Creates database and enables pgvector extension
 # 5. Runs migrations
-# 6. Starts matric-api
+# 6. Starts MCP server (background)
+# 7. Starts matric-api (foreground)
 
 echo "=== Matric Memory Bundle Startup ==="
 echo "Version: ${MATRIC_VERSION:-unknown}"
@@ -93,11 +94,50 @@ else
     echo ">>> No migrations directory found, skipping"
 fi
 
+# Start MCP server in background
+echo ">>> Starting MCP Server..."
+mkdir -p /var/log/matric
+cd /app/mcp-server
+MCP_TRANSPORT="${MCP_TRANSPORT:-http}" \
+PORT="${MCP_PORT:-3001}" \
+MATRIC_API_URL="${MATRIC_API_URL:-http://localhost:3000}" \
+node index.js > /var/log/matric/mcp-server.log 2>&1 &
+MCP_PID=$!
+echo "  MCP server started (PID: $MCP_PID)"
+echo "  Listening on: 0.0.0.0:${MCP_PORT:-3001}"
+cd /app
+
+# Wait for MCP server to be ready
+sleep 2
+if kill -0 $MCP_PID 2>/dev/null; then
+    echo "  MCP server running"
+else
+    echo "  WARNING: MCP server may have failed to start"
+    cat /var/log/matric/mcp-server.log 2>/dev/null || true
+fi
+
 # Start matric-api
 echo ">>> Starting Matric API..."
 echo "  Listening on: ${HOST:-0.0.0.0}:${PORT:-3000}"
 echo "  Database: ${DATABASE_URL}"
 echo "========================================"
 
+# Trap to clean up background processes on exit
+cleanup() {
+    echo "Shutting down..."
+    kill $MCP_PID 2>/dev/null || true
+    su postgres -c "pg_ctl -D $PGDATA stop -m fast" 2>/dev/null || true
+    exit 0
+}
+trap cleanup SIGTERM SIGINT
+
 # Run matric-api in foreground
-exec /app/matric-api
+/app/matric-api &
+API_PID=$!
+
+# Wait for any process to exit
+wait -n $API_PID $MCP_PID
+
+# If we get here, one of the processes died
+echo "A process exited unexpectedly"
+cleanup
