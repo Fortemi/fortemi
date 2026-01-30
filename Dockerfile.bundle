@@ -1,0 +1,93 @@
+# Dockerfile.bundle - All-in-one matric-memory with embedded PostgreSQL
+#
+# Usage:
+#   docker build -f Dockerfile.bundle -t matric-memory:bundle .
+#   docker run -d -p 3000:3000 -v matric-data:/var/lib/postgresql/data matric-memory:bundle
+#
+# Build stage
+FROM rust:slim-bookworm AS builder
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+ENV MATRIC_VERSION=${VERSION}
+ENV MATRIC_GIT_SHA=${GIT_SHA}
+ENV MATRIC_BUILD_DATE=${BUILD_DATE}
+
+RUN cargo build --release --package matric-api && \
+    cp target/release/matric-api /app/matric-api
+
+# Runtime stage - based on pgvector image for PostgreSQL + pgvector
+FROM pgvector/pgvector:pg16 AS runtime
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="matric-memory-bundle"
+LABEL org.opencontainers.image.description="AI-enhanced knowledge base - all-in-one with PostgreSQL"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+# Install runtime dependencies for matric-api
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/matric-api /app/matric-api
+
+# Copy migrations
+COPY migrations /app/migrations
+
+# Copy entrypoint script
+COPY docker/bundle-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Version environment variables
+ENV MATRIC_VERSION=${VERSION}
+ENV MATRIC_GIT_SHA=${GIT_SHA}
+ENV MATRIC_BUILD_DATE=${BUILD_DATE}
+
+# PostgreSQL environment
+ENV POSTGRES_USER=matric
+ENV POSTGRES_PASSWORD=matric
+ENV POSTGRES_DB=matric
+ENV PGDATA=/var/lib/postgresql/data
+
+# Matric API environment
+ENV DATABASE_URL=postgres://matric:matric@localhost:5432/matric
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV RUST_LOG=info
+
+# Expose API port (PostgreSQL stays internal)
+EXPOSE 3000
+
+# Health check against the API
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Data volume for PostgreSQL persistence
+VOLUME ["/var/lib/postgresql/data"]
+
+# Use custom entrypoint that starts PostgreSQL, runs migrations, then starts API
+ENTRYPOINT ["/app/entrypoint.sh"]

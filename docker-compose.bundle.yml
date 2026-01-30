@@ -1,0 +1,46 @@
+# docker-compose.bundle.yml - All-in-one matric-memory deployment
+#
+# Usage:
+#   docker-compose -f docker-compose.bundle.yml up -d
+#
+# For clean install (wipe database):
+#   docker-compose -f docker-compose.bundle.yml down -v
+#   docker-compose -f docker-compose.bundle.yml up -d
+
+version: '3.8'
+
+services:
+  matric:
+    image: git.integrolabs.net/roctinam/matric-memory:bundle
+    build:
+      context: .
+      dockerfile: Dockerfile.bundle
+      args:
+        VERSION: ${VERSION:-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - POSTGRES_USER=matric
+      - POSTGRES_PASSWORD=matric
+      - POSTGRES_DB=matric
+    volumes:
+      # PostgreSQL data persistence
+      - matric-pgdata:/var/lib/postgresql/data
+      # Optional: backup directory
+      - matric-backups:/var/backups/matric-memory
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  matric-pgdata:
+    driver: local
+  matric-backups:
+    driver: local
