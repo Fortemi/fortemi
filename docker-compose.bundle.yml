@@ -26,6 +26,8 @@ services:
       - POSTGRES_USER=matric
       - POSTGRES_PASSWORD=matric
       - POSTGRES_DB=matric
+      # Set ISSUER_URL to your external URL for OAuth/MCP authentication
+      - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
     volumes:
       # PostgreSQL data persistence
       - matric-pgdata:/var/lib/postgresql/data
