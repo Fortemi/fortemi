@@ -1,5 +1,26 @@
 # Gitea Runner Setup for matric-builder
 
+## Why Build Containers?
+
+At Integro Labs, our build servers are also development servers. Using build containers provides:
+
+1. **Isolation** - CI builds don't modify system Rust/toolchain versions
+2. **Reproducibility** - Same environment across all builds
+3. **No Version Conflicts** - Developers can use different Rust versions locally
+4. **Clean Builds** - Each job starts fresh, no leftover state
+
+### Runner Label Strategy
+
+| Label | Type | Purpose |
+|-------|------|---------|
+| `matric-builder` | Docker | Isolated Rust builds, Docker-in-Docker |
+| `titan` | Host | Direct system access, local services |
+| `gpu` | Host | GPU access for ML/inference tests |
+
+**Rule**: Use `matric-builder` for builds. Use `titan`/`gpu` only when you need direct hardware or local service access.
+
+---
+
 This guide explains how to configure a Gitea Actions runner to use the matric-builder container.
 
 ## Prerequisites
