@@ -74,15 +74,15 @@ jobs:
       - name: Setup PostgreSQL
         run: |
           set -e
-          echo "Starting PostgreSQL container..."
+          echo "Starting PostgreSQL container on port 15432..."
 
           # Clean up any leftover containers
           docker stop matric-build-db 2>/dev/null || true
           docker rm matric-build-db 2>/dev/null || true
 
-          # Start PostgreSQL with pgvector on host network
+          # Start PostgreSQL with pgvector on isolated port (15432 to avoid conflicts)
           docker run -d --name matric-build-db \
-            --network host \
+            -p 15432:5432 \
             -e POSTGRES_USER=matric \
             -e POSTGRES_PASSWORD=matric \
             -e POSTGRES_DB=matric_test \
@@ -102,8 +102,8 @@ jobs:
       - name: Run migrations
         run: |
           set -e
-          export DATABASE_URL="postgres://matric:matric@localhost:5432/matric_test"
-          echo "Database URL: postgres://matric:***@localhost:5432/matric_test"
+          export DATABASE_URL="postgres://matric:matric@localhost:15432/matric_test"
+          echo "Database URL: postgres://matric:***@localhost:15432/matric_test"
 
           # Run migrations in order
           for f in migrations/*.sql; do
@@ -129,7 +129,7 @@ jobs:
 
       - name: Run unit tests
         env:
-          DATABASE_URL: postgres://matric:matric@localhost:5432/matric_test
+          DATABASE_URL: postgres://matric:matric@localhost:15432/matric_test
         run: cargo test --workspace
 
       - name: Run doc tests
