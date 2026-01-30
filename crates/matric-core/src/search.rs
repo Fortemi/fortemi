@@ -63,6 +63,19 @@ pub struct StrictTagFilter {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_schemes: Vec<Uuid>,
 
+    /// Required simple string tags (AND logic) - must have ALL.
+    /// These are matched against the note_tag table, not SKOS concepts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_string_tags: Vec<String>,
+
+    /// Any simple string tags (OR logic) - must have AT LEAST ONE.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub any_string_tags: Vec<String>,
+
+    /// Excluded simple string tags (NOT logic) - must NOT have ANY.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_string_tags: Vec<String>,
+
     /// Minimum number of tags required (None = no minimum).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_tag_count: Option<i32>,
@@ -84,6 +97,9 @@ impl Default for StrictTagFilter {
             excluded_concepts: Vec::new(),
             required_schemes: Vec::new(),
             excluded_schemes: Vec::new(),
+            required_string_tags: Vec::new(),
+            any_string_tags: Vec::new(),
+            excluded_string_tags: Vec::new(),
             min_tag_count: None,
             include_untagged: true,
         }
@@ -145,6 +161,9 @@ impl StrictTagFilter {
             && self.excluded_concepts.is_empty()
             && self.required_schemes.is_empty()
             && self.excluded_schemes.is_empty()
+            && self.required_string_tags.is_empty()
+            && self.any_string_tags.is_empty()
+            && self.excluded_string_tags.is_empty()
             && self.min_tag_count.is_none()
     }
 

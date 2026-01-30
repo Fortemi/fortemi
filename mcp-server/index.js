@@ -44,6 +44,13 @@ async function apiRequest(method, path, body = null) {
     throw new Error(`API error ${response.status}: ${error}`);
   }
   if (response.status === 204) return null;
+
+  // Check Content-Type to determine response parsing
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/plain")) {
+    // Return plain text as-is (e.g., diff output)
+    return response.text();
+  }
   return response.json();
 }
 

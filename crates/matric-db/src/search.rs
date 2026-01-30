@@ -180,6 +180,7 @@ impl PgFtsSearch {
                 QueryParam::Timestamp(ts) => q.bind(ts),
                 QueryParam::Bool(b) => q.bind(b),
                 QueryParam::String(s) => q.bind(s),
+                QueryParam::StringArray(arr) => q.bind(arr),
             };
         }
 

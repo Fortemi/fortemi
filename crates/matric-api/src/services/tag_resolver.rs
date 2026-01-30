@@ -139,6 +139,20 @@ impl TagResolver {
         Ok(None)
     }
 
+    /// Check if a simple string tag exists in the tag table.
+    ///
+    /// This checks the legacy tag system (tag table), not SKOS concepts.
+    /// Returns `Ok(true)` if the tag exists.
+    pub async fn simple_tag_exists(&self, tag_name: &str) -> Result<bool> {
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM tag WHERE name = $1)")
+                .bind(tag_name)
+                .fetch_one(&self.db.pool)
+                .await
+                .map_err(Error::Database)?;
+        Ok(exists)
+    }
+
     /// Resolve a scheme notation to a UUID.
     ///
     /// Returns `Ok(None)` if the scheme is not found.
@@ -179,37 +193,59 @@ impl TagResolver {
     ///
     /// # Error Handling
     ///
-    /// - Required tags: Error if not found
-    /// - Any tags: Silently skip if not found
-    /// - Excluded tags: Silently skip if not found
+    /// - Required tags: Try SKOS concept first, fall back to simple string tag
+    /// - Any tags: Silently skip if not found in either system
+    /// - Excluded tags: Silently skip if not found in either system
     /// - Required schemes: Error if not found
     /// - Excluded schemes: Silently skip if not found
     pub async fn resolve_filter(&self, input: StrictTagFilterInput) -> Result<StrictTagFilter> {
         let mut filter = StrictTagFilter::new();
 
-        // Resolve required concepts (must all be found)
+        // Resolve required tags: try SKOS concept first, fall back to simple tag
         for notation in &input.required_tags {
             match self.resolve_concept(notation).await? {
                 Some(uuid) => filter.required_concepts.push(uuid),
                 None => {
-                    return Err(Error::NotFound(format!(
-                        "Required tag '{}' not found",
-                        notation
-                    )))
+                    // Check if it exists as a simple string tag
+                    if self.simple_tag_exists(notation).await? {
+                        filter.required_string_tags.push(notation.clone());
+                    } else {
+                        return Err(Error::NotFound(format!(
+                            "Required tag '{}' not found (checked SKOS concepts and simple tags)",
+                            notation
+                        )));
+                    }
                 }
             }
         }
 
-        // Resolve any concepts (skip if not found)
-        let any_resolved = self.resolve_concepts(&input.any_tags).await?;
-        filter.any_concepts = any_resolved.into_iter().map(|(_, uuid)| uuid).collect();
+        // Resolve any tags: try SKOS concept first, fall back to simple tag
+        for notation in &input.any_tags {
+            match self.resolve_concept(notation).await? {
+                Some(uuid) => filter.any_concepts.push(uuid),
+                None => {
+                    // Check if it exists as a simple string tag
+                    if self.simple_tag_exists(notation).await? {
+                        filter.any_string_tags.push(notation.clone());
+                    }
+                    // Silently skip if not found in either system
+                }
+            }
+        }
 
-        // Resolve excluded concepts (skip if not found)
-        let excluded_resolved = self.resolve_concepts(&input.excluded_tags).await?;
-        filter.excluded_concepts = excluded_resolved
-            .into_iter()
-            .map(|(_, uuid)| uuid)
-            .collect();
+        // Resolve excluded tags: try SKOS concept first, fall back to simple tag
+        for notation in &input.excluded_tags {
+            match self.resolve_concept(notation).await? {
+                Some(uuid) => filter.excluded_concepts.push(uuid),
+                None => {
+                    // Check if it exists as a simple string tag
+                    if self.simple_tag_exists(notation).await? {
+                        filter.excluded_string_tags.push(notation.clone());
+                    }
+                    // Silently skip if not found in either system
+                }
+            }
+        }
 
         // Resolve required schemes (must all be found)
         for notation in &input.required_schemes {

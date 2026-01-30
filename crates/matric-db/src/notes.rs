@@ -595,14 +595,17 @@ impl NoteRepository for PgNoteRepository {
     }
 
     async fn update_status(&self, id: Uuid, req: UpdateNoteStatusRequest) -> Result<()> {
-        let mut updates = vec!["updated_at_utc = $1"];
+        let mut updates: Vec<String> = vec!["updated_at_utc = $1".to_string()];
         let now = Utc::now();
+        // $1 = now, $2 = id, then dynamic params start at $3
+        let mut param_idx = 3;
 
         if req.starred.is_some() {
-            updates.push("starred = $3");
+            updates.push(format!("starred = ${}", param_idx));
+            param_idx += 1;
         }
         if req.archived.is_some() {
-            updates.push("archived = $4");
+            updates.push(format!("archived = ${}", param_idx));
         }
 
         let query = format!("UPDATE note SET {} WHERE id = $2", updates.join(", "));
@@ -847,6 +850,7 @@ impl PgNoteRepository {
                 QueryParam::Timestamp(ts) => count_q.bind(ts),
                 QueryParam::Bool(b) => count_q.bind(b),
                 QueryParam::String(s) => count_q.bind(s),
+                QueryParam::StringArray(arr) => count_q.bind(arr),
             };
         }
 
@@ -889,6 +893,7 @@ impl PgNoteRepository {
                 QueryParam::Timestamp(ts) => notes_q.bind(ts),
                 QueryParam::Bool(b) => notes_q.bind(b),
                 QueryParam::String(s) => notes_q.bind(s),
+                QueryParam::StringArray(arr) => notes_q.bind(arr),
             };
         }
         notes_q = notes_q.bind(req.limit).bind(req.offset);
@@ -969,6 +974,7 @@ impl PgNoteRepository {
                 QueryParam::Timestamp(ts) => q.bind(ts),
                 QueryParam::Bool(b) => q.bind(b),
                 QueryParam::String(s) => q.bind(s),
+                QueryParam::StringArray(arr) => q.bind(arr),
             };
         }
         q = q.bind(limit);

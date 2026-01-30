@@ -20,6 +20,8 @@ pub enum QueryParam {
     Bool(bool),
     /// String parameter.
     String(String),
+    /// Array of strings (for simple tag filtering).
+    StringArray(Vec<String>),
 }
 
 /// Generates SQL WHERE clause fragments for strict tag filtering.
@@ -136,6 +138,41 @@ impl StrictFilterQueryBuilder {
             params.push(QueryParam::UuidArray(self.filter.excluded_schemes.clone()));
         }
 
+        // Required string tags (AND): note must have ALL of these simple tags
+        // Each tag gets its own EXISTS clause to ensure ALL are present
+        for tag_name in &self.filter.required_string_tags {
+            param_idx += 1;
+            clauses.push(format!(
+                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND nt.tag_name = ${})",
+                param_idx
+            ));
+            params.push(QueryParam::String(tag_name.clone()));
+        }
+
+        // Any string tags (OR): note must have AT LEAST ONE
+        // Use ANY with array parameter for efficient OR matching
+        if !self.filter.any_string_tags.is_empty() {
+            param_idx += 1;
+            clauses.push(format!(
+                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND nt.tag_name = ANY(${}::text[]))",
+                param_idx
+            ));
+            params.push(QueryParam::StringArray(self.filter.any_string_tags.clone()));
+        }
+
+        // Excluded string tags (NOT): note must have NONE of these
+        // Use NOT EXISTS with ANY for efficient exclusion
+        if !self.filter.excluded_string_tags.is_empty() {
+            param_idx += 1;
+            clauses.push(format!(
+                "NOT EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND nt.tag_name = ANY(${}::text[]))",
+                param_idx
+            ));
+            params.push(QueryParam::StringArray(
+                self.filter.excluded_string_tags.clone(),
+            ));
+        }
+
         // Minimum tag count
         if let Some(min_count) = self.filter.min_tag_count {
             param_idx += 1;
@@ -189,12 +226,7 @@ mod tests {
         let concept_id = Uuid::new_v4();
         let filter = StrictTagFilter {
             required_concepts: vec![concept_id],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -217,12 +249,7 @@ mod tests {
         let concept2 = Uuid::new_v4();
         let filter = StrictTagFilter {
             required_concepts: vec![concept1, concept2],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -240,13 +267,8 @@ mod tests {
         let concept1 = Uuid::new_v4();
         let concept2 = Uuid::new_v4();
         let filter = StrictTagFilter {
-            required_concepts: vec![],
             any_concepts: vec![concept1, concept2],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -270,13 +292,8 @@ mod tests {
         let concept1 = Uuid::new_v4();
         let concept2 = Uuid::new_v4();
         let filter = StrictTagFilter {
-            required_concepts: vec![],
-            any_concepts: vec![],
             excluded_concepts: vec![concept1, concept2],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -293,13 +310,8 @@ mod tests {
         let scheme1 = Uuid::new_v4();
         let scheme2 = Uuid::new_v4();
         let filter = StrictTagFilter {
-            required_concepts: vec![],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
             required_schemes: vec![scheme1, scheme2],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -323,13 +335,8 @@ mod tests {
     fn test_excluded_schemes() {
         let scheme1 = Uuid::new_v4();
         let filter = StrictTagFilter {
-            required_concepts: vec![],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
             excluded_schemes: vec![scheme1],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -343,13 +350,8 @@ mod tests {
     #[test]
     fn test_min_tag_count() {
         let filter = StrictTagFilter {
-            required_concepts: vec![],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
             min_tag_count: Some(3),
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -367,13 +369,8 @@ mod tests {
     #[test]
     fn test_exclude_untagged() {
         let filter = StrictTagFilter {
-            required_concepts: vec![],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
             include_untagged: false,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -392,12 +389,8 @@ mod tests {
         let concept_id = Uuid::new_v4();
         let filter = StrictTagFilter {
             required_concepts: vec![concept_id],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
             include_untagged: false,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -420,10 +413,8 @@ mod tests {
             required_concepts: vec![required],
             any_concepts: vec![any1, any2],
             excluded_concepts: vec![excluded],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
             min_tag_count: Some(2),
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);
@@ -457,12 +448,7 @@ mod tests {
         let concept_id = Uuid::new_v4();
         let filter = StrictTagFilter {
             required_concepts: vec![concept_id],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
-            required_schemes: vec![],
-            excluded_schemes: vec![],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         // Start with offset 5 (simulating 5 existing parameters)
@@ -482,12 +468,9 @@ mod tests {
 
         let filter = StrictTagFilter {
             required_concepts: vec![req_concept],
-            any_concepts: vec![],
-            excluded_concepts: vec![],
             required_schemes: vec![req_scheme],
             excluded_schemes: vec![excl_scheme],
-            min_tag_count: None,
-            include_untagged: true,
+            ..Default::default()
         };
 
         let builder = StrictFilterQueryBuilder::new(filter, 0);

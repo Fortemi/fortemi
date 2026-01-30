@@ -346,6 +346,7 @@ impl PgEmbeddingRepository {
                 crate::strict_filter::QueryParam::Timestamp(v) => query_builder.bind(v),
                 crate::strict_filter::QueryParam::Bool(v) => query_builder.bind(v),
                 crate::strict_filter::QueryParam::String(v) => query_builder.bind(v),
+                crate::strict_filter::QueryParam::StringArray(v) => query_builder.bind(v),
             };
         }
 
