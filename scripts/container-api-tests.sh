@@ -207,9 +207,9 @@ api_call GET "/api/v1/notes/$NOTE_ID"
 assert_status "GET /notes/:id" "200"
 assert_json_field "Note has id" ".note.id"
 
-# Update note
+# Update note (returns full note object as of v2026.1.6)
 api_call PATCH "/api/v1/notes/$NOTE_ID" '{"content":"Updated CI test note","revision_mode":"none"}'
-assert_status "PATCH /notes/:id (update)" "204"
+assert_status "PATCH /notes/:id (update)" "200"
 
 # ---------------------------------------------------------------------------
 # 3. Note Tags
