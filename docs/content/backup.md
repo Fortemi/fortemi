@@ -403,8 +403,10 @@ curl http://localhost:3000/api/v1/backup/status
 
 **Status Values:**
 - `healthy` - Backups exist and are recent
-- `no_backups` - No backup files found
-- `no_backup_directory` - Backup directory doesn't exist
+- `no_backups` - No backup files found (directory auto-created if needed)
+- `cannot_create_directory: <error>` - Failed to create backup directory (permission error)
+
+**Note:** The backup directory is automatically created if it doesn't exist. If creation fails due to permissions, the status will indicate the error.
 
 ### GET /api/v1/backup/knowledge-shard
 

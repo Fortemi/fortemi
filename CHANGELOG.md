@@ -7,6 +7,36 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.6] - 2026-01-30
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **update_note returns entity** | API now returns full note object after update (REST best practice) |
+| **Backup auto-provisioning** | Backup directory created automatically on first use |
+| **PKE keyset management** | 7 new MCP tools for managing encryption identities |
+
+### Fixed
+- **Issue #203**: `update_note` now returns full `NoteFull` object instead of HTTP 204
+- **Issue #204**: `backup_status` auto-creates backup directory with graceful permission handling
+- **Issue #205**: Backup tools now work out of the box (resolved by #204)
+
+### Added
+- PKE keyset management MCP tools:
+  - `pke_list_keysets` - List all keysets in ~/.matric/keys/
+  - `pke_create_keyset` - Create new named keyset with passphrase
+  - `pke_get_active_keyset` - Get currently active keyset info
+  - `pke_set_active_keyset` - Set active keyset by name
+  - `pke_export_keyset` - Export keyset to directory for backup/transfer
+  - `pke_import_keyset` - Import keyset from files or export directory
+  - `pke_delete_keyset` - Delete a keyset permanently
+- Backup status now returns "cannot_create_directory: {error}" on permission failure
+
+### Changed
+- `update_note` MCP handler returns `{ success: true, note }` instead of just `{ success: true }`
+- Backup directory defaults to `/var/backups/matric-memory` (auto-created)
+
 ## [2026.1.5] - 2026-01-29
 
 ### Highlights

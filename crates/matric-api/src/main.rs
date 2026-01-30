@@ -1628,7 +1628,9 @@ async fn update_note(
         queue_nlp_pipeline(&state.db, id, revision_mode).await;
     }
 
-    Ok(StatusCode::NO_CONTENT)
+    // Fetch and return the updated note
+    let note = state.db.notes.fetch(id).await?;
+    Ok(Json(note))
 }
 
 async fn delete_note(
@@ -4962,11 +4964,19 @@ async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoRespon
         status: "unknown".to_string(),
     };
 
-    // Check if backup directory exists
+    // Check if backup directory exists, create if missing
     let backup_path = std::path::Path::new(&backup_dir);
     if !backup_path.exists() {
-        response.status = "no_backup_directory".to_string();
-        return Ok(Json(response));
+        // Try to create directory, handle permission errors gracefully
+        match std::fs::create_dir_all(backup_path) {
+            Ok(_) => {
+                response.status = "no_backups".to_string();
+            }
+            Err(e) => {
+                response.status = format!("cannot_create_directory: {}", e);
+                return Ok(Json(response));
+            }
+        }
     }
 
     // List ALL backup files (shards, pgdump, json)

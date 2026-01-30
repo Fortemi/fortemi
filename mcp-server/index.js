@@ -10,6 +10,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 
 const API_BASE = process.env.MATRIC_MEMORY_URL || "https://memory.integrolabs.net";
 const API_KEY = process.env.MATRIC_MEMORY_API_KEY || null;
@@ -44,41 +48,7 @@ async function apiRequest(method, path, body = null) {
     throw new Error(`API error ${response.status}: ${error}`);
   }
   if (response.status === 204) return null;
-
-  // Check Content-Type to determine response parsing
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("text/plain")) {
-    // Return plain text as-is (e.g., diff output)
-    return response.text();
-  }
   return response.json();
-}
-
-/**
- * Build strict filter JSON from filter parameters.
- * Converts MCP tool arguments into API filter format.
- */
-function buildStrictFilter(strictFilter) {
-  if (!strictFilter) return null;
-
-  const filter = {};
-  if (strictFilter.required_tags && strictFilter.required_tags.length > 0) {
-    filter.required_tags = strictFilter.required_tags;
-  }
-  if (strictFilter.any_tags && strictFilter.any_tags.length > 0) {
-    filter.any_tags = strictFilter.any_tags;
-  }
-  if (strictFilter.excluded_tags && strictFilter.excluded_tags.length > 0) {
-    filter.excluded_tags = strictFilter.excluded_tags;
-  }
-  if (strictFilter.required_schemes && strictFilter.required_schemes.length > 0) {
-    filter.required_schemes = strictFilter.required_schemes;
-  }
-  if (strictFilter.excluded_schemes && strictFilter.excluded_schemes.length > 0) {
-    filter.excluded_schemes = strictFilter.excluded_schemes;
-  }
-
-  return Object.keys(filter).length > 0 ? JSON.stringify(filter) : null;
 }
 
 /**
@@ -164,36 +134,6 @@ function createMcpServer() {
           if (args.limit) params.set("limit", args.limit);
           if (args.mode) params.set("mode", args.mode);
           if (args.set) params.set("set", args.set);
-
-          // Handle strict_filter
-          const filterJson = buildStrictFilter(args.strict_filter);
-          if (filterJson) {
-            params.set("strict_filter", filterJson);
-          }
-
-          result = await apiRequest("GET", `/api/v1/search?${params}`);
-          break;
-        }
-        case "search_notes_strict": {
-          const params = new URLSearchParams();
-          if (args.query) params.set("q", args.query);
-          if (args.limit) params.set("limit", args.limit);
-          if (args.mode) params.set("mode", args.mode);
-
-          // Build strict filter from direct arguments
-          const strictFilter = {
-            required_tags: args.required_tags,
-            any_tags: args.any_tags,
-            excluded_tags: args.excluded_tags,
-            required_schemes: args.required_schemes,
-            excluded_schemes: args.excluded_schemes
-          };
-
-          const filterJson = buildStrictFilter(strictFilter);
-          if (filterJson) {
-            params.set("strict_filter", filterJson);
-          }
-
           result = await apiRequest("GET", `/api/v1/search?${params}`);
           break;
         }
@@ -916,6 +856,336 @@ function createMcpServer() {
           break;
         }
 
+        // ============================================================================
+        // PKE KEYSET MANAGEMENT - Manage named keysets with auto-provisioning
+        // ============================================================================
+        case "pke_list_keysets": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+
+            // If directory doesn't exist, return empty array
+            if (!fs.existsSync(keysDir)) {
+              result = [];
+              break;
+            }
+
+            // Get all subdirectories
+            const entries = fs.readdirSync(keysDir, { withFileTypes: true });
+            const keysets = [];
+
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue;
+
+              const keysetDir = path.join(keysDir, entry.name);
+              const publicKeyPath = path.join(keysetDir, 'public.key');
+              const privateKeyPath = path.join(keysetDir, 'private.key.enc');
+
+              // Verify this is a valid keyset directory
+              if (!fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) {
+                continue;
+              }
+
+              // Get address from public key
+              let address = null;
+              try {
+                const addrOutput = execSync(`matric-pke address -p "${publicKeyPath}"`, { encoding: 'utf8' });
+                const addrData = JSON.parse(addrOutput);
+                address = addrData.address;
+              } catch (e) {
+                // Skip if we can't get address
+                continue;
+              }
+
+              // Get created timestamp from directory
+              const stats = fs.statSync(keysetDir);
+
+              keysets.push({
+                name: entry.name,
+                address,
+                public_key_path: publicKeyPath,
+                private_key_path: privateKeyPath,
+                created: stats.birthtime.toISOString(),
+              });
+            }
+
+            result = keysets;
+          } catch (e) {
+            throw new Error(`Failed to list keysets: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_create_keyset": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const keysetDir = path.join(keysDir, args.name);
+
+            // Validate keyset name
+            if (!/^[a-zA-Z0-9_-]+$/.test(args.name)) {
+              throw new Error('Keyset name must contain only alphanumeric characters, hyphens, and underscores');
+            }
+
+            // Check if keyset already exists
+            if (fs.existsSync(keysetDir)) {
+              throw new Error(`Keyset '${args.name}' already exists`);
+            }
+
+            // Create directory
+            fs.mkdirSync(keysetDir, { recursive: true });
+
+            // Generate keypair using matric-pke
+            const output = execSync(`matric-pke keygen -p "${args.passphrase}" -o "${keysetDir}"`, { encoding: 'utf8' });
+            const keygenData = JSON.parse(output);
+
+            // Return keyset info with normalized paths
+            result = {
+              name: args.name,
+              address: keygenData.address,
+              public_key_path: path.join(keysetDir, 'public.key'),
+              private_key_path: path.join(keysetDir, 'private.key.enc'),
+              created: new Date().toISOString(),
+            };
+          } catch (e) {
+            throw new Error(`Failed to create keyset: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_get_active_keyset": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const activeFile = path.join(keysDir, 'active');
+
+            // If no active file, return null
+            if (!fs.existsSync(activeFile)) {
+              result = null;
+              break;
+            }
+
+            // Read active keyset name
+            const activeKeyset = fs.readFileSync(activeFile, 'utf8').trim();
+
+            const keysetDir = path.join(keysDir, activeKeyset);
+            const publicKeyPath = path.join(keysetDir, 'public.key');
+            const privateKeyPath = path.join(keysetDir, 'private.key.enc');
+
+            // Verify keyset exists
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) {
+              result = null;
+              break;
+            }
+
+            // Get address from public key
+            const addrOutput = execSync(`matric-pke address -p "${publicKeyPath}"`, { encoding: 'utf8' });
+            const addrData = JSON.parse(addrOutput);
+
+            // Get created timestamp
+            const stats = fs.statSync(keysetDir);
+
+            result = {
+              name: activeKeyset,
+              address: addrData.address,
+              public_key_path: publicKeyPath,
+              private_key_path: privateKeyPath,
+              created: stats.birthtime.toISOString(),
+            };
+          } catch (e) {
+            throw new Error(`Failed to get active keyset: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_set_active_keyset": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const keysetDir = path.join(keysDir, args.name);
+            const publicKeyPath = path.join(keysetDir, 'public.key');
+            const privateKeyPath = path.join(keysetDir, 'private.key.enc');
+
+            // Verify keyset exists
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) {
+              throw new Error(`Keyset '${args.name}' not found`);
+            }
+
+            // Ensure keys directory exists
+            if (!fs.existsSync(keysDir)) {
+              fs.mkdirSync(keysDir, { recursive: true });
+            }
+
+            // Write active file
+            const activeFile = path.join(keysDir, 'active');
+            fs.writeFileSync(activeFile, args.name, 'utf8');
+
+            result = {
+              success: true,
+              active_keyset: args.name,
+            };
+          } catch (e) {
+            throw new Error(`Failed to set active keyset: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_export_keyset": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const keysetDir = path.join(keysDir, args.name);
+            const publicKeyPath = path.join(keysetDir, 'public.key');
+            const privateKeyPath = path.join(keysetDir, 'private.key.enc');
+
+            // Verify keyset exists
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) {
+              throw new Error(`Keyset '${args.name}' not found`);
+            }
+
+            // Determine export directory (use provided or default to ~/.matric/exports/)
+            const exportDir = args.output_dir || path.join(os.homedir(), '.matric', 'exports');
+            fs.mkdirSync(exportDir, { recursive: true });
+
+            // Create timestamped export folder
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const exportName = `${args.name}-${timestamp}`;
+            const exportPath = path.join(exportDir, exportName);
+            fs.mkdirSync(exportPath, { recursive: true });
+
+            // Copy key files
+            const exportedPublicKey = path.join(exportPath, 'public.key');
+            const exportedPrivateKey = path.join(exportPath, 'private.key.enc');
+            fs.copyFileSync(publicKeyPath, exportedPublicKey);
+            fs.copyFileSync(privateKeyPath, exportedPrivateKey);
+
+            // Write metadata
+            const metadata = {
+              keyset_name: args.name,
+              exported_at: new Date().toISOString(),
+              files: ['public.key', 'private.key.enc'],
+            };
+            fs.writeFileSync(path.join(exportPath, 'keyset.json'), JSON.stringify(metadata, null, 2));
+
+            result = {
+              success: true,
+              keyset_name: args.name,
+              export_path: exportPath,
+              files: {
+                public_key: exportedPublicKey,
+                private_key: exportedPrivateKey,
+                metadata: path.join(exportPath, 'keyset.json'),
+              },
+              message: `Keyset '${args.name}' exported to ${exportPath}`,
+            };
+          } catch (e) {
+            throw new Error(`Failed to export keyset: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_import_keyset": {
+          try {
+            // Validate new keyset name
+            if (!/^[a-zA-Z0-9_-]+$/.test(args.name)) {
+              throw new Error('Keyset name must contain only alphanumeric characters, hyphens, and underscores');
+            }
+
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const keysetDir = path.join(keysDir, args.name);
+
+            // Check if keyset already exists
+            if (fs.existsSync(keysetDir)) {
+              throw new Error(`Keyset '${args.name}' already exists. Choose a different name or delete the existing keyset.`);
+            }
+
+            // Determine source paths
+            let sourcePublicKey, sourcePrivateKey;
+
+            if (args.import_path) {
+              // Import from directory (exported keyset)
+              const importDir = args.import_path;
+              if (!fs.existsSync(importDir)) {
+                throw new Error(`Import path not found: ${importDir}`);
+              }
+
+              sourcePublicKey = path.join(importDir, 'public.key');
+              sourcePrivateKey = path.join(importDir, 'private.key.enc');
+
+              if (!fs.existsSync(sourcePublicKey) || !fs.existsSync(sourcePrivateKey)) {
+                throw new Error(`Invalid keyset directory. Expected public.key and private.key.enc in ${importDir}`);
+              }
+            } else if (args.public_key_path && args.private_key_path) {
+              // Import from explicit paths
+              sourcePublicKey = args.public_key_path;
+              sourcePrivateKey = args.private_key_path;
+
+              if (!fs.existsSync(sourcePublicKey)) {
+                throw new Error(`Public key not found: ${sourcePublicKey}`);
+              }
+              if (!fs.existsSync(sourcePrivateKey)) {
+                throw new Error(`Private key not found: ${sourcePrivateKey}`);
+              }
+            } else {
+              throw new Error('Must provide either import_path (directory) or both public_key_path and private_key_path');
+            }
+
+            // Create keyset directory
+            fs.mkdirSync(keysetDir, { recursive: true });
+
+            // Copy key files
+            const destPublicKey = path.join(keysetDir, 'public.key');
+            const destPrivateKey = path.join(keysetDir, 'private.key.enc');
+            fs.copyFileSync(sourcePublicKey, destPublicKey);
+            fs.copyFileSync(sourcePrivateKey, destPrivateKey);
+
+            // Get address from imported public key
+            const addrOutput = execSync(`matric-pke address -p "${destPublicKey}"`, { encoding: 'utf8' });
+            const addrData = JSON.parse(addrOutput);
+
+            result = {
+              success: true,
+              keyset_name: args.name,
+              address: addrData.address,
+              public_key_path: destPublicKey,
+              private_key_path: destPrivateKey,
+              message: `Keyset imported as '${args.name}'`,
+            };
+          } catch (e) {
+            throw new Error(`Failed to import keyset: ${e.message}`);
+          }
+          break;
+        }
+
+        case "pke_delete_keyset": {
+          try {
+            const keysDir = path.join(os.homedir(), '.matric', 'keys');
+            const keysetDir = path.join(keysDir, args.name);
+
+            // Verify keyset exists
+            if (!fs.existsSync(keysetDir)) {
+              throw new Error(`Keyset '${args.name}' not found`);
+            }
+
+            // Check if this is the active keyset
+            const activeFile = path.join(keysDir, 'active');
+            if (fs.existsSync(activeFile)) {
+              const activeKeyset = fs.readFileSync(activeFile, 'utf8').trim();
+              if (activeKeyset === args.name) {
+                // Clear the active file
+                fs.writeFileSync(activeFile, '', 'utf8');
+              }
+            }
+
+            // Delete the keyset directory
+            fs.rmSync(keysetDir, { recursive: true, force: true });
+
+            result = {
+              success: true,
+              deleted_keyset: args.name,
+              message: `Keyset '${args.name}' has been deleted`,
+            };
+          } catch (e) {
+            throw new Error(`Failed to delete keyset: ${e.message}`);
+          }
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -1015,72 +1285,9 @@ Use semantic mode when looking for conceptually related content even if exact ke
         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
         set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
-        strict_filter: {
-          type: "object",
-          description: "Strict tag filtering (pre-search, guaranteed isolation)",
-          properties: {
-            required_tags: {
-              type: "array",
-              items: { type: "string" },
-              description: "Notes MUST have ALL these tags (AND logic)"
-            },
-            any_tags: {
-              type: "array",
-              items: { type: "string" },
-              description: "Notes MUST have AT LEAST ONE (OR logic)"
-            },
-            excluded_tags: {
-              type: "array",
-              items: { type: "string" },
-              description: "Notes MUST NOT have ANY of these"
-            },
-            required_schemes: {
-              type: "array",
-              items: { type: "string" },
-              description: "Notes ONLY from these schemes (tenancy isolation)"
-            },
-            excluded_schemes: {
-              type: "array",
-              items: { type: "string" },
-              description: "Notes NOT from these schemes"
-            }
-          }
-        }
       },
       required: ["query"],
     },
-  },
-  {
-    name: "search_notes_strict",
-    description: `Search notes with GUARANTEED tag filtering.
-
-Unlike fuzzy search, strict filters ensure 100% result isolation.
-Critical for: client isolation, project segregation, compliance.
-
-Filter logic:
-- required_tags: ALL must match (AND)
-- any_tags: AT LEAST ONE must match (OR)
-- excluded_tags: NONE may match (NOT)
-- required_schemes: ONLY from these vocabularies
-- excluded_schemes: NOT from these vocabularies
-
-Examples:
-- Client isolation: { required_schemes: ["client-acme"] }
-- Project filter: { required_tags: ["project:matric"] }
-- Priority OR: { any_tags: ["urgent", "high-priority"] }`,
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Optional text query" },
-        required_tags: { type: "array", items: { type: "string" }, description: "Notes MUST have ALL these tags (AND)" },
-        any_tags: { type: "array", items: { type: "string" }, description: "Notes MUST have AT LEAST ONE (OR)" },
-        excluded_tags: { type: "array", items: { type: "string" }, description: "Notes MUST NOT have ANY of these" },
-        required_schemes: { type: "array", items: { type: "string" }, description: "Notes ONLY from these schemes" },
-        excluded_schemes: { type: "array", items: { type: "string" }, description: "Notes NOT from these schemes" },
-        mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
-        limit: { type: "number", description: "Maximum results (default: 20)", default: 20 }
-      }
-    }
   },
   {
     name: "list_tags",
@@ -2951,6 +3158,204 @@ Returns validation status and version info.`,
       required: ["address"],
     },
   },
+  // ============================================================================
+  // PKE KEYSET MANAGEMENT - Auto-provisioning for multi-identity workflows
+  // ============================================================================
+  {
+    name: "pke_list_keysets",
+    description: `List all available PKE keysets in the local keystore.
+
+Returns an array of keyset information including:
+- **name** - The keyset identifier
+- **address** - The mm:... public address
+- **public_key_path** - Path to the public key file
+- **private_key_path** - Path to the encrypted private key file
+- **created** - Timestamp when the keyset was created
+
+Keysets are stored in ~/.matric/keys/{name}/ and provide named identities
+for different encryption contexts (personal, work, projects, etc.).`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "pke_create_keyset",
+    description: `Create a new named PKE keyset.
+
+Creates a new keyset directory at ~/.matric/keys/{name}/ containing:
+- public_key.pem - Public key (shareable)
+- private_key.enc - Encrypted private key (secured with passphrase)
+
+**Use Cases:**
+- Separate work and personal identities
+- Project-specific encryption keys
+- Team-shared keysets (via secure key exchange)
+- Multi-device synchronization (backup/restore)
+
+**Security:**
+- Passphrase must be at least 12 characters
+- Private key is encrypted with Argon2id + AES-256-GCM
+- Each keyset is isolated in its own directory`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Keyset name (alphanumeric, hyphens, underscores only)"
+        },
+        passphrase: {
+          type: "string",
+          description: "Strong passphrase to protect the private key (minimum 12 characters)"
+        },
+      },
+      required: ["name", "passphrase"],
+    },
+  },
+  {
+    name: "pke_get_active_keyset",
+    description: `Get the currently active keyset.
+
+Returns the keyset information for the currently active keyset, or null if no
+keyset is active. The active keyset is read from ~/.matric/keys/active file.
+
+The active keyset is used as the default identity for encryption/decryption
+operations in auto-provisioning workflows.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "pke_set_active_keyset",
+    description: `Set the active keyset by name.
+
+Sets the specified keyset as the active identity. This writes the keyset name
+to ~/.matric/keys/active file for use by other tools.
+
+**Workflow:**
+1. Create or list keysets to see available identities
+2. Set active keyset for current context
+3. Use encryption/decryption tools with active keyset
+4. Switch keysets as needed for different contexts`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the keyset to activate"
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "pke_export_keyset",
+    description: `Export a keyset to a directory for backup or transfer.
+
+Copies the keyset's public and private key files to an export directory. The
+exported keyset can be transferred to another machine and imported using
+pke_import_keyset.
+
+**Output:**
+- Creates a timestamped directory containing:
+  - public.key - The public key file
+  - private.key.enc - The encrypted private key file
+  - keyset.json - Metadata about the export
+
+**Security:**
+- The private key remains encrypted with its original passphrase
+- The export directory path is returned for reference
+- Users should securely transfer the exported files
+
+**Use cases:**
+- Backup keysets before system changes
+- Transfer identity to another device
+- Share public key with collaborators (public.key only)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the keyset to export"
+        },
+        output_dir: {
+          type: "string",
+          description: "Directory to export to (default: ~/.matric/exports/)"
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "pke_import_keyset",
+    description: `Import a keyset from files or an exported directory.
+
+Imports key files into the managed keysets directory. Can import from:
+1. An exported keyset directory (from pke_export_keyset)
+2. Explicit public and private key file paths
+
+**Import from export directory:**
+Provide import_path pointing to a directory containing public.key and
+private.key.enc files.
+
+**Import from explicit paths:**
+Provide both public_key_path and private_key_path pointing to the key files.
+
+**Security:**
+- The imported private key retains its original passphrase
+- You'll need the original passphrase for decryption operations
+- A new keyset name must be provided (cannot overwrite existing)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name for the imported keyset (must be unique)"
+        },
+        import_path: {
+          type: "string",
+          description: "Path to exported keyset directory (contains public.key, private.key.enc)"
+        },
+        public_key_path: {
+          type: "string",
+          description: "Path to public key file (use with private_key_path)"
+        },
+        private_key_path: {
+          type: "string",
+          description: "Path to encrypted private key file (use with public_key_path)"
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "pke_delete_keyset",
+    description: `Delete a keyset from the managed keys directory.
+
+Permanently removes a keyset and its associated key files. This action cannot
+be undone - ensure you have a backup if needed.
+
+**Behavior:**
+- Deletes both public and private key files
+- If the deleted keyset was active, clears the active keyset
+- Cannot delete non-existent keysets
+
+**Warning:**
+- Data encrypted with this keyset's public key will become unrecoverable
+- Export the keyset first if you might need it later`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Name of the keyset to delete"
+        },
+      },
+      required: ["name"],
+    },
+  },
+
 ];
 
 // Documentation content for get_documentation tool
