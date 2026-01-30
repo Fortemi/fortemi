@@ -7,6 +7,31 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.7] - 2026-01-30
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **All-in-one Docker bundle** | Single container with PostgreSQL + API + MCP server for easy deployment |
+| **matric-pke bundled** | PKE encryption binary included in container for MCP keyset operations |
+| **Comprehensive env var docs** | All environment variables documented with comments in Dockerfile |
+
+### Added
+- All-in-one Docker bundle (`Dockerfile.bundle`, `docker-compose.bundle.yml`)
+  - Embedded PostgreSQL 16 with pgvector extension
+  - matric-api server on port 3000
+  - MCP server on port 3001
+  - `matric-pke` binary at `/usr/local/bin/matric-pke`
+- Comprehensive environment variable documentation in Dockerfile
+  - PostgreSQL, API, Ollama, OpenAI, and MCP configuration sections
+  - Rate limiting controls (disabled by default in bundle)
+  - OAuth/MCP client credential configuration
+
+### Fixed
+- MCP OAuth metadata now uses external `ISSUER_URL` instead of internal address
+- MCP protected resource URL configurable via `MCP_BASE_URL`
+
 ## [2026.1.6] - 2026-01-30
 
 ### Highlights
