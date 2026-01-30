@@ -7,6 +7,37 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.8] - 2026-01-30
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **CI/CD Pipeline Hardened** | Both ci.yaml and ci-builder.yaml now pass reliably with proper isolation |
+| **GPU Tests Fixed Properly** | NVML driver mismatch resolved - no tests skipped or bypassed |
+| **Build Container Docs** | Clear rationale for why we use containerized builds at Integro Labs |
+
+### Fixed
+- **Issue #207**: NVML driver/library version mismatch causing GPU integration test failures
+  - Root cause: Kernel module out of sync with userspace libraries after update
+  - Resolution: System reboot to load updated NVIDIA kernel module
+- ci-builder PostgreSQL connectivity issues in Docker-based runners
+  - Changed from `services:` directive to manual container management
+  - Used isolated port 15432 to avoid conflicts with host PostgreSQL
+- Workflow execution order for builder image updates
+  - Added `paths-ignore` to prevent CI race conditions with builder updates
+  - Added `trigger-ci` job in build-builder.yaml to dispatch CI after builder publishes
+
+### Added
+- Build container architecture documentation in `build/RUNNER_SETUP.md`
+  - Runner label strategy (matric-builder, titan, gpu)
+  - Rationale: Isolation, reproducibility, no version conflicts on shared dev servers
+- Comprehensive environment variables in `.env.example` and Dockerfile
+
+### Changed
+- ci-builder.yaml now uses port 15432 for PostgreSQL (isolated from host)
+- build-builder.yaml triggers CI workflows after successful builder image push
+
 ## [2026.1.7] - 2026-01-30
 
 ### Highlights
