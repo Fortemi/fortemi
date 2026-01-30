@@ -63,48 +63,54 @@ jobs:
     name: Build & Unit Test
     runs-on: matric-builder
     needs: lint
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: matric
-          POSTGRES_PASSWORD: matric
-          POSTGRES_DB: matric_test
-        options: >-
-          --health-cmd "pg_isready -U matric"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DATABASE_URL: postgres://matric:matric@postgres:5432/matric_test
+    # Note: services: directive doesn't work with Docker-based runners using host networking
+    # We manually manage PostgreSQL container instead (see setup/teardown steps)
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Wait for PostgreSQL
+      - name: Setup PostgreSQL
         run: |
+          set -e
+          echo "Starting PostgreSQL container..."
+
+          # Clean up any leftover containers
+          docker stop matric-build-db 2>/dev/null || true
+          docker rm matric-build-db 2>/dev/null || true
+
+          # Start PostgreSQL with pgvector on host network
+          docker run -d --name matric-build-db \
+            --network host \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            pgvector/pgvector:pg16
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
-            pg_isready -h postgres -U matric && break
-            echo "Waiting for PostgreSQL..."
+            if docker exec matric-build-db pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
             sleep 2
           done
 
       - name: Run migrations
         run: |
           set -e
-          echo "Database URL: postgres://matric:***@postgres:5432/matric_test"
-
-          # Verify pgvector extension is available
-          psql "$DATABASE_URL" -c "SELECT * FROM pg_available_extensions WHERE name = 'vector';" || true
+          export DATABASE_URL="postgres://matric:matric@localhost:5432/matric_test"
+          echo "Database URL: postgres://matric:***@localhost:5432/matric_test"
 
           # Run migrations in order
           for f in migrations/*.sql; do
             echo "======================================"
             echo "Running migration: $f"
             echo "======================================"
-            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+            docker exec -i matric-build-db psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
             echo "Migration $f completed successfully"
           done
 
@@ -112,7 +118,7 @@ jobs:
           echo "======================================"
           echo "Verifying database schema..."
           echo "======================================"
-          psql "$DATABASE_URL" -c "\dt" | head -30
+          docker exec matric-build-db psql -U matric -d matric_test -c "\dt" | head -30
 
       - name: Build release
         run: cargo build --release --workspace
@@ -122,10 +128,19 @@ jobs:
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
       - name: Run unit tests
+        env:
+          DATABASE_URL: postgres://matric:matric@localhost:5432/matric_test
         run: cargo test --workspace
 
       - name: Run doc tests
         run: cargo test --doc
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          echo "Cleaning up PostgreSQL container..."
+          docker stop matric-build-db 2>/dev/null || true
+          docker rm matric-build-db 2>/dev/null || true
 
   build-image:
     name: Build Docker Image
