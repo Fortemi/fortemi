@@ -7,6 +7,37 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.9] - 2026-01-30
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **License Migration** | Moved from MIT/Apache-2.0 to BSL 1.1 with AGPL-3.0 change license |
+| **Dependency Audit** | All 400+ dependencies verified BSL-compatible (no GPL conflicts) |
+| **Licensing Documentation** | Plain-English licensing guide for users and enterprises |
+
+### Changed
+- **License**: Migrated from MIT/Apache-2.0 to Business Source License 1.1
+  - Current: BSL 1.1 (production use requires commercial license)
+  - After January 30, 2030: Converts to AGPL-3.0 (open source)
+  - Personal, educational, and evaluation use remains free
+  - See `docs/content/licensing.md` for plain-English explanation
+
+### Added
+- `LICENSE` - BSL 1.1 license terms with parameters
+- `LICENSE.txt` - AGPL-3.0 full text (change license, effective 2030)
+- `NOTICE` - Copyright and third-party attribution
+- `docs/content/licensing.md` - Comprehensive licensing FAQ and guide
+
+### Fixed
+- Missing license metadata in `matric-search` crate Cargo.toml
+
+### Security
+- Completed dependency license audit: 400+ packages verified
+- No GPL-only dependencies found (all permissive: MIT, Apache, BSD, ISC)
+- All dependencies compatible with BSL 1.1 during proprietary period
+
 ## [2026.1.8] - 2026-01-30
 
 ### Highlights
