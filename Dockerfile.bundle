@@ -98,6 +98,7 @@ ENV RUST_LOG=info
 ENV MCP_TRANSPORT=http
 ENV MCP_PORT=3001
 ENV MATRIC_API_URL=http://localhost:3000
+# MCP_BASE_URL should be set to external URL (e.g., https://memory.integrolabs.net/mcp)
 
 # Expose API and MCP ports
 EXPOSE 3000 3001
