@@ -7,6 +7,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.10] - 2026-01-31
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **CI Consolidation** | Single builder-based CI workflow for consistent, reproducible builds |
+| **Test Infrastructure** | PostgreSQL test database properly integrated in CI pipeline |
+
+### Changed
+- Consolidated CI to single builder-only workflow (`ci-builder.yaml`)
+  - Removed redundant `ci.yaml` (bare runner)
+  - All builds now use pre-built builder container for consistency
+- CI workflow renamed from "CI (Builder)" to "CI"
+
+### Fixed
+- PostgreSQL test database now properly spun up in CI for database-dependent tests
+- 16 tag_resolver tests no longer fail due to missing database connection
+
+### Removed
+- `ci.yaml` - redundant bare-runner workflow (superseded by builder-based CI)
+
 ## [2026.1.9] - 2026-01-30
 
 ### Highlights
