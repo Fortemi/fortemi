@@ -43,17 +43,55 @@ jobs:
     name: Test
     runs-on: titan
     needs: lint
+    env:
+      DATABASE_URL: postgres://matric:matric@localhost:5432/matric_test
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
+      - name: Start PostgreSQL
+        run: |
+          docker run -d --name test-postgres \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            -p 5432:5432 \
+            --health-cmd="pg_isready -U matric -d matric_test" \
+            --health-interval=2s \
+            --health-timeout=5s \
+            --health-retries=10 \
+            pgvector/pgvector:pg16
+
+      - name: Wait for PostgreSQL
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in {1..30}; do
+            if docker exec test-postgres pg_isready -U matric -d matric_test; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          for migration in migrations/*.sql; do
+            echo "Applying $migration..."
+            docker exec -i test-postgres psql -U matric -d matric_test < "$migration"
+          done
+
       - name: Run unit tests
         run: cargo test --workspace
 
       - name: Run doc tests
         run: cargo test --doc
+
+      - name: Cleanup PostgreSQL
+        if: always()
+        run: docker rm -f test-postgres || true
 
   integration-test:
     name: Integration Tests (GPU)
