@@ -1,4 +1,10 @@
-version: '3.8'
+# docker-compose.yml - Development setup with separate containers
+#
+# For simple all-in-one deployment, use docker-compose.bundle.yml instead.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down -v  # wipe and reset
 
 services:
   api:

@@ -102,32 +102,46 @@ See [docs/content/architecture.md](docs/content/architecture.md) for detailed sy
 
 ## Quick Start
 
-### Prerequisites
+### Docker Bundle (Recommended)
 
-- Rust 1.70+
-- PostgreSQL 14+ with pgvector extension
-- Ollama (for local embedding generation)
-
-### Database Setup
+The fastest way to get started. Includes PostgreSQL, API server, and MCP server in one container:
 
 ```bash
-# Install pgvector extension
-psql -c "CREATE EXTENSION IF NOT EXISTS vector;"
+# Start matric-memory
+docker compose -f docker-compose.bundle.yml up -d
 
-# Run migrations
-sqlx migrate run
+# Verify it's running
+curl http://localhost:3000/health
+
+# View logs
+docker compose -f docker-compose.bundle.yml logs -f
 ```
 
-### Running the API Server
+**Ports:** 3000 (API), 3001 (MCP)
+
+To reset with a clean database:
+```bash
+docker compose -f docker-compose.bundle.yml down -v
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+### Manual Setup (Development)
+
+For local development without Docker:
+
+**Prerequisites:**
+- Rust 1.70+
+- PostgreSQL 16+ with pgvector extension
+- Ollama (optional, for AI features)
 
 ```bash
-# Set environment variables
-export DATABASE_URL="postgres://user:pass@localhost/matric"
-export OLLAMA_URL="http://localhost:11434"
+# Database setup
+psql -c "CREATE EXTENSION IF NOT EXISTS vector;"
+for f in migrations/*.sql; do psql -d matric -f "$f"; done
 
-# Build and run
-cargo build --release
-./target/release/matric-api
+# Run the API
+export DATABASE_URL="postgres://matric:matric@localhost/matric"
+cargo run --release --package matric-api
 ```
 
 ### API Endpoints

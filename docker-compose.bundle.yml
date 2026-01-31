@@ -4,10 +4,8 @@
 #   docker-compose -f docker-compose.bundle.yml up -d
 #
 # For clean install (wipe database):
-#   docker-compose -f docker-compose.bundle.yml down -v
-#   docker-compose -f docker-compose.bundle.yml up -d
-
-version: '3.8'
+#   docker compose -f docker-compose.bundle.yml down -v
+#   docker compose -f docker-compose.bundle.yml up -d
 
 services:
   matric:

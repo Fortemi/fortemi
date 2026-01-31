@@ -39,57 +39,73 @@ See `scripts/README.md` for more details.
 
 ## Deployment
 
-### CRITICAL: Always Backup Before Migrations
+### Docker Bundle (Recommended)
 
-**Before running ANY migration, create a database backup:**
+The simplest deployment is the all-in-one Docker bundle which includes PostgreSQL, the API, and MCP server in a single container.
+
+```bash
+# Start (or restart with existing data)
+docker compose -f docker-compose.bundle.yml up -d
+
+# Clean install (wipe database and start fresh)
+docker compose -f docker-compose.bundle.yml down -v
+docker compose -f docker-compose.bundle.yml up -d
+
+# Rebuild after code changes
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml up -d
+
+# View logs
+docker compose -f docker-compose.bundle.yml logs -f
+
+# Check health
+curl http://localhost:3000/health
+```
+
+The bundle automatically:
+- Initializes PostgreSQL on first run
+- Runs all migrations
+- Starts the API on port 3000
+- Starts the MCP server on port 3001
+
+### Docker Compose Files
+
+| File | Purpose | Use When |
+|------|---------|----------|
+| `docker-compose.bundle.yml` | All-in-one container | Production, simple setups |
+| `docker-compose.yml` | Separate API + DB containers | Development, debugging |
+
+### Host Deployment (Alternative)
+
+For deployments using host PostgreSQL and systemd:
+
+#### CRITICAL: Always Backup Before Migrations
 
 ```bash
 # Backup database before migration
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
+PGPASSWORD=matric pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Verify backup was created and has content
 ls -lh backup_*.sql | tail -1
 ```
 
-This is non-negotiable. Migrations can fail or have unintended effects. Always have a restore point.
-
-### IMPORTANT: Always Run Migrations Before Restarting
-
-Schema changes require migrations to be applied BEFORE the new code runs:
-
-```bash
-# 1. Backup first (see above)
-
-# 2. Apply any new migrations
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_migration>.sql
-
-# 3. Then restart the service
-sudo systemctl restart matric-api
-```
-
-Failing to run migrations first will cause database errors like:
-- "column X does not exist"
-- "relation X does not exist"
-
-### Deployment Steps
+#### Deployment Steps
 
 1. Push to main (triggers CI/CD)
-2. **Run new migrations** (see above)
+2. Apply new migrations:
+   ```bash
+   PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_migration>.sql
+   ```
 3. Build release: `cargo build --release`
 4. Restart service: `sudo systemctl restart matric-api`
 5. Verify: `curl http://localhost:3000/health`
 
-### Service Management
+#### Service Management
 
 ```bash
-# Status
-systemctl status matric-api
-
-# Logs
-journalctl -u matric-api -f
-
-# Restart
-sudo systemctl restart matric-api
+systemctl status matric-api      # Status
+journalctl -u matric-api -f      # Logs
+sudo systemctl restart matric-api # Restart
 ```
 
 ## Database
