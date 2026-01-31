@@ -1,6 +1,6 @@
 {
   "name": "@matric/memory-mcp",
-  "version": "2026.1.10",
+  "version": "2026.1.11",
   "description": "MCP server for Matric Memory API",
   "main": "index.js",
   "type": "module",

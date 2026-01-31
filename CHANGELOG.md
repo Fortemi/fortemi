@@ -7,6 +7,14 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.11] - 2026-01-31
+
+### Fixed
+- CI race condition when main branch and tag pushes run simultaneously
+  - Container names now include `GITHUB_RUN_ID` for uniqueness
+  - Database ports dynamically assigned to avoid conflicts
+  - Affects both build and test-container jobs
+
 ## [2026.1.10] - 2026-01-31
 
 ### Highlights

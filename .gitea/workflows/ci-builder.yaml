@@ -65,15 +65,21 @@ jobs:
       - name: Setup PostgreSQL
         run: |
           set -e
-          echo "Starting PostgreSQL container on port 15432..."
+          # Use unique container name per run to avoid race conditions between parallel runs
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+          # Use unique port: base 15432 + (run_id mod 1000) to avoid port conflicts
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "Starting PostgreSQL container ${DB_CONTAINER} on port ${DB_PORT}..."
 
-          # Clean up any leftover containers
-          docker stop matric-build-db 2>/dev/null || true
-          docker rm matric-build-db 2>/dev/null || true
+          # Clean up any leftover containers with this name
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
 
-          # Start PostgreSQL with pgvector on isolated port (15432 to avoid conflicts)
-          docker run -d --name matric-build-db \
-            -p 15432:5432 \
+          # Start PostgreSQL with pgvector on unique port
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
             -e POSTGRES_USER=matric \
             -e POSTGRES_PASSWORD=matric \
             -e POSTGRES_DB=matric_test \
@@ -82,7 +88,7 @@ jobs:
           # Wait for PostgreSQL to be ready
           echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
-            if docker exec matric-build-db pg_isready -U matric 2>/dev/null; then
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -93,15 +99,14 @@ jobs:
       - name: Run migrations
         run: |
           set -e
-          export DATABASE_URL="postgres://matric:matric@localhost:15432/matric_test"
-          echo "Database URL: postgres://matric:***@localhost:15432/matric_test"
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
 
           # Run migrations in order
           for f in migrations/*.sql; do
             echo "======================================"
             echo "Running migration: $f"
             echo "======================================"
-            docker exec -i matric-build-db psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
             echo "Migration $f completed successfully"
           done
 
@@ -109,7 +114,7 @@ jobs:
           echo "======================================"
           echo "Verifying database schema..."
           echo "======================================"
-          docker exec matric-build-db psql -U matric -d matric_test -c "\dt" | head -30
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "\dt" | head -30
 
       - name: Build release
         run: cargo build --release --workspace
@@ -119,9 +124,10 @@ jobs:
           ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
 
       - name: Run unit tests
-        env:
-          DATABASE_URL: postgres://matric:matric@localhost:15432/matric_test
-        run: cargo test --workspace
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          cargo test --workspace
 
       - name: Run doc tests
         run: cargo test --doc
@@ -129,9 +135,10 @@ jobs:
       - name: Teardown PostgreSQL
         if: always()
         run: |
-          echo "Cleaning up PostgreSQL container..."
-          docker stop matric-build-db 2>/dev/null || true
-          docker rm matric-build-db 2>/dev/null || true
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+          echo "Cleaning up PostgreSQL container ${DB_CONTAINER}..."
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
 
   build-image:
     name: Build Docker Image
@@ -170,21 +177,29 @@ jobs:
       - name: Deploy test environment
         run: |
           set -e
-          echo "Starting isolated test environment on port 13001..."
+          # Use unique names per run to avoid race conditions
+          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
+          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
+          echo "TEST_NET=${TEST_NET}" >> $GITHUB_ENV
+          echo "TEST_DB=${TEST_DB}" >> $GITHUB_ENV
+          echo "TEST_API=${TEST_API}" >> $GITHUB_ENV
+          echo "Starting isolated test environment on port ${TEST_PORT}..."
 
           # Clean up any leftover containers from previous runs
           echo "Cleaning up any existing test containers..."
-          docker stop matric-test-api matric-test-db 2>/dev/null || true
-          docker rm matric-test-api matric-test-db 2>/dev/null || true
-          docker network rm matric-test-net 2>/dev/null || true
+          docker stop ${TEST_API} ${TEST_DB} 2>/dev/null || true
+          docker rm ${TEST_API} ${TEST_DB} 2>/dev/null || true
+          docker network rm ${TEST_NET} 2>/dev/null || true
 
           # Create test network
-          docker network create matric-test-net || true
+          docker network create ${TEST_NET} || true
 
           # Start PostgreSQL with pgvector
           echo "Starting PostgreSQL..."
-          docker run -d --name matric-test-db \
-            --network matric-test-net \
+          docker run -d --name ${TEST_DB} \
+            --network ${TEST_NET} \
             -e POSTGRES_USER=matric \
             -e POSTGRES_PASSWORD=matric \
             -e POSTGRES_DB=matric \
@@ -193,7 +208,7 @@ jobs:
           # Wait for PostgreSQL to be ready
           echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
-            if docker exec matric-test-db pg_isready -U matric 2>/dev/null; then
+            if docker exec ${TEST_DB} pg_isready -U matric 2>/dev/null; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -205,15 +220,15 @@ jobs:
           echo "Running migrations..."
           for f in migrations/*.sql; do
             echo "Running $f..."
-            docker exec -i matric-test-db psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
+            docker exec -i ${TEST_DB} psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
           done
 
-          # Start the API container on isolated port 13001
+          # Start the API container on isolated port
           echo "Starting API container..."
-          docker run -d --name matric-test-api \
-            --network matric-test-net \
-            -p 13001:3000 \
-            -e DATABASE_URL=postgres://matric:matric@matric-test-db:5432/matric \
+          docker run -d --name ${TEST_API} \
+            --network ${TEST_NET} \
+            -p ${TEST_PORT}:3000 \
+            -e DATABASE_URL=postgres://matric:matric@${TEST_DB}:5432/matric \
             -e RUST_LOG=info \
             -e HOST=0.0.0.0 \
             -e PORT=3000 \
@@ -222,7 +237,7 @@ jobs:
           # Wait for API to be healthy (use docker exec for DinD environment)
           echo "Waiting for API to start..."
           for i in {1..60}; do
-            if docker exec matric-test-api curl -sf http://localhost:3000/health >/dev/null 2>&1; then
+            if docker exec ${TEST_API} curl -sf http://localhost:3000/health >/dev/null 2>&1; then
               echo "API is healthy!"
               break
             fi
@@ -235,7 +250,8 @@ jobs:
 
       - name: Run container API tests
         run: |
-          CURL_CMD="docker exec matric-test-api curl" \
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          CURL_CMD="docker exec ${TEST_API} curl" \
           API_BASE="http://localhost:3000" \
           VERBOSE=1 \
             bash scripts/container-api-tests.sh
@@ -243,10 +259,13 @@ jobs:
       - name: Teardown test environment
         if: always()
         run: |
+          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
+          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
           echo "Cleaning up test environment..."
-          docker stop matric-test-api matric-test-db 2>/dev/null || true
-          docker rm matric-test-api matric-test-db 2>/dev/null || true
-          docker network rm matric-test-net 2>/dev/null || true
+          docker stop ${TEST_API} ${TEST_DB} 2>/dev/null || true
+          docker rm ${TEST_API} ${TEST_DB} 2>/dev/null || true
+          docker network rm ${TEST_NET} 2>/dev/null || true
 
   integration-test:
     name: Integration Tests (GPU)
