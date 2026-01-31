@@ -1,26 +1,17 @@
-# CI Pipeline using Builder Image
+# CI Pipeline using Builder Container
 #
-# This workflow uses the matric-builder container image instead of host-installed tools.
-# Enable by:
-#   1. Build and push builder image (see build-builder.yaml)
-#   2. Register runner with matric-builder label (see build/RUNNER_SETUP.md)
-#   3. Rename this file to ci.yaml
+# Uses matric-builder container for consistent, reproducible builds.
+# Builder image maintained by build-builder.yaml.
 #
-# Pipeline Order:
+# Pipeline:
 #   1. Lint - Static analysis (fmt, clippy)
-#   2. Build - Compile release binaries + unit tests
+#   2. Build & Unit Test - Compile + test with PostgreSQL
 #   3. Build Image - Create Docker image
-#   4. Test Container - Deploy and test in isolated environment (port 3001)
-#   5. Integration Tests (GPU) - Ollama/inference tests on titan
+#   4. Test Container - Deploy and test in isolated environment
+#   5. Integration Tests (GPU) - Ollama/inference tests
 #   6. Publish - Push verified image to registry
-#
-# Benefits:
-#   - Consistent build environment across all runners
-#   - Tests run against actual deployed container, not just compiled code
-#   - Isolated test environment with dedicated ports (3001)
-#   - Reproducible builds
 
-name: CI (Builder)
+name: CI
 
 on:
   push:
