@@ -7,6 +7,43 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.1.12] - 2026-02-01
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| **FTS Unicode Normalization** | Search now matches accented/unaccented text (café ↔ cafe) |
+| **MCP Security Hardening** | Error messages no longer leak implementation details |
+| **Metadata API** | Notes can now store custom JSON metadata |
+| **Tag Filtering in Search** | Search results can be filtered by tags |
+
+### Added
+- `metadata` field exposed in create/update note API endpoints (#359)
+- `tags` parameter for `search_notes` MCP tool with strict filtering (#315)
+- `validateUUID()` helper for clear parameter validation errors (#348)
+- `sanitizeError()` helper to prevent information leakage (#346)
+- FTS test suite for text search configuration verification
+
+### Fixed
+- **FTS accent/diacritic folding** - "café" now matches "cafe" search (#328)
+  - Added `unaccent` PostgreSQL extension
+  - Created `matric_english` text search configuration
+  - All FTS queries updated to use new configuration
+- **Embedding set ID assignment** - Embeddings now properly assigned to sets (#353)
+  - `store()` method now sets `embedding_set_id` from default set
+  - Migration backfills orphaned embeddings
+- **MCP parameter validation** - Clear error messages for missing/invalid UUIDs (#348)
+- **MCP error sanitization** - Internal errors no longer exposed to clients (#346)
+
+### Changed
+- All Rust FTS queries use `matric_english` config instead of `english`
+- MCP error responses now return safe, user-friendly messages
+
+### Database Migrations
+- `20260131000000_fts_unicode_normalization.sql` - Unicode search support
+- `20260131000001_fix_embedding_set_id.sql` - Embedding set backfill
+
 ## [2026.1.11] - 2026-01-31
 
 ### Fixed
