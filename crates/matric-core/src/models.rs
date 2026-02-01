@@ -663,6 +663,9 @@ pub struct Collection {
 pub struct Tag {
     pub name: String,
     pub created_at_utc: DateTime<Utc>,
+    /// Number of notes with this tag (computed)
+    #[serde(default)]
+    pub note_count: i64,
 }
 
 // =============================================================================

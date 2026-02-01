@@ -1,900 +1,604 @@
 # Operations and Deployment Guide
 
-This guide covers day-to-day operations, deployment procedures, and troubleshooting for Matric Memory running on a single Linux server.
+This guide covers deployment, operations, and troubleshooting for Matric Memory using Docker.
 
 ## System Overview
 
-- **Platform:** Linux (systemd-based)
-- **API Server:** Rust/Axum HTTP server (matric-api)
-- **Database:** PostgreSQL 16 with pgvector extension
-- **MCP Server:** Node.js (optional, for Claude integration)
-- **Binary Location:** `/home/roctinam/dev/matric-memory/target/release/matric-api`
-- **Service:** systemd unit `matric-api.service`
+- **Deployment:** Docker bundle (all-in-one container)
+- **Components:** PostgreSQL 16 + pgvector, Rust API, Node.js MCP server
+- **Ports:** 3000 (API), 3001 (MCP)
+- **Data:** PostgreSQL data in Docker volume `matric-pgdata`
 
 ## Table of Contents
 
-1. [Deployment Procedures](#deployment-procedures)
-2. [Service Management](#service-management)
-3. [Database Operations](#database-operations)
-4. [MCP Server Operations](#mcp-server-operations)
-5. [Monitoring and Health Checks](#monitoring-and-health-checks)
-6. [Troubleshooting](#troubleshooting)
-7. [Backup and Recovery](#backup-and-recovery)
-8. [Configuration](#configuration)
+1. [Initial Setup](#initial-setup)
+2. [Deployment Procedures](#deployment-procedures)
+3. [Container Management](#container-management)
+4. [Database Operations](#database-operations)
+5. [MCP Server Operations](#mcp-server-operations)
+6. [Monitoring and Health Checks](#monitoring-and-health-checks)
+7. [Troubleshooting](#troubleshooting)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Configuration](#configuration)
+
+## Initial Setup
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Nginx (for reverse proxy)
+- Domain with SSL certificate
+
+### First-Time Deployment
+
+```bash
+# 1. Clone repository
+git clone https://git.integrolabs.net/roctinam/matric-memory.git
+cd matric-memory
+
+# 2. Start container (creates database)
+docker compose -f docker-compose.bundle.yml up -d
+
+# 3. Wait for initialization (first run takes ~60 seconds)
+docker compose -f docker-compose.bundle.yml logs -f
+
+# 4. Register MCP OAuth client (REQUIRED for MCP authentication)
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+# Save the returned client_id and client_secret
+
+# 5. Configure environment
+cat > .env <<EOF
+ISSUER_URL=https://your-domain.com
+MCP_CLIENT_ID=mm_xxxxx
+MCP_CLIENT_SECRET=xxxxx
+EOF
+
+# 6. Restart with configuration
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# 7. Verify
+curl http://localhost:3000/health
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+```
+
+### Nginx Configuration
+
+Configure nginx to proxy to the container:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    # API routes
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # MCP routes
+    location = /mcp {
+        proxy_pass http://localhost:3001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    location /mcp/ {
+        proxy_pass http://localhost:3001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
 
 ## Deployment Procedures
 
-### Standard Deployment Workflow
-
-Follow these steps in order. Do not skip steps.
+### Standard Update Workflow
 
 ```bash
 # 1. Pull latest code
 git pull origin main
 
-# 2. CRITICAL: Backup database before any migration
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
+# 2. Backup database (recommended)
+docker exec matric-memory-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d_%H%M%S).sql
 
-# Verify backup was created and has content
-ls -lh backup_*.sql | tail -1
+# 3. Rebuild and restart
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 
-# 3. Apply new migrations (if any)
-# Check migrations/ directory for new files
-ls -lt migrations/
-
-# Apply each new migration in chronological order
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/20260117000001_fix_embedding_set_stats.sql
-
-# Verify migration applied successfully
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "\d+ notes"
-
-# 4. Build release binary
-cargo build --release
-
-# 5. Restart service
-sudo systemctl restart matric-api
-
-# 6. Verify deployment
+# 4. Verify
 curl http://localhost:3000/health
-systemctl status matric-api
-journalctl -u matric-api -n 50
+docker compose -f docker-compose.bundle.yml logs --tail=50
 ```
 
 ### Critical Rules
 
-1. **ALWAYS backup before migrations** - No exceptions. Migrations can fail or have unintended effects.
-2. **Run migrations BEFORE restarting** - New code expects new schema. Restarting before migrations causes errors like:
-   - "column X does not exist"
-   - "relation X does not exist"
-   - "function X does not exist"
-3. **Verify each step** - Check status after migrations and service restart.
-
-### Migration Order
-
-Apply migrations in chronological order (filename timestamp):
-
-```bash
-# Current migrations (as of 2026-01-17)
-migrations/20260102000000_initial_schema.sql          # Initial tables
-migrations/20260115000000_templates.sql               # Templates feature
-migrations/20260116000000_collection_hierarchy.sql    # Collections feature
-migrations/20260117000000_embedding_sets.sql          # Embedding sets feature
-migrations/20260117000001_fix_embedding_set_stats.sql # Stats view fix
-```
+1. **Backup before major updates** - Database migrations run automatically on container start
+2. **Check logs after restart** - Verify migrations applied successfully
+3. **Test health endpoint** - Confirm API is responding
 
 ### Rollback Procedure
 
 If deployment fails:
 
 ```bash
-# 1. Stop service
-sudo systemctl stop matric-api
+# 1. Stop container
+docker compose -f docker-compose.bundle.yml down
 
 # 2. Restore database from backup
-PGPASSWORD=matric psql -U matric -h localhost -d matric < backup_20260117_120000.sql
-
-# 3. Checkout previous working commit
-git checkout <previous-commit-hash>
-
-# 4. Rebuild
-cargo build --release
-
-# 5. Restart service
-sudo systemctl start matric-api
-
-# 6. Verify
-curl http://localhost:3000/health
-```
-
-## Service Management
-
-### Systemd Service
-
-The API server runs as a systemd service.
-
-**Service file location:** `/etc/systemd/system/matric-api.service`
-
-**Configuration:**
-
-```ini
-[Unit]
-Description=Matric Memory API Server
-After=network.target postgresql.service
-Wants=postgresql.service
-
-[Service]
-Type=simple
-User=roctinam
-Group=roctinam
-WorkingDirectory=/home/roctinam/dev/matric-memory
-Environment=DATABASE_URL=postgres://matric:matric@localhost:5432/matric
-Environment=HOST=0.0.0.0
-Environment=PORT=3000
-Environment=RUST_LOG=matric_api=info,tower_http=info
-ExecStart=/home/roctinam/dev/matric-memory/target/release/matric-api
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Common Service Commands
-
-```bash
-# Check service status
-systemctl status matric-api
-
-# Start service
-sudo systemctl start matric-api
-
-# Stop service
-sudo systemctl stop matric-api
-
-# Restart service (standard deployment)
-sudo systemctl restart matric-api
-
-# Enable service (start on boot)
-sudo systemctl enable matric-api
-
-# Disable service (do not start on boot)
-sudo systemctl disable matric-api
-
-# View real-time logs
-journalctl -u matric-api -f
-
-# View last 100 log lines
-journalctl -u matric-api -n 100
-
-# View logs from specific time
-journalctl -u matric-api --since "2026-01-17 10:00:00"
-
-# View logs with errors only
-journalctl -u matric-api -p err
-```
-
-### Reload Service Configuration
-
-If you modify the service file:
-
-```bash
-# Reload systemd configuration
-sudo systemctl daemon-reload
-
-# Restart service with new configuration
-sudo systemctl restart matric-api
-```
-
-## Database Operations
-
-### Connection Information
-
-- **Host:** localhost
-- **Port:** 5432 (default)
-- **Database:** matric
-- **User:** matric
-- **Password:** matric
-- **Connection String:** `postgres://matric:matric@localhost:5432/matric`
-
-### Common Database Commands
-
-```bash
-# Connect to database
-PGPASSWORD=matric psql -U matric -h localhost -d matric
-
-# List all tables
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "\dt"
-
-# Check table schema
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "\d+ notes"
-
-# Check database size
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT pg_size_pretty(pg_database_size('matric'));"
-
-# Check table sizes
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  relname AS table_name,
-  pg_size_pretty(pg_total_relation_size(relid)) AS total_size
-FROM pg_catalog.pg_statio_user_tables
-ORDER BY pg_total_relation_size(relid) DESC;"
-```
-
-### Applying Migrations
-
-```bash
-# 1. ALWAYS backup first
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
-
-# 2. Check migration file for syntax
-cat migrations/20260117000001_fix_embedding_set_stats.sql
-
-# 3. Apply migration
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/20260117000001_fix_embedding_set_stats.sql
-
-# 4. Verify migration applied
-# Check for new tables/columns/views mentioned in migration
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "\d+ embedding_sets"
-```
-
-### Embedding Set Statistics
-
-Refresh materialized views for embedding set statistics:
-
-```bash
-# Refresh embedding set stats
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "REFRESH MATERIALIZED VIEW embedding_set_stats;"
-
-# Verify stats updated
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT * FROM embedding_set_stats ORDER BY updated_at DESC LIMIT 5;"
-```
-
-### Database Maintenance
-
-```bash
-# Vacuum analyze all tables (recommended weekly)
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "VACUUM ANALYZE;"
-
-# Check for bloat (unused space)
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  schemaname,
-  tablename,
-  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size,
-  n_tup_ins AS inserts,
-  n_tup_upd AS updates,
-  n_tup_del AS deletes
-FROM pg_stat_user_tables
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;"
-
-# Reindex (if query performance degrades)
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "REINDEX DATABASE matric;"
-```
-
-## MCP Server Operations
-
-The MCP (Model Context Protocol) server provides Claude/AI integration.
-
-### Starting MCP Server
-
-```bash
-cd /home/roctinam/dev/matric-memory/mcp-server
-
-# Stdio mode (for local Claude Desktop)
-node index.js
-
-# HTTP mode (for remote access)
-MCP_TRANSPORT=http node index.js
-
-# Background mode with logging
-nohup node index.js > mcp-server.log 2>&1 &
-```
-
-### MCP Server Configuration
-
-**Environment variables:**
-
-- `MCP_TRANSPORT` - Transport mode: `stdio` (default) or `http`
-- `MCP_PORT` - HTTP port (default: 3001)
-- `MATRIC_API_URL` - Matric API endpoint (default: http://localhost:3000)
-
-### MCP Server Scripts
-
-```bash
-# Using npm scripts
-npm start           # stdio mode
-npm run start:http  # HTTP mode
-```
-
-### Stopping MCP Server
-
-```bash
-# Find process
-ps aux | grep "node index.js"
-
-# Kill process
-kill <PID>
-
-# Or use pkill
-pkill -f "node index.js"
-```
-
-## Monitoring and Health Checks
-
-### Health Endpoint
-
-The API provides a health check endpoint:
-
-```bash
-# Basic health check
-curl http://localhost:3000/health
-
-# Expected response
-# HTTP 200 OK
-# {"status":"ok"}
-
-# With details (if implemented)
-curl http://localhost:3000/health?details=true
-```
-
-### API Endpoints
-
-```bash
-# Swagger/OpenAPI documentation
-curl http://localhost:3000/swagger-ui/
-
-# List all notes
-curl http://localhost:3000/notes
-
-# Search notes
-curl -X POST http://localhost:3000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "test", "limit": 10}'
-
-# Get note by ID
-curl http://localhost:3000/notes/<note-id>
-```
-
-### Job Queue Monitoring
-
-Check background job status:
-
-```bash
-# If jobs table exists, query job status
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  job_type,
-  status,
-  COUNT(*) as count,
-  MAX(updated_at) as last_updated
-FROM jobs
-GROUP BY job_type, status
-ORDER BY job_type, status;"
-
-# Check for failed jobs
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT *
-FROM jobs
-WHERE status = 'failed'
-ORDER BY updated_at DESC
-LIMIT 10;"
-```
-
-### Database Connection Pool
-
-Check active connections:
-
-```bash
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  count(*),
-  state,
-  application_name
-FROM pg_stat_activity
-WHERE datname = 'matric'
-GROUP BY state, application_name;"
-```
-
-### Log Monitoring
-
-```bash
-# Watch logs in real-time
-journalctl -u matric-api -f
-
-# Look for errors
-journalctl -u matric-api -p err --since "1 hour ago"
-
-# Count log levels
-journalctl -u matric-api --since "today" | grep -oE 'ERROR|WARN|INFO|DEBUG' | sort | uniq -c
-```
-
-## Troubleshooting
-
-### Service Won't Start
-
-**Symptom:** `systemctl start matric-api` fails
-
-**Diagnosis:**
-
-```bash
-# Check service status
-systemctl status matric-api
-
-# View recent logs
-journalctl -u matric-api -n 50
-
-# Check if port is in use
-ss -tlnp | grep 3000
-
-# Check binary exists and is executable
-ls -l /home/roctinam/dev/matric-memory/target/release/matric-api
-```
-
-**Common causes:**
-
-1. **Database connection failure**
-   - Check PostgreSQL is running: `systemctl status postgresql`
-   - Test connection: `PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT 1;"`
-   - Verify credentials in service file
-
-2. **Port already in use**
-   - Find process: `lsof -i :3000`
-   - Kill process: `kill <PID>`
-   - Or change port in service file
-
-3. **Binary missing or wrong version**
-   - Rebuild: `cargo build --release`
-   - Check binary: `ls -l target/release/matric-api`
-
-### Database Errors After Deployment
-
-**Symptom:** Errors like "column X does not exist" or "relation X does not exist"
-
-**Cause:** Code updated but migrations not applied
-
-**Solution:**
-
-```bash
-# 1. Stop service
-sudo systemctl stop matric-api
-
-# 2. Apply missing migrations
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_migration>.sql
-
-# 3. Restart service
-sudo systemctl start matric-api
-
-# 4. Verify
-curl http://localhost:3000/health
-```
-
-### Migration Failure
-
-**Symptom:** Migration SQL script fails
-
-**Diagnosis:**
-
-```bash
-# Check detailed error
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<migration>.sql
-
-# Check database state
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "\d+"
-```
-
-**Common causes:**
-
-1. **Migration already applied**
-   - Check if table/column already exists
-   - Skip migration if already applied
-
-2. **Syntax error in migration**
-   - Review migration SQL file
-   - Test SQL manually in psql
-
-3. **Foreign key violation**
-   - Check for orphaned data
-   - Clean up data before migration
-
-**Recovery:**
-
-```bash
-# 1. Restore from backup
-PGPASSWORD=matric psql -U matric -h localhost -d matric < backup_<timestamp>.sql
-
-# 2. Fix migration file
-nano migrations/<migration>.sql
-
-# 3. Reapply migration
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<migration>.sql
-```
-
-### Slow Query Performance
-
-**Symptom:** API endpoints respond slowly
-
-**Diagnosis:**
-
-```bash
-# Check slow queries
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  query,
-  calls,
-  mean_exec_time,
-  max_exec_time
-FROM pg_stat_statements
-WHERE query NOT LIKE '%pg_stat_statements%'
-ORDER BY mean_exec_time DESC
-LIMIT 10;"
-
-# Check active queries
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  pid,
-  state,
-  query_start,
-  state_change,
-  query
-FROM pg_stat_activity
-WHERE state = 'active' AND query NOT LIKE '%pg_stat_activity%';"
-```
-
-**Solutions:**
-
-1. **Missing indexes**
-   - Review query plans: `EXPLAIN ANALYZE <query>`
-   - Add indexes for frequently queried columns
-
-2. **Table bloat**
-   - Run vacuum: `VACUUM ANALYZE;`
-   - Reindex if needed: `REINDEX TABLE notes;`
-
-3. **Outdated statistics**
-   - Analyze tables: `ANALYZE;`
-   - Refresh materialized views
-
-### Out of Disk Space
-
-**Symptom:** Database writes fail, service crashes
-
-**Diagnosis:**
-
-```bash
-# Check disk usage
-df -h
-
-# Check database size
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT pg_size_pretty(pg_database_size('matric'));"
-
-# Check largest tables
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "
-SELECT
-  relname,
-  pg_size_pretty(pg_total_relation_size(relid))
-FROM pg_catalog.pg_statio_user_tables
-ORDER BY pg_total_relation_size(relid) DESC;"
-```
-
-**Solutions:**
-
-1. **Clean up old backups**
-   ```bash
-   # List backups
-   ls -lh backup_*.sql
-
-   # Remove old backups (keep last 7 days)
-   find . -name "backup_*.sql" -mtime +7 -delete
-   ```
-
-2. **Vacuum full (reclaim space)**
-   ```bash
-   # WARNING: Locks tables during operation
-   PGPASSWORD=matric psql -U matric -h localhost -d matric -c "VACUUM FULL;"
-   ```
-
-3. **Archive old data**
-   - Export old notes to files
-   - Delete archived notes from database
-
-## Backup and Recovery
-
-### Backup Procedures
-
-**Before every migration (mandatory):**
-
-```bash
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
-ls -lh backup_*.sql | tail -1
-```
-
-**Daily automated backup (recommended):**
-
-```bash
-# Create backup script
-cat > /home/roctinam/bin/backup-matric.sh <<'EOF'
-#!/bin/bash
-BACKUP_DIR="/home/roctinam/backups/matric"
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/matric_$DATE.sql"
-
-mkdir -p "$BACKUP_DIR"
-pg_dump -U matric -h localhost matric > "$BACKUP_FILE"
-
-# Compress backup
-gzip "$BACKUP_FILE"
-
-# Keep only last 7 days of backups
-find "$BACKUP_DIR" -name "matric_*.sql.gz" -mtime +7 -delete
-
-echo "Backup completed: ${BACKUP_FILE}.gz"
-EOF
-
-chmod +x /home/roctinam/bin/backup-matric.sh
-
-# Add to crontab (daily at 2 AM)
-(crontab -l 2>/dev/null; echo "0 2 * * * /home/roctinam/bin/backup-matric.sh") | crontab -
-```
-
-**Manual backup:**
-
-```bash
-# Full database backup
-pg_dump -U matric -h localhost matric > matric_backup.sql
-
-# Compressed backup
-pg_dump -U matric -h localhost matric | gzip > matric_backup.sql.gz
-
-# Schema only (no data)
-pg_dump -U matric -h localhost matric --schema-only > matric_schema.sql
-
-# Data only (no schema)
-pg_dump -U matric -h localhost matric --data-only > matric_data.sql
-
-# Specific table
-pg_dump -U matric -h localhost matric -t notes > notes_backup.sql
-```
-
-### Restore Procedures
-
-**Full database restore:**
-
-```bash
-# 1. Stop service
-sudo systemctl stop matric-api
-
-# 2. Drop and recreate database
-PGPASSWORD=matric psql -U matric -h localhost -c "DROP DATABASE IF EXISTS matric;"
-PGPASSWORD=matric psql -U matric -h localhost -c "CREATE DATABASE matric;"
-
-# 3. Restore from backup
-PGPASSWORD=matric psql -U matric -h localhost -d matric < backup_20260117_120000.sql
-
-# Or if compressed
-gunzip -c matric_backup.sql.gz | PGPASSWORD=matric psql -U matric -h localhost -d matric
-
-# 4. Restart service
-sudo systemctl start matric-api
+docker compose -f docker-compose.bundle.yml up -d
+sleep 30  # Wait for PostgreSQL to start
+docker exec -i matric-memory-matric-1 psql -U matric -d matric < backup_YYYYMMDD_HHMMSS.sql
+
+# 3. Checkout previous version
+git checkout <previous-commit>
+
+# 4. Rebuild with old code
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 
 # 5. Verify
 curl http://localhost:3000/health
 ```
 
-**Partial restore (specific table):**
+## Container Management
+
+### Common Commands
 
 ```bash
-# 1. Drop table
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "DROP TABLE notes CASCADE;"
+# Status
+docker compose -f docker-compose.bundle.yml ps
 
-# 2. Restore table
-PGPASSWORD=matric psql -U matric -h localhost -d matric < notes_backup.sql
+# Logs (follow)
+docker compose -f docker-compose.bundle.yml logs -f
 
-# 3. Restart service
-sudo systemctl restart matric-api
+# Logs (last N lines)
+docker compose -f docker-compose.bundle.yml logs --tail=100
+
+# Restart
+docker compose -f docker-compose.bundle.yml restart
+
+# Stop
+docker compose -f docker-compose.bundle.yml down
+
+# Start
+docker compose -f docker-compose.bundle.yml up -d
+
+# Rebuild
+docker compose -f docker-compose.bundle.yml build
+
+# Shell access
+docker exec -it matric-memory-matric-1 /bin/bash
 ```
 
-### Disaster Recovery
-
-**Complete system failure:**
+### Full Reset (Wipes Database)
 
 ```bash
-# 1. Reinstall dependencies
-sudo apt update
-sudo apt install postgresql-16 postgresql-16-pgvector
+docker compose -f docker-compose.bundle.yml down -v
+docker compose -f docker-compose.bundle.yml up -d
+```
 
-# 2. Create database and user
-sudo -u postgres psql <<EOF
-CREATE USER matric WITH PASSWORD 'matric';
-CREATE DATABASE matric OWNER matric;
-\c matric
-CREATE EXTENSION vector;
-GRANT ALL PRIVILEGES ON DATABASE matric TO matric;
-EOF
+## Database Operations
 
-# 3. Restore database
-PGPASSWORD=matric psql -U matric -h localhost -d matric < latest_backup.sql
+### Connection
 
-# 4. Rebuild application
-cd /home/roctinam/dev/matric-memory
-cargo build --release
+```bash
+# Interactive psql
+docker exec -it matric-memory-matric-1 psql -U matric -d matric
 
-# 5. Setup systemd service
-sudo cp deploy/matric-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable matric-api
-sudo systemctl start matric-api
+# Run single command
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+```
 
-# 6. Verify
-systemctl status matric-api
+### Common Queries
+
+```bash
+# Database size
+docker exec matric-memory-matric-1 psql -U matric -d matric -c \
+  "SELECT pg_size_pretty(pg_database_size('matric'));"
+
+# Table sizes
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "
+SELECT relname AS table_name, pg_size_pretty(pg_total_relation_size(relid)) AS size
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;"
+
+# Note count
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+
+# Active connections
+docker exec matric-memory-matric-1 psql -U matric -d matric -c \
+  "SELECT count(*) FROM pg_stat_activity WHERE datname = 'matric';"
+```
+
+### Maintenance
+
+```bash
+# Vacuum analyze (weekly recommended)
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
+
+# Refresh embedding set stats
+docker exec matric-memory-matric-1 psql -U matric -d matric -c \
+  "REFRESH MATERIALIZED VIEW embedding_set_stats;"
+
+# Reindex (if query performance degrades)
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "REINDEX DATABASE matric;"
+```
+
+## MCP Server Operations
+
+The MCP server runs automatically inside the Docker bundle on port 3001.
+
+### Verify MCP Configuration
+
+```bash
+# Check OAuth protected resource metadata
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+
+# Expected response:
+# {
+#   "resource": "https://your-domain.com/mcp",
+#   "authorization_servers": ["https://your-domain.com"],
+#   ...
+# }
+```
+
+### Claude Code Integration
+
+Project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "matric-memory": {
+      "url": "https://your-domain.com/mcp"
+    }
+  }
+}
+```
+
+### MCP Health Check
+
+```bash
+curl https://your-domain.com/mcp/health
+```
+
+## Monitoring and Health Checks
+
+### Health Endpoints
+
+```bash
+# API health
 curl http://localhost:3000/health
+
+# MCP health (via nginx)
+curl https://your-domain.com/mcp/health
+```
+
+### Container Health
+
+```bash
+# Docker health status
+docker inspect matric-memory-matric-1 --format='{{.State.Health.Status}}'
+
+# Recent health check results
+docker inspect matric-memory-matric-1 --format='{{json .State.Health}}' | jq
+```
+
+### Log Analysis
+
+```bash
+# All logs
+docker compose -f docker-compose.bundle.yml logs
+
+# Errors only
+docker compose -f docker-compose.bundle.yml logs 2>&1 | grep -i error
+
+# Since specific time
+docker compose -f docker-compose.bundle.yml logs --since "1h"
+```
+
+## Troubleshooting
+
+### Container Won't Start
+
+```bash
+# Check logs
+docker compose -f docker-compose.bundle.yml logs
+
+# Check if port is in use
+ss -tlnp | grep -E '3000|3001'
+
+# Verify Docker is running
+docker ps
+```
+
+### MCP Authentication Fails
+
+**Symptom:** "Protected resource URL mismatch" error
+
+**Cause:** Missing or incorrect `ISSUER_URL` in `.env`
+
+**Fix:**
+```bash
+# Create/update .env with ISSUER_URL
+echo "ISSUER_URL=https://your-domain.com" >> .env
+
+# Restart container
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Verify
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+```
+
+**Symptom:** MCP returns "unauthorized" even with valid token
+
+**Cause:** Missing `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` - the MCP server cannot introspect tokens
+
+**Fix:**
+```bash
+# Register an OAuth client for MCP
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+
+# Add returned credentials to .env
+echo "MCP_CLIENT_ID=mm_xxxxx" >> .env
+echo "MCP_CLIENT_SECRET=xxxxx" >> .env
+
+# Restart container
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+### Database Connection Errors
+
+```bash
+# Check PostgreSQL is running inside container
+docker exec matric-memory-matric-1 pg_isready -U matric
+
+# Check database exists
+docker exec matric-memory-matric-1 psql -U matric -l
+```
+
+### Slow Performance
+
+```bash
+# Run vacuum
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
+
+# Check for long-running queries
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "
+SELECT pid, state, query_start, query
+FROM pg_stat_activity
+WHERE state = 'active' AND datname = 'matric';"
+```
+
+### Out of Disk Space
+
+```bash
+# Check Docker disk usage
+docker system df
+
+# Clean unused images
+docker image prune -a
+
+# Check volume size
+docker system df -v | grep matric
+```
+
+## Backup and Recovery
+
+### Manual Backup
+
+```bash
+# Backup to local file
+docker exec matric-memory-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup
+ls -lh backup_*.sql | tail -1
+head -50 backup_*.sql | tail -1
+```
+
+### Restore from Backup
+
+```bash
+# Stop and start fresh container (preserves volume)
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Wait for PostgreSQL
+sleep 30
+
+# Restore
+docker exec -i matric-memory-matric-1 psql -U matric -d matric < backup_YYYYMMDD_HHMMSS.sql
+
+# Verify
+curl http://localhost:3000/health
+```
+
+### Automated Backup Script
+
+```bash
+#!/bin/bash
+# backup-matric.sh
+BACKUP_DIR="/path/to/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/matric_$DATE.sql"
+
+mkdir -p "$BACKUP_DIR"
+docker exec matric-memory-matric-1 pg_dump -U matric matric > "$BACKUP_FILE"
+gzip "$BACKUP_FILE"
+
+# Keep only last 7 days
+find "$BACKUP_DIR" -name "matric_*.sql.gz" -mtime +7 -delete
+
+echo "Backup completed: ${BACKUP_FILE}.gz"
+```
+
+Add to crontab for daily backups:
+```bash
+0 2 * * * /path/to/backup-matric.sh
 ```
 
 ## Configuration
 
-### Environment Variables
+### Environment Variables (.env)
 
-The service is configured via environment variables in the systemd service file.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ISSUER_URL` | Yes | External URL for OAuth/MCP |
+| `MCP_CLIENT_ID` | Yes | OAuth client ID for MCP token introspection |
+| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
+| `MCP_BASE_URL` | No | MCP protected resource URL (default: `${ISSUER_URL}/mcp`) |
 
-**Core configuration:**
+### Container Environment (docker-compose.bundle.yml)
 
-- `DATABASE_URL` - PostgreSQL connection string
-- `HOST` - Bind address (0.0.0.0 = all interfaces)
-- `PORT` - HTTP port (default: 3000)
-- `RUST_LOG` - Logging level (matric_api=info,tower_http=info)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RUST_LOG` | `info` | API logging level |
+| `RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
+| `OLLAMA_BASE` | - | Ollama URL for AI features |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model |
+| `OLLAMA_GEN_MODEL` | `llama3.2` | Ollama generation model |
+| `OPENAI_API_KEY` | - | OpenAI API key (alternative) |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `OPENAI_GEN_MODEL` | `gpt-4o-mini` | OpenAI generation model |
 
-**Inference backend (Ollama - default):**
+### AI Features Configuration
 
-- `OLLAMA_URL` - Ollama endpoint (default: http://localhost:11434)
-- `OLLAMA_EMBEDDING_MODEL` - Model for embeddings (default: nomic-embed-text)
-- `OLLAMA_GENERATION_MODEL` - Model for generation (default: llama3.2:3b)
-- `OLLAMA_EMBEDDING_DIMENSION` - Vector dimension (default: 768)
+AI features (embedding generation, auto-titling, AI revision) require either Ollama or OpenAI to be configured.
 
-**Inference backend (OpenAI - optional):**
+**Using Ollama (local/self-hosted):**
 
-- `INFERENCE_BACKEND` - Set to "openai" to use OpenAI backend
-- `OPENAI_API_KEY` - API key for OpenAI
-- `OPENAI_BASE_URL` - API endpoint (default: https://api.openai.com/v1)
-- `OPENAI_EMBEDDING_MODEL` - Model for embeddings (default: text-embedding-3-small)
-- `OPENAI_GENERATION_MODEL` - Model for generation (default: gpt-4o-mini)
-- `OPENAI_EMBEDDING_DIMENSION` - Vector dimension (default: 1536)
+1. Install and run Ollama on your host machine
+2. Pull required models:
+   ```bash
+   ollama pull nomic-embed-text
+   ollama pull llama3.2
+   ```
+3. Configure Docker to access Ollama:
+   ```bash
+   # For Docker Desktop (macOS/Windows)
+   OLLAMA_BASE=http://host.docker.internal:11434
 
-See [Inference Backends Guide](./inference-backends.md) for detailed configuration.
+   # For Linux with Ollama on same host
+   OLLAMA_BASE=http://172.17.0.1:11434
+   ```
+4. Add to `.env` or uncomment in `docker-compose.bundle.yml`:
+   ```
+   OLLAMA_BASE=http://host.docker.internal:11434
+   OLLAMA_EMBED_MODEL=nomic-embed-text
+   OLLAMA_GEN_MODEL=llama3.2
+   ```
 
-**To modify:**
+**Using OpenAI:**
 
-```bash
-# Edit service file
-sudo nano /etc/systemd/system/matric-api.service
-
-# Example: Change port to 8080
-# Environment=PORT=8080
-
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart matric-api
+Add to `.env`:
+```
+OPENAI_API_KEY=sk-...your-key...
+OPENAI_EMBED_MODEL=text-embedding-3-small
+OPENAI_GEN_MODEL=gpt-4o-mini
 ```
 
-### Logging Configuration
-
-**Log levels:**
-
-- `error` - Errors only
-- `warn` - Warnings and errors
-- `info` - Informational messages (default)
-- `debug` - Detailed debugging
-- `trace` - Very verbose debugging
-
-**Change log level:**
+**Verify AI Features:**
 
 ```bash
-# Edit service file
-sudo nano /etc/systemd/system/matric-api.service
+# Create a test note and request embedding generation
+curl -X POST http://localhost:3000/notes \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Test note for embedding generation"}'
 
-# Modify RUST_LOG environment variable
-# Environment=RUST_LOG=matric_api=debug,tower_http=debug
+# Check job queue for embedding job
+curl http://localhost:3000/jobs?type=embedding
 
-# Reload and restart
-sudo systemctl daemon-reload
-sudo systemctl restart matric-api
+# View logs for embedding/generation errors
+docker compose -f docker-compose.bundle.yml logs | grep -i "ollama\|openai\|embedding"
 ```
 
-### Database Connection Tuning
+**Common AI Issues:**
 
-**PostgreSQL connection pool settings (if implemented in code):**
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Embedding jobs stuck | Ollama not reachable | Set `OLLAMA_BASE` env var |
+| Auto-titling not working | No LLM configured | Configure Ollama or OpenAI |
+| "connection refused" errors | Wrong Ollama host | Use `host.docker.internal` for Docker Desktop |
 
-- `POOL_MAX_CONNECTIONS` - Maximum connections (default: 10)
-- `POOL_TIMEOUT` - Connection timeout in seconds (default: 30)
-
-**PostgreSQL server tuning:**
+### Modifying Configuration
 
 ```bash
-# Edit PostgreSQL configuration
-sudo nano /etc/postgresql/16/main/postgresql.conf
+# Edit .env for external URLs
+nano .env
 
-# Recommended settings for single-server deployment
-max_connections = 100
-shared_buffers = 256MB
-effective_cache_size = 1GB
-maintenance_work_mem = 64MB
-checkpoint_completion_target = 0.9
-wal_buffers = 16MB
-default_statistics_target = 100
-random_page_cost = 1.1
-effective_io_concurrency = 200
+# Edit docker-compose for container settings
+nano docker-compose.bundle.yml
 
-# Restart PostgreSQL
-sudo systemctl restart postgresql
+# Apply changes
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 ```
-
-## Best Practices
-
-1. **Always backup before migrations** - No exceptions
-2. **Apply migrations before restarting** - Avoid schema mismatch errors
-3. **Monitor logs regularly** - Catch issues early
-4. **Run vacuum weekly** - Maintain database performance
-5. **Keep backups for 7 days** - Balance between safety and disk space
-6. **Test deployments** - Verify health endpoint and API functionality
-7. **Document changes** - Update this guide when procedures change
-8. **Monitor disk space** - Database and logs can grow quickly
-9. **Use structured logging** - Makes troubleshooting easier
-10. **Version your schema** - Track migration history
 
 ## Quick Reference
 
 ### Daily Operations
 
 ```bash
-# Check service status
-systemctl status matric-api
-
-# View recent logs
-journalctl -u matric-api -n 50
-
-# Check health
+# Check status
+docker compose -f docker-compose.bundle.yml ps
 curl http://localhost:3000/health
 
-# Check database size
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "SELECT pg_size_pretty(pg_database_size('matric'));"
+# View logs
+docker compose -f docker-compose.bundle.yml logs --tail=50
 ```
 
 ### Weekly Maintenance
 
 ```bash
 # Vacuum database
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "VACUUM ANALYZE;"
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
 
-# Refresh embedding set stats
-PGPASSWORD=matric psql -U matric -h localhost -d matric -c "REFRESH MATERIALIZED VIEW embedding_set_stats;"
-
-# Clean up old backups
-find /home/roctinam/backups/matric -name "matric_*.sql.gz" -mtime +7 -delete
+# Backup
+docker exec matric-memory-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d).sql
 ```
 
 ### Emergency Procedures
 
 ```bash
-# Stop everything
-sudo systemctl stop matric-api
+# Quick restart
+docker compose -f docker-compose.bundle.yml restart
 
-# Restore from latest backup
-PGPASSWORD=matric psql -U matric -h localhost -d matric < latest_backup.sql
+# Full restart
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 
-# Restart
-sudo systemctl start matric-api
-
-# Verify
-curl http://localhost:3000/health
-systemctl status matric-api
+# Restore from backup
+docker exec -i matric-memory-matric-1 psql -U matric -d matric < latest_backup.sql
 ```
 
-## Support and Resources
+## Resources
 
 - **Repository:** https://git.integrolabs.net/roctinam/matric-memory
-- **Architecture Documentation:** `/home/roctinam/dev/matric-memory/docs/architecture.md`
-- **Integration Guide:** `/home/roctinam/dev/matric-memory/docs/integration.md`
-- **Migrations:** `/home/roctinam/dev/matric-memory/migrations/`
-- **Service File:** `/etc/systemd/system/matric-api.service`
-
-## Version History
-
-- **2026-01-17** - Initial operations guide created
+- **Operators Guide:** [operators-guide.md](./operators-guide.md)
+- **MCP Documentation:** [mcp-server/README.md](../../mcp-server/README.md)

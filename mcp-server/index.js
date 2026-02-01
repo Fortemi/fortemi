@@ -1523,6 +1523,9 @@ The note is marked as deleted but not permanently removed. Use restore endpoint 
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
   {
     name: "set_note_tags",
@@ -1589,6 +1592,9 @@ NOTE: For normal operations, prefer create_note/update_note which handle the ful
       },
       required: ["job_type"],
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
 
   // ============================================================================
@@ -1630,6 +1636,9 @@ Common workflows:
         offset: { type: "number", description: "Pagination offset", default: 0 },
       },
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
   {
     name: "get_queue_stats",
@@ -1646,6 +1655,9 @@ Use this for quick status checks or progress bars when you don't need full job d
     inputSchema: {
       type: "object",
       properties: {},
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
 
@@ -1713,6 +1725,9 @@ Child collections will be moved to root level.`,
         id: { type: "string", description: "Collection UUID to delete" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
   {
@@ -1832,6 +1847,9 @@ Set default_tags and collection_id to automatically apply them to notes created 
         id: { type: "string", description: "Template UUID to delete" },
       },
       required: ["id"],
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
   {
@@ -2047,6 +2065,9 @@ Use delete_note for recoverable deletion, purge_note for permanent removal.`,
       },
       required: ["id"],
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
   {
     name: "purge_notes",
@@ -2067,6 +2088,9 @@ Returns a summary of queued and failed operations.`,
       },
       required: ["note_ids"],
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
   {
     name: "purge_all_notes",
@@ -2086,6 +2110,9 @@ Returns count of queued and failed operations.`,
         },
       },
       required: ["confirm"],
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
 

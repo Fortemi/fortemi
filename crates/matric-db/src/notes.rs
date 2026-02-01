@@ -574,6 +574,12 @@ impl NoteRepository for PgNoteRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
 
+                // has_revision should only be true if revised content differs from original
+                let has_revision = match &revised_content {
+                    Some(revised) => revised != &original_content,
+                    None => false,
+                };
+
                 NoteSummary {
                     id: row.get("id"),
                     title,
@@ -583,7 +589,7 @@ impl NoteRepository for PgNoteRepository {
                     starred: row.get::<Option<bool>, _>("starred").unwrap_or(false),
                     archived: row.get::<Option<bool>, _>("archived").unwrap_or(false),
                     tags,
-                    has_revision: revised_content.is_some(),
+                    has_revision,
                     metadata: row
                         .get::<Option<serde_json::Value>, _>("metadata")
                         .unwrap_or_else(|| serde_json::json!({})),
@@ -913,7 +919,12 @@ impl PgNoteRepository {
 
                 let revised: Option<String> = row.get("revised_content");
                 let original: Option<String> = row.get("original_content");
-                let has_revision = revised.is_some();
+                // has_revision should only be true if revised content differs from original
+                let has_revision = match (&revised, &original) {
+                    (Some(r), Some(o)) => r != o,
+                    (Some(_), None) => true,
+                    _ => false,
+                };
                 let snippet = revised
                     .or(original)
                     .map(|c| c.chars().take(200).collect())
