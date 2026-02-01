@@ -3,26 +3,26 @@
   "task": "Fix remaining bug issues requiring migrations and code changes",
   "completion": "all migrations created, code fixes applied, tests pass, issues closed",
   "maxIterations": 10,
-  "currentIteration": 1,
+  "currentIteration": 2,
   "startTime": "2026-01-31T23:30:00Z",
   "timeoutMinutes": 120,
-  "status": "IN_PROGRESS",
+  "status": "VERIFYING",
   "strategy": "parallel-agents",
   "phases": [
     {
       "name": "Migration Planning",
       "description": "Design migrations for FTS Unicode and embedding fixes",
-      "status": "in_progress"
+      "status": "completed"
     },
     {
       "name": "Implementation",
       "description": "Create migrations and code fixes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "name": "Testing",
       "description": "Verify migrations and fixes",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "name": "Documentation",
@@ -30,19 +30,36 @@
       "status": "pending"
     }
   ],
-  "targetIssues": {
+  "commits": [
+    {
+      "hash": "c752968",
+      "message": "fix(api): expose metadata field in note create/update endpoints",
+      "issues": [359]
+    },
+    {
+      "hash": "4851e4b",
+      "message": "fix(mcp): add parameter validation, error sanitization, and tag filtering",
+      "issues": [348, 346, 315, 328, 353]
+    }
+  ],
+  "issuesFixed": {
     "migrations": [
-      { "issue": 328, "description": "FTS accent/diacritic folding - unaccent extension" },
-      { "issue": 353, "description": "embedding_set_id not set in store()" }
+      { "issue": 328, "status": "FIXED", "fix": "Created unaccent extension + matric_english FTS config" },
+      { "issue": 353, "status": "FIXED", "fix": "Added embedding_set_id to store() + backfill migration" }
     ],
     "codeFixesMCP": [
-      { "issue": 348, "description": "MCP parameter validation - confusing UUID errors" },
-      { "issue": 346, "description": "Error response sanitization - security" },
-      { "issue": 315, "description": "Add tags param to search_notes" }
+      { "issue": 348, "status": "FIXED", "fix": "Added validateUUID() helper for parameter validation" },
+      { "issue": 346, "status": "FIXED", "fix": "Added sanitizeError() to prevent info leakage" },
+      { "issue": 315, "status": "FIXED", "fix": "Added tags param to search_notes with strict_filter" }
     ],
     "codeFixesAPI": [
-      { "issue": 359, "description": "Metadata field in create/update API" }
+      { "issue": 359, "status": "FIXED", "fix": "Exposed metadata field in create/update API" }
     ],
+    "codeFixesRust": [
+      { "description": "Updated all Rust FTS queries to use matric_english config", "files": ["search.rs", "skos_tags.rs", "embedding_sets.rs"] }
+    ]
+  },
+  "remainingIssues": {
     "documentation": [
       { "issue": 358, "description": "auto_refresh documentation" },
       { "issue": 319, "description": "Document emoji FTS behavior" },
