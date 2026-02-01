@@ -1442,6 +1442,8 @@ struct CreateNoteBody {
     /// AI revision mode: "full" (default), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
 }
 
 async fn create_note(
@@ -1454,6 +1456,7 @@ async fn create_note(
         source: body.source.unwrap_or_else(|| "api".to_string()),
         collection_id: body.collection_id,
         tags: body.tags,
+        metadata: body.metadata,
     };
 
     // Parse revision mode (default to Full)
@@ -1528,6 +1531,7 @@ async fn bulk_create_notes(
             source: "api_bulk".to_string(),
             collection_id: None,
             tags: item.tags.clone(),
+            metadata: None,
         })
         .collect();
 
@@ -1583,6 +1587,7 @@ struct UpdateNoteBody {
     /// AI revision mode: "full" (default), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
+    metadata: Option<serde_json::Value>,
 }
 
 async fn update_note(
@@ -1597,10 +1602,11 @@ async fn update_note(
     }
 
     // Update status if provided
-    if body.starred.is_some() || body.archived.is_some() {
+    if body.starred.is_some() || body.archived.is_some() || body.metadata.is_some() {
         let req = UpdateNoteStatusRequest {
             starred: body.starred,
             archived: body.archived,
+            metadata: body.metadata,
         };
         state.db.notes.update_status(id, req).await?;
     }
@@ -1685,6 +1691,7 @@ async fn update_note_status(
     let req = UpdateNoteStatusRequest {
         starred: body.starred,
         archived: body.archived,
+        metadata: None,
     };
     state.db.notes.update_status(id, req).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -2641,6 +2648,7 @@ async fn instantiate_template(
             source: "template".to_string(),
             collection_id,
             tags,
+            metadata: None,
         })
         .await?;
 
@@ -4746,6 +4754,7 @@ async fn backup_import(
                     .unwrap_or_else(|| "import".to_string()),
                 collection_id: note_data.collection_id,
                 tags: note_data.tags.clone(),
+                metadata: None,
             };
 
             match state.db.notes.insert(req).await {
@@ -4755,6 +4764,7 @@ async fn backup_import(
                         let status_req = matric_core::UpdateNoteStatusRequest {
                             starred: note_data.starred,
                             archived: note_data.archived,
+                            metadata: None,
                         };
                         let _ = state.db.notes.update_status(new_id, status_req).await;
                     }
@@ -5593,6 +5603,7 @@ async fn knowledge_shard_import(
                                         .filter_map(|t| t.as_str().map(String::from))
                                         .collect::<Vec<_>>()
                                 }),
+                                metadata: None,
                             };
 
                             match state.db.notes.insert(req).await {
@@ -5610,6 +5621,7 @@ async fn knowledge_shard_import(
                                         let status_req = matric_core::UpdateNoteStatusRequest {
                                             starred: Some(starred),
                                             archived: Some(archived),
+                                            metadata: None,
                                         };
                                         let _ =
                                             state.db.notes.update_status(new_id, status_req).await;
@@ -6401,6 +6413,7 @@ async fn knowledge_shard_import_internal(
                                         .filter_map(|t| t.as_str().map(String::from))
                                         .collect::<Vec<_>>()
                                 }),
+                                metadata: None,
                             };
 
                             match state.db.notes.insert(req).await {
@@ -6412,6 +6425,7 @@ async fn knowledge_shard_import_internal(
                                         let status_req = UpdateNoteStatusRequest {
                                             starred: Some(starred),
                                             archived: None,
+                                            metadata: None,
                                         };
                                         let _ =
                                             state.db.notes.update_status(new_id, status_req).await;

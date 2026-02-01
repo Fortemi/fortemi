@@ -38,8 +38,8 @@ services:
       # MCP Server - MCP_BASE_URL must match the external MCP endpoint URL
       - MCP_BASE_URL=${MCP_BASE_URL:-${ISSUER_URL:-https://localhost:3000}/mcp}
       # MCP OAuth client credentials (register via POST /oauth/register)
-      # - MCP_CLIENT_ID=${MCP_CLIENT_ID}
-      # - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}
+      - MCP_CLIENT_ID=${MCP_CLIENT_ID}
+      - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}
 
       # Ollama (local LLM) - uncomment and configure for AI features
       # - OLLAMA_BASE=http://host.docker.internal:11434

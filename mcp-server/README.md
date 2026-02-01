@@ -374,6 +374,81 @@ env:
   MATRIC_MEMORY_API_KEY: ${{ secrets.API_KEY }}
 ```
 
+## Production Deployment (Docker Bundle)
+
+The MCP server runs automatically as part of the Docker bundle deployment.
+
+### Critical: External URL Configuration
+
+The `.env` file in the project root **must** set `ISSUER_URL` to your external domain:
+
+```bash
+# .env (project root)
+ISSUER_URL=https://your-domain.com
+```
+
+This sets both:
+- **ISSUER_URL** - OAuth authorization server URL
+- **MCP_BASE_URL** - OAuth protected resource URL (derived as `${ISSUER_URL}/mcp`)
+
+Without this, OAuth metadata will advertise `localhost` URLs, causing authentication failures.
+
+### Critical: MCP OAuth Client Credentials
+
+The MCP server needs OAuth client credentials to introspect incoming bearer tokens:
+
+```bash
+# Register an OAuth client for MCP token introspection
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+
+# Add the returned credentials to .env
+MCP_CLIENT_ID=mm_xxxxx
+MCP_CLIENT_SECRET=xxxxx
+```
+
+Without `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET`, the MCP server cannot validate OAuth tokens and will reject all authenticated requests.
+
+### Nginx Configuration
+
+The MCP server runs on port 3001 inside the container. Configure nginx to proxy `/mcp` routes:
+
+```nginx
+# API routes
+location / {
+    proxy_pass http://localhost:3000;
+    # ... standard proxy headers
+}
+
+# MCP routes (exact match for root, prefix for sub-paths)
+location = /mcp {
+    proxy_pass http://localhost:3001/;
+    # ... standard proxy headers
+}
+
+location /mcp/ {
+    proxy_pass http://localhost:3001/;
+    # ... standard proxy headers
+}
+```
+
+### Restart After Configuration Changes
+
+```bash
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+### Verify Configuration
+
+Check the protected resource metadata returns correct URLs:
+
+```bash
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+# Should return: { "resource": "https://your-domain.com/mcp", ... }
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -382,10 +457,19 @@ env:
 | `MATRIC_MEMORY_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_BASE_URL` | `http://localhost:${MCP_PORT}` | Base URL for OAuth metadata |
+| `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
+| `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
 | `MCP_CLIENT_ID` | - | OAuth client ID for token introspection |
 | `MCP_CLIENT_SECRET` | - | OAuth client secret for token introspection |
+
+## Troubleshooting
+
+See [MCP Troubleshooting Guide](../docs/content/mcp-troubleshooting.md) for:
+- Diagnostic commands
+- Common issues and fixes
+- Token validation
+- First-time setup checklist
 
 ## OAuth2 Authentication (HTTP Mode)
 

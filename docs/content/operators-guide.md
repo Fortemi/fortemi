@@ -1,37 +1,79 @@
 # Operators Guide
 
-Quick reference for deploying, monitoring, and maintaining matric-memory.
+Quick reference for deploying, monitoring, and maintaining matric-memory with Docker.
 
-For comprehensive procedures, see the full [Operations and Deployment Guide](./operations.md).
+## Deployment (Docker Bundle)
 
-## Deployment Checklist
+### First-Time Setup
 
 ```bash
-# 1. Pull latest code
+# 1. Start container (creates database)
+docker compose -f docker-compose.bundle.yml up -d
+
+# 2. Wait for healthy status
+docker compose -f docker-compose.bundle.yml logs -f
+
+# 3. Register MCP OAuth client (required for MCP token validation)
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+# Save the returned client_id and client_secret
+
+# 4. Configure environment
+cat > .env <<EOF
+ISSUER_URL=https://your-domain.com
+MCP_CLIENT_ID=mm_xxxxx
+MCP_CLIENT_SECRET=xxxxx
+EOF
+
+# 5. Restart with configuration
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# 6. Verify
+curl http://localhost:3000/health
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+```
+
+### Standard Deployment
+
+```bash
+# Pull latest code
 git pull origin main
 
-# 2. Backup database (mandatory before migrations)
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
+# Rebuild and restart
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 
-# 3. Apply pending migrations
-ls -lt migrations/
-PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_file>.sql
-
-# 4. Build release
-cargo build --release
-
-# 5. Restart and verify
-sudo systemctl restart matric-api
+# Verify
+docker compose -f docker-compose.bundle.yml logs -f
 curl http://localhost:3000/health
 ```
 
-## Service Management
+### Container Management
 
 ```bash
-systemctl status matric-api        # Check status
-sudo systemctl restart matric-api  # Restart
-journalctl -u matric-api -f        # Tail logs
-journalctl -u matric-api --since "1 hour ago"  # Recent logs
+# Status
+docker compose -f docker-compose.bundle.yml ps
+
+# Logs
+docker compose -f docker-compose.bundle.yml logs -f
+docker compose -f docker-compose.bundle.yml logs --tail=100
+
+# Restart
+docker compose -f docker-compose.bundle.yml restart
+
+# Stop
+docker compose -f docker-compose.bundle.yml down
+
+# Clean restart (preserves data)
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Full reset (wipes database)
+docker compose -f docker-compose.bundle.yml down -v
+docker compose -f docker-compose.bundle.yml up -d
 ```
 
 ## Health Checks
@@ -40,62 +82,83 @@ journalctl -u matric-api --since "1 hour ago"  # Recent logs
 |----------|----------|---------|
 | `GET /health` | `200 OK` | API availability |
 | `GET /api/v1/notes?limit=1` | `200 OK` | Database connectivity |
-| `GET /docs` | `200 OK` | Swagger UI |
+| `GET /mcp/.well-known/oauth-protected-resource` | `200 OK` | MCP OAuth metadata |
 
 ## Database Operations
 
 ```bash
-# Connection
-PGPASSWORD=matric psql -U matric -h localhost -d matric
+# Connect to database inside container
+docker exec -it matric-memory-matric-1 psql -U matric -d matric
 
-# Table sizes
-SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
-FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC;
+# Run SQL command
+docker exec matric-memory-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
 
-# Active connections
-SELECT count(*) FROM pg_stat_activity WHERE datname = 'matric';
-
-# Reindex vectors (after bulk imports)
-REINDEX INDEX idx_embedding_vector;
+# Database size
+docker exec matric-memory-matric-1 psql -U matric -d matric -c \
+  "SELECT pg_size_pretty(pg_database_size('matric'));"
 ```
 
 ## Backup and Recovery
 
 ```bash
-# Full backup
-pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
+# Backup database
+docker exec matric-memory-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Restore from backup
-psql -U matric -h localhost -d matric < backup_YYYYMMDD_HHMMSS.sql
+docker exec -i matric-memory-matric-1 psql -U matric -d matric < backup_YYYYMMDD_HHMMSS.sql
 ```
 
 ## Environment Variables
 
+Set in `.env` file (project root):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ISSUER_URL` | Yes | External URL for OAuth/MCP |
+| `MCP_CLIENT_ID` | Yes | OAuth client ID for MCP token introspection |
+| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
+| `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |
+
+Container variables (docker-compose.bundle.yml):
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection |
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `3000` | API port |
-| `OLLAMA_URL` | `http://localhost:11434` | Inference backend |
-| `RUST_LOG` | `matric_api=debug` | Logging level |
+| `RUST_LOG` | `info` | Logging level |
+| `RATE_LIMIT_ENABLED` | `false` | Rate limiting |
 
 ## Common Issues
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "column X does not exist" | Missing migration | Run pending migration SQL files |
-| Connection refused on :3000 | Service not running | `sudo systemctl restart matric-api` |
-| Slow search responses | Stale vector index | `REINDEX INDEX idx_embedding_vector;` |
-| High memory usage | Connection pool exhaustion | Check `pg_stat_activity`, restart service |
+| MCP auth fails with "localhost" URL | Missing `ISSUER_URL` | Add `ISSUER_URL` to `.env`, restart |
+| MCP returns "unauthorized" with valid token | Missing MCP credentials | Register OAuth client, add `MCP_CLIENT_ID/SECRET` to `.env` |
+| Container unhealthy | Startup still in progress | Wait 60s, check logs |
+| "column X does not exist" | Old image | Rebuild: `docker compose build` |
+| Connection refused on :3000 | Container not running | `docker compose up -d` |
 
 ## MCP Server
 
-```bash
-# Start MCP server (stdio mode for Claude Desktop)
-cd mcp-server && node index.js
+The MCP server runs automatically on port 3001 in the Docker bundle.
 
-# HTTP mode (for remote access)
-MCP_TRANSPORT=http node index.js
+### Verify MCP Configuration
+
+```bash
+# Check OAuth metadata returns correct URL
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+# Should show: "resource": "https://your-domain.com/mcp"
 ```
 
-See [MCP documentation](./mcp.md) for integration details.
+### Claude Code Integration
+
+Project `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "matric-memory": {
+      "url": "https://your-domain.com/mcp"
+    }
+  }
+}
+```
+
+See [MCP documentation](./mcp.md) for details.

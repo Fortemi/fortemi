@@ -54,6 +54,7 @@ pub struct ListNotesResponse {
 pub struct UpdateNoteStatusRequest {
     pub starred: Option<bool>,
     pub archived: Option<bool>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Request for creating a new note.
@@ -64,6 +65,7 @@ pub struct CreateNoteRequest {
     pub source: String,
     pub collection_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Repository for note CRUD operations.
@@ -562,6 +564,7 @@ mod tests {
         let req = UpdateNoteStatusRequest {
             starred: Some(true),
             archived: None,
+            metadata: None,
         };
         assert_eq!(req.starred, Some(true));
         assert!(req.archived.is_none());
@@ -575,6 +578,7 @@ mod tests {
             source: "manual".to_string(),
             collection_id: None,
             tags: Some(vec!["test".to_string()]),
+            metadata: None,
         };
 
         assert_eq!(req.content, "Test content");
@@ -836,6 +840,7 @@ mod tests {
             source: "manual".to_string(),
             collection_id: None,
             tags: None,
+            metadata: None,
         };
 
         let debug_str = format!("{:?}", req);
@@ -878,6 +883,7 @@ mod tests {
         let req1 = UpdateNoteStatusRequest {
             starred: Some(true),
             archived: Some(false),
+            metadata: None,
         };
 
         let req2 = req1.clone();

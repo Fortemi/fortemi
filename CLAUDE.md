@@ -39,9 +39,29 @@ See `scripts/README.md` for more details.
 
 ## Deployment
 
-### Docker Bundle (Recommended)
+### Docker Bundle
 
-The simplest deployment is the all-in-one Docker bundle which includes PostgreSQL, the API, and MCP server in a single container.
+All-in-one Docker bundle includes PostgreSQL, API, and MCP server in a single container.
+
+#### Environment Configuration
+
+Create `.env` file with required settings for OAuth/MCP:
+
+```bash
+# .env
+ISSUER_URL=https://memory.integrolabs.net
+MCP_CLIENT_ID=mm_xxxxx      # Register via POST /oauth/register
+MCP_CLIENT_SECRET=xxxxx
+```
+
+**First-time MCP setup:** Register an OAuth client for token introspection:
+```bash
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+```
+
+#### Commands
 
 ```bash
 # Start (or restart with existing data)
@@ -60,6 +80,10 @@ docker compose -f docker-compose.bundle.yml logs -f
 
 # Check health
 curl http://localhost:3000/health
+
+# Restart (after .env changes)
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
 ```
 
 The bundle automatically:
@@ -68,45 +92,11 @@ The bundle automatically:
 - Starts the API on port 3000
 - Starts the MCP server on port 3001
 
-### Docker Compose Files
+#### Nginx Reverse Proxy
 
-| File | Purpose | Use When |
-|------|---------|----------|
-| `docker-compose.bundle.yml` | All-in-one container | Production, simple setups |
-| `docker-compose.yml` | Separate API + DB containers | Development, debugging |
-
-### Host Deployment (Alternative)
-
-For deployments using host PostgreSQL and systemd:
-
-#### CRITICAL: Always Backup Before Migrations
-
-```bash
-# Backup database before migration
-PGPASSWORD=matric pg_dump -U matric -h localhost matric > backup_$(date +%Y%m%d_%H%M%S).sql
-
-# Verify backup was created and has content
-ls -lh backup_*.sql | tail -1
-```
-
-#### Deployment Steps
-
-1. Push to main (triggers CI/CD)
-2. Apply new migrations:
-   ```bash
-   PGPASSWORD=matric psql -U matric -h localhost -d matric -f migrations/<new_migration>.sql
-   ```
-3. Build release: `cargo build --release`
-4. Restart service: `sudo systemctl restart matric-api`
-5. Verify: `curl http://localhost:3000/health`
-
-#### Service Management
-
-```bash
-systemctl status matric-api      # Status
-journalctl -u matric-api -f      # Logs
-sudo systemctl restart matric-api # Restart
-```
+Configure nginx to proxy to the container:
+- `https://your-domain.com` → `localhost:3000` (API)
+- `https://your-domain.com/mcp` → `localhost:3001` (MCP)
 
 ## Database
 
@@ -116,12 +106,17 @@ sudo systemctl restart matric-api # Restart
 
 ## MCP Server
 
-The MCP server provides Claude/AI integration:
+The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-```bash
-cd mcp-server
-node index.js  # stdio mode
-MCP_TRANSPORT=http node index.js  # HTTP mode
+For Claude Code integration, configure `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "matric-memory": {
+      "url": "https://your-domain.com/mcp"
+    }
+  }
+}
 ```
 
 ## Testing

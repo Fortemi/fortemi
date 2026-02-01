@@ -34,13 +34,31 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             return Ok(());
         }
 
+        // Get the default embedding set ID
+        let default_set_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+
+        // If no default set exists, create one
+        let embedding_set_id = match default_set_id {
+            Some(id) => id,
+            None => {
+                return Err(Error::Internal(
+                    "No default embedding set found. Run migrations to create default set."
+                        .to_string(),
+                ));
+            }
+        };
+
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
         let now = Utc::now();
 
         for (i, (text, vector)) in chunks.into_iter().enumerate() {
             sqlx::query(
-                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(new_v7())
             .bind(note_id)
@@ -49,6 +67,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             .bind(&vector)
             .bind(model)
             .bind(now)
+            .bind(embedding_set_id)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;

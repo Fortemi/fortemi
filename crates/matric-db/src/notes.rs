@@ -46,14 +46,15 @@ impl NoteRepository for PgNoteRepository {
 
         // Insert note metadata
         sqlx::query(
-            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc)
-             VALUES ($1, $2, $3, $4, $5, $5)",
+            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata)
+             VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb))",
         )
         .bind(note_id)
         .bind(req.collection_id)
         .bind(&req.format)
         .bind(&req.source)
         .bind(now)
+        .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -151,14 +152,15 @@ impl NoteRepository for PgNoteRepository {
 
             // Insert note metadata
             sqlx::query(
-                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc)
-                 VALUES ($1, $2, $3, $4, $5, $5)",
+                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb))",
             )
             .bind(note_id)
             .bind(req.collection_id)
             .bind(&req.format)
             .bind(&req.source)
             .bind(now)
+                .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
@@ -612,6 +614,10 @@ impl NoteRepository for PgNoteRepository {
         }
         if req.archived.is_some() {
             updates.push(format!("archived = ${}", param_idx));
+            param_idx += 1;
+        }
+        if req.metadata.is_some() {
+            updates.push(format!("metadata = ${}", param_idx));
         }
 
         let query = format!("UPDATE note SET {} WHERE id = $2", updates.join(", "));
@@ -622,6 +628,9 @@ impl NoteRepository for PgNoteRepository {
         }
         if let Some(archived) = req.archived {
             q = q.bind(archived);
+        }
+        if let Some(metadata) = req.metadata {
+            q = q.bind(metadata);
         }
 
         q.execute(&self.pool).await.map_err(Error::Database)?;

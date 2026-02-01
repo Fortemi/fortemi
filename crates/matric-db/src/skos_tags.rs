@@ -1017,7 +1017,7 @@ impl SkosConceptRepository for PgSkosRepository {
         }
         if req.query.is_some() {
             conditions.push(format!(
-                "l.tsv @@ plainto_tsquery('english', ${})",
+                "l.tsv @@ plainto_tsquery('matric_english', ${})",
                 param_idx
             ));
             param_idx += 1;
@@ -1496,7 +1496,7 @@ impl SkosLabelRepository for PgSkosRepository {
             LEFT JOIN skos_concept_label l2 ON c.id = l2.concept_id
                 AND l2.label_type = 'pref_label' AND l2.language = 'en'
             LEFT JOIN skos_concept_scheme s ON c.primary_scheme_id = s.id
-            WHERE l.tsv @@ plainto_tsquery('english', $1)
+            WHERE l.tsv @@ plainto_tsquery('matric_english', $1)
             ORDER BY l2.value
             LIMIT $2
             "#,

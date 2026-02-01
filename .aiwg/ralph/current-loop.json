@@ -1,87 +1,58 @@
 {
   "active": true,
-  "task": "Fix all 22 open bug issues in matric-memory repository",
-  "completion": "all bug issues resolved: tests pass, PR ready, docs updated, all thread feedback addressed",
+  "task": "Fix remaining bug issues requiring migrations and code changes",
+  "completion": "all migrations created, code fixes applied, tests pass, issues closed",
   "maxIterations": 10,
-  "currentIteration": 3,
-  "startTime": "2026-01-31T12:00:00Z",
+  "currentIteration": 1,
+  "startTime": "2026-01-31T23:30:00Z",
   "timeoutMinutes": 120,
   "status": "IN_PROGRESS",
   "strategy": "parallel-agents",
   "phases": [
     {
-      "name": "Investigation",
-      "description": "Parallel agent investigation of all bug clusters",
-      "status": "completed"
-    },
-    {
-      "name": "Implementation",
-      "description": "Fix bugs in priority order",
+      "name": "Migration Planning",
+      "description": "Design migrations for FTS Unicode and embedding fixes",
       "status": "in_progress"
     },
     {
+      "name": "Implementation",
+      "description": "Create migrations and code fixes",
+      "status": "pending"
+    },
+    {
       "name": "Testing",
-      "description": "Verify all fixes with tests",
+      "description": "Verify migrations and fixes",
       "status": "pending"
     },
     {
       "name": "Documentation",
-      "description": "Update docs for any behavioral changes",
-      "status": "in_progress"
-    },
-    {
-      "name": "PR Creation",
-      "description": "Create PR with all fixes",
+      "description": "Update docs for changes",
       "status": "pending"
     }
   ],
-  "bugsFixed": [
-    { "issue": 360, "status": "FIXED", "fix": "Added annotations to 9 MCP tools" },
-    { "issue": 345, "status": "FIXED", "fix": "Same as #360 - annotations added" },
-    { "issue": 354, "status": "FIXED", "fix": "has_revision now compares content instead of column presence" },
-    { "issue": 326, "status": "FIXED", "fix": "Added note_count to Tag model and list() query" },
-    { "issue": 327, "status": "FIXED", "fix": "Added validate_tag_name() function with character validation" }
-  ],
-  "bugsConfigIssues": [
-    { "issue": 350, "status": "DOCUMENTED", "note": "Added AI Features Configuration section to operations.md" },
-    { "issue": 333, "status": "DOCUMENTED", "note": "Same as #350 - Ollama connectivity documented" },
-    { "issue": 340, "status": "DOCUMENTED", "note": "Same as #350 - Ollama required for auto-titling" },
-    { "issue": 314, "status": "DUPLICATE", "note": "Duplicate of #333" }
-  ],
-  "bugsNeedsFix": [
-    { "issue": 353, "priority": "HIGH", "fix": "Update index_status logic to reflect actual state" },
-    { "issue": 348, "priority": "MEDIUM", "fix": "Add parameter validation in MCP handlers" },
-    { "issue": 346, "priority": "MEDIUM", "fix": "Sanitize error responses" },
-    { "issue": 358, "priority": "LOW", "fix": "Document auto_refresh behavior" }
-  ],
-  "bugsNeedsMigration": [
-    { "issue": 328, "priority": "MEDIUM", "fix": "Enable unaccent extension, create matric_english config" },
-    { "issue": 319, "priority": "LOW", "fix": "Document emoji handling or add custom parser" },
-    { "issue": 316, "priority": "LOW", "fix": "Test CJK support, may need zhparser extension" }
-  ],
-  "bugsFeatureRequests": [
-    { "issue": 359, "status": "FEATURE", "note": "Add metadata to create/update API" },
-    { "issue": 315, "status": "FEATURE", "note": "Add tags param to search_notes" },
-    { "issue": 358, "status": "FEATURE", "note": "Document auto_refresh or make it configurable" }
-  ],
-  "bugsNeedsInvestigation": [
-    { "issue": 321, "note": "May be embedding model behavior with Unicode" },
-    { "issue": 320, "note": "Verify chunking trigger conditions" },
-    { "issue": 322, "note": "Need custom date deserializer" },
-    { "issue": 317, "note": "Same as #322 - date parsing" }
-  ],
-  "fileChanges": [
-    { "file": "mcp-server/index.js", "change": "Added annotations to 9 tools" },
-    { "file": "crates/matric-db/src/notes.rs", "change": "Fixed has_revision logic in 2 places" },
-    { "file": "crates/matric-db/src/tags.rs", "change": "Added validate_tag_name() and note_count query" },
-    { "file": "crates/matric-core/src/models.rs", "change": "Added note_count field to Tag struct" },
-    { "file": "docs/content/operations.md", "change": "Added AI Features Configuration section" }
-  ],
-  "learnings": [
-    "MCP tools need explicit `annotations: { destructiveHint: false }` for agentic operation",
-    "Ollama connectivity is a deployment configuration issue, not a code bug",
-    "PostgreSQL FTS needs unaccent extension for diacritic folding",
-    "Many reported 'bugs' are actually feature requests or configuration issues",
-    "has_revision should compare content, not just check column presence"
-  ]
+  "targetIssues": {
+    "migrations": [
+      { "issue": 328, "description": "FTS accent/diacritic folding - unaccent extension" },
+      { "issue": 353, "description": "embedding_set_id not set in store()" }
+    ],
+    "codeFixesMCP": [
+      { "issue": 348, "description": "MCP parameter validation - confusing UUID errors" },
+      { "issue": 346, "description": "Error response sanitization - security" },
+      { "issue": 315, "description": "Add tags param to search_notes" }
+    ],
+    "codeFixesAPI": [
+      { "issue": 359, "description": "Metadata field in create/update API" }
+    ],
+    "documentation": [
+      { "issue": 358, "description": "auto_refresh documentation" },
+      { "issue": 319, "description": "Document emoji FTS behavior" },
+      { "issue": 316, "description": "Document CJK FTS limitations" }
+    ],
+    "needsInvestigation": [
+      { "issue": 322, "description": "Date parsing - custom deserializer" },
+      { "issue": 317, "description": "Same as #322" },
+      { "issue": 320, "description": "Chunking trigger conditions" },
+      { "issue": 321, "description": "Unicode in semantic search - embedding model" }
+    ]
+  }
 }

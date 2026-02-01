@@ -640,7 +640,7 @@ impl PgEmbeddingSetRepository {
             // Add FTS filter
             if let Some(fts_query) = &criteria.fts_query {
                 conditions.push(format!(
-                    "nrc.tsv @@ plainto_tsquery('english', '{}')",
+                    "nrc.tsv @@ plainto_tsquery('matric_english', '{}')",
                     fts_query.replace('\'', "''")
                 ));
             }
