@@ -51,6 +51,59 @@ async function apiRequest(method, path, body = null) {
   return response.json();
 }
 
+
+/**
+ * Issue #348: Validate UUID parameters before API calls.
+ * Prevents confusing "undefined" UUID parse errors by catching invalid parameters early.
+ */
+function validateUUID(value, paramName) {
+  if (value === undefined || value === null) {
+    throw new Error(`Missing required parameter: ${paramName}`);
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`Parameter ${paramName} must be a string, got ${typeof value}`);
+  }
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(value)) {
+    throw new Error(`Parameter ${paramName} must be a valid UUID, got: "${value}"`);
+  }
+  return value;
+}
+
+/**
+ * Issue #346: Sanitize error messages to prevent leaking implementation details.
+ * Maps API status codes to safe messages and hides internal errors like SQL queries.
+ */
+function sanitizeError(error, toolName) {
+  const errorStr = error.message || String(error);
+
+  // Map API status codes to safe messages
+  const match = errorStr.match(/API error (\d+)/);
+  if (match) {
+    const code = match[1];
+    const safeMessages = {
+      '400': 'Invalid request parameters',
+      '401': 'Authentication required',
+      '403': 'Access denied',
+      '404': 'Resource not found',
+      '409': 'Conflict with existing resource',
+      '422': 'Validation failed',
+      '500': 'Internal server error',
+    };
+    return safeMessages[code] || `Request failed (${code})`;
+  }
+
+  // Check for our own validation errors (safe to show)
+  if (errorStr.startsWith('Missing required parameter:') ||
+      errorStr.startsWith('Parameter ')) {
+    return errorStr;
+  }
+
+  // Log full error server-side, return generic message
+  console.error(`[${toolName}] Error:`, error);
+  return 'An error occurred while processing your request';
+}
+
 /**
  * Create a new MCP server instance.
  * Each connection gets its own server (required for proper session isolation).
@@ -96,7 +149,8 @@ function createMcpServer() {
         }
 
         case "get_note":
-          result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
+          const id = validateUUID(args.id, "id");
+          result = await apiRequest("GET", `/api/v1/notes/${id}`);
           break;
 
         case "create_note":
@@ -119,21 +173,28 @@ function createMcpServer() {
           if (args.starred !== undefined) body.starred = args.starred;
           if (args.archived !== undefined) body.archived = args.archived;
           if (args.revision_mode !== undefined) body.revision_mode = args.revision_mode;
-          await apiRequest("PATCH", `/api/v1/notes/${args.id}`, body);
+          const id = validateUUID(args.id, "id");
+          await apiRequest("PATCH", `/api/v1/notes/${id}`, body);
           result = { success: true };
           break;
         }
 
-        case "delete_note":
-          await apiRequest("DELETE", `/api/v1/notes/${args.id}`);
+        case "delete_note": {
+          const id = validateUUID(args.id, "id");
+          await apiRequest("DELETE", `/api/v1/notes/${id}`);
           result = { success: true };
           break;
+        }
 
         case "search_notes": {
           const params = new URLSearchParams({ q: args.query });
           if (args.limit) params.set("limit", args.limit);
           if (args.mode) params.set("mode", args.mode);
           if (args.set) params.set("set", args.set);
+          if (args.tags && args.tags.length > 0) {
+            const strictFilter = { required_tags: args.tags };
+            params.set("strict_filter", JSON.stringify(strictFilter));
+          }
           result = await apiRequest("GET", `/api/v1/search?${params}`);
           break;
         }
@@ -142,14 +203,18 @@ function createMcpServer() {
           result = await apiRequest("GET", "/api/v1/tags");
           break;
 
-        case "set_note_tags":
-          await apiRequest("PUT", `/api/v1/notes/${args.id}/tags`, { tags: args.tags });
+        case "set_note_tags": {
+          const id = validateUUID(args.id, "id");
+          await apiRequest("PUT", `/api/v1/notes/${id}/tags`, { tags: args.tags });
           result = { success: true };
           break;
+        }
 
-        case "get_note_links":
-          result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
+        case "get_note_links": {
+          const id = validateUUID(args.id, "id");
+          result = await apiRequest("GET", `/api/v1/notes/${id}/links`);
           break;
+        }
 
         case "export_note": {
           const exportParams = new URLSearchParams();
@@ -1195,7 +1260,7 @@ function createMcpServer() {
       };
     } catch (error) {
       return {
-        content: [{ type: "text", text: `Error: ${error.message}` }],
+        content: [{ type: "text", text: `Error: ${sanitizeError(error, name)}` }],
         isError: true,
       };
     }
@@ -1285,6 +1350,11 @@ Use semantic mode when looking for conceptually related content even if exact ke
         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
         set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Filter results to notes with ALL these tags (AND logic)",
+        },
       },
       required: ["query"],
     },
