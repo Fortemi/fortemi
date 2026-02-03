@@ -1,0 +1,9 @@
+{
+  "name": "test",
+  "value": 123,
+  "nested": {
+    "key": "value"
+    "missing_comma": true
+  },
+  "trailing_comma": true,
+}

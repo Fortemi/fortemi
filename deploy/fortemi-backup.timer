@@ -1,0 +1,23 @@
+[Unit]
+Description=Fortémi Memory Database Backup Timer
+Documentation=https://github.com/roctinam/fortemi
+Requires=fortemi-backup.service
+
+[Timer]
+# Run daily at 2:30 AM
+OnCalendar=*-*-* 02:30:00
+
+# Randomize start time by up to 15 minutes to reduce load spikes
+RandomizedDelaySec=15min
+
+# If system was off, run missed backup on next boot
+Persistent=true
+
+# Run 5 minutes after boot if never run before
+OnBootSec=5min
+
+# Accuracy (allow up to 1 hour slack for power efficiency)
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

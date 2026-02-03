@@ -1,0 +1,9 @@
+El español es una lengua romance hablada por más de 500 millones de personas en todo el mundo.
+
+La búsqueda de texto completo con lematización permite a los usuarios encontrar documentos incluso cuando buscan diferentes formas de palabras. Por ejemplo, buscar "correr" también debería encontrar "corre", "corriendo" y "corrió". PostgreSQL admite la lematización española a través de su configuración de idioma.
+
+El procesamiento del lenguaje natural (PLN) ha experimentado avances notables en los últimos años. Los sistemas modernos pueden traducir, resumir y responder preguntas. La arquitectura Transformer ha desempeñado un papel clave en estos avances.
+
+Los acentos españoles incluyen la tilde (á, é, í, ó, ú) y la diéresis (ü). La letra ñ es característica única del español. Los signos de interrogación (¿?) y exclamación (¡!) se usan al principio y al final de las oraciones.
+
+La inteligencia artificial está transformando muchos aspectos de nuestras vidas. El aprendizaje automático requiere grandes cantidades de datos de entrenamiento.

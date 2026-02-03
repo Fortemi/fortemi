@@ -1,0 +1,71 @@
+[package]
+name = "matric-db"
+description = "PostgreSQL + pgvector database layer for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# Internal
+matric-core.workspace = true
+
+# Database
+sqlx.workspace = true
+pgvector.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Utilities
+sha2.workspace = true
+hex.workspace = true
+md5.workspace = true
+similar.workspace = true
+rand.workspace = true
+base64.workspace = true
+regex.workspace = true
+blake3.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Async
+tokio = { workspace = true, features = ["fs"] }
+async-trait.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Tree-sitter (optional)
+tree-sitter = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-javascript = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+
+[dev-dependencies]
+dotenvy.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"
+
+[features]
+default = ["tree-sitter"]
+# Enable migrations (optional for consumers who manage schema externally)
+migrations = []
+# Enable tree-sitter for code-aware chunking
+tree-sitter = [
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-typescript",
+]

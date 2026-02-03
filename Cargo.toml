@@ -1,0 +1,104 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/matric-core",
+    "crates/matric-db",
+    "crates/matric-search",
+    "crates/matric-inference",
+    "crates/matric-crypto",
+    "crates/matric-jobs",
+    "crates/matric-api",
+]
+
+[workspace.package]
+version = "2026.2.0"
+edition = "2021"
+license = "BSL-1.1"
+repository = "https://github.com/fortemi/fortemi"
+authors = ["Fortémi Contributors"]
+homepage = "https://github.com/fortemi/fortemi"
+
+[workspace.dependencies]
+# Internal crates
+matric-core = { path = "crates/matric-core" }
+matric-db = { path = "crates/matric-db" }
+matric-search = { path = "crates/matric-search" }
+matric-inference = { path = "crates/matric-inference" }
+matric-crypto = { path = "crates/matric-crypto" }
+matric-jobs = { path = "crates/matric-jobs" }
+matric-api = { path = "crates/matric-api" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "macros",
+    "bigdecimal",
+    "migrate"
+]}
+pgvector = { version = "0.4.1", features = ["sqlx", "postgres"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# HTTP client (for inference backends)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
+md5 = "0.7"
+similar = "2"
+regex = "1"
+rand = "0.8"
+base64 = "0.22"
+dotenvy = "0.15"
+blake3 = "1.5"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# Tree-sitter for code-aware chunking
+tree-sitter = "0.22"
+tree-sitter-rust = "0.21"
+tree-sitter-python = "0.21"
+tree-sitter-javascript = "0.21"
+tree-sitter-typescript = "0.21"
+
+[workspace.metadata.tests]
+# Test categorization for selective execution
+fast = ["--lib", "--doc"]
+integration = ["--tests"]
+slow = ["--", "--ignored"]
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+# Profile for test coverage (optimized for coverage tools)
+[profile.coverage]
+inherits = "dev"
+opt-level = 0
+debug = true

@@ -1,0 +1,310 @@
+[
+  {
+    "model": "qwen2.5:14b",
+    "timestamp": "2026-01-18T03:48:04.885806",
+    "tests": [
+      {
+        "num_ctx": 4096,
+        "success": true,
+        "tokens": 2082,
+        "time_s": 9.5
+      },
+      {
+        "num_ctx": 8192,
+        "success": true,
+        "tokens": 4130,
+        "time_s": 2.9
+      },
+      {
+        "num_ctx": 16384,
+        "success": true,
+        "tokens": 8226,
+        "time_s": 3.4
+      },
+      {
+        "num_ctx": 32768,
+        "success": true,
+        "tokens": 16418,
+        "time_s": 5.49
+      },
+      {
+        "num_ctx": 65536,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 10.83
+      },
+      {
+        "num_ctx": 131072,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 11.26
+      },
+      {
+        "num_ctx": 196608,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 11.22
+      },
+      {
+        "num_ctx": 262144,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 11.26
+      },
+      {
+        "num_ctx": 524288,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 11.66
+      }
+    ],
+    "max_num_ctx": 524288,
+    "max_tokens": 32768,
+    "recommended_ctx": 445644
+  },
+  {
+    "model": "gemma2:9b",
+    "timestamp": "2026-01-18T03:49:22.438836",
+    "tests": [
+      {
+        "num_ctx": 4096,
+        "success": true,
+        "tokens": 2061,
+        "time_s": 9.56
+      },
+      {
+        "num_ctx": 8192,
+        "success": true,
+        "tokens": 4109,
+        "time_s": 2.12
+      },
+      {
+        "num_ctx": 16384,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.8
+      },
+      {
+        "num_ctx": 32768,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.59
+      },
+      {
+        "num_ctx": 65536,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.65
+      },
+      {
+        "num_ctx": 131072,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.69
+      },
+      {
+        "num_ctx": 196608,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.84
+      },
+      {
+        "num_ctx": 262144,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 2.83
+      },
+      {
+        "num_ctx": 524288,
+        "success": true,
+        "tokens": 8192,
+        "time_s": 3.22
+      }
+    ],
+    "max_num_ctx": 524288,
+    "max_tokens": 8192,
+    "recommended_ctx": 445644
+  },
+  {
+    "model": "phi3:mini",
+    "timestamp": "2026-01-18T03:49:53.756440",
+    "tests": [
+      {
+        "num_ctx": 4096,
+        "success": true,
+        "tokens": 2062,
+        "time_s": 1.13
+      },
+      {
+        "num_ctx": 8192,
+        "success": true,
+        "tokens": 4110,
+        "time_s": 1.38
+      },
+      {
+        "num_ctx": 16384,
+        "success": true,
+        "tokens": 8206,
+        "time_s": 1.62
+      },
+      {
+        "num_ctx": 32768,
+        "success": true,
+        "tokens": 16398,
+        "time_s": 2.83
+      },
+      {
+        "num_ctx": 65536,
+        "success": true,
+        "tokens": 32782,
+        "time_s": 31.4
+      },
+      {
+        "num_ctx": 131072,
+        "success": true,
+        "tokens": 65550,
+        "time_s": 140.53
+      },
+      {
+        "num_ctx": 196608,
+        "success": true,
+        "tokens": 98318,
+        "time_s": 277.39
+      },
+      {
+        "num_ctx": 262144,
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): "
+      }
+    ],
+    "max_num_ctx": 196608,
+    "max_tokens": 98318,
+    "recommended_ctx": 167116
+  },
+  {
+    "model": "codestral:latest",
+    "timestamp": "2026-01-18T04:02:30.164486",
+    "tests": [
+      {
+        "num_ctx": 4096,
+        "success": true,
+        "tokens": 2058,
+        "time_s": 26.25
+      },
+      {
+        "num_ctx": 8192,
+        "success": true,
+        "tokens": 4106,
+        "time_s": 30.58
+      },
+      {
+        "num_ctx": 16384,
+        "success": true,
+        "tokens": 8202,
+        "time_s": 42.01
+      },
+      {
+        "num_ctx": 32768,
+        "success": true,
+        "tokens": 16394,
+        "time_s": 44.37
+      },
+      {
+        "num_ctx": 65536,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 64.28
+      },
+      {
+        "num_ctx": 131072,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 29.16
+      },
+      {
+        "num_ctx": 196608,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 29.31
+      },
+      {
+        "num_ctx": 262144,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 29.18
+      },
+      {
+        "num_ctx": 524288,
+        "success": true,
+        "tokens": 32768,
+        "time_s": 29.69
+      }
+    ],
+    "max_num_ctx": 524288,
+    "max_tokens": 32768,
+    "recommended_ctx": 445644
+  },
+  {
+    "model": "llama3.1:8b",
+    "timestamp": "2026-01-18T04:07:55.084854",
+    "tests": [
+      {
+        "num_ctx": 4096,
+        "success": true,
+        "tokens": 2063,
+        "time_s": 2.87
+      },
+      {
+        "num_ctx": 8192,
+        "success": true,
+        "tokens": 4111,
+        "time_s": 1.95
+      },
+      {
+        "num_ctx": 16384,
+        "success": true,
+        "tokens": 8207,
+        "time_s": 2.43
+      },
+      {
+        "num_ctx": 32768,
+        "success": true,
+        "tokens": 16399,
+        "time_s": 3.48
+      },
+      {
+        "num_ctx": 65536,
+        "success": true,
+        "tokens": 32783,
+        "time_s": 6.13
+      },
+      {
+        "num_ctx": 131072,
+        "success": true,
+        "tokens": 65551,
+        "time_s": 68.51
+      },
+      {
+        "num_ctx": 196608,
+        "success": true,
+        "tokens": 98319,
+        "time_s": 127.0
+      },
+      {
+        "num_ctx": 262144,
+        "success": true,
+        "tokens": 131072,
+        "time_s": 176.72
+      },
+      {
+        "num_ctx": 524288,
+        "success": true,
+        "tokens": 131072,
+        "time_s": 175.86
+      }
+    ],
+    "max_num_ctx": 524288,
+    "max_tokens": 131072,
+    "recommended_ctx": 445644
+  }
+]

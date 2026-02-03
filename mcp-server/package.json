@@ -1,0 +1,27 @@
+{
+  "name": "@fortemi/mcp",
+  "version": "2026.1.12",
+  "description": "MCP server for Fortémi API",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "fortemi-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "start:http": "MCP_TRANSPORT=http node index.js",
+    "test": "node --test tests/*.test.js",
+    "test:schema": "node --test tests/schema-validation.test.js",
+    "test:annotations": "node --test tests/annotations.test.js",
+    "test:errors": "node --test tests/error-responses.test.js",
+    "test:connectivity": "node test-mcp-connectivity.js",
+    "test:local": "FORTEMI_URL=http://localhost:3000 node test-mcp-connectivity.js",
+    "test:oauth": "echo 'Usage: MCP_CLIENT_ID=xxx MCP_CLIENT_SECRET=yyy npm run test'"
+  },
+  "license": "SEE LICENSE IN ../LICENSE",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "description": "Seed notes for UAT testing",
+  "notes": [
+    {
+      "content": "# Introduction to Quantum Computing\n\nQuantum computing harnesses quantum mechanical phenomena to process information.\n\n## Key Concepts\n\n- **Qubits**: Quantum bits that can exist in superposition\n- **Entanglement**: Correlated quantum states\n- **Quantum Gates**: Operations on qubits\n\n## Applications\n\n1. Cryptography\n2. Drug discovery\n3. Optimization problems",
+      "tags": ["uat/seed", "uat/quantum", "uat/computing"],
+      "metadata": { "domain": "physics", "difficulty": "advanced" }
+    },
+    {
+      "content": "# REST API Design Best Practices\n\nDesigning good REST APIs requires attention to consistency and usability.\n\n## Principles\n\n- Use nouns for resources\n- HTTP verbs for actions\n- Consistent naming conventions\n- Proper status codes\n\n## Examples\n\n```\nGET /api/v1/notes\nPOST /api/v1/notes\nGET /api/v1/notes/{id}\nPATCH /api/v1/notes/{id}\nDELETE /api/v1/notes/{id}\n```",
+      "tags": ["uat/seed", "uat/api", "uat/design"],
+      "metadata": { "domain": "software", "difficulty": "intermediate" }
+    },
+    {
+      "content": "# PostgreSQL Performance Tuning\n\nOptimizing PostgreSQL for high performance workloads.\n\n## Configuration\n\n- shared_buffers\n- work_mem\n- effective_cache_size\n\n## Indexing Strategies\n\n- B-tree for equality and range\n- GIN for full-text and arrays\n- GiST for geometric data",
+      "tags": ["uat/seed", "uat/database", "uat/performance"],
+      "metadata": { "domain": "database", "difficulty": "advanced" }
+    },
+    {
+      "content": "# Meeting Notes: Sprint Planning\n\n**Date**: 2026-02-01\n**Attendees**: Team\n\n## Goals\n\n1. Complete UAT framework\n2. Fix critical bugs\n3. Documentation updates\n\n## Action Items\n\n- [ ] Review test coverage\n- [ ] Update API docs\n- [ ] Deploy to staging",
+      "tags": ["uat/seed", "uat/meetings", "uat/planning"],
+      "metadata": { "type": "meeting-notes" }
+    },
+    {
+      "content": "# Rust Async Programming\n\nAsynchronous programming in Rust using async/await.\n\n## Core Concepts\n\n- `async fn` - Async function declaration\n- `.await` - Await a future\n- `tokio` - Async runtime\n\n## Example\n\n```rust\nasync fn fetch_data(url: &str) -> Result<String, Error> {\n    let response = reqwest::get(url).await?;\n    response.text().await\n}\n```",
+      "tags": ["uat/seed", "uat/rust", "uat/async"],
+      "metadata": { "language": "rust", "difficulty": "intermediate" }
+    }
+  ]
+}

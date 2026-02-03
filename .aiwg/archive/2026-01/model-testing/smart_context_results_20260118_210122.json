@@ -1,0 +1,502 @@
+[
+  {
+    "model": "",
+    "timestamp": "2026-01-18T20:52:29.045488",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "phi3:mini",
+    "timestamp": "2026-01-18T20:52:29.060249",
+    "info": {
+      "parameters": "stop                           \"<|end|>\"\nstop                           \"<|user|>\"\nstop                           \"<|assistant|>\"",
+      "family": "phi3",
+      "parameter_size": "3.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2062,
+        "truncated": false,
+        "time_s": 0.96,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4110,
+        "truncated": false,
+        "time_s": 1.48,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8206,
+        "truncated": false,
+        "time_s": 1.79,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16398,
+        "truncated": false,
+        "time_s": 2.55,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32782,
+        "truncated": false,
+        "time_s": 31.99,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65550,
+        "truncated": false,
+        "time_s": 140.24,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98318,
+        "truncated": false,
+        "time_s": 276.19,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98318,
+    "hardware_limit": "not reached",
+    "recommended_input": 88486,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 47.59,
+          "tok_per_sec": 21.5
+        }
+      ],
+      "max_output": 1024
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.950277",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5-coder:1.5b",
+    "timestamp": "2026-01-18T21:01:22.951171",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.952003",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5-coder:14b",
+    "timestamp": "2026-01-18T21:01:22.953645",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.955099",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5-coder:7b",
+    "timestamp": "2026-01-18T21:01:22.956508",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.957963",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5:14b",
+    "timestamp": "2026-01-18T21:01:22.958783",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.960411",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5:32b",
+    "timestamp": "2026-01-18T21:01:22.961304",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.962222",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen2.5:7b",
+    "timestamp": "2026-01-18T21:01:22.963264",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.963999",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "qwen3:8b",
+    "timestamp": "2026-01-18T21:01:22.964715",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.965945",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "smollm2:1.7b",
+    "timestamp": "2026-01-18T21:01:22.966832",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.967781",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "starcoder2:7b",
+    "timestamp": "2026-01-18T21:01:22.968811",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.969730",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "yi-coder:9b",
+    "timestamp": "2026-01-18T21:01:22.971236",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T21:01:22.972138",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTPConnectionPool(host='localhost', port=11434): ",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  }
+]

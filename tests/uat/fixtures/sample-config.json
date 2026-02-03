@@ -1,0 +1,31 @@
+{
+  "name": "uat-test-config",
+  "version": "1.0.0",
+  "description": "Sample configuration for UAT testing",
+  "settings": {
+    "debug": true,
+    "log_level": "info",
+    "max_items": 100,
+    "timeout_ms": 5000
+  },
+  "features": {
+    "feature_a": true,
+    "feature_b": false,
+    "feature_c": {
+      "enabled": true,
+      "options": ["opt1", "opt2", "opt3"]
+    }
+  },
+  "endpoints": [
+    {
+      "name": "primary",
+      "url": "https://api.example.com/v1",
+      "auth": "bearer"
+    },
+    {
+      "name": "backup",
+      "url": "https://backup.example.com/v1",
+      "auth": "basic"
+    }
+  ]
+}

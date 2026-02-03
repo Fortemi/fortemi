@@ -1,0 +1,85 @@
+# Matric Memory Inference Configuration
+#
+# This file configures which LLM inference backend to use and how to connect to it.
+# Copy this file to ~/.config/matric-memory/inference.toml and customize as needed.
+#
+# Alternatively, you can use environment variables (see docs/inference-configuration.md)
+
+[inference]
+# Default backend to use: "ollama" or "openai"
+default = "ollama"
+
+# Ollama backend configuration (local inference server)
+[inference.ollama]
+base_url = "http://localhost:11434"
+generation_model = "llama3.1:8b"
+embedding_model = "nomic-embed-text"
+
+# OpenAI-compatible backend configuration (optional)
+# Works with OpenAI, Azure OpenAI, LocalAI, vLLM, OpenRouter, etc.
+[inference.openai]
+base_url = "https://api.openai.com/v1"
+# Use environment variable substitution to keep secrets out of config files
+api_key = "${OPENAI_API_KEY}"
+generation_model = "gpt-4o-mini"
+embedding_model = "text-embedding-3-small"
+
+# === EXAMPLE CONFIGURATIONS ===
+
+# Local Ollama with different models:
+# [inference.ollama]
+# base_url = "http://localhost:11434"
+# generation_model = "qwen2.5-coder:7b"  # Good for code generation
+# embedding_model = "mxbai-embed-large"   # Higher quality embeddings
+
+# OpenRouter:
+# [inference.openai]
+# base_url = "https://openrouter.ai/api/v1"
+# api_key = "${OPENROUTER_API_KEY}"
+# generation_model = "anthropic/claude-3-sonnet"
+# embedding_model = "openai/text-embedding-3-small"
+
+# Azure OpenAI:
+# [inference.openai]
+# base_url = "https://your-resource.openai.azure.com/openai/deployments"
+# api_key = "${AZURE_OPENAI_KEY}"
+# generation_model = "gpt-4"
+# embedding_model = "text-embedding-ada-002"
+
+# LocalAI (no API key required):
+# [inference.openai]
+# base_url = "http://localhost:8080/v1"
+# api_key = ""
+# generation_model = "gpt-3.5-turbo"
+# embedding_model = "all-MiniLM-L6-v2"
+
+# === OPERATION-SPECIFIC ROUTING ===
+#
+# Route different operations to different backends.
+# Useful for using local Ollama for embeddings (privacy) and API for generation (quality).
+#
+# [inference.routing]
+# embedding = "ollama"   # Use local for privacy
+# generation = "openai"  # Use API for better quality
+
+# === AUTOMATIC FALLBACK ===
+#
+# Configure automatic failover when primary backend is unavailable.
+#
+# [inference.fallback]
+# enabled = true
+# chain = ["openai", "ollama"]  # Try OpenAI first, fall back to Ollama
+# max_retries = 2               # Retries per backend before moving to next
+# health_check_timeout_secs = 5 # Timeout for health checks
+
+# === COMBINED ROUTING + FALLBACK EXAMPLE ===
+#
+# Use OpenAI for generation with Ollama fallback, Ollama-only for embeddings:
+#
+# [inference.routing]
+# embedding = "ollama"
+# generation = "openai"
+#
+# [inference.fallback]
+# enabled = true
+# chain = ["openai", "ollama"]

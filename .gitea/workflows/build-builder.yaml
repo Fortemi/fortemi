@@ -1,0 +1,161 @@
+name: Build Builder Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'build/Dockerfile.builder'
+      - 'build/Dockerfile.testdb'
+      - 'build/scripts/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  BUILDER_IMAGE: fortemi/fortemi-builder
+  TESTDB_IMAGE: fortemi/fortemi-testdb
+
+jobs:
+  build-builder:
+    name: Build and Push Builder Image
+    runs-on: titan
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registry
+        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${REGISTRY} -u fortemi --password-stdin
+
+      - name: Build builder image
+        run: |
+          IMAGE="${REGISTRY}/${BUILDER_IMAGE}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "Building builder image..."
+          docker build \
+            -f build/Dockerfile.builder \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:latest \
+            -t ${IMAGE}:sha-${SHORT_SHA} \
+            .
+
+      - name: Build testdb image
+        run: |
+          IMAGE="${REGISTRY}/${TESTDB_IMAGE}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          echo "Building testdb image (pgvector + PostGIS)..."
+          docker build \
+            -f build/Dockerfile.testdb \
+            -t ${IMAGE}:latest \
+            -t ${IMAGE}:sha-${SHORT_SHA} \
+            .
+
+      - name: Test builder image
+        run: |
+          IMAGE="${REGISTRY}/${BUILDER_IMAGE}"
+
+          echo "Testing builder image..."
+
+          # Test Rust toolchain
+          docker run --rm ${IMAGE}:latest rustc --version
+          docker run --rm ${IMAGE}:latest cargo --version
+
+          # Test components
+          docker run --rm ${IMAGE}:latest cargo fmt --version
+          docker run --rm ${IMAGE}:latest cargo clippy --version
+
+          # Test sqlx
+          docker run --rm ${IMAGE}:latest sqlx --version
+
+          # Test Node.js
+          docker run --rm ${IMAGE}:latest node --version
+          docker run --rm ${IMAGE}:latest npm --version
+
+          # Test Docker CLI
+          docker run --rm ${IMAGE}:latest docker --version
+
+          echo "All builder tests passed!"
+
+      - name: Test testdb image
+        run: |
+          IMAGE="${REGISTRY}/${TESTDB_IMAGE}"
+
+          echo "Testing testdb image..."
+
+          # Start container and verify extensions
+          docker run -d --name testdb-verify \
+            -e POSTGRES_PASSWORD=test \
+            ${IMAGE}:latest
+
+          # Wait for PostgreSQL
+          for i in {1..30}; do
+            if docker exec testdb-verify pg_isready -U postgres 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          # Verify pgvector extension
+          docker exec testdb-verify psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          echo "pgvector: OK"
+
+          # Verify PostGIS extension
+          docker exec testdb-verify psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          echo "PostGIS: OK"
+
+          # Cleanup
+          docker stop testdb-verify
+          docker rm testdb-verify
+
+          echo "All testdb tests passed!"
+
+      - name: Push images
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          # Push builder image
+          BUILDER="${REGISTRY}/${BUILDER_IMAGE}"
+          echo "Pushing builder images..."
+          docker push ${BUILDER}:latest
+          docker push ${BUILDER}:sha-${SHORT_SHA}
+
+          # Push testdb image
+          TESTDB="${REGISTRY}/${TESTDB_IMAGE}"
+          echo "Pushing testdb images..."
+          docker push ${TESTDB}:latest
+          docker push ${TESTDB}:sha-${SHORT_SHA}
+
+          echo "Published images:"
+          echo "  - ${BUILDER}:latest"
+          echo "  - ${BUILDER}:sha-${SHORT_SHA}"
+          echo "  - ${TESTDB}:latest"
+          echo "  - ${TESTDB}:sha-${SHORT_SHA}"
+
+  # After builder is published, trigger CI to validate with new image
+  trigger-ci:
+    name: Trigger CI with New Builder
+    runs-on: titan
+    needs: build-builder
+    steps:
+      - name: Trigger CI workflows
+        run: |
+          echo "Triggering CI workflows to use new builder image..."
+
+          # Trigger ci-builder.yaml via workflow_dispatch
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci-builder.yaml/dispatches" \
+            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+
+          # Also trigger ci.yaml
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Accept: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yaml/dispatches" \
+            -d '{"ref":"main"}' || echo "Dispatch may not be supported, CI will run on next push"
+
+          echo "CI workflows triggered (or will run on next code push)"

@@ -1,0 +1,9 @@
+O português é uma língua românica falada por mais de 250 milhões de pessoas em todo o mundo.
+
+A pesquisa de texto completo com lematização permite que os usuários encontrem documentos mesmo quando pesquisam diferentes formas de palavras. Por exemplo, pesquisar "correr" também deve encontrar "corre", "correndo" e "correu". PostgreSQL suporta lematização portuguesa através de sua configuração de idioma.
+
+O processamento de linguagem natural (PLN) experimentou avanços notáveis nos últimos anos. Sistemas modernos podem traduzir, resumir e responder perguntas. A arquitetura Transformer desempenhou um papel fundamental nesses avanços.
+
+Os acentos portugueses incluem agudo (á, é), circunflexo (â, ê, ô), til (ã, õ) e crase (à). A cedilha (ç) também é usada. Existem diferenças entre o português europeu e o brasileiro.
+
+A inteligência artificial está transformando muitos aspectos de nossas vidas. O aprendizado de máquina requer grandes quantidades de dados de treinamento.

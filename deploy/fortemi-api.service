@@ -1,0 +1,20 @@
+[Unit]
+Description=Fortémi Memory API Server
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=roctinam
+Group=roctinam
+WorkingDirectory=/home/roctinam/dev/fortemi
+Environment=DATABASE_URL=postgres://matric:matric@localhost:5432/matric
+Environment=HOST=0.0.0.0
+Environment=PORT=3000
+Environment=RUST_LOG=matric_api=info,tower_http=info
+ExecStart=/home/roctinam/dev/fortemi/target/release/matric-api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

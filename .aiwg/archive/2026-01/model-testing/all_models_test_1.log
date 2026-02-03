@@ -1,0 +1,460 @@
+============================================================
+SMART CONTEXT & OUTPUT TESTING
+Started: 2026-01-18T10:13:49.316229
+============================================================
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: codellama:13b
+============================================================
+  Family: llama
+  Size: 13B
+  Testing 4K... OK (2073 tokens, 2.6s)
+  Testing 8K... OK (4121 tokens, 2.3s)
+  Testing 16K... OK (8217 tokens, 6.34s)
+  Testing 32K... OK (16384 tokens, 10.73s)
+  Testing 64K... NATIVE LIMIT FOUND: 16384 tokens
+
+  Native context limit: 16384 tokens
+  Recommended input:    14745 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (28.9 tok/s)
+    num_predict=2048... 1039 tokens (30.4 tok/s)
+    Output limit found: 1039
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: codestral:latest
+============================================================
+  Family: llama
+  Size: 22.2B
+  Testing 4K... OK (2058 tokens, 2.56s)
+  Testing 8K... OK (4106 tokens, 2.97s)
+  Testing 16K... OK (8202 tokens, 4.12s)
+  Testing 32K... OK (16394 tokens, 15.25s)
+  Testing 64K... OK (32768 tokens, 28.4s)
+  Testing 128K... NATIVE LIMIT FOUND: 32768 tokens
+
+  Native context limit: 32768 tokens
+  Recommended input:    29491 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (16.0 tok/s)
+    num_predict=2048... 2048 tokens (16.0 tok/s)
+    num_predict=4096... 1806 tokens (16.0 tok/s)
+    Output limit found: 1806
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: cogito:8b
+============================================================
+  Family: llama
+  Size: 8.0B
+  Testing 4K... OK (2063 tokens, 2.59s)
+  Testing 8K... OK (4111 tokens, 1.96s)
+  Testing 16K... OK (8207 tokens, 2.35s)
+  Testing 32K... OK (16399 tokens, 3.35s)
+  Testing 64K... OK (32783 tokens, 6.07s)
+  Testing 128K... OK (65551 tokens, 68.7s)
+  Testing 192K... OK (98319 tokens, 124.71s)
+
+  Native context limit: 98319 tokens
+  Recommended input:    88487 tokens
+
+  Testing output limit...
+    num_predict=1024... 570 tokens (21.5 tok/s)
+    num_predict=2048... 2048 tokens (27.8 tok/s)
+    num_predict=4096... 1756 tokens (28.0 tok/s)
+    Output limit found: 1756
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: command-r7b:latest
+============================================================
+  Family: cohere2
+  Size: 8.0B
+  Testing 4K... OK (2059 tokens, 7.69s)
+  Testing 8K... OK (4107 tokens, 2.23s)
+  Testing 16K... OK (8192 tokens, 2.73s)
+  Testing 32K... NATIVE LIMIT FOUND: 8192 tokens
+
+  Native context limit: 8192 tokens
+  Recommended input:    7372 tokens
+
+  Testing output limit...
+    num_predict=1024... 972 tokens (106.1 tok/s)
+    num_predict=2048... 2048 tokens (133.8 tok/s)
+    num_predict=4096... 853 tokens (132.4 tok/s)
+    Output limit found: 853
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: deepseek-coder-v2:16b
+============================================================
+  Family: deepseek2
+  Size: 15.7B
+  Testing 4K... OK (2061 tokens, 3.15s)
+  Testing 8K... OK (4109 tokens, 2.22s)
+  Testing 16K... OK (8205 tokens, 3.33s)
+  Testing 32K... OK (16397 tokens, 5.32s)
+  Testing 64K... FAILED - HTTP 500
+
+  Native context limit: 16397 tokens
+  Recommended input:    14757 tokens
+
+  Testing output limit...
+    num_predict=1024... 825 tokens (178.5 tok/s)
+    num_predict=2048... 1350 tokens (237.1 tok/s)
+    num_predict=4096... 1023 tokens (241.8 tok/s)
+    Output limit found: 1023
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: deepseek-r1:14b
+============================================================
+  Family: qwen2
+  Size: 14.8B
+  Testing 4K... OK (2056 tokens, 3.76s)
+  Testing 8K... OK (4104 tokens, 2.63s)
+  Testing 16K... OK (8200 tokens, 3.41s)
+  Testing 32K... OK (16392 tokens, 5.42s)
+  Testing 64K... OK (32776 tokens, 36.48s)
+  Testing 128K... OK (65544 tokens, 160.43s)
+  Testing 192K... OK (98312 tokens, 277.85s)
+
+  Native context limit: 98312 tokens
+  Recommended input:    88480 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (8.5 tok/s)
+    num_predict=2048... 1518 tokens (9.2 tok/s)
+    num_predict=4096... 2824 tokens (8.7 tok/s)
+    num_predict=8192... 2038 tokens (8.9 tok/s)
+    Output limit found: 2038
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: exaone-deep:7.8b
+============================================================
+  Family: exaone
+  Size: 7.8B
+  Testing 4K... OK (2066 tokens, 2.11s)
+  Testing 8K... OK (4114 tokens, 6.99s)
+  Testing 16K... OK (8210 tokens, 2.29s)
+  Testing 32K... OK (16402 tokens, 3.31s)
+  Testing 64K... OK (32768 tokens, 6.06s)
+  Testing 128K... NATIVE LIMIT FOUND: 32768 tokens
+
+  Native context limit: 32768 tokens
+  Recommended input:    29491 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (135.0 tok/s)
+    num_predict=2048... 2048 tokens (165.3 tok/s)
+    num_predict=4096... 3464 tokens (162.8 tok/s)
+    num_predict=8192... 3404 tokens (162.9 tok/s)
+    Output limit found: 3404
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: gemma2:9b
+============================================================
+  Family: gemma2
+  Size: 9.2B
+  Testing 4K... OK (2061 tokens, 2.29s)
+  Testing 8K... OK (4109 tokens, 2.13s)
+  Testing 16K... OK (8192 tokens, 2.65s)
+  Testing 32K... NATIVE LIMIT FOUND: 8192 tokens
+
+  Native context limit: 8192 tokens
+  Recommended input:    7372 tokens
+
+  Testing output limit...
+    num_predict=1024... 434 tokens (80.1 tok/s)
+    num_predict=2048... 416 tokens (115.9 tok/s)
+    Output limit found: 416
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: gpt-oss:20b
+============================================================
+  Family: gptoss
+  Size: 20.9B
+  Testing 4K... OK (2120 tokens, 4.06s)
+  Testing 8K... OK (4168 tokens, 0.41s)
+  Testing 16K... OK (8264 tokens, 4.07s)
+  Testing 32K... OK (16456 tokens, 5.03s)
+  Testing 64K... OK (32840 tokens, 7.18s)
+  Testing 128K... OK (65608 tokens, 12.79s)
+  Testing 192K... OK (98376 tokens, 21.63s)
+
+  Native context limit: 98376 tokens
+  Recommended input:    88538 tokens
+
+  Testing output limit...
+    num_predict=1024... 1024 tokens (110.5 tok/s)
+    num_predict=2048... 2048 tokens (179.0 tok/s)
+    num_predict=4096... 4096 tokens (179.0 tok/s)
+    num_predict=8192... 7611 tokens (177.3 tok/s)
+    num_predict=16384... 6902 tokens (177.5 tok/s)
+    Output limit found: 6902
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: granite-code:8b
+============================================================
+  Family: llama
+  Size: 8.1B
+  Testing 4K... OK (2060 tokens, 3.34s)
+  Testing 8K... OK (4108 tokens, 1.85s)
+  Testing 16K... OK (8204 tokens, 2.46s)
+  Testing 32K... OK (16396 tokens, 3.56s)
+  Testing 64K... OK (32780 tokens, 6.49s)
+  Testing 128K... OK (65548 tokens, 75.12s)
+  Testing 192K... OK (98316 tokens, 139.52s)
+
+  Native context limit: 98316 tokens
+  Recommended input:    88484 tokens
+
+  Testing output limit...
+    num_predict=1024... 281 tokens (16.2 tok/s)
+    num_predict=2048... 76 tokens (27.1 tok/s)
+    Output limit found: 76
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: granite4:3b
+============================================================
+  Family: granite
+  Size: 3.4B
+  Testing 4K... OK (2083 tokens, 1.27s)
+  Testing 8K... OK (4131 tokens, 1.54s)
+  Testing 16K... OK (8227 tokens, 1.83s)
+  Testing 32K... OK (16419 tokens, 7.73s)
+  Testing 64K... OK (32803 tokens, 5.16s)
+  Testing 128K... OK (65571 tokens, 31.47s)
+  Testing 192K... OK (98339 tokens, 56.9s)
+
+  Native context limit: 98339 tokens
+  Recommended input:    88505 tokens
+
+  Testing output limit...
+    num_predict=1024... 654 tokens (76.5 tok/s)
+    num_predict=2048... 1277 tokens (244.3 tok/s)
+    num_predict=4096... 935 tokens (242.9 tok/s)
+    Output limit found: 935
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+Testing: hermes3:8b
+============================================================
+  Family: llama
+  Size: 8.0B
+  Testing 4K... OK (2062 tokens, 2.1s)
+  Testing 8K... OK (4110 tokens, 2.16s)
+  Testing 16K... OK (8206 tokens, 2.28s)
+  Testing 32K... OK (16398 tokens, 8.48s)
+  Testing 64K... OK (32782 tokens, 5.96s)
+  Testing 128K... OK (65550 tokens, 66.77s)
+  Testing 192K... OK (98318 tokens, 118.01s)
+
+  Native context limit: 98318 tokens
+  Recommended input:    88486 tokens
+
+  Testing output limit...
+    num_predict=1024... 970 tokens (24.4 tok/s)
+    num_predict=2048... 1339 tokens (29.0 tok/s)
+    num_predict=4096... 1232 tokens (29.2 tok/s)
+    Output limit found: 1232
+
+============================================================
+Testing: 
+============================================================
+  Family: unknown
+  Size: unknown
+  Testing 4K... FAILED - HTTP 404
+
+  Native context limit: 0 tokens
+  Recommended input:    0 tokens
+
+  Testing output limit...
+    num_predict=1024... FAILED
+
+============================================================
+SUMMARY
+============================================================
+
+Model                       Native CTX   Max Output Output tok/s
+-----------------------------------------------------------------
+                                     0            0            0
+codellama:13b                    16384         1024         30.4
+                                     0            0            0
+codestral:latest                 32768         2048         16.0
+                                     0            0            0
+cogito:8b                        98319         2048         28.0
+                                     0            0            0
+command-r7b:latest                8192         2048        132.4
+                                     0            0            0
+deepseek-coder-v2:16b            16397         1350        241.8
+                                     0            0            0
+deepseek-r1:14b                  98312         2824          8.9
+                                     0            0            0
+exaone-deep:7.8b                 32768         3464        162.9
+                                     0            0            0
+gemma2:9b                         8192          434        115.9
+                                     0            0            0
+gpt-oss:20b                      98376         7611        177.5
+                                     0            0            0
+granite-code:8b                  98316          281         27.1
+                                     0            0            0
+granite4:3b                      98339         1277        242.9
+                                     0            0            0
+hermes3:8b                       98318         1339         29.2
+                                     0            0            0
+
+Results saved to: /home/roctinam/dev/matric-memory/docs/research/smart_context_results_20260118_110820.json

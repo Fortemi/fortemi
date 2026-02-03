@@ -1,0 +1,9 @@
+Le français est une langue romane parlée par environ 300 millions de personnes dans le monde.
+
+La recherche en texte intégral avec normalisation permet aux utilisateurs de trouver des documents même lorsqu'ils recherchent différentes formes de mots. Par exemple, la recherche de "courir" devrait également correspondre à "cours", "courons" et "couru". PostgreSQL prend en charge la normalisation française via sa configuration linguistique.
+
+Le traitement du langage naturel (NLP) a connu des progrès remarquables ces dernières années. Les systèmes modernes peuvent traduire, résumer et répondre aux questions. L'architecture Transformer a joué un rôle clé dans ces avancées.
+
+Les accents français incluent l'aigu (é), le grave (è), le circonflexe (ê) et la cédille (ç). Ces signes diacritiques sont essentiels pour la prononciation et le sens correct.
+
+L'intelligence artificielle transforme de nombreux aspects de nos vies. L'apprentissage automatique nécessite de grandes quantités de données d'entraînement. La qualité des données impacte directement les performances du modèle.

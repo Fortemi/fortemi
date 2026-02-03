@@ -1,0 +1,1284 @@
+[
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:13:49.317590",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "codellama:13b",
+    "timestamp": "2026-01-18T10:13:49.334271",
+    "info": {
+      "parameters": "rope_frequency_base            1e+06\nstop                           \"[INST]\"\nstop                           \"[/INST]\"\nstop                           \"<<SYS>>\"\nstop                           \"<</SYS>>\"",
+      "family": "llama",
+      "parameter_size": "13B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2073,
+        "truncated": false,
+        "time_s": 2.6,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4121,
+        "truncated": false,
+        "time_s": 2.3,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8217,
+        "truncated": false,
+        "time_s": 6.34,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16384,
+        "truncated": false,
+        "time_s": 10.73,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 16384,
+        "truncated": true,
+        "time_s": 10.89,
+        "num_ctx": 65536
+      }
+    ],
+    "native_context": 16384,
+    "hardware_limit": "not reached",
+    "recommended_input": 14745,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 35.4,
+          "tok_per_sec": 28.9
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1039,
+          "time_s": 34.14,
+          "tok_per_sec": 30.4
+        }
+      ],
+      "max_output": 1024
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:15:31.733902",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "codestral:latest",
+    "timestamp": "2026-01-18T10:15:31.746487",
+    "info": {
+      "parameters": "stop                           \"[INST]\"\nstop                           \"[/INST]\"\nstop                           \"[PREFIX]\"\nstop                           \"[MIDDLE]\"\nstop                           \"[SUFFIX]\"",
+      "family": "llama",
+      "parameter_size": "22.2B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2058,
+        "truncated": false,
+        "time_s": 2.56,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4106,
+        "truncated": false,
+        "time_s": 2.97,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8202,
+        "truncated": false,
+        "time_s": 4.12,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16394,
+        "truncated": false,
+        "time_s": 15.25,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 28.4,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 28.85,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 64.15,
+          "tok_per_sec": 16.0
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 128.2,
+          "tok_per_sec": 16.0
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1806,
+          "time_s": 112.75,
+          "tok_per_sec": 16.0
+        }
+      ],
+      "max_output": 2048
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:21:59.007765",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "cogito:8b",
+    "timestamp": "2026-01-18T10:21:59.093007",
+    "info": {
+      "parameters": "",
+      "family": "llama",
+      "parameter_size": "8.0B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2063,
+        "truncated": false,
+        "time_s": 2.59,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4111,
+        "truncated": false,
+        "time_s": 1.96,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8207,
+        "truncated": false,
+        "time_s": 2.35,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16399,
+        "truncated": false,
+        "time_s": 3.35,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32783,
+        "truncated": false,
+        "time_s": 6.07,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65551,
+        "truncated": false,
+        "time_s": 68.7,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98319,
+        "truncated": false,
+        "time_s": 124.71,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98319,
+    "hardware_limit": "not reached",
+    "recommended_input": 88487,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 570,
+          "time_s": 26.52,
+          "tok_per_sec": 21.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 73.63,
+          "tok_per_sec": 27.8
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1756,
+          "time_s": 62.82,
+          "tok_per_sec": 28.0
+        }
+      ],
+      "max_output": 2048
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:28:11.809797",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "command-r7b:latest",
+    "timestamp": "2026-01-18T10:28:11.913568",
+    "info": {
+      "parameters": "stop                           \"<|START_OF_TURN_TOKEN|>\"\nstop                           \"<|END_OF_TURN_TOKEN|>\"\nstop                           \"<|END_RESPONSE|>\"",
+      "family": "cohere2",
+      "parameter_size": "8.0B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2059,
+        "truncated": false,
+        "time_s": 7.69,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4107,
+        "truncated": false,
+        "time_s": 2.23,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8192,
+        "truncated": false,
+        "time_s": 2.73,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 8192,
+        "truncated": true,
+        "time_s": 2.85,
+        "num_ctx": 32768
+      }
+    ],
+    "native_context": 8192,
+    "hardware_limit": "not reached",
+    "recommended_input": 7372,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 972,
+          "time_s": 9.16,
+          "tok_per_sec": 106.1
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 15.31,
+          "tok_per_sec": 133.8
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 853,
+          "time_s": 6.44,
+          "tok_per_sec": 132.4
+        }
+      ],
+      "max_output": 2048
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:28:58.337549",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "deepseek-coder-v2:16b",
+    "timestamp": "2026-01-18T10:28:58.417218",
+    "info": {
+      "parameters": "stop                           \"User:\"\nstop                           \"Assistant:\"",
+      "family": "deepseek2",
+      "parameter_size": "15.7B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2061,
+        "truncated": false,
+        "time_s": 3.15,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4109,
+        "truncated": false,
+        "time_s": 2.22,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8205,
+        "truncated": false,
+        "time_s": 3.33,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16397,
+        "truncated": false,
+        "time_s": 5.32,
+        "num_ctx": 32768
+      },
+      {
+        "success": false,
+        "error": "HTTP 500",
+        "num_ctx": 65536
+      }
+    ],
+    "native_context": 16397,
+    "hardware_limit": 16397,
+    "recommended_input": 14757,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 825,
+          "time_s": 4.62,
+          "tok_per_sec": 178.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1350,
+          "time_s": 5.69,
+          "tok_per_sec": 237.1
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1023,
+          "time_s": 4.23,
+          "tok_per_sec": 241.8
+        }
+      ],
+      "max_output": 1350
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:29:30.432435",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "deepseek-r1:14b",
+    "timestamp": "2026-01-18T10:29:30.534911",
+    "info": {
+      "parameters": "stop                           \"<\uff5cbegin\u2581of\u2581sentence\uff5c>\"\nstop                           \"<\uff5cend\u2581of\u2581sentence\uff5c>\"\nstop                           \"<\uff5cUser\uff5c>\"\nstop                           \"<\uff5cAssistant\uff5c>\"",
+      "family": "qwen2",
+      "parameter_size": "14.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2056,
+        "truncated": false,
+        "time_s": 3.76,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4104,
+        "truncated": false,
+        "time_s": 2.63,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8200,
+        "truncated": false,
+        "time_s": 3.41,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16392,
+        "truncated": false,
+        "time_s": 5.42,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32776,
+        "truncated": false,
+        "time_s": 36.48,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65544,
+        "truncated": false,
+        "time_s": 160.43,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98312,
+        "truncated": false,
+        "time_s": 277.85,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98312,
+    "hardware_limit": "not reached",
+    "recommended_input": 88480,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 120.32,
+          "tok_per_sec": 8.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1518,
+          "time_s": 165.4,
+          "tok_per_sec": 9.2
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 2824,
+          "time_s": 326.36,
+          "tok_per_sec": 8.7
+        },
+        {
+          "num_predict": 8192,
+          "actual_output": 2038,
+          "time_s": 228.47,
+          "tok_per_sec": 8.9
+        }
+      ],
+      "max_output": 2824
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:51:41.081883",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "exaone-deep:7.8b",
+    "timestamp": "2026-01-18T10:51:41.142910",
+    "info": {
+      "parameters": "repeat_penalty                 1\nstop                           \"[|endofturn|]\"\ntemperature                    0.6\ntop_p                          0.95",
+      "family": "exaone",
+      "parameter_size": "7.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2066,
+        "truncated": false,
+        "time_s": 2.11,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4114,
+        "truncated": false,
+        "time_s": 6.99,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8210,
+        "truncated": false,
+        "time_s": 2.29,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16402,
+        "truncated": false,
+        "time_s": 3.31,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 6.06,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 6.2,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 7.59,
+          "tok_per_sec": 135.0
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 12.39,
+          "tok_per_sec": 165.3
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 3464,
+          "time_s": 21.28,
+          "tok_per_sec": 162.8
+        },
+        {
+          "num_predict": 8192,
+          "actual_output": 3404,
+          "time_s": 20.9,
+          "tok_per_sec": 162.9
+        }
+      ],
+      "max_output": 3464
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:53:10.265679",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "gemma2:9b",
+    "timestamp": "2026-01-18T10:53:10.389786",
+    "info": {
+      "parameters": "stop                           \"<start_of_turn>\"\nstop                           \"<end_of_turn>\"",
+      "family": "gemma2",
+      "parameter_size": "9.2B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2061,
+        "truncated": false,
+        "time_s": 2.29,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4109,
+        "truncated": false,
+        "time_s": 2.13,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8192,
+        "truncated": false,
+        "time_s": 2.65,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 8192,
+        "truncated": true,
+        "time_s": 2.66,
+        "num_ctx": 32768
+      }
+    ],
+    "native_context": 8192,
+    "hardware_limit": "not reached",
+    "recommended_input": 7372,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 434,
+          "time_s": 5.41,
+          "tok_per_sec": 80.1
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 416,
+          "time_s": 3.59,
+          "tok_per_sec": 115.9
+        }
+      ],
+      "max_output": 434
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:53:29.129963",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "gpt-oss:20b",
+    "timestamp": "2026-01-18T10:53:29.315687",
+    "info": {
+      "parameters": "temperature                    1",
+      "family": "gptoss",
+      "parameter_size": "20.9B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2120,
+        "truncated": false,
+        "time_s": 4.06,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4168,
+        "truncated": false,
+        "time_s": 0.41,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8264,
+        "truncated": false,
+        "time_s": 4.07,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16456,
+        "truncated": false,
+        "time_s": 5.03,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32840,
+        "truncated": false,
+        "time_s": 7.18,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65608,
+        "truncated": false,
+        "time_s": 12.79,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98376,
+        "truncated": false,
+        "time_s": 21.63,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98376,
+    "hardware_limit": "not reached",
+    "recommended_input": 88538,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 9.26,
+          "tok_per_sec": 110.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 11.44,
+          "tok_per_sec": 179.0
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 4096,
+          "time_s": 22.88,
+          "tok_per_sec": 179.0
+        },
+        {
+          "num_predict": 8192,
+          "actual_output": 7611,
+          "time_s": 42.93,
+          "tok_per_sec": 177.3
+        },
+        {
+          "num_predict": 16384,
+          "actual_output": 6902,
+          "time_s": 38.88,
+          "tok_per_sec": 177.5
+        }
+      ],
+      "max_output": 7611
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T10:56:29.873810",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "granite-code:8b",
+    "timestamp": "2026-01-18T10:56:29.918344",
+    "info": {
+      "parameters": "stop                           \"System:\"\nstop                           \"Question:\"\nstop                           \"Answer:\"",
+      "family": "llama",
+      "parameter_size": "8.1B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2060,
+        "truncated": false,
+        "time_s": 3.34,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4108,
+        "truncated": false,
+        "time_s": 1.85,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8204,
+        "truncated": false,
+        "time_s": 2.46,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16396,
+        "truncated": false,
+        "time_s": 3.56,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32780,
+        "truncated": false,
+        "time_s": 6.49,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65548,
+        "truncated": false,
+        "time_s": 75.12,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98316,
+        "truncated": false,
+        "time_s": 139.52,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98316,
+    "hardware_limit": "not reached",
+    "recommended_input": 88484,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 281,
+          "time_s": 17.34,
+          "tok_per_sec": 16.2
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 76,
+          "time_s": 2.81,
+          "tok_per_sec": 27.1
+        }
+      ],
+      "max_output": 281
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T11:00:42.417112",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "granite4:3b",
+    "timestamp": "2026-01-18T11:00:42.502634",
+    "info": {
+      "parameters": "",
+      "family": "granite",
+      "parameter_size": "3.4B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2083,
+        "truncated": false,
+        "time_s": 1.27,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4131,
+        "truncated": false,
+        "time_s": 1.54,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8227,
+        "truncated": false,
+        "time_s": 1.83,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16419,
+        "truncated": false,
+        "time_s": 7.73,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32803,
+        "truncated": false,
+        "time_s": 5.16,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65571,
+        "truncated": false,
+        "time_s": 31.47,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98339,
+        "truncated": false,
+        "time_s": 56.9,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98339,
+    "hardware_limit": "not reached",
+    "recommended_input": 88505,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 654,
+          "time_s": 8.55,
+          "tok_per_sec": 76.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1277,
+          "time_s": 5.23,
+          "tok_per_sec": 244.3
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 935,
+          "time_s": 3.85,
+          "tok_per_sec": 242.9
+        }
+      ],
+      "max_output": 1277
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T11:02:46.054965",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  },
+  {
+    "model": "hermes3:8b",
+    "timestamp": "2026-01-18T11:02:46.193574",
+    "info": {
+      "parameters": "stop                           \"<|im_start|>\"\nstop                           \"<|im_end|>\"",
+      "family": "llama",
+      "parameter_size": "8.0B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2062,
+        "truncated": false,
+        "time_s": 2.1,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4110,
+        "truncated": false,
+        "time_s": 2.16,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8206,
+        "truncated": false,
+        "time_s": 2.28,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16398,
+        "truncated": false,
+        "time_s": 8.48,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32782,
+        "truncated": false,
+        "time_s": 5.96,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65550,
+        "truncated": false,
+        "time_s": 66.77,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98318,
+        "truncated": false,
+        "time_s": 118.01,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98318,
+    "hardware_limit": "not reached",
+    "recommended_input": 88486,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 970,
+          "time_s": 39.74,
+          "tok_per_sec": 24.4
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1339,
+          "time_s": 46.2,
+          "tok_per_sec": 29.0
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1232,
+          "time_s": 42.18,
+          "tok_per_sec": 29.2
+        }
+      ],
+      "max_output": 1339
+    }
+  },
+  {
+    "model": "",
+    "timestamp": "2026-01-18T11:08:20.090010",
+    "info": {},
+    "tests": [
+      {
+        "success": false,
+        "error": "HTTP 404",
+        "num_ctx": 4096
+      }
+    ],
+    "native_context": 0,
+    "hardware_limit": "not reached",
+    "recommended_input": 0,
+    "output": {
+      "tests": [],
+      "max_output": 0
+    }
+  }
+]

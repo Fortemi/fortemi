@@ -1,0 +1,119 @@
+--- index.js.orig	2026-01-18 00:00:00.000000000 +0000
++++ index.js	2026-01-18 00:00:00.000000000 +0000
+@@ -91,8 +91,13 @@
+           break;
+         }
+
+-        case "get_note":
+-          result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
++        case "get_note": {
++          const params = new URLSearchParams();
++          if (args.full_document) params.set("full_document", "true");
++          const query = params.toString() ? `?${params}` : "";
++          result = await apiRequest("GET", `/api/v1/notes/${args.id}${query}`);
+           break;
++        }
+
+         case "create_note":
+           result = await apiRequest("POST", "/api/v1/notes", {
+@@ -130,6 +135,8 @@
+           if (args.limit) params.set("limit", args.limit);
+           if (args.mode) params.set("mode", args.mode);
+           if (args.set) params.set("set", args.set);
++          if (args.deduplicate_chains !== undefined) params.set("deduplicate_chains", args.deduplicate_chains);
++          if (args.expand_chains) params.set("expand_chains", "true");
+           result = await apiRequest("GET", `/api/v1/search?${params}`);
+           break;
+         }
+@@ -143,6 +150,15 @@
+           result = { success: true };
+           break;
+
++        case "get_document_chain": {
++          const params = new URLSearchParams();
++          if (args.include_content !== undefined) params.set("include_content", args.include_content);
++          const query = params.toString() ? `?${params}` : "";
++          result = await apiRequest("GET", `/api/v1/notes/${args.chain_id}/chain${query}`);
++          break;
++        }
++
+         case "get_note_links":
+           result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
+           break;
+@@ -826,11 +842,17 @@
+ - Tags (user + AI-generated)
+ - Semantic links to related notes
+ - Metadata and timestamps
+
++CHUNK HANDLING:
++- If the note is part of a chunked document, you'll receive the individual chunk by default
++- Set full_document=true to get the complete stitched document instead
++- Use get_document_chain to explore all chunks in a document
++
+ Use this to retrieve the full context of a note for analysis or reference.`,
+     inputSchema: {
+       type: "object",
+       properties: {
+-        id: { type: "string", description: "UUID of the note" },
++        id: { type: "string", description: "UUID of the note (chunk ID or chain ID)" },
++        full_document: { type: "boolean", default: false, description: "If true and note is chunked, return full stitched document" },
+       },
+       required: ["id"],
+     },
+@@ -850,6 +872,11 @@
+ - Omit 'set' to search across all embeddings (default behavior)
+ - Use list_embedding_sets to discover available sets
+
++CHUNK HANDLING:
++- By default, chunks from the same document are deduplicated (deduplicate_chains=true)
++- Set expand_chains=true to get full document content for matches
++- Search operates on chunk level but can return document-level results
++
+ Returns ranked results with:
+ - note_id: UUID of the matching note
+ - score: Relevance score (0.0-1.0)
+@@ -864,6 +891,10 @@
+         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 },
+         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
+         set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
++        deduplicate_chains: { type: "boolean", default: true, description: "Group chunk matches from same document (default: true)" },
++        expand_chains: { type: "boolean", default: false, description: "Return full document content for matches (default: false)" },
+       },
+       required: ["query"],
+     },
+@@ -902,6 +933,33 @@
+       required: ["id"],
+     },
+   },
++  {
++    name: "get_document_chain",
++    description: `Get all chunks in a document chain for navigation.
++
++When a large document is chunked for embedding, all chunks share a common chain_id.
++This tool retrieves metadata about all chunks in the chain, allowing you to:
++- Navigate between chunks sequentially
++- Understand document structure
++- Fetch specific chunks by index
++- Optionally include chunk content
++
++RETURNS:
++- chain_id: The UUID linking all chunks
++- chunks: Array of chunk metadata (id, index, start/end offsets)
++- If include_content=true, each chunk includes its text content
++
++USE WHEN:
++- You need to understand document structure
++- Navigating through long documents chunk by chunk
++- Assembling a partial document from specific chunks`,
++    inputSchema: {
++      type: "object",
++      properties: {
++        chain_id: { type: "string", description: "Chain UUID or any chunk ID in the chain" },
++        include_content: { type: "boolean", default: false, description: "Include full text content of each chunk (default: false)" },
++      },
++      required: ["chain_id"],
++    },
++  },
+   {
+     name: "export_note",
+     description: `Export a note as markdown with optional YAML frontmatter.

@@ -1,0 +1,81 @@
+[package]
+name = "matric-api"
+description = "HTTP API server for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "matric-api"
+path = "src/main.rs"
+
+[dependencies]
+# Internal
+matric-core.workspace = true
+matric-db.workspace = true
+matric-search.workspace = true
+matric-jobs.workspace = true
+matric-inference.workspace = true
+
+# Web framework
+axum = { version = "0.7", features = ["json", "tower-log", "multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
+governor = "0.6"
+
+# Database
+sqlx.workspace = true
+
+# Vector support
+pgvector.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Utilities
+base64.workspace = true
+urlencoding = "2.1"
+regex = "1"
+kamadak-exif = "0.5"
+lru = "0.12"
+
+# Redis cache
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Archive support
+tar = "0.4"
+flate2 = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Async
+tokio = { workspace = true, features = ["full"] }
+async-trait.workspace = true
+futures.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Configuration
+dotenvy = "0.15"
+
+# OpenAPI
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+
+[dev-dependencies]
+tempfile = "3.24.0"

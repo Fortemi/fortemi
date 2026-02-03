@@ -1,0 +1,72 @@
+{
+  "version": "1.0",
+  "description": "SKOS concepts for UAT testing",
+  "scheme": {
+    "notation": "UAT-TEST",
+    "title": "UAT Test Taxonomy",
+    "description": "Taxonomy for UAT testing purposes"
+  },
+  "concepts": [
+    {
+      "notation": "TECH",
+      "pref_label": "Technology",
+      "definition": "Technology-related concepts",
+      "is_top_concept": true
+    },
+    {
+      "notation": "PROG",
+      "pref_label": "Programming",
+      "definition": "Software programming concepts",
+      "broader": "TECH"
+    },
+    {
+      "notation": "RUST",
+      "pref_label": "Rust",
+      "alt_labels": ["Rust Language", "Rustlang"],
+      "definition": "The Rust programming language",
+      "broader": "PROG"
+    },
+    {
+      "notation": "PYTHON",
+      "pref_label": "Python",
+      "alt_labels": ["Python Language", "Py"],
+      "definition": "The Python programming language",
+      "broader": "PROG",
+      "related": ["ML"]
+    },
+    {
+      "notation": "DB",
+      "pref_label": "Databases",
+      "definition": "Database systems and concepts",
+      "broader": "TECH"
+    },
+    {
+      "notation": "SQL",
+      "pref_label": "SQL",
+      "alt_labels": ["Structured Query Language"],
+      "definition": "SQL database query language",
+      "broader": "DB"
+    },
+    {
+      "notation": "AI",
+      "pref_label": "Artificial Intelligence",
+      "alt_labels": ["AI"],
+      "definition": "AI and machine learning concepts",
+      "is_top_concept": true
+    },
+    {
+      "notation": "ML",
+      "pref_label": "Machine Learning",
+      "alt_labels": ["ML", "Statistical Learning"],
+      "definition": "Machine learning algorithms and techniques",
+      "broader": "AI",
+      "related": ["PYTHON"]
+    },
+    {
+      "notation": "DL",
+      "pref_label": "Deep Learning",
+      "definition": "Neural network based learning",
+      "broader": "ML"
+    }
+  ]
+}

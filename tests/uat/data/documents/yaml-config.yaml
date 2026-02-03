@@ -1,0 +1,37 @@
+name: matric-memory-test-config
+version: 1.0.0
+
+database:
+  host: localhost
+  port: 5432
+  name: matric_test
+  pool:
+    min_connections: 2
+    max_connections: 10
+    timeout_seconds: 30
+
+embedding:
+  model: nomic-embed-text-v1.5
+  dimensions: 768
+  truncate_dim: 256
+  batch_size: 100
+
+search:
+  fts_script_detection: true
+  fts_trigram_fallback: true
+  fts_bigram_cjk: true
+  default_limit: 50
+  max_limit: 500
+
+features:
+  - semantic_search
+  - provenance_tracking
+  - multilingual_fts
+  - document_chunking
+
+logging:
+  level: info
+  format: json
+  outputs:
+    - stdout
+    - file

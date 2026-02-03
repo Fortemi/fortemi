@@ -1,0 +1,341 @@
+
+> @matric/memory-mcp@2026.1.12 test
+> node --test tests/*.test.js
+
+Loaded 117 tools for annotation validation
+
+
+✓ All annotation tests passed
+
+=== Annotation Coverage Statistics ===
+Total tools: 117
+
+Classification breakdown:
+  Read-only: 44
+  Destructive: 13
+  Safe-write: 26
+  Unknown: 34
+
+Annotation status:
+  With annotations: 117 (100.0%)
+  Without annotations: 0
+  Properly annotated: 114 (97.4%)
+
+Tools with incorrect annotations (3):
+  - delete_note (destructive): Expected destructiveHint: true, got false
+  - delete_collection (destructive): Expected destructiveHint: true, got false
+  - delete_template (destructive): Expected destructiveHint: true, got false
+▶ Read-Only Tool Annotations
+  ✔ all read-only tools have readOnlyHint: true (0.543458ms)
+  ✔ read-only tools do not have destructiveHint (0.201123ms)
+✔ Read-Only Tool Annotations (1.128205ms)
+▶ Destructive Tool Annotations
+  ✖ all destructive tools have destructiveHint: true (0.628239ms)
+  ✔ destructive tools do not have readOnlyHint (0.200128ms)
+✖ Destructive Tool Annotations (0.931434ms)
+▶ Safe Write Tool Annotations
+  ✔ all safe write tools have destructiveHint: false (0.206744ms)
+  ✔ safe write tools do not have readOnlyHint (0.171689ms)
+✔ Safe Write Tool Annotations (0.461951ms)
+▶ Annotation Consistency
+  ✔ no tool has both readOnlyHint and destructiveHint (0.095966ms)
+  ✔ annotation values are boolean when present (0.077055ms)
+✔ Annotation Consistency (0.25651ms)
+▶ Annotation Coverage Report
+  ✔ generate annotation coverage statistics (0.46704ms)
+✔ Annotation Coverage Report (0.512552ms)
+▶ Annotation Best Practices
+  ✔ suggest annotations for unannotated tools (0.134781ms)
+✔ Annotation Best Practices (0.178557ms)
+
+✓ All error response tests passed
+
+=== Error Response Coverage ===
+Total error types tested: 5
+Status codes covered: 404, 400, 401, 403, 500
+4xx client errors: 4
+5xx server errors: 1
+Example error messages: 14
+▶ Error Message Format
+  ✔ error messages follow standard format (0.550909ms)
+  ✔ error messages contain meaningful descriptions (0.143649ms)
+✔ Error Message Format (1.098563ms)
+▶ 404 Not Found Errors
+  ✔ get_note returns 404 for non-existent note (0.100912ms)
+  ✔ get_collection returns 404 for non-existent collection (0.059571ms)
+  ✔ get_template returns 404 for non-existent template (0.065368ms)
+  ✔ get_embedding_set returns 404 for non-existent set (0.051719ms)
+✔ 404 Not Found Errors (0.389092ms)
+▶ 400 Bad Request Errors
+  ✔ create_note returns 400 for missing content (0.139889ms)
+  ✔ update_note returns 400 for invalid UUID (0.118993ms)
+  ✔ set_note_tags returns 400 for invalid tags format (0.081504ms)
+  ✔ create_template returns 400 for invalid template structure (0.12902ms)
+  ✔ bulk_create_notes returns 400 when exceeding batch limit (0.078326ms)
+✔ 400 Bad Request Errors (1.132194ms)
+▶ 401 Unauthorized Errors
+  ✔ requests without auth token return 401 (0.070382ms)
+  ✔ requests with invalid token return 401 (0.045752ms)
+✔ 401 Unauthorized Errors (0.150029ms)
+▶ 403 Forbidden Errors
+  ✔ accessing restricted resources returns 403 (0.057825ms)
+✔ 403 Forbidden Errors (0.081413ms)
+▶ 500 Internal Server Error
+  ✔ server errors return 500 (0.051045ms)
+✔ 500 Internal Server Error (0.071354ms)
+▶ Network Errors
+  ✔ network failures are handled gracefully (0.050386ms)
+  ✔ timeouts are handled gracefully (0.040655ms)
+✔ Network Errors (0.115599ms)
+▶ Error Handling Best Practices
+  ✔ successful requests do not throw errors (0.051163ms)
+  ✔ errors contain enough context for debugging (0.091743ms)
+  ✔ errors are catchable and don't crash the process (0.174282ms)
+✔ Error Handling Best Practices (0.354342ms)
+▶ Error Response Coverage
+  ✔ report error handling coverage (0.148481ms)
+✔ Error Response Coverage (0.176275ms)
+Loaded 117 tools for validation
+
+
+✓ All schema validation tests passed
+
+Note: 52 UUID properties could benefit from format: 'uuid'
+
+=== Schema Coverage Statistics ===
+Total tools: 117
+Tools with required fields: 90 (76.9%)
+Tools with optional fields: 53 (45.3%)
+Tools with empty schemas: 13
+Tools with enum properties: 22
+Tools with array properties: 23
+Tools with nested objects: 5
+Average properties per tool: 2.24
+▶ Tool Schema Structure
+  ✔ all tools have required top-level fields (0.330828ms)
+  ✔ all tool names are unique (0.090374ms)
+  ✔ all tool names follow naming convention (0.113547ms)
+  ✔ all tool descriptions are non-empty and meaningful (0.088358ms)
+✔ Tool Schema Structure (1.049587ms)
+▶ Tool InputSchema Validation
+  ✖ all inputSchemas have valid JSON Schema structure (0.661848ms)
+  ✔ all inputSchemas have type 'object' at root (0.076627ms)
+  ✔ all required fields exist in properties (0.100685ms)
+  ✖ all property schemas have type field (0.204211ms)
+  ✔ enum properties have valid enum arrays (0.165492ms)
+  ✔ array properties have items schema (0.167903ms)
+✖ Tool InputSchema Validation (1.553394ms)
+▶ Tool Documentation
+  ✖ all properties have description field (0.222559ms)
+  ✔ UUID fields have format: 'uuid' annotation (0.195369ms)
+✖ Tool Documentation (0.484613ms)
+▶ Schema Coverage Statistics
+  ✔ report overall schema quality metrics (0.298132ms)
+✔ Schema Coverage Statistics (0.339424ms)
+ℹ tests 44
+ℹ suites 19
+ℹ pass 40
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 48.070948
+
+✖ failing tests:
+
+test at tests/annotations.test.js:218:3
+✖ all destructive tools have destructiveHint: true (0.628239ms)
+  AssertionError [ERR_ASSERTION]: 3 destructive tools have annotation issues:
+  [
+    {
+      "name": "delete_note",
+      "issues": [
+        "Expected destructiveHint: true, got false"
+      ]
+    },
+    {
+      "name": "delete_collection",
+      "issues": [
+        "Expected destructiveHint: true, got false"
+      ]
+    },
+    {
+      "name": "delete_template",
+      "issues": [
+        "Expected destructiveHint: true, got false"
+      ]
+    }
+  ]
+  
+  3 !== 0
+  
+      at TestContext.<anonymous> (file:///home/roctinam/dev/matric-memory/mcp-server/tests/annotations.test.js:234:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/schema-validation.test.js:281:3
+✖ all inputSchemas have valid JSON Schema structure (0.661848ms)
+  AssertionError [ERR_ASSERTION]: 1 tools have invalid JSON Schema:
+  [
+    {
+      "tool": "knowledge_shard",
+      "errors": [
+        "knowledge_shard.properties.include: Missing 'type' field"
+      ]
+    }
+  ]
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///home/roctinam/dev/matric-memory/mcp-server/tests/schema-validation.test.js:294:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/schema-validation.test.js:351:3
+✖ all property schemas have type field (0.204211ms)
+  AssertionError [ERR_ASSERTION]: 1 properties missing type:
+  [
+    {
+      "tool": "knowledge_shard",
+      "property": "include"
+    }
+  ]
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///home/roctinam/dev/matric-memory/mcp-server/tests/schema-validation.test.js:367:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Test.postRun (node:internal/test_runner/test:1235:19)
+      at Test.run (node:internal/test_runner/test:1163:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/schema-validation.test.js:435:3
+✖ all properties have description field (0.222559ms)
+  AssertionError [ERR_ASSERTION]: 17 properties missing descriptions:
+  [
+    {
+      "tool": "export_all_notes",
+      "property": "filter"
+    },
+    {
+      "tool": "backup_now",
+      "property": "dry_run"
+    },
+    {
+      "tool": "backup_download",
+      "property": "starred_only"
+    },
+    {
+      "tool": "backup_download",
+      "property": "tags"
+    },
+    {
+      "tool": "knowledge_shard",
+      "property": "include"
+    },
+    {
+      "tool": "knowledge_shard_import",
+      "property": "dry_run"
+    },
+    {
+      "tool": "knowledge_shard_import",
+      "property": "on_conflict"
+    },
+    {
+      "tool": "knowledge_shard_import",
+      "property": "skip_embedding_regen"
+    },
+    {
+      "tool": "update_backup_metadata",
+      "property": "title"
+    },
+    {
+      "tool": "update_backup_metadata",
+      "property": "description"
+    },
+    {
+      "tool": "search_concepts",
+      "property": "limit"
+    },
+    {
+      "tool": "search_concepts",
+      "property": "offset"
+    },
+    {
+      "tool": "update_concept",
+      "property": "notation"
+    },
+    {
+      "tool": "update_concept",
+      "property": "status"
+    },
+    {
+      "tool": "update_concept",
+      "property": "deprecation_reason"
+    },
+    {
+      "tool": "update_concept",
+      "property": "facet_type"
+    },
+    {
+      "tool": "autocomplete_concepts",
+      "property": "limit"
+    }
+  ]
+  
+  17 !== 0
+  
+      at TestContext.<anonymous> (file:///home/roctinam/dev/matric-memory/mcp-server/tests/schema-validation.test.js:451:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 17,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

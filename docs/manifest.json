@@ -1,0 +1,89 @@
+{
+  "default": "welcome-overview",
+  "sections": [
+    {
+      "id": "welcome-overview",
+      "title": "Welcome",
+      "summary": "Introduction to matric-memory and its capabilities.",
+      "file": "executive-summary.md"
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "summary": "Architecture fundamentals and integration guides.",
+      "sections": [
+        { "id": "getting-started-architecture", "title": "Architecture", "summary": "System architecture and crate layout.", "file": "architecture.md" },
+        { "id": "getting-started-integration", "title": "Integration Guide", "summary": "Connecting to the API and configuring clients.", "file": "integration.md" },
+        { "id": "getting-started-workflows", "title": "Workflows", "summary": "Common usage patterns and workflows.", "file": "workflows.md" }
+      ]
+    },
+    {
+      "id": "core-systems",
+      "title": "Core Systems",
+      "summary": "Reference documentation for foundational subsystems.",
+      "sections": [
+        { "id": "core-systems-search", "title": "Hybrid Search", "summary": "FTS + semantic + RRF fusion search engine.", "file": "search-guide.md" },
+        { "id": "core-systems-tags", "title": "SKOS Tagging", "summary": "W3C SKOS concepts, schemes, and collections.", "file": "tags.md" },
+        { "id": "core-systems-filtering", "title": "Strict Tag Filtering", "summary": "Pre-search isolation for multi-tenancy.", "file": "strict-tag-filtering-design.md" },
+        { "id": "core-systems-chunking", "title": "Document Chunking", "summary": "Automatic document splitting for embedding.", "file": "chunking.md" },
+        { "id": "core-systems-embeddings", "title": "Embedding Sets", "summary": "Embedding models and vector configuration.", "file": "embedding-sets.md" },
+        { "id": "core-systems-inference", "title": "Inference Backends", "summary": "Ollama, OpenAI, and compatible providers.", "file": "inference-backends.md" },
+        { "id": "core-systems-shards", "title": "Knowledge Shards", "summary": "Shard exchange format for data portability.", "file": "shard-exchange.md" },
+        { "id": "core-systems-graph", "title": "Knowledge Graph", "summary": "Semantic link exploration and graph queries.", "file": "knowledge-graph-guide.md" },
+        { "id": "core-systems-attachments", "title": "File Attachments", "summary": "Upload, process, and search file attachments with EXIF extraction.", "file": "file-attachments.md" },
+        { "id": "core-systems-memory-search", "title": "Memory Search", "summary": "Temporal-spatial queries on file provenance using PostGIS.", "file": "memory-search.md" }
+      ]
+    },
+    {
+      "id": "developers",
+      "title": "Developers",
+      "summary": "API reference and developer integration tools.",
+      "sections": [
+        { "id": "developers-api", "title": "API Reference", "summary": "REST API endpoints with request/response examples.", "file": "api.md" },
+        { "id": "developers-mcp", "title": "MCP Server", "summary": "Model Context Protocol server for AI agent integration.", "file": "mcp.md" },
+        { "id": "developers-document-types", "title": "Document Types", "summary": "Content type detection, chunking strategies, and custom types.", "file": "document-types-guide.md" }
+      ]
+    },
+    {
+      "id": "tutorials",
+      "title": "Tutorials",
+      "summary": "Step-by-step walkthroughs for key features.",
+      "sections": [
+        { "id": "tutorial-pke", "title": "PKE Encryption Tutorial", "summary": "Hands-on guide to public-key encrypted note sharing.", "file": "pke-tutorial.md" }
+      ]
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "summary": "Encryption, authentication, and data protection.",
+      "sections": [
+        { "id": "security-encryption", "title": "Encryption Overview", "summary": "Cryptographic architecture and threat model.", "file": "encryption.md" },
+        { "id": "security-pke", "title": "PKE Encryption", "summary": "X25519 public-key encryption for multi-recipient sharing.", "file": "pke-encryption.md" },
+        { "id": "security-authentication", "title": "Authentication", "summary": "API authentication and access control.", "file": "authentication.md" }
+      ]
+    },
+    {
+      "id": "operations",
+      "title": "Operations",
+      "summary": "Deployment, maintenance, and operational runbooks.",
+      "sections": [
+        { "id": "operations-guide", "title": "Operators Guide", "summary": "Comprehensive operational reference for administrators.", "file": "operators-guide.md" },
+        { "id": "operations-general", "title": "Operations Overview", "summary": "Day-to-day operational procedures.", "file": "operations.md" },
+        { "id": "operations-backup", "title": "Backup & Recovery", "summary": "Database backup, restore, and disaster recovery.", "file": "backup.md" },
+        { "id": "operations-hardware", "title": "Hardware Planning", "summary": "GPU, memory, and storage sizing guidelines.", "file": "hardware-planning.md" },
+        { "id": "operations-ollama", "title": "Ollama Optimization", "summary": "Model loading, GPU allocation, and inference tuning.", "file": "ollama-optimization.md" },
+        { "id": "operations-ci-cd", "title": "CI/CD Pipeline", "summary": "Gitea Actions workflow and deployment automation.", "file": "ci-cd.md" },
+        { "id": "operations-releasing", "title": "Release Process", "summary": "CalVer versioning, tagging, and release workflow.", "file": "releasing.md" }
+      ]
+    },
+    {
+      "id": "resources",
+      "title": "Resources",
+      "summary": "Glossary, background references, and supporting material.",
+      "sections": [
+        { "id": "resources-glossary", "title": "Glossary", "summary": "Definitions of key terms and acronyms.", "file": "glossary.md" },
+        { "id": "resources-research", "title": "Research Background", "summary": "Academic foundations and cited papers.", "file": "research-background.md" }
+      ]
+    }
+  ]
+}

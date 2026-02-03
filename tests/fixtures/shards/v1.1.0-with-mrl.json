@@ -1,0 +1,33 @@
+{
+  "version": "1.1.0",
+  "matric_version": "2026.2.0",
+  "format": "matric-shard",
+  "created_at": "2026-02-01T12:00:00Z",
+  "min_reader_version": "2026.1.0",
+  "migrated_from": "1.0.0",
+  "migration_history": [
+    {
+      "from_version": "1.0.0",
+      "to_version": "1.1.0",
+      "migrated_at": "2026-02-01T12:00:00Z",
+      "migrated_by": "matric-memory/2026.2.0",
+      "changes": ["Added MRL embedding support with truncate_dim field"]
+    }
+  ],
+  "components": ["notes", "embeddings"],
+  "counts": {
+    "notes": 10,
+    "collections": 0,
+    "tags": 0,
+    "templates": 0,
+    "links": 0,
+    "embedding_sets": 1,
+    "embedding_set_members": 10,
+    "embeddings": 10,
+    "embedding_configs": 1
+  },
+  "checksums": {
+    "notes": "mrl123",
+    "embeddings": "mrl456"
+  }
+}

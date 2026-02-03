@@ -1,0 +1,1246 @@
+# =============================================================================
+# MATRIC-MEMORY COMPREHENSIVE UAT PLAN
+# =============================================================================
+# Version: 1.0.0
+# Date: 2026-02-01
+# Purpose: Full User Acceptance Testing for matric-memory knowledge system
+# Executor: Agentic AI tool with MCP access to matric-memory
+#
+# INSTRUCTIONS FOR EXECUTING AGENT:
+# 1. Execute each test phase in order
+# 2. Record PASS/FAIL for each test case
+# 3. Capture actual results for comparison
+# 4. Generate final report with pass rate
+# 5. Stop on critical failures, continue on non-critical
+# =============================================================================
+
+metadata:
+  test_suite: "matric-memory-uat"
+  version: "1.2.0"
+  created: "2026-02-01"
+  updated: "2026-02-01"
+  estimated_duration: "60-75 minutes"
+  changelog:
+    - version: "1.2.0"
+      date: "2026-02-01"
+      changes:
+        - "Added EMB-013 through EMB-024: Full Embedding Sets epic tests (#384-#389)"
+        - "Tests for set_type (filter vs full)"
+        - "Tests for MRL dimension truncation"
+        - "Tests for auto_embed_rules"
+        - "Tests for embedding config MRL validation"
+    - version: "1.1.0"
+      date: "2026-02-01"
+      changes:
+        - "Added EMB-005 through EMB-012: Embedding coverage tests (issue #380)"
+        - "Tests for documents with embeddings vs without"
+        - "Tests for search behavior with partial embedding coverage"
+  required_tools:
+    - mcp__matric-memory__create_note
+    - mcp__matric-memory__bulk_create_notes
+    - mcp__matric-memory__get_note
+    - mcp__matric-memory__update_note
+    - mcp__matric-memory__delete_note
+    - mcp__matric-memory__list_notes
+    - mcp__matric-memory__search_notes
+    - mcp__matric-memory__list_tags
+    - mcp__matric-memory__get_note_links
+    - mcp__matric-memory__list_embedding_sets
+    - mcp__matric-memory__get_embedding_set
+    - mcp__matric-memory__refresh_embedding_set
+    - mcp__matric-memory__create_embedding_set
+    - mcp__matric-memory__list_embedding_configs
+    - mcp__matric-memory__get_embedding_config
+    - mcp__matric-memory__create_collection
+    - mcp__matric-memory__list_collections
+    - mcp__matric-memory__move_note_to_collection
+    - mcp__matric-memory__memory_info
+    - mcp__matric-memory__backup_status
+
+# =============================================================================
+# PHASE 0: PRE-FLIGHT CHECKS
+# =============================================================================
+phase_0_preflight:
+  name: "Pre-flight System Validation"
+  critical: true
+  tests:
+    - id: "PF-001"
+      name: "System Health Check"
+      action: "Call memory_info()"
+      expected: "Returns summary with total_notes, total_embeddings, storage info"
+      validation: "response.summary exists AND response.storage exists"
+
+    - id: "PF-002"
+      name: "Backup System Status"
+      action: "Call backup_status()"
+      expected: "Returns status field"
+      validation: "response.status in ['healthy', 'no_backups']"
+
+    - id: "PF-003"
+      name: "Embedding Pipeline Status"
+      action: "Call list_embedding_sets()"
+      expected: "Returns array with at least 'default' set"
+      validation: "response contains set with slug='default'"
+
+# =============================================================================
+# PHASE 1: SEED DATA GENERATION
+# =============================================================================
+phase_1_seed_data:
+  name: "Generate UAT Test Data"
+  critical: true
+  description: |
+    Create a realistic knowledge base with interconnected content to test
+    search, linking, and emergent properties.
+
+  seed_collections:
+    - name: "UAT-Research"
+      description: "Research notes for UAT testing"
+    - name: "UAT-Projects"
+      description: "Project documentation for UAT testing"
+    - name: "UAT-Personal"
+      description: "Personal notes for UAT testing"
+
+  seed_notes:
+    # Domain 1: Machine Learning (interconnected concepts)
+    - id: "SEED-ML-001"
+      content: |
+        # Introduction to Neural Networks
+
+        Neural networks are computing systems inspired by biological neural networks.
+        They consist of layers of interconnected nodes (neurons) that process information.
+
+        ## Key Components
+        - **Input Layer**: Receives raw data
+        - **Hidden Layers**: Process and transform data
+        - **Output Layer**: Produces final predictions
+
+        ## Activation Functions
+        Common activation functions include ReLU, sigmoid, and tanh.
+
+        ## Related Concepts
+        Deep learning uses neural networks with many hidden layers.
+        Backpropagation is the primary training algorithm.
+      tags: ["uat/ml", "uat/ml/neural-networks", "uat/fundamentals"]
+      revision_mode: "none"
+      metadata:
+        domain: "machine-learning"
+        difficulty: "beginner"
+
+    - id: "SEED-ML-002"
+      content: |
+        # Deep Learning Architectures
+
+        Deep learning extends neural networks with specialized architectures.
+
+        ## Convolutional Neural Networks (CNNs)
+        CNNs excel at image processing using convolutional layers that detect
+        spatial patterns like edges, textures, and shapes.
+
+        ## Recurrent Neural Networks (RNNs)
+        RNNs process sequential data by maintaining hidden state across time steps.
+        LSTMs and GRUs address the vanishing gradient problem.
+
+        ## Transformers
+        Attention-based architecture that revolutionized NLP. Powers models like
+        BERT, GPT, and Claude. Self-attention enables parallel processing.
+      tags: ["uat/ml", "uat/ml/deep-learning", "uat/ml/architectures"]
+      revision_mode: "none"
+      metadata:
+        domain: "machine-learning"
+        difficulty: "intermediate"
+
+    - id: "SEED-ML-003"
+      content: |
+        # Backpropagation Algorithm
+
+        Backpropagation is the cornerstone of neural network training.
+
+        ## How It Works
+        1. **Forward Pass**: Input flows through network to produce output
+        2. **Loss Calculation**: Compare output with expected result
+        3. **Backward Pass**: Calculate gradients using chain rule
+        4. **Weight Update**: Adjust weights using gradient descent
+
+        ## Mathematical Foundation
+        The chain rule allows us to compute partial derivatives of the loss
+        with respect to each weight in the network.
+
+        ∂L/∂w = ∂L/∂a × ∂a/∂z × ∂z/∂w
+
+        This enables efficient training of deep networks.
+      tags: ["uat/ml", "uat/ml/training", "uat/ml/neural-networks"]
+      revision_mode: "none"
+      metadata:
+        domain: "machine-learning"
+        difficulty: "intermediate"
+
+    # Domain 2: Programming (Rust focus)
+    - id: "SEED-RUST-001"
+      content: |
+        # Rust Ownership System
+
+        Rust's ownership system ensures memory safety without garbage collection.
+
+        ## Three Rules
+        1. Each value has exactly one owner
+        2. When the owner goes out of scope, the value is dropped
+        3. Values can be borrowed (referenced) but borrowing has rules
+
+        ## Borrowing Rules
+        - You can have either ONE mutable reference OR any number of immutable references
+        - References must always be valid (no dangling pointers)
+
+        ```rust
+        fn main() {
+            let s1 = String::from("hello");
+            let s2 = &s1; // Immutable borrow
+            println!("{}", s2);
+        }
+        ```
+      tags: ["uat/programming", "uat/programming/rust", "uat/memory-safety"]
+      revision_mode: "none"
+      metadata:
+        language: "rust"
+        topic: "ownership"
+
+    - id: "SEED-RUST-002"
+      content: |
+        # Rust Error Handling
+
+        Rust uses Result and Option types for explicit error handling.
+
+        ## Result<T, E>
+        Represents either success (Ok(T)) or failure (Err(E)).
+
+        ```rust
+        fn divide(a: f64, b: f64) -> Result<f64, String> {
+            if b == 0.0 {
+                Err("Division by zero".to_string())
+            } else {
+                Ok(a / b)
+            }
+        }
+        ```
+
+        ## The ? Operator
+        Propagates errors automatically, reducing boilerplate.
+
+        ## Option<T>
+        Represents optional values - Some(T) or None.
+        Eliminates null pointer exceptions.
+      tags: ["uat/programming", "uat/programming/rust", "uat/error-handling"]
+      revision_mode: "none"
+      metadata:
+        language: "rust"
+        topic: "error-handling"
+
+    # Domain 3: Multilingual Content
+    - id: "SEED-I18N-001"
+      content: |
+        # 人工智能简介 (Introduction to AI in Chinese)
+
+        人工智能（AI）是计算机科学的一个分支，旨在创建能够执行通常需要人类智能的任务的系统。
+
+        ## 主要领域
+        - **机器学习**: 从数据中学习模式
+        - **自然语言处理**: 理解和生成人类语言
+        - **计算机视觉**: 分析和理解图像
+
+        ## 深度学习
+        深度学习使用多层神经网络来学习数据的复杂表示。
+
+        Related: Neural networks, deep learning, transformers
+      tags: ["uat/i18n", "uat/i18n/chinese", "uat/ml"]
+      revision_mode: "none"
+      metadata:
+        language: "zh-CN"
+
+    - id: "SEED-I18N-002"
+      content: |
+        # مقدمة في الذكاء الاصطناعي (AI Introduction in Arabic)
+
+        الذكاء الاصطناعي هو فرع من علوم الحاسوب يهدف إلى إنشاء أنظمة ذكية.
+
+        ## المجالات الرئيسية
+        - التعلم الآلي
+        - معالجة اللغات الطبيعية
+        - الرؤية الحاسوبية
+
+        ## التطبيقات
+        يستخدم الذكاء الاصطناعي في العديد من المجالات مثل الطب والتعليم والأعمال.
+      tags: ["uat/i18n", "uat/i18n/arabic", "uat/ml"]
+      revision_mode: "none"
+      metadata:
+        language: "ar"
+        direction: "rtl"
+
+    - id: "SEED-I18N-003"
+      content: |
+        # Café Culture and Naïve Résumé Writing
+
+        Testing diacritics and accent marks in content.
+
+        ## Words with Diacritics
+        - café (French coffee shop)
+        - naïve (innocent, simple)
+        - résumé (summary, CV)
+        - jalapeño (spicy pepper)
+        - über (German: over, super)
+        - Zürich (Swiss city)
+
+        These words should be findable with or without accents.
+      tags: ["uat/i18n", "uat/i18n/diacritics", "uat/search-test"]
+      revision_mode: "none"
+      metadata:
+        test_type: "accent-folding"
+
+    # Domain 4: Edge Cases
+    - id: "SEED-EDGE-001"
+      content: |
+        # Empty Sections Test
+
+        ## Section with content
+        This section has content.
+
+        ## Empty section
+
+        ## Another section with content
+        More content here.
+
+        ## Edge cases
+        - Very short line
+        -
+        - Line after empty bullet
+      tags: ["uat/edge-cases", "uat/formatting"]
+      revision_mode: "none"
+
+    - id: "SEED-EDGE-002"
+      content: |
+        # Special Characters Test
+
+        Testing various special characters:
+
+        ## Code Symbols
+        `{}[]()<>|&^%$#@!`
+
+        ## Math Symbols
+        ∑ ∏ ∫ √ ∞ ≠ ≤ ≥ ± × ÷
+
+        ## Currency
+        $ € £ ¥ ₹ ₿
+
+        ## Emoji
+        🚀 🎉 ✅ ❌ 🔥 💡 🐱 🐶
+
+        ## Quotes and Punctuation
+        "Smart quotes" and 'single quotes'
+        — em dash – en dash
+        … ellipsis
+      tags: ["uat/edge-cases", "uat/special-chars"]
+      revision_mode: "none"
+
+    - id: "SEED-EDGE-003"
+      content: |
+        # Long Document Chunking Test
+
+        This is a long document designed to test chunking behavior.
+        The document should be split into multiple chunks for embedding.
+
+        ## Section 1: Background
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
+        eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim
+        ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut
+        aliquip ex ea commodo consequat. Duis aute irure dolor in
+        reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
+        pariatur. Excepteur sint occaecat cupidatat non proident, sunt in
+        culpa qui officia deserunt mollit anim id est laborum.
+
+        ## Section 2: Technical Details
+        The quick brown fox jumps over the lazy dog. Pack my box with five
+        dozen liquor jugs. How vexingly quick daft zebras jump! The five
+        boxing wizards jump quickly. Sphinx of black quartz, judge my vow.
+
+        ## Section 3: Implementation
+        Programming languages have evolved significantly over the decades.
+        From assembly to high-level languages like Python, Rust, and Go.
+        Each generation brings new abstractions and capabilities.
+
+        ## Section 4: Results
+        The results demonstrate significant improvements in processing speed
+        and memory efficiency. Benchmarks show 3x improvement over baseline.
+
+        ## Section 5: Conclusion
+        This research contributes to the field by providing novel approaches
+        to solving complex computational problems. Future work will explore
+        additional optimization techniques and broader applications.
+
+        ## Section 6: Additional Content for Length
+        More content to ensure this document exceeds typical chunk sizes.
+        The embedding pipeline should split this into multiple vectors.
+        Each chunk maintains semantic coherence while enabling fine-grained
+        retrieval during semantic search operations.
+      tags: ["uat/edge-cases", "uat/chunking", "uat/long-document"]
+      revision_mode: "none"
+      metadata:
+        test_type: "chunking"
+        expected_chunks: ">1"
+
+# =============================================================================
+# PHASE 2: CRUD OPERATIONS
+# =============================================================================
+phase_2_crud:
+  name: "Core CRUD Operations"
+  critical: true
+
+  tests:
+    # CREATE tests
+    - id: "CRUD-001"
+      name: "Create Note - Basic"
+      action: |
+        create_note(
+          content="# UAT Test Note\n\nThis is a basic test note.",
+          tags=["uat/crud-test"],
+          revision_mode="none"
+        )
+      expected: "Returns {id: <uuid>}"
+      validation: "response.id is valid UUID"
+      cleanup: "Store ID for later tests"
+
+    - id: "CRUD-002"
+      name: "Create Note - With Metadata"
+      action: |
+        create_note(
+          content="# Metadata Test\n\nNote with custom metadata.",
+          tags=["uat/crud-test", "uat/metadata"],
+          metadata={"source": "uat-test", "priority": "high", "version": 1},
+          revision_mode="none"
+        )
+      expected: "Returns {id: <uuid>}"
+      validation: "response.id is valid UUID"
+
+    - id: "CRUD-003"
+      name: "Create Note - Hierarchical Tags"
+      action: |
+        create_note(
+          content="# Hierarchical Tag Test\n\nTesting deep tag hierarchy.",
+          tags=["uat/hierarchy/level1/level2/level3"],
+          revision_mode="none"
+        )
+      expected: "Returns {id: <uuid>}"
+      validation: "Tag hierarchy created in list_tags"
+
+    - id: "CRUD-004"
+      name: "Bulk Create Notes"
+      action: |
+        bulk_create_notes(notes=[
+          {content: "Bulk note 1", tags: ["uat/bulk"], revision_mode: "none"},
+          {content: "Bulk note 2", tags: ["uat/bulk"], revision_mode: "none"},
+          {content: "Bulk note 3", tags: ["uat/bulk"], revision_mode: "none"}
+        ])
+      expected: "Returns {ids: [<uuid>, <uuid>, <uuid>], count: 3}"
+      validation: "response.count == 3 AND response.ids.length == 3"
+
+    # READ tests
+    - id: "CRUD-005"
+      name: "Get Note by ID"
+      action: "get_note(id=<created_note_id>)"
+      expected: "Returns full note with original, revised, tags, links"
+      validation: "response.note.id == requested_id"
+
+    - id: "CRUD-006"
+      name: "Get Note - Non-existent ID"
+      action: "get_note(id='00000000-0000-0000-0000-000000000000')"
+      expected: "Returns error 'Note not found'"
+      validation: "Error returned, not crash"
+
+    - id: "CRUD-007"
+      name: "List Notes - Basic"
+      action: "list_notes(limit=10)"
+      expected: "Returns {notes: [...], total: <count>}"
+      validation: "response.notes.length <= 10"
+
+    - id: "CRUD-008"
+      name: "List Notes - Tag Filter"
+      action: "list_notes(tags=['uat/bulk'], limit=50)"
+      expected: "Returns only notes with uat/bulk tag"
+      validation: "All returned notes have uat/bulk tag"
+
+    - id: "CRUD-009"
+      name: "List Notes - Hierarchical Tag Filter"
+      action: "list_notes(tags=['uat'], limit=50)"
+      expected: "Returns all notes with uat/* tags (prefix matching)"
+      validation: "response.total > notes with exact 'uat' tag"
+
+    - id: "CRUD-010"
+      name: "List Notes - Pagination"
+      action: |
+        page1 = list_notes(limit=5, offset=0)
+        page2 = list_notes(limit=5, offset=5)
+      expected: "Different notes on each page, no overlap"
+      validation: "page1.notes[0].id != page2.notes[0].id (if total > 5)"
+
+    - id: "CRUD-011"
+      name: "List Notes - limit=0"
+      action: "list_notes(limit=0)"
+      expected: "Returns {notes: [], total: <count>}"
+      validation: "response.notes is empty array"
+
+    # UPDATE tests
+    - id: "CRUD-012"
+      name: "Update Note - Content"
+      action: |
+        update_note(
+          id=<created_note_id>,
+          content="# Updated Content\n\nThis content was updated.",
+          revision_mode="none"
+        )
+      expected: "Returns success"
+      validation: "get_note shows updated content"
+
+    - id: "CRUD-013"
+      name: "Update Note - Star"
+      action: "update_note(id=<note_id>, starred=true)"
+      expected: "Returns success"
+      validation: "get_note shows starred=true"
+
+    - id: "CRUD-014"
+      name: "Update Note - Archive"
+      action: "update_note(id=<note_id>, archived=true)"
+      expected: "Returns success"
+      validation: "list_notes(filter='archived') includes note"
+
+    - id: "CRUD-015"
+      name: "Update Note - Metadata"
+      action: |
+        update_note(
+          id=<note_id>,
+          metadata={"updated": true, "version": 2}
+        )
+      expected: "Returns success"
+      validation: "get_note shows new metadata (replaces old)"
+
+    # DELETE tests
+    - id: "CRUD-016"
+      name: "Delete Note - Soft Delete"
+      action: "delete_note(id=<note_to_delete>)"
+      expected: "Returns success"
+      validation: "Note no longer in list_notes, get_note still works"
+
+    - id: "CRUD-017"
+      name: "Delete Note - Non-existent"
+      action: "delete_note(id='00000000-0000-0000-0000-000000000000')"
+      expected: "Returns error or empty success"
+      validation: "No crash, graceful handling"
+
+# =============================================================================
+# PHASE 3: SEARCH CAPABILITIES
+# =============================================================================
+phase_3_search:
+  name: "Search Functionality"
+  critical: true
+
+  tests:
+    # Full-Text Search
+    - id: "SEARCH-001"
+      name: "FTS - Basic Keyword"
+      action: "search_notes(query='neural networks', mode='fts', limit=10)"
+      expected: "Returns notes containing 'neural networks'"
+      validation: "Results contain neural network content"
+
+    - id: "SEARCH-002"
+      name: "FTS - OR Operator"
+      action: "search_notes(query='rust OR python', mode='fts', limit=10)"
+      expected: "Returns notes containing rust OR python"
+      validation: "Results include both rust and python notes"
+
+    - id: "SEARCH-003"
+      name: "FTS - NOT Operator"
+      action: "search_notes(query='programming -rust', mode='fts', limit=10)"
+      expected: "Returns programming notes excluding rust"
+      validation: "No results mention rust"
+
+    - id: "SEARCH-004"
+      name: "FTS - Phrase Search"
+      action: "search_notes(query='\"neural networks\"', mode='fts', limit=10)"
+      expected: "Returns notes with exact phrase"
+      validation: "Results contain exact phrase 'neural networks'"
+
+    - id: "SEARCH-005"
+      name: "FTS - Accent Folding (cafe -> café)"
+      action: "search_notes(query='cafe', mode='fts', limit=10)"
+      expected: "Returns notes containing café (with accent)"
+      validation: "Results include diacritics test note"
+
+    - id: "SEARCH-006"
+      name: "FTS - Accent Folding (naive -> naïve)"
+      action: "search_notes(query='naive resume', mode='fts', limit=10)"
+      expected: "Returns notes with naïve and résumé"
+      validation: "Accent-normalized matching works"
+
+    # CJK Search
+    - id: "SEARCH-007"
+      name: "FTS - Chinese Characters"
+      action: "search_notes(query='人工智能', mode='fts', limit=10)"
+      expected: "Returns Chinese AI note"
+      validation: "Results include SEED-I18N-001"
+
+    - id: "SEARCH-008"
+      name: "FTS - Chinese Single Character"
+      action: "search_notes(query='学', mode='fts', limit=10)"
+      expected: "Returns notes containing 学"
+      validation: "Single CJK character search works"
+
+    - id: "SEARCH-009"
+      name: "FTS - Arabic RTL"
+      action: "search_notes(query='الذكاء الاصطناعي', mode='fts', limit=10)"
+      expected: "Returns Arabic AI note"
+      validation: "RTL text search works"
+
+    # Semantic Search (requires embeddings)
+    - id: "SEARCH-010"
+      name: "Semantic - Conceptual Match"
+      action: "search_notes(query='machine intelligence', mode='semantic', limit=5)"
+      expected: "Returns AI/ML notes even without exact keywords"
+      validation: "Results are conceptually related to AI"
+      note: "Requires embedding pipeline active"
+
+    - id: "SEARCH-011"
+      name: "Semantic - Cross-lingual"
+      action: "search_notes(query='artificial intelligence', mode='semantic', limit=5)"
+      expected: "May return multilingual AI notes"
+      validation: "Semantic similarity crosses language barrier"
+      note: "Requires embedding pipeline active"
+
+    # Hybrid Search
+    - id: "SEARCH-012"
+      name: "Hybrid - Best of Both"
+      action: "search_notes(query='deep learning transformers', mode='hybrid', limit=10)"
+      expected: "Returns relevant notes via FTS + semantic"
+      validation: "Results include both keyword and conceptual matches"
+
+    # Search with Filters
+    - id: "SEARCH-013"
+      name: "Search with Tag Filter"
+      action: "search_notes(query='neural', mode='fts', tags=['uat/ml'], limit=10)"
+      expected: "Returns only ML-tagged notes containing 'neural'"
+      validation: "All results have uat/ml tag"
+
+    - id: "SEARCH-014"
+      name: "Search - Empty Results"
+      action: "search_notes(query='xyznonexistent123', mode='fts', limit=10)"
+      expected: "Returns {results: [], total: 0}"
+      validation: "Empty results handled gracefully"
+
+    - id: "SEARCH-015"
+      name: "Search - Special Characters"
+      action: "search_notes(query='∑ ∏ ∫', mode='fts', limit=10)"
+      expected: "Returns math symbols note or empty"
+      validation: "No crash on special characters"
+
+# =============================================================================
+# PHASE 4: TAG SYSTEM & SKOS
+# =============================================================================
+phase_4_tags:
+  name: "Tag System and SKOS Concepts"
+  critical: false
+
+  tests:
+    - id: "TAG-001"
+      name: "List All Tags"
+      action: "list_tags()"
+      expected: "Returns array of tags with note_count"
+      validation: "Each tag has name and note_count"
+
+    - id: "TAG-002"
+      name: "Tag Hierarchy Created"
+      action: "list_tags() and check for uat/hierarchy/level1/level2/level3"
+      expected: "Hierarchical tag exists from CRUD-003"
+      validation: "Tag path exists in list"
+
+    - id: "TAG-003"
+      name: "Tag Case Insensitivity"
+      action: |
+        create_note(content="Case test", tags=["UAT/CASE-TEST"])
+        list_notes(tags=["uat/case-test"])
+      expected: "Case-insensitive tag matching"
+      validation: "Note found regardless of case"
+
+    - id: "TAG-004"
+      name: "Tag Note Count Accuracy"
+      action: |
+        count1 = list_tags() -> find uat/bulk -> note_count
+        delete one uat/bulk note
+        count2 = list_tags() -> find uat/bulk -> note_count
+      expected: "count2 == count1 - 1"
+      validation: "Tag counts update on delete"
+
+    - id: "TAG-005"
+      name: "SKOS Concept Schemes"
+      action: "list_concept_schemes()"
+      expected: "Returns array of concept schemes"
+      validation: "Default scheme exists"
+
+    - id: "TAG-006"
+      name: "Tag Prefix Matching"
+      action: |
+        list_notes(tags=['uat/ml'])
+      expected: "Returns notes with uat/ml AND uat/ml/* tags"
+      validation: "Hierarchical filtering works"
+
+# =============================================================================
+# PHASE 5: COLLECTIONS
+# =============================================================================
+phase_5_collections:
+  name: "Collection Organization"
+  critical: false
+
+  tests:
+    - id: "COLL-001"
+      name: "Create Collection"
+      action: "create_collection(name='UAT-Test-Collection', description='Test')"
+      expected: "Returns {id: <uuid>}"
+      validation: "Collection ID returned"
+
+    - id: "COLL-002"
+      name: "Create Nested Collection"
+      action: "create_collection(name='Subcollection', parent_id=<parent_id>)"
+      expected: "Returns {id: <uuid>}"
+      validation: "Nested collection created"
+
+    - id: "COLL-003"
+      name: "List Collections"
+      action: "list_collections()"
+      expected: "Returns array including created collections"
+      validation: "UAT-Test-Collection in list"
+
+    - id: "COLL-004"
+      name: "Move Note to Collection"
+      action: "move_note_to_collection(note_id=<id>, collection_id=<coll_id>)"
+      expected: "Returns success"
+      validation: "get_note shows collection_id set"
+
+    - id: "COLL-005"
+      name: "Get Collection Notes"
+      action: "get_collection_notes(id=<collection_id>)"
+      expected: "Returns notes in collection"
+      validation: "Moved note appears in collection"
+
+    - id: "COLL-006"
+      name: "Delete Collection"
+      action: "delete_collection(id=<collection_id>)"
+      expected: "Returns success"
+      validation: "Notes moved to uncategorized, not deleted"
+
+# =============================================================================
+# PHASE 6: SEMANTIC LINKS & KNOWLEDGE GRAPH
+# =============================================================================
+phase_6_links:
+  name: "Semantic Links and Knowledge Graph"
+  critical: false
+  note: "Requires embedding pipeline to be active for link generation"
+
+  tests:
+    - id: "LINK-001"
+      name: "Get Note Links"
+      action: "get_note_links(id=<ml_note_id>)"
+      expected: "Returns {outgoing: [...], incoming: [...]}"
+      validation: "Structure is correct"
+
+    - id: "LINK-002"
+      name: "Verify Semantic Linking"
+      action: |
+        Get links for SEED-ML-001 (neural networks intro)
+        Check if linked to SEED-ML-002 (deep learning) or SEED-ML-003 (backprop)
+      expected: "Related ML notes are linked"
+      validation: "Links exist between related content"
+      note: "Requires embeddings generated"
+
+    - id: "LINK-003"
+      name: "Bidirectional Links"
+      action: |
+        Get links for note A -> check if note B in outgoing
+        Get links for note B -> check if note A in incoming
+      expected: "Links are bidirectional"
+      validation: "A->B implies B has A as incoming"
+
+    - id: "LINK-004"
+      name: "Cross-Domain Links"
+      action: |
+        Check if SEED-I18N-001 (Chinese AI) links to SEED-ML-001 (English AI)
+      expected: "Semantic similarity crosses language"
+      validation: "Cross-lingual linking works"
+      note: "Requires multilingual embeddings"
+
+# =============================================================================
+# PHASE 7: EMBEDDING SETS & COVERAGE
+# =============================================================================
+phase_7_embeddings:
+  name: "Embedding Sets, Coverage, and Semantic Search"
+  critical: false
+  note: "Requires Ollama/embedding service running"
+  description: |
+    Tests embedding set functionality including:
+    - Basic set management (list, create, refresh)
+    - Scoped semantic search
+    - Embedding coverage verification (docs with embeddings vs without)
+    - Search behavior differences between FTS, semantic, and hybrid modes
+      when embedding coverage is incomplete
+
+  tests:
+    - id: "EMB-001"
+      name: "List Embedding Sets"
+      action: "list_embedding_sets()"
+      expected: "Returns array with default set"
+      validation: "Default set has document_count > 0"
+
+    - id: "EMB-002"
+      name: "Check Index Status"
+      action: "list_embedding_sets() -> check index_status"
+      expected: "Status is 'ready', 'pending', 'stale', or 'empty'"
+      validation: "Valid status value"
+
+    - id: "EMB-003"
+      name: "Verify Embedding Count"
+      action: |
+        memory_info() -> total_embeddings
+        list_embedding_sets() -> sum(embedding_count)
+      expected: "Counts are consistent"
+      validation: "Embedding counts match"
+
+    - id: "EMB-004"
+      name: "Scoped Semantic Search"
+      action: |
+        search_notes(query='cat', mode='semantic', set='specific-set')
+      expected: "Search limited to specific embedding set"
+      validation: "Only searches specified set"
+
+    # Embedding Coverage Tests (added per issue #380)
+    - id: "EMB-005"
+      name: "Embedding Coverage - Document vs Embedding Count"
+      action: |
+        get_embedding_set(slug='default')
+        Compare document_count vs embedding_count
+      expected: "document_count >= embedding_count (some docs may lack embeddings)"
+      validation: "Understand coverage ratio for the set"
+      note: "Critical for understanding semantic search limitations"
+
+    - id: "EMB-006"
+      name: "Semantic Search - Only Embedded Documents"
+      action: |
+        1. Create test note A with tag 'uat/emb-test' (will get embedding)
+        2. Create test note B with tag 'uat/emb-test' (will get embedding)
+        3. Wait for embedding pipeline or manually refresh
+        4. Create test note C with same content but in non-embedded set
+        5. Search semantically for content in all three notes
+      expected: "Semantic search returns A and B but not C (if C lacks embedding)"
+      validation: "Only documents with actual embeddings appear in semantic results"
+
+    - id: "EMB-007"
+      name: "FTS vs Semantic - Coverage Comparison"
+      action: |
+        1. Search for term X using mode='fts'
+        2. Search for same term X using mode='semantic'
+        3. Compare result counts
+      expected: "FTS may return more results if some docs lack embeddings"
+      validation: |
+        If embedding_count < document_count, then:
+        - FTS results may include non-embedded documents
+        - Semantic results limited to embedded documents only
+
+    - id: "EMB-008"
+      name: "Hybrid Search - Partial Embedding Coverage"
+      action: |
+        1. Ensure some documents have embeddings, some don't
+        2. Search using mode='hybrid' for a term present in both
+        3. Examine which documents are returned
+      expected: "Hybrid search handles partial coverage gracefully"
+      validation: |
+        - FTS component finds all matching docs
+        - Semantic component only scores embedded docs
+        - Final ranking should not penalize non-embedded docs unfairly
+
+    - id: "EMB-009"
+      name: "Index Status Impact on Search"
+      action: |
+        1. Check index_status via list_embedding_sets()
+        2. If 'stale': search and note any missing recent documents
+        3. If 'pending': search may return incomplete results
+        4. If 'ready': search should include all set members
+      expected: "Search behavior aligns with index status"
+      validation: |
+        - 'ready': All set members searchable semantically
+        - 'stale': Recent additions may not appear in semantic results
+        - 'pending': Semantic search may be unavailable or incomplete
+
+    - id: "EMB-010"
+      name: "Refresh Embedding Set"
+      action: |
+        1. Add new notes to an embedding set
+        2. Call refresh_embedding_set(slug='set-name')
+        3. Wait for job completion
+        4. Verify embedding_count increased
+        5. Verify new notes appear in semantic search
+      expected: "Refresh generates embeddings for new documents"
+      validation: "New documents become semantically searchable after refresh"
+      note: "Requires embedding pipeline to be functional"
+
+    - id: "EMB-011"
+      name: "Empty Embedding Set Behavior"
+      action: |
+        1. Create a new embedding set with no members
+        2. Attempt semantic search scoped to this set
+      expected: "Returns empty results, not error"
+      validation: "Graceful handling of empty sets"
+
+    - id: "EMB-012"
+      name: "Embedding Set Membership vs Actual Embeddings"
+      action: |
+        1. get_embedding_set(slug='default') to see document_count
+        2. Compare with embedding_count
+        3. If document_count > embedding_count, identify gap
+      expected: "Can identify documents in set that lack embeddings"
+      validation: |
+        Understanding the gap helps diagnose:
+        - Embedding pipeline failures
+        - Recently added documents pending processing
+        - Configuration issues
+
+    # Full Embedding Sets Epic Tests (issues #384-#389)
+    - id: "EMB-013"
+      name: "Full Embedding Sets - Create Full Set (#384)"
+      action: |
+        create_embedding_set(
+          name='UAT Full Set',
+          slug='uat-full-set',
+          set_type='full',
+          truncate_dim=256,
+          auto_embed_rules={on_create: true, on_update: true, priority: 5}
+        )
+      expected: "Returns embedding set with set_type='full'"
+      validation: |
+        - response.set_type == 'full'
+        - response.truncate_dim == 256
+        - response.auto_embed_rules.on_create == true
+
+    - id: "EMB-014"
+      name: "Full Embedding Sets - Filter Set Backward Compat (#384)"
+      action: |
+        create_embedding_set(name='UAT Filter Set', slug='uat-filter-set', mode='manual')
+      expected: "Defaults to set_type='filter' for backward compatibility"
+      validation: "response.set_type == 'filter'"
+
+    - id: "EMB-015"
+      name: "MRL Config - Verify MRL Fields (#385)"
+      action: |
+        list_embedding_configs()
+        Find nomic-embed-text config
+      expected: "Config has MRL support fields"
+      validation: |
+        - supports_mrl == true
+        - matryoshka_dims contains [768, 512, 256, 128, 64]
+        - default_truncate_dim == 256
+
+    - id: "EMB-016"
+      name: "MRL Config - Non-MRL Model (#385)"
+      action: |
+        list_embedding_configs()
+        Find bge-large-en-v1.5 config
+      expected: "Non-MRL model has null MRL fields"
+      validation: |
+        - supports_mrl == false
+        - matryoshka_dims == null
+
+    - id: "EMB-017"
+      name: "MRL Dimension Validation (#385)"
+      action: |
+        create_embedding_set(
+          name='Invalid MRL',
+          truncate_dim=100,  # Not a valid MRL dimension
+          embedding_config_id=<nomic-config-id>
+        )
+      expected: "Error: 100 is not a valid MRL dimension for nomic-embed-text"
+      validation: "API rejects invalid truncate_dim values"
+      note: "Valid dims: 768, 512, 256, 128, 64"
+
+    - id: "EMB-018"
+      name: "Auto-Embed Rules - on_create (#384)"
+      action: |
+        1. Create embedding set with auto_embed_rules.on_create=true
+        2. Add note as member of set
+        3. Check if embedding job queued
+      expected: "Note added to set triggers embedding job"
+      validation: "Embedding generated automatically for new members"
+
+    - id: "EMB-019"
+      name: "Auto-Embed Rules - Priority (#384)"
+      action: |
+        1. Create two sets: one with priority=10, one with priority=1
+        2. Add same note to both sets
+        3. Check job queue order
+      expected: "Higher priority set processed first"
+      validation: "Priority ordering respected"
+
+    - id: "EMB-020"
+      name: "Full Set - Independent Embeddings (#384)"
+      action: |
+        1. Create full embedding set with truncate_dim=128
+        2. Add note that already has embeddings in default set
+        3. Verify set generates its own truncated embeddings
+      expected: "Full set creates separate embeddings at specified dimension"
+      validation: |
+        - Default set: 768-dim embeddings unchanged
+        - Full set: 128-dim embeddings created
+
+    - id: "EMB-021"
+      name: "Embedding Set Summary - New Fields (#384)"
+      action: "list_embedding_sets()"
+      expected: "Response includes new fields for each set"
+      validation: |
+        Each set has:
+        - set_type: 'filter' or 'full'
+        - truncate_dim: number or null
+        - supports_mrl: boolean
+
+    - id: "EMB-022"
+      name: "Embedding Config Profile (#385)"
+      action: "get_embedding_config(id=<config-id>)"
+      expected: "Returns full config profile with MRL details"
+      validation: |
+        Response includes:
+        - model, dimension
+        - supports_mrl, matryoshka_dims
+        - default_truncate_dim
+
+    - id: "EMB-023"
+      name: "Database Tables Created (#386, #387, #388)"
+      action: |
+        Query database to verify tables exist:
+        - note_entity (entity extraction)
+        - entity_stats (IDF weighting)
+        - note_graph_embedding (graph embeddings)
+        - fine_tuning_dataset (fine-tuning)
+        - fine_tuning_sample (training pairs)
+        - embedding_coarse (two-stage retrieval)
+      expected: "All new tables exist with correct schemas"
+      validation: "Schema migration applied successfully"
+      note: "Backend validation only"
+
+    - id: "EMB-024"
+      name: "Job Types Created (#384-#388)"
+      action: |
+        Check job_type enum includes:
+        - entity_extraction
+        - generate_fine_tuning_data
+        - embed_for_set
+        - generate_graph_embedding
+        - generate_coarse_embedding
+      expected: "New job types registered"
+      validation: "Jobs can be queued for new features"
+      note: "Backend validation only"
+
+# =============================================================================
+# PHASE 8: EMERGENT PROPERTIES & CROSS-FEATURE TESTS
+# =============================================================================
+phase_8_emergent:
+  name: "Emergent Properties and Cross-Feature Interactions"
+  critical: false
+  description: |
+    Tests that verify useful behaviors emerging from feature combinations.
+
+  tests:
+    - id: "EMRG-001"
+      name: "Knowledge Discovery - Related Concepts"
+      scenario: |
+        1. Search for 'gradient descent'
+        2. Get links from top result
+        3. Follow links to discover related concepts
+      expected: "Can traverse knowledge graph to find related topics"
+      validation: "Discovers backpropagation, neural networks topics"
+
+    - id: "EMRG-002"
+      name: "Multilingual Knowledge Integration"
+      scenario: |
+        1. Create note about AI in English
+        2. Create note about AI in Chinese
+        3. Check if they link semantically
+        4. Search in one language, find both
+      expected: "Knowledge transcends language barriers"
+      validation: "Cross-lingual semantic connections"
+
+    - id: "EMRG-003"
+      name: "Tag + Search Synergy"
+      scenario: |
+        1. Search for broad term 'learning'
+        2. Filter by tag 'uat/ml'
+        3. Results should be ML-focused learning content
+      expected: "Tag filtering refines search results"
+      validation: "Precise results via combination"
+
+    - id: "EMRG-004"
+      name: "Collection + Tag Organization"
+      scenario: |
+        1. Move notes to collection 'Research'
+        2. Tag notes with 'uat/important'
+        3. List collection notes filtered by tag
+      expected: "Dual organization (folder + tag) works together"
+      validation: "Can organize by structure AND classification"
+
+    - id: "EMRG-005"
+      name: "Chunking + Search Relevance"
+      scenario: |
+        1. Search for term in specific section of long document
+        2. Check snippet shows relevant section
+        3. Verify chain_info shows chunk details
+      expected: "Long documents searchable at section level"
+      validation: "Fine-grained retrieval from chunked content"
+
+    - id: "EMRG-006"
+      name: "Metadata + Filtering Potential"
+      scenario: |
+        1. Create notes with structured metadata (difficulty, domain)
+        2. (Future) Filter notes by metadata properties
+      expected: "Metadata enables custom categorization"
+      validation: "Metadata stored and retrievable"
+      note: "Metadata filtering may be future feature"
+
+# =============================================================================
+# PHASE 9: EDGE CASES & ERROR HANDLING
+# =============================================================================
+phase_9_edge_cases:
+  name: "Edge Cases and Error Handling"
+  critical: false
+
+  tests:
+    - id: "EDGE-001"
+      name: "Empty Content Note"
+      action: "create_note(content='', tags=['uat/edge'])"
+      expected: "Error or minimal note created"
+      validation: "Handled gracefully"
+
+    - id: "EDGE-002"
+      name: "Very Long Content"
+      action: "create_note(content=<10000+ chars>, revision_mode='none')"
+      expected: "Note created, chunked for embedding"
+      validation: "No timeout or crash"
+
+    - id: "EDGE-003"
+      name: "Special Characters in Tags"
+      action: "create_note(tags=['uat/special!@#$'])"
+      expected: "Sanitized or rejected with clear error"
+      validation: "No SQL injection or crash"
+
+    - id: "EDGE-004"
+      name: "Unicode Tag Names"
+      action: "create_note(tags=['uat/日本語タグ'])"
+      expected: "Unicode tags supported"
+      validation: "Tag created and searchable"
+
+    - id: "EDGE-005"
+      name: "Deeply Nested Tags"
+      action: "create_note(tags=['a/b/c/d/e/f/g/h'])"
+      expected: "Max depth enforced (5 levels) or handled"
+      validation: "Clear behavior at limits"
+
+    - id: "EDGE-006"
+      name: "Concurrent Operations"
+      action: |
+        Parallel: create_note() x 5
+      expected: "All operations succeed without conflict"
+      validation: "No race conditions"
+
+    - id: "EDGE-007"
+      name: "Invalid UUID Format"
+      action: "get_note(id='not-a-uuid')"
+      expected: "Clear validation error"
+      validation: "Error message mentions UUID format"
+
+    - id: "EDGE-008"
+      name: "SQL Injection Attempt"
+      action: "search_notes(query=\"'; DROP TABLE notes; --\")"
+      expected: "Query treated as literal text"
+      validation: "No SQL execution, safe handling"
+
+    - id: "EDGE-009"
+      name: "XSS Attempt in Content"
+      action: "create_note(content='<script>alert(1)</script>')"
+      expected: "Content stored as-is (markdown)"
+      validation: "No execution, treated as text"
+
+    - id: "EDGE-010"
+      name: "Maximum Batch Size"
+      action: "bulk_create_notes(notes=[...101 notes...])"
+      expected: "Error: exceeds 100 note limit"
+      validation: "Limit enforced with clear error"
+
+# =============================================================================
+# PHASE 10: BACKUP & RECOVERY
+# =============================================================================
+phase_10_backup:
+  name: "Backup and Recovery"
+  critical: false
+
+  tests:
+    - id: "BACK-001"
+      name: "Backup Status Check"
+      action: "backup_status()"
+      expected: "Returns status and backup info"
+      validation: "No errors"
+
+    - id: "BACK-002"
+      name: "Export All Notes"
+      action: "export_all_notes()"
+      expected: "Returns {manifest, notes[], collections[], tags[]}"
+      validation: "Export contains created UAT notes"
+
+    - id: "BACK-003"
+      name: "Export Single Note"
+      action: "export_note(id=<note_id>, include_frontmatter=true)"
+      expected: "Returns markdown with YAML frontmatter"
+      validation: "Valid markdown format"
+
+    - id: "BACK-004"
+      name: "Export Filtered"
+      action: "export_all_notes(filter={tags: ['uat/ml']})"
+      expected: "Only ML-tagged notes exported"
+      validation: "Filtered export works"
+
+# =============================================================================
+# PHASE 11: CLEANUP
+# =============================================================================
+phase_11_cleanup:
+  name: "Test Data Cleanup"
+  critical: false
+
+  actions:
+    - description: "Delete all notes with uat/* tags"
+      method: |
+        1. list_notes(tags=['uat'], limit=1000)
+        2. For each note: delete_note(id)
+    - description: "Delete UAT collections"
+      method: |
+        1. list_collections()
+        2. Delete collections starting with 'UAT-'
+    - description: "Verify cleanup"
+      method: |
+        list_notes(tags=['uat']) should return 0
+        list_collections() should not have UAT- collections
+
+# =============================================================================
+# REPORTING
+# =============================================================================
+reporting:
+  format: "markdown"
+  sections:
+    - summary: "Overall pass/fail rate"
+    - by_phase: "Results grouped by phase"
+    - failures: "Detailed failure information"
+    - notes: "Observations and recommendations"
+
+  pass_criteria:
+    critical_phases: "100% pass required"
+    non_critical_phases: "90% pass acceptable"
+    overall: "95% pass for release approval"
+
+# =============================================================================
+# END OF UAT PLAN
+# =============================================================================

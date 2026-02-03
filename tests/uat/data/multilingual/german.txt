@@ -1,0 +1,9 @@
+Die deutsche Sprache gehört zur westgermanischen Sprachgruppe und wird von über 100 Millionen Menschen gesprochen.
+
+Volltext-Suche mit Wortstammerkennung ermöglicht es Benutzern, Dokumente zu finden, auch wenn sie nach verschiedenen Wortformen suchen. Zum Beispiel sollte die Suche nach "laufen" auch "läuft", "lief" und "gelaufen" finden. PostgreSQL unterstützt deutsche Wortstammerkennung durch die entsprechende Sprachkonfiguration.
+
+Natürliche Sprachverarbeitung (NLP) hat in den letzten Jahren enorme Fortschritte gemacht. Moderne Systeme können Texte übersetzen, zusammenfassen und Fragen beantworten. Die Transformer-Architektur hat dabei eine Schlüsselrolle gespielt.
+
+Umlaute wie ä, ö und ü sind wichtige Bestandteile der deutschen Schrift. Das ß (Eszett) wird in Deutschland verwendet, während in der Schweiz ss geschrieben wird.
+
+Künstliche Intelligenz verändert viele Bereiche unseres Lebens. Maschinelles Lernen erfordert große Mengen an Trainingsdaten. Die Datenqualität beeinflusst die Modellleistung direkt.
