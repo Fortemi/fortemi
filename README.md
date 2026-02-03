@@ -2,9 +2,15 @@
 
 *Pronounced: for-TAY-mee*
 
-**AI-Enhanced Knowledge Management System with Hybrid Retrieval**
+**Memory that understands.**
 
-A Rust implementation of Retrieval-Augmented Generation (RAG) combining full-text search (BM25) with dense passage retrieval via Reciprocal Rank Fusion (RRF), automatic knowledge graph construction, and W3C SKOS-compliant controlled vocabulary management.
+Most storage systems are passive—they hold your data and wait for exact queries. Fortémi is different. It's an intelligent memory system that actually comprehends what you store: the meaning behind your notes, the relationships between ideas, and the context that connects them.
+
+Ask it a question, and it doesn't just search for matching words. It finds answers that are *conceptually relevant*, even when you can't remember the right terminology. Store a document, and it automatically discovers how that knowledge connects to everything else you know. Over time, your knowledge base becomes a living network that grows smarter with every piece of information you add.
+
+Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency required.
+
+> **Under the hood:** Hybrid retrieval (BM25 + dense vectors) with Reciprocal Rank Fusion, automatic knowledge graph construction, 131 document types, and W3C SKOS vocabulary management. ~85k lines of Rust.
 
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
