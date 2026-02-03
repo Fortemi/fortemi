@@ -389,6 +389,24 @@ jobs:
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
           # Build API-only image (for Kubernetes/external DB deployments)
           docker build \
             --build-arg VERSION=dev-${SHORT_SHA} \
@@ -399,9 +417,9 @@ jobs:
           docker tag ${IMAGE}:dev ${IMAGE}:sha-${SHORT_SHA}
           docker tag ${IMAGE}:dev ${IMAGE}:main
 
-          docker push ${IMAGE}:dev
-          docker push ${IMAGE}:sha-${SHORT_SHA}
-          docker push ${IMAGE}:main
+          push_with_retry ${IMAGE}:dev
+          push_with_retry ${IMAGE}:sha-${SHORT_SHA}
+          push_with_retry ${IMAGE}:main
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
           docker build \
@@ -412,9 +430,9 @@ jobs:
           docker tag ${IMAGE}:bundle ${IMAGE}:bundle-${SHORT_SHA}
           docker tag ${IMAGE}:bundle ${IMAGE}:bundle-main
 
-          docker push ${IMAGE}:bundle
-          docker push ${IMAGE}:bundle-${SHORT_SHA}
-          docker push ${IMAGE}:bundle-main
+          push_with_retry ${IMAGE}:bundle
+          push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
+          push_with_retry ${IMAGE}:bundle-main
 
   # Release image - pushes on version tags only
   publish-release:
@@ -437,6 +455,24 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
           echo "Building release images for version: ${VERSION}"
 
           # Build API-only image (for Kubernetes/external DB deployments)
@@ -448,8 +484,8 @@ jobs:
 
           docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
 
-          docker push ${IMAGE}:${VERSION}
-          docker push ${IMAGE}:latest
+          push_with_retry ${IMAGE}:${VERSION}
+          push_with_retry ${IMAGE}:latest
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
           docker build \
@@ -459,8 +495,8 @@ jobs:
 
           docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
 
-          docker push ${IMAGE}:bundle-${VERSION}
-          docker push ${IMAGE}:bundle-latest
+          push_with_retry ${IMAGE}:bundle-${VERSION}
+          push_with_retry ${IMAGE}:bundle-latest
 
           echo "Published release images:"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
@@ -536,6 +572,25 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                echo "Successfully pushed ${image}"
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
           echo "Building release images for GitHub: ${VERSION}"
 
           # Build API-only image (for Kubernetes/external DB deployments)
@@ -547,8 +602,8 @@ jobs:
 
           docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
 
-          docker push ${IMAGE}:${VERSION}
-          docker push ${IMAGE}:latest
+          push_with_retry ${IMAGE}:${VERSION}
+          push_with_retry ${IMAGE}:latest
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
           docker build \
@@ -558,8 +613,8 @@ jobs:
 
           docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
 
-          docker push ${IMAGE}:bundle-${VERSION}
-          docker push ${IMAGE}:bundle-latest
+          push_with_retry ${IMAGE}:bundle-${VERSION}
+          push_with_retry ${IMAGE}:bundle-latest
 
           echo "Published to GitHub Container Registry:"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"

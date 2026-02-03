@@ -7,10 +7,16 @@ on:
       - 'build/Dockerfile.builder'
       - 'build/Dockerfile.testdb'
       - 'build/scripts/**'
+  # Also build on release tags to publish versioned builder images
+  create:
+    tags: ['v*']
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
+  # GitHub Container Registry (public)
+  GHCR_REGISTRY: ghcr.io
+  # Gitea Registry (internal)
+  GITEA_REGISTRY: git.integrolabs.net
   BUILDER_IMAGE: fortemi/fortemi-builder
   TESTDB_IMAGE: fortemi/fortemi-testdb
 
@@ -24,12 +30,15 @@ jobs:
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
 
-      - name: Log in to registry
-        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${REGISTRY} -u fortemi --password-stdin
+      - name: Log in to registries
+        run: |
+          echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
       - name: Build builder image
         run: |
-          IMAGE="${REGISTRY}/${BUILDER_IMAGE}"
+          GHCR_IMAGE="${GHCR_REGISTRY}/${BUILDER_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${BUILDER_IMAGE}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -37,25 +46,46 @@ jobs:
           docker build \
             -f build/Dockerfile.builder \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:latest \
-            -t ${IMAGE}:sha-${SHORT_SHA} \
+            -t ${GHCR_IMAGE}:latest \
+            -t ${GHCR_IMAGE}:sha-${SHORT_SHA} \
+            -t ${GITEA_IMAGE}:latest \
+            -t ${GITEA_IMAGE}:sha-${SHORT_SHA} \
             .
+
+          # Add version tag if this is a release
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "Adding version tag: ${VERSION}"
+            docker tag ${GHCR_IMAGE}:latest ${GHCR_IMAGE}:${VERSION}
+            docker tag ${GITEA_IMAGE}:latest ${GITEA_IMAGE}:${VERSION}
+          fi
 
       - name: Build testdb image
         run: |
-          IMAGE="${REGISTRY}/${TESTDB_IMAGE}"
+          GHCR_IMAGE="${GHCR_REGISTRY}/${TESTDB_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${TESTDB_IMAGE}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
           echo "Building testdb image (pgvector + PostGIS)..."
           docker build \
             -f build/Dockerfile.testdb \
-            -t ${IMAGE}:latest \
-            -t ${IMAGE}:sha-${SHORT_SHA} \
+            -t ${GHCR_IMAGE}:latest \
+            -t ${GHCR_IMAGE}:sha-${SHORT_SHA} \
+            -t ${GITEA_IMAGE}:latest \
+            -t ${GITEA_IMAGE}:sha-${SHORT_SHA} \
             .
+
+          # Add version tag if this is a release
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "Adding version tag: ${VERSION}"
+            docker tag ${GHCR_IMAGE}:latest ${GHCR_IMAGE}:${VERSION}
+            docker tag ${GITEA_IMAGE}:latest ${GITEA_IMAGE}:${VERSION}
+          fi
 
       - name: Test builder image
         run: |
-          IMAGE="${REGISTRY}/${BUILDER_IMAGE}"
+          IMAGE="${GHCR_REGISTRY}/${BUILDER_IMAGE}"
 
           echo "Testing builder image..."
 
@@ -81,7 +111,7 @@ jobs:
 
       - name: Test testdb image
         run: |
-          IMAGE="${REGISTRY}/${TESTDB_IMAGE}"
+          IMAGE="${GHCR_REGISTRY}/${TESTDB_IMAGE}"
 
           echo "Testing testdb image..."
 
@@ -116,23 +146,61 @@ jobs:
         run: |
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
-          # Push builder image
-          BUILDER="${REGISTRY}/${BUILDER_IMAGE}"
-          echo "Pushing builder images..."
-          docker push ${BUILDER}:latest
-          docker push ${BUILDER}:sha-${SHORT_SHA}
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
 
-          # Push testdb image
-          TESTDB="${REGISTRY}/${TESTDB_IMAGE}"
-          echo "Pushing testdb images..."
-          docker push ${TESTDB}:latest
-          docker push ${TESTDB}:sha-${SHORT_SHA}
+          # Push to GitHub Container Registry
+          GHCR_BUILDER="${GHCR_REGISTRY}/${BUILDER_IMAGE}"
+          GHCR_TESTDB="${GHCR_REGISTRY}/${TESTDB_IMAGE}"
+
+          echo "Pushing to GitHub Container Registry..."
+          push_with_retry ${GHCR_BUILDER}:latest
+          push_with_retry ${GHCR_BUILDER}:sha-${SHORT_SHA}
+          push_with_retry ${GHCR_TESTDB}:latest
+          push_with_retry ${GHCR_TESTDB}:sha-${SHORT_SHA}
+
+          # Push to Gitea Registry
+          GITEA_BUILDER="${GITEA_REGISTRY}/${BUILDER_IMAGE}"
+          GITEA_TESTDB="${GITEA_REGISTRY}/${TESTDB_IMAGE}"
+
+          echo "Pushing to Gitea Registry..."
+          push_with_retry ${GITEA_BUILDER}:latest
+          push_with_retry ${GITEA_BUILDER}:sha-${SHORT_SHA}
+          push_with_retry ${GITEA_TESTDB}:latest
+          push_with_retry ${GITEA_TESTDB}:sha-${SHORT_SHA}
+
+          # Push version tags if this is a release
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "Pushing version-tagged images: ${VERSION}"
+            push_with_retry ${GHCR_BUILDER}:${VERSION}
+            push_with_retry ${GHCR_TESTDB}:${VERSION}
+            push_with_retry ${GITEA_BUILDER}:${VERSION}
+            push_with_retry ${GITEA_TESTDB}:${VERSION}
+          fi
 
           echo "Published images:"
-          echo "  - ${BUILDER}:latest"
-          echo "  - ${BUILDER}:sha-${SHORT_SHA}"
-          echo "  - ${TESTDB}:latest"
-          echo "  - ${TESTDB}:sha-${SHORT_SHA}"
+          echo "  GitHub (ghcr.io):"
+          echo "    - ${GHCR_BUILDER}:latest, :sha-${SHORT_SHA}"
+          echo "    - ${GHCR_TESTDB}:latest, :sha-${SHORT_SHA}"
+          echo "  Gitea:"
+          echo "    - ${GITEA_BUILDER}:latest, :sha-${SHORT_SHA}"
+          echo "    - ${GITEA_TESTDB}:latest, :sha-${SHORT_SHA}"
 
   # After builder is published, trigger CI to validate with new image
   trigger-ci:
