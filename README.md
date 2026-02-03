@@ -6,7 +6,6 @@
 
 A Rust implementation of Retrieval-Augmented Generation (RAG) combining full-text search (BM25) with dense passage retrieval via Reciprocal Rank Fusion (RRF), automatic knowledge graph construction, and W3C SKOS-compliant controlled vocabulary management.
 
-[![Build Status](https://github.com/Fortemi/fortemi/actions/workflows/ci.yaml/badge.svg)](https://github.com/Fortemi/fortemi/actions)
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
 ---
