@@ -16,6 +16,7 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
+use base64::Engine;
 use governor::{Quota, RateLimiter};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -38,7 +39,7 @@ use matric_core::{
     ListNotesRequest, NoteRepository, OAuthError, RevisionMode, StrictTagFilterInput, TagInput,
     TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
-use matric_db::{Database, SkosTagResolutionRepository};
+use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
 
 // =============================================================================
 // REQUEST ID (UUIDv7)
@@ -427,6 +428,15 @@ async fn main() -> anyhow::Result<()> {
     let db = Database::connect(&database_url).await?;
     info!("Database connected");
 
+    // Initialize file storage
+    let file_storage_path =
+        std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());
+    let db = db.with_file_storage(
+        FilesystemBackend::new(&file_storage_path),
+        1024 * 1024, // 1MB inline threshold
+    );
+    info!("File storage initialized at {}", file_storage_path);
+
     // Create search engine
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
 
@@ -619,7 +629,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/concepts/schemes/:id",
-            get(get_concept_scheme).patch(update_concept_scheme),
+            get(get_concept_scheme)
+                .patch(update_concept_scheme)
+                .delete(delete_concept_scheme),
         )
         .route(
             "/api/v1/concepts/schemes/:id/top-concepts",
@@ -672,6 +684,19 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/notes/:id/concepts/:concept_id",
             delete(untag_note_concept),
+        )
+        // File Attachments
+        .route(
+            "/api/v1/notes/:id/attachments",
+            get(list_attachments).post(upload_attachment),
+        )
+        .route(
+            "/api/v1/attachments/:attachment_id",
+            get(get_attachment).delete(delete_attachment),
+        )
+        .route(
+            "/api/v1/attachments/:attachment_id/download",
+            get(download_attachment),
         )
         // SKOS Governance
         .route("/api/v1/concepts/governance", get(get_governance_stats))
@@ -2123,6 +2148,14 @@ async fn update_concept_scheme(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn delete_concept_scheme(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.skos.delete_scheme(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn get_top_concepts(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -3348,7 +3381,6 @@ async fn diff_note_versions(
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // Date fields reserved for future search filtering
 struct SearchQuery {
     q: String,
     limit: Option<i64>,
@@ -3391,6 +3423,8 @@ async fn search_notes(
     let cache_key = if query.strict_filter.is_none()
         && query.created_after.is_none()
         && query.created_before.is_none()
+        && query.updated_after.is_none()
+        && query.updated_before.is_none()
         && query.since.is_none()
     {
         Some(state.search_cache.cache_key(
@@ -3448,6 +3482,13 @@ async fn search_notes(
         request = request.with_filters(filters);
     }
 
+    // Resolve embedding set slug to UUID and apply filter
+    if let Some(ref set_slug) = query.embedding_set {
+        if let Some(set) = state.db.embedding_sets.get_by_slug(set_slug).await? {
+            request = request.with_embedding_set(set.id);
+        }
+    }
+
     if let Some(vec) = query_embedding {
         request = request.with_embedding(vec);
     }
@@ -3458,6 +3499,12 @@ async fn search_notes(
     }
     if let Some(ts) = query.created_before {
         request = request.with_created_before(ts);
+    }
+    if let Some(ts) = query.updated_after {
+        request = request.with_updated_after(ts);
+    }
+    if let Some(ts) = query.updated_before {
+        request = request.with_updated_before(ts);
     }
 
     let results = request.execute(&state.search).await?;
@@ -6336,6 +6383,124 @@ async fn knowledge_shard_import(
         warnings,
         dry_run: body.dry_run,
     }))
+}
+
+// =============================================================================
+// FILE ATTACHMENT HANDLERS
+// =============================================================================
+
+/// Request body for uploading file attachments
+#[derive(Debug, Deserialize)]
+struct UploadAttachmentBody {
+    filename: String,
+    content_type: String,
+    /// Base64-encoded file data
+    data: String,
+}
+
+/// Response for file download with base64-encoded content
+#[derive(Debug, Serialize)]
+struct DownloadAttachmentResponse {
+    data: String,
+    content_type: String,
+    filename: String,
+}
+
+/// List all attachments for a note
+async fn list_attachments(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let attachments = file_storage.list_by_note(id).await?;
+    Ok(Json(attachments))
+}
+
+/// Upload a file attachment to a note
+async fn upload_attachment(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UploadAttachmentBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    // Decode base64 data
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&body.data)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
+
+    // Store the file
+    let attachment = file_storage
+        .store_file(id, &body.filename, &body.content_type, &data)
+        .await?;
+
+    Ok(Json(attachment))
+}
+
+/// Get attachment metadata
+async fn get_attachment(
+    State(state): State<AppState>,
+    Path(attachment_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let attachment = file_storage.get(attachment_id).await?;
+    Ok(Json(attachment))
+}
+
+/// Download a file attachment (returns base64-encoded data)
+async fn download_attachment(
+    State(state): State<AppState>,
+    Path(attachment_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let (data, content_type, filename) = file_storage.download_file(attachment_id).await?;
+
+    // Encode data as base64
+    let encoded_data = base64::engine::general_purpose::STANDARD.encode(&data);
+
+    Ok(Json(DownloadAttachmentResponse {
+        data: encoded_data,
+        content_type,
+        filename,
+    }))
+}
+
+/// Delete an attachment
+async fn delete_attachment(
+    State(state): State<AppState>,
+    Path(attachment_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    file_storage.delete(attachment_id).await?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Attachment deleted successfully"
+    })))
 }
 
 // =============================================================================

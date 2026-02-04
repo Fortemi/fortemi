@@ -106,6 +106,7 @@ function createMcpServer() {
             tags: args.tags,
             revision_mode: args.revision_mode,
             collection_id: args.collection_id,
+            metadata: args.metadata,
           });
           break;
 
@@ -121,6 +122,7 @@ function createMcpServer() {
           if (args.starred !== undefined) body.starred = args.starred;
           if (args.archived !== undefined) body.archived = args.archived;
           if (args.revision_mode !== undefined) body.revision_mode = args.revision_mode;
+          if (args.metadata !== undefined) body.metadata = args.metadata;
           await apiRequest("PATCH", `/api/v1/notes/${args.id}`, body);
           result = { success: true };
           break;
@@ -141,6 +143,16 @@ function createMcpServer() {
           if (args.mode) params.set("mode", args.mode);
           if (args.set) params.set("set", args.set);
           if (args.collection_id) params.set("collection_id", args.collection_id);
+          // Build strict_filter JSON from convenience params or direct JSON
+          if (args.strict_filter) {
+            params.set("strict_filter", args.strict_filter);
+          } else if (args.required_tags || args.excluded_tags || args.any_tags) {
+            const filter = {};
+            if (args.required_tags) filter.required_tags = args.required_tags;
+            if (args.excluded_tags) filter.excluded_tags = args.excluded_tags;
+            if (args.any_tags) filter.any_tags = args.any_tags;
+            params.set("strict_filter", JSON.stringify(filter));
+          }
           result = await apiRequest("GET", `/api/v1/search?${params}`);
           break;
         }
@@ -847,10 +859,22 @@ function createMcpServer() {
           const diffParams = new URLSearchParams();
           diffParams.set("from", args.from_version);
           diffParams.set("to", args.to_version);
-          result = await apiRequest(
-            "GET",
-            `/api/v1/notes/${args.note_id}/versions/diff?${diffParams}`
+          // API returns plain text (unified diff format), not JSON
+          const sessionToken = tokenStorage.getStore()?.token;
+          const diffHeaders = { "Accept": "text/plain" };
+          if (sessionToken) {
+            diffHeaders["Authorization"] = `Bearer ${sessionToken}`;
+          } else if (API_KEY) {
+            diffHeaders["Authorization"] = `Bearer ${API_KEY}`;
+          }
+          const diffResponse = await fetch(
+            `${API_BASE}/api/v1/notes/${args.note_id}/versions/diff?${diffParams}`,
+            { headers: diffHeaders }
           );
+          if (!diffResponse.ok) {
+            throw new Error(`Diff failed: ${diffResponse.status}`);
+          }
+          result = { diff: await diffResponse.text() };
           break;
         }
 
@@ -1481,7 +1505,7 @@ function createMcpServer() {
           break;
 
         case "get_pending_jobs_count":
-          result = await apiRequest("GET", "/api/v1/jobs/pending/count");
+          result = await apiRequest("GET", "/api/v1/jobs/pending");
           break;
 
         // ============================================================================
@@ -1534,7 +1558,7 @@ function createMcpServer() {
           result = await apiRequest("POST", "/api/v1/embedding-configs", {
             name: args.name,
             model: args.model,
-            dimensions: args.dimensions,
+            dimension: args.dimension,
             provider: args.provider,
             is_default: args.is_default || false,
           });
@@ -1544,12 +1568,17 @@ function createMcpServer() {
           const body = {};
           if (args.name !== undefined) body.name = args.name;
           if (args.model !== undefined) body.model = args.model;
-          if (args.dimensions !== undefined) body.dimensions = args.dimensions;
+          if (args.dimension !== undefined) body.dimension = args.dimension;
           if (args.provider !== undefined) body.provider = args.provider;
           if (args.is_default !== undefined) body.is_default = args.is_default;
           result = await apiRequest("PATCH", `/api/v1/embedding-configs/${args.id}`, body);
           break;
         }
+
+        case "delete_embedding_config":
+          await apiRequest("DELETE", `/api/v1/embedding-configs/${args.id}`);
+          result = { success: true };
+          break;
 
         // ============================================================================
         // SKOS TURTLE EXPORT (#460)
@@ -1573,6 +1602,35 @@ function createMcpServer() {
           break;
         }
 
+
+        // ============================================================================
+        // FILE ATTACHMENTS (#14)
+        // ============================================================================
+        case "upload_attachment": {
+          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, {
+            filename: args.filename,
+            content_type: args.content_type,
+            data: args.data,
+          });
+          break;
+        }
+
+        case "list_attachments":
+          result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/attachments`);
+          break;
+
+        case "get_attachment":
+          result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
+          break;
+
+        case "download_attachment":
+          result = await apiRequest("GET", `/api/v1/attachments/${args.id}/download`);
+          break;
+
+        case "delete_attachment":
+          await apiRequest("DELETE", `/api/v1/attachments/${args.id}`);
+          result = { success: true };
+          break;
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -1680,6 +1738,25 @@ Use semantic mode when looking for conceptually related content even if exact ke
         mode: { type: "string", enum: ["hybrid", "fts", "semantic"], description: "Search mode", default: "hybrid" },
         set: { type: "string", description: "Embedding set slug to restrict semantic search (optional)" },
         collection_id: { type: "string", format: "uuid", description: "Filter results to notes in this collection (optional)" },
+        required_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Strict filter: ALL results MUST have these tags (AND logic). Example: ['programming/rust']"
+        },
+        excluded_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Strict filter: NO results should have these tags (NOT logic). Example: ['draft']"
+        },
+        any_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Strict filter: results must have at least ONE of these tags (OR logic). Example: ['ai/ml', 'ai/nlp']"
+        },
+        strict_filter: {
+          type: "string",
+          description: "Advanced: raw JSON strict filter string. Example: '{\"required_tags\":[\"tag1\"],\"excluded_tags\":[\"tag2\"]}'. Use required_tags/excluded_tags/any_tags params instead for convenience."
+        },
       },
       required: ["query"],
     },
@@ -1838,6 +1915,10 @@ Tags are automatically converted to W3C SKOS concepts with proper broader/narrow
           format: "uuid",
           description: "Optional collection UUID to place the note in"
         },
+        metadata: {
+          type: "object",
+          description: "Optional arbitrary key-value metadata to attach to the note (e.g., { source: 'meeting', priority: 'high' })"
+        },
       },
       required: ["content"],
     },
@@ -1924,6 +2005,10 @@ Use this to:
           enum: ["full", "light", "none"],
           description: "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
           default: "full"
+        },
+        metadata: {
+          type: "object",
+          description: "Optional arbitrary key-value metadata to update (e.g., { source: 'meeting', priority: 'high' })"
         },
       },
       required: ["id"],
@@ -5272,11 +5357,11 @@ After creating a config, use it with embedding sets or set as default for all ne
       properties: {
         name: { type: "string", description: "Display name" },
         model: { type: "string", description: "Model identifier" },
-        dimensions: { type: "number", description: "Vector dimensions" },
+        dimension: { type: "number", description: "Vector dimension (e.g., 768, 384, 1536)" },
         provider: { type: "string", description: "Provider (ollama, openai, etc.)" },
         is_default: { type: "boolean", default: false, description: "Set as default config" },
       },
-      required: ["name", "model", "dimensions"],
+      required: ["name", "model", "dimension"],
     },
     annotations: {
       destructiveHint: false,
@@ -5293,7 +5378,7 @@ Can change name, model, dimensions, provider, or default status. Setting is_defa
         id: { type: "string", format: "uuid", description: "Config UUID" },
         name: { type: "string", description: "New display name" },
         model: { type: "string", description: "New model identifier" },
-        dimensions: { type: "number", description: "New vector dimensions" },
+        dimension: { type: "number", description: "New vector dimension" },
         provider: { type: "string", description: "New provider" },
         is_default: { type: "boolean", description: "Set as default" },
       },
@@ -5304,6 +5389,103 @@ Can change name, model, dimensions, provider, or default status. Setting is_defa
     },
   },
 
+  {
+    name: "delete_embedding_config",
+    description: `Delete an embedding configuration.
+
+Cannot delete the default config. Remove or reassign default status first.
+Existing embeddings using this config are not affected but won't be regenerated with the deleted config.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid", description: "Config UUID to delete" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
+
+
+  // ============================================================================
+  // FILE ATTACHMENTS (#14)
+  // ============================================================================
+  {
+    name: "upload_attachment",
+    description: `Upload a file attachment to a note.
+
+Files are stored with content-hash deduplication. Small files are stored inline in the database, larger files use filesystem storage.
+
+The data parameter must be base64-encoded file content.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", format: "uuid", description: "Note UUID to attach the file to" },
+        filename: { type: "string", description: "Filename (e.g., 'photo.jpg', 'document.pdf')" },
+        content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
+        data: { type: "string", description: "Base64-encoded file content" },
+      },
+      required: ["note_id", "filename", "content_type", "data"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
+    name: "list_attachments",
+    description: `List all file attachments for a note.
+
+Returns attachment metadata including filename, content type, size, status, and timestamps.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", format: "uuid", description: "Note UUID" },
+      },
+      required: ["note_id"],
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "get_attachment",
+    description: `Get metadata for a specific attachment.
+
+Returns full attachment details including extracted metadata (EXIF, etc.) if available.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid", description: "Attachment UUID" },
+      },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "download_attachment",
+    description: `Download a file attachment.
+
+Returns the file content as base64-encoded data along with content type and filename.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid", description: "Attachment UUID" },
+      },
+      required: ["id"],
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "delete_attachment",
+    description: `Delete a file attachment.
+
+Removes the attachment record. If no other attachments reference the same blob (content hash), the underlying blob is also deleted.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid", description: "Attachment UUID to delete" },
+      },
+      required: ["id"],
+    },
+    annotations: { destructiveHint: true },
+  },
   // ============================================================================
   // SKOS TURTLE EXPORT (#460)
   // ============================================================================

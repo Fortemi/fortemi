@@ -54,6 +54,12 @@ services:
       # API settings
       - RUST_LOG=info
       - RATE_LIMIT_ENABLED=false
+
+      # Full-text search: multilingual, emoji, and CJK support
+      - FTS_SCRIPT_DETECTION=true
+      - FTS_TRIGRAM_FALLBACK=true
+      - FTS_BIGRAM_CJK=true
+      - FTS_MULTILINGUAL_CONFIGS=true
       # - LOG_FORMAT=json
       # - WORKER_ENABLED=true
 

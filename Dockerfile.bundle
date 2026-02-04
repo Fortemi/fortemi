@@ -108,6 +108,12 @@ ENV RUST_LOG=info
 
 # Rate limiting (disable for development/testing)
 ENV RATE_LIMIT_ENABLED=false
+
+# Full-text search: enable multilingual, emoji, and CJK support
+ENV FTS_SCRIPT_DETECTION=true
+ENV FTS_TRIGRAM_FALLBACK=true
+ENV FTS_BIGRAM_CJK=true
+ENV FTS_MULTILINGUAL_CONFIGS=true
 # ENV RATE_LIMIT_REQUESTS=100
 # ENV RATE_LIMIT_PERIOD_SECS=60
 

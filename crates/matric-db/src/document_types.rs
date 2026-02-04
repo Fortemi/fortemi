@@ -42,7 +42,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             r#"
             SELECT id, name, display_name, category::TEXT, description,
                    chunking_strategy::TEXT, tree_sitter_language,
-                   extraction_strategy, requires_attachment,
+                   extraction_strategy::TEXT, requires_attachment,
                    is_system, is_active
             FROM document_type
             WHERE is_active = TRUE
@@ -80,7 +80,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             r#"
             SELECT id, name, display_name, category::TEXT, description,
                    chunking_strategy::TEXT, tree_sitter_language,
-                   extraction_strategy, requires_attachment,
+                   extraction_strategy::TEXT, requires_attachment,
                    is_system, is_active
             FROM document_type
             WHERE is_active = TRUE AND category::TEXT = $1
@@ -122,7 +122,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                    chunking_strategy::TEXT, chunk_size_default, chunk_overlap_default,
                    preserve_boundaries, chunking_config, recommended_config_id,
                    content_types, tree_sitter_language,
-                   extraction_strategy, extraction_config, requires_attachment, attachment_generates_content,
+                   extraction_strategy::TEXT, extraction_config, requires_attachment, attachment_generates_content,
                    is_system, is_active,
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
@@ -145,7 +145,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                    chunking_strategy::TEXT, chunk_size_default, chunk_overlap_default,
                    preserve_boundaries, chunking_config, recommended_config_id,
                    content_types, tree_sitter_language,
-                   extraction_strategy, extraction_config, requires_attachment, attachment_generates_content,
+                   extraction_strategy::TEXT, extraction_config, requires_attachment, attachment_generates_content,
                    is_system, is_active,
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
@@ -328,7 +328,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                 r#"
                 SELECT id, name, display_name, category::TEXT, description,
                        chunking_strategy::TEXT, tree_sitter_language,
-                       extraction_strategy, requires_attachment,
+                       extraction_strategy::TEXT, requires_attachment,
                        is_system, is_active, magic_patterns
                 FROM document_type
                 WHERE is_active = TRUE AND array_length(magic_patterns, 1) > 0
@@ -390,7 +390,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                    chunking_strategy::TEXT, chunk_size_default, chunk_overlap_default,
                    preserve_boundaries, chunking_config, recommended_config_id,
                    content_types, tree_sitter_language,
-                   extraction_strategy, extraction_config, requires_attachment, attachment_generates_content,
+                   extraction_strategy::TEXT, extraction_config, requires_attachment, attachment_generates_content,
                    is_system, is_active,
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
@@ -413,7 +413,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                    chunking_strategy::TEXT, chunk_size_default, chunk_overlap_default,
                    preserve_boundaries, chunking_config, recommended_config_id,
                    content_types, tree_sitter_language,
-                   extraction_strategy, extraction_config, requires_attachment, attachment_generates_content,
+                   extraction_strategy::TEXT, extraction_config, requires_attachment, attachment_generates_content,
                    is_system, is_active,
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
