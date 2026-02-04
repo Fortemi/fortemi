@@ -15,7 +15,7 @@ import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
 
-const API_BASE = process.env.FORTEMI_URL || "https://fortemi.com";
+const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_PORT = parseInt(process.env.MCP_PORT || "3001", 10);
@@ -7058,7 +7058,7 @@ if (MCP_TRANSPORT === "http") {
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
     res.json({
       resource: MCP_BASE_URL,
-      authorization_servers: [API_BASE.replace('http://127.0.0.1:3000', 'https://fortemi.com')],
+      authorization_servers: [process.env.ISSUER_URL || API_BASE],
       bearer_methods_supported: ["header"],
       scopes_supported: ["mcp", "read"],
     });
