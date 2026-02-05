@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.4] - 2026-02-05
+
+### Fixed
+- **MCP limit=0 parameter** - Fixed JavaScript falsy check that skipped `limit=0` parameter (#29)
+  - Changed from `if (args.limit)` to `if (args.limit !== undefined && args.limit !== null)`
+  - API now correctly returns 400 "limit must be >= 1"
+
+### Verified
+- **CJK 2+ character search** - Works correctly; single-char limitation is industry standard (#30)
+- **Emoji search** - All patterns work: single, repeated, adjacent different emojis (#31)
+
 ## [2026.2.3] - 2026-02-05
 
 ### Fixed
