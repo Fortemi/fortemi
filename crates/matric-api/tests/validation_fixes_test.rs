@@ -1,7 +1,8 @@
-//! Unit tests for validation fixes (issues #271, #276, #263)
+//! Unit tests for validation fixes (issues #271, #276, #263, #29)
 //!
 //! Tests verify:
 //! - Issue #271: Negative limit validation logic
+//! - Issue #29: Zero limit validation logic
 //! - Issue #276: Empty content detection logic
 //! - Issue #263: Database error pattern matching for HTTP status codes
 
@@ -20,12 +21,19 @@ mod validation_logic_tests {
     }
 
     #[test]
-    fn test_zero_and_positive_limits_valid() {
-        // Issue #271: Zero and positive limits are valid
-        let limits = vec![0, 1, 10, 100, i64::MAX];
+    fn test_zero_limit_invalid() {
+        // Issue #29: Zero limit should be detected as invalid
+        let limit = 0_i64;
+        assert!(limit <= 0, "Limit 0 should be invalid (must be >= 1)");
+    }
+
+    #[test]
+    fn test_positive_limits_valid() {
+        // Issue #271 + #29: Only positive limits (>= 1) are valid
+        let limits = vec![1, 10, 100, i64::MAX];
 
         for limit in limits {
-            assert!(limit >= 0, "Limit {} should be valid (non-negative)", limit);
+            assert!(limit > 0, "Limit {} should be valid (>= 1)", limit);
         }
     }
 

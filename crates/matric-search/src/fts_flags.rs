@@ -3,12 +3,12 @@
 //! This module provides runtime feature flags to control the rollout of FTS enhancements
 //! across three phases:
 //!
-//! - **Phase 1**: websearch_to_tsquery migration (already deployed)
-//! - **Phase 2**: Trigram fallback and script detection
-//! - **Phase 3**: CJK bigram tokenization and multilingual configs
+//! - **Phase 1**: websearch_to_tsquery migration (deployed)
+//! - **Phase 2**: Trigram fallback and script detection (deployed)
+//! - **Phase 3**: CJK bigram tokenization and multilingual configs (deployed)
 //!
-//! Flags can be set via environment variables or code, allowing gradual rollout and
-//! easy rollback if issues are detected.
+//! All features are enabled by default. Flags can be disabled via environment variables
+//! if issues are detected, allowing easy rollback.
 
 use std::env;
 
@@ -20,7 +20,8 @@ use std::env;
 ///
 /// let flags = FtsFeatureFlags::default();
 /// assert!(flags.is_phase1_enabled());
-/// assert!(!flags.is_phase2_enabled());
+/// assert!(flags.is_phase2_enabled());
+/// assert!(flags.is_phase3_enabled());
 ///
 /// let all_flags = FtsFeatureFlags::all_enabled();
 /// assert!(all_flags.is_phase3_enabled());
@@ -28,38 +29,39 @@ use std::env;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FtsFeatureFlags {
     /// Enable websearch_to_tsquery for natural query parsing (Phase 1).
-    /// Default: true (already migrated and stable).
+    /// Default: true (deployed and stable).
     pub websearch_to_tsquery: bool,
 
     /// Enable trigram fallback for queries with no stemmed results (Phase 2).
-    /// Default: false (pending deployment).
+    /// Default: true (deployed and stable).
     pub trigram_fallback: bool,
 
     /// Enable CJK bigram tokenization for Chinese/Japanese/Korean (Phase 3).
-    /// Default: false (pending deployment).
+    /// Default: true (deployed and stable).
     pub bigram_cjk: bool,
 
     /// Enable script detection for automatic language routing (Phase 2).
-    /// Default: false (pending deployment).
+    /// Default: true (deployed and stable).
     pub script_detection: bool,
 
     /// Enable multilingual PostgreSQL text search configs (Phase 3).
-    /// Default: false (pending deployment).
+    /// Default: true (deployed and stable).
     pub multilingual_configs: bool,
 }
 
 impl Default for FtsFeatureFlags {
-    /// Returns safe default flags.
+    /// Returns default flags with all features enabled.
     ///
-    /// Only Phase 1 (websearch_to_tsquery) is enabled by default, as it has been
-    /// deployed and validated in production.
+    /// All phases (1-3) are enabled by default, as they have been
+    /// deployed and validated. Use environment variables to disable
+    /// specific features if needed.
     fn default() -> Self {
         Self {
             websearch_to_tsquery: true,
-            trigram_fallback: false,
-            bigram_cjk: false,
-            script_detection: false,
-            multilingual_configs: false,
+            trigram_fallback: true,
+            bigram_cjk: true,
+            script_detection: true,
+            multilingual_configs: true,
         }
     }
 }
@@ -69,10 +71,10 @@ impl FtsFeatureFlags {
     ///
     /// Environment variables:
     /// - `FTS_WEBSEARCH_TO_TSQUERY` (default: true)
-    /// - `FTS_TRIGRAM_FALLBACK` (default: false)
-    /// - `FTS_BIGRAM_CJK` (default: false)
-    /// - `FTS_SCRIPT_DETECTION` (default: false)
-    /// - `FTS_MULTILINGUAL_CONFIGS` (default: false)
+    /// - `FTS_TRIGRAM_FALLBACK` (default: true)
+    /// - `FTS_BIGRAM_CJK` (default: true)
+    /// - `FTS_SCRIPT_DETECTION` (default: true)
+    /// - `FTS_MULTILINGUAL_CONFIGS` (default: true)
     ///
     /// Values are parsed as booleans: "true", "1", "yes", "on" (case-insensitive) are truthy.
     ///
@@ -80,17 +82,17 @@ impl FtsFeatureFlags {
     /// ```no_run
     /// use matric_search::fts_flags::FtsFeatureFlags;
     ///
-    /// std::env::set_var("FTS_TRIGRAM_FALLBACK", "true");
+    /// std::env::set_var("FTS_TRIGRAM_FALLBACK", "false");
     /// let flags = FtsFeatureFlags::from_env();
-    /// assert!(flags.trigram_fallback);
+    /// assert!(!flags.trigram_fallback);
     /// ```
     pub fn from_env() -> Self {
         Self {
             websearch_to_tsquery: parse_bool_env("FTS_WEBSEARCH_TO_TSQUERY", true),
-            trigram_fallback: parse_bool_env("FTS_TRIGRAM_FALLBACK", false),
-            bigram_cjk: parse_bool_env("FTS_BIGRAM_CJK", false),
-            script_detection: parse_bool_env("FTS_SCRIPT_DETECTION", false),
-            multilingual_configs: parse_bool_env("FTS_MULTILINGUAL_CONFIGS", false),
+            trigram_fallback: parse_bool_env("FTS_TRIGRAM_FALLBACK", true),
+            bigram_cjk: parse_bool_env("FTS_BIGRAM_CJK", true),
+            script_detection: parse_bool_env("FTS_SCRIPT_DETECTION", true),
+            multilingual_configs: parse_bool_env("FTS_MULTILINGUAL_CONFIGS", true),
         }
     }
 
@@ -173,14 +175,12 @@ mod tests {
     fn test_default_flags() {
         let flags = FtsFeatureFlags::default();
 
-        // Phase 1 should be enabled (already migrated)
+        // All features should be enabled by default
         assert!(flags.websearch_to_tsquery);
-
-        // Phase 2 and 3 should be disabled by default
-        assert!(!flags.trigram_fallback);
-        assert!(!flags.bigram_cjk);
-        assert!(!flags.script_detection);
-        assert!(!flags.multilingual_configs);
+        assert!(flags.trigram_fallback);
+        assert!(flags.bigram_cjk);
+        assert!(flags.script_detection);
+        assert!(flags.multilingual_configs);
     }
 
     #[test]
@@ -192,6 +192,12 @@ mod tests {
         assert!(flags.bigram_cjk);
         assert!(flags.script_detection);
         assert!(flags.multilingual_configs);
+    }
+
+    #[test]
+    fn test_default_equals_all_enabled() {
+        // After deployment, default should equal all_enabled
+        assert_eq!(FtsFeatureFlags::default(), FtsFeatureFlags::all_enabled());
     }
 
     #[test]
@@ -235,12 +241,8 @@ mod tests {
         };
         assert!(!flags.is_phase2_enabled());
 
-        // Both flags set
-        let flags = FtsFeatureFlags {
-            trigram_fallback: true,
-            script_detection: true,
-            ..Default::default()
-        };
+        // Both flags set (default)
+        let flags = FtsFeatureFlags::default();
         assert!(flags.is_phase2_enabled());
     }
 
@@ -270,12 +272,8 @@ mod tests {
         };
         assert!(!flags.is_phase3_enabled());
 
-        // Both flags set
-        let flags = FtsFeatureFlags {
-            bigram_cjk: true,
-            multilingual_configs: true,
-            ..Default::default()
-        };
+        // Both flags set (default)
+        let flags = FtsFeatureFlags::default();
         assert!(flags.is_phase3_enabled());
     }
 
@@ -368,6 +366,13 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         clear_fts_env();
 
+        // Test disabling
+        env::set_var("FTS_TRIGRAM_FALLBACK", "false");
+        let flags = FtsFeatureFlags::from_env();
+        assert!(!flags.trigram_fallback);
+        clear_fts_env();
+
+        // Test enabling (should match default)
         env::set_var("FTS_TRIGRAM_FALLBACK", "true");
         let flags = FtsFeatureFlags::from_env();
         assert!(flags.trigram_fallback);
@@ -379,6 +384,13 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         clear_fts_env();
 
+        // Test disabling
+        env::set_var("FTS_BIGRAM_CJK", "0");
+        let flags = FtsFeatureFlags::from_env();
+        assert!(!flags.bigram_cjk);
+        clear_fts_env();
+
+        // Test enabling (should match default)
         env::set_var("FTS_BIGRAM_CJK", "1");
         let flags = FtsFeatureFlags::from_env();
         assert!(flags.bigram_cjk);
@@ -390,6 +402,13 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         clear_fts_env();
 
+        // Test disabling
+        env::set_var("FTS_SCRIPT_DETECTION", "no");
+        let flags = FtsFeatureFlags::from_env();
+        assert!(!flags.script_detection);
+        clear_fts_env();
+
+        // Test enabling (should match default)
         env::set_var("FTS_SCRIPT_DETECTION", "yes");
         let flags = FtsFeatureFlags::from_env();
         assert!(flags.script_detection);
@@ -401,6 +420,13 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         clear_fts_env();
 
+        // Test disabling
+        env::set_var("FTS_MULTILINGUAL_CONFIGS", "off");
+        let flags = FtsFeatureFlags::from_env();
+        assert!(!flags.multilingual_configs);
+        clear_fts_env();
+
+        // Test enabling (should match default)
         env::set_var("FTS_MULTILINGUAL_CONFIGS", "on");
         let flags = FtsFeatureFlags::from_env();
         assert!(flags.multilingual_configs);
@@ -436,9 +462,9 @@ mod tests {
         let flags = FtsFeatureFlags::from_env();
         assert!(!flags.websearch_to_tsquery);
         assert!(flags.trigram_fallback);
-        assert!(!flags.bigram_cjk);
+        assert!(flags.bigram_cjk); // Uses default (true)
         assert!(flags.script_detection);
-        assert!(!flags.multilingual_configs);
+        assert!(flags.multilingual_configs); // Uses default (true)
 
         clear_fts_env();
     }
@@ -449,7 +475,14 @@ mod tests {
         let flags2 = flags1.clone();
         assert_eq!(flags1, flags2);
 
-        let flags3 = FtsFeatureFlags::default();
+        // Create a disabled config
+        let flags3 = FtsFeatureFlags {
+            websearch_to_tsquery: false,
+            trigram_fallback: false,
+            bigram_cjk: false,
+            script_detection: false,
+            multilingual_configs: false,
+        };
         assert_ne!(flags1, flags3);
     }
 

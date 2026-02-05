@@ -324,14 +324,12 @@ fn test_script_detection_confidence() {
 fn test_fts_flags_default() {
     let flags = FtsFeatureFlags::default();
 
-    // Phase 1 should be enabled (already migrated)
+    // All features should be enabled by default (deployed)
     assert!(flags.websearch_to_tsquery);
-
-    // Phase 2 and 3 should be disabled by default
-    assert!(!flags.trigram_fallback);
-    assert!(!flags.bigram_cjk);
-    assert!(!flags.script_detection);
-    assert!(!flags.multilingual_configs);
+    assert!(flags.trigram_fallback);
+    assert!(flags.bigram_cjk);
+    assert!(flags.script_detection);
+    assert!(flags.multilingual_configs);
 }
 
 #[test]
@@ -346,10 +344,17 @@ fn test_fts_flags_all_enabled() {
 }
 
 #[test]
+fn test_fts_flags_default_equals_all_enabled() {
+    // After full deployment, default should equal all_enabled
+    assert_eq!(FtsFeatureFlags::default(), FtsFeatureFlags::all_enabled());
+}
+
+#[test]
 fn test_fts_flags_phase1_enabled() {
-    let mut flags = FtsFeatureFlags::default();
+    let flags = FtsFeatureFlags::default();
     assert!(flags.is_phase1_enabled());
 
+    let mut flags = FtsFeatureFlags::default();
     flags.websearch_to_tsquery = false;
     assert!(!flags.is_phase1_enabled());
 }
@@ -380,12 +385,8 @@ fn test_fts_flags_phase2_requires_both() {
     };
     assert!(!flags.is_phase2_enabled());
 
-    // Both flags set
-    let flags = FtsFeatureFlags {
-        trigram_fallback: true,
-        script_detection: true,
-        ..Default::default()
-    };
+    // Both flags set (default)
+    let flags = FtsFeatureFlags::default();
     assert!(flags.is_phase2_enabled());
 }
 
@@ -415,12 +416,8 @@ fn test_fts_flags_phase3_requires_both() {
     };
     assert!(!flags.is_phase3_enabled());
 
-    // Both flags set
-    let flags = FtsFeatureFlags {
-        bigram_cjk: true,
-        multilingual_configs: true,
-        ..Default::default()
-    };
+    // Both flags set (default)
+    let flags = FtsFeatureFlags::default();
     assert!(flags.is_phase3_enabled());
 }
 
@@ -431,7 +428,8 @@ fn test_fts_flags_clone_and_equality() {
     assert_eq!(flags1, flags2);
 
     let flags3 = FtsFeatureFlags::default();
-    assert_ne!(flags1, flags3);
+    // After deployment, default equals all_enabled
+    assert_eq!(flags1, flags3);
 }
 
 // ========== HYBRID SEARCH CONFIG TESTS ==========
@@ -539,10 +537,10 @@ fn test_search_strategy_debug() {
 fn test_config_latin_query_with_default_flags() {
     let config = HybridSearchConfig::default();
 
-    // With default flags, script detection is disabled
-    assert!(!config.fts_flags.script_detection);
+    // With default flags, script detection is now enabled
+    assert!(config.fts_flags.script_detection);
 
-    // Should fall back to FtsEnglish
+    // Latin query should be detected correctly
     let query = "hello world";
     let result = detect_script(query);
     assert_eq!(result.primary, DetectedScript::Latin);
@@ -687,17 +685,19 @@ fn test_config_all_flags_enabled() {
 
 #[test]
 fn test_config_selective_phase_enablement() {
-    // Enable only Phase 1
+    // Test with all enabled (default)
     let flags = FtsFeatureFlags::default();
     let config = HybridSearchConfig::default().with_fts_flags(flags.clone());
     assert!(config.fts_flags.is_phase1_enabled());
-    assert!(!config.fts_flags.is_phase2_enabled());
-    assert!(!config.fts_flags.is_phase3_enabled());
+    assert!(config.fts_flags.is_phase2_enabled());
+    assert!(config.fts_flags.is_phase3_enabled());
 
-    // Enable Phase 1 and 2
+    // Test disabling Phase 3
     let flags = FtsFeatureFlags {
         trigram_fallback: true,
         script_detection: true,
+        bigram_cjk: false,
+        multilingual_configs: false,
         ..Default::default()
     };
     let config = HybridSearchConfig::default().with_fts_flags(flags);
@@ -705,7 +705,7 @@ fn test_config_selective_phase_enablement() {
     assert!(config.fts_flags.is_phase2_enabled());
     assert!(!config.fts_flags.is_phase3_enabled());
 
-    // Enable all phases
+    // Test enabling all phases explicitly
     let flags = FtsFeatureFlags {
         trigram_fallback: true,
         script_detection: true,

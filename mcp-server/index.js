@@ -1313,7 +1313,20 @@ function createMcpServer() {
           if (args.category) params.set("category", args.category);
           const queryString = params.toString();
           const path = queryString ? `/api/v1/document-types?${queryString}` : "/api/v1/document-types";
-          result = await apiRequest("GET", path);
+          const apiResult = await apiRequest("GET", path);
+          
+          // Transform response based on detail parameter (default: false)
+          if (args.detail === true) {
+            // Return full response with all document type details
+            result = apiResult;
+          } else {
+            // Return only names array (default behavior)
+            if (apiResult && apiResult.types && Array.isArray(apiResult.types)) {
+              result = apiResult.types.map(t => t.name);
+            } else {
+              result = apiResult;
+            }
+          }
           break;
         }
 
@@ -4331,7 +4344,10 @@ be undone - ensure you have a backup if needed.
   // ============================================================================
   {
     name: "list_document_types",
-    description: `List all document types with optional category filter.
+    description: `List all document types with optional category filter and detail level.
+
+By default (detail=false), returns just type names (~500 tokens).
+With detail=true, returns full type objects with all fields (~14k tokens).
 
 Returns 131+ pre-configured types across 19 categories including code, prose,
 config, markup, data, API specs, IaC, database, shell, docs, package managers,
@@ -4365,6 +4381,11 @@ observability, legal, communication, research, creative, media, and personal.
     inputSchema: {
       type: "object",
       properties: {
+        detail: {
+          type: "boolean",
+          description: "Return full document type objects (true) or just names (false, default). Default false returns ~500 tokens, true returns ~14k tokens.",
+          default: false
+        },
         category: {
           type: "string",
           description: "Filter by category: code, prose, config, markup, data, api-spec, iac, database, shell, docs, package, observability, legal, communication, research, creative, media, personal, custom"
@@ -7260,3 +7281,6 @@ if (MCP_TRANSPORT === "http") {
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
 }
+
+// Export for testing
+export default createMcpServer;

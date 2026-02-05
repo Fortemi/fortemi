@@ -1645,12 +1645,10 @@ async fn list_notes(
     State(state): State<AppState>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Issue #271: Validate limit parameter before database query
+    // Issue #271 + #29: Validate limit parameter before database query
     if let Some(limit) = query.limit {
-        if limit < 0 {
-            return Err(ApiError::BadRequest(
-                "limit must be a non-negative integer".into(),
-            ));
+        if limit <= 0 {
+            return Err(ApiError::BadRequest("limit must be >= 1".into()));
         }
     }
 

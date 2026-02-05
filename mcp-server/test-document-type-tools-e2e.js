@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * End-to-end test for MCP document type tools
@@ -8,9 +13,9 @@
  * and call the right API endpoints.
  */
 
-const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
-const { CallToolRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
-const assert = require("assert");
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import assert from "assert";
 
 // Mock API responses
 const mockApiResponses = {
@@ -115,8 +120,6 @@ async function runTests() {
   console.log("MCP Document Type Tools End-to-End Tests\n");
 
   // Load the MCP server implementation
-  const indexPath = require('path').join(__dirname, 'index.js');
-  delete require.cache[require.resolve(indexPath)];
 
   // Set up environment
   process.env.API_BASE = 'http://localhost:3000';
@@ -125,8 +128,8 @@ async function runTests() {
   const { default: createMcpServer } = await import('./index.js');
   const server = createMcpServer();
 
-  // Test 1: list_document_types - no filter
-  console.log("Test 1: list_document_types (no filter)");
+  // Test 1: list_document_types - no filter (default: names only)
+  console.log("Test 1: list_document_types (no filter, default detail=false)");
   apiCalls.length = 0;
   const listResult1 = await server._requestHandlers.get('tools/call')({
     params: {
@@ -137,24 +140,85 @@ async function runTests() {
   assert(apiCalls.length === 1, 'Should make exactly 1 API call');
   assert(apiCalls[0].path === '/api/v1/document-types', 'Should call correct endpoint');
   assert(apiCalls[0].method === 'GET', 'Should use GET method');
-  console.log("✓ list_document_types works without filter\n");
+  const list1Content = JSON.parse(listResult1.content[0].text);
+  assert(Array.isArray(list1Content), 'Should return an array');
+  assert(list1Content.length === 2, 'Should return 2 names');
+  assert(list1Content[0] === 'rust', 'First name should be rust');
+  assert(list1Content[1] === 'markdown', 'Second name should be markdown');
+  console.log("✓ list_document_types returns names only by default\n");
 
-  // Test 2: list_document_types - with category filter
-  console.log("Test 2: list_document_types (with category filter)");
+  // Test 2: list_document_types - with detail=false (explicit)
+  console.log("Test 2: list_document_types (detail=false explicit)");
   apiCalls.length = 0;
   const listResult2 = await server._requestHandlers.get('tools/call')({
     params: {
       name: 'list_document_types',
-      arguments: { category: 'code' }
+      arguments: { detail: false }
+    }
+  });
+  assert(apiCalls.length === 1, 'Should make exactly 1 API call');
+  assert(apiCalls[0].path === '/api/v1/document-types', 'Should call correct endpoint');
+  const list2Content = JSON.parse(listResult2.content[0].text);
+  assert(Array.isArray(list2Content), 'Should return an array');
+  assert(list2Content.length === 2, 'Should return 2 names');
+  assert(list2Content[0] === 'rust', 'First name should be rust');
+  console.log("✓ list_document_types with detail=false returns names only\n");
+
+  // Test 3: list_document_types - with detail=true (full objects)
+  console.log("Test 3: list_document_types (detail=true, full objects)");
+  apiCalls.length = 0;
+  const listResult3 = await server._requestHandlers.get('tools/call')({
+    params: {
+      name: 'list_document_types',
+      arguments: { detail: true }
+    }
+  });
+  assert(apiCalls.length === 1, 'Should make exactly 1 API call');
+  assert(apiCalls[0].path === '/api/v1/document-types', 'Should call correct endpoint');
+  const list3Content = JSON.parse(listResult3.content[0].text);
+  assert(list3Content.types, 'Should have types property');
+  assert(Array.isArray(list3Content.types), 'types should be an array');
+  assert(list3Content.types.length === 2, 'Should return 2 types');
+  assert(list3Content.types[0].name === 'rust', 'First type should be rust');
+  assert(list3Content.types[0].display_name === 'Rust', 'Should have full object with display_name');
+  assert(list3Content.types[0].category === 'code', 'Should have category field');
+  console.log("✓ list_document_types with detail=true returns full objects\n");
+
+  // Test 4: list_document_types - with category filter and detail=false
+  console.log("Test 4: list_document_types (category filter + detail=false)");
+  apiCalls.length = 0;
+  const listResult4 = await server._requestHandlers.get('tools/call')({
+    params: {
+      name: 'list_document_types',
+      arguments: { category: 'code', detail: false }
     }
   });
   assert(apiCalls.length === 1, 'Should make exactly 1 API call');
   assert(apiCalls[0].path.includes('category=code'), 'Should include category filter');
-  assert(apiCalls[0].method === 'GET', 'Should use GET method');
-  console.log("✓ list_document_types works with category filter\n");
+  const list4Content = JSON.parse(listResult4.content[0].text);
+  assert(Array.isArray(list4Content), 'Should return an array');
+  assert(list4Content.length === 1, 'Should return 1 name');
+  assert(list4Content[0] === 'rust', 'Should be rust');
+  console.log("✓ list_document_types with category filter and detail=false works\n");
 
-  // Test 3: get_document_type
-  console.log("Test 3: get_document_type");
+  // Test 5: list_document_types - with category filter and detail=true
+  console.log("Test 5: list_document_types (category filter + detail=true)");
+  apiCalls.length = 0;
+  const listResult5 = await server._requestHandlers.get('tools/call')({
+    params: {
+      name: 'list_document_types',
+      arguments: { category: 'code', detail: true }
+    }
+  });
+  assert(apiCalls.length === 1, 'Should make exactly 1 API call');
+  assert(apiCalls[0].path.includes('category=code'), 'Should include category filter');
+  const list5Content = JSON.parse(listResult5.content[0].text);
+  assert(list5Content.types, 'Should have types property');
+  assert(list5Content.types[0].name === 'rust', 'Should have full rust object');
+  console.log("✓ list_document_types with category filter and detail=true works\n");
+
+  // Test 6: get_document_type
+  console.log("Test 6: get_document_type");
   apiCalls.length = 0;
   const getResult = await server._requestHandlers.get('tools/call')({
     params: {
@@ -169,8 +233,8 @@ async function runTests() {
   assert(getContent.name === 'rust', 'Should return rust type');
   console.log("✓ get_document_type works correctly\n");
 
-  // Test 4: create_document_type
-  console.log("Test 4: create_document_type");
+  // Test 7: create_document_type
+  console.log("Test 7: create_document_type");
   apiCalls.length = 0;
   const createResult = await server._requestHandlers.get('tools/call')({
     params: {
@@ -191,8 +255,8 @@ async function runTests() {
   assert(createBody.chunking_strategy === 'semantic', 'Should send chunking strategy');
   console.log("✓ create_document_type works correctly\n");
 
-  // Test 5: update_document_type
-  console.log("Test 5: update_document_type");
+  // Test 8: update_document_type
+  console.log("Test 8: update_document_type");
   apiCalls.length = 0;
   const updateResult = await server._requestHandlers.get('tools/call')({
     params: {
@@ -212,8 +276,8 @@ async function runTests() {
   assert(updateBody.display_name === 'Updated Custom Type', 'Should send updated fields');
   console.log("✓ update_document_type works correctly\n");
 
-  // Test 6: delete_document_type
-  console.log("Test 6: delete_document_type");
+  // Test 9: delete_document_type
+  console.log("Test 9: delete_document_type");
   apiCalls.length = 0;
   const deleteResult = await server._requestHandlers.get('tools/call')({
     params: {
@@ -229,8 +293,8 @@ async function runTests() {
   assert(deleteContent.deleted === 'custom-type', 'Should return deleted type name');
   console.log("✓ delete_document_type works correctly\n");
 
-  // Test 7: detect_document_type
-  console.log("Test 7: detect_document_type");
+  // Test 10: detect_document_type
+  console.log("Test 10: detect_document_type");
   apiCalls.length = 0;
   const detectResult = await server._requestHandlers.get('tools/call')({
     params: {
@@ -256,6 +320,7 @@ async function runTests() {
   console.log("- Tool schemas are correct");
   console.log("- API endpoints are correctly called");
   console.log("- Request/response handling works as expected");
+  console.log("- detail parameter correctly transforms responses");
   console.log("- Error handling is in place via apiRequest function");
 }
 
