@@ -1486,7 +1486,7 @@ function createMcpServer() {
             pref_label: args.pref_label,
             notation: args.notation,
             definition: args.definition,
-            ordered: args.ordered || false,
+            is_ordered: args.ordered || false,
           });
           break;
 
@@ -1499,7 +1499,7 @@ function createMcpServer() {
           if (args.pref_label !== undefined) body.pref_label = args.pref_label;
           if (args.notation !== undefined) body.notation = args.notation;
           if (args.definition !== undefined) body.definition = args.definition;
-          if (args.ordered !== undefined) body.ordered = args.ordered;
+          if (args.ordered !== undefined) body.is_ordered = args.ordered;
           result = await apiRequest("PATCH", `/api/v1/concepts/collections/${args.id}`, body);
           break;
         }
