@@ -7,6 +7,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.7] - 2026-02-05
+
+### Fixed
+- **SKOS Collections MCP endpoints** - Fixed 404 errors on all SKOS collection tools (`list_skos_collections`, `create_skos_collection`, etc.) by correcting API paths from `/api/v1/skos/collections` to `/api/v1/concepts/collections` (#36)
+- **SKOS Turtle export** - Fixed `export_skos_turtle` to use scheme_id as path parameter instead of query parameter (#36)
+- **SKOS Collection create/update** - Fixed `ordered` → `is_ordered` field name mapping (#36)
+
 ## [2026.2.6] - 2026-02-05
 
 ### Changed
