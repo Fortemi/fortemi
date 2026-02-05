@@ -354,8 +354,10 @@ fn test_fts_flags_phase1_enabled() {
     let flags = FtsFeatureFlags::default();
     assert!(flags.is_phase1_enabled());
 
-    let mut flags = FtsFeatureFlags::default();
-    flags.websearch_to_tsquery = false;
+    let flags = FtsFeatureFlags {
+        websearch_to_tsquery: false,
+        ..Default::default()
+    };
     assert!(!flags.is_phase1_enabled());
 }
 
