@@ -292,14 +292,23 @@ The system automatically detects query script and routes to the appropriate sear
 
 Emoji search uses pg_trgm trigram matching with ILIKE substring fallback.
 
-**All emoji patterns work:**
+**Supported emoji patterns:**
 
 | Pattern | Example | Result |
 |---------|---------|--------|
-| Single emoji | 🚀 | ✅ Found |
+| Single emoji | 🚀 🔥 ⭐ | ✅ Found |
 | Repeated same | 🔥🔥 | ✅ Found |
 | Adjacent different | 🚀🎉 | ✅ Found |
 | Emoji + text | meeting 📝 | ✅ Found |
+| Emoji with variation selector | ❤️ | ✅ Found |
+
+**Supported Unicode ranges:**
+- Emoticons (😀-🙏)
+- Misc Symbols and Pictographs (🌀-🗿)
+- Transport and Map (🚀-🛿)
+- Misc Symbols (☀️, ⚡, ☔)
+- Dingbats (✅, ✨, ✔️)
+- Misc Symbols and Arrows (⭐, ⬆️, ⬇️)
 
 ```bash
 # Single emoji

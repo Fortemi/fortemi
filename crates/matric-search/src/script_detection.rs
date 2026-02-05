@@ -224,8 +224,9 @@ fn is_emoji(ch: char) -> bool {
         0x1F300..=0x1F5FF | // Misc Symbols and Pictographs
         0x1F680..=0x1F6FF | // Transport and Map
         0x1F1E6..=0x1F1FF | // Regional indicator symbols
-        0x2600..=0x26FF |   // Misc symbols
-        0x2700..=0x27BF |   // Dingbats
+        0x2600..=0x26FF |   // Misc symbols (☀️, ⚡, etc.)
+        0x2700..=0x27BF |   // Dingbats (✅, ✨, etc.)
+        0x2B00..=0x2BFF |   // Misc Symbols and Arrows (⭐, ⬆️, etc.)
         0xFE00..=0xFE0F |   // Variation selectors
         0x1F900..=0x1F9FF | // Supplemental Symbols and Pictographs
         0x1F780..=0x1F7FF | // Geometric Shapes Extended
@@ -454,6 +455,9 @@ mod tests {
         assert!(has_emoji("🌍")); // Misc symbol
         assert!(has_emoji("🚀")); // Transport
         assert!(has_emoji("❤️")); // Misc symbol
+        assert!(has_emoji("⭐")); // Misc Symbols and Arrows (U+2B50)
+        assert!(has_emoji("⬆️")); // Misc Symbols and Arrows
+        assert!(has_emoji("✅")); // Dingbats
     }
 
     #[test]
