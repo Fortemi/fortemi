@@ -7,6 +7,14 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.5] - 2026-02-05
+
+### Fixed
+- **Emoji search for ⭐ and arrow symbols** - Added missing Unicode range U+2B00-U+2BFF (Miscellaneous Symbols and Arrows) to emoji detection, fixing search for ⭐, ⬆️, ⬇️, etc.
+
+### Documentation
+- Updated search guide with comprehensive emoji Unicode range reference
+
 ## [2026.2.4] - 2026-02-05
 
 ### Fixed
