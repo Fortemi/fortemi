@@ -366,7 +366,9 @@ jobs:
           curl -s http://localhost:11434/api/tags | jq '.models[].name'
 
       - name: Run integration tests
-        run: cargo test --package matric-inference --features integration
+        run: |
+          source ~/.cargo/env
+          cargo test --package matric-inference --features integration
 
   # Dev image - pushes on every main branch commit
   publish-dev:
