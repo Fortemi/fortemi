@@ -7,6 +7,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.6] - 2026-02-05
+
+### Changed
+- **Repository reset** - Squashed history for clean baseline
+- **License date updated** - BSL change date set to February 5th, 2030
+
 ## [2026.2.5] - 2026-02-05
 
 ### Fixed
