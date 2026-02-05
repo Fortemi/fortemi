@@ -87,22 +87,8 @@ mod limit_validation_tests {
         //   - Database query (line 1686)
     }
 
-    #[test]
-    fn test_limit_edge_cases() {
-        // Test boundary conditions
-
-        // Zero is invalid
-        assert!(0_i64 <= 0, "Zero should fail validation");
-
-        // One is the minimum valid value
-        assert!(1_i64 > 0, "One should pass validation");
-
-        // Large values are valid
-        assert!(100_i64 > 0, "Large positive values should pass");
-        assert!(i64::MAX > 0, "i64::MAX should pass");
-
-        // Negative values are invalid
-        assert!((-1_i64) <= 0, "Negative values should fail");
-        assert!(i64::MIN <= 0, "i64::MIN should fail");
-    }
+    // Note: Boundary conditions for limit validation are tested in the API
+    // integration tests above. The validation check is: limit must be >= 1.
+    // Valid: 1, 100, i64::MAX
+    // Invalid: 0, -1, i64::MIN
 }
