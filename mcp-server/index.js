@@ -1476,12 +1476,12 @@ function createMcpServer() {
           if (args.scheme_id) params.set("scheme_id", args.scheme_id);
           if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           if (args.offset) params.set("offset", args.offset);
-          result = await apiRequest("GET", `/api/v1/skos/collections?${params}`);
+          result = await apiRequest("GET", `/api/v1/concepts/collections?${params}`);
           break;
         }
 
         case "create_skos_collection":
-          result = await apiRequest("POST", "/api/v1/skos/collections", {
+          result = await apiRequest("POST", "/api/v1/concepts/collections", {
             scheme_id: args.scheme_id,
             pref_label: args.pref_label,
             notation: args.notation,
@@ -1491,7 +1491,7 @@ function createMcpServer() {
           break;
 
         case "get_skos_collection":
-          result = await apiRequest("GET", `/api/v1/skos/collections/${args.id}`);
+          result = await apiRequest("GET", `/api/v1/concepts/collections/${args.id}`);
           break;
 
         case "update_skos_collection": {
@@ -1500,24 +1500,24 @@ function createMcpServer() {
           if (args.notation !== undefined) body.notation = args.notation;
           if (args.definition !== undefined) body.definition = args.definition;
           if (args.ordered !== undefined) body.ordered = args.ordered;
-          result = await apiRequest("PATCH", `/api/v1/skos/collections/${args.id}`, body);
+          result = await apiRequest("PATCH", `/api/v1/concepts/collections/${args.id}`, body);
           break;
         }
 
         case "delete_skos_collection":
-          await apiRequest("DELETE", `/api/v1/skos/collections/${args.id}`);
+          await apiRequest("DELETE", `/api/v1/concepts/collections/${args.id}`);
           result = { success: true };
           break;
 
         case "add_skos_collection_member":
-          result = await apiRequest("POST", `/api/v1/skos/collections/${args.id}/members`, {
+          result = await apiRequest("POST", `/api/v1/concepts/collections/${args.id}/members`, {
             concept_id: args.concept_id,
             position: args.position,
           });
           break;
 
         case "remove_skos_collection_member":
-          await apiRequest("DELETE", `/api/v1/skos/collections/${args.id}/members/${args.concept_id}`);
+          await apiRequest("DELETE", `/api/v1/concepts/collections/${args.id}/members/${args.concept_id}`);
           result = { success: true };
           break;
 
@@ -1671,8 +1671,9 @@ function createMcpServer() {
         // SKOS TURTLE EXPORT (#460)
         // ============================================================================
         case "export_skos_turtle": {
-          const params = new URLSearchParams();
-          if (args.scheme_id) params.set("scheme_id", args.scheme_id);
+          if (!args.scheme_id) {
+            throw new Error("scheme_id is required for SKOS Turtle export");
+          }
           // Fetch as text since this returns Turtle format, not JSON
           const sessionToken = tokenStorage.getStore()?.token;
           const headers = { "Accept": "text/turtle" };
@@ -1681,7 +1682,7 @@ function createMcpServer() {
           } else if (API_KEY) {
             headers["Authorization"] = `Bearer ${API_KEY}`;
           }
-          const turtleResponse = await fetch(`${API_BASE}/api/v1/skos/export/turtle?${params}`, { headers });
+          const turtleResponse = await fetch(`${API_BASE}/api/v1/concepts/schemes/${args.scheme_id}/export/turtle`, { headers });
           if (!turtleResponse.ok) {
             throw new Error(`Turtle export failed: ${turtleResponse.status}`);
           }
