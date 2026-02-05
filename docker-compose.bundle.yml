@@ -26,7 +26,7 @@ services:
       retries: 3
 
   matric:
-    image: ghcr.io/fortemi/fortemi:${FORTEMI_TAG:-bundle}
+    image: ghcr.io/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
     build:
       context: .
       dockerfile: Dockerfile.bundle

@@ -348,6 +348,37 @@ SELECT * FROM _migrations;
    export FTS_TRIGRAM_FALLBACK=true
    ```
 
+## Nginx Reverse Proxy
+
+When deploying with HotM SPA at the site root, nginx configuration requires careful attention to route ordering.
+
+### Critical: OAuth Endpoint Routing
+
+OAuth endpoints (`/.well-known/oauth-authorization-server`, `/oauth/*`) **must be explicitly routed** to the API backend before the SPA catch-all. Without this, OAuth requests receive HTML error pages instead of JSON responses.
+
+See `deploy/nginx/README.md` for complete documentation including:
+- Route priority guidelines
+- Common mistakes to avoid
+- Testing procedures
+- Troubleshooting
+
+### Quick Setup
+
+```bash
+# Copy and enable nginx config
+sudo cp deploy/nginx/memory.integrolabs.net.conf /etc/nginx/sites-available/memory
+sudo ln -sf /etc/nginx/sites-available/memory /etc/nginx/sites-enabled/memory
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Verify OAuth Routing
+
+```bash
+# Should return JSON metadata, not HTML
+curl -s https://your-domain/.well-known/oauth-authorization-server | head -1
+# Expected: {"issuer":"https://your-domain",...}
+```
+
 ## CI/CD Integration
 
 ### GitHub/Gitea Actions
@@ -367,4 +398,4 @@ The repository uses Actions for:
 
 ---
 
-*See also: [CLAUDE.md](../../CLAUDE.md) | [Search Guide](./search-guide.md)*
+*See also: [CLAUDE.md](../../CLAUDE.md) | [Search Guide](./search-guide.md) | [Nginx Proxy Config](../../deploy/nginx/README.md)*

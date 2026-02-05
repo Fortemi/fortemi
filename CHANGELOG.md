@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.3] - 2026-02-05
+
+### Fixed
+- **UAT issues #29-#31 resolved**
+  - `limit=0` now returns 400 "limit must be >= 1" instead of all notes (#29)
+  - CJK single-character search now works (FTS flags enabled by default) (#30)
+  - Emoji search now works (trigram fallback enabled) (#31)
+- **OAuth endpoints routing** - Fixed nginx returning 405 HTML instead of proxying to API
+- **CI/CD pipeline** - Fixed host runner PATH, duplicate docker socket mount, clippy compliance
+
+### Added
+- **Nginx proxy documentation** - `deploy/nginx/README.md` with SPA+API routing guidance
+
 ## [2026.2.2] - 2026-02-04
 
 ### Fixed
