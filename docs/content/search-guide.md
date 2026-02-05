@@ -290,32 +290,61 @@ The system automatically detects query script and routes to the appropriate sear
 
 ### Emoji Search
 
-Search by emoji characters using trigram matching:
+Emoji search uses pg_trgm trigram matching with ILIKE substring fallback.
+
+**All emoji patterns work:**
+
+| Pattern | Example | Result |
+|---------|---------|--------|
+| Single emoji | 🚀 | ✅ Found |
+| Repeated same | 🔥🔥 | ✅ Found |
+| Adjacent different | 🚀🎉 | ✅ Found |
+| Emoji + text | meeting 📝 | ✅ Found |
 
 ```bash
-# Find notes with fire emoji
+# Single emoji
 curl "http://localhost:3000/api/v1/search?q=🎉"
+
+# Adjacent emojis
+curl "http://localhost:3000/api/v1/search?q=🚀🎉"
 
 # Emoji with text
 curl "http://localhost:3000/api/v1/search?q=meeting+📝"
 ```
 
-### CJK Search Tips
+**How it works:** When the query contains emoji, the system uses two strategies:
+1. `similarity()` function for fuzzy trigram matching
+2. `ILIKE '%emoji%'` for exact substring matching (fallback)
 
-For best CJK search results:
-- **2+ character queries** work best (single characters may be slower)
-- **Space-delimited text** is tokenized properly
-- **Non-delimited text** uses substring matching
+The ILIKE fallback ensures emoji sequences are found even when trigram similarity is low.
+
+### CJK Search Requirements
+
+**Minimum 2 characters required** for CJK (Chinese, Japanese, Korean) queries.
+
+| Query Length | Result | Why |
+|--------------|--------|-----|
+| 1 character (中) | 0 results | Below n-gram minimum |
+| 2+ characters (中文) | ✅ Found | Meets bigram/trigram threshold |
+
+This is an industry-standard limitation shared by all major search engines:
+- PostgreSQL pg_trgm requires 3 characters (trigrams)
+- PostgreSQL pg_bigm requires 2 characters (bigrams)
+- Elasticsearch CJK analyzers recommend 2+ characters
+- Google, Baidu, Naver all require 2+ characters for meaningful results
+
+**Why single characters don't work:** N-gram indexes create searchable tokens from character sequences. A single CJK character doesn't generate enough tokens for reliable matching against document content.
 
 ```bash
-# Chinese: best with 2+ characters
-curl "http://localhost:3000/api/v1/search?q=人工智能"
+# Chinese: 2+ characters required
+curl "http://localhost:3000/api/v1/search?q=中文"      # ✅ Works
+curl "http://localhost:3000/api/v1/search?q=人工智能"  # ✅ Works
 
 # Japanese with hiragana
-curl "http://localhost:3000/api/v1/search?q=こんにちは"
+curl "http://localhost:3000/api/v1/search?q=日本語"    # ✅ Works
 
 # Korean
-curl "http://localhost:3000/api/v1/search?q=안녕하세요"
+curl "http://localhost:3000/api/v1/search?q=한국어"    # ✅ Works
 ```
 
 ### Feature Flags
@@ -337,6 +366,89 @@ export FTS_TRIGRAM_FALLBACK=true
 export FTS_BIGRAM_CJK=true
 export FTS_MULTILINGUAL_CONFIGS=true
 ```
+
+## How Search Indexing Works
+
+Understanding the underlying technology helps set appropriate expectations for search behavior.
+
+### PostgreSQL Extensions
+
+Fortémi uses three PostgreSQL extensions for full-text search:
+
+| Extension | Purpose | Minimum Query Length |
+|-----------|---------|---------------------|
+| **tsvector/tsquery** | Standard FTS with stemming | 1+ characters (Latin scripts) |
+| **pg_trgm** | Trigram similarity matching | 3 characters |
+| **pg_bigm** | Bigram matching (CJK-optimized) | 2 characters |
+
+### N-gram Tokenization Explained
+
+N-gram indexes work by breaking text into overlapping character sequences:
+
+**Trigrams (3-character sequences):**
+```
+"hello" → {"  h", " he", "hel", "ell", "llo", "lo ", "o  "}
+```
+
+**Bigrams (2-character sequences):**
+```
+"日本語" → {"日本", "本語"}
+```
+
+The search query is also tokenized, and matching occurs when enough n-grams overlap between query and document. This is why minimum character requirements exist—short queries don't generate enough tokens for reliable matching.
+
+### Script-Specific Search Strategies
+
+The system automatically selects the optimal strategy based on detected script:
+
+```
+┌─────────────────┐     ┌──────────────────────────────────────┐
+│   User Query    │────▶│         Script Detection             │
+└─────────────────┘     └──────────────────────────────────────┘
+                                        │
+        ┌───────────────┬───────────────┼───────────────┬───────────────┐
+        ▼               ▼               ▼               ▼               ▼
+   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+   │  Latin  │    │   CJK   │    │ Cyrillic│    │  Emoji  │    │  Mixed  │
+   └────┬────┘    └────┬────┘    └────┬────┘    └────┬────┘    └────┬────┘
+        │              │              │              │              │
+        ▼              ▼              ▼              ▼              ▼
+   FTS English    pg_bigm or     FTS Russian    pg_trgm +      pg_trgm
+   (stemming)     pg_trgm        (stemming)      ILIKE         fallback
+```
+
+### Index Types and Their Characteristics
+
+| Index Type | Best For | Limitations |
+|------------|----------|-------------|
+| **GIN tsvector** | Word-based FTS | No substring matching |
+| **GIN pg_trgm** | Similarity search, LIKE/ILIKE | 3-char minimum |
+| **GIN pg_bigm** | CJK, short strings | 2-char minimum |
+| **HNSW (pgvector)** | Semantic similarity | Requires embeddings |
+
+### Default Configuration
+
+The Docker bundle enables these features by default:
+
+```yaml
+# docker-compose.bundle.yml
+environment:
+  - FTS_SCRIPT_DETECTION=true
+  - FTS_TRIGRAM_FALLBACK=true
+  - FTS_BIGRAM_CJK=true
+  - FTS_MULTILINGUAL_CONFIGS=true
+```
+
+### Performance Implications
+
+| Query Type | Index Used | Complexity | Typical Latency |
+|------------|------------|------------|-----------------|
+| English keywords | GIN tsvector | O(log n) | <10ms |
+| CJK 2+ chars | GIN bigm/trgm | O(log n) | <20ms |
+| Emoji | GIN trgm + ILIKE | O(n) for ILIKE | <50ms |
+| Semantic | HNSW | O(log n) | <100ms |
+
+The ILIKE fallback for emoji is slower (linear scan) but ensures correctness. For large collections with heavy emoji usage, consider pre-filtering with tags.
 
 ## Advanced Topics
 
@@ -381,6 +493,8 @@ This ensures comprehensive coverage while maintaining clean results.
 | Wrong search mode | FTS won't find semantic matches | Try `mode=hybrid` or `mode=semantic` |
 | Strict filter too narrow | Tag filter excludes all notes | Broaden filter or check tag spelling |
 | Language mismatch | Non-English content with English stemmer | Add `lang` parameter or enable `FTS_SCRIPT_DETECTION` |
+| **CJK query too short** | Single-character CJK query | Use 2+ characters (e.g., 中文 not 中) |
+| **Features not enabled** | Script detection disabled | Enable `FTS_SCRIPT_DETECTION=true` |
 
 ### Irrelevant Results
 
