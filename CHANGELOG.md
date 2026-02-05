@@ -7,6 +7,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.2] - 2026-02-04
+
+### Fixed
+- **UAT findings resolved** (#13-#26) - All user acceptance testing issues addressed
+- **MCP authorization_servers metadata** - Now correctly uses ISSUER_URL for OAuth discovery
+
+### Changed
+- README enhanced with plain-language vision statement
+- Removed build status badge from README (unreliable external service)
+
 ## [2026.2.0] - 2026-02-02
 
 ### Highlights
@@ -440,7 +450,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.0...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.2...HEAD
+[2026.2.2]: https://github.com/fortemi/fortemi/compare/v2026.2.0...v2026.2.2
 [2026.2.0]: https://github.com/fortemi/fortemi/compare/v2026.1.12...v2026.2.0
 [2026.1.12]: https://github.com/fortemi/fortemi/compare/v2026.1.11...v2026.1.12
 [2026.1.0]: https://github.com/fortemi/fortemi/releases/tag/v2026.1.0
