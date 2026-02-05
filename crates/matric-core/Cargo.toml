@@ -1,0 +1,48 @@
+[package]
+name = "matric-core"
+description = "Core types, traits, and abstractions for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Async traits
+async-trait.workspace = true
+
+# Vector type (shared with pgvector)
+pgvector.workspace = true
+
+# Database (for error type compatibility)
+sqlx.workspace = true
+
+# HTTP client (for error type compatibility)
+reqwest.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Tokenization
+tiktoken-rs = "0.5"
+
+# Lazy static initialization
+once_cell = "1.19"
+
+# EXIF metadata extraction
+kamadak-exif = "0.5"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

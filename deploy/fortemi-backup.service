@@ -1,0 +1,47 @@
+[Unit]
+Description=Fortémi Memory Database Backup
+After=network.target postgresql.service
+Wants=postgresql.service
+Documentation=https://github.com/roctinam/fortemi
+
+[Service]
+Type=oneshot
+User=roctinam
+Group=roctinam
+
+# Environment configuration
+EnvironmentFile=-/etc/fortemi/backup.conf
+Environment=PGUSER=matric
+Environment=PGPASSWORD=matric
+Environment=PGHOST=localhost
+Environment=PGPORT=5432
+Environment=PGDATABASE=matric
+
+# Working directory
+WorkingDirectory=/home/roctinam/dev/fortemi
+
+# Execute backup script
+ExecStart=/home/roctinam/dev/fortemi/scripts/backup.sh -v
+
+# Resource limits
+CPUQuota=50%
+MemoryMax=2G
+IOWeight=100
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/fortemi /var/log/fortemi /tmp
+
+# Timeout (1 hour max)
+TimeoutStartSec=3600
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fortemi-backup
+
+[Install]
+WantedBy=multi-user.target

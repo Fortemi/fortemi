@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "format": "matric-shard",
+  "created_at": "2026-01-01T12:00:00Z",
+  "created_by": "matric-memory/1.0.0",
+  "description": "Full knowledge shard with all components",
+  "components": [
+    "notes",
+    "collections",
+    "tags",
+    "templates",
+    "links",
+    "embedding_sets",
+    "embeddings"
+  ],
+  "counts": {
+    "notes": 42,
+    "collections": 5,
+    "tags": 12,
+    "templates": 3,
+    "links": 128,
+    "embedding_sets": 2,
+    "embeddings": 42
+  },
+  "checksums": {
+    "notes": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "collections": "sha256:123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+    "tags": "sha256:23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+    "templates": "sha256:3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012",
+    "links": "sha256:456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123",
+    "embedding_sets": "sha256:56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234",
+    "embeddings": "sha256:6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345"
+  },
+  "metadata": {
+    "source_instance": "alice-instance-001",
+    "note_count": 42,
+    "total_size_bytes": 1048576,
+    "compression": "gzip",
+    "encryption": "none"
+  },
+  "compatibility": {
+    "min_version": "1.0.0",
+    "recommended_version": "1.0.0"
+  }
+}

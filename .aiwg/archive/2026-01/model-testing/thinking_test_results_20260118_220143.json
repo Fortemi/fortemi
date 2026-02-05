@@ -1,0 +1,374 @@
+[
+  {
+    "model": "deepseek-r1:14b",
+    "timestamp": "2026-01-18T21:59:43.544502",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 319,
+        "patterns_found": [],
+        "response_preview": "**Solution:**\n\nTo find the product of \\(17 \\times 23\\), we can use the standard multiplication method. Here's a step-by-step breakdown:\n\n1. **Multiply 17 by 3 (the ones place of 23):**\n   \\[\n   17 \\times 3 = 51\n   \\]\n   \n2. **Multiply 17 by 20 (the tens place of 23, since 2 is in the tens place and ..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 841,
+        "patterns_found": [],
+        "response_preview": "The farmer has 9 sheep left.\n\n**Step-by-Step Explanation:**\n\n1. **Total Sheep:** The farmer starts with 17 sheep.\n\n2. **Understanding \"All But\":** The phrase \"all but 9\" means that every sheep except for 9 has run away.\n\n3. **Calculating Remaining Sheep:** Since all except 9 ran away, the number of ..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 534,
+        "patterns_found": [],
+        "response_preview": "We cannot conclusively determine that some roses fade quickly based on the given premises.\n\n**Step-by-Step Explanation:**\n\n1. **Premise 1:** All roses are flowers. This means every rose falls under the category of flowers, so the set of roses is a subset of flowers.\n\n2. **Premise 2:** Some flowers f..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "hf.co/DevQuasar/FreedomIntelligence.HuatuoGPT-o1-8B-GGUF:Q4_K_M",
+    "timestamp": "2026-01-18T22:00:05.974652",
+    "is_thinking_model": true,
+    "thinking_patterns_found": [
+      "Let me think",
+      "I need to",
+      "I should"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 283,
+        "patterns_found": [
+          "Let me think",
+          "I need to"
+        ],
+        "response_preview": "## Thinking\n\nAlright, let's figure out what 17 times 23 equals. So, I'm going to start with the number 17 and multiply it by 20. That's because multiplying by 20 is kind of like multiplying by ten and then another ten, which makes things easier.\n\nOkay, so if I take 17 and multiply it by 20, that giv..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 277,
+        "patterns_found": [
+          "I should"
+        ],
+        "response_preview": "## Thinking\n\nOkay, so let's think about this. The farmer starts with 17 sheep. Now, all but 9 of them decide to run away. Alright, that means if I take away the ones that ran off from the total, I should get the ones left behind. \n\nSo, 17 is the starting number of sheep. If all but 9 ran away, then ..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 433,
+        "patterns_found": [],
+        "response_preview": "## Thinking\n\nAlright, let's see if we can figure out if some roses fade quickly. So, first off, I know that all roses are flowers. That seems pretty straightforward. Now, if all roses are flowers, then they definitely fit into the category of things that might fade quickly since some flowers do fade..."
+      }
+    ],
+    "thinking_type": "pattern_based"
+  },
+  {
+    "model": "hf.co/mradermacher/Mistral-Nemo-Inst-2407-12B-Thinking-Uncensored-HERETIC-HI-Claude-Opus-i1-GGUF:Q4_K_M",
+    "timestamp": "2026-01-18T22:00:14.433113",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [
+      "Let me think"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 123,
+        "patterns_found": [
+          "Let me think"
+        ],
+        "response_preview": " # Calculating 17 \u00d7 23\n\nLet me think through this:\n\n**Option 1:** Multiplication\n- 17 \u00d7 23 = 391\n\n**Option 2:** Decomposition method (for verification)\n- 17 \u00d7 20 = 340\n- 17 \u00d7 3 = 51\n- 340 + 51 = 391 \u2713\n\nBoth methods give the same answer: **391**\n\nWould you like me to explain this further or verify it..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 148,
+        "patterns_found": [],
+        "response_preview": " This is a classic riddle question that tests logical reasoning.\n\n**My reasoning:**\n\nThe phrase \"all but 9\" means 17 minus 9, which equals 8 sheep.\n\nHowever, the riddle says \"run away,\" which typically implies movement. If we interpret this literally (which isn't always the best approach with riddle..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 219,
+        "patterns_found": [
+          "Let me think"
+        ],
+        "response_preview": " This is a classic example of modus ponens reasoning in philosophy.\n\nThe structure of the argument:\n\n1. Major premise: All roses are flowers\n2. Minor premise: Some flowers fade quickly\n3. Conclusion: Some roses fade quickly\n\nLet me think through this step-by-step:\n\n**If all roses are flowers**\n- Thi..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "cogito:8b",
+    "timestamp": "2026-01-18T22:00:22.479381",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 137,
+        "patterns_found": [],
+        "response_preview": "Let me solve this step by step:\n\n1. First, I'll multiply the numbers:\n   17 \u00d7 23 = ?\n\n2. To make it easier, let's break down 23 into 20 + 3\n   So now we have: 17 \u00d7 (20 + 3)\n\n3. Using distributive property:\n   17 \u00d7 20 + 17 \u00d7 3\n\n4. Calculate each part:\n   * 17 \u00d7 20 = 340\n   * 17 \u00d7 3 = 51\n\n5. Add the r..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 130,
+        "patterns_found": [],
+        "response_preview": "Let me solve this step by step:\n\n1. The farmer starts with 17 sheep\n2. \"All but 9\" means that only 9 sheep stay, and all the others run away\n3. So, if all but 9 leave, then those 9 must be what's left\n4. Therefore, the farmer has 9 sheep left\n\nThe key to this problem is understanding the phrase \"all..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 203,
+        "patterns_found": [],
+        "response_preview": "Let me break this down step by step:\n\n1. We know that ALL roses are flowers (this is given).\n2. Some flowers fade quickly (this is also given).\n\nThe key question is: Does being a \"flower\" automatically mean that all properties of flowers apply to roses?\n\nSince roses ARE flowers, they do inherit the ..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "hf.co/DavidAU/Qwen3-24B-A4B-Freedom-HQ-Thinking-Abliterated-Heretic-NEOMAX-Imatrix-GGUF:latest",
+    "timestamp": "2026-01-18T22:00:27.792443",
+    "is_thinking_model": true,
+    "thinking_patterns_found": [
+      "I need to",
+      "To solve this"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 211,
+        "patterns_found": [],
+        "response_preview": "17 \u00d7 23 = 391"
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 639,
+        "patterns_found": [
+          "I need to",
+          "To solve this"
+        ],
+        "response_preview": "To solve this problem, I need to figure out what \"all but 9 run away\" means. \"All but X\" typically means \"X is left behind while the rest run away.\" So if \"all but 9 run away,\" that means 9 sheep are left behind (they are not running away).\n\nThe farmer has 17 sheep total. If 9 of them are left behin..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 1241,
+        "patterns_found": [],
+        "response_preview": "Let's reason through this carefully, treating this as a logic problem rather than a biological one.\n\nFirst, let's rephrase this using more formal logical notation to see the structure:\n\n1. All roses are flowers. (If something is a rose, it is a flower)\n2. Some flowers fade quickly. (At least one flo..."
+      }
+    ],
+    "thinking_type": "verbose_reasoning"
+  },
+  {
+    "model": "phi3:mini",
+    "timestamp": "2026-01-18T22:00:39.450421",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [
+      "Step \\d+:"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 386,
+        "patterns_found": [
+          "Step \\d+:"
+        ],
+        "response_preview": "Step 1: Set up the multiplication problem as a vertical layout with 17 on top and 23 below it.\n```\n  17\nx  23\n_____\n```\n\nStep 2: Multiply the ones digits (7 * 3): 7 * 3 = 21. Write down the 1 in the result, carry over the 2 to the tens column and write it below the line underneath as shown below.\n``..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 128,
+        "patterns_found": [],
+        "response_preview": "The phrase \"all but 9 ran away\" means that all except for 9 sheep escaped or were somehow removed from the original group of 17, leaving only 9 remaining with the farmer. Therefore, the farmer has 9 sheep left. The key here is understanding that despite seemingly complex wording, it's indicating a s..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 577,
+        "patterns_found": [],
+        "response_preview": "To reason through this statement logically, let's consider the premises given:\n1. All roses are indeed a subset of flowers because every rose is classified as a flower based on our first proposition\u2014 \"if all roses are flowers.\" This means that within the larger set of flowers, there exists an overla..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "exaone-deep:7.8b",
+    "timestamp": "2026-01-18T22:00:44.602449",
+    "is_thinking_model": true,
+    "thinking_patterns_found": [
+      "<thought>",
+      "</thought>",
+      "Let me think",
+      "I need to"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 1386,
+        "patterns_found": [
+          "<thought>",
+          "</thought>",
+          "Let me think",
+          "I need to"
+        ],
+        "response_preview": "<thought>\nOkay, so I need to figure out what 17 multiplied by 23 is. Let me think about how to approach this. I know that multiplying two numbers means adding the number to itself as many times as the other number specifies. So, 17 times 23 would be 17 plus 17 plus ... plus 17, 23 times. But doing t..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 1504,
+        "patterns_found": [
+          "<thought>",
+          "</thought>",
+          "Let me think",
+          "I need to"
+        ],
+        "response_preview": "<thought>\nOkay, let me see. The problem says a farmer has 17 sheep. All but 9 run away. How many does he have left? Hmm, I need to figure this out step by step.\n\nFirst, the farmer starts with 17 sheep. Then, a certain number of them run away. The problem states \"All but 9 run away.\" So, does that me..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 1473,
+        "patterns_found": [
+          "<thought>",
+          "</thought>",
+          "Let me think",
+          "I need to"
+        ],
+        "response_preview": "<thought>\nOkay, let's see. The question is: If all roses are flowers, and some flowers fade quickly, can we conclude that some roses fade quickly? Hmm, I need to break this down step by step. \n\nFirst, let's parse the premises. The first statement says \"all roses are flowers.\" So that means every ros..."
+      }
+    ],
+    "thinking_type": "pattern_based"
+  },
+  {
+    "model": "llama3.1:8b",
+    "timestamp": "2026-01-18T22:01:17.750670",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [
+      "To solve this"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 143,
+        "patterns_found": [],
+        "response_preview": "To calculate 17 * 23, I'll multiply the two numbers together.\n\nFirst, I'll multiply 20 (which is close to 17) with 20:\n20 * 20 = 400\n\nThen, I'll subtract 4 times 20 from 400:\n- 4 * 20 = -80\n400 - 80 = 320\n\nAfter that, I'll add the result of multiplying 1 (the remainder when dividing 17 by 10) with 2..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 165,
+        "patterns_found": [
+          "To solve this"
+        ],
+        "response_preview": "To solve this problem, we need to determine how many sheep ran away and subtract that number from the original total.\n\nThe problem states \"All but 9 run away.\" This means that all of the sheep except for 9 ran away. So, if 17 is the total number of sheep, and 9 stayed behind, then 17 - 9 = 8 sheep m..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 332,
+        "patterns_found": [],
+        "response_preview": "At first glance, it might seem like a logical conclusion to say that some roses fade quickly because they're part of the larger category of flowers, which includes some that fade quickly. However, let's examine this more closely.\n\nThe statement \"all roses are flowers\" is an example of a universal af..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "qwen2.5:7b",
+    "timestamp": "2026-01-18T22:01:24.918272",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [
+      "Step \\d+:"
+    ],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 375,
+        "patterns_found": [
+          "Step \\d+:"
+        ],
+        "response_preview": "To calculate \\(17 \\times 23\\) step by step:\n\n### Step 1: Break Down the Multiplication Using Distributive Property\nWe can break down the multiplication using the distributive property of multiplication over addition. This means we can split one of the numbers into parts that are easier to multiply.\n..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 132,
+        "patterns_found": [],
+        "response_preview": "The farmer originally had 17 sheep. The phrase \"all but 9 run away\" means that all of the sheep except for 9 did not run away.\n\nTo find out how many sheep are left, we can set up a simple equation:\n\nIf \"all but 9\" ran away, it means that 9 sheep remained. So, the farmer has 9 sheep left.\n\nMathematic..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 310,
+        "patterns_found": [],
+        "response_preview": "To reason through the given statements carefully, let's break down the information:\n\n1. **All roses are flowers**: This means every single rose is a flower by definition.\n2. **Some flowers fade quickly**: This indicates there exists at least one flower that fades quickly.\n\nFrom these two premises, w..."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "mistral:latest",
+    "timestamp": "2026-01-18T22:01:32.069404",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [],
+    "thinking_tags_found": false,
+    "reasoning_verbose": true,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 434,
+        "patterns_found": [],
+        "response_preview": " To find the product of 17 and 23, you simply multiply these two numbers together. Here's how it works:\n\n1. First, take the first number (the multiplicand) 17 and bring down the second number (the multiplier) 23. Write them below each other like this:\n\n    _______\n    17   *   23\n\n2. Next, count up ..."
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 125,
+        "patterns_found": [],
+        "response_preview": " Let's break this down:\n\n1. The question states that a farmer has 17 sheep in total.\n2. Then it says \"All but 9\" which means everything except for 9 sheep ran away.\n3. So, if you subtract the number of sheep that ran away from the original number, you get the number of sheep left.\n4. So, 17 (total n..."
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 77,
+        "patterns_found": [],
+        "response_preview": " Yes, based on the given information, it is possible to conclude that some roses fade quickly.\n\nHere's why:\n1. All roses are flowers.\n2. Some flowers (including roses) fade quickly.\n3. Since roses belong to the group of flowers that can fade quickly, it means that some roses indeed fade quickly."
+      }
+    ],
+    "thinking_type": "none"
+  },
+  {
+    "model": "gemma2:9b",
+    "timestamp": "2026-01-18T22:01:37.645910",
+    "is_thinking_model": false,
+    "thinking_patterns_found": [],
+    "thinking_tags_found": false,
+    "reasoning_verbose": false,
+    "tests": [
+      {
+        "prompt": "Think step by step: What is 17 * 23?",
+        "output_tokens": 129,
+        "patterns_found": [],
+        "response_preview": "Here's how to solve 17 * 23 step-by-step:\n\n**1. Break down the numbers:**  We can think of 23 as (20 + 3)\n\n**2. Distribute:** Multiply 17 by each part of the sum:\n   * 17 * 20 = 340 \n   * 17 * 3 = 51\n\n**3. Add the results:**  340 + 51 = 391\n\n\n\n**Therefore, 17 * 23 = 391**"
+      },
+      {
+        "prompt": "A farmer has 17 sheep. All but 9 run away. How man",
+        "output_tokens": 76,
+        "patterns_found": [],
+        "response_preview": "The farmer has **9** sheep left. \n\nHere's the reasoning:\n\n* **\"All but 9\"** means that 9 sheep stayed behind.  \n* The phrase \"all but\" is a way of saying that some things are *not* included in a group.\n\n\nLet me know if you have any other word puzzles! \n"
+      },
+      {
+        "prompt": "If all roses are flowers, and some flowers fade qu",
+        "output_tokens": 183,
+        "patterns_found": [],
+        "response_preview": "No, we cannot conclude that some roses fade quickly. Here's why:\n\n* **The premises:**\n    *  \"All roses are flowers\" is a true statement. \n    * \"Some flowers fade quickly\" is also a true statement.\n\n* **The problem:** The statements don't link directly. Just because some flowers fade quickly doesn'..."
+      }
+    ],
+    "thinking_type": "none"
+  }
+]

@@ -1,0 +1,26 @@
+[package]
+name = "matric-search"
+description = "Hybrid search engine for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[dependencies]
+matric-core = { path = "../matric-core" }
+matric-db = { path = "../matric-db" }
+
+tracing.workspace = true
+async-trait = "0.1"
+pgvector = { version = "0.4", features = ["sqlx"] }
+uuid = { version = "1.11", features = ["serde", "v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+unicode-script = "0.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }

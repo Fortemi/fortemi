@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "format": "matric-shard",
+  "schema_version": 2,
+  "created_at": "2027-01-01T12:00:00Z",
+  "created_by": "matric-memory/2.0.0",
+  "description": "Shard with breaking changes from v2.0.0",
+  "components": [
+    "notes",
+    "documents"
+  ],
+  "counts": {
+    "notes": 5,
+    "documents": 10
+  },
+  "checksums": {
+    "notes": "blake3:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    "documents": "blake3:bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a"
+  },
+  "breaking_changes": [
+    "Switched from SHA256 to BLAKE3 checksums",
+    "Renamed 'links' to 'documents'",
+    "New required field: schema_version"
+  ]
+}

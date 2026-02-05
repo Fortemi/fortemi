@@ -1,0 +1,34 @@
+# Fortémi Test Database Image
+#
+# PostgreSQL 16 with pgvector + PostGIS for CI/CD testing.
+# Combines extensions needed for matric-memory migrations.
+#
+# Usage:
+#   docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+#   docker run -d -e POSTGRES_PASSWORD=matric matric-testdb:local
+#
+# Extensions included:
+#   - pgvector: Vector similarity search (from base image)
+#   - PostGIS: Spatial queries for provenance tracking
+#   - pg_trgm: Trigram search (built into PostgreSQL)
+#
+# Note: pg_bigm (CJK bigram search) requires external repos and is optional.
+# The application gracefully falls back to pg_trgm when pg_bigm is unavailable.
+
+FROM pgvector/pgvector:pg16
+
+LABEL org.opencontainers.image.title="fortemi-testdb"
+LABEL org.opencontainers.image.description="PostgreSQL 16 with pgvector + PostGIS for Fortémi testing"
+LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
+
+# Install PostgreSQL extensions needed for full migration support
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # PostGIS for spatial queries (prov:atLocation)
+    postgresql-16-postgis-3 \
+    postgresql-16-postgis-3-scripts \
+    && rm -rf /var/lib/apt/lists/*
+
+# Note: pg_bigm is not available in standard Debian repos.
+# CJK search falls back to pg_trgm which is built into PostgreSQL.
+# For pg_bigm support, use a custom image or compile from source:
+# https://github.com/pgbigm/pg_bigm

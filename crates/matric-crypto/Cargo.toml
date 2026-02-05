@@ -1,0 +1,42 @@
+[package]
+name = "matric-crypto"
+description = "Encryption primitives for matric-memory backup and sharing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "matric-pke"
+path = "src/bin/pke.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+# Cryptographic primitives
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = { workspace = true, features = ["getrandom"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+blake3 = "1"
+bs58 = "0.5"
+
+# Secure memory handling
+zeroize = { version = "1", features = ["derive"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

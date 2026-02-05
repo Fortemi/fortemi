@@ -1,0 +1,177 @@
+# Dockerfile.bundle - All-in-one Fortémi with embedded PostgreSQL + MCP
+#
+# Usage:
+#   docker build -f Dockerfile.bundle -t fortemi:bundle .
+#   docker run -d -p 3000:3000 -p 3001:3001 -v fortemi-data:/var/lib/postgresql/data fortemi:bundle
+#
+# Build stage for Rust API
+FROM rust:slim-bookworm AS builder
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+ENV MATRIC_VERSION=${VERSION}
+ENV MATRIC_GIT_SHA=${GIT_SHA}
+ENV MATRIC_BUILD_DATE=${BUILD_DATE}
+
+RUN cargo build --release --package matric-api --package matric-crypto && \
+    cp target/release/matric-api /app/matric-api && \
+    cp target/release/matric-pke /app/matric-pke
+
+# Runtime stage - based on pgvector image for PostgreSQL + pgvector
+FROM pgvector/pgvector:pg16 AS runtime
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="fortemi-bundle"
+LABEL org.opencontainers.image.description="AI-enhanced knowledge base - all-in-one with PostgreSQL and MCP"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+# Install runtime dependencies for matric-api, Node.js for MCP server, and PostGIS
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    gnupg \
+    # PostGIS for spatial/geographic queries (W3C PROV prov:atLocation)
+    postgresql-16-postgis-3 \
+    postgresql-16-postgis-3-scripts \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy binaries from builder
+COPY --from=builder /app/matric-api /app/matric-api
+COPY --from=builder /app/matric-pke /usr/local/bin/matric-pke
+
+# Copy migrations
+COPY migrations /app/migrations
+
+# Copy MCP server
+COPY mcp-server /app/mcp-server
+
+# Install MCP server dependencies
+WORKDIR /app/mcp-server
+RUN npm ci --omit=dev
+
+WORKDIR /app
+
+# Copy entrypoint script
+COPY docker/bundle-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Version environment variables
+ENV MATRIC_VERSION=${VERSION}
+ENV MATRIC_GIT_SHA=${GIT_SHA}
+ENV MATRIC_BUILD_DATE=${BUILD_DATE}
+
+# =============================================================================
+# PostgreSQL environment
+# =============================================================================
+ENV POSTGRES_USER=matric
+ENV POSTGRES_PASSWORD=matric
+ENV POSTGRES_DB=matric
+ENV PGDATA=/var/lib/postgresql/data
+
+# =============================================================================
+# Matric API environment
+# =============================================================================
+ENV DATABASE_URL=postgres://matric:matric@localhost:5432/matric
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV RUST_LOG=info
+
+# OAuth/Auth - Set ISSUER_URL to your external URL for OAuth discovery
+# ENV ISSUER_URL=https://memory.example.com
+
+# Rate limiting (disable for development/testing)
+ENV RATE_LIMIT_ENABLED=false
+
+# Full-text search: enable multilingual, emoji, and CJK support
+ENV FTS_SCRIPT_DETECTION=true
+ENV FTS_TRIGRAM_FALLBACK=true
+ENV FTS_BIGRAM_CJK=true
+ENV FTS_MULTILINGUAL_CONFIGS=true
+# ENV RATE_LIMIT_REQUESTS=100
+# ENV RATE_LIMIT_PERIOD_SECS=60
+
+# Logging
+# ENV LOG_FORMAT=json
+# ENV LOG_FILE=/var/log/matric/api.log
+# ENV LOG_ANSI=false
+
+# Background worker (enabled by default)
+# ENV WORKER_ENABLED=true
+
+# Backup configuration
+# ENV BACKUP_DEST=/var/backups/matric-memory
+# ENV BACKUP_SCRIPT_PATH=/app/scripts/backup.sh
+
+# =============================================================================
+# Ollama (local LLM) configuration - for embeddings and generation
+# =============================================================================
+# ENV OLLAMA_BASE=http://localhost:11434
+# ENV OLLAMA_HOST=http://localhost:11434
+# ENV OLLAMA_EMBED_MODEL=nomic-embed-text
+# ENV OLLAMA_GEN_MODEL=llama3.2
+# ENV OLLAMA_EMBED_DIM=768
+
+# =============================================================================
+# OpenAI configuration - alternative to Ollama
+# =============================================================================
+# ENV OPENAI_BASE_URL=https://api.openai.com/v1
+# ENV OPENAI_API_KEY=sk-xxx
+# ENV OPENAI_EMBED_MODEL=text-embedding-3-small
+# ENV OPENAI_GEN_MODEL=gpt-4o-mini
+# ENV OPENAI_EMBED_DIM=1536
+# ENV OPENAI_TIMEOUT=30
+# ENV OPENAI_SKIP_TLS_VERIFY=false
+
+# =============================================================================
+# MCP Server environment
+# =============================================================================
+ENV MCP_TRANSPORT=http
+ENV MCP_PORT=3001
+ENV MATRIC_API_URL=http://localhost:3000
+# MCP_BASE_URL should be set to external URL (e.g., https://memory.example.com/mcp)
+# ENV MCP_BASE_URL=https://memory.example.com/mcp
+
+# MCP OAuth client credentials (required for token introspection)
+# Register a client via POST /oauth/register then set these
+# ENV MCP_CLIENT_ID=mm_xxx
+# ENV MCP_CLIENT_SECRET=xxx
+
+# Expose API and MCP ports
+EXPOSE 3000 3001
+
+# Health check against the API
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Data volume for PostgreSQL persistence
+VOLUME ["/var/lib/postgresql/data"]
+
+# Use custom entrypoint that starts PostgreSQL, runs migrations, then starts API + MCP
+ENTRYPOINT ["/app/entrypoint.sh"]

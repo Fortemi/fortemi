@@ -1,0 +1,9 @@
+The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet at least once.
+
+Natural language processing enables computers to understand, interpret, and generate human language. Modern NLP systems use transformer architectures and attention mechanisms to achieve state-of-the-art results on tasks like translation, summarization, and question answering.
+
+Full-text search with stemming allows users to find documents even when they search for different word forms. For example, searching for "run" should also match "running", "runs", and "ran". PostgreSQL's websearch_to_tsquery function handles this automatically for English text.
+
+Testing edge cases is crucial for robust software. Consider boundary values, empty inputs, null pointers, and unicode characters. Comprehensive test coverage catches bugs early in the development cycle.
+
+Machine learning models require large amounts of training data. The quality of the data directly impacts model performance. Data preprocessing steps include normalization, tokenization, and feature extraction. Modern embeddings like BERT and GPT transform text into dense vector representations.

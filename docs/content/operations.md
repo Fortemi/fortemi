@@ -1,0 +1,604 @@
+# Operations and Deployment Guide
+
+This guide covers deployment, operations, and troubleshooting for Fortémi using Docker.
+
+## System Overview
+
+- **Deployment:** Docker bundle (all-in-one container)
+- **Components:** PostgreSQL 16 + pgvector, Rust API, Node.js MCP server
+- **Ports:** 3000 (API), 3001 (MCP)
+- **Data:** PostgreSQL data in Docker volume `matric-pgdata`
+
+## Table of Contents
+
+1. [Initial Setup](#initial-setup)
+2. [Deployment Procedures](#deployment-procedures)
+3. [Container Management](#container-management)
+4. [Database Operations](#database-operations)
+5. [MCP Server Operations](#mcp-server-operations)
+6. [Monitoring and Health Checks](#monitoring-and-health-checks)
+7. [Troubleshooting](#troubleshooting)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Configuration](#configuration)
+
+## Initial Setup
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Nginx (for reverse proxy)
+- Domain with SSL certificate
+
+### First-Time Deployment
+
+```bash
+# 1. Clone repository
+git clone https://github.com/Fortemi/fortemi.git
+cd Fortémi
+
+# 2. Start container (creates database)
+docker compose -f docker-compose.bundle.yml up -d
+
+# 3. Wait for initialization (first run takes ~60 seconds)
+docker compose -f docker-compose.bundle.yml logs -f
+
+# 4. Register MCP OAuth client (REQUIRED for MCP authentication)
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+# Save the returned client_id and client_secret
+
+# 5. Configure environment
+cat > .env <<EOF
+ISSUER_URL=https://your-domain.com
+MCP_CLIENT_ID=mm_xxxxx
+MCP_CLIENT_SECRET=xxxxx
+EOF
+
+# 6. Restart with configuration
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# 7. Verify
+curl http://localhost:3000/health
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+```
+
+### Nginx Configuration
+
+Configure nginx to proxy to the container:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    # API routes
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # MCP routes
+    location = /mcp {
+        proxy_pass http://localhost:3001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    location /mcp/ {
+        proxy_pass http://localhost:3001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+## Deployment Procedures
+
+### Standard Update Workflow
+
+```bash
+# 1. Pull latest code
+git pull origin main
+
+# 2. Backup database (recommended)
+docker exec Fortémi-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 3. Rebuild and restart
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# 4. Verify
+curl http://localhost:3000/health
+docker compose -f docker-compose.bundle.yml logs --tail=50
+```
+
+### Critical Rules
+
+1. **Backup before major updates** - Database migrations run automatically on container start
+2. **Check logs after restart** - Verify migrations applied successfully
+3. **Test health endpoint** - Confirm API is responding
+
+### Rollback Procedure
+
+If deployment fails:
+
+```bash
+# 1. Stop container
+docker compose -f docker-compose.bundle.yml down
+
+# 2. Restore database from backup
+docker compose -f docker-compose.bundle.yml up -d
+sleep 30  # Wait for PostgreSQL to start
+docker exec -i Fortémi-matric-1 psql -U matric -d matric < backup_YYYYMMDD_HHMMSS.sql
+
+# 3. Checkout previous version
+git checkout <previous-commit>
+
+# 4. Rebuild with old code
+docker compose -f docker-compose.bundle.yml build
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# 5. Verify
+curl http://localhost:3000/health
+```
+
+## Container Management
+
+### Common Commands
+
+```bash
+# Status
+docker compose -f docker-compose.bundle.yml ps
+
+# Logs (follow)
+docker compose -f docker-compose.bundle.yml logs -f
+
+# Logs (last N lines)
+docker compose -f docker-compose.bundle.yml logs --tail=100
+
+# Restart
+docker compose -f docker-compose.bundle.yml restart
+
+# Stop
+docker compose -f docker-compose.bundle.yml down
+
+# Start
+docker compose -f docker-compose.bundle.yml up -d
+
+# Rebuild
+docker compose -f docker-compose.bundle.yml build
+
+# Shell access
+docker exec -it Fortémi-matric-1 /bin/bash
+```
+
+### Full Reset (Wipes Database)
+
+```bash
+docker compose -f docker-compose.bundle.yml down -v
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+## Database Operations
+
+### Connection
+
+```bash
+# Interactive psql
+docker exec -it Fortémi-matric-1 psql -U matric -d matric
+
+# Run single command
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+```
+
+### Common Queries
+
+```bash
+# Database size
+docker exec Fortémi-matric-1 psql -U matric -d matric -c \
+  "SELECT pg_size_pretty(pg_database_size('matric'));"
+
+# Table sizes
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "
+SELECT relname AS table_name, pg_size_pretty(pg_total_relation_size(relid)) AS size
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;"
+
+# Note count
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+
+# Active connections
+docker exec Fortémi-matric-1 psql -U matric -d matric -c \
+  "SELECT count(*) FROM pg_stat_activity WHERE datname = 'matric';"
+```
+
+### Maintenance
+
+```bash
+# Vacuum analyze (weekly recommended)
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
+
+# Refresh embedding set stats
+docker exec Fortémi-matric-1 psql -U matric -d matric -c \
+  "REFRESH MATERIALIZED VIEW embedding_set_stats;"
+
+# Reindex (if query performance degrades)
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "REINDEX DATABASE matric;"
+```
+
+## MCP Server Operations
+
+The MCP server runs automatically inside the Docker bundle on port 3001.
+
+### Verify MCP Configuration
+
+```bash
+# Check OAuth protected resource metadata
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+
+# Expected response:
+# {
+#   "resource": "https://your-domain.com/mcp",
+#   "authorization_servers": ["https://your-domain.com"],
+#   ...
+# }
+```
+
+### Claude Code Integration
+
+Project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "fortemi": {
+      "url": "https://your-domain.com/mcp"
+    }
+  }
+}
+```
+
+### MCP Health Check
+
+```bash
+curl https://your-domain.com/mcp/health
+```
+
+## Monitoring and Health Checks
+
+### Health Endpoints
+
+```bash
+# API health
+curl http://localhost:3000/health
+
+# MCP health (via nginx)
+curl https://your-domain.com/mcp/health
+```
+
+### Container Health
+
+```bash
+# Docker health status
+docker inspect Fortémi-matric-1 --format='{{.State.Health.Status}}'
+
+# Recent health check results
+docker inspect Fortémi-matric-1 --format='{{json .State.Health}}' | jq
+```
+
+### Log Analysis
+
+```bash
+# All logs
+docker compose -f docker-compose.bundle.yml logs
+
+# Errors only
+docker compose -f docker-compose.bundle.yml logs 2>&1 | grep -i error
+
+# Since specific time
+docker compose -f docker-compose.bundle.yml logs --since "1h"
+```
+
+## Troubleshooting
+
+### Container Won't Start
+
+```bash
+# Check logs
+docker compose -f docker-compose.bundle.yml logs
+
+# Check if port is in use
+ss -tlnp | grep -E '3000|3001'
+
+# Verify Docker is running
+docker ps
+```
+
+### MCP Authentication Fails
+
+**Symptom:** "Protected resource URL mismatch" error
+
+**Cause:** Missing or incorrect `ISSUER_URL` in `.env`
+
+**Fix:**
+```bash
+# Create/update .env with ISSUER_URL
+echo "ISSUER_URL=https://your-domain.com" >> .env
+
+# Restart container
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Verify
+curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+```
+
+**Symptom:** MCP returns "unauthorized" even with valid token
+
+**Cause:** Missing `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` - the MCP server cannot introspect tokens
+
+**Fix:**
+```bash
+# Register an OAuth client for MCP
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+
+# Add returned credentials to .env
+echo "MCP_CLIENT_ID=mm_xxxxx" >> .env
+echo "MCP_CLIENT_SECRET=xxxxx" >> .env
+
+# Restart container
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+### Database Connection Errors
+
+```bash
+# Check PostgreSQL is running inside container
+docker exec Fortémi-matric-1 pg_isready -U matric
+
+# Check database exists
+docker exec Fortémi-matric-1 psql -U matric -l
+```
+
+### Slow Performance
+
+```bash
+# Run vacuum
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
+
+# Check for long-running queries
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "
+SELECT pid, state, query_start, query
+FROM pg_stat_activity
+WHERE state = 'active' AND datname = 'matric';"
+```
+
+### Out of Disk Space
+
+```bash
+# Check Docker disk usage
+docker system df
+
+# Clean unused images
+docker image prune -a
+
+# Check volume size
+docker system df -v | grep matric
+```
+
+## Backup and Recovery
+
+### Manual Backup
+
+```bash
+# Backup to local file
+docker exec Fortémi-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup
+ls -lh backup_*.sql | tail -1
+head -50 backup_*.sql | tail -1
+```
+
+### Restore from Backup
+
+```bash
+# Stop and start fresh container (preserves volume)
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Wait for PostgreSQL
+sleep 30
+
+# Restore
+docker exec -i Fortémi-matric-1 psql -U matric -d matric < backup_YYYYMMDD_HHMMSS.sql
+
+# Verify
+curl http://localhost:3000/health
+```
+
+### Automated Backup Script
+
+```bash
+#!/bin/bash
+# backup-matric.sh
+BACKUP_DIR="/path/to/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/matric_$DATE.sql"
+
+mkdir -p "$BACKUP_DIR"
+docker exec Fortémi-matric-1 pg_dump -U matric matric > "$BACKUP_FILE"
+gzip "$BACKUP_FILE"
+
+# Keep only last 7 days
+find "$BACKUP_DIR" -name "matric_*.sql.gz" -mtime +7 -delete
+
+echo "Backup completed: ${BACKUP_FILE}.gz"
+```
+
+Add to crontab for daily backups:
+```bash
+0 2 * * * /path/to/backup-matric.sh
+```
+
+## Configuration
+
+### Environment Variables (.env)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ISSUER_URL` | Yes | External URL for OAuth/MCP |
+| `MCP_CLIENT_ID` | Yes | OAuth client ID for MCP token introspection |
+| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
+| `MCP_BASE_URL` | No | MCP protected resource URL (default: `${ISSUER_URL}/mcp`) |
+
+### Container Environment (docker-compose.bundle.yml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RUST_LOG` | `info` | API logging level |
+| `RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
+| `OLLAMA_BASE` | - | Ollama URL for AI features |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model |
+| `OLLAMA_GEN_MODEL` | `llama3.2` | Ollama generation model |
+| `OPENAI_API_KEY` | - | OpenAI API key (alternative) |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `OPENAI_GEN_MODEL` | `gpt-4o-mini` | OpenAI generation model |
+
+### AI Features Configuration
+
+AI features (embedding generation, auto-titling, AI revision) require either Ollama or OpenAI to be configured.
+
+**Using Ollama (local/self-hosted):**
+
+1. Install and run Ollama on your host machine
+2. Pull required models:
+   ```bash
+   ollama pull nomic-embed-text
+   ollama pull llama3.2
+   ```
+3. Configure Docker to access Ollama:
+   ```bash
+   # For Docker Desktop (macOS/Windows)
+   OLLAMA_BASE=http://host.docker.internal:11434
+
+   # For Linux with Ollama on same host
+   OLLAMA_BASE=http://172.17.0.1:11434
+   ```
+4. Add to `.env` or uncomment in `docker-compose.bundle.yml`:
+   ```
+   OLLAMA_BASE=http://host.docker.internal:11434
+   OLLAMA_EMBED_MODEL=nomic-embed-text
+   OLLAMA_GEN_MODEL=llama3.2
+   ```
+
+**Using OpenAI:**
+
+Add to `.env`:
+```
+OPENAI_API_KEY=sk-...your-key...
+OPENAI_EMBED_MODEL=text-embedding-3-small
+OPENAI_GEN_MODEL=gpt-4o-mini
+```
+
+**Verify AI Features:**
+
+```bash
+# Create a test note and request embedding generation
+curl -X POST http://localhost:3000/notes \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Test note for embedding generation"}'
+
+# Check job queue for embedding job
+curl http://localhost:3000/jobs?type=embedding
+
+# View logs for embedding/generation errors
+docker compose -f docker-compose.bundle.yml logs | grep -i "ollama\|openai\|embedding"
+```
+
+**Common AI Issues:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Embedding jobs stuck | Ollama not reachable | Set `OLLAMA_BASE` env var |
+| Auto-titling not working | No LLM configured | Configure Ollama or OpenAI |
+| "connection refused" errors | Wrong Ollama host | Use `host.docker.internal` for Docker Desktop |
+
+### Modifying Configuration
+
+```bash
+# Edit .env for external URLs
+nano .env
+
+# Edit docker-compose for container settings
+nano docker-compose.bundle.yml
+
+# Apply changes
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+## Quick Reference
+
+### Daily Operations
+
+```bash
+# Check status
+docker compose -f docker-compose.bundle.yml ps
+curl http://localhost:3000/health
+
+# View logs
+docker compose -f docker-compose.bundle.yml logs --tail=50
+```
+
+### Weekly Maintenance
+
+```bash
+# Vacuum database
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
+
+# Backup
+docker exec Fortémi-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d).sql
+```
+
+### Emergency Procedures
+
+```bash
+# Quick restart
+docker compose -f docker-compose.bundle.yml restart
+
+# Full restart
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+
+# Restore from backup
+docker exec -i Fortémi-matric-1 psql -U matric -d matric < latest_backup.sql
+```
+
+## Resources
+
+- **Repository:** https://github.com/Fortemi/fortemi
+- **Operators Guide:** [operators-guide.md](./operators-guide.md)
+- **MCP Documentation:** [mcp-server/README.md](../../mcp-server/README.md)

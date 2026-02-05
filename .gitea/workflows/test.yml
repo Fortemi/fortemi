@@ -1,0 +1,374 @@
+# Enhanced Test Infrastructure with Coverage
+#
+# This workflow provides comprehensive testing with:
+# - Test categorization (fast/integration/slow)
+# - Code coverage reporting
+# - PostgreSQL + pgvector test containers
+# - Parallel test execution
+# - Test fixtures and mock backends
+#
+# Usage:
+#   - Runs on every push and PR
+#   - Generates coverage reports
+#   - Provides test categorization for selective runs
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_category:
+        description: 'Test category to run (fast/integration/slow/all)'
+        required: false
+        default: 'all'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-Cinstrument-coverage"
+  LLVM_PROFILE_FILE: "target/coverage/profile-%p-%m.profraw"
+
+jobs:
+  # Build testdb image once for all jobs
+  build-testdb:
+    name: Build Test Database Image
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          echo "Built testdb image for testing"
+
+  # Fast unit tests (no database required)
+  fast-tests:
+    name: Fast Unit Tests
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Cache cargo registry
+        uses: https://github.com/actions/cache@v3
+        with:
+          path: ~/.cargo/registry/cache
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-
+
+      - name: Cache cargo build
+        uses: https://github.com/actions/cache@v3
+        with:
+          path: target
+          key: cargo-build-fast-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-build-fast-
+            cargo-build-
+
+      - name: Run fast tests
+        run: |
+          # Run lib tests and doc tests separately (can't mix --lib and --doc)
+          cargo test --lib --workspace
+          cargo test --doc --workspace
+        env:
+          SKIP_INTEGRATION_TESTS: "1"
+
+  # Integration tests (with database)
+  integration-tests:
+    name: Integration Tests
+    runs-on: matric-builder
+    needs: [fast-tests, build-testdb]
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+      - name: Cache cargo build
+        uses: https://github.com/actions/cache@v3
+        with:
+          path: target
+          key: cargo-build-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-build-integration-
+            cargo-build-
+
+      - name: Setup PostgreSQL
+        run: |
+          set -e
+          DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+
+          # Clean up any leftover containers
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+          # Start PostgreSQL with pgvector
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            matric-testdb:local
+
+          # Wait for PostgreSQL
+          for i in {1..30}; do
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
+          for f in migrations/*.sql; do
+            echo "Running migration: $f"
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+          done
+
+      - name: Run worker integration tests (serial, first)
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          # Worker tests require serial execution due to shared database state
+          # (tests share job queue, workers can claim jobs from other tests)
+          # Run these FIRST on a clean database before other tests create data
+          cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+        timeout-minutes: 10
+
+      - name: Run other integration tests
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          # Run all workspace tests except matric-jobs
+          # (matric-jobs tests already run above with serial execution)
+          cargo test --workspace --tests --exclude matric-jobs
+        timeout-minutes: 30
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+  # Coverage generation
+  coverage:
+    name: Code Coverage
+    runs-on: matric-builder
+    needs: [fast-tests, integration-tests, build-testdb]
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+      - name: Setup PostgreSQL for coverage
+        run: |
+          set -e
+          DB_CONTAINER="matric-coverage-db-${GITHUB_RUN_ID}"
+          DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            matric-testdb:local
+
+          for i in {1..30}; do
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          for f in migrations/*.sql; do
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+          done
+
+      - name: Install llvm-cov
+        run: |
+          cargo install cargo-llvm-cov || true
+
+      - name: Generate coverage (worker tests serial)
+        run: |
+          DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          mkdir -p target/coverage
+
+          # Run worker tests first with serial execution (they share job queue state)
+          cargo llvm-cov --all-features --package matric-jobs --test worker_integration_test -- --test-threads=1
+        timeout-minutes: 15
+
+      - name: Generate coverage (other tests)
+        run: |
+          DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          # Run all other tests with coverage (accumulate with --no-clean)
+          cargo llvm-cov --all-features --workspace --exclude matric-jobs --no-clean --lcov --output-path target/coverage/lcov.info
+        timeout-minutes: 45
+
+      - name: Generate coverage report
+        run: |
+          # Generate human-readable summary
+          cargo llvm-cov report --summary-only > target/coverage/summary.txt || true
+          cat target/coverage/summary.txt || echo "Coverage summary not available"
+
+      - name: Upload coverage artifact
+        uses: https://github.com/actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: |
+            target/coverage/lcov.info
+            target/coverage/summary.txt
+          retention-days: 30
+
+      - name: Coverage summary in PR comment
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -f target/coverage/summary.txt ]; then
+            echo "### Coverage Report" > coverage_comment.md
+            echo '```' >> coverage_comment.md
+            cat target/coverage/summary.txt >> coverage_comment.md
+            echo '```' >> coverage_comment.md
+
+            # Post comment via API (requires token with repo write access)
+            # This is optional - remove if not configured
+            # curl -X POST \
+            #   -H "Authorization: token ${{ github.token }}" \
+            #   -H "Content-Type: application/json" \
+            #   "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            #   -d "{\"body\": $(cat coverage_comment.md | jq -Rs .), \"event\": \"COMMENT\"}" || true
+          fi
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          DB_CONTAINER="matric-coverage-db-${GITHUB_RUN_ID}"
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+  # Slow/expensive tests (marked with #[ignore])
+  slow-tests:
+    name: Slow Tests
+    runs-on: matric-builder
+    needs: [integration-tests, build-testdb]
+    if: github.event_name == 'push' || github.event.inputs.test_category == 'slow' || github.event.inputs.test_category == 'all'
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+      - name: Setup PostgreSQL
+        run: |
+          set -e
+          DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
+          DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            matric-testdb:local
+
+          for i in {1..30}; do
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
+          for f in migrations/*.sql; do
+            echo "Running migration: $f"
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+          done
+
+      - name: Run slow/ignored tests
+        run: |
+          DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          # Run tests marked with #[ignore] serially to avoid database state conflicts
+          # (spatial search tests share the same tables and need isolation)
+          # Use --tests to exclude doctests (doctests don't honor #[ignore])
+          cargo test --workspace --tests -- --ignored --test-threads=1
+        timeout-minutes: 60
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+  # Test summary
+  test-summary:
+    name: Test Summary
+    runs-on: matric-builder
+    needs: [fast-tests, integration-tests, coverage]
+    if: always()
+    steps:
+      - name: Check test results
+        run: |
+          echo "Test Summary:"
+          echo "=============="
+          echo "Fast tests: ${{ needs.fast-tests.result }}"
+          echo "Integration tests: ${{ needs.integration-tests.result }}"
+          echo "Coverage: ${{ needs.coverage.result }}"
+          echo "Slow tests: ${{ needs.slow-tests.result || 'skipped' }}"
+
+          if [ "${{ needs.fast-tests.result }}" != "success" ] || \
+             [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            echo "❌ Tests failed"
+            exit 1
+          else
+            echo "✅ Tests passed"
+          fi

@@ -1,0 +1,294 @@
+{
+  "version": "1.0",
+  "description": "Golden test set for search accuracy benchmarks with known-relevant results",
+  "embedding_dimension": 384,
+  "notes": [
+    {
+      "id": "quantum-001",
+      "title": "Introduction to Quantum Computing",
+      "content": "Quantum computing leverages quantum bits (qubits) to perform computations. Unlike classical bits, qubits can exist in superposition states, allowing them to represent 0 and 1 simultaneously. This fundamental property enables quantum computers to solve certain problems exponentially faster than classical computers. Key concepts include superposition, entanglement, and quantum interference.",
+      "tags": ["quantum", "computing", "physics"],
+      "type": "markdown",
+      "relevance": {
+        "quantum computing": 1.0,
+        "quantum physics": 0.9,
+        "superposition": 0.95,
+        "qubits": 1.0,
+        "computer science": 0.6
+      }
+    },
+    {
+      "id": "quantum-002",
+      "title": "Quantum Entanglement Explained",
+      "content": "Quantum entanglement is a fundamental property in quantum mechanics where particles become correlated such that the state of one particle instantaneously affects the state of another, regardless of distance. This phenomenon is crucial for quantum computing, quantum cryptography, and quantum teleportation. Einstein famously called it 'spooky action at a distance.'",
+      "tags": ["quantum", "entanglement", "physics"],
+      "type": "markdown",
+      "relevance": {
+        "quantum computing": 0.7,
+        "quantum physics": 1.0,
+        "entanglement": 1.0,
+        "quantum mechanics": 0.95,
+        "computer science": 0.3
+      }
+    },
+    {
+      "id": "quantum-003",
+      "title": "Shor's Algorithm for Factoring",
+      "content": "Shor's algorithm is a quantum algorithm for integer factorization that runs exponentially faster than the best known classical algorithms. It can factor a number N in polynomial time O((log N)^3), whereas classical algorithms require sub-exponential time. This has significant implications for cryptography, as it could break RSA encryption.",
+      "tags": ["quantum", "algorithms", "cryptography"],
+      "type": "markdown",
+      "relevance": {
+        "quantum computing": 1.0,
+        "quantum algorithms": 1.0,
+        "cryptography": 0.9,
+        "factoring": 1.0,
+        "computer science": 0.8
+      }
+    },
+    {
+      "id": "quantum-004",
+      "title": "Quantum Error Correction",
+      "content": "Quantum error correction is essential for building fault-tolerant quantum computers that can perform long computations reliably. Due to decoherence and noise, qubits are fragile and prone to errors. Quantum error correction codes, such as the surface code, use multiple physical qubits to encode a single logical qubit, enabling detection and correction of errors without measuring the quantum state directly.",
+      "tags": ["quantum", "error-correction", "reliability"],
+      "type": "markdown",
+      "relevance": {
+        "quantum computing": 1.0,
+        "error correction": 1.0,
+        "quantum physics": 0.6,
+        "reliability": 0.8,
+        "computer science": 0.7
+      }
+    },
+    {
+      "id": "ml-001",
+      "title": "Introduction to Machine Learning",
+      "content": "Machine learning is a subset of artificial intelligence focused on learning from data without explicit programming. ML algorithms build models from training data to make predictions or decisions. The three main categories are supervised learning (labeled data), unsupervised learning (pattern discovery), and reinforcement learning (learning through interaction).",
+      "tags": ["machine-learning", "ai", "data-science"],
+      "type": "markdown",
+      "relevance": {
+        "machine learning": 1.0,
+        "artificial intelligence": 0.9,
+        "deep learning": 0.5,
+        "neural networks": 0.4,
+        "data science": 1.0
+      }
+    },
+    {
+      "id": "ml-002",
+      "title": "Neural Networks and Deep Learning",
+      "content": "Neural networks are computational models inspired by biological neurons in the brain. Deep learning uses multi-layer neural networks to learn hierarchical representations from data. Each layer learns increasingly abstract features. Deep neural networks have achieved breakthrough results in computer vision, natural language processing, and speech recognition.",
+      "tags": ["machine-learning", "neural-networks", "deep-learning"],
+      "type": "markdown",
+      "relevance": {
+        "machine learning": 0.9,
+        "artificial intelligence": 0.8,
+        "deep learning": 1.0,
+        "neural networks": 1.0,
+        "data science": 0.7
+      }
+    },
+    {
+      "id": "ml-003",
+      "title": "Convolutional Neural Networks for Computer Vision",
+      "content": "Convolutional Neural Networks (CNNs) are specialized neural networks designed for processing grid-like data such as images. They use convolutional layers that apply filters to detect patterns like edges, textures, and shapes. CNNs have revolutionized computer vision, achieving superhuman performance on tasks like image classification, object detection, and image segmentation.",
+      "tags": ["machine-learning", "cnn", "computer-vision"],
+      "type": "markdown",
+      "relevance": {
+        "machine learning": 0.8,
+        "deep learning": 0.9,
+        "neural networks": 0.9,
+        "computer vision": 1.0,
+        "image classification": 1.0
+      }
+    },
+    {
+      "id": "ml-004",
+      "title": "Transformer Architecture and Attention Mechanisms",
+      "content": "Transformers are a neural network architecture based on self-attention mechanisms. Unlike recurrent networks, transformers process all input tokens in parallel, making them highly efficient. The attention mechanism allows the model to focus on relevant parts of the input when making predictions. Transformers power modern language models like GPT and BERT.",
+      "tags": ["machine-learning", "transformers", "nlp"],
+      "type": "markdown",
+      "relevance": {
+        "machine learning": 0.8,
+        "deep learning": 0.9,
+        "neural networks": 0.8,
+        "transformers": 1.0,
+        "natural language processing": 1.0
+      }
+    },
+    {
+      "id": "ml-005",
+      "title": "Reinforcement Learning Basics",
+      "content": "Reinforcement learning trains agents to make decisions through trial and error by maximizing cumulative reward. The agent learns a policy that maps states to actions by interacting with an environment. Key concepts include states, actions, rewards, and the value function. RL has achieved impressive results in game playing (AlphaGo) and robotics.",
+      "tags": ["machine-learning", "reinforcement-learning", "ai"],
+      "type": "markdown",
+      "relevance": {
+        "machine learning": 1.0,
+        "reinforcement learning": 1.0,
+        "artificial intelligence": 0.8,
+        "deep learning": 0.6,
+        "robotics": 0.7
+      }
+    },
+    {
+      "id": "rust-001",
+      "title": "Rust Ownership and Borrowing",
+      "content": "Rust's ownership system ensures memory safety without garbage collection. Every value has a single owner, and when the owner goes out of scope, the value is dropped. Borrowing allows temporary access to data without transferring ownership. References can be immutable (shared) or mutable (exclusive), enforced at compile time.",
+      "tags": ["rust", "programming", "memory-safety"],
+      "type": "markdown",
+      "relevance": {
+        "rust programming": 1.0,
+        "memory safety": 1.0,
+        "ownership": 1.0,
+        "systems programming": 0.8,
+        "programming languages": 0.7
+      }
+    },
+    {
+      "id": "rust-002",
+      "title": "Async/Await in Rust",
+      "content": "Rust's async/await syntax enables writing asynchronous code that looks like synchronous code. Async functions return futures, which are lazy and must be polled by an executor. The tokio runtime is the most popular async executor, providing utilities for tasks, timers, and I/O. Async Rust is ideal for high-performance network services.",
+      "tags": ["rust", "async", "concurrency"],
+      "type": "markdown",
+      "relevance": {
+        "rust programming": 1.0,
+        "asynchronous programming": 1.0,
+        "concurrency": 0.9,
+        "tokio": 1.0,
+        "systems programming": 0.7
+      }
+    },
+    {
+      "id": "rust-003",
+      "title": "Error Handling with Result and Option",
+      "content": "Rust uses the Result and Option types for explicit error handling. Result<T, E> represents either success (Ok) or failure (Err), while Option<T> represents either a value (Some) or absence (None). The ? operator provides ergonomic error propagation. This approach eliminates null pointer exceptions and forces developers to handle errors.",
+      "tags": ["rust", "error-handling", "programming"],
+      "type": "markdown",
+      "relevance": {
+        "rust programming": 1.0,
+        "error handling": 1.0,
+        "programming patterns": 0.8,
+        "software engineering": 0.7,
+        "programming languages": 0.6
+      }
+    },
+    {
+      "id": "db-001",
+      "title": "PostgreSQL Full-Text Search",
+      "content": "PostgreSQL provides powerful full-text search capabilities using tsvector and tsquery data types. The GIN index enables fast text search. Features include stemming, ranking, phrase search, and multiple languages. The websearch_to_tsquery function supports Google-like search syntax with OR, NOT, and phrase operators.",
+      "tags": ["postgresql", "database", "search"],
+      "type": "markdown",
+      "relevance": {
+        "postgresql": 1.0,
+        "full-text search": 1.0,
+        "database": 0.9,
+        "search engines": 0.8,
+        "information retrieval": 0.8
+      }
+    },
+    {
+      "id": "db-002",
+      "title": "Vector Similarity Search with pgvector",
+      "content": "pgvector is a PostgreSQL extension for vector similarity search, enabling semantic search with embeddings. It supports L2 distance, inner product, and cosine distance. HNSW indexes provide fast approximate nearest neighbor search, essential for large-scale vector databases. This enables applications like semantic search and recommendation systems.",
+      "tags": ["postgresql", "vector-search", "embeddings"],
+      "type": "markdown",
+      "relevance": {
+        "postgresql": 0.9,
+        "vector search": 1.0,
+        "semantic search": 1.0,
+        "embeddings": 1.0,
+        "machine learning": 0.6
+      }
+    },
+    {
+      "id": "db-003",
+      "title": "Hybrid Search with RRF Fusion",
+      "content": "Hybrid search combines full-text search (FTS) and semantic vector search using Reciprocal Rank Fusion (RRF) to merge results. FTS excels at exact keyword matching, while semantic search captures conceptual similarity. RRF assigns scores based on rank position, combining the strengths of both approaches for improved recall and precision.",
+      "tags": ["search", "hybrid-search", "information-retrieval"],
+      "type": "markdown",
+      "relevance": {
+        "hybrid search": 1.0,
+        "full-text search": 0.9,
+        "semantic search": 0.9,
+        "information retrieval": 1.0,
+        "search engines": 0.9
+      }
+    }
+  ],
+  "queries": [
+    {
+      "id": "q1",
+      "text": "quantum computing",
+      "relevant_notes": ["quantum-001", "quantum-002", "quantum-003", "quantum-004"],
+      "expected_top_3": ["quantum-001", "quantum-003", "quantum-004"],
+      "min_recall_at_5": 0.75,
+      "description": "Broad query about quantum computing domain"
+    },
+    {
+      "id": "q2",
+      "text": "quantum entanglement",
+      "relevant_notes": ["quantum-002", "quantum-001"],
+      "expected_top_3": ["quantum-002", "quantum-001"],
+      "min_recall_at_5": 1.0,
+      "description": "Specific query about quantum entanglement"
+    },
+    {
+      "id": "q3",
+      "text": "machine learning algorithms",
+      "relevant_notes": ["ml-001", "ml-002", "ml-003", "ml-004", "ml-005"],
+      "expected_top_3": ["ml-001", "ml-002", "ml-005"],
+      "min_recall_at_5": 0.6,
+      "description": "General ML query"
+    },
+    {
+      "id": "q4",
+      "text": "deep learning neural networks",
+      "relevant_notes": ["ml-002", "ml-003", "ml-004"],
+      "expected_top_3": ["ml-002", "ml-003", "ml-004"],
+      "min_recall_at_5": 1.0,
+      "description": "Specific deep learning query"
+    },
+    {
+      "id": "q5",
+      "text": "rust async programming",
+      "relevant_notes": ["rust-002", "rust-001"],
+      "expected_top_3": ["rust-002", "rust-001"],
+      "min_recall_at_5": 1.0,
+      "description": "Rust concurrency query"
+    },
+    {
+      "id": "q6",
+      "text": "error handling",
+      "relevant_notes": ["rust-003", "quantum-004"],
+      "expected_top_3": ["rust-003", "quantum-004"],
+      "min_recall_at_5": 1.0,
+      "description": "Cross-domain query about error handling"
+    },
+    {
+      "id": "q7",
+      "text": "semantic search embeddings",
+      "relevant_notes": ["db-002", "db-003"],
+      "expected_top_3": ["db-002", "db-003"],
+      "min_recall_at_5": 1.0,
+      "description": "Semantic search technical query"
+    },
+    {
+      "id": "q8",
+      "text": "hybrid search fusion",
+      "relevant_notes": ["db-003", "db-001", "db-002"],
+      "expected_top_3": ["db-003", "db-001", "db-002"],
+      "min_recall_at_5": 0.67,
+      "description": "Hybrid search methodology query"
+    }
+  ],
+  "performance_targets": {
+    "fts_latency_p50_ms": 10,
+    "fts_latency_p95_ms": 50,
+    "semantic_latency_p50_ms": 20,
+    "semantic_latency_p95_ms": 100,
+    "hybrid_latency_p50_ms": 30,
+    "hybrid_latency_p95_ms": 150,
+    "min_precision_at_3": 0.8,
+    "min_recall_at_5": 0.6,
+    "min_mrr": 0.7
+  }
+}

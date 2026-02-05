@@ -1,0 +1,81 @@
+# Integration test infrastructure for Fortémi
+#
+# Usage:
+#   docker compose -f build/docker-compose.test.yml up -d
+#   curl http://localhost:3001/health
+#   docker compose -f build/docker-compose.test.yml down -v
+#
+# For CI testing of built images:
+#   IMAGE_TAG=sha-abc1234 docker compose -f build/docker-compose.test.yml up -d
+#
+# Build test database image first (if not using pre-built):
+#   docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+services:
+  # Fortémi API service
+  api:
+    image: ${REGISTRY:-ghcr.io/fortemi/fortemi}:${IMAGE_TAG:-dev}
+    ports:
+      - "3001:3000"
+    environment:
+      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - RUST_LOG=info,matric_api=debug
+      - HOST=0.0.0.0
+      - PORT=3000
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    networks:
+      - fortemi-test
+
+  # PostgreSQL with pgvector + PostGIS
+  # Uses local testdb image built from build/Dockerfile.testdb
+  # Falls back to pgvector/pgvector:pg16 if local image not available
+  db:
+    image: ${TESTDB_IMAGE:-matric-testdb:local}
+    environment:
+      - POSTGRES_USER=matric
+      - POSTGRES_PASSWORD=matric
+      - POSTGRES_DB=matric
+    volumes:
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matric"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - fortemi-test
+
+  # Integration test runner (optional profile)
+  test-runner:
+    image: ${BUILDER_IMAGE:-ghcr.io/fortemi/fortemi-builder}:${BUILDER_TAG:-latest}
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - API_BASE=http://api:3000
+      - CURL_CMD=curl
+      - VERBOSE=1
+    volumes:
+      - ..:/build:ro
+    working_dir: /build
+    entrypoint: ["bash", "scripts/container-api-tests.sh"]
+    networks:
+      - fortemi-test
+    profiles:
+      - test
+
+networks:
+  fortemi-test:
+    driver: bridge
+
+volumes:
+  db-data:

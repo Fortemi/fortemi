@@ -1,0 +1,67 @@
+[package]
+name = "matric-inference"
+description = "LLM inference backend abstraction for matric-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[dependencies]
+# Internal
+matric-core.workspace = true
+
+# HTTP client
+reqwest = { workspace = true, features = ["stream"] }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Time
+chrono = { workspace = true }
+
+# Regex for LLM-as-Judge parsing
+regex.workspace = true
+
+# Streaming (for OpenAI backend)
+futures = { workspace = true, optional = true }
+bytes = { version = "1", optional = true }
+
+# Random for mock backend (test only)
+rand = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+wiremock = "0.6"
+rand.workspace = true
+
+[features]
+default = ["ollama"]
+ollama = []
+openai = ["futures", "bytes"]
+# Enable all backends
+all-backends = ["ollama", "openai"]
+# Enable integration tests that require live inference server
+integration = []
+# Enable mock backend (for tests)
+mock = ["rand"]
+
+[[bin]]
+name = "matric-eval"
+path = "src/bin/eval.rs"
+
+[[example]]
+name = "openrouter_headers"
+required-features = ["openai"]

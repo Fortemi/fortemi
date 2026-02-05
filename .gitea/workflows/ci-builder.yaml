@@ -1,0 +1,714 @@
+# CI Pipeline using Builder Container
+#
+# Uses matric-builder container for consistent, reproducible builds.
+# Builder image maintained by build-builder.yaml.
+#
+# Pipeline:
+#   1. Lint - Static analysis (fmt, clippy)
+#   2. Build & Unit Test - Compile + test with PostgreSQL
+#   3. Build Image - Create Docker image
+#   4. Test Container - Deploy and test in isolated environment
+#   5. Integration Tests (GPU) - Ollama/inference tests
+#   6. Publish - Push verified image to registry
+
+name: CI
+
+on:
+  # Branch pushes (main only)
+  push:
+    branches: [main]
+  # Tag pushes trigger release workflow
+  # NOTE: Gitea Actions requires separate push block for tags
+  # Combining branches+tags in one block may cause AND logic instead of OR
+  create:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      # Builder image changes trigger build-builder.yaml instead
+      # This prevents race conditions where ci-builder uses stale image
+      - 'build/Dockerfile.builder'
+      - 'build/scripts/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Internal Gitea registry
+  REGISTRY: git.integrolabs.net
+  IMAGE_NAME: fortemi/fortemi
+  # GitHub Container Registry (public releases)
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_NAME: fortemi/fortemi
+
+jobs:
+  # Build testdb image once for all jobs
+  build-testdb:
+    name: Build Test Database Image
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          echo "Built testdb image for CI"
+
+  lint:
+    name: Lint
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  build:
+    name: Build & Unit Test
+    runs-on: matric-builder
+    needs: [lint, build-testdb]
+    # Note: services: directive doesn't work with Docker-based runners using host networking
+    # We manually manage PostgreSQL container instead (see setup/teardown steps)
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+      - name: Setup PostgreSQL
+        run: |
+          set -e
+          # Use unique container name per run to avoid race conditions between parallel runs
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+          # Use unique port: base 15432 + (run_id mod 1000) to avoid port conflicts
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+          echo "Starting PostgreSQL container ${DB_CONTAINER} on port ${DB_PORT}..."
+
+          # Clean up any leftover containers with this name
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+          # Start PostgreSQL with pgvector on unique port
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            matric-testdb:local
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL..."
+          for i in {1..30}; do
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          set -e
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+
+          # Run migrations in order
+          for f in migrations/*.sql; do
+            echo "======================================"
+            echo "Running migration: $f"
+            echo "======================================"
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+            echo "Migration $f completed successfully"
+          done
+
+          # Verify tables were created
+          echo "======================================"
+          echo "Verifying database schema..."
+          echo "======================================"
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "\dt" | head -30
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Verify binaries
+        run: |
+          ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
+
+      - name: Run worker integration tests (serial, first)
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          # Worker tests require serial execution due to shared database state
+          # (tests share job queue, workers can claim jobs from other tests)
+          # Run these FIRST on a clean database before other tests create data
+          cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+
+      - name: Run other tests
+        run: |
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          # Run all workspace tests except matric-jobs
+          # (matric-jobs worker tests already ran above with serial execution)
+          cargo test --workspace --exclude matric-jobs
+
+      - name: Run doc tests
+        run: cargo test --doc
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+          echo "Cleaning up PostgreSQL container ${DB_CONTAINER}..."
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+  build-image:
+    name: Build Docker Image
+    runs-on: matric-builder
+    needs: build
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build Docker image
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          docker build \
+            --build-arg VERSION=test-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t matric-memory:test .
+
+          echo "Built image: matric-memory:test"
+          docker images matric-memory:test
+
+  test-container:
+    name: Test Container (Isolated)
+    runs-on: matric-builder
+    needs: [build-image, build-testdb]
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+
+      - name: Deploy test environment
+        run: |
+          set -e
+          # Use unique names per run to avoid race conditions
+          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
+          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
+          TEST_REDIS="matric-test-redis-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
+          echo "TEST_NET=${TEST_NET}" >> $GITHUB_ENV
+          echo "TEST_DB=${TEST_DB}" >> $GITHUB_ENV
+          echo "TEST_REDIS=${TEST_REDIS}" >> $GITHUB_ENV
+          echo "TEST_API=${TEST_API}" >> $GITHUB_ENV
+          echo "Starting isolated test environment on port ${TEST_PORT}..."
+
+          # Clean up any leftover containers from previous runs
+          echo "Cleaning up any existing test containers..."
+          docker stop ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
+          docker rm ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
+          docker network rm ${TEST_NET} 2>/dev/null || true
+
+          # Create test network
+          docker network create ${TEST_NET} || true
+
+          # Start PostgreSQL with pgvector
+          echo "Starting PostgreSQL..."
+          docker run -d --name ${TEST_DB} \
+            --network ${TEST_NET} \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric \
+            matric-testdb:local
+
+          # Start Redis for caching
+          echo "Starting Redis..."
+          docker run -d --name ${TEST_REDIS} \
+            --network ${TEST_NET} \
+            redis:7-alpine
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL..."
+          for i in {1..30}; do
+            if docker exec ${TEST_DB} pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+          # Wait for Redis to be ready
+          echo "Waiting for Redis..."
+          for i in {1..10}; do
+            if docker exec ${TEST_REDIS} redis-cli ping 2>/dev/null | grep -q PONG; then
+              echo "Redis is ready!"
+              break
+            fi
+            echo "Waiting for Redis... ($i/10)"
+            sleep 1
+          done
+
+          # Run migrations
+          echo "Running migrations..."
+          for f in migrations/*.sql; do
+            echo "Running $f..."
+            docker exec -i ${TEST_DB} psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
+          done
+
+          # Start the API container on isolated port
+          echo "Starting API container..."
+          docker run -d --name ${TEST_API} \
+            --network ${TEST_NET} \
+            -p ${TEST_PORT}:3000 \
+            -e DATABASE_URL=postgres://matric:matric@${TEST_DB}:5432/matric \
+            -e REDIS_URL=redis://${TEST_REDIS}:6379 \
+            -e RUST_LOG=info \
+            -e HOST=0.0.0.0 \
+            -e PORT=3000 \
+            matric-memory:test
+
+          # Wait for API to be healthy (use docker exec for DinD environment)
+          echo "Waiting for API to start..."
+          API_HEALTHY=false
+          for i in {1..60}; do
+            if docker exec ${TEST_API} curl -sf http://localhost:3000/health >/dev/null 2>&1; then
+              echo "API is healthy!"
+              API_HEALTHY=true
+              break
+            fi
+            echo "Waiting for API... ($i/60)"
+            sleep 2
+          done
+
+          # Show container status
+          docker ps --filter name=matric-test
+
+          # If API is not healthy, show logs and fail
+          if [ "$API_HEALTHY" != "true" ]; then
+            echo "======================================"
+            echo "ERROR: API failed to become healthy"
+            echo "======================================"
+            echo "API Container logs:"
+            docker logs ${TEST_API} 2>&1 | tail -100
+            echo "======================================"
+            echo "Database Container logs:"
+            docker logs ${TEST_DB} 2>&1 | tail -50
+            echo "======================================"
+            exit 1
+          fi
+
+      - name: Run container API tests
+        run: |
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          CURL_CMD="docker exec ${TEST_API} curl" \
+          API_BASE="http://localhost:3000" \
+          VERBOSE=1 \
+            bash scripts/container-api-tests.sh
+
+      - name: Teardown test environment
+        if: always()
+        run: |
+          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
+          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
+          TEST_REDIS="matric-test-redis-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          echo "Cleaning up test environment..."
+          docker stop ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
+          docker rm ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
+          docker network rm ${TEST_NET} 2>/dev/null || true
+
+  integration-test:
+    name: Integration Tests (GPU)
+    runs-on: titan
+    needs: build
+    timeout-minutes: 30
+    env:
+      OLLAMA_HOST: http://localhost:11434
+      INFERENCE_BACKEND: ollama
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Verify GPU Access
+        run: nvidia-smi
+
+      - name: Verify Ollama
+        run: |
+          curl -s http://localhost:11434/api/tags | jq '.models[].name'
+
+      - name: Run integration tests
+        run: |
+          source ~/.cargo/env
+          cargo test --package matric-inference --features integration
+
+  # Dev image - pushes on every main branch commit
+  publish-dev:
+    name: Publish Dev Image
+    runs-on: matric-builder
+    needs: [test-container, integration-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registry
+        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build and push dev images
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          # Build API-only image (for Kubernetes/external DB deployments)
+          docker build \
+            --build-arg VERSION=dev-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:dev .
+
+          docker tag ${IMAGE}:dev ${IMAGE}:sha-${SHORT_SHA}
+          docker tag ${IMAGE}:dev ${IMAGE}:main
+
+          push_with_retry ${IMAGE}:dev
+          push_with_retry ${IMAGE}:sha-${SHORT_SHA}
+          push_with_retry ${IMAGE}:main
+
+          # Build bundle image (all-in-one with embedded PostgreSQL)
+          docker build \
+            -f Dockerfile.bundle \
+            --build-arg VERSION=dev-${SHORT_SHA} \
+            -t ${IMAGE}:bundle .
+
+          docker tag ${IMAGE}:bundle ${IMAGE}:bundle-${SHORT_SHA}
+          docker tag ${IMAGE}:bundle ${IMAGE}:bundle-main
+
+          push_with_retry ${IMAGE}:bundle
+          push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
+          push_with_retry ${IMAGE}:bundle-main
+
+  # Release image - pushes on version tags only
+  publish-release:
+    name: Publish Release Image
+    runs-on: matric-builder
+    needs: [test-container, integration-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registry
+        run: echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build and push release images
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          echo "Building release images for version: ${VERSION}"
+
+          # Build API-only image (for Kubernetes/external DB deployments)
+          docker build \
+            --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:${VERSION} .
+
+          docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
+
+          push_with_retry ${IMAGE}:${VERSION}
+          push_with_retry ${IMAGE}:latest
+
+          # Build bundle image (all-in-one with embedded PostgreSQL)
+          docker build \
+            -f Dockerfile.bundle \
+            --build-arg VERSION=${VERSION} \
+            -t ${IMAGE}:bundle-${VERSION} .
+
+          docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
+
+          push_with_retry ${IMAGE}:bundle-${VERSION}
+          push_with_retry ${IMAGE}:bundle-latest
+
+          echo "Published release images:"
+          echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+
+  # Create Gitea release on tag push
+  create-release:
+    name: Create Gitea Release
+    runs-on: matric-builder
+    needs: publish-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Extract changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog for version ${VERSION}"
+
+          # Extract section from CHANGELOG.md
+          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md || true
+
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog found, using default message"
+            echo "Release ${GITHUB_REF_NAME}" > release_notes.md
+          fi
+
+          cat release_notes.md
+
+      - name: Create release
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          # Create release via Gitea API
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/releases" \
+            -d "{
+              \"tag_name\": \"${VERSION}\",
+              \"name\": \"${VERSION}\",
+              \"body\": $(cat release_notes.md | jq -Rs .),
+              \"draft\": false,
+              \"prerelease\": false
+            }" || echo "Release may already exist"
+
+  # =============================================================================
+  # GitHub Publishing (Public Release Target)
+  # =============================================================================
+  # Requires GITHUB_PAT secret with: write:packages, contents:write scopes
+
+  # Push release images to GitHub Container Registry
+  publish-github:
+    name: Publish to GitHub (ghcr.io)
+    runs-on: matric-builder
+    needs: [test-container, integration-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+
+      - name: Build and push to ghcr.io
+        run: |
+          IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Retry function for transient registry errors
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                echo "Successfully pushed ${image}"
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          echo "Building release images for GitHub: ${VERSION}"
+
+          # Build API-only image (for Kubernetes/external DB deployments)
+          docker build \
+            --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:${VERSION} .
+
+          docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
+
+          push_with_retry ${IMAGE}:${VERSION}
+          push_with_retry ${IMAGE}:latest
+
+          # Build bundle image (all-in-one with embedded PostgreSQL)
+          docker build \
+            -f Dockerfile.bundle \
+            --build-arg VERSION=${VERSION} \
+            -t ${IMAGE}:bundle-${VERSION} .
+
+          docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
+
+          push_with_retry ${IMAGE}:bundle-${VERSION}
+          push_with_retry ${IMAGE}:bundle-latest
+
+          echo "Published to GitHub Container Registry:"
+          echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+
+  # Create GitHub Release with changelog
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: matric-builder
+    needs: publish-github
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Extract changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog for version ${VERSION}"
+
+          # Extract section from CHANGELOG.md
+          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md || true
+
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog found, using default message"
+            cat > release_notes.md << 'RELEASE_NOTES'
+          Release ${GITHUB_REF_NAME}
+
+          ## Installation
+
+          ### Docker (Recommended)
+
+          ```bash
+          # API-only image (requires external PostgreSQL)
+          docker pull ghcr.io/fortemi/fortemi:${VERSION}
+
+          # Bundle image (all-in-one with embedded PostgreSQL)
+          docker pull ghcr.io/fortemi/fortemi:bundle-${VERSION}
+          ```
+
+          ### Quick Start
+
+          ```bash
+          docker run -d -p 3000:3000 ghcr.io/fortemi/fortemi:bundle-${VERSION}
+          curl http://localhost:3000/health
+          ```
+
+          See [documentation](https://github.com/Fortemi/fortemi) for full setup instructions.
+          RELEASE_NOTES
+            # Strip leading indentation from release notes
+            sed -i 's/^          //' release_notes.md
+            # Substitute version
+            sed -i "s/\${VERSION}/${VERSION}/g" release_notes.md
+            sed -i "s/\${GITHUB_REF_NAME}/${GITHUB_REF_NAME}/g" release_notes.md
+          fi
+
+          echo "=== Release Notes ==="
+          cat release_notes.md
+          echo "===================="
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          # Create release via GitHub API
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: token ${{ secrets.GH_PUBLISH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/Fortemi/fortemi/releases" \
+            -d "{
+              \"tag_name\": \"${VERSION}\",
+              \"name\": \"${VERSION}\",
+              \"body\": $(cat release_notes.md | jq -Rs .),
+              \"draft\": false,
+              \"prerelease\": false,
+              \"generate_release_notes\": false
+            }")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          if [ "$HTTP_CODE" = "201" ]; then
+            RELEASE_URL=$(echo "$BODY" | jq -r '.html_url')
+            echo "✓ GitHub Release created: ${RELEASE_URL}"
+          elif [ "$HTTP_CODE" = "422" ]; then
+            echo "⚠ Release ${VERSION} may already exist on GitHub"
+            echo "$BODY" | jq .
+          else
+            echo "✗ Failed to create GitHub release (HTTP ${HTTP_CODE})"
+            echo "$BODY" | jq .
+            exit 1
+          fi

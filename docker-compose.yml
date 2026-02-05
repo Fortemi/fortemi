@@ -1,0 +1,58 @@
+# docker-compose.yml - Development setup with separate containers
+#
+# For simple all-in-one deployment, use docker-compose.bundle.yml instead.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down -v  # wipe and reset
+
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - RUST_LOG=info
+      - HOST=0.0.0.0
+      - PORT=3000
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=matric
+      - POSTGRES_PASSWORD=matric
+      - POSTGRES_DB=matric
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./crates/matric-db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matric"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Job worker (optional, runs in separate container)
+  worker:
+    build: .
+    command: ["/app/matric-api", "--worker-only"]
+    environment:
+      - DATABASE_URL=postgres://matric:matric@db:5432/matric
+      - RUST_LOG=info
+      - WORKER_MODE=true
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - with-worker
+
+volumes:
+  pgdata:

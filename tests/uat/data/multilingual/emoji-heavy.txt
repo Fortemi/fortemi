@@ -1,0 +1,35 @@
+🎉 Welcome to Matric Memory! 🚀
+
+Full-text search supports emoji through trigram indexing. 🔍✨
+
+Common emoji usage:
+- 😀😁😂🤣 Happy faces
+- 🔥💯👍 Positive reactions
+- 🌟⭐✨ Stars and sparkles
+- 🎯🎨🎭 Activities
+- 🌍🌎🌏 World globes
+- 💻📱⌨️ Technology
+- 🍕🍔🍟 Food
+- 🚀🛸✈️ Transportation
+- ❤️💙💚 Hearts and colors
+- 🎵🎶🎸 Music
+- 🏃‍♂️🏊‍♀️⚽ Sports
+- 🌈☀️⛈️ Weather
+
+Emoji can be searched individually: 🎉 or combined: 🚀🌟
+
+PostgreSQL's pg_trgm extension enables substring matching for emoji characters, allowing users to search for "🎉" and find all documents containing that specific emoji. 🎊🎈
+
+Testing various emoji categories: 🐶🐱🐭🐹🐰🦊🐻🐼🐨🐯🦁🐮🐷🐸🐵
+
+Numbers and symbols work too: 0️⃣1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣8️⃣9️⃣🔟
+
+Special characters: ™️©️®️💯🔞⚠️🚫✅❌
+
+Emoji with skin tones: 👋👋🏻👋🏼👋🏽👋🏾👋🏿
+
+Combined emoji: 👨‍👩‍👧‍👦 👨‍💻 🧑‍🚀 👩‍🔬
+
+Flag emoji: 🇺🇸🇬🇧🇫🇷🇩🇪🇯🇵🇨🇳🇰🇷🇧🇷
+
+Emoji reactions for testing: 👍👎👌✌️🤞🤟🤘🤙👏🙌

@@ -1,0 +1,5 @@
+This is duplicate content for testing content-based deduplication.
+
+The hash of this content should match duplicate-content-2.txt exactly.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.

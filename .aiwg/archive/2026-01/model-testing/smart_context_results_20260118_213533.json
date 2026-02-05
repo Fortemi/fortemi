@@ -1,0 +1,840 @@
+[
+  {
+    "model": "qwen2.5-coder:1.5b",
+    "timestamp": "2026-01-18T21:10:02.553038",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "1.5B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 1.25,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 1.36,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 1.53,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 1.88,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 2.82,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 3.02,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 3.91,
+          "tok_per_sec": 262.0
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 471,
+          "time_s": 1.26,
+          "tok_per_sec": 373.1
+        }
+      ],
+      "max_output": 1024
+    }
+  },
+  {
+    "model": "qwen2.5-coder:14b",
+    "timestamp": "2026-01-18T21:10:19.703899",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "14.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 3.06,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 2.55,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 3.33,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 5.84,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 10.94,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 11.09,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1003,
+          "time_s": 12.97,
+          "tok_per_sec": 77.3
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 830,
+          "time_s": 9.38,
+          "tok_per_sec": 88.5
+        }
+      ],
+      "max_output": 1003
+    }
+  },
+  {
+    "model": "qwen2.5-coder:7b",
+    "timestamp": "2026-01-18T21:11:18.965508",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "7.6B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 2.25,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 1.91,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 2.27,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 3.32,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 5.93,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 6.05,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 842,
+          "time_s": 6.62,
+          "tok_per_sec": 127.2
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 12.8,
+          "tok_per_sec": 159.9
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 4096,
+          "time_s": 25.66,
+          "tok_per_sec": 159.6
+        },
+        {
+          "num_predict": 8192,
+          "actual_output": 2582,
+          "time_s": 16.07,
+          "tok_per_sec": 160.7
+        }
+      ],
+      "max_output": 4096
+    }
+  },
+  {
+    "model": "qwen2.5:14b",
+    "timestamp": "2026-01-18T21:12:41.980507",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "14.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 3.37,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 2.58,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 3.8,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 5.48,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 10.93,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 11.16,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 13.27,
+          "tok_per_sec": 77.1
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 23.35,
+          "tok_per_sec": 87.7
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1144,
+          "time_s": 12.95,
+          "tok_per_sec": 88.4
+        }
+      ],
+      "max_output": 2048
+    }
+  },
+  {
+    "model": "qwen2.5:32b",
+    "timestamp": "2026-01-18T21:14:09.009219",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "32.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 8.71,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 6.65,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 10.65,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 27.45,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 61.72,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 61.33,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 159.19,
+          "tok_per_sec": 6.4
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 321.29,
+          "tok_per_sec": 6.4
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 1378,
+          "time_s": 213.14,
+          "tok_per_sec": 6.5
+        }
+      ],
+      "max_output": 2048
+    }
+  },
+  {
+    "model": "qwen2.5:7b",
+    "timestamp": "2026-01-18T21:28:39.226605",
+    "info": {
+      "parameters": "",
+      "family": "qwen2",
+      "parameter_size": "7.6B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 2.75,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 2.07,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8226,
+        "truncated": false,
+        "time_s": 2.43,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16418,
+        "truncated": false,
+        "time_s": 3.47,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32768,
+        "truncated": false,
+        "time_s": 5.88,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 32768,
+        "truncated": true,
+        "time_s": 6.0,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 32768,
+    "hardware_limit": "not reached",
+    "recommended_input": 29491,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 7.86,
+          "tok_per_sec": 130.3
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1673,
+          "time_s": 10.35,
+          "tok_per_sec": 161.7
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 843,
+          "time_s": 5.27,
+          "tok_per_sec": 160.0
+        }
+      ],
+      "max_output": 1673
+    }
+  },
+  {
+    "model": "qwen3:8b",
+    "timestamp": "2026-01-18T21:29:25.392643",
+    "info": {
+      "parameters": "temperature                    0.6\ntop_k                          20\ntop_p                          0.95\nrepeat_penalty                 1\nstop                           \"<|im_start|>\"\nstop                           \"<|im_end|>\"",
+      "family": "qwen3",
+      "parameter_size": "8.2B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2063,
+        "truncated": false,
+        "time_s": 1.63,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4111,
+        "truncated": false,
+        "time_s": 1.79,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8207,
+        "truncated": false,
+        "time_s": 2.53,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16399,
+        "truncated": false,
+        "time_s": 3.63,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32783,
+        "truncated": false,
+        "time_s": 6.49,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 40960,
+        "truncated": true,
+        "time_s": 8.58,
+        "num_ctx": 131072
+      }
+    ],
+    "native_context": 40960,
+    "hardware_limit": "not reached",
+    "recommended_input": 36864,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 8.71,
+          "tok_per_sec": 117.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 2048,
+          "time_s": 14.19,
+          "tok_per_sec": 144.3
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 4096,
+          "time_s": 28.98,
+          "tok_per_sec": 141.3
+        },
+        {
+          "num_predict": 8192,
+          "actual_output": 4068,
+          "time_s": 28.78,
+          "tok_per_sec": 141.4
+        }
+      ],
+      "max_output": 4096
+    }
+  },
+  {
+    "model": "smollm2:1.7b",
+    "timestamp": "2026-01-18T21:31:10.807549",
+    "info": {
+      "parameters": "stop                           \"<|im_start|>\"\nstop                           \"<|im_end|>\"",
+      "family": "llama",
+      "parameter_size": "1.7B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2082,
+        "truncated": false,
+        "time_s": 1.35,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4130,
+        "truncated": false,
+        "time_s": 1.19,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8192,
+        "truncated": false,
+        "time_s": 1.29,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 8192,
+        "truncated": true,
+        "time_s": 1.29,
+        "num_ctx": 32768
+      }
+    ],
+    "native_context": 8192,
+    "hardware_limit": "not reached",
+    "recommended_input": 7372,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 1024,
+          "time_s": 4.01,
+          "tok_per_sec": 255.5
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 1219,
+          "time_s": 3.66,
+          "tok_per_sec": 333.4
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 981,
+          "time_s": 2.92,
+          "tok_per_sec": 336.5
+        }
+      ],
+      "max_output": 1219
+    }
+  },
+  {
+    "model": "starcoder2:7b",
+    "timestamp": "2026-01-18T21:31:26.602422",
+    "info": {
+      "parameters": "stop                           \"<file_sep>\"\nstop                           \"<|end_of_text|>\"",
+      "family": "starcoder2",
+      "parameter_size": "7B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2062,
+        "truncated": false,
+        "time_s": 2.76,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4110,
+        "truncated": false,
+        "time_s": 1.65,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8206,
+        "truncated": false,
+        "time_s": 2.12,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16384,
+        "truncated": false,
+        "time_s": 3.18,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 16384,
+        "truncated": true,
+        "time_s": 3.35,
+        "num_ctx": 65536
+      }
+    ],
+    "native_context": 16384,
+    "hardware_limit": "not reached",
+    "recommended_input": 14745,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 12,
+          "time_s": 1.29,
+          "tok_per_sec": 9.3
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 71,
+          "time_s": 0.43,
+          "tok_per_sec": 167.0
+        },
+        {
+          "num_predict": 4096,
+          "actual_output": 32,
+          "time_s": 0.21,
+          "tok_per_sec": 149.6
+        }
+      ],
+      "max_output": 71
+    }
+  },
+  {
+    "model": "yi-coder:9b",
+    "timestamp": "2026-01-18T21:31:41.624317",
+    "info": {
+      "parameters": "stop                           \"<|endoftext|>\"\nstop                           \"<|im_end|>\"\nstop                           \"<fim_prefix>\"\nstop                           \"<fim_suffix>\"\nstop                           \"<fim_middle>\"",
+      "family": "llama",
+      "parameter_size": "8.8B",
+      "context_length": null
+    },
+    "tests": [
+      {
+        "success": true,
+        "input_approx": 2560,
+        "tokens_processed": 2072,
+        "truncated": false,
+        "time_s": 2.3,
+        "num_ctx": 4096
+      },
+      {
+        "success": true,
+        "input_approx": 5120,
+        "tokens_processed": 4120,
+        "truncated": false,
+        "time_s": 1.86,
+        "num_ctx": 8192
+      },
+      {
+        "success": true,
+        "input_approx": 10240,
+        "tokens_processed": 8216,
+        "truncated": false,
+        "time_s": 2.32,
+        "num_ctx": 16384
+      },
+      {
+        "success": true,
+        "input_approx": 20480,
+        "tokens_processed": 16408,
+        "truncated": false,
+        "time_s": 3.61,
+        "num_ctx": 32768
+      },
+      {
+        "success": true,
+        "input_approx": 40960,
+        "tokens_processed": 32792,
+        "truncated": false,
+        "time_s": 7.59,
+        "num_ctx": 65536
+      },
+      {
+        "success": true,
+        "input_approx": 81920,
+        "tokens_processed": 65560,
+        "truncated": false,
+        "time_s": 66.09,
+        "num_ctx": 131072
+      },
+      {
+        "success": true,
+        "input_approx": 122880,
+        "tokens_processed": 98328,
+        "truncated": false,
+        "time_s": 120.89,
+        "num_ctx": 196608
+      }
+    ],
+    "native_context": 98328,
+    "hardware_limit": "not reached",
+    "recommended_input": 88495,
+    "output": {
+      "tests": [
+        {
+          "num_predict": 1024,
+          "actual_output": 492,
+          "time_s": 17.19,
+          "tok_per_sec": 28.6
+        },
+        {
+          "num_predict": 2048,
+          "actual_output": 459,
+          "time_s": 10.17,
+          "tok_per_sec": 45.1
+        }
+      ],
+      "max_output": 492
+    }
+  }
+]

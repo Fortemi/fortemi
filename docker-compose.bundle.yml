@@ -1,0 +1,106 @@
+# docker-compose.bundle.yml - All-in-one Fortémi deployment
+#
+# Usage (production - pull from registry):
+#   docker compose -f docker-compose.bundle.yml pull
+#   docker compose -f docker-compose.bundle.yml up -d --no-build
+#
+# Usage (development - build locally):
+#   docker compose -f docker-compose.bundle.yml up -d --build
+#
+# For clean install (wipe database):
+#   docker compose -f docker-compose.bundle.yml down -v
+#   docker compose -f docker-compose.bundle.yml up -d
+
+services:
+  # Redis cache for search query results
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - matric-redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  matric:
+    image: ghcr.io/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.bundle
+      args:
+        VERSION: ${VERSION:-dev}
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # PostgreSQL
+      - POSTGRES_USER=matric
+      - POSTGRES_PASSWORD=matric
+      - POSTGRES_DB=matric
+
+      # Redis Cache - enabled by default, set to false to disable
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_CACHE_TTL=${REDIS_CACHE_TTL:-300}
+
+      # API settings
+      - RUST_LOG=info
+      - RATE_LIMIT_ENABLED=false
+
+      # Full-text search: multilingual, emoji, and CJK support
+      - FTS_SCRIPT_DETECTION=true
+      - FTS_TRIGRAM_FALLBACK=true
+      - FTS_BIGRAM_CJK=true
+      - FTS_MULTILINGUAL_CONFIGS=true
+      # - LOG_FORMAT=json
+      # - WORKER_ENABLED=true
+
+      # OAuth - Set ISSUER_URL to your external URL for OAuth/MCP authentication
+      - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
+
+      # MCP Server - MCP_BASE_URL must match the external MCP endpoint URL
+      - MCP_BASE_URL=${MCP_BASE_URL:-${ISSUER_URL:-https://localhost:3000}/mcp}
+      # MCP OAuth client credentials (register via POST /oauth/register)
+      - MCP_CLIENT_ID=${MCP_CLIENT_ID}
+      - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}
+
+      # Ollama (local LLM) - configure for AI features
+      - OLLAMA_BASE=http://host.docker.internal:11434
+      - OLLAMA_EMBED_MODEL=nomic-embed-text
+      - OLLAMA_GEN_MODEL=gpt-oss:20b
+
+      # OpenAI (alternative to Ollama)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_EMBED_MODEL=text-embedding-3-small
+      # - OPENAI_GEN_MODEL=gpt-4o-mini
+    volumes:
+      # PostgreSQL data persistence
+      - matric-pgdata:/var/lib/postgresql/data
+      # Optional: backup directory
+      - matric-backups:/var/backups/matric-memory
+    restart: unless-stopped
+    extra_hosts:
+      # Required on Linux for host.docker.internal to resolve to host
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  matric-pgdata:
+    driver: local
+  matric-backups:
+    driver: local
+  matric-redis:
+    driver: local

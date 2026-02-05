@@ -1,0 +1,701 @@
+# Usage Patterns and Workflows
+
+This guide explores the powerful combinations of Fortémi's search tools, embedding sets, backup capabilities, and memory isolation features that enable sophisticated knowledge management workflows.
+
+## Prerequisites
+
+Before diving into these patterns, ensure you have:
+
+- A running Fortémi instance ([Getting Started](./getting-started.md))
+- Basic familiarity with notes, tags, and search ([Getting Started](./getting-started.md#step-2-create-your-first-notes))
+- MCP server connected if using Claude/AI tools ([MCP Guide](./mcp.md))
+
+These patterns progress from simple to advanced. Start with Pattern 0 if you're new to Fortémi.
+
+## Core Concepts
+
+### The Memory Model
+
+Fortémi isn't just a note-taking system—it's a **contextual memory system** that:
+
+1. **Stores knowledge** with full semantic understanding
+2. **Connects related concepts** automatically via semantic links
+3. **Enables focused contexts** through embedding sets
+4. **Supports complete memory swaps** via backup/restore
+5. **Provides multiple search modalities** (FTS, semantic, hybrid)
+
+This combination enables workflows impossible with traditional tools.
+
+---
+
+## Pattern 0: Basic Note Organization
+
+**Use Case:** Daily notes with tags and search. The simplest useful workflow.
+
+### The Approach
+
+No embedding sets, no knowledge graph, no fancy features. Just notes, tags, and full-text search.
+
+### Workflow
+
+```javascript
+// Capture daily notes with consistent tags
+await create_note({
+  content: `# 2024-01-15 Standup
+
+- Finished API pagination implementation
+- Blocked on OAuth token refresh bug
+- Plan to start search optimization tomorrow
+  `,
+  tags: ["standup", "daily", "2024-01"]
+})
+
+// Search by keyword
+await search_notes({
+  query: "OAuth token",
+  mode: "fts"
+})
+
+// Filter by tag to see all standups
+await search_notes({
+  query: "blocked",
+  mode: "fts",
+  tags: ["standup"]
+})
+```
+
+### When to Upgrade
+
+Move to Pattern 0.5 when:
+- You have 50+ notes and want to discover unexpected connections
+- FTS isn't finding conceptually related content
+- You want the system to suggest related notes automatically
+
+---
+
+## Pattern 0.5: Content Discovery
+
+**Use Case:** Let the system discover connections you didn't know existed.
+
+### The Problem
+
+You have 100+ notes. FTS finds what you ask for, but you're missing connections between ideas across different topics.
+
+### The Solution: Semantic Search + Auto-Links
+
+Once Ollama is running and embeddings are generated, two features unlock automatically:
+
+1. **Semantic search** finds conceptually related content even with different words
+2. **Auto-linking** connects notes above 70% similarity threshold
+
+```javascript
+// Semantic search finds related content by meaning
+await search_notes({
+  query: "improving team productivity",
+  mode: "semantic"
+})
+// Finds notes about "sprint velocity", "meeting efficiency",
+// "developer experience" even without those exact words
+
+// Explore auto-discovered connections
+const links = await get_note_links({ id: noteId })
+// Returns notes semantically linked to yours
+
+// Traverse the knowledge graph
+const graph = await explore_graph({
+  id: noteId,
+  depth: 2,
+  max_nodes: 20
+})
+// Visual map of how ideas connect
+```
+
+### Discovery Workflow
+
+1. **Write notes naturally** - Don't worry about perfect organization
+2. **Search semantically** when exploring - Use `mode: "semantic"` or `mode: "hybrid"`
+3. **Follow auto-links** - Check `get_note_links` for surprising connections
+4. **Explore the graph** - Use `explore_graph` to see clusters of related ideas
+5. **Add tags as patterns emerge** - Let understanding guide organization, not the other way around
+
+### When to Upgrade
+
+Move to Pattern 1 when:
+- You work on multiple distinct projects and need isolated search contexts
+- Search results mix content from different domains
+- You want focused embedding sets per project or topic
+
+---
+
+## Pattern 1: Domain-Isolated Memory Contexts
+
+**Use Case:** Work on multiple distinct projects without cross-contamination of search results.
+
+### The Problem
+
+When you have notes about "React components" for both a work project and a personal learning project, searches return mixed results. You want focused context.
+
+### The Solution: Embedding Sets
+
+Create separate embedding sets for each domain:
+
+```javascript
+// Create work context
+await create_embedding_set({
+  name: "Work: Project Alpha",
+  slug: "work-alpha",
+  purpose: "Project Alpha development notes",
+  keywords: ["react", "typescript", "api"],
+  mode: "auto",
+  criteria: { tags: ["work", "alpha"] }
+})
+
+// Create personal learning context
+await create_embedding_set({
+  name: "Personal: React Learning",
+  slug: "personal-react",
+  purpose: "React tutorials and experiments",
+  keywords: ["react", "learning"],
+  criteria: { tags: ["personal", "learning"] }
+})
+
+// Search within specific context
+await search_notes({
+  query: "component lifecycle",
+  mode: "semantic",
+  set: "work-alpha"  // Only searches work notes
+})
+```
+
+### Workflow
+
+1. **Tag notes consistently** when creating: `create_note({ content, tags: ["work", "alpha"] })`
+2. **Refresh embedding sets** periodically: `refresh_embedding_set({ slug: "work-alpha" })`
+3. **Search within context**: Always specify `set` parameter for focused results
+
+---
+
+## Pattern 2: Memory Snapshots for Context Switching
+
+**Use Case:** Completely switch between different "minds" or knowledge bases.
+
+### The Problem
+
+You're an AI consultant working with multiple clients. Each client has confidential information that shouldn't mix. You need to completely swap memory contexts.
+
+### The Solution: Knowledge Shards
+
+```javascript
+// Save current memory state
+const clientA_backup = await knowledge_shard({
+  include: ["notes", "embeddings", "links", "concepts"]
+})
+// Store base64_data to file
+
+// Clear current memory (dangerous!)
+await purge_all_notes({ confirm: true })
+
+// Load different client's memory
+await knowledge_shard_import({
+  shard_base64: clientB_backup_data,
+  on_conflict: "replace"
+})
+
+// Now working with completely different knowledge base
+await search_notes({ query: "contract terms", mode: "hybrid" })
+```
+
+### Workflow: "Memory Profiles"
+
+1. **Create profile backups** for each context (client, project, persona)
+2. **Use naming convention**: `client-acme-2024-01-15.tar.gz`
+3. **Swap profiles** when switching contexts
+4. **Keep master backup** before any swap operation
+
+### Advanced: Incremental Context
+
+Instead of full swaps, use embedding sets as "overlays":
+
+```javascript
+// Keep base knowledge, add client-specific layer
+await create_embedding_set({
+  name: "Client Overlay: ACME",
+  slug: "client-acme",
+  purpose: "ACME-specific knowledge",
+  criteria: { tags: ["acme", "confidential"] }
+})
+
+// Search with client context prioritized
+await search_notes({
+  query: "api integration",
+  set: "client-acme"
+})
+
+// Or search general knowledge
+await search_notes({
+  query: "api integration",
+  mode: "hybrid"
+  // No set = searches everything
+})
+```
+
+---
+
+## Pattern 3: Research Mode vs. Production Mode
+
+**Use Case:** Separate exploratory research from validated knowledge.
+
+### The Problem
+
+During research, you capture lots of speculative notes. You don't want these polluting searches when you need authoritative information.
+
+### The Solution: Status-Based Sets + SKOS
+
+```javascript
+// Create research set (exploratory, unvalidated)
+await create_embedding_set({
+  name: "Research Queue",
+  slug: "research",
+  purpose: "Exploratory notes pending validation",
+  criteria: { tags: ["research", "unvalidated"] }
+})
+
+// Create production set (validated knowledge)
+await create_embedding_set({
+  name: "Validated Knowledge",
+  slug: "production",
+  purpose: "Reviewed and validated information",
+  criteria: { tags: ["validated"] }
+})
+
+// Research workflow
+await create_note({
+  content: "Hypothesis: X causes Y because...",
+  tags: ["research", "unvalidated"],
+  revision_mode: "light"  // Don't expand speculative content
+})
+
+// After validation, promote to production
+await update_note({
+  id: noteId,
+  content: updatedContent
+})
+await set_note_tags({
+  id: noteId,
+  tags: ["validated", "causation"]
+})
+```
+
+### SKOS Integration
+
+Use concept status for knowledge lifecycle:
+
+```javascript
+// Create candidate concept during research
+await create_concept({
+  pref_label: "X-Y Causation Hypothesis",
+  status: "candidate",  // Not yet validated
+  scope_note: "Requires experimental verification"
+})
+
+// After validation, promote to controlled
+await update_concept({
+  id: conceptId,
+  status: "controlled"
+})
+```
+
+---
+
+## Pattern 4: The Dual-Track Mind
+
+**Use Case:** Maintain both raw observations and synthesized insights.
+
+### The Problem
+
+You want to capture raw observations (meetings, conversations, readings) while also building synthesized insights. These serve different purposes.
+
+### The Solution: Revision Mode Strategy
+
+```javascript
+// Raw observation (preserve exactly)
+await create_note({
+  content: `
+Meeting with Team Alpha 2024-01-15
+- John mentioned budget concerns
+- Sarah proposed timeline extension
+- Decision: Revisit in Q2
+  `,
+  tags: ["meeting", "raw"],
+  revision_mode: "none"  // Preserve exactly
+})
+
+// Synthesized insight (enhance with context)
+await create_note({
+  content: `
+Budget Management Patterns at Acme Corp
+
+Based on recent discussions, there's a pattern emerging
+around Q4 budget pressures and their impact on project timelines...
+  `,
+  tags: ["insight", "synthesis"],
+  revision_mode: "full"  // Enrich with connections
+})
+```
+
+### Search Strategy
+
+```javascript
+// Find raw data for accuracy
+await search_notes({
+  query: "budget meeting john",
+  mode: "fts",  // Exact keyword match
+  // Filter to raw notes via tags
+})
+
+// Find insights for understanding
+await search_notes({
+  query: "budget management patterns",
+  mode: "semantic",  // Conceptual match
+  set: "insights"  // Pre-filtered to insights
+})
+```
+
+---
+
+## Pattern 5: The Versioned Notebook
+
+**Use Case:** Track evolution of ideas over time.
+
+### The Problem
+
+Your understanding of a topic evolves. You want to see how your thinking changed while maintaining a current "best understanding."
+
+### The Solution: Version History + Periodic Snapshots
+
+```javascript
+// Initial understanding
+await create_note({
+  content: "Machine learning is about pattern recognition...",
+  tags: ["ml", "understanding"]
+})
+
+// Update as understanding deepens (versions auto-created)
+await update_note({
+  id: noteId,
+  content: "Machine learning encompasses both supervised and unsupervised..."
+})
+
+// Later: Review evolution
+const versions = await list_note_versions({ note_id: noteId })
+
+// Compare specific versions
+const diff = await diff_note_versions({
+  note_id: noteId,
+  from_version: 1,
+  to_version: versions.length
+})
+
+// Restore previous understanding if needed
+await restore_note_version({
+  note_id: noteId,
+  version: 2
+})
+```
+
+### Milestone Snapshots
+
+For major learning milestones, create labeled backups:
+
+```javascript
+await database_snapshot({
+  name: `ml-understanding-${new Date().toISOString().slice(0,10)}`,
+  title: "ML Understanding Checkpoint",
+  description: "After completing Stanford ML course"
+})
+```
+
+---
+
+## Pattern 6: The Personal Knowledge Graph
+
+**Use Case:** Build a structured ontology of your knowledge domain.
+
+### The Solution: SKOS Hierarchy + Semantic Links
+
+```javascript
+// Build concept hierarchy
+const programming = await create_concept({
+  pref_label: "Programming",
+  definition: "The practice of writing software"
+})
+
+const rust = await create_concept({
+  pref_label: "Rust",
+  definition: "Systems programming language",
+  broader_ids: [programming.id]
+})
+
+const ownership = await create_concept({
+  pref_label: "Ownership Model",
+  definition: "Rust's memory management system",
+  broader_ids: [rust.id]
+})
+
+// Tag notes with concepts
+await tag_note_concept({
+  note_id: rustNoteId,
+  concept_id: rust.id,
+  is_primary: true
+})
+
+// Explore knowledge graph
+const graph = await explore_graph({
+  id: rustNoteId,
+  depth: 2,
+  max_nodes: 50
+})
+// Returns connected notes and their relationships
+```
+
+### Discovery Workflow
+
+```javascript
+// Find notes about a concept
+const rustNotes = await get_note_concepts({ note_id: rustNoteId })
+
+// Find related concepts
+const narrower = await get_narrower({ id: programming.id })
+const related = await get_related({ id: rust.id })
+
+// Navigate by backlinks
+const links = await get_note_links({ id: noteId })
+for (const link of links.incoming) {
+  // These notes reference my note
+  const referrer = await get_note({ id: link.from_note_id })
+}
+```
+
+---
+
+## Pattern 7: The AI Agent Memory
+
+**Use Case:** Provide an AI assistant with structured long-term memory.
+
+### The Setup
+
+Configure the AI to use Fortémi as its knowledge store:
+
+```javascript
+// Agent workflow for processing user input
+async function handleUserQuery(query) {
+  // 1. Search existing knowledge
+  const relevant = await search_notes({
+    query: query,
+    mode: "semantic",
+    limit: 5
+  })
+
+  // 2. Get detailed context for top results
+  const context = []
+  for (const result of relevant.results.slice(0, 3)) {
+    const note = await get_note({ id: result.note_id })
+    const links = await get_note_links({ id: result.note_id })
+    context.push({ note, links })
+  }
+
+  // 3. Generate response using context
+  const response = await generateResponse(query, context)
+
+  // 4. Optionally store new insights
+  if (shouldRemember(response)) {
+    await create_note({
+      content: response.insight,
+      tags: ["agent-generated", "insight"],
+      revision_mode: "light"
+    })
+  }
+
+  return response
+}
+```
+
+### Agent-Specific Patterns
+
+**Learning from interactions:**
+```javascript
+// Store interaction summaries
+await create_note({
+  content: `
+User asked about: ${topic}
+Key points discussed: ${summary}
+User feedback: ${feedback}
+  `,
+  tags: ["interaction", "feedback"],
+  revision_mode: "none"  // Preserve exact feedback
+})
+```
+
+**Maintaining task context:**
+```javascript
+// Create task-specific embedding set
+await create_embedding_set({
+  name: `Task: ${taskId}`,
+  slug: `task-${taskId}`,
+  purpose: "Notes related to specific task",
+  criteria: { tags: [`task-${taskId}`] }
+})
+
+// All task-related notes go to this set
+await create_note({
+  content: taskUpdate,
+  tags: [`task-${taskId}`]
+})
+
+// Search only task-relevant knowledge
+await search_notes({
+  query: "implementation approach",
+  set: `task-${taskId}`
+})
+```
+
+---
+
+## Pattern 8: Collaborative Knowledge
+
+**Use Case:** Share curated knowledge between users or systems.
+
+### The Solution: Export/Import with Curation
+
+```javascript
+// Curator: Export curated collection
+const curatedSet = await knowledge_shard({
+  include: ["notes", "embeddings", "links"]
+  // Note: Could filter to specific tags/collections
+})
+
+// Recipient: Import into their system
+await knowledge_shard_import({
+  shard_base64: curatedSet.base64_data,
+  on_conflict: "skip",  // Don't overwrite their notes
+  dry_run: true  // Preview first
+})
+
+// Check what would be imported
+// Then do actual import
+await knowledge_shard_import({
+  shard_base64: curatedSet.base64_data,
+  on_conflict: "skip",
+  dry_run: false
+})
+```
+
+### Template-Based Collaboration
+
+Share reusable templates:
+
+```javascript
+// Create standard template
+await create_template({
+  name: "Weekly Standup",
+  content: `
+# Weekly Standup - {{date}}
+
+## Accomplishments
+{{accomplishments}}
+
+## Blockers
+{{blockers}}
+
+## Next Week
+{{plans}}
+  `,
+  default_tags: ["standup", "weekly"]
+})
+
+// Team members use same template
+await instantiate_template({
+  id: templateId,
+  variables: {
+    date: "2024-01-15",
+    accomplishments: "Completed feature X",
+    blockers: "Waiting on API docs",
+    plans: "Start integration testing"
+  }
+})
+```
+
+---
+
+## Design Principles
+
+### 1. Tag Everything Consistently
+
+Tags are the primary mechanism for organizing and filtering. Establish conventions:
+
+- **Domain tags**: `work`, `personal`, `research`
+- **Status tags**: `draft`, `validated`, `archived`
+- **Type tags**: `meeting`, `insight`, `reference`
+- **Project tags**: `project-alpha`, `client-acme`
+
+### 2. Use Appropriate Revision Modes
+
+| Content Type | Revision Mode | Reason |
+|--------------|---------------|--------|
+| Raw observations | `none` | Preserve exact content |
+| Personal notes | `light` | Format without expansion |
+| Technical concepts | `full` | Benefit from connections |
+| Quotes/citations | `none` | Must stay verbatim |
+
+### 3. Leverage Embedding Sets
+
+Think of embedding sets as "views" into your knowledge:
+
+- Create sets for major work contexts
+- Use sets to reduce search noise
+- Refresh sets after bulk imports
+- Delete obsolete sets when projects end
+
+### 4. Backup Before Major Changes
+
+Always snapshot before:
+
+- Bulk imports
+- Memory swaps
+- Major reorganizations
+- Experimental operations
+
+### 5. Use Semantic Search for Discovery
+
+- **FTS**: When you know exact keywords
+- **Semantic**: When exploring concepts
+- **Hybrid**: Best general-purpose
+
+---
+
+## Quick Reference
+
+| Need | Tool | Mode |
+|------|------|------|
+| Find exact phrase | `search_notes` | `fts` |
+| Find related concepts | `search_notes` | `semantic` |
+| Best overall search | `search_notes` | `hybrid` |
+| Focus search on domain | `search_notes` | `set: "slug"` |
+| Save entire memory | `knowledge_shard` | - |
+| Swap memory context | `knowledge_shard_import` | - |
+| Track idea evolution | `list_note_versions` | - |
+| Build ontology | SKOS concept tools | - |
+| Explore connections | `explore_graph` | - |
+| Find what references me | `get_note_links` | `incoming` |
+
+---
+
+## Related Documentation
+
+- [Getting Started](./getting-started.md) - First-time setup and basics
+- [MCP Tools Reference](./mcp.md) - Complete tool documentation
+- [SKOS Tagging](./tags.md) - Hierarchical tagging system
+- [Search Guide](./search-guide.md) - Search modes and query optimization
+- [Best Practices](./best-practices.md) - Research-backed usage guidance
+- [Chunking Strategies](./chunking.md) - How content is split for embeddings
+- [Backup Guide](./backup.md) - Backup and restore procedures

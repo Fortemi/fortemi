@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fortemi": {
+      "command": "node",
+      "args": ["./mcp-server/index.js"],
+      "env": {
+        "FORTEMI_URL": "https://fortemi.com",
+        "FORTEMI_API_KEY": ""
+      }
+    }
+  }
+}
