@@ -1,21 +1,27 @@
 {
   "active": false,
-  "task": "Fix CI/CD errors for fortemi repository",
-  "completion": "issue resolved: CI/CD errors fixed, tests pass, issues created/commented, all thread feedback addressed",
+  "task": "Review and complete all open Gitea issues using AIWG parallel expert agents",
+  "completion": "all open issues resolved: tests pass / PRs merged or ready / docs updated / all thread feedback addressed",
   "maxIterations": 10,
-  "currentIteration": 4,
-  "startTime": "2026-02-03T17:10:00Z",
-  "completedTime": "2026-02-03T17:20:00Z",
+  "currentIteration": 2,
+  "startTime": "2026-02-05T06:25:00Z",
+  "completedTime": "2026-02-05T06:32:00Z",
   "timeoutMinutes": 120,
   "status": "SUCCESS",
   "summary": {
-    "rootCause": "cargo_metadata_test used hardcoded path /home/roctinam/dev/fortemi and bare 'cargo' command that failed in CI",
-    "fix": "Use CARGO_MANIFEST_DIR for path discovery and CARGO env var for binary path",
-    "commit": "29a1b22",
-    "issue": "#11 (closed)",
-    "ciRuns": {
-      "29": "ci-builder.yaml - Build & Unit Test: SUCCESS",
-      "30": "test.yml - Integration Tests: SUCCESS"
+    "issuesProcessed": 5,
+    "issuesClosed": 4,
+    "issuesPending": 1,
+    "commit": "40d0ab5",
+    "filesChanged": 9,
+    "linesAdded": 809,
+    "linesRemoved": 114,
+    "issues": {
+      "28": "CLOSED - Added detail parameter to list_document_types (96% token reduction)",
+      "29": "CLOSED - Added limit=0 validation in list_notes API",
+      "30": "CLOSED - Enabled FTS flags for CJK single-char search",
+      "31": "CLOSED - Enabled FTS flags for emoji search",
+      "32": "OPEN - OAuth introspect confirmed working, awaiting user verification"
     }
   }
 }
