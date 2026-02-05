@@ -83,8 +83,8 @@ function createMcpServer() {
       switch (name) {
         case "list_notes": {
           const params = new URLSearchParams();
-          if (args.limit) params.set("limit", args.limit);
-          if (args.offset) params.set("offset", args.offset);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
+          if (args.offset !== undefined && args.offset !== null) params.set("offset", args.offset);
           if (args.filter) params.set("filter", args.filter);
           if (args.tags) params.set("tags", Array.isArray(args.tags) ? args.tags.join(",") : args.tags);
           if (args.collection_id) params.set("collection_id", args.collection_id);
@@ -139,7 +139,7 @@ function createMcpServer() {
 
         case "search_notes": {
           const params = new URLSearchParams({ q: args.query });
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           if (args.mode) params.set("mode", args.mode);
           if (args.set) params.set("set", args.set);
           if (args.collection_id) params.set("collection_id", args.collection_id);
@@ -222,7 +222,7 @@ function createMcpServer() {
 
         case "get_collection_notes": {
           const noteParams = new URLSearchParams();
-          if (args.limit) noteParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) noteParams.set("limit", args.limit);
           if (args.offset) noteParams.set("offset", args.offset);
           result = await apiRequest("GET", `/api/v1/collections/${args.id}/notes?${noteParams}`);
           break;
@@ -301,7 +301,7 @@ function createMcpServer() {
           if (args.status) jobParams.set("status", args.status);
           if (args.job_type) jobParams.set("job_type", args.job_type);
           if (args.note_id) jobParams.set("note_id", args.note_id);
-          if (args.limit) jobParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) jobParams.set("limit", args.limit);
           if (args.offset) jobParams.set("offset", args.offset);
           result = await apiRequest("GET", `/api/v1/jobs?${jobParams}`);
           break;
@@ -366,7 +366,7 @@ function createMcpServer() {
 
         case "list_set_members": {
           const memberParams = new URLSearchParams();
-          if (args.limit) memberParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) memberParams.set("limit", args.limit);
           if (args.offset) memberParams.set("offset", args.offset);
           result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}/members?${memberParams}`);
           break;
@@ -712,7 +712,7 @@ function createMcpServer() {
           if (args.scheme_id) conceptParams.set("scheme_id", args.scheme_id);
           if (args.status) conceptParams.set("status", args.status);
           if (args.top_only) conceptParams.set("top_only", "true");
-          if (args.limit) conceptParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) conceptParams.set("limit", args.limit);
           if (args.offset) conceptParams.set("offset", args.offset);
           result = await apiRequest("GET", `/api/v1/concepts?${conceptParams}`);
           break;
@@ -759,7 +759,7 @@ function createMcpServer() {
         case "autocomplete_concepts": {
           const acParams = new URLSearchParams();
           acParams.set("q", args.q);
-          if (args.limit) acParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) acParams.set("limit", args.limit);
           result = await apiRequest("GET", `/api/v1/concepts/autocomplete?${acParams}`);
           break;
         }
@@ -888,7 +888,7 @@ function createMcpServer() {
 
         case "search_with_dedup": {
           const dedupParams = new URLSearchParams({ q: args.query });
-          if (args.limit) dedupParams.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) dedupParams.set("limit", args.limit);
           if (args.mode) dedupParams.set("mode", args.mode);
           if (args.set) dedupParams.set("set", args.set);
           // Deduplication is enabled by default in the API
@@ -1400,7 +1400,7 @@ function createMcpServer() {
         case "list_skos_collections": {
           const params = new URLSearchParams();
           if (args.scheme_id) params.set("scheme_id", args.scheme_id);
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           if (args.offset) params.set("offset", args.offset);
           result = await apiRequest("GET", `/api/v1/skos/collections?${params}`);
           break;
@@ -1479,14 +1479,14 @@ function createMcpServer() {
         case "get_stale_notes": {
           const params = new URLSearchParams();
           if (args.days) params.set("days", args.days);
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           result = await apiRequest("GET", `/api/v1/health/stale-notes?${params}`);
           break;
         }
 
         case "get_unlinked_notes": {
           const params = new URLSearchParams();
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           result = await apiRequest("GET", `/api/v1/health/unlinked-notes?${params}`);
           break;
         }
@@ -1494,7 +1494,7 @@ function createMcpServer() {
         case "get_tag_cooccurrence": {
           const params = new URLSearchParams();
           if (args.min_count) params.set("min_count", args.min_count);
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           result = await apiRequest("GET", `/api/v1/health/tag-cooccurrence?${params}`);
           break;
         }
@@ -1545,7 +1545,7 @@ function createMcpServer() {
 
         case "get_notes_activity": {
           const params = new URLSearchParams();
-          if (args.limit) params.set("limit", args.limit);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           if (args.offset) params.set("offset", args.offset);
           if (args.event_types) params.set("event_types", args.event_types.join(","));
           result = await apiRequest("GET", `/api/v1/notes/activity?${params}`);
