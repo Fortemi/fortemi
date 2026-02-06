@@ -3540,3 +3540,50 @@ pub struct MemoryProvenance {
     pub note_id: Uuid,
     pub files: Vec<FileProvenanceRecord>,
 }
+
+// =============================================================================
+// WEBHOOK TYPES (Issue #44)
+// =============================================================================
+
+/// Webhook configuration for outbound HTTP notifications.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    pub id: Uuid,
+    pub url: String,
+    #[serde(skip_serializing)]
+    pub secret: Option<String>,
+    pub events: Vec<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_triggered_at: Option<DateTime<Utc>>,
+    pub failure_count: i32,
+    pub max_retries: i32,
+}
+
+/// A record of a webhook delivery attempt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDelivery {
+    pub id: Uuid,
+    pub webhook_id: Uuid,
+    pub event_type: String,
+    pub payload: JsonValue,
+    pub status_code: Option<i32>,
+    pub response_body: Option<String>,
+    pub delivered_at: DateTime<Utc>,
+    pub success: bool,
+}
+
+/// Request to create a new webhook.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateWebhookRequest {
+    pub url: String,
+    pub secret: Option<String>,
+    pub events: Vec<String>,
+    #[serde(default = "default_max_retries")]
+    pub max_retries: i32,
+}
+
+fn default_max_retries() -> i32 {
+    3
+}

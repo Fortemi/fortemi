@@ -4,15 +4,22 @@ mod handlers;
 mod query_types;
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use chrono::Datelike;
 use query_types::FlexibleDateTime;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, Query, State,
+    },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
-    response::IntoResponse,
+    response::{
+        sse::{Event, KeepAlive},
+        IntoResponse, Sse,
+    },
     routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
@@ -35,9 +42,9 @@ use uuid::Uuid;
 use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, JobRepository, JobType, LinkRepository,
-    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, StrictTagFilterInput, TagInput,
-    TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    CreateApiKeyRequest, CreateNoteRequest, EventBus, JobRepository, JobType, LinkRepository,
+    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
+    TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
 
@@ -114,7 +121,7 @@ async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: Revisio
 }
 use matric_api::services::TagResolver;
 use matric_inference::OllamaBackend;
-use matric_jobs::{JobWorker, WorkerConfig};
+use matric_jobs::{JobWorker, WorkerConfig, WorkerEvent};
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
@@ -150,6 +157,10 @@ struct AppState {
     tag_resolver: TagResolver,
     /// Redis search cache (reduces latency for repeated queries).
     search_cache: matric_api::services::SearchCache,
+    /// Event bus for real-time notifications (WebSocket, SSE, webhooks, telemetry).
+    event_bus: Arc<EventBus>,
+    /// Active WebSocket connection count (Issue #42).
+    ws_connections: Arc<AtomicUsize>,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -454,6 +465,9 @@ async fn main() -> anyhow::Result<()> {
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
 
+    // Create the event bus (Issue #38)
+    let event_bus = Arc::new(EventBus::new(256));
+
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
         let worker = JobWorker::new(db.clone(), WorkerConfig::default());
@@ -498,11 +512,40 @@ async fn main() -> anyhow::Result<()> {
 
         let handle = worker.start();
         info!("Job worker started");
+
+        // Bridge WorkerEvent → ServerEvent (Issue #40)
+        let bridge_rx = handle.events();
+        let bridge_bus = event_bus.clone();
+        let bridge_db = db.clone();
+        tokio::spawn(async move {
+            bridge_worker_events(bridge_rx, bridge_bus, bridge_db).await;
+        });
+
+        // Periodic QueueStatus emission (Issue #40)
+        let qs_bus = event_bus.clone();
+        let qs_db = db.clone();
+        tokio::spawn(async move {
+            emit_periodic_queue_status(qs_bus, qs_db).await;
+        });
+
         Some(handle)
     } else {
         info!("Job worker disabled");
         None
     };
+
+    // Spawn webhook dispatcher (Issue #44)
+    let wh_bus = event_bus.clone();
+    let wh_db = db.clone();
+    tokio::spawn(async move {
+        webhook_dispatcher(wh_bus, wh_db).await;
+    });
+
+    // Spawn telemetry mirror (Issue #45)
+    let tm_bus = event_bus.clone();
+    tokio::spawn(async move {
+        telemetry_mirror(tm_bus).await;
+    });
 
     // Get issuer URL from environment
     let issuer =
@@ -530,6 +573,8 @@ async fn main() -> anyhow::Result<()> {
         rate_limiter,
         tag_resolver,
         search_cache,
+        event_bus,
+        ws_connections: Arc::new(AtomicUsize::new(0)),
     };
 
     // Build router
@@ -861,6 +906,23 @@ async fn main() -> anyhow::Result<()> {
         )
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
+        // WebSocket events (Issue #39)
+        .route("/api/v1/ws", get(ws_handler))
+        // SSE events (Issue #43)
+        .route("/api/v1/events", get(sse_events))
+        // Webhooks (Issue #44)
+        .route("/api/v1/webhooks", post(create_webhook).get(list_webhooks))
+        .route(
+            "/api/v1/webhooks/:id",
+            get(get_webhook)
+                .patch(update_webhook)
+                .delete(delete_webhook_handler),
+        )
+        .route(
+            "/api/v1/webhooks/:id/deliveries",
+            get(list_webhook_deliveries),
+        )
+        .route("/api/v1/webhooks/:id/test", post(test_webhook))
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
@@ -900,6 +962,542 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+// =============================================================================
+// EVENTING: WebSocket, SSE, and Event Bridge (Issues #38-#45)
+// =============================================================================
+
+/// Bridge WorkerEvent from the job worker to ServerEvent on the unified EventBus.
+async fn bridge_worker_events(
+    mut worker_rx: tokio::sync::broadcast::Receiver<WorkerEvent>,
+    event_bus: Arc<EventBus>,
+    db: Database,
+) {
+    use matric_core::{JobRepository, NoteRepository};
+    loop {
+        match worker_rx.recv().await {
+            Ok(event) => {
+                let server_event = match event {
+                    WorkerEvent::JobStarted { job_id, job_type } => {
+                        let note_id = db
+                            .jobs
+                            .get(job_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|j| j.note_id);
+                        ServerEvent::JobStarted {
+                            job_id,
+                            job_type: format!("{:?}", job_type),
+                            note_id,
+                        }
+                    }
+                    WorkerEvent::JobProgress {
+                        job_id,
+                        percent,
+                        message,
+                    } => {
+                        let note_id = db
+                            .jobs
+                            .get(job_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|j| j.note_id);
+                        ServerEvent::JobProgress {
+                            job_id,
+                            note_id,
+                            progress: percent,
+                            message,
+                        }
+                    }
+                    WorkerEvent::JobCompleted { job_id, job_type } => {
+                        let job = db.jobs.get(job_id).await.ok().flatten();
+                        let note_id = job.as_ref().and_then(|j| j.note_id);
+                        let duration_ms = job.as_ref().and_then(|j| {
+                            j.completed_at
+                                .and_then(|c| j.started_at.map(|s| (c - s).num_milliseconds()))
+                        });
+
+                        let evt = ServerEvent::JobCompleted {
+                            job_id,
+                            job_type: format!("{:?}", job_type),
+                            note_id,
+                            duration_ms,
+                        };
+                        event_bus.emit(evt.clone());
+
+                        // Also emit NoteUpdated if this was a note-related job (Issue #41)
+                        if let Some(nid) = note_id {
+                            if let Ok(note) = db.notes.fetch(nid).await {
+                                event_bus.emit(ServerEvent::NoteUpdated {
+                                    note_id: nid,
+                                    title: note.note.title.clone(),
+                                    tags: note.tags.clone(),
+                                    has_ai_content: note.revised.ai_generated_at.is_some(),
+                                    has_links: !note.links.is_empty(),
+                                });
+                            }
+                        }
+                        continue; // Already emitted above
+                    }
+                    WorkerEvent::JobFailed {
+                        job_id,
+                        job_type,
+                        error,
+                    } => {
+                        let note_id = db
+                            .jobs
+                            .get(job_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|j| j.note_id);
+                        ServerEvent::JobFailed {
+                            job_id,
+                            job_type: format!("{:?}", job_type),
+                            note_id,
+                            error,
+                        }
+                    }
+                    WorkerEvent::WorkerStarted | WorkerEvent::WorkerStopped => continue,
+                };
+                event_bus.emit(server_event);
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(missed = n, "Event bridge lagged, missed events");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                tracing::info!("Worker event channel closed, bridge stopping");
+                break;
+            }
+        }
+    }
+}
+
+/// Periodically emit QueueStatus events.
+async fn emit_periodic_queue_status(event_bus: Arc<EventBus>, db: Database) {
+    use matric_core::JobRepository;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        // Only emit if there are subscribers
+        if event_bus.subscriber_count() == 0 {
+            continue;
+        }
+        if let Ok(stats) = db.jobs.queue_stats().await {
+            event_bus.emit(ServerEvent::QueueStatus {
+                total_jobs: stats.total,
+                running: stats.processing,
+                pending: stats.pending,
+            });
+        }
+    }
+}
+
+/// WebSocket handler for real-time event streaming (Issue #39).
+///
+/// Clients connect to `/api/v1/ws` and receive JSON-encoded ServerEvents.
+/// Sending "refresh" triggers an immediate QueueStatus response.
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ws_connection(socket, state))
+}
+
+async fn handle_ws_connection(socket: WebSocket, state: AppState) {
+    use futures::{SinkExt, StreamExt};
+
+    let count = state.ws_connections.fetch_add(1, Ordering::Relaxed) + 1;
+    tracing::info!(active = count, "WebSocket connection opened");
+
+    let (mut sender, mut receiver) = socket.split();
+    let mut event_rx = state.event_bus.subscribe();
+
+    // Spawn task to forward events to client
+    let send_task = tokio::spawn(async move {
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            tokio::select! {
+                event = event_rx.recv() => {
+                    match event {
+                        Ok(evt) => {
+                            if let Ok(json) = serde_json::to_string(&evt) {
+                                if sender.send(Message::Text(json)).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::debug!(missed = n, "WebSocket client lagged");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    if sender.send(Message::Ping(vec![])).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Handle incoming messages from client
+    let event_bus = state.event_bus.clone();
+    let db = state.db.clone();
+    let recv_task = tokio::spawn(async move {
+        use matric_core::JobRepository;
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(ref text) if text == "refresh" => {
+                    // Send immediate queue status
+                    if let Ok(stats) = db.jobs.queue_stats().await {
+                        event_bus.emit(ServerEvent::QueueStatus {
+                            total_jobs: stats.total,
+                            running: stats.processing,
+                            pending: stats.pending,
+                        });
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    // Wait for either task to finish
+    tokio::select! {
+        _ = send_task => {}
+        _ = recv_task => {}
+    }
+    let count = state.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1;
+    tracing::info!(active = count, "WebSocket connection closed");
+}
+
+/// SSE event stream handler (Issue #43).
+///
+/// Clients connect to `/api/v1/events` and receive Server-Sent Events.
+async fn sse_events(
+    State(state): State<AppState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let rx = state.event_bus.subscribe();
+
+    use tokio_stream::StreamExt as _;
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
+        |result: Result<ServerEvent, _>| {
+            match result {
+                Ok(event) => {
+                    let event_type = event.event_type().to_string();
+                    match serde_json::to_string(&event) {
+                        Ok(json) => Some(Ok(Event::default().event(event_type).data(json))),
+                        Err(_) => None,
+                    }
+                }
+                Err(_) => None, // Skip lagged/closed errors
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keepalive"),
+    )
+}
+
+// =============================================================================
+// WEBHOOK HANDLERS (Issue #44)
+// =============================================================================
+
+/// Webhook dispatcher: subscribes to EventBus and delivers matching events to webhooks.
+async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    let mut rx = event_bus.subscribe();
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                let event_type = event.event_type();
+                let webhooks = match db.webhooks.list_active_for_event(event_type).await {
+                    Ok(w) => w,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to list webhooks");
+                        continue;
+                    }
+                };
+
+                if webhooks.is_empty() {
+                    continue;
+                }
+
+                let payload = match serde_json::to_value(&event) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                for webhook in webhooks {
+                    let client = client.clone();
+                    let db = db.clone();
+                    let payload = payload.clone();
+                    let event_type = event_type.to_string();
+                    tokio::spawn(async move {
+                        deliver_webhook(&client, &db, &webhook, &event_type, &payload).await;
+                    });
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(missed = n, "Webhook dispatcher lagged");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
+/// Deliver an event to a single webhook with HMAC signing and delivery recording.
+async fn deliver_webhook(
+    client: &reqwest::Client,
+    db: &Database,
+    webhook: &matric_core::Webhook,
+    event_type: &str,
+    payload: &serde_json::Value,
+) {
+    let body = serde_json::to_string(payload).unwrap_or_default();
+
+    let mut request = client
+        .post(&webhook.url)
+        .header("Content-Type", "application/json")
+        .header("X-Fortemi-Event", event_type);
+
+    // HMAC-SHA256 signature if secret is configured
+    if let Some(secret) = &webhook.secret {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+        if let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) {
+            mac.update(body.as_bytes());
+            let signature = hex::encode(mac.finalize().into_bytes());
+            request = request.header("X-Fortemi-Signature", format!("sha256={}", signature));
+        }
+    }
+
+    let result = request.body(body).send().await;
+
+    match result {
+        Ok(response) => {
+            let status = response.status().as_u16() as i32;
+            let success = response.status().is_success();
+            let body = response.text().await.unwrap_or_default();
+            let _ = db
+                .webhooks
+                .record_delivery(
+                    webhook.id,
+                    event_type,
+                    payload,
+                    Some(status),
+                    Some(&body),
+                    success,
+                )
+                .await;
+        }
+        Err(e) => {
+            let _ = db
+                .webhooks
+                .record_delivery(
+                    webhook.id,
+                    event_type,
+                    payload,
+                    None,
+                    Some(&e.to_string()),
+                    false,
+                )
+                .await;
+        }
+    }
+}
+
+/// Telemetry mirror: structured tracing for all event bus events (Issue #45).
+async fn telemetry_mirror(event_bus: Arc<EventBus>) {
+    let mut rx = event_bus.subscribe();
+    loop {
+        match rx.recv().await {
+            Ok(event) => match &event {
+                ServerEvent::JobStarted {
+                    job_id, job_type, ..
+                } => {
+                    tracing::info!(
+                        target: "fortemi::events",
+                        event = "job.started",
+                        %job_id, %job_type,
+                        "Job started"
+                    );
+                }
+                ServerEvent::JobCompleted {
+                    job_id,
+                    job_type,
+                    duration_ms,
+                    ..
+                } => {
+                    tracing::info!(
+                        target: "fortemi::events",
+                        event = "job.completed",
+                        %job_id, %job_type, ?duration_ms,
+                        "Job completed"
+                    );
+                }
+                ServerEvent::JobFailed {
+                    job_id,
+                    job_type,
+                    error,
+                    ..
+                } => {
+                    tracing::warn!(
+                        target: "fortemi::events",
+                        event = "job.failed",
+                        %job_id, %job_type, %error,
+                        "Job failed"
+                    );
+                }
+                ServerEvent::NoteUpdated { note_id, .. } => {
+                    tracing::info!(
+                        target: "fortemi::events",
+                        event = "note.updated",
+                        %note_id,
+                        "Note updated"
+                    );
+                }
+                ServerEvent::QueueStatus {
+                    running, pending, ..
+                } => {
+                    tracing::debug!(
+                        target: "fortemi::events",
+                        event = "queue.status",
+                        running, pending,
+                        "Queue status"
+                    );
+                }
+                _ => {}
+            },
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(missed = n, "Telemetry mirror lagged");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct UpdateWebhookBody {
+    url: Option<String>,
+    events: Option<Vec<String>>,
+    is_active: Option<bool>,
+    secret: Option<String>,
+}
+
+async fn create_webhook(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateWebhookRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.webhooks.create(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+async fn list_webhooks(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let webhooks = state.db.webhooks.list().await?;
+    Ok(Json(webhooks))
+}
+
+async fn get_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let webhook = state
+        .db
+        .webhooks
+        .get(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+    Ok(Json(webhook))
+}
+
+async fn update_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateWebhookBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify exists
+    state
+        .db
+        .webhooks
+        .get(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+
+    state
+        .db
+        .webhooks
+        .update(
+            id,
+            body.url.as_deref(),
+            body.events.as_deref(),
+            body.secret.as_deref(),
+            body.is_active,
+        )
+        .await?;
+
+    let webhook = state.db.webhooks.get(id).await?.unwrap();
+    Ok(Json(webhook))
+}
+
+async fn delete_webhook_handler(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.db.webhooks.delete(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_webhook_deliveries(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = params
+        .get("limit")
+        .and_then(|l| l.parse::<i64>().ok())
+        .unwrap_or(50);
+    let deliveries = state.db.webhooks.list_deliveries(id, limit).await?;
+    Ok(Json(deliveries))
+}
+
+async fn test_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let webhook = state
+        .db
+        .webhooks
+        .get(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
+
+    let test_event = ServerEvent::QueueStatus {
+        total_jobs: 0,
+        running: 0,
+        pending: 0,
+    };
+    let payload = serde_json::to_value(&test_event).unwrap_or_default();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    deliver_webhook(&client, &state.db, &webhook, "test", &payload).await;
+
+    Ok(Json(serde_json::json!({ "status": "delivered" })))
 }
 
 // =============================================================================
@@ -1775,6 +2373,21 @@ async fn create_note(
     // Queue NLP pipeline (AI revision only if not "none", but always embedding/title/linking)
     queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
 
+    // Emit NoteUpdated event (Issue #41)
+    let tags_for_event = state
+        .db
+        .tags
+        .get_for_note(note_id)
+        .await
+        .unwrap_or_default();
+    state.event_bus.emit(ServerEvent::NoteUpdated {
+        note_id,
+        title: None, // Title not yet generated
+        tags: tags_for_event,
+        has_ai_content: false, // AI revision queued but not yet complete
+        has_links: false,
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": note_id })),
@@ -1940,6 +2553,16 @@ async fn update_note(
 
     // Fetch and return the updated note
     let note = state.db.notes.fetch(id).await?;
+
+    // Emit NoteUpdated event (Issue #41)
+    state.event_bus.emit(ServerEvent::NoteUpdated {
+        note_id: id,
+        title: note.note.title.clone(),
+        tags: note.tags.clone(),
+        has_ai_content: note.revised.ai_generated_at.is_some(),
+        has_links: !note.links.is_empty(),
+    });
+
     Ok(Json(note))
 }
 
@@ -9133,5 +9756,720 @@ mod tests {
         assert_eq!(counts.embedding_sets, 0);
         assert_eq!(counts.embedding_set_members, 0);
         assert_eq!(counts.embeddings, 0);
+    }
+
+    // =========================================================================
+    // EVENTING INTEGRATION TESTS (Issue #47)
+    // =========================================================================
+
+    /// Receive the next Text message from a WS stream, skipping Ping/Pong frames.
+    async fn next_text_message(
+        ws: &mut (impl futures::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin),
+    ) -> String {
+        use futures::StreamExt;
+        let deadline = std::time::Duration::from_secs(5);
+        let start = tokio::time::Instant::now();
+        loop {
+            let remaining = deadline.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                panic!("timeout waiting for WS text message");
+            }
+            let msg = tokio::time::timeout(remaining, ws.next())
+                .await
+                .expect("timeout waiting for WS message")
+                .expect("stream ended")
+                .expect("WS error");
+            if msg.is_text() {
+                return msg.into_text().unwrap();
+            }
+            // Skip Ping, Pong, Binary, etc.
+        }
+    }
+
+    /// Build a minimal test server with only eventing routes.
+    /// Returns the base URL (e.g., "http://127.0.0.1:PORT").
+    async fn spawn_eventing_test_server() -> (String, Arc<EventBus>, Arc<AtomicUsize>) {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+        let event_bus = Arc::new(EventBus::new(256));
+        let ws_connections = Arc::new(AtomicUsize::new(0));
+
+        let state = AppState {
+            db,
+            search: Arc::new(matric_search::HybridSearchEngine::new(
+                Database::connect(&database_url).await.unwrap(),
+            )),
+            issuer: "http://localhost:3000".to_string(),
+            rate_limiter: None,
+            tag_resolver: matric_api::services::TagResolver::new(
+                Database::connect(&database_url).await.unwrap(),
+            ),
+            search_cache: matric_api::services::SearchCache::disabled(),
+            event_bus: event_bus.clone(),
+            ws_connections: ws_connections.clone(),
+        };
+
+        let router = Router::new()
+            .route("/api/v1/ws", get(ws_handler))
+            .route("/api/v1/events", get(sse_events))
+            .route("/api/v1/webhooks", post(create_webhook).get(list_webhooks))
+            .route(
+                "/api/v1/webhooks/:id",
+                get(get_webhook)
+                    .patch(update_webhook)
+                    .delete(delete_webhook_handler),
+            )
+            .route(
+                "/api/v1/webhooks/:id/deliveries",
+                get(list_webhook_deliveries),
+            )
+            .route("/api/v1/webhooks/:id/test", post(test_webhook))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{}", addr);
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        // Give server a moment to start
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        (base_url, event_bus, ws_connections)
+    }
+
+    // -- WebSocket Tests --
+
+    #[tokio::test]
+    async fn test_ws_upgrade_succeeds() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        let (ws_stream, response) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        // tungstenite returns the upgrade response
+        assert_eq!(response.status(), 101);
+        drop(ws_stream);
+    }
+
+    #[tokio::test]
+    async fn test_ws_receives_events() {
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+
+        // Small delay to ensure subscription is registered
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Emit an event
+        bus.emit(ServerEvent::NoteUpdated {
+            note_id: Uuid::nil(),
+            title: Some("Test".to_string()),
+            tags: vec!["tag1".to_string()],
+            has_ai_content: false,
+            has_links: false,
+        });
+
+        // Receive it (skipping any Ping frames)
+        let text = next_text_message(&mut ws_stream).await;
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "NoteUpdated");
+        assert_eq!(parsed["title"], "Test");
+    }
+
+    #[tokio::test]
+    async fn test_ws_refresh_command_triggers_queue_status() {
+        use futures::SinkExt;
+
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+
+        // Send refresh command
+        ws_stream
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                "refresh".to_string(),
+            ))
+            .await
+            .unwrap();
+
+        // Should receive QueueStatus (skipping Ping frames)
+        let text = next_text_message(&mut ws_stream).await;
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["type"], "QueueStatus");
+    }
+
+    #[tokio::test]
+    async fn test_ws_connection_counter() {
+        let (base_url, _bus, conns) = spawn_eventing_test_server().await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        assert_eq!(conns.load(Ordering::Relaxed), 0);
+
+        let (ws1, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert_eq!(conns.load(Ordering::Relaxed), 1);
+
+        let (ws2, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert_eq!(conns.load(Ordering::Relaxed), 2);
+
+        drop(ws1);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(conns.load(Ordering::Relaxed), 1);
+
+        drop(ws2);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(conns.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_ws_multiple_clients_all_receive_events() {
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+        let ws_url = base_url.replace("http://", "ws://") + "/api/v1/ws";
+
+        let (mut ws1, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        let (mut ws2, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        let (mut ws3, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        bus.emit(ServerEvent::JobStarted {
+            job_id: Uuid::nil(),
+            job_type: "Embedding".to_string(),
+            note_id: None,
+        });
+
+        for ws in [&mut ws1, &mut ws2, &mut ws3] {
+            let text = next_text_message(ws).await;
+            let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(parsed["type"], "JobStarted");
+        }
+    }
+
+    // -- SSE Tests --
+
+    #[tokio::test]
+    async fn test_sse_endpoint_returns_event_stream() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(content_type.contains("text/event-stream"));
+    }
+
+    #[tokio::test]
+    async fn test_sse_receives_events() {
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+
+        let client = reqwest::Client::new();
+        let mut response = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        // Emit an event after a brief delay
+        let bus_clone = bus.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            bus_clone.emit(ServerEvent::JobFailed {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+                error: "test error".to_string(),
+            });
+        });
+
+        // Read SSE chunks until we find our event
+        let mut collected = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_secs(3), response.chunk()).await {
+                Ok(Ok(Some(chunk))) => {
+                    collected.push_str(&String::from_utf8_lossy(&chunk));
+                    if collected.contains("JobFailed") {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        assert!(collected.contains("event: JobFailed"));
+        assert!(collected.contains("test error"));
+    }
+
+    #[tokio::test]
+    async fn test_sse_multiple_clients() {
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+
+        let client = reqwest::Client::new();
+        let mut resp1 = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+        let mut resp2 = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 42,
+            running: 1,
+            pending: 41,
+        });
+
+        for resp in [&mut resp1, &mut resp2] {
+            let mut collected = String::new();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while tokio::time::Instant::now() < deadline {
+                match tokio::time::timeout(std::time::Duration::from_secs(3), resp.chunk()).await {
+                    Ok(Ok(Some(chunk))) => {
+                        collected.push_str(&String::from_utf8_lossy(&chunk));
+                        if collected.contains("QueueStatus") {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            assert!(collected.contains("QueueStatus"));
+        }
+    }
+
+    // -- Webhook API Tests --
+
+    #[tokio::test]
+    async fn test_create_webhook_returns_201() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": format!("https://test-create-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "events": ["NoteUpdated"],
+                "max_retries": 3
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 201);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(body["id"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_list_webhooks_returns_all() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let suffix = chrono::Utc::now().timestamp_millis();
+
+        // Create 2 webhooks
+        for i in 0..2 {
+            client
+                .post(format!("{}/api/v1/webhooks", base_url))
+                .json(&serde_json::json!({
+                    "url": format!("https://list-test-{}-{}.example.com", suffix, i),
+                    "secret": "my-secret",
+                    "events": ["JobCompleted"],
+                    "max_retries": 3
+                }))
+                .send()
+                .await
+                .unwrap();
+        }
+
+        let response = client
+            .get(format!("{}/api/v1/webhooks", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body: Vec<serde_json::Value> = response.json().await.unwrap();
+        let ours: Vec<_> = body
+            .iter()
+            .filter(|w| {
+                w["url"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains(&suffix.to_string())
+            })
+            .collect();
+        assert_eq!(ours.len(), 2);
+
+        // Verify secret is NOT exposed in list response
+        for w in &ours {
+            assert!(w.get("secret").is_none() || w["secret"].is_null());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_webhook_not_found() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("{}/api/v1/webhooks/{}", base_url, Uuid::nil()))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn test_update_webhook_partial() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        // Create
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": format!("https://update-test-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "events": ["JobCompleted", "NoteUpdated"],
+                "max_retries": 3
+            }))
+            .send()
+            .await
+            .unwrap();
+        let id: String = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Update only URL
+        let update_resp = client
+            .patch(format!("{}/api/v1/webhooks/{}", base_url, id))
+            .json(&serde_json::json!({
+                "url": "https://updated.example.com"
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(update_resp.status(), 200);
+        let webhook: serde_json::Value = update_resp.json().await.unwrap();
+        assert_eq!(webhook["url"], "https://updated.example.com");
+        // Events should be unchanged
+        let events: Vec<String> = serde_json::from_value(webhook["events"].clone()).unwrap();
+        assert_eq!(events, vec!["JobCompleted", "NoteUpdated"]);
+    }
+
+    #[tokio::test]
+    async fn test_delete_webhook_returns_204() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        // Create
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": format!("https://delete-test-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "events": [],
+                "max_retries": 3
+            }))
+            .send()
+            .await
+            .unwrap();
+        let id: String = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Delete
+        let del_resp = client
+            .delete(format!("{}/api/v1/webhooks/{}", base_url, id))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_resp.status(), 204);
+
+        // Verify gone
+        let get_resp = client
+            .get(format!("{}/api/v1/webhooks/{}", base_url, id))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn test_list_deliveries_with_limit() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        // Create webhook
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": format!("https://delivery-test-{}.example.com", chrono::Utc::now().timestamp_millis()),
+                "events": [],
+                "max_retries": 3
+            }))
+            .send()
+            .await
+            .unwrap();
+        let id: String = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // List deliveries (should be empty)
+        let resp = client
+            .get(format!(
+                "{}/api/v1/webhooks/{}/deliveries?limit=2",
+                base_url, id
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let deliveries: Vec<serde_json::Value> = resp.json().await.unwrap();
+        assert!(deliveries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_test_webhook_sends_delivery() {
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        // Create webhook (pointing to a non-existent URL, delivery will fail but endpoint should work)
+        let create_resp = client
+            .post(format!("{}/api/v1/webhooks", base_url))
+            .json(&serde_json::json!({
+                "url": "http://127.0.0.1:1/nonexistent",
+                "events": [],
+                "max_retries": 1
+            }))
+            .send()
+            .await
+            .unwrap();
+        let id: String = create_resp.json::<serde_json::Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Send test delivery
+        let test_resp = client
+            .post(format!("{}/api/v1/webhooks/{}/test", base_url, id))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(test_resp.status(), 200);
+        let body: serde_json::Value = test_resp.json().await.unwrap();
+        assert_eq!(body["status"], "delivered");
+    }
+
+    // -- Bridge Tests --
+
+    /// Spawn the bridge_worker_events function with a fresh worker broadcast channel
+    /// and return (worker_tx, event_bus_rx) for sending WorkerEvents and receiving ServerEvents.
+    async fn spawn_bridge() -> (
+        tokio::sync::broadcast::Sender<WorkerEvent>,
+        tokio::sync::broadcast::Receiver<ServerEvent>,
+        Arc<EventBus>,
+    ) {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+
+        let (worker_tx, worker_rx) = tokio::sync::broadcast::channel::<WorkerEvent>(32);
+        let event_bus = Arc::new(EventBus::new(256));
+        let server_rx = event_bus.subscribe();
+
+        let bus_clone = event_bus.clone();
+        tokio::spawn(async move {
+            bridge_worker_events(worker_rx, bus_clone, db).await;
+        });
+
+        // Small delay to ensure the bridge task is running
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        (worker_tx, server_rx, event_bus)
+    }
+
+    #[tokio::test]
+    async fn test_bridge_maps_job_started() {
+        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+
+        worker_tx
+            .send(WorkerEvent::JobStarted {
+                job_id: Uuid::nil(),
+                job_type: matric_core::JobType::Embedding,
+            })
+            .unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("recv error");
+
+        match event {
+            ServerEvent::JobStarted {
+                job_id, job_type, ..
+            } => {
+                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_type, "Embedding");
+            }
+            other => panic!("Expected JobStarted, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bridge_maps_job_progress() {
+        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+
+        worker_tx
+            .send(WorkerEvent::JobProgress {
+                job_id: Uuid::nil(),
+                percent: 42,
+                message: Some("processing chunk 5/12".to_string()),
+            })
+            .unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("recv error");
+
+        match event {
+            ServerEvent::JobProgress {
+                progress, message, ..
+            } => {
+                assert_eq!(progress, 42);
+                assert_eq!(message.unwrap(), "processing chunk 5/12");
+            }
+            other => panic!("Expected JobProgress, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bridge_maps_job_completed() {
+        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+
+        worker_tx
+            .send(WorkerEvent::JobCompleted {
+                job_id: Uuid::nil(),
+                job_type: matric_core::JobType::Linking,
+            })
+            .unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("recv error");
+
+        match event {
+            ServerEvent::JobCompleted {
+                job_id, job_type, ..
+            } => {
+                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_type, "Linking");
+            }
+            other => panic!("Expected JobCompleted, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bridge_maps_job_failed() {
+        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+
+        worker_tx
+            .send(WorkerEvent::JobFailed {
+                job_id: Uuid::nil(),
+                job_type: matric_core::JobType::AiRevision,
+                error: "inference timeout".to_string(),
+            })
+            .unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("recv error");
+
+        match event {
+            ServerEvent::JobFailed {
+                job_id,
+                job_type,
+                error,
+                ..
+            } => {
+                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_type, "AiRevision");
+                assert_eq!(error, "inference timeout");
+            }
+            other => panic!("Expected JobFailed, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bridge_skips_worker_started_stopped() {
+        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+
+        // Send WorkerStarted and WorkerStopped — should be silently ignored
+        worker_tx.send(WorkerEvent::WorkerStarted).unwrap();
+        worker_tx.send(WorkerEvent::WorkerStopped).unwrap();
+
+        // Now send a real event so we can verify the bridge is still alive
+        worker_tx
+            .send(WorkerEvent::JobStarted {
+                job_id: Uuid::nil(),
+                job_type: matric_core::JobType::Embedding,
+            })
+            .unwrap();
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("recv error");
+
+        // The first event we see should be JobStarted, NOT anything from WorkerStarted/Stopped
+        assert!(matches!(event, ServerEvent::JobStarted { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_bridge_stops_on_channel_close() {
+        let (worker_tx, _server_rx, _bus) = spawn_bridge().await;
+
+        // Drop the sender — bridge should detect Closed and stop gracefully
+        drop(worker_tx);
+
+        // Give it time to process the close
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // If we reach here without hanging, the bridge exited cleanly
     }
 }

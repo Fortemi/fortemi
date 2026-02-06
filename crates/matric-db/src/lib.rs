@@ -58,6 +58,7 @@ pub mod tags;
 pub mod templates;
 pub mod unified_filter;
 pub mod versioning;
+pub mod webhooks;
 
 #[cfg(test)]
 mod tests;
@@ -109,6 +110,7 @@ pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
 };
+pub use webhooks::PgWebhookRepository;
 
 // Re-export SKOS repository and traits
 pub use skos_tags::{
@@ -160,6 +162,8 @@ pub struct Database {
     pub file_storage: Option<PgFileStorageRepository>,
     /// SKOS tags repository (convenience alias).
     pub skos_tags: PgSkosRepository,
+    /// Webhook repository for outbound HTTP notifications (Issue #44).
+    pub webhooks: PgWebhookRepository,
 }
 
 impl Database {
@@ -186,6 +190,7 @@ impl Database {
             colbert: ColBERTRepository::new(pool.clone()),
             file_storage: None,
             skos_tags: skos,
+            webhooks: PgWebhookRepository::new(pool.clone()),
             pool,
         }
     }
@@ -322,6 +327,7 @@ impl Clone for Database {
                 )
             }),
             skos_tags: skos,
+            webhooks: PgWebhookRepository::new(self.pool.clone()),
         }
     }
 }

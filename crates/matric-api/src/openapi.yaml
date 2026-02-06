@@ -54,6 +54,10 @@ tags:
     description: API key management
   - name: System
     description: Health check, memory info, and rate limiting
+  - name: Events
+    description: Real-time event streaming via WebSocket and SSE
+  - name: Webhooks
+    description: Outbound HTTP webhook notifications
   - name: Notes
     description: Note CRUD operations with AI revision pipeline
   - name: Versioning
@@ -427,6 +431,173 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RateLimitStatus'
+
+  # ===========================================================================
+  # Real-Time Events (Issues #38-#45)
+  # ===========================================================================
+  /api/v1/ws:
+    get:
+      summary: WebSocket event stream
+      operationId: wsEvents
+      tags: [Events]
+      description: |
+        Upgrade to WebSocket for real-time ServerEvent JSON messages.
+        Send "refresh" to receive an immediate QueueStatus.
+        7 event types: QueueStatus, JobQueued, JobStarted, JobProgress, JobCompleted, JobFailed, NoteUpdated.
+      responses:
+        '101':
+          description: WebSocket upgrade
+
+  /api/v1/events:
+    get:
+      summary: Server-Sent Events stream
+      operationId: sseEvents
+      tags: [Events]
+      description: |
+        SSE endpoint for real-time event streaming. Each event has a named `event` field
+        (e.g., "JobStarted") and JSON `data`.
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/v1/webhooks:
+    post:
+      summary: Register a webhook
+      operationId: createWebhook
+      tags: [Webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+    get:
+      summary: List all webhooks
+      operationId: listWebhooks
+      tags: [Webhooks]
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+
+  /api/v1/webhooks/{id}:
+    get:
+      summary: Get webhook details
+      operationId: getWebhook
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+    patch:
+      summary: Update webhook
+      operationId: updateWebhook
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated webhook
+    delete:
+      summary: Delete webhook
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Webhook deleted
+
+  /api/v1/webhooks/{id}/deliveries:
+    get:
+      summary: View webhook delivery history
+      operationId: listWebhookDeliveries
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Delivery history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookDelivery'
+
+  /api/v1/webhooks/{id}/test:
+    post:
+      summary: Send test webhook event
+      operationId: testWebhook
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Test delivered
 
   # ===========================================================================
   # Notes CRUD
@@ -3392,6 +3563,88 @@ components:
           type: string
         message:
           type: string
+
+    # Events & Webhooks
+    ServerEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [QueueStatus, JobQueued, JobStarted, JobProgress, JobCompleted, JobFailed, NoteUpdated]
+
+    CreateWebhookRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+          description: HMAC-SHA256 signing secret
+        events:
+          type: array
+          items:
+            type: string
+          description: Event types to subscribe to (empty = all)
+        max_retries:
+          type: integer
+          default: 3
+
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_triggered_at:
+          type: string
+          format: date-time
+          nullable: true
+        failure_count:
+          type: integer
+        max_retries:
+          type: integer
+
+    WebhookDelivery:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        webhook_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        payload:
+          type: object
+        status_code:
+          type: integer
+          nullable: true
+        response_body:
+          type: string
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+        success:
+          type: boolean
 
     # Notes
     NoteSummary:

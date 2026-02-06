@@ -21,7 +21,7 @@ matric-jobs.workspace = true
 matric-inference.workspace = true
 
 # Web framework
-axum = { version = "0.7", features = ["json", "tower-log", "multipart"] }
+axum = { version = "0.7", features = ["json", "tower-log", "multipart", "ws"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
 governor = "0.6"
@@ -54,7 +54,11 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 tar = "0.4"
 flate2 = "1.0"
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
+
+# HTTP client (webhook delivery)
+reqwest.workspace = true
 
 # Error handling
 thiserror.workspace = true
@@ -64,6 +68,7 @@ anyhow.workspace = true
 tokio = { workspace = true, features = ["full"] }
 async-trait.workspace = true
 futures.workspace = true
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Logging
 tracing.workspace = true
@@ -79,3 +84,12 @@ utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3.24.0"
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tokio-tungstenite = "0.24"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { workspace = true }
+futures = { workspace = true }
+matric-core = { path = "../matric-core" }
+matric-db = { path = "../matric-db" }

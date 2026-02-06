@@ -32,6 +32,9 @@ sqlx.workspace = true
 # HTTP client (for error type compatibility)
 reqwest.workspace = true
 
+# Async runtime (for broadcast channel in EventBus)
+tokio = { workspace = true }
+
 # Logging
 tracing.workspace = true
 

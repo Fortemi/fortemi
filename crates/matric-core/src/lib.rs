@@ -8,6 +8,7 @@
 pub mod collection_filter;
 pub mod embedding_provider;
 pub mod error;
+pub mod events;
 pub mod exif;
 pub mod fair;
 pub mod file_safety;
@@ -27,6 +28,7 @@ pub mod uuid_utils;
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use embedding_provider::*;
 pub use error::{Error, Result};
+pub use events::{EventBus, ServerEvent};
 pub use exif::{DeviceInfo, ExifMetadata, GpsCoordinates};
 pub use fair::{DublinCoreExport, FairScore, JsonLdContext, JsonLdExport};
 pub use file_safety::{sanitize_filename, validate_file, ValidationResult};
