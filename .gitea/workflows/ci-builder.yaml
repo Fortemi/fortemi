@@ -284,17 +284,9 @@ jobs:
             sleep 1
           done
 
-          # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
-          # on first boot, but these are a safety net for containers with pre-existing data volumes)
-          docker exec ${TEST_DB} psql -U matric -d matric -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${TEST_DB} psql -U matric -d matric -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-
-          # Run migrations
-          echo "Running migrations..."
-          for f in migrations/*.sql; do
-            echo "Running $f..."
-            docker exec -i ${TEST_DB} psql -U matric -d matric -v ON_ERROR_STOP=1 < "$f"
-          done
+          # Extensions are created by init-extensions.sh on container init.
+          # Migrations are handled by the API via sqlx::migrate!() on startup.
+          # Do NOT run migrations manually here - it conflicts with sqlx tracking.
 
           # Start the API container on isolated port
           echo "Starting API container..."
