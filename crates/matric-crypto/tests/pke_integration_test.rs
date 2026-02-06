@@ -348,7 +348,10 @@ fn test_address_checksum_detects_transposition() {
             break;
         }
     }
-    assert!(detected, "Checksum failed to detect any adjacent transposition");
+    assert!(
+        detected,
+        "Checksum failed to detect any adjacent transposition"
+    );
 }
 
 #[test]
