@@ -40,6 +40,8 @@ pub struct OllamaBackend {
     registry: ModelRegistry,
     embed_registry: EmbeddingModelRegistry,
     embed_profile: EmbeddingModelProfile,
+    embed_timeout_secs: u64,
+    gen_timeout_secs: u64,
 }
 
 impl OllamaBackend {
@@ -60,8 +62,18 @@ impl OllamaBackend {
         gen_model: String,
         dimension: usize,
     ) -> Self {
+        let gen_timeout = std::env::var("MATRIC_GEN_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(matric_core::defaults::GEN_TIMEOUT_SECS);
+
+        let embed_timeout = std::env::var("MATRIC_EMBED_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(matric_core::defaults::EMBED_TIMEOUT_SECS);
+
         let client = Client::builder()
-            .timeout(Duration::from_secs(GEN_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(gen_timeout))
             .build()
             .expect("Failed to create HTTP client");
 
@@ -89,6 +101,8 @@ impl OllamaBackend {
             registry: ModelRegistry::new(),
             embed_registry,
             embed_profile,
+            embed_timeout_secs: embed_timeout,
+            gen_timeout_secs: gen_timeout,
         }
     }
 
@@ -265,7 +279,7 @@ impl EmbeddingBackend for OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/embed", self.base_url))
-            .timeout(Duration::from_secs(EMBED_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(self.embed_timeout_secs))
             .json(&request)
             .send()
             .await
@@ -341,7 +355,7 @@ impl GenerationBackend for OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/generate", self.base_url))
-            .timeout(Duration::from_secs(GEN_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(self.gen_timeout_secs))
             .json(&request)
             .send()
             .await

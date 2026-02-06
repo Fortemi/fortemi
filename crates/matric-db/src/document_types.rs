@@ -302,7 +302,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             if let Some(doc_type) = self.get_by_filename(fname).await? {
                 return Ok(Some(DetectDocumentTypeResult {
                     document_type: self.to_summary(&doc_type),
-                    confidence: 1.0,
+                    confidence: matric_core::defaults::DETECT_CONFIDENCE_FILENAME,
                     detection_method: "filename_pattern".to_string(),
                 }));
             }
@@ -313,7 +313,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             if let Some(doc_type) = self.get_by_mime_type(mime).await? {
                 return Ok(Some(DetectDocumentTypeResult {
                     document_type: self.to_summary(&doc_type),
-                    confidence: 0.95,
+                    confidence: matric_core::defaults::DETECT_CONFIDENCE_MIME,
                     detection_method: "mime_type".to_string(),
                 }));
             }
@@ -329,7 +329,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                 if let Some(doc_type) = self.get_by_extension(&ext_with_dot).await? {
                     return Ok(Some(DetectDocumentTypeResult {
                         document_type: self.to_summary(&doc_type),
-                        confidence: 0.9,
+                        confidence: matric_core::defaults::DETECT_CONFIDENCE_EXTENSION,
                         detection_method: "file_extension".to_string(),
                     }));
                 }
@@ -376,7 +376,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                                 is_system: row.get("is_system"),
                                 is_active: row.get("is_active"),
                             },
-                            confidence: 0.7,
+                            confidence: matric_core::defaults::DETECT_CONFIDENCE_CONTENT,
                             detection_method: "content_pattern".to_string(),
                         }));
                     }
@@ -388,7 +388,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         if let Some(doc_type) = self.get_by_name("plaintext").await? {
             return Ok(Some(DetectDocumentTypeResult {
                 document_type: self.to_summary(&doc_type),
-                confidence: 0.1,
+                confidence: matric_core::defaults::DETECT_CONFIDENCE_DEFAULT,
                 detection_method: "default".to_string(),
             }));
         }

@@ -43,7 +43,10 @@ impl AiRevisionHandler {
     /// for optimal cognitive processing of context items.
     async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
         // Generate embedding for the content to find related notes
-        let chunks = vec![content.chars().take(500).collect::<String>()];
+        let chunks = vec![content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_EMBEDDING)
+            .collect::<String>()];
         let vectors = match self.backend.embed_texts(&chunks).await {
             Ok(v) => v,
             Err(_) => return vec![],
@@ -64,7 +67,10 @@ impl AiRevisionHandler {
         {
             Ok(hits) => hits
                 .into_iter()
-                .filter(|hit| hit.score > 0.5 && hit.note_id != note_id)
+                .filter(|hit| {
+                    hit.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
+                        && hit.note_id != note_id
+                })
                 .take(MAX_CONTEXT_NOTES)
                 .collect(),
             Err(_) => vec![],
@@ -83,7 +89,10 @@ impl AiRevisionHandler {
         let mut context = String::from("Related concepts from the knowledge base:\n");
         for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
             if let Some(snippet) = &hit.snippet {
-                let preview: String = snippet.chars().take(150).collect();
+                let preview: String = snippet
+                    .chars()
+                    .take(matric_core::defaults::PREVIEW_CONTEXT_SNIPPET)
+                    .collect();
                 context.push_str(&format!("- {}\n", preview));
             }
         }
@@ -451,7 +460,10 @@ impl TitleGenerationHandler {
     ///
     /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2).
     async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
-        let chunks = vec![content.chars().take(500).collect::<String>()];
+        let chunks = vec![content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_EMBEDDING)
+            .collect::<String>()];
         let vectors = match self.backend.embed_texts(&chunks).await {
             Ok(v) => v,
             Err(_) => return vec![],
@@ -471,7 +483,10 @@ impl TitleGenerationHandler {
         {
             Ok(hits) => hits
                 .into_iter()
-                .filter(|hit| hit.score > 0.5 && hit.note_id != note_id)
+                .filter(|hit| {
+                    hit.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
+                        && hit.note_id != note_id
+                })
                 .take(MAX_CONTEXT_NOTES)
                 .collect(),
             Err(_) => vec![],
@@ -529,7 +544,10 @@ impl JobHandler for TitleGenerationHandler {
             related_context.push_str("Related concepts from your knowledge base:\n");
             for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
                 if let Some(snippet) = &hit.snippet {
-                    let preview: String = snippet.chars().take(100).collect();
+                    let preview: String = snippet
+                        .chars()
+                        .take(matric_core::defaults::PREVIEW_LABEL)
+                        .collect();
                     related_context.push_str(&format!("- {}\n", preview));
                 }
             }
@@ -538,7 +556,10 @@ impl JobHandler for TitleGenerationHandler {
 
         ctx.report_progress(60, Some("Generating contextual title..."));
 
-        let content_preview: String = content.chars().take(500).collect();
+        let content_preview: String = content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_EMBEDDING)
+            .collect();
 
         // Enhanced title prompt (ported from HOTM)
         let prompt = format!(
@@ -577,7 +598,7 @@ Generate only the title, no quotes, no explanations."#,
                 // Take first 80 chars max
                 cleaned
                     .chars()
-                    .take(80)
+                    .take(matric_core::defaults::TITLE_MAX_LENGTH)
                     .collect::<String>()
                     .trim()
                     .to_string()
@@ -585,7 +606,7 @@ Generate only the title, no quotes, no explanations."#,
             Err(e) => return JobResult::Failed(format!("Title generation failed: {}", e)),
         };
 
-        if title.is_empty() || title.len() < 3 {
+        if title.is_empty() || title.len() < matric_core::defaults::TITLE_MIN_LENGTH {
             return JobResult::Failed("Invalid title generated".into());
         }
 
@@ -752,7 +773,8 @@ impl JobHandler for LinkingHandler {
 
         for hit in similar {
             // Skip self and low scores (threshold 0.7 for semantic links)
-            if hit.note_id == note_id || hit.score < 0.7 {
+            if hit.note_id == note_id || hit.score < matric_core::defaults::SEMANTIC_LINK_THRESHOLD
+            {
                 continue;
             }
 
@@ -927,7 +949,7 @@ impl JobHandler for ContextUpdateHandler {
         let links = match self.db.links.get_outgoing(note_id).await {
             Ok(l) => l
                 .into_iter()
-                .filter(|l| l.score > 0.75)
+                .filter(|l| l.score > matric_core::defaults::CONTEXT_LINK_THRESHOLD)
                 .take(MAX_PROMPT_SNIPPETS)
                 .collect::<Vec<_>>(),
             Err(e) => {
@@ -971,9 +993,19 @@ impl JobHandler for ContextUpdateHandler {
             if let Some(to_note_id) = link.to_note_id {
                 if let Ok(linked_note) = self.db.notes.fetch(to_note_id).await {
                     let preview: String = if !linked_note.revised.content.is_empty() {
-                        linked_note.revised.content.chars().take(200).collect()
+                        linked_note
+                            .revised
+                            .content
+                            .chars()
+                            .take(matric_core::defaults::PREVIEW_LINKED_NOTE)
+                            .collect()
                     } else {
-                        linked_note.original.content.chars().take(200).collect()
+                        linked_note
+                            .original
+                            .content
+                            .chars()
+                            .take(matric_core::defaults::PREVIEW_LINKED_NOTE)
+                            .collect()
                     };
                     linked_context.push_str(&format!(
                         "\n- Related note (similarity {:.0}%): {}\n",
@@ -1174,7 +1206,10 @@ impl JobHandler for ConceptTaggingHandler {
         ctx.report_progress(30, Some("Analyzing content for concepts..."));
 
         // Take content preview for analysis
-        let content_preview: String = content.chars().take(2000).collect();
+        let content_preview: String = content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_TAGGING)
+            .collect();
 
         // Generate concept suggestions using AI
         let prompt = format!(
@@ -1243,7 +1278,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             }
 
             let is_primary = i == 0; // First concept is primary
-            let relevance = 1.0_f32 - (i as f32 * 0.1); // Decreasing relevance
+            let relevance = 1.0_f32 - (i as f32 * matric_core::defaults::RELEVANCE_DECAY_FACTOR); // Decreasing relevance
 
             // Check if concept already exists by searching labels
             let concept_id = match self.get_or_create_concept(label.trim(), scheme_id).await {
@@ -1259,7 +1294,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
                 note_id,
                 concept_id,
                 source: "ai_auto".to_string(),
-                confidence: Some(0.8),
+                confidence: Some(matric_core::defaults::AI_TAGGING_CONFIDENCE),
                 relevance_score: relevance,
                 is_primary,
                 created_by: None,

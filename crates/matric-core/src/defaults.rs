@@ -215,6 +215,92 @@ pub const OAUTH_DEFAULT_SCOPE: &str = "read";
 /// Default maximum history versions kept per note.
 pub const MAX_HISTORY_VERSIONS: i32 = 50;
 
+// =============================================================================
+// SIMILARITY THRESHOLDS (Tier 2 — Algorithm Parameters)
+// =============================================================================
+
+/// Minimum similarity score for creating semantic links between notes.
+pub const SEMANTIC_LINK_THRESHOLD: f32 = 0.7;
+
+/// Minimum similarity score for context-update link filtering (stricter).
+pub const CONTEXT_LINK_THRESHOLD: f32 = 0.75;
+
+/// Minimum similarity score for including related notes in AI context.
+pub const RELATED_NOTES_MIN_SIMILARITY: f32 = 0.5;
+
+/// Confidence score for AI auto-tagging operations.
+pub const AI_TAGGING_CONFIDENCE: f32 = 0.8;
+
+/// Relevance decay factor per rank position in concept tagging.
+pub const RELEVANCE_DECAY_FACTOR: f32 = 0.1;
+
+// =============================================================================
+// CONTENT PREVIEW SIZES (Tier 2)
+// =============================================================================
+
+/// Characters of content preview for embedding and title generation.
+pub const PREVIEW_EMBEDDING: usize = 500;
+
+/// Characters of snippet preview in AI context prompts.
+pub const PREVIEW_CONTEXT_SNIPPET: usize = 150;
+
+/// Characters of label preview in concept displays.
+pub const PREVIEW_LABEL: usize = 100;
+
+/// Characters of content preview for concept tagging analysis.
+pub const PREVIEW_TAGGING: usize = 2000;
+
+/// Characters of content preview for linked note context.
+pub const PREVIEW_LINKED_NOTE: usize = 200;
+
+// =============================================================================
+// TITLE GENERATION (Tier 2)
+// =============================================================================
+
+/// Maximum length of AI-generated titles in characters.
+pub const TITLE_MAX_LENGTH: usize = 80;
+
+/// Minimum length of a valid AI-generated title in characters.
+pub const TITLE_MIN_LENGTH: usize = 3;
+
+/// Minimum concepts to suggest for auto-tagging.
+pub const TAG_MIN_CONCEPTS: usize = 3;
+
+/// Maximum concepts to suggest for auto-tagging.
+pub const TAG_MAX_CONCEPTS: usize = 7;
+
+// =============================================================================
+// HEALTH SCORE WEIGHTS (Tier 2)
+// =============================================================================
+
+/// Weight of stale notes ratio in health score calculation (0-100 scale).
+pub const HEALTH_WEIGHT_STALE: f64 = 30.0;
+
+/// Weight of unlinked notes ratio in health score calculation.
+pub const HEALTH_WEIGHT_UNLINKED: f64 = 40.0;
+
+/// Weight of untagged notes ratio in health score calculation.
+pub const HEALTH_WEIGHT_UNTAGGED: f64 = 30.0;
+
+// =============================================================================
+// DOCUMENT TYPE DETECTION CONFIDENCE (Tier 2)
+// =============================================================================
+
+/// Confidence when detected by filename pattern match (highest).
+pub const DETECT_CONFIDENCE_FILENAME: f32 = 1.0;
+
+/// Confidence when detected by MIME type.
+pub const DETECT_CONFIDENCE_MIME: f32 = 0.95;
+
+/// Confidence when detected by file extension.
+pub const DETECT_CONFIDENCE_EXTENSION: f32 = 0.9;
+
+/// Confidence when detected by content/magic pattern.
+pub const DETECT_CONFIDENCE_CONTENT: f32 = 0.7;
+
+/// Confidence for default fallback detection (lowest).
+pub const DETECT_CONFIDENCE_DEFAULT: f32 = 0.1;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +321,32 @@ mod tests {
         // Runtime check needed for floating point arithmetic
         let sum = TRIMODAL_SEMANTIC_WEIGHT + TRIMODAL_LEXICAL_WEIGHT + TRIMODAL_GRAPH_WEIGHT;
         assert!((sum - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn health_weights_sum_to_100() {
+        let sum = HEALTH_WEIGHT_STALE + HEALTH_WEIGHT_UNLINKED + HEALTH_WEIGHT_UNTAGGED;
+        assert!((sum - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn detection_confidence_ordered() {
+        // Runtime check needed for floating point comparisons
+        let values = [
+            DETECT_CONFIDENCE_DEFAULT,
+            DETECT_CONFIDENCE_CONTENT,
+            DETECT_CONFIDENCE_EXTENSION,
+            DETECT_CONFIDENCE_MIME,
+            DETECT_CONFIDENCE_FILENAME,
+        ];
+        for w in values.windows(2) {
+            assert!(
+                w[0] < w[1] || (w[0] - w[1]).abs() < f32::EPSILON,
+                "Expected {} < {}",
+                w[0],
+                w[1]
+            );
+        }
     }
 
     #[test]

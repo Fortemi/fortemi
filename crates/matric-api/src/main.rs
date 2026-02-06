@@ -489,8 +489,14 @@ async fn main() -> anyhow::Result<()> {
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
 
+    // Read event bus capacity from env var with fallback
+    let event_bus_capacity = std::env::var("MATRIC_EVENT_BUS_CAPACITY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(matric_core::defaults::EVENT_BUS_CAPACITY);
+
     // Create the event bus (Issue #38)
-    let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
+    let event_bus = Arc::new(EventBus::new(event_bus_capacity));
 
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
@@ -600,6 +606,12 @@ async fn main() -> anyhow::Result<()> {
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
     };
+
+    // Read max body size from env var with fallback
+    let max_body_size = std::env::var("MATRIC_MAX_BODY_SIZE_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(matric_core::defaults::MAX_BODY_SIZE_BYTES);
 
     // Build router
     let app = Router::new()
@@ -984,9 +996,7 @@ async fn main() -> anyhow::Result<()> {
                 ))
         })
         // Allow up to 2GB uploads for database backups and knowledge shards
-        .layer(RequestBodyLimitLayer::new(
-            matric_core::defaults::MAX_BODY_SIZE_BYTES,
-        )) // 2 GB
+        .layer(RequestBodyLimitLayer::new(max_body_size)) // 2 GB
         .with_state(state);
 
     // Start server
@@ -1245,10 +1255,13 @@ async fn sse_events(
 
 /// Webhook dispatcher: subscribes to EventBus and delivers matching events to webhooks.
 async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
+    let webhook_timeout = std::env::var("MATRIC_WEBHOOK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(matric_core::defaults::WEBHOOK_TIMEOUT_SECS);
+
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(
-            matric_core::defaults::WEBHOOK_TIMEOUT_SECS,
-        ))
+        .timeout(std::time::Duration::from_secs(webhook_timeout))
         .build()
         .unwrap_or_default();
 
@@ -1519,6 +1532,11 @@ async fn test_webhook(
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Webhook {} not found", id)))?;
 
+    let webhook_timeout = std::env::var("MATRIC_WEBHOOK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(matric_core::defaults::WEBHOOK_TIMEOUT_SECS);
+
     let test_event = ServerEvent::QueueStatus {
         total_jobs: 0,
         running: 0,
@@ -1527,9 +1545,7 @@ async fn test_webhook(
     let payload = serde_json::to_value(&test_event).unwrap_or_default();
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(
-            matric_core::defaults::WEBHOOK_TIMEOUT_SECS,
-        ))
+        .timeout(std::time::Duration::from_secs(webhook_timeout))
         .build()
         .unwrap_or_default();
 
@@ -2000,8 +2016,10 @@ async fn get_knowledge_health(
         let unlinked_ratio = unlinked_count as f64 / total_notes as f64;
         let untagged_ratio = notes_without_tags as f64 / total_notes as f64;
 
-        let score =
-            100.0 - (stale_ratio * 30.0) - (unlinked_ratio * 40.0) - (untagged_ratio * 30.0);
+        let score = 100.0
+            - (stale_ratio * matric_core::defaults::HEALTH_WEIGHT_STALE)
+            - (unlinked_ratio * matric_core::defaults::HEALTH_WEIGHT_UNLINKED)
+            - (untagged_ratio * matric_core::defaults::HEALTH_WEIGHT_UNTAGGED);
         score.clamp(0.0, 100.0) as i64
     } else {
         100
