@@ -51,15 +51,20 @@ jobs:
           docker build -f build/Dockerfile.testdb -t matric-testdb:local .
           echo "Built testdb image for testing"
 
-  # Fast unit tests (no database required)
+  # Fast unit tests (with database - lib tests include DB integration tests)
   fast-tests:
     name: Fast Unit Tests
     runs-on: matric-builder
+    needs: [build-testdb]
     steps:
       - name: Checkout
         run: |
           git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
           git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Build testdb image
+        run: |
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
 
       - name: Cache cargo registry
         uses: https://github.com/actions/cache@v3
@@ -77,13 +82,55 @@ jobs:
           restore-keys: |
             ${{ env.CACHE_VERSION }}-cargo-build-fast-
 
+      - name: Setup PostgreSQL
+        run: |
+          set -e
+          DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
+          DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
+          echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
+          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
+
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+          docker run -d --name ${DB_CONTAINER} \
+            -p ${DB_PORT}:5432 \
+            -e POSTGRES_USER=matric \
+            -e POSTGRES_PASSWORD=matric \
+            -e POSTGRES_DB=matric_test \
+            matric-testdb:local
+
+          for i in {1..30}; do
+            if docker exec ${DB_CONTAINER} pg_isready -U matric 2>/dev/null; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: |
+          DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
+          for f in migrations/*.sql; do
+            echo "Running migration: $f"
+            docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
+          done
+
       - name: Run fast tests
         run: |
+          DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
           # Run lib tests and doc tests separately (can't mix --lib and --doc)
           cargo test --lib --workspace
           cargo test --doc --workspace
-        env:
-          SKIP_INTEGRATION_TESTS: "1"
+
+      - name: Teardown PostgreSQL
+        if: always()
+        run: |
+          DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
+          docker stop ${DB_CONTAINER} 2>/dev/null || true
+          docker rm ${DB_CONTAINER} 2>/dev/null || true
 
   # Integration tests (with database)
   integration-tests:
