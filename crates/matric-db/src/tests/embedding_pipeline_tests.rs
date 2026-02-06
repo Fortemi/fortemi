@@ -1,8 +1,8 @@
 //! Integration tests for embedding pipeline fixes (#217, #220, #226, #272, #214)
 //!
-//! These tests require a running PostgreSQL database and should be run with:
+//! These tests require a running PostgreSQL database with DATABASE_URL set:
 //! ```
-//! cargo test -p matric-db -- --ignored
+//! cargo test -p matric-db
 //! ```
 //!
 //! Prerequisites:
@@ -19,4 +19,4 @@
 //! See the migration `20260205000000_fix_embedding_pipeline.sql` for implementation details.
 
 // Integration tests are in the tests/ directory and require a database connection.
-// Run them with: cargo test -p matric-db --test '*' -- --ignored
+// Run them with: cargo test -p matric-db

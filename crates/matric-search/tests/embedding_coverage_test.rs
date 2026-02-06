@@ -204,7 +204,6 @@ fn test_index_status_transition_logic() {
 /// 3. Semantic search for 'quantum physics'
 /// 4. Verify only embedded notes appear in results
 #[test]
-#[ignore] // Requires database
 fn test_semantic_search_only_returns_embedded_documents() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -239,7 +238,6 @@ fn test_semantic_search_only_returns_embedded_documents() {
 /// 2. Search same query with mode='fts' and mode='semantic'
 /// 3. Verify FTS results >= semantic results
 #[test]
-#[ignore] // Requires database
 fn test_fts_returns_more_results_than_semantic_when_partial_coverage() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -272,7 +270,6 @@ fn test_fts_returns_more_results_than_semantic_when_partial_coverage() {
 /// 3. Some non-embedded notes match lexically
 /// 4. Hybrid mode should find both types
 #[test]
-#[ignore] // Requires database
 fn test_hybrid_search_includes_both_fts_and_semantic_matches() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -309,7 +306,6 @@ fn test_hybrid_search_includes_both_fts_and_semantic_matches() {
 /// 1. Query coverage statistics for embedding set
 /// 2. Verify accurate counts and percentages
 #[test]
-#[ignore] // Requires database
 fn test_coverage_status_reporting() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -340,7 +336,6 @@ fn test_coverage_status_reporting() {
 /// 2. Add document matching criteria
 /// 3. Verify document is automatically added to set
 #[test]
-#[ignore] // Requires database
 fn test_auto_embed_rule_adds_matching_documents() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -369,7 +364,6 @@ fn test_auto_embed_rule_adds_matching_documents() {
 /// 1. Execute semantic search on set with low coverage
 /// 2. Check if metadata includes coverage warning
 #[test]
-#[ignore] // Requires database
 fn test_coverage_warning_in_search_results() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -393,7 +387,6 @@ fn test_coverage_warning_in_search_results() {
 
 /// Test index status behavior with empty embedding set.
 #[test]
-#[ignore] // Requires database
 fn test_empty_embedding_set_status() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -409,7 +402,6 @@ fn test_empty_embedding_set_status() {
 
 /// Test index status transitions from pending to ready.
 #[test]
-#[ignore] // Requires database
 fn test_index_status_pending_to_ready() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -430,7 +422,6 @@ fn test_index_status_pending_to_ready() {
 
 /// Test index status transitions from ready to stale.
 #[test]
-#[ignore] // Requires database
 fn test_index_status_ready_to_stale() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -446,7 +437,6 @@ fn test_index_status_ready_to_stale() {
 
 /// Test disabled index status for small sets.
 #[test]
-#[ignore] // Requires database
 fn test_index_status_disabled_for_small_sets() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -549,7 +539,6 @@ fn test_coverage_thresholds() {
 // ============================================================================
 
 #[test]
-#[ignore] // Requires database
 fn test_semantic_search_with_zero_coverage() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -566,7 +555,6 @@ fn test_semantic_search_with_zero_coverage() {
 }
 
 #[test]
-#[ignore] // Requires database
 fn test_search_with_building_index() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -584,7 +572,6 @@ fn test_search_with_building_index() {
 }
 
 #[test]
-#[ignore] // Requires database
 fn test_search_with_stale_index() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -607,7 +594,6 @@ fn test_search_with_stale_index() {
 // ============================================================================
 
 #[test]
-#[ignore] // Requires database and may be slow
 fn test_coverage_calculation_performance() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -618,7 +604,6 @@ fn test_coverage_calculation_performance() {
 }
 
 #[test]
-#[ignore] // Requires database
 fn test_partial_coverage_search_performance() {
     // TODO: Implement once database test infrastructure is available
     //

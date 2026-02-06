@@ -3,12 +3,9 @@
 //! Tests spatial and temporal queries on file provenance data using PostGIS
 //! and W3C PROV extensions.
 //!
-//! **IMPORTANT**: These tests require a fully migrated PostgreSQL database with:
-//! - Base schema (notes, attachments, etc.)
-//! - PostGIS extension
-//! - W3C PROV temporal-spatial schema (migration 20260204100000)
-//!
-//! Run migrations first: `sqlx migrate run`
+//! Requires a migrated PostgreSQL database with PostGIS extension and
+//! W3C PROV temporal-spatial schema. DATABASE_URL must be set.
+//! These tests run as regular integration tests in CI.
 
 use chrono::{Duration, Utc};
 use matric_db::Database;
@@ -170,7 +167,6 @@ async fn cleanup_test_data(pool: &PgPool, note_id: Uuid, attachment_id: Uuid) {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database with PostGIS and W3C PROV schema"]
 async fn test_search_by_location() {
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
@@ -235,7 +231,6 @@ async fn test_search_by_location() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database with PostGIS and W3C PROV schema"]
 async fn test_search_by_timerange() {
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
@@ -297,7 +292,6 @@ async fn test_search_by_timerange() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database with PostGIS and W3C PROV schema"]
 async fn test_search_by_location_and_time() {
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
@@ -378,7 +372,6 @@ async fn test_search_by_location_and_time() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database with PostGIS and W3C PROV schema"]
 async fn test_get_memory_provenance() {
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());
@@ -458,7 +451,6 @@ async fn test_get_memory_provenance() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database with PostGIS and W3C PROV schema"]
 async fn test_search_ordering_by_distance() {
     let pool = setup_test_db().await;
     let db = Database::new(pool.clone());

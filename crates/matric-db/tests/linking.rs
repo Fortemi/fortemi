@@ -368,7 +368,6 @@ fn test_link_score_range() {
 
 /// Link-001: Test that similar notes create automatic links above threshold.
 #[test]
-#[ignore] // Requires database
 fn test_similar_notes_create_links() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -391,7 +390,6 @@ fn test_similar_notes_create_links() {
 
 /// Link-002: Test bidirectional link consistency.
 #[test]
-#[ignore] // Requires database
 fn test_bidirectional_link_consistency_integration() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -413,7 +411,6 @@ fn test_bidirectional_link_consistency_integration() {
 
 /// Link-003: Test link updates when content changes.
 #[test]
-#[ignore] // Requires database
 fn test_link_updates_on_content_change() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -431,7 +428,6 @@ fn test_link_updates_on_content_change() {
 
 /// Link-004: Test link threshold boundary behavior.
 #[test]
-#[ignore] // Requires database
 fn test_link_threshold_boundary() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -449,7 +445,6 @@ fn test_link_threshold_boundary() {
 
 /// Link-005: Test link score calculation accuracy.
 #[test]
-#[ignore] // Requires database
 fn test_link_score_calculation() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -467,7 +462,6 @@ fn test_link_score_calculation() {
 
 /// Link-006: Test link metadata preservation.
 #[test]
-#[ignore] // Requires database
 fn test_link_metadata_preservation() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -485,7 +479,6 @@ fn test_link_metadata_preservation() {
 
 /// Link-007: Test link deletion cascades when note is deleted.
 #[test]
-#[ignore] // Requires database
 fn test_link_deletion_cascade() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -506,7 +499,6 @@ fn test_link_deletion_cascade() {
 
 /// Test link creation with multiple similar notes.
 #[test]
-#[ignore] // Requires database
 fn test_multiple_similar_notes_linking() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -522,7 +514,6 @@ fn test_multiple_similar_notes_linking() {
 
 /// Test link creation with no similar notes.
 #[test]
-#[ignore] // Requires database
 fn test_no_similar_notes_no_links() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -536,7 +527,6 @@ fn test_no_similar_notes_no_links() {
 
 /// Test link update maintains bidirectionality.
 #[test]
-#[ignore] // Requires database
 fn test_link_update_bidirectionality() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -553,7 +543,6 @@ fn test_link_update_bidirectionality() {
 
 /// Test link performance with large number of notes.
 #[test]
-#[ignore] // Requires database and may be slow
 fn test_link_creation_performance() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -572,7 +561,6 @@ fn test_link_creation_performance() {
 
 /// Test concurrent link operations.
 #[test]
-#[ignore] // Requires database
 fn test_concurrent_link_operations() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -591,7 +579,6 @@ fn test_concurrent_link_operations() {
 
 /// Test link query ordering by score.
 #[test]
-#[ignore] // Requires database
 fn test_link_query_ordering() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -611,7 +598,6 @@ fn test_link_query_ordering() {
 
 /// Test link pagination.
 #[test]
-#[ignore] // Requires database
 fn test_link_pagination() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -634,7 +620,6 @@ fn test_link_pagination() {
 
 /// Test link creation with invalid note IDs.
 #[test]
-#[ignore] // Requires database
 fn test_link_creation_invalid_note_id() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -648,7 +633,6 @@ fn test_link_creation_invalid_note_id() {
 
 /// Test link creation with self-reference.
 #[test]
-#[ignore] // Requires database
 fn test_link_creation_self_reference() {
     // TODO: Implement once database test infrastructure is available
     //
@@ -662,7 +646,6 @@ fn test_link_creation_self_reference() {
 
 /// Test duplicate link prevention.
 #[test]
-#[ignore] // Requires database
 fn test_duplicate_link_prevention() {
     // TODO: Implement once database test infrastructure is available
     //

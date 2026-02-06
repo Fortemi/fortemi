@@ -20,7 +20,6 @@ async fn get_test_pool() -> PgPool {
 
 /// Test that code embedding configurations exist with correct properties.
 #[tokio::test]
-#[ignore] // Requires database connection with migrations applied
 async fn test_code_embedding_configs_exist() {
     let pool = get_test_pool().await;
 
@@ -115,7 +114,6 @@ async fn test_code_embedding_configs_exist() {
 
 /// Test that code embedding configs are not set as default.
 #[tokio::test]
-#[ignore] // Requires database connection
 async fn test_code_configs_not_default() {
     let pool = get_test_pool().await;
 
@@ -144,7 +142,6 @@ async fn test_code_configs_not_default() {
 
 /// Test that document types are linked to appropriate embedding configs.
 #[tokio::test]
-#[ignore] // Requires database connection
 async fn test_document_type_config_links() {
     let pool = get_test_pool().await;
 
@@ -256,7 +253,6 @@ async fn test_document_type_config_links() {
 
 /// Test that chunk sizes are appropriate for code.
 #[tokio::test]
-#[ignore] // Requires database connection
 async fn test_code_config_chunk_sizes() {
     let pool = get_test_pool().await;
 
@@ -312,7 +308,6 @@ async fn test_code_config_chunk_sizes() {
 
 /// Test that content_types field supports GIN index queries.
 #[tokio::test]
-#[ignore] // Requires database connection
 async fn test_content_types_gin_index() {
     let pool = get_test_pool().await;
 

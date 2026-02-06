@@ -12,7 +12,7 @@ cargo test --test embedding_coverage_test
 Run integration tests (requires database):
 ```bash
 export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
-cargo test --test embedding_coverage_test -- --ignored
+cargo test --test embedding_coverage_test
 ```
 
 ## Test Results Summary
@@ -217,11 +217,8 @@ cargo test --test embedding_coverage_test test_index_status_from_str_valid
 # Run with output
 cargo test --test embedding_coverage_test -- --nocapture
 
-# Run ignored tests (integration tests)
-cargo test --test embedding_coverage_test -- --ignored
-
-# Run all tests including ignored
-cargo test --test embedding_coverage_test -- --include-ignored
+# Run all tests
+cargo test --test embedding_coverage_test
 ```
 
 ## CI Integration
@@ -239,7 +236,7 @@ Unit tests run automatically via git hooks:
   run: cargo test --test embedding_coverage_test
 
 - name: Run integration tests
-  run: cargo test --test embedding_coverage_test -- --ignored
+  run: cargo test --test embedding_coverage_test
   env:
     DATABASE_URL: postgres://test:test@localhost/matric_test
 ```

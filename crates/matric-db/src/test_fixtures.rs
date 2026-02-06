@@ -277,7 +277,7 @@ impl<'a> TestDataBuilder<'a> {
                 .db
                 .skos_tags
                 .create_scheme(CreateConceptSchemeRequest {
-                    notation: "test".to_string(),
+                    notation: format!("test-{}", Uuid::new_v4()),
                     title: "Test Scheme".to_string(),
                     uri: None,
                     description: Some("Default test scheme".to_string()),
@@ -352,14 +352,15 @@ pub struct TestData {
 
 /// Seed minimal test data for basic operations.
 pub async fn seed_minimal_data(db: &TestDb) -> TestData {
+    let uid = Uuid::new_v4();
     TestDataBuilder::new(db)
         .with_note("Test note 1")
         .await
         .with_note("Test note 2")
         .await
-        .with_concept("TestConcept", None)
+        .with_concept(&format!("TestConcept-{uid}"), None)
         .await
-        .with_collection("TestCollection", None)
+        .with_collection(&format!("TestCollection-{uid}"), None)
         .await
         .build()
         .await
@@ -410,7 +411,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires DATABASE_URL with migrated database
     async fn test_database_creation() {
         let test_db = TestDatabase::new().await;
         assert!(test_db.pool.size() > 0);
@@ -418,7 +418,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires DATABASE_URL with migrated database
     async fn test_data_builder_notes() {
         let test_db = TestDatabase::new().await;
         let data = TestDataBuilder::new(&test_db.db)
@@ -434,7 +433,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires DATABASE_URL with migrated database
     async fn test_seed_minimal_data() {
         let test_db = TestDatabase::new().await;
         let data = seed_minimal_data(&test_db.db).await;
@@ -447,7 +445,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires DATABASE_URL with migrated database
     async fn test_seed_search_corpus() {
         let test_db = TestDatabase::new().await;
         let data = seed_search_corpus(&test_db.db).await;

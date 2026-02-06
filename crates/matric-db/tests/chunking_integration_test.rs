@@ -187,7 +187,6 @@ impl TestContext {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_large_document_creates_chunk_chain() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -248,7 +247,6 @@ async fn test_large_document_creates_chunk_chain() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_chunk_metadata_structure() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -295,7 +293,6 @@ async fn test_chunk_metadata_structure() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_single_chunk_document() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -324,7 +321,6 @@ async fn test_single_chunk_document() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_full_document_reconstruction() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -398,7 +394,6 @@ async fn test_full_document_reconstruction() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_reconstruction_missing_chunk() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -436,7 +431,6 @@ async fn test_reconstruction_missing_chunk() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_search_query_matches_multiple_chunks() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -524,7 +518,6 @@ async fn test_search_query_matches_multiple_chunks() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_deduplication_keeps_highest_score() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -591,7 +584,6 @@ async fn test_deduplication_keeps_highest_score() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_document_at_exact_threshold() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -622,7 +614,6 @@ async fn test_document_at_exact_threshold() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_empty_chunk_content() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -648,7 +639,6 @@ async fn test_empty_chunk_content() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_unicode_content_in_chunks() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -679,7 +669,6 @@ async fn test_unicode_content_in_chunks() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_large_number_of_chunks() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -723,7 +712,6 @@ async fn test_large_number_of_chunks() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_chunk_with_special_characters() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();
@@ -754,7 +742,6 @@ async fn test_chunk_with_special_characters() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated database"]
 async fn test_chunk_metadata_indexing() {
     let ctx = TestContext::new().await;
     let chain_id = Uuid::new_v4();

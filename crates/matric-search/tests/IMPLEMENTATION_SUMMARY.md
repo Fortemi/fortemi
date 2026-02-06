@@ -29,7 +29,7 @@
 #### Integration Tests (Skeletons Complete)
 - ✅ 15 integration test skeletons with detailed implementation plans
 - ⏳ Implementation requires database test infrastructure (Phase 2)
-- ✅ All integration tests marked with `#[ignore]` for future implementation
+- ✅ All integration tests run as part of the standard test suite
 
 ### 📊 Test Coverage by UAT Case
 

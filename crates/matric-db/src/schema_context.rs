@@ -220,7 +220,6 @@ mod tests {
 
     // Integration tests that require a real database connection
     #[tokio::test]
-    #[ignore] // Requires database connection
     async fn test_schema_context_sets_search_path() {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| crate::test_fixtures::DEFAULT_TEST_DATABASE_URL.to_string());
@@ -269,7 +268,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires database connection
     async fn test_schema_context_transaction_rollback_on_error() {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| crate::test_fixtures::DEFAULT_TEST_DATABASE_URL.to_string());
@@ -327,7 +325,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires database connection
     async fn test_schema_context_query_method() {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| crate::test_fixtures::DEFAULT_TEST_DATABASE_URL.to_string());

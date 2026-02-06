@@ -98,7 +98,6 @@ async fn test_database_default_schema() {
 
 // Integration test requiring a real database connection
 #[tokio::test]
-#[ignore] // Only run with --ignored flag and database available
 async fn test_schema_context_sets_search_path() {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
@@ -146,7 +145,6 @@ async fn test_schema_context_sets_search_path() {
 }
 
 #[tokio::test]
-#[ignore] // Only run with --ignored flag and database available
 async fn test_schema_context_transaction_commit() {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
@@ -203,7 +201,6 @@ async fn test_schema_context_transaction_commit() {
 }
 
 #[tokio::test]
-#[ignore] // Only run with --ignored flag and database available
 async fn test_schema_context_transaction_rollback() {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());

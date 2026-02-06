@@ -64,16 +64,16 @@ The `chunking_integration_test.rs` file provides comprehensive integration tests
 ### Running All Tests
 
 ```bash
-# Run all chunking integration tests (without ignore)
-cargo test --package matric-db --test chunking_integration_test -- --ignored
+# Run all chunking integration tests
+cargo test --package matric-db --test chunking_integration_test
 
 # Run specific test
-cargo test --package matric-db --test chunking_integration_test test_large_document_creates_chunk_chain -- --ignored
+cargo test --package matric-db --test chunking_integration_test test_large_document_creates_chunk_chain
 ```
 
 ### Test Execution Notes
 
-- All tests are marked with `#[ignore = "requires migrated database"]`
+- Tests require DATABASE_URL pointing to a migrated PostgreSQL database
 - Tests clean up after themselves (delete test data)
 - Tests use real database transactions (not mocked)
 - Each test is isolated and can run independently

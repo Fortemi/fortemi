@@ -45,7 +45,7 @@ cargo test --test embedding_coverage_test
 
 ### Integration Tests (Database Required)
 
-These tests require a PostgreSQL database with pgvector extension and are marked with `#[ignore]`:
+These tests require a PostgreSQL database with pgvector extension:
 
 - **Semantic Search Coverage** (EMB-006)
   - Only embedded documents returned
@@ -83,7 +83,7 @@ Run integration tests:
 ```bash
 # Setup test database first
 export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
-cargo test --test embedding_coverage_test -- --ignored
+cargo test --test embedding_coverage_test
 ```
 
 ## Test Data

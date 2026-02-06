@@ -43,7 +43,7 @@ fn test_parse_query() {
 
 ### Integration Tests
 
-Integration tests require a PostgreSQL database with pgvector extension.
+Integration tests require a PostgreSQL database with pgvector and PostGIS extensions.
 
 ```bash
 # Run integration tests
@@ -299,8 +299,7 @@ gh workflow run test.yml -f test_category=all
 
 ### Environment Variables
 
-- `DATABASE_URL` - PostgreSQL connection string
-- `SKIP_INTEGRATION_TESTS` - Skip tests requiring database
+- `DATABASE_URL` - PostgreSQL connection string (must point to a database with pgvector and PostGIS extensions)
 - `RUST_BACKTRACE` - Enable backtraces (1 or full)
 - `CARGO_TERM_COLOR` - Enable colored output
 
@@ -619,8 +618,9 @@ pg_isready
 # Check connection string
 export DATABASE_URL="postgres://matric:matric@localhost/matric_test"
 
-# Verify pgvector extension
+# Verify pgvector and PostGIS extensions
 psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS vector;"
+psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 ```
 
 ## Performance Tips

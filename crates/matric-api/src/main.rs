@@ -89,13 +89,18 @@ impl MakeRequestId for MakeRequestUuidV7 {
 /// - Any operation that modifies content requiring re-indexing
 ///
 /// Uses deduplicated queuing to prevent duplicate jobs for the same note/type.
-async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: RevisionMode) {
+async fn queue_nlp_pipeline(
+    db: &Database,
+    note_id: Uuid,
+    revision_mode: RevisionMode,
+    event_bus: &EventBus,
+) {
     // Queue AI revision with mode in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
         let payload = serde_json::json!({
             "revision_mode": revision_mode
         });
-        let _ = db
+        if let Ok(Some(job_id)) = db
             .jobs
             .queue_deduplicated(
                 Some(note_id),
@@ -103,7 +108,14 @@ async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: Revisio
                 JobType::AiRevision.default_priority(),
                 Some(payload),
             )
-            .await;
+            .await
+        {
+            event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::AiRevision),
+                note_id: Some(note_id),
+            });
+        }
     }
 
     // Queue remaining pipeline jobs (always run these)
@@ -113,10 +125,17 @@ async fn queue_nlp_pipeline(db: &Database, note_id: Uuid, revision_mode: Revisio
         JobType::Linking,
         JobType::ConceptTagging, // SKOS auto-tagging
     ] {
-        let _ = db
+        if let Ok(Some(job_id)) = db
             .jobs
             .queue_deduplicated(Some(note_id), job_type, job_type.default_priority(), None)
-            .await;
+            .await
+        {
+            event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", job_type),
+                note_id: Some(note_id),
+            });
+        }
     }
 }
 use matric_api::services::TagResolver;
@@ -624,6 +643,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/versions/diff", get(diff_note_versions))
         // Search
         .route("/api/v1/search", get(search_notes))
+        // Memory search (spatial/temporal provenance)
+        .route("/api/v1/memories/search", get(search_memories))
+        .route(
+            "/api/v1/notes/:id/memory-provenance",
+            get(get_memory_provenance_handler),
+        )
         // Temporal queries
         .route("/api/v1/notes/timeline", get(get_notes_timeline))
         .route("/api/v1/notes/activity", get(get_notes_activity))
@@ -2371,7 +2396,7 @@ async fn create_note(
     }
 
     // Queue NLP pipeline (AI revision only if not "none", but always embedding/title/linking)
-    queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
+    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
 
     // Emit NoteUpdated event (Issue #41)
     let tags_for_event = state
@@ -2476,7 +2501,7 @@ async fn bulk_create_notes(
                 .await;
         }
 
-        queue_nlp_pipeline(&state.db, *note_id, revision_mode).await;
+        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus).await;
     }
 
     Ok((
@@ -2548,7 +2573,7 @@ async fn update_note(
             }
         }
 
-        queue_nlp_pipeline(&state.db, id, revision_mode).await;
+        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
     }
 
     // Fetch and return the updated note
@@ -2596,6 +2621,12 @@ async fn purge_note(
             None,
         )
         .await?;
+
+    state.event_bus.emit(ServerEvent::JobQueued {
+        job_id,
+        job_type: format!("{:?}", JobType::PurgeNote),
+        note_id: Some(id),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "queued",
@@ -2645,7 +2676,7 @@ async fn restore_note(
     };
 
     // Re-run NLP pipeline to ensure note is properly indexed
-    queue_nlp_pipeline(&state.db, id, revision_mode).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2674,7 +2705,7 @@ async fn reprocess_note(
     };
 
     // Queue full NLP pipeline
-    queue_nlp_pipeline(&state.db, id, revision_mode).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
 
     let jobs_queued = if revision_mode == RevisionMode::None {
         vec!["embedding", "title_generation", "linking"]
@@ -3642,7 +3673,7 @@ async fn instantiate_template(
         Some("light") => RevisionMode::Light,
         _ => RevisionMode::Full,
     };
-    queue_nlp_pipeline(&state.db, note_id, revision_mode).await;
+    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
 
     Ok((
         StatusCode::CREATED,
@@ -3708,6 +3739,119 @@ async fn get_note_provenance(
         "derived_notes": derived,
         "derived_count": derived.len()
     })))
+}
+
+// =============================================================================
+// MEMORY SEARCH HANDLERS (Spatial/Temporal Provenance)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+struct MemorySearchQuery {
+    /// Latitude in decimal degrees (-90 to 90)
+    lat: Option<f64>,
+    /// Longitude in decimal degrees (-180 to 180)
+    lon: Option<f64>,
+    /// Search radius in meters (default: 1000)
+    radius: Option<f64>,
+    /// Start of time range (ISO 8601)
+    start: Option<crate::query_types::FlexibleDateTime>,
+    /// End of time range (ISO 8601)
+    end: Option<crate::query_types::FlexibleDateTime>,
+}
+
+/// Search memories by location, time, or both.
+///
+/// Query parameter combinations:
+/// - `lat` + `lon` + `radius` → spatial search (nearest memories)
+/// - `start` + `end` → temporal search (memories in time range)
+/// - All five → combined spatial + temporal search
+async fn search_memories(
+    State(state): State<AppState>,
+    Query(query): Query<MemorySearchQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let has_location = query.lat.is_some() && query.lon.is_some();
+    let has_time = query.start.is_some() && query.end.is_some();
+
+    if !has_location && !has_time {
+        return Err(ApiError::BadRequest(
+            "At least one search dimension required. Provide lat+lon for spatial search, \
+             start+end for temporal search, or all for combined search."
+                .to_string(),
+        ));
+    }
+
+    if has_location && has_time {
+        // Combined spatial + temporal search
+        let lat = query.lat.unwrap();
+        let lon = query.lon.unwrap();
+        let radius = query.radius.unwrap_or(1000.0);
+        let start = query.start.unwrap().into_inner();
+        let end = query.end.unwrap().into_inner();
+
+        let results = state
+            .db
+            .memory_search
+            .search_by_location_and_time(lat, lon, radius, start, end)
+            .await?;
+
+        Ok(Json(serde_json::json!({
+            "mode": "combined",
+            "results": results,
+            "count": results.len()
+        })))
+    } else if has_location {
+        // Spatial-only search
+        let lat = query.lat.unwrap();
+        let lon = query.lon.unwrap();
+        let radius = query.radius.unwrap_or(1000.0);
+
+        let results = state
+            .db
+            .memory_search
+            .search_by_location(lat, lon, radius)
+            .await?;
+
+        Ok(Json(serde_json::json!({
+            "mode": "location",
+            "results": results,
+            "count": results.len()
+        })))
+    } else {
+        // Temporal-only search
+        let start = query.start.unwrap().into_inner();
+        let end = query.end.unwrap().into_inner();
+
+        let results = state
+            .db
+            .memory_search
+            .search_by_timerange(start, end)
+            .await?;
+
+        Ok(Json(serde_json::json!({
+            "mode": "time",
+            "results": results,
+            "count": results.len()
+        })))
+    }
+}
+
+/// Get the complete file provenance chain for a note's attachments.
+///
+/// Returns temporal-spatial provenance including location, device, and
+/// capture time information for all file attachments.
+async fn get_memory_provenance_handler(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let provenance = state.db.memory_search.get_memory_provenance(id).await?;
+
+    match provenance {
+        Some(prov) => Ok(Json(serde_json::json!(prov))),
+        None => Ok(Json(serde_json::json!({
+            "note_id": id,
+            "files": []
+        }))),
+    }
 }
 
 // =============================================================================
@@ -4366,6 +4510,12 @@ async fn create_job(
         .jobs
         .queue(body.note_id, job_type, priority, body.payload)
         .await?;
+
+    state.event_bus.emit(ServerEvent::JobQueued {
+        job_id,
+        job_type: format!("{:?}", job_type),
+        note_id: body.note_id,
+    });
 
     Ok((
         StatusCode::CREATED,
@@ -5886,7 +6036,8 @@ async fn backup_import(
                     }
 
                     // Queue NLP pipeline
-                    queue_nlp_pipeline(&state.db, new_id, RevisionMode::None).await;
+                    queue_nlp_pipeline(&state.db, new_id, RevisionMode::None, &state.event_bus)
+                        .await;
 
                     imported.notes += 1;
                 }
@@ -6800,8 +6951,13 @@ async fn knowledge_shard_import(
 
                                     // Queue NLP pipeline if not skipping regen
                                     if !body.skip_embedding_regen {
-                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None)
-                                            .await;
+                                        queue_nlp_pipeline(
+                                            &state.db,
+                                            new_id,
+                                            RevisionMode::None,
+                                            &state.event_bus,
+                                        )
+                                        .await;
                                     }
 
                                     imported.notes += 1;
@@ -7865,8 +8021,13 @@ async fn knowledge_shard_import_internal(
                                         }
                                     }
                                     if !body.skip_embedding_regen {
-                                        queue_nlp_pipeline(&state.db, new_id, RevisionMode::None)
-                                            .await;
+                                        queue_nlp_pipeline(
+                                            &state.db,
+                                            new_id,
+                                            RevisionMode::None,
+                                            &state.event_bus,
+                                        )
+                                        .await;
                                     }
                                     imported.notes += 1;
                                 }
@@ -10689,7 +10850,13 @@ mod tests {
         let has_job_started = events.iter().any(|e| e["type"] == "JobStarted");
         let has_job_progress = events.iter().any(|e| e["type"] == "JobProgress");
         let has_job_completed = events.iter().any(|e| e["type"] == "JobCompleted");
+        let has_job_queued = events.iter().any(|e| e["type"] == "JobQueued");
 
+        assert!(
+            has_job_queued,
+            "Missing JobQueued event. Events: {:?}",
+            events
+        );
         assert!(
             has_note_updated,
             "Missing NoteUpdated event. Events: {:?}",
@@ -10764,5 +10931,593 @@ mod tests {
         assert_eq!(failed["job_id"], job_id.to_string());
         assert_eq!(failed["error"], "test inference timeout");
         assert_eq!(failed["job_type"], "Embedding");
+    }
+
+    // =========================================================================
+    // Memory Search endpoint tests
+    // =========================================================================
+
+    /// Spawn a memory search test server. Returns (base_url, pool) so E2E tests
+    /// can insert spatial data and verify HTTP results.
+    async fn spawn_memory_search_test_server() -> (String, sqlx::PgPool) {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+        let db = Database::new(pool.clone());
+        let event_bus = Arc::new(EventBus::new(16));
+        let ws_connections = Arc::new(AtomicUsize::new(0));
+
+        let state = AppState {
+            db,
+            search: Arc::new(matric_search::HybridSearchEngine::new(Database::new(
+                pool.clone(),
+            ))),
+            issuer: "http://localhost:3000".to_string(),
+            rate_limiter: None,
+            tag_resolver: matric_api::services::TagResolver::new(Database::new(pool.clone())),
+            search_cache: matric_api::services::SearchCache::disabled(),
+            event_bus,
+            ws_connections,
+        };
+
+        let router = Router::new()
+            .route("/api/v1/memories/search", get(search_memories))
+            .route(
+                "/api/v1/notes/:id/memory-provenance",
+                get(get_memory_provenance_handler),
+            )
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{}", addr);
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        (base_url, pool)
+    }
+
+    /// Helper: insert a test note + attachment + spatial provenance.
+    /// Returns (note_id, attachment_id) for cleanup.
+    async fn insert_spatial_provenance(
+        pool: &sqlx::PgPool,
+        lat: f64,
+        lon: f64,
+        capture_time: chrono::DateTime<chrono::Utc>,
+    ) -> (Uuid, Uuid) {
+        let note_id = Uuid::new_v4();
+        let blob_id = Uuid::new_v4();
+        let attachment_id = Uuid::new_v4();
+        let unique_hash = format!("hash-{}", note_id);
+        let unique_blob_hash = format!("blob-{}", blob_id);
+
+        // Create note
+        sqlx::query(
+            "INSERT INTO note (id, format, source, created_at_utc, updated_at_utc)
+             VALUES ($1, 'markdown', 'test', NOW(), NOW())",
+        )
+        .bind(note_id)
+        .execute(pool)
+        .await
+        .expect("insert note");
+
+        sqlx::query(
+            "INSERT INTO note_original (note_id, content, hash) VALUES ($1, 'E2E spatial test', $2)",
+        )
+        .bind(note_id)
+        .bind(&unique_hash)
+        .execute(pool)
+        .await
+        .expect("insert note_original");
+
+        sqlx::query(
+            "INSERT INTO note_revised_current (note_id, content) VALUES ($1, 'E2E spatial test')",
+        )
+        .bind(note_id)
+        .execute(pool)
+        .await
+        .expect("insert note_revised_current");
+
+        // Create attachment
+        sqlx::query(
+            "INSERT INTO attachment_blob (id, content_hash, content_type, size_bytes, data)
+             VALUES ($1, $2, 'image/jpeg', 1024, 'testdata')",
+        )
+        .bind(blob_id)
+        .bind(&unique_blob_hash)
+        .execute(pool)
+        .await
+        .expect("insert blob");
+
+        sqlx::query(
+            "INSERT INTO attachment (id, note_id, blob_id, filename) VALUES ($1, $2, $3, 'test.jpg')",
+        )
+        .bind(attachment_id)
+        .bind(note_id)
+        .bind(blob_id)
+        .execute(pool)
+        .await
+        .expect("insert attachment");
+
+        // Create location
+        let location_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO prov_location (point, source, confidence)
+             VALUES (ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 'gps_exif', 'high')
+             RETURNING id",
+        )
+        .bind(lon)
+        .bind(lat)
+        .fetch_one(pool)
+        .await
+        .expect("insert location");
+
+        // Create file provenance
+        sqlx::query(
+            "INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
+             VALUES ($1, $2, tstzrange($3, $3, '[]'), 'photo', 'high')",
+        )
+        .bind(attachment_id)
+        .bind(location_id)
+        .bind(capture_time)
+        .execute(pool)
+        .await
+        .expect("insert file_provenance");
+
+        (note_id, attachment_id)
+    }
+
+    /// Helper: clean up spatial test data.
+    async fn cleanup_spatial_provenance(pool: &sqlx::PgPool, note_id: Uuid, attachment_id: Uuid) {
+        let _ = sqlx::query("DELETE FROM file_provenance WHERE attachment_id = $1")
+            .bind(attachment_id)
+            .execute(pool)
+            .await;
+        let blob_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT blob_id FROM attachment WHERE id = $1")
+                .bind(attachment_id)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
+        let _ = sqlx::query("DELETE FROM attachment WHERE id = $1")
+            .bind(attachment_id)
+            .execute(pool)
+            .await;
+        if let Some(bid) = blob_id {
+            let _ = sqlx::query("DELETE FROM attachment_blob WHERE id = $1")
+                .bind(bid)
+                .execute(pool)
+                .await;
+        }
+        let _ = sqlx::query("DELETE FROM note_revised_current WHERE note_id = $1")
+            .bind(note_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM note_original WHERE note_id = $1")
+            .bind(note_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM note WHERE id = $1")
+            .bind(note_id)
+            .execute(pool)
+            .await;
+    }
+
+    /// Memory search with no params returns 400.
+    #[tokio::test]
+    async fn test_memory_search_requires_params() {
+        let (base_url, _pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!("{}/api/v1/memories/search", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 400);
+    }
+
+    /// Memory search with lat+lon returns location mode.
+    #[tokio::test]
+    async fn test_memory_search_location_mode() {
+        let (base_url, _pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=0&lon=0&radius=1000",
+                base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "location");
+        assert!(body["count"].is_number());
+        assert!(body["results"].is_array());
+    }
+
+    /// Memory search with start+end returns time mode.
+    #[tokio::test]
+    async fn test_memory_search_time_mode() {
+        let (base_url, _pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?start=2020-01-01&end=2030-01-01",
+                base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "time");
+        assert!(body["count"].is_number());
+        assert!(body["results"].is_array());
+    }
+
+    /// Memory search with all params returns combined mode.
+    #[tokio::test]
+    async fn test_memory_search_combined_mode() {
+        let (base_url, _pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=0&lon=0&radius=1000&start=2020-01-01&end=2030-01-01",
+                base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "combined");
+        assert!(body["count"].is_number());
+        assert!(body["results"].is_array());
+    }
+
+    /// Memory provenance for non-existent note returns empty files array.
+    #[tokio::test]
+    async fn test_memory_provenance_not_found() {
+        let (base_url, _pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+        let random_id = Uuid::new_v4();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/notes/{}/memory-provenance",
+                base_url, random_id
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["note_id"], random_id.to_string());
+        assert!(body["files"].is_array());
+        assert_eq!(body["files"].as_array().unwrap().len(), 0);
+    }
+
+    // =========================================================================
+    // Memory Search E2E tests (real PostGIS spatial data through HTTP API)
+    // =========================================================================
+
+    /// E2E: Insert spatial provenance at Eiffel Tower, verify location search
+    /// finds it via HTTP and does NOT find it when searching from NYC.
+    #[tokio::test]
+    async fn test_memory_search_location_e2e() {
+        let (base_url, pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+        let now = chrono::Utc::now();
+
+        // Insert provenance at Eiffel Tower (48.8584°N, 2.2945°E)
+        let (note_id, attachment_id) = insert_spatial_provenance(&pool, 48.8584, 2.2945, now).await;
+
+        // Search near Eiffel Tower (should find it)
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=48.8584&lon=2.2945&radius=1000",
+                base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "location");
+        let results = body["results"].as_array().unwrap();
+        let found = results
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            found,
+            "Expected to find attachment {} near Eiffel Tower, got: {:?}",
+            attachment_id, results
+        );
+
+        // Verify distance is small (should be ~0m since same coordinates)
+        let our_result = results
+            .iter()
+            .find(|r| r["attachment_id"] == attachment_id.to_string())
+            .unwrap();
+        let distance: f64 = our_result["distance_m"].as_f64().unwrap();
+        assert!(
+            distance < 100.0,
+            "Distance should be near 0, got {}",
+            distance
+        );
+
+        // Search from NYC (should NOT find it)
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=40.7128&lon=-74.006&radius=1000",
+                base_url
+            ))
+            .send()
+            .await
+            .unwrap();
+        let body: serde_json::Value = resp.json().await.unwrap();
+        let results = body["results"].as_array().unwrap();
+        let found_in_nyc = results
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            !found_in_nyc,
+            "Eiffel Tower attachment should NOT appear in NYC search"
+        );
+
+        cleanup_spatial_provenance(&pool, note_id, attachment_id).await;
+    }
+
+    /// E2E: Insert temporal provenance, verify time search finds it via HTTP
+    /// and excludes it for a non-overlapping time range.
+    #[tokio::test]
+    async fn test_memory_search_time_e2e() {
+        let (base_url, pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+        let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
+
+        let (note_id, attachment_id) =
+            insert_spatial_provenance(&pool, 48.8584, 2.2945, yesterday).await;
+
+        // Search time range that includes yesterday
+        let start = (chrono::Utc::now() - chrono::Duration::days(3))
+            .format("%Y-%m-%d")
+            .to_string();
+        let end = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?start={}&end={}",
+                base_url, start, end
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "time");
+        let results = body["results"].as_array().unwrap();
+        let found = results
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            found,
+            "Expected to find attachment {} in time range, got: {:?}",
+            attachment_id, results
+        );
+
+        // Search time range that excludes yesterday (5-10 days ago)
+        let old_start = (chrono::Utc::now() - chrono::Duration::days(10))
+            .format("%Y-%m-%d")
+            .to_string();
+        let old_end = (chrono::Utc::now() - chrono::Duration::days(5))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?start={}&end={}",
+                base_url, old_start, old_end
+            ))
+            .send()
+            .await
+            .unwrap();
+        let body: serde_json::Value = resp.json().await.unwrap();
+        let results = body["results"].as_array().unwrap();
+        let found_old = results
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(!found_old, "Attachment should NOT appear in old time range");
+
+        cleanup_spatial_provenance(&pool, note_id, attachment_id).await;
+    }
+
+    /// E2E: Insert provenance with location + time, verify combined search
+    /// requires BOTH dimensions to match.
+    #[tokio::test]
+    async fn test_memory_search_combined_e2e() {
+        let (base_url, pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+        let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
+
+        // Provenance at Eiffel Tower, captured yesterday
+        let (note_id, attachment_id) =
+            insert_spatial_provenance(&pool, 48.8584, 2.2945, yesterday).await;
+
+        let start = (chrono::Utc::now() - chrono::Duration::days(3))
+            .format("%Y-%m-%d")
+            .to_string();
+        let end = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+        // Combined: right place + right time → found
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=48.8584&lon=2.2945&radius=1000&start={}&end={}",
+                base_url, start, end
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["mode"], "combined");
+        let found = body["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            found,
+            "Combined search (right place + right time) should find attachment"
+        );
+
+        // Combined: wrong place + right time → NOT found
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=40.7128&lon=-74.006&radius=1000&start={}&end={}",
+                base_url, start, end
+            ))
+            .send()
+            .await
+            .unwrap();
+        let body: serde_json::Value = resp.json().await.unwrap();
+        let found = body["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            !found,
+            "Combined search (NYC + right time) should NOT find Eiffel Tower attachment"
+        );
+
+        // Combined: right place + wrong time → NOT found
+        let old_start = (chrono::Utc::now() - chrono::Duration::days(10))
+            .format("%Y-%m-%d")
+            .to_string();
+        let old_end = (chrono::Utc::now() - chrono::Duration::days(5))
+            .format("%Y-%m-%d")
+            .to_string();
+        let resp = client
+            .get(format!(
+                "{}/api/v1/memories/search?lat=48.8584&lon=2.2945&radius=1000&start={}&end={}",
+                base_url, old_start, old_end
+            ))
+            .send()
+            .await
+            .unwrap();
+        let body: serde_json::Value = resp.json().await.unwrap();
+        let found = body["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["attachment_id"] == attachment_id.to_string());
+        assert!(
+            !found,
+            "Combined search (right place + old time) should NOT find attachment"
+        );
+
+        cleanup_spatial_provenance(&pool, note_id, attachment_id).await;
+    }
+
+    /// E2E: Insert full provenance chain, verify memory-provenance endpoint
+    /// returns location and device data through HTTP.
+    #[tokio::test]
+    async fn test_memory_provenance_e2e() {
+        let (base_url, pool) = spawn_memory_search_test_server().await;
+        let client = reqwest::Client::new();
+        let now = chrono::Utc::now();
+
+        let (note_id, attachment_id) = insert_spatial_provenance(&pool, 48.8584, 2.2945, now).await;
+
+        // Add device info to the provenance record
+        let device_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO prov_agent_device (device_make, device_model)
+             VALUES ('Apple', 'iPhone 15 Pro') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("insert device");
+
+        sqlx::query(
+            "UPDATE file_provenance SET device_id = $1, event_title = 'Eiffel Tower Visit'
+             WHERE attachment_id = $2",
+        )
+        .bind(device_id)
+        .bind(attachment_id)
+        .execute(&pool)
+        .await
+        .expect("update provenance with device");
+
+        // Get provenance via HTTP
+        let resp = client
+            .get(format!(
+                "{}/api/v1/notes/{}/memory-provenance",
+                base_url, note_id
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["note_id"], note_id.to_string());
+
+        let files = body["files"].as_array().unwrap();
+        assert_eq!(
+            files.len(),
+            1,
+            "Should have exactly 1 file provenance record"
+        );
+
+        let file = &files[0];
+        assert_eq!(file["attachment_id"], attachment_id.to_string());
+        assert_eq!(file["event_type"], "photo");
+        assert_eq!(file["event_title"], "Eiffel Tower Visit");
+
+        // Verify location data is present
+        assert!(file["location"].is_object(), "Location should be present");
+        let loc = &file["location"];
+        let lat: f64 = loc["latitude"].as_f64().unwrap();
+        let lon: f64 = loc["longitude"].as_f64().unwrap();
+        assert!(
+            (lat - 48.8584).abs() < 0.001,
+            "Latitude should be ~48.8584, got {}",
+            lat
+        );
+        assert!(
+            (lon - 2.2945).abs() < 0.001,
+            "Longitude should be ~2.2945, got {}",
+            lon
+        );
+
+        // Verify device data is present
+        assert!(file["device"].is_object(), "Device should be present");
+        assert_eq!(file["device"]["device_make"], "Apple");
+        assert_eq!(file["device"]["device_model"], "iPhone 15 Pro");
+
+        // Cleanup
+        cleanup_spatial_provenance(&pool, note_id, attachment_id).await;
+        let _ = sqlx::query("DELETE FROM prov_agent_device WHERE id = $1")
+            .bind(device_id)
+            .execute(&pool)
+            .await;
     }
 }

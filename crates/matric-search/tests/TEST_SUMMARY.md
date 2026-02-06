@@ -232,7 +232,7 @@ docker run -d --name matric-test-db \
 
 # Run integration tests
 DATABASE_URL=postgres://postgres:test@localhost:5433/matric_test \
-  cargo test --ignored
+  cargo test --workspace
 ```
 
 ### Benchmarks
