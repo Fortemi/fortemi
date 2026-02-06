@@ -6,7 +6,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 ## CRITICAL: Suite Completion Requirements
 
-> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **22 phases (0-21)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
+> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **23 phases (0-21, plus sub-phases)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
 
 **Common Error**: AI agents sometimes stop at phase 9 (Edge Cases) or misinterpret phase names. The suite is NOT complete until:
 - Phase 19 (Feature Chains) completes all 48 end-to-end tests
@@ -21,34 +21,35 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
-| 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 3 | Yes |
-| 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 15 | Yes |
+| 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 3 | **Yes** |
+| 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 15 | **Yes** |
 | 2 | [CRUD Operations](phase-2-crud.md) | ~10 min | 17 | **Yes** |
 | 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
+| 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 14 | **Yes** |
 | 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
-| 4 | [Tag System](phase-4-tags.md) | ~5 min | 3 | No |
-| 5 | [Collections](phase-5-collections.md) | ~3 min | 3 | No |
-| 6 | [Semantic Links](phase-6-links.md) | ~5 min | 11 | No |
-| 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 15 | No |
-| 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | No |
-| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 3 | No |
-| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | No |
-| 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [Archives](phase-12-archives.md) | ~8 min | 18 | No |
-| 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 27 | No |
-| 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | No |
-| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | No |
-| 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | No |
+| 4 | [Tag System](phase-4-tags.md) | ~5 min | 3 | **Yes** |
+| 5 | [Collections](phase-5-collections.md) | ~3 min | 3 | **Yes** |
+| 6 | [Semantic Links](phase-6-links.md) | ~5 min | 11 | **Yes** |
+| 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 15 | **Yes** |
+| 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | **Yes** |
+| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 3 | **Yes** |
+| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | **Yes** |
+| 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | **Yes** |
+| 12 | [Archives](phase-12-archives.md) | ~8 min | 18 | **Yes** |
+| 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 27 | **Yes** |
+| 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | **Yes** |
+| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | **Yes** |
+| 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | **Yes** |
 | 17 | [OAuth & Authentication](phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
-| 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | No |
+| 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | **Yes** |
 | 19 | [Feature Chains (E2E)](phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
-| 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
+| 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | **Yes** |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 8 | **Yes** |
 
-**Total Tests**: ~420+
-**Total Estimated Duration**: 200-240 minutes (full suite)
-**Total Phases**: 22 (numbered 0-21, plus 2b and 3b sub-phases)
+**Total Tests**: ~450+
+**Total Estimated Duration**: 220-260 minutes (full suite)
+**Total Phases**: 23 (numbered 0-21, plus 2b, 2c, and 3b sub-phases)
 
 ---
 
@@ -73,7 +74,8 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Observability | 7 | 12 | 100% |
 | OAuth/Auth | 9 API endpoints | 22 | 100% |
 | Caching | 6 API endpoints | 15 | 100% |
-| **TOTAL** | **148+** | **370+** | **100%** |
+| Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
+| **TOTAL** | **148+** | **400+** | **100%** |
 
 ---
 
@@ -85,8 +87,8 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  FOUNDATION (Phases 0-3, 2b, 3b) - CRITICAL                     │
-│  System validation, seed data, CRUD, search                     │
+│  FOUNDATION (Phases 0-3, 2b, 2c, 3b) - CRITICAL                 │
+│  System validation, seed data, CRUD, attachments, search        │
 ├─────────────────────────────────────────────────────────────────┤
 │  CORE FEATURES (Phases 4-9)                                     │
 │  Tags, Collections, Links, Embeddings, Document Types, Edge     │
@@ -110,7 +112,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 1. **Generate test data** first: `cd tests/uat/data/scripts && ./generate-test-data.sh`
 2. **Phase 0** validates system readiness
 3. **Phase 1** creates seed data required by subsequent phases
-4. **Phases 2-19** execute feature tests in order
+4. **Phases 2-19** (including 2b, 2c, 3b) execute feature tests in order
 5. **Phase 20** (Data Export) tests backup/export functionality
 6. **Phase 21** (Final Cleanup) MUST run LAST - uses MCP tools to remove all test data
 
@@ -118,16 +120,15 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 If running a subset, always include:
 - **Start**: Phases 0, 1 (foundation)
-- **Core**: Phases 2, 2b, 3, 3b (critical)
+- **Core**: Phases 2, 2b, 2c, 3, 3b (critical)
 - **End**: Phase 21 (cleanup - ALWAYS LAST)
 
 ---
 
 ## Success Criteria
 
-- **Critical Phases (0-3, 2b, 3b, 17, 19, 21)**: 100% pass required for release approval
-- **Standard Phases (4-16, 18, 20)**: 90% pass acceptable
-- **Overall**: 95% pass rate for release approval
+- **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
+- **Overall**: 100% pass rate for release approval
 - **Test data**: Must be generated before execution (see Test Data section)
 
 ---
@@ -160,6 +161,7 @@ See `tests/uat/data/README.md` for full documentation, `MANIFEST.md` for file sp
 | Phase | Test Data Files Used |
 |-------|---------------------|
 | **2b (Attachments)** | `data/images/jpeg-with-exif.jpg`, `data/documents/code-python.py`, `data/edge-cases/binary-wrong-ext.jpg` |
+| **2c (Processing)** | `data/documents/code-python.py`, `data/documents/pdf-single-page.pdf`, `data/documents/markdown-formatted.md`, `data/documents/json-config.json`, `data/documents/csv-data.csv`, `data/documents/code-rust.rs`, `data/edge-cases/empty.txt`, `data/edge-cases/binary-wrong-ext.jpg`, `data/images/jpeg-with-exif.jpg`, `data/audio/english-speech-5s.mp3`, `data/multilingual/english.txt` |
 | **3 (Search)** | `data/multilingual/*.txt`, `data/multilingual/emoji-heavy.txt` |
 | **3b (Memory Search)** | `data/provenance/paris-eiffel-tower.jpg`, `data/provenance/dated-*.jpg` |
 | **8 (Document Types)** | `data/documents/code-*.{py,rs,js,ts}`, `data/documents/markdown-formatted.md` |
@@ -195,7 +197,7 @@ Phases: 0-21 (all phases in order)
 ## For Agentic Execution
 
 Each phase document is self-contained with:
-- Clear test IDs (e.g., `CRUD-001`, `SEARCH-015`, `AUTH-022`, `CACHE-015`, `CHAIN-001`)
+- Clear test IDs (e.g., `CRUD-001`, `PROC-001`, `SEARCH-015`, `AUTH-022`, `CACHE-015`, `CHAIN-001`)
 - Exact tool calls in JavaScript format or curl commands
 - Pass criteria for each test
 - Phase summary table for tracking
@@ -216,12 +218,13 @@ Before declaring UAT complete, verify:
 - [ ] Phase 19 (Feature Chains) executed with 48 tests
 - [ ] Phase 20 (Data Export) tested backup functionality
 - [ ] Phase 21 (Final Cleanup) removed all UAT test data
-- [ ] Final report includes all 22 phases
+- [ ] Final report includes all 23 phases
 
 ---
 
 ## Version History
 
+- **2026.2.6**: Added Phase 2C (Attachment Processing Pipeline) with 31 tests covering document type auto-detection on upload, extraction strategy assignment, user-supplied overrides, multi-file notes, content extraction, job queue integration, and end-to-end pipeline verification
 - **2026.2.5**: Reordered phases - moved Data Export (20) and Final Cleanup (21) to END of suite to prevent agentic early termination; renumbered Templates→Jobs from 10-15, Observability→Feature Chains from 16-19
 - **2026.2.2**: Added Phase 21 (Feature Chains) with 48 end-to-end test steps across 8 chains; comprehensive test data package (44 files, 1.8MB) with EXIF images, multilingual text, code samples, audio, and edge cases; test data generation scripts with venv support
 - **2026.2.2**: Added Phase 19 (OAuth & Authentication) with 22 new tests and Phase 20 (Caching & Performance) with 15 new tests
