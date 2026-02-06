@@ -31,7 +31,7 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             poll_interval_ms: DEFAULT_POLL_INTERVAL_MS,
-            max_concurrent_jobs: 4,
+            max_concurrent_jobs: matric_core::defaults::JOB_MAX_CONCURRENT,
             enabled: true,
         }
     }
@@ -120,7 +120,7 @@ impl JobWorker {
         config: WorkerConfig,
         extraction_registry: Option<ExtractionRegistry>,
     ) -> Self {
-        let (event_tx, _) = broadcast::channel(100);
+        let (event_tx, _) = broadcast::channel(matric_core::defaults::EVENT_BUS_CAPACITY);
         Self {
             db,
             config,

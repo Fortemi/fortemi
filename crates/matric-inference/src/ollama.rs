@@ -13,22 +13,22 @@ use crate::model_config::requires_raw_mode;
 use crate::profiles::{ModelProfile, ModelRegistry};
 
 /// Default Ollama endpoint.
-pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
+pub const DEFAULT_OLLAMA_URL: &str = matric_core::defaults::OLLAMA_URL;
 
 /// Default embedding model.
-pub const DEFAULT_EMBED_MODEL: &str = "nomic-embed-text";
+pub const DEFAULT_EMBED_MODEL: &str = matric_core::defaults::EMBED_MODEL;
 
 /// Default generation model.
-pub const DEFAULT_GEN_MODEL: &str = "gpt-oss:20b";
+pub const DEFAULT_GEN_MODEL: &str = matric_core::defaults::GEN_MODEL;
 
 /// Default embedding dimension for nomic-embed-text.
-pub const DEFAULT_DIMENSION: usize = 768;
+pub const DEFAULT_DIMENSION: usize = matric_core::defaults::EMBED_DIMENSION;
 
 /// Timeout for embedding requests (seconds).
-pub const EMBED_TIMEOUT_SECS: u64 = 30;
+pub const EMBED_TIMEOUT_SECS: u64 = matric_core::defaults::EMBED_TIMEOUT_SECS;
 
 /// Timeout for generation requests (seconds).
-pub const GEN_TIMEOUT_SECS: u64 = 120;
+pub const GEN_TIMEOUT_SECS: u64 = matric_core::defaults::GEN_TIMEOUT_SECS;
 
 /// Ollama inference backend.
 pub struct OllamaBackend {

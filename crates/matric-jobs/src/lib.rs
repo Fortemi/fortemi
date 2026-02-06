@@ -54,7 +54,7 @@ pub use adapters::{StructuredExtractAdapter, TextNativeAdapter};
 pub use extraction::ExtractionRegistry;
 
 /// Default maximum retries for failed jobs.
-pub const DEFAULT_MAX_RETRIES: i32 = 3;
+pub const DEFAULT_MAX_RETRIES: i32 = matric_core::defaults::JOB_MAX_RETRIES;
 
 /// Default polling interval for job processing (milliseconds).
-pub const DEFAULT_POLL_INTERVAL_MS: u64 = 500;
+pub const DEFAULT_POLL_INTERVAL_MS: u64 = matric_core::defaults::JOB_POLL_INTERVAL_MS;

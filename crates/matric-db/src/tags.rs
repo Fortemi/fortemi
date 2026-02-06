@@ -19,8 +19,11 @@ pub fn validate_tag_name(tag: &str) -> std::result::Result<(), String> {
     if tag.is_empty() {
         return Err("Tag name cannot be empty".to_string());
     }
-    if tag.len() > 100 {
-        return Err("Tag name must be 100 characters or less".to_string());
+    if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+        return Err(format!(
+            "Tag name must be {} characters or less",
+            matric_core::defaults::TAG_NAME_MAX_LENGTH
+        ));
     }
 
     let invalid_chars: Vec<char> = tag

@@ -14,11 +14,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
+import * as DEFAULTS from "./constants/defaults.js";
 
 const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_PORT = parseInt(process.env.MCP_PORT || "3001", 10);
+const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 
 // AsyncLocalStorage for per-request token context
@@ -393,8 +394,8 @@ function createMcpServer() {
 
           // Extract embedding model from default set
           const defaultSet = (embeddingSets.sets || memoryInfo.embedding_sets || []).find(s => s.is_system || s.slug === "default");
-          const embeddingModel = defaultSet?.model || "nomic-embed-text";
-          const embeddingDimension = defaultSet?.dimension || 768;
+          const embeddingModel = defaultSet?.model || DEFAULTS.EMBED_MODEL;
+          const embeddingDimension = defaultSet?.dimension || DEFAULTS.EMBED_DIMENSION;
 
           result = {
             status: health.status || "unknown",
@@ -548,7 +549,7 @@ function createMcpServer() {
             throw new Error("Must set confirm=true to purge all notes");
           }
           // Get all notes and purge them
-          const allNotes = await apiRequest("GET", "/api/v1/notes?limit=10000");
+          const allNotes = await apiRequest("GET", `/api/v1/notes?limit=${DEFAULTS.INTERNAL_FETCH_LIMIT}`);
           const purgeAllResults = { queued: [], failed: [], total: (allNotes.notes || []).length };
           for (const note of allNotes.notes || []) {
             try {

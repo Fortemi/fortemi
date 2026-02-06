@@ -93,9 +93,9 @@ pub struct OllamaConfig {
 impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
-            base_url: "http://localhost:11434".to_string(),
-            generation_model: "gpt-oss:20b".to_string(),
-            embedding_model: "nomic-embed-text".to_string(),
+            base_url: matric_core::defaults::OLLAMA_URL.to_string(),
+            generation_model: matric_core::defaults::GEN_MODEL.to_string(),
+            embedding_model: matric_core::defaults::EMBED_MODEL.to_string(),
         }
     }
 }

@@ -425,7 +425,7 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
         .parse()
-        .unwrap_or(3000);
+        .unwrap_or(matric_core::defaults::SERVER_PORT);
 
     // Rate limiting configuration (generous for personal server)
     // RATE_LIMIT_REQUESTS: requests per period (default: 100)
@@ -433,11 +433,11 @@ async fn main() -> anyhow::Result<()> {
     let rate_limit_requests: u64 = std::env::var("RATE_LIMIT_REQUESTS")
         .unwrap_or_else(|_| "100".to_string())
         .parse()
-        .unwrap_or(100);
+        .unwrap_or(matric_core::defaults::RATE_LIMIT_REQUESTS);
     let rate_limit_period_secs: u64 = std::env::var("RATE_LIMIT_PERIOD_SECS")
         .unwrap_or_else(|_| "60".to_string())
         .parse()
-        .unwrap_or(60);
+        .unwrap_or(matric_core::defaults::RATE_LIMIT_PERIOD_SECS);
     let rate_limit_enabled: bool = std::env::var("RATE_LIMIT_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
@@ -468,7 +468,7 @@ async fn main() -> anyhow::Result<()> {
         std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());
     let db = db.with_file_storage(
         FilesystemBackend::new(&file_storage_path),
-        1024 * 1024, // 1MB inline threshold
+        matric_core::defaults::FILE_INLINE_THRESHOLD as i64, // 1MB inline threshold
     );
     info!("File storage initialized at {}", file_storage_path);
 
@@ -490,7 +490,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(true);
 
     // Create the event bus (Issue #38)
-    let event_bus = Arc::new(EventBus::new(256));
+    let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
 
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
@@ -979,10 +979,14 @@ async fn main() -> anyhow::Result<()> {
                 ])
                 .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
                 .allow_credentials(true)
-                .max_age(std::time::Duration::from_secs(3600))
+                .max_age(std::time::Duration::from_secs(
+                    matric_core::defaults::CORS_MAX_AGE_SECS,
+                ))
         })
         // Allow up to 2GB uploads for database backups and knowledge shards
-        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024 * 1024)) // 2 GB
+        .layer(RequestBodyLimitLayer::new(
+            matric_core::defaults::MAX_BODY_SIZE_BYTES,
+        )) // 2 GB
         .with_state(state);
 
     // Start server
@@ -1242,7 +1246,9 @@ async fn sse_events(
 /// Webhook dispatcher: subscribes to EventBus and delivers matching events to webhooks.
 async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(
+            matric_core::defaults::WEBHOOK_TIMEOUT_SECS,
+        ))
         .build()
         .unwrap_or_default();
 
@@ -1497,7 +1503,7 @@ async fn list_webhook_deliveries(
     let limit = params
         .get("limit")
         .and_then(|l| l.parse::<i64>().ok())
-        .unwrap_or(50);
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT);
     let deliveries = state.db.webhooks.list_deliveries(id, limit).await?;
     Ok(Json(deliveries))
 }
@@ -1521,7 +1527,9 @@ async fn test_webhook(
     let payload = serde_json::to_value(&test_event).unwrap_or_default();
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(
+            matric_core::defaults::WEBHOOK_TIMEOUT_SECS,
+        ))
         .build()
         .unwrap_or_default();
 
@@ -1645,7 +1653,9 @@ async fn get_notes_timeline(
     Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let period = query.period.as_deref().unwrap_or("day");
-    let periods_back = query.periods.unwrap_or(30);
+    let periods_back = query
+        .periods
+        .unwrap_or(matric_core::defaults::TREND_PERIODS);
 
     // Calculate the cutoff date
     let since = query
@@ -1798,7 +1808,7 @@ async fn get_notes_activity(
         .and_then(|s| parse_relative_time(s))
         .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
 
-    let limit = query.limit.unwrap_or(50);
+    let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
 
     // Get recently created notes
     let created_req = ListNotesRequest {
@@ -1905,7 +1915,9 @@ async fn get_knowledge_health(
     State(state): State<AppState>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stale_days = query.stale_days.unwrap_or(90);
+    let stale_days = query
+        .stale_days
+        .unwrap_or(matric_core::defaults::STALE_DAYS);
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
     // Get total note count
@@ -1913,7 +1925,7 @@ async fn get_knowledge_health(
         .db
         .notes
         .list(ListNotesRequest {
-            limit: Some(10000),
+            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
             offset: None,
             filter: None,
             sort_by: None,
@@ -1937,7 +1949,12 @@ async fn get_knowledge_health(
         .count();
 
     // Get notes without any links (unlinked)
-    let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
+    let all_links = state
+        .db
+        .links
+        .list_all(matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
+        .await
+        .unwrap_or_default();
     let linked_note_ids: std::collections::HashSet<Uuid> = all_links
         .iter()
         .flat_map(|link| {
@@ -2008,14 +2025,16 @@ async fn get_orphan_tags(
     State(state): State<AppState>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100) as usize;
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
 
     // Get all notes and their tags
     let all_notes = state
         .db
         .notes
         .list(ListNotesRequest {
-            limit: Some(10000),
+            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
             offset: None,
             filter: None,
             sort_by: None,
@@ -2068,8 +2087,12 @@ async fn get_stale_notes(
     State(state): State<AppState>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stale_days = query.stale_days.unwrap_or(90);
-    let limit = query.limit.unwrap_or(100) as usize;
+    let stale_days = query
+        .stale_days
+        .unwrap_or(matric_core::defaults::STALE_DAYS);
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
     // Get notes updated before the threshold
@@ -2077,7 +2100,7 @@ async fn get_stale_notes(
         .db
         .notes
         .list(ListNotesRequest {
-            limit: Some(10000),
+            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
             offset: None,
             filter: None,
             sort_by: Some("updated_at".to_string()),
@@ -2118,10 +2141,17 @@ async fn get_unlinked_notes(
     State(state): State<AppState>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100) as usize;
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
 
     // Get all links to find linked notes
-    let all_links = state.db.links.list_all(10000, 0).await.unwrap_or_default();
+    let all_links = state
+        .db
+        .links
+        .list_all(matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
+        .await
+        .unwrap_or_default();
     let linked_note_ids: std::collections::HashSet<Uuid> = all_links
         .iter()
         .flat_map(|link| {
@@ -2138,7 +2168,7 @@ async fn get_unlinked_notes(
         .db
         .notes
         .list(ListNotesRequest {
-            limit: Some(10000),
+            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
             offset: None,
             filter: None,
             sort_by: Some("created_at".to_string()),
@@ -2180,14 +2210,14 @@ async fn get_tag_cooccurrence(
     State(state): State<AppState>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(50) as usize;
+    let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT) as usize;
 
     // Get all notes
     let all_notes = state
         .db
         .notes
         .list(ListNotesRequest {
-            limit: Some(10000),
+            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
             offset: None,
             filter: None,
             sort_by: None,
@@ -2846,8 +2876,8 @@ async fn search_concepts(
         facet_type: query.facet_type.and_then(|f| f.parse().ok()),
         top_concepts_only: query.top_only.unwrap_or(false),
         include_deprecated: query.include_deprecated.unwrap_or(false),
-        limit: query.limit.unwrap_or(50),
-        offset: query.offset.unwrap_or(0),
+        limit: query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT),
+        offset: query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET),
         max_depth: None,
         has_antipattern: None,
     };
@@ -2876,7 +2906,12 @@ async fn autocomplete_concepts(
     let concepts = state
         .db
         .skos
-        .search_labels(&query.q, query.limit.unwrap_or(10))
+        .search_labels(
+            &query.q,
+            query
+                .limit
+                .unwrap_or(matric_core::defaults::PAGE_LIMIT_AUTOCOMPLETE),
+        )
         .await?;
     Ok(Json(concepts))
 }
@@ -3182,7 +3217,7 @@ async fn export_scheme_turtle(
     // Get all concepts in the scheme
     let search_req = matric_core::SearchConceptsRequest {
         scheme_id: Some(id),
-        limit: 10000,
+        limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
         ..Default::default()
     };
     let concepts_resp = state.db.skos.search_concepts(search_req).await?;
@@ -3450,8 +3485,8 @@ async fn get_collection_notes(
     Path(id): Path<Uuid>,
     Query(query): Query<CollectionNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
+    let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
     let notes = state.db.collections.get_notes(id, limit, offset).await?;
     Ok(Json(
         serde_json::json!({ "notes": notes, "collection_id": id }),
@@ -4186,7 +4221,9 @@ async fn search_notes(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(20);
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_SEARCH);
 
     // Generate cache key (before expensive operations)
     // Only cache pure text queries without strict filters or temporal filters
@@ -4365,8 +4402,10 @@ async fn list_embedding_set_members(
     Path(slug): Path<String>,
     Query(query): Query<ListMembersQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
-    let offset = query.offset.unwrap_or(0);
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE);
+    let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
     let members = state
         .db
         .embedding_sets
@@ -4559,8 +4598,8 @@ async fn list_jobs(
     State(state): State<AppState>,
     Query(query): Query<ListJobsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(50);
-    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
+    let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
 
     let jobs = state
         .db
@@ -5629,7 +5668,7 @@ async fn backup_export(
     }
 
     let list_req = ListNotesRequest {
-        limit: Some(10000), // Large limit for export
+        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT), // Large limit for export
         offset: None,
         filter,
         sort_by: Some("created_at".to_string()),
@@ -5753,7 +5792,7 @@ async fn backup_download(
     }
 
     let list_req = ListNotesRequest {
-        limit: Some(10000),
+        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
         offset: None,
         filter,
         sort_by: Some("created_at".to_string()),
@@ -9992,7 +10031,7 @@ mod tests {
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
-        let event_bus = Arc::new(EventBus::new(256));
+        let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
         let ws_connections = Arc::new(AtomicUsize::new(0));
 
         let state = AppState {
@@ -10501,7 +10540,7 @@ mod tests {
             .expect("Failed to connect to test DB");
 
         let (worker_tx, worker_rx) = tokio::sync::broadcast::channel::<WorkerEvent>(32);
-        let event_bus = Arc::new(EventBus::new(256));
+        let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
         let server_rx = event_bus.subscribe();
 
         let bus_clone = event_bus.clone();
@@ -10683,7 +10722,7 @@ mod tests {
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
-        let event_bus = Arc::new(EventBus::new(256));
+        let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
         let ws_connections = Arc::new(AtomicUsize::new(0));
 
         // Worker broadcast channel for injecting synthetic events

@@ -6,6 +6,7 @@
 //! that other matric-memory crates depend on.
 
 pub mod collection_filter;
+pub mod defaults;
 pub mod embedding_provider;
 pub mod error;
 pub mod events;

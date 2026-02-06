@@ -235,10 +235,10 @@ pub struct EmbeddingConfig {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            chunk_size: 1000,
-            chunk_overlap: 100,
-            model: "nomic-embed-text".to_string(),
-            dimension: 768,
+            chunk_size: crate::defaults::CHUNK_SIZE,
+            chunk_overlap: crate::defaults::CHUNK_OVERLAP,
+            model: crate::defaults::EMBED_MODEL.to_string(),
+            dimension: crate::defaults::EMBED_DIMENSION,
         }
     }
 }
@@ -431,11 +431,11 @@ pub struct AutoEmbedRules {
 }
 
 fn default_priority() -> i32 {
-    5
+    crate::defaults::AUTO_EMBED_PRIORITY
 }
 
 fn default_batch_size() -> usize {
-    10
+    crate::defaults::AUTO_EMBED_BATCH_SIZE
 }
 
 /// Agent-provided metadata for embedding set discovery.
@@ -1202,11 +1202,11 @@ pub struct CreateDocumentTypeRequest {
 }
 
 fn default_chunk_size() -> i32 {
-    1000
+    crate::defaults::CHUNK_SIZE_I32
 }
 
 fn default_chunk_overlap() -> i32 {
-    100
+    crate::defaults::CHUNK_OVERLAP_I32
 }
 
 /// Request to update a document type.
@@ -1495,15 +1495,15 @@ pub struct FineTuningConfig {
 }
 
 fn default_queries_per_doc() -> i32 {
-    4
+    crate::defaults::FINETUNE_QUERIES_PER_DOC
 }
 
 fn default_min_quality() -> f32 {
-    4.0
+    crate::defaults::FINETUNE_MIN_QUALITY
 }
 
 fn default_validation_split() -> f32 {
-    0.1
+    crate::defaults::FINETUNE_VALIDATION_SPLIT
 }
 
 /// A fine-tuning dataset configuration.
@@ -1575,15 +1575,15 @@ pub struct TwoStageSearchConfig {
 }
 
 fn default_coarse_dim() -> i32 {
-    64
+    crate::defaults::COARSE_DIM
 }
 
 fn default_coarse_k() -> i32 {
-    100
+    crate::defaults::COARSE_K
 }
 
 fn default_coarse_ef_search() -> i32 {
-    64
+    crate::defaults::COARSE_EF_SEARCH
 }
 
 impl Default for TwoStageSearchConfig {
@@ -1621,15 +1621,15 @@ pub struct TriModalWeights {
 }
 
 fn default_semantic_weight() -> f32 {
-    0.5
+    crate::defaults::TRIMODAL_SEMANTIC_WEIGHT
 }
 
 fn default_lexical_weight() -> f32 {
-    0.3
+    crate::defaults::TRIMODAL_LEXICAL_WEIGHT
 }
 
 fn default_graph_weight() -> f32 {
-    0.2
+    crate::defaults::TRIMODAL_GRAPH_WEIGHT
 }
 
 impl Default for TriModalWeights {
@@ -2310,7 +2310,7 @@ pub struct CreateApiKeyRequest {
 }
 
 fn default_scope() -> String {
-    "read".to_string()
+    crate::defaults::OAUTH_DEFAULT_SCOPE.to_string()
 }
 
 /// API key creation response (includes the actual key, shown only once).
@@ -2477,7 +2477,7 @@ pub struct CrossArchiveSearchRequest {
 }
 
 fn default_ca_limit() -> i64 {
-    20
+    crate::defaults::CROSS_ARCHIVE_LIMIT
 }
 
 /// Cross-archive search result.
@@ -4383,5 +4383,5 @@ pub struct CreateWebhookRequest {
 }
 
 fn default_max_retries() -> i32 {
-    3
+    crate::defaults::JOB_MAX_RETRIES
 }

@@ -91,7 +91,7 @@ pub struct CrossArchiveSearchRequest {
 }
 
 fn default_limit() -> i64 {
-    20
+    crate::defaults::PAGE_LIMIT_SEARCH
 }
 
 /// Cross-archive search result.

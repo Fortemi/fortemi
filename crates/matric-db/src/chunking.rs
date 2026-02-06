@@ -48,9 +48,9 @@ pub struct ChunkerConfig {
 impl Default for ChunkerConfig {
     fn default() -> Self {
         Self {
-            max_chunk_size: 1000,
-            min_chunk_size: 100,
-            overlap: 100,
+            max_chunk_size: matric_core::defaults::CHUNK_SIZE,
+            min_chunk_size: matric_core::defaults::CHUNK_MIN_SIZE,
+            overlap: matric_core::defaults::CHUNK_OVERLAP,
         }
     }
 }
