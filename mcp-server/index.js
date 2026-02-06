@@ -157,6 +157,34 @@ function createMcpServer() {
           break;
         }
 
+        case "search_memories_by_location": {
+          const params = new URLSearchParams();
+          params.set("lat", args.lat);
+          params.set("lon", args.lon);
+          if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
+          result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          break;
+        }
+
+        case "search_memories_by_time": {
+          const params = new URLSearchParams();
+          params.set("start", encodeURIComponent(args.start));
+          params.set("end", encodeURIComponent(args.end));
+          result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          break;
+        }
+
+        case "search_memories_combined": {
+          const params = new URLSearchParams();
+          params.set("lat", args.lat);
+          params.set("lon", args.lon);
+          if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
+          params.set("start", encodeURIComponent(args.start));
+          params.set("end", encodeURIComponent(args.end));
+          result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          break;
+        }
+
         case "list_tags":
           result = await apiRequest("GET", "/api/v1/tags");
           break;
@@ -1582,6 +1610,10 @@ function createMcpServer() {
 
         case "get_note_provenance":
           result = await apiRequest("GET", `/api/v1/notes/${args.id}/provenance`);
+
+          break;
+        case "get_memory_provenance":
+          result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/memory-provenance`);
           break;
 
         // ============================================================================
@@ -1648,6 +1680,8 @@ function createMcpServer() {
             dimension: args.dimension,
             provider: args.provider,
             is_default: args.is_default || false,
+            chunk_size: args.chunk_size,
+            chunk_overlap: args.chunk_overlap,
           });
           break;
 
@@ -1658,6 +1692,8 @@ function createMcpServer() {
           if (args.dimension !== undefined) body.dimension = args.dimension;
           if (args.provider !== undefined) body.provider = args.provider;
           if (args.is_default !== undefined) body.is_default = args.is_default;
+          if (args.chunk_size !== undefined) body.chunk_size = args.chunk_size;
+          if (args.chunk_overlap !== undefined) body.chunk_overlap = args.chunk_overlap;
           result = await apiRequest("PATCH", `/api/v1/embedding-configs/${args.id}`, body);
           break;
         }
@@ -1695,11 +1731,15 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, {
+          const uploadBody = {
             filename: args.filename,
             content_type: args.content_type,
             data: args.data,
-          });
+          };
+          if (args.document_type_id) {
+            uploadBody.document_type_id = args.document_type_id;
+          }
+          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
           break;
         }
 
@@ -1847,6 +1887,61 @@ Use semantic mode when looking for conceptually related content even if exact ke
         },
       },
       required: ["query"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "search_memories_by_location",
+    description: `Search for memories near a geographic location. Returns attachments captured within a radius of the given coordinates, ordered by distance.
+
+Use this to find photos, documents, or other attachments that were created or captured at specific places.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)" },
+        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)" },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000 },
+      },
+      required: ["lat", "lon"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "search_memories_by_time",
+    description: `Search for memories captured within a time range. Returns attachments with capture times overlapping the given range.
+
+Use this to find photos or files created during specific events or time periods.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        start: { type: "string", description: "Start of time range (ISO 8601 format, e.g. '2024-01-15T00:00:00Z')" },
+        end: { type: "string", description: "End of time range (ISO 8601 format)" },
+      },
+      required: ["start", "end"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "search_memories_combined",
+    description: `Search for memories by both location and time. Returns attachments captured within a radius AND time range.
+
+Use this to find content from specific events at known locations and times.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)" },
+        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)" },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000 },
+        start: { type: "string", description: "Start of time range (ISO 8601 format, e.g. '2024-01-15T00:00:00Z')" },
+        end: { type: "string", description: "End of time range (ISO 8601 format)" },
+      },
+      required: ["lat", "lon", "start", "end"],
     },
     annotations: {
       readOnlyHint: true,
@@ -5254,6 +5349,28 @@ Useful for understanding how content evolved and verifying sources. Returns the 
       readOnlyHint: true,
     },
   },
+  {
+    name: "get_memory_provenance",
+    description: `Get the complete file provenance chain for a note's attachments. Returns temporal-spatial provenance including location, device, and capture time.
+
+This provides the full lifecycle history of files attached to notes:
+- Original capture location (GPS coordinates)
+- Device information (camera, phone, scanner)
+- Capture timestamp (when the photo/file was created)
+- File format and technical metadata
+
+Use this to understand the origin and context of media attachments.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", format: "uuid", description: "The note ID" },
+      },
+      required: ["note_id"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
 
   // ============================================================================
   // JOB MANAGEMENT (#454)
@@ -5456,6 +5573,8 @@ After creating a config, use it with embedding sets or set as default for all ne
         dimension: { type: "number", description: "Vector dimension (e.g., 768, 384, 1536)" },
         provider: { type: "string", description: "Provider (ollama, openai, etc.)" },
         is_default: { type: "boolean", default: false, description: "Set as default config" },
+        chunk_size: { type: "integer", description: "Maximum characters per chunk for text splitting (default: 1000)" },
+        chunk_overlap: { type: "integer", description: "Overlap characters between chunks for context preservation (default: 100)" },
       },
       required: ["name", "model", "dimension"],
     },
@@ -5477,6 +5596,8 @@ Can change name, model, dimensions, provider, or default status. Setting is_defa
         dimension: { type: "number", description: "New vector dimension" },
         provider: { type: "string", description: "New provider" },
         is_default: { type: "boolean", description: "Set as default" },
+        chunk_size: { type: "integer", description: "Maximum characters per chunk for text splitting" },
+        chunk_overlap: { type: "integer", description: "Overlap characters between chunks for context preservation" },
       },
       required: ["id"],
     },
@@ -5511,7 +5632,10 @@ Existing embeddings using this config are not affected but won't be regenerated 
     name: "upload_attachment",
     description: `Upload a file attachment to a note.
 
-Files are stored with content-hash deduplication. Small files are stored inline in the database, larger files use filesystem storage.
+Files are stored with content-hash deduplication using filesystem storage.
+
+The extraction strategy (how to extract content) is automatically determined from the MIME type.
+Document type (semantic classification) can be set explicitly or is classified asynchronously after extraction.
 
 The data parameter must be base64-encoded file content.`,
     inputSchema: {
@@ -5521,6 +5645,7 @@ The data parameter must be base64-encoded file content.`,
         filename: { type: "string", description: "Filename (e.g., 'photo.jpg', 'document.pdf')" },
         content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
         data: { type: "string", description: "Base64-encoded file content" },
+        document_type_id: { type: "string", format: "uuid", description: "Optional: explicit document type UUID override (skips auto-classification)" },
       },
       required: ["note_id", "filename", "content_type", "data"],
     },

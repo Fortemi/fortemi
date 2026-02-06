@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
-    EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobRepository, JobType,
-    LinkRepository, NoteRepository, ProvRelation, RevisionMode, SearchHit,
+    DocumentTypeRepository, EmbeddingBackend, EmbeddingRepository, GenerationBackend,
+    JobRepository, JobType, LinkRepository, NoteRepository, ProvRelation, RevisionMode, SearchHit,
 };
 use matric_db::{Chunker, ChunkerConfig, Database, SemanticChunker};
 use matric_inference::OllamaBackend;
@@ -351,13 +351,44 @@ impl JobHandler for EmbeddingHandler {
 
         ctx.report_progress(30, Some("Chunking content..."));
 
-        // Semantic chunking - respects Markdown structure (headings, lists, code blocks)
-        // Uses 600 char chunks for better retrieval quality per embedding best practices
-        let chunker_config = ChunkerConfig {
-            max_chunk_size: 600,
-            min_chunk_size: 50,
-            overlap: 50,
+        // Resolve chunking config from database with priority chain:
+        // 1. Note's document type (if assigned)
+        // 2. Default embedding config (global fallback)
+        // 3. ChunkerConfig::default() (hardcoded fallback)
+        let chunker_config = if let Some(doc_type_id) = note.note.document_type_id {
+            // Try to fetch document type configuration
+            if let Ok(Some(doc_type)) = self.db.document_types.get(doc_type_id).await {
+                let max = doc_type.chunk_size_default as usize;
+                ChunkerConfig {
+                    max_chunk_size: max,
+                    min_chunk_size: (max / 10).max(50),
+                    overlap: doc_type.chunk_overlap_default as usize,
+                }
+            } else if let Ok(Some(config)) = self.db.embedding_sets.get_default_config().await {
+                // Document type not found, fall back to default embedding config
+                let max = config.chunk_size as usize;
+                ChunkerConfig {
+                    max_chunk_size: max,
+                    min_chunk_size: (max / 10).max(50),
+                    overlap: config.chunk_overlap as usize,
+                }
+            } else {
+                // No document type or default config, use hardcoded defaults
+                ChunkerConfig::default()
+            }
+        } else if let Ok(Some(config)) = self.db.embedding_sets.get_default_config().await {
+            // No document type assigned, use default embedding config
+            let max = config.chunk_size as usize;
+            ChunkerConfig {
+                max_chunk_size: max,
+                min_chunk_size: (max / 10).max(50),
+                overlap: config.chunk_overlap as usize,
+            }
+        } else {
+            // No document type and no default config, use hardcoded defaults
+            ChunkerConfig::default()
         };
+
         let chunker = SemanticChunker::new(chunker_config);
         let semantic_chunks = chunker.chunk(content);
         let chunks: Vec<String> = semantic_chunks.into_iter().map(|c| c.text).collect();

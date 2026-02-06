@@ -235,8 +235,8 @@ pub struct EmbeddingConfig {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            chunk_size: 1500,
-            chunk_overlap: 200,
+            chunk_size: 1000,
+            chunk_overlap: 100,
             model: "nomic-embed-text".to_string(),
             dimension: 768,
         }
@@ -873,7 +873,7 @@ pub struct AgenticConfig {
 /// Extraction strategy for processing file attachments (Issue #436).
 ///
 /// Determines how content is extracted from attached files for indexing and search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionStrategy {
     /// Direct text extraction (plaintext, markdown) - no processing needed
@@ -895,6 +895,143 @@ pub enum ExtractionStrategy {
     OfficeConvert,
     /// Structured data extraction (JSON/YAML/XML)
     StructuredExtract,
+}
+
+impl ExtractionStrategy {
+    /// Determine extraction strategy from MIME type alone.
+    ///
+    /// Pure function — no database lookup needed. Maps the container format
+    /// (how to extract content) not the semantic document type.
+    pub fn from_mime_type(mime: &str) -> Self {
+        let mime_lower = mime.to_lowercase();
+
+        // PDF
+        if mime_lower == "application/pdf" {
+            return Self::PdfText;
+        }
+
+        // Images
+        if mime_lower.starts_with("image/") {
+            return Self::Vision;
+        }
+
+        // MIDI is structured data, not audio to transcribe
+        if mime_lower == "audio/midi" || mime_lower == "audio/x-midi" {
+            return Self::StructuredExtract;
+        }
+
+        // Audio
+        if mime_lower.starts_with("audio/") {
+            return Self::AudioTranscribe;
+        }
+
+        // Video
+        if mime_lower.starts_with("video/") {
+            return Self::VideoMultimodal;
+        }
+
+        // 3D models
+        if mime_lower.starts_with("model/") {
+            return Self::Vision;
+        }
+
+        // Office documents
+        if mime_lower.contains("officedocument")
+            || mime_lower.contains("msword")
+            || mime_lower.contains("ms-excel")
+            || mime_lower.contains("ms-powerpoint")
+            || mime_lower == "application/rtf"
+        {
+            return Self::OfficeConvert;
+        }
+
+        // Email / message formats
+        if mime_lower.starts_with("message/")
+            || mime_lower == "application/mbox"
+            || mime_lower.contains("ms-outlook")
+        {
+            return Self::OfficeConvert;
+        }
+
+        // Structured data
+        if matches!(
+            mime_lower.as_str(),
+            "application/json"
+                | "application/xml"
+                | "text/xml"
+                | "application/yaml"
+                | "text/yaml"
+                | "text/csv"
+                | "application/toml"
+                | "application/x-bibtex"
+                | "application/x-research-info-systems"
+                | "application/avro"
+                | "application/vnd.apache.parquet"
+                | "application/x-ndjson"
+                | "application/geo+json"
+                | "application/x-drawio"
+                | "application/x-excalidraw+json"
+                | "text/calendar"
+        ) {
+            return Self::StructuredExtract;
+        }
+
+        // Plain text / markdown / code
+        if mime_lower.starts_with("text/") {
+            return Self::TextNative;
+        }
+
+        // application/octet-stream and other unknown types
+        Self::TextNative
+    }
+
+    /// Determine extraction strategy from MIME type with file extension refinement.
+    ///
+    /// When the MIME type is ambiguous (e.g., `application/octet-stream`), the file
+    /// extension can provide more specific information.
+    pub fn from_mime_and_extension(mime: &str, extension: Option<&str>) -> Self {
+        let base = Self::from_mime_type(mime);
+
+        // Refine with extension when MIME is generic
+        if mime == "application/octet-stream" {
+            if let Some(ext) = extension {
+                return match ext.to_lowercase().as_str() {
+                    "pdf" => Self::PdfText,
+                    "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "svg" => {
+                        Self::Vision
+                    }
+                    "mid" | "midi" => Self::StructuredExtract,
+                    "mp3" | "wav" | "ogg" | "flac" | "aac" | "m4a" | "wma" => Self::AudioTranscribe,
+                    "mp4" | "avi" | "mov" | "mkv" | "webm" | "wmv" => Self::VideoMultimodal,
+                    "glb" | "gltf" | "obj" | "stl" | "step" | "iges" => Self::Vision,
+                    "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp"
+                    | "rtf" => Self::OfficeConvert,
+                    "eml" | "mbox" => Self::OfficeConvert,
+                    "json" | "xml" | "yaml" | "yml" | "csv" | "toml" => Self::StructuredExtract,
+                    "ics" | "bib" | "geojson" | "ndjson" | "parquet" | "avro" => {
+                        Self::StructuredExtract
+                    }
+                    "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "h" | "rb"
+                    | "swift" | "kt" | "scala" | "zig" | "hs" => Self::CodeAst,
+                    "txt" | "md" | "markdown" | "rst" | "org" | "adoc" => Self::TextNative,
+                    _ => Self::TextNative,
+                };
+            }
+        }
+
+        // Refine code files that come as text/*
+        if base == Self::TextNative {
+            if let Some(ext) = extension {
+                match ext.to_lowercase().as_str() {
+                    "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "h" | "rb"
+                    | "swift" | "kt" | "scala" | "zig" | "hs" => return Self::CodeAst,
+                    _ => {}
+                }
+            }
+        }
+
+        base
+    }
 }
 
 impl std::fmt::Display for ExtractionStrategy {
@@ -1065,11 +1202,11 @@ pub struct CreateDocumentTypeRequest {
 }
 
 fn default_chunk_size() -> i32 {
-    512
+    1000
 }
 
 fn default_chunk_overlap() -> i32 {
-    50
+    100
 }
 
 /// Request to update a document type.
@@ -1158,6 +1295,9 @@ pub struct Attachment {
     pub extracted_metadata: Option<JsonValue>,
     pub has_preview: bool,
     pub is_canonical_content: bool,
+    pub detected_document_type_id: Option<Uuid>,
+    pub detection_confidence: Option<f32>,
+    pub detection_method: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1213,6 +1353,8 @@ pub struct AttachmentSummary {
     pub size_bytes: i64,
     pub status: AttachmentStatus,
     pub document_type_name: Option<String>,
+    pub detected_document_type_name: Option<String>,
+    pub detection_confidence: Option<f32>,
     pub has_preview: bool,
     pub is_canonical_content: bool,
     pub created_at: DateTime<Utc>,
@@ -1608,6 +1750,8 @@ pub enum JobType {
     /// Analyze 3D models (geometry, materials, etc.)
     #[serde(rename = "3d_analysis")]
     ThreeDAnalysis,
+    /// Classify attachment into a semantic document type using AI
+    DocumentTypeInference,
 }
 
 impl JobType {
@@ -1643,6 +1787,8 @@ impl JobType {
             JobType::ExifExtraction => 5,
             // 3D analysis - slightly lower priority background task
             JobType::ThreeDAnalysis => 4,
+            // Document type inference - low priority, runs after content extraction
+            JobType::DocumentTypeInference => 2,
         }
     }
 }
@@ -2672,8 +2818,8 @@ mod tests {
     #[test]
     fn test_embedding_config_default_values() {
         let config = EmbeddingConfig::default();
-        assert_eq!(config.chunk_size, 1500);
-        assert_eq!(config.chunk_overlap, 200);
+        assert_eq!(config.chunk_size, 1000);
+        assert_eq!(config.chunk_overlap, 100);
         assert_eq!(config.model, "nomic-embed-text");
         assert_eq!(config.dimension, 768);
     }
@@ -3296,6 +3442,658 @@ mod tests {
 
         assert_eq!(response.total, 0);
         assert!(response.groups.is_empty());
+    }
+
+    // =========================================================================
+    // ExtractionStrategy Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extraction_strategy_display_fromstr_roundtrip() {
+        // Test all 9 variants
+        let variants = vec![
+            ExtractionStrategy::TextNative,
+            ExtractionStrategy::PdfText,
+            ExtractionStrategy::PdfOcr,
+            ExtractionStrategy::Vision,
+            ExtractionStrategy::AudioTranscribe,
+            ExtractionStrategy::VideoMultimodal,
+            ExtractionStrategy::CodeAst,
+            ExtractionStrategy::OfficeConvert,
+            ExtractionStrategy::StructuredExtract,
+        ];
+        for variant in variants {
+            let s = variant.to_string();
+            let parsed: ExtractionStrategy = s.parse().unwrap();
+            assert_eq!(parsed, variant, "Round-trip failed for {}", s);
+        }
+    }
+
+    #[test]
+    fn test_extraction_strategy_fromstr_aliases() {
+        // squished forms
+        assert_eq!(
+            "textnative".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::TextNative
+        );
+        assert_eq!(
+            "pdftext".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::PdfText
+        );
+        assert_eq!(
+            "pdfocr".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::PdfOcr
+        );
+        assert_eq!(
+            "pdf_scanned".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::PdfOcr
+        );
+        assert_eq!(
+            "audiotranscribe".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::AudioTranscribe
+        );
+        assert_eq!(
+            "videomultimodal".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::VideoMultimodal
+        );
+        assert_eq!(
+            "codeast".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::CodeAst
+        );
+        assert_eq!(
+            "officeconvert".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::OfficeConvert
+        );
+        assert_eq!(
+            "structuredextract".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::StructuredExtract
+        );
+    }
+
+    #[test]
+    fn test_extraction_strategy_fromstr_case_insensitive() {
+        assert_eq!(
+            "TEXT_NATIVE".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::TextNative
+        );
+        assert_eq!(
+            "Pdf_Text".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::PdfText
+        );
+        assert_eq!(
+            "VISION".parse::<ExtractionStrategy>().unwrap(),
+            ExtractionStrategy::Vision
+        );
+    }
+
+    #[test]
+    fn test_extraction_strategy_fromstr_invalid() {
+        assert!("unknown".parse::<ExtractionStrategy>().is_err());
+        assert!("".parse::<ExtractionStrategy>().is_err());
+        assert!("pdf".parse::<ExtractionStrategy>().is_err());
+    }
+
+    #[test]
+    fn test_extraction_strategy_default() {
+        assert_eq!(
+            ExtractionStrategy::default(),
+            ExtractionStrategy::TextNative
+        );
+    }
+
+    #[test]
+    fn test_extraction_strategy_serde_roundtrip() {
+        let variants = vec![
+            ExtractionStrategy::TextNative,
+            ExtractionStrategy::PdfText,
+            ExtractionStrategy::PdfOcr,
+            ExtractionStrategy::Vision,
+            ExtractionStrategy::AudioTranscribe,
+            ExtractionStrategy::VideoMultimodal,
+            ExtractionStrategy::CodeAst,
+            ExtractionStrategy::OfficeConvert,
+            ExtractionStrategy::StructuredExtract,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let parsed: ExtractionStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant, "Serde round-trip failed for {:?}", variant);
+        }
+    }
+
+    #[test]
+    fn test_mime_pdf() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("application/pdf"),
+            ExtractionStrategy::PdfText
+        );
+    }
+
+    #[test]
+    fn test_mime_images() {
+        for mime in [
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp",
+            "image/svg+xml",
+            "image/tiff",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::Vision,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_3d_models() {
+        for mime in [
+            "model/gltf+json",
+            "model/gltf-binary",
+            "model/obj",
+            "model/stl",
+            "model/step",
+            "model/iges",
+            "model/vnd.usdz+zip",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::Vision,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_audio() {
+        for mime in [
+            "audio/mpeg",
+            "audio/wav",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aac",
+            "audio/webm",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::AudioTranscribe,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_midi_is_structured() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("audio/midi"),
+            ExtractionStrategy::StructuredExtract
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("audio/x-midi"),
+            ExtractionStrategy::StructuredExtract
+        );
+    }
+
+    #[test]
+    fn test_mime_video() {
+        for mime in [
+            "video/mp4",
+            "video/webm",
+            "video/ogg",
+            "video/quicktime",
+            "video/x-msvideo",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::VideoMultimodal,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_office() {
+        for mime in [
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/rtf",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::OfficeConvert,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_outlook_is_office() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("application/vnd.ms-outlook"),
+            ExtractionStrategy::OfficeConvert
+        );
+    }
+
+    #[test]
+    fn test_mime_email_is_office() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("message/rfc822"),
+            ExtractionStrategy::OfficeConvert
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("application/mbox"),
+            ExtractionStrategy::OfficeConvert
+        );
+    }
+
+    #[test]
+    fn test_mime_structured_data_core() {
+        for mime in [
+            "application/json",
+            "application/xml",
+            "text/xml",
+            "application/yaml",
+            "text/yaml",
+            "text/csv",
+            "application/toml",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::StructuredExtract,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_structured_data_extended() {
+        for mime in [
+            "application/x-bibtex",
+            "application/x-research-info-systems",
+            "application/avro",
+            "application/vnd.apache.parquet",
+            "application/x-ndjson",
+            "application/geo+json",
+            "application/x-drawio",
+            "application/x-excalidraw+json",
+            "text/calendar",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::StructuredExtract,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_text_native() {
+        for mime in [
+            "text/plain",
+            "text/markdown",
+            "text/html",
+            "text/css",
+            "text/javascript",
+            "text/x-python",
+            "text/x-rust",
+            "text/x-c",
+            "text/x-java",
+            "text/x-go",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::TextNative,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_octet_stream_extension_refinement() {
+        let octet = "application/octet-stream";
+        // PDF
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension(octet, Some("pdf")),
+            ExtractionStrategy::PdfText
+        );
+        // Images
+        for ext in ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "svg"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::Vision,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // 3D models
+        for ext in ["glb", "gltf", "obj", "stl", "step", "iges"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::Vision,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // MIDI
+        for ext in ["mid", "midi"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::StructuredExtract,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Audio
+        for ext in ["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::AudioTranscribe,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Video
+        for ext in ["mp4", "avi", "mov", "mkv", "webm", "wmv"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::VideoMultimodal,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Office
+        for ext in [
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::OfficeConvert,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Email
+        for ext in ["eml", "mbox"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::OfficeConvert,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Structured data
+        for ext in ["json", "xml", "yaml", "yml", "csv", "toml"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::StructuredExtract,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Extended structured
+        for ext in ["ics", "bib", "geojson", "ndjson", "parquet", "avro"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::StructuredExtract,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Code
+        for ext in [
+            "rs", "py", "js", "ts", "go", "java", "c", "cpp", "h", "rb", "swift", "kt", "scala",
+            "zig", "hs",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::CodeAst,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Text
+        for ext in ["txt", "md", "markdown", "rst", "org", "adoc"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::TextNative,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Unknown
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension(octet, Some("xyz")),
+            ExtractionStrategy::TextNative
+        );
+        // No extension
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension(octet, None),
+            ExtractionStrategy::TextNative
+        );
+    }
+
+    #[test]
+    fn test_text_plain_code_extension_refinement() {
+        for ext in [
+            "rs", "py", "js", "ts", "go", "java", "c", "cpp", "h", "rb", "swift", "kt", "scala",
+            "zig", "hs",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension("text/plain", Some(ext)),
+                ExtractionStrategy::CodeAst,
+                "text/plain + .{} should be CodeAst",
+                ext
+            );
+        }
+    }
+
+    #[test]
+    fn test_specific_mime_ignores_extension() {
+        // A specific MIME type should not be overridden by extension
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension("application/pdf", Some("txt")),
+            ExtractionStrategy::PdfText
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension("image/png", Some("txt")),
+            ExtractionStrategy::Vision
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_and_extension("audio/mpeg", Some("txt")),
+            ExtractionStrategy::AudioTranscribe
+        );
+    }
+
+    #[test]
+    fn test_mime_empty_string() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type(""),
+            ExtractionStrategy::TextNative
+        );
+    }
+
+    #[test]
+    fn test_mime_unknown_type() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("application/x-unknown-format"),
+            ExtractionStrategy::TextNative
+        );
+    }
+
+    #[test]
+    fn test_mime_case_insensitive() {
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("APPLICATION/PDF"),
+            ExtractionStrategy::PdfText
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("Image/JPEG"),
+            ExtractionStrategy::Vision
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("AUDIO/MPEG"),
+            ExtractionStrategy::AudioTranscribe
+        );
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("VIDEO/MP4"),
+            ExtractionStrategy::VideoMultimodal
+        );
+    }
+
+    #[test]
+    fn test_mime_with_parameters() {
+        // MIME types with parameters - the function lowercases but doesn't strip params,
+        // so "text/plain; charset=utf-8" starts_with "text/" → TextNative
+        assert_eq!(
+            ExtractionStrategy::from_mime_type("text/plain; charset=utf-8"),
+            ExtractionStrategy::TextNative
+        );
+    }
+
+    #[test]
+    fn test_all_seeded_mime_types_have_known_strategy() {
+        // This test ensures every MIME type from the seed migration has an expected strategy.
+        // If a new MIME type is added to the seeds, add it here too.
+        let expectations: Vec<(&str, ExtractionStrategy)> = vec![
+            // PDF
+            ("application/pdf", ExtractionStrategy::PdfText),
+            // Images
+            ("image/jpeg", ExtractionStrategy::Vision),
+            ("image/png", ExtractionStrategy::Vision),
+            ("image/gif", ExtractionStrategy::Vision),
+            ("image/webp", ExtractionStrategy::Vision),
+            ("image/svg+xml", ExtractionStrategy::Vision),
+            ("image/tiff", ExtractionStrategy::Vision),
+            // 3D Models
+            ("model/gltf+json", ExtractionStrategy::Vision),
+            ("model/gltf-binary", ExtractionStrategy::Vision),
+            ("model/obj", ExtractionStrategy::Vision),
+            ("model/stl", ExtractionStrategy::Vision),
+            ("model/step", ExtractionStrategy::Vision),
+            ("model/iges", ExtractionStrategy::Vision),
+            ("model/vnd.usdz+zip", ExtractionStrategy::Vision),
+            // Audio (non-MIDI)
+            ("audio/mpeg", ExtractionStrategy::AudioTranscribe),
+            ("audio/wav", ExtractionStrategy::AudioTranscribe),
+            ("audio/ogg", ExtractionStrategy::AudioTranscribe),
+            ("audio/flac", ExtractionStrategy::AudioTranscribe),
+            ("audio/aac", ExtractionStrategy::AudioTranscribe),
+            ("audio/webm", ExtractionStrategy::AudioTranscribe),
+            // MIDI
+            ("audio/midi", ExtractionStrategy::StructuredExtract),
+            ("audio/x-midi", ExtractionStrategy::StructuredExtract),
+            // Video
+            ("video/mp4", ExtractionStrategy::VideoMultimodal),
+            ("video/webm", ExtractionStrategy::VideoMultimodal),
+            ("video/ogg", ExtractionStrategy::VideoMultimodal),
+            ("video/quicktime", ExtractionStrategy::VideoMultimodal),
+            ("video/x-msvideo", ExtractionStrategy::VideoMultimodal),
+            // Office
+            ("application/msword", ExtractionStrategy::OfficeConvert),
+            (
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            (
+                "application/vnd.ms-excel",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            (
+                "application/vnd.ms-powerpoint",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            ("application/rtf", ExtractionStrategy::OfficeConvert),
+            // Email/Message
+            (
+                "application/vnd.ms-outlook",
+                ExtractionStrategy::OfficeConvert,
+            ),
+            ("message/rfc822", ExtractionStrategy::OfficeConvert),
+            ("application/mbox", ExtractionStrategy::OfficeConvert),
+            // Structured data (core)
+            ("application/json", ExtractionStrategy::StructuredExtract),
+            ("application/xml", ExtractionStrategy::StructuredExtract),
+            ("text/xml", ExtractionStrategy::StructuredExtract),
+            ("application/yaml", ExtractionStrategy::StructuredExtract),
+            ("text/yaml", ExtractionStrategy::StructuredExtract),
+            ("text/csv", ExtractionStrategy::StructuredExtract),
+            ("application/toml", ExtractionStrategy::StructuredExtract),
+            // Structured data (extended)
+            (
+                "application/x-bibtex",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            (
+                "application/x-research-info-systems",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            ("application/avro", ExtractionStrategy::StructuredExtract),
+            (
+                "application/vnd.apache.parquet",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            (
+                "application/x-ndjson",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            (
+                "application/geo+json",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            (
+                "application/x-drawio",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            (
+                "application/x-excalidraw+json",
+                ExtractionStrategy::StructuredExtract,
+            ),
+            ("text/calendar", ExtractionStrategy::StructuredExtract),
+            // Text/Native
+            ("text/plain", ExtractionStrategy::TextNative),
+            ("text/markdown", ExtractionStrategy::TextNative),
+            ("text/html", ExtractionStrategy::TextNative),
+            ("text/css", ExtractionStrategy::TextNative),
+            ("text/javascript", ExtractionStrategy::TextNative),
+            ("text/x-python", ExtractionStrategy::TextNative),
+            ("text/x-rust", ExtractionStrategy::TextNative),
+            ("text/x-c", ExtractionStrategy::TextNative),
+            ("text/x-java", ExtractionStrategy::TextNative),
+            ("text/x-go", ExtractionStrategy::TextNative),
+        ];
+
+        for (mime, expected) in &expectations {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                *expected,
+                "MIME type '{}' mapped to {:?}, expected {:?}",
+                mime,
+                ExtractionStrategy::from_mime_type(mime),
+                expected
+            );
+        }
     }
 }
 
