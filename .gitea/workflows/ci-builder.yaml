@@ -126,6 +126,10 @@ jobs:
           set -e
           DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
 
+          # Pre-create extensions as superuser (migrations reference them but matric user lacks CREATE EXTENSION)
+          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
           # Run migrations in order
           for f in migrations/*.sql; do
             echo "======================================"
@@ -274,6 +278,10 @@ jobs:
             echo "Waiting for Redis... ($i/10)"
             sleep 1
           done
+
+          # Pre-create extensions as superuser (migrations reference them but matric user lacks CREATE EXTENSION)
+          docker exec ${TEST_DB} psql -U postgres -d matric -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${TEST_DB} psql -U postgres -d matric -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
           # Run migrations
           echo "Running migrations..."

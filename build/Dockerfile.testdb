@@ -28,6 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-16-postgis-3-scripts \
     && rm -rf /var/lib/apt/lists/*
 
+# Auto-create extensions on database initialization.
+# The 000- prefix ensures this runs before any other init scripts.
+# Extensions are created as superuser (postgres) by the entrypoint.
+COPY build/init-extensions.sh /docker-entrypoint-initdb.d/000-init-extensions.sh
+
 # Note: pg_bigm is not available in standard Debian repos.
 # CJK search falls back to pg_trgm which is built into PostgreSQL.
 # For pg_bigm support, use a custom image or compile from source:
