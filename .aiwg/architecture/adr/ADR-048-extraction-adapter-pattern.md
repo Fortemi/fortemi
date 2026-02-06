@@ -8,13 +8,13 @@
 
 ## Context
 
-Matric Memory has a Document Type Registry (ADR-025) with 161+ pre-configured document types spanning 19 categories and 9 extraction strategies (`text_native`, `pdf_text`, `pdf_ocr`, `vision`, `audio_transcribe`, `video_multimodal`, `code_ast`, `office_convert`, `structured_extract`). The file attachment system (ADR-031, ADR-033) provides content-addressable blob storage with BLAKE3 deduplication and a pluggable storage backend.
+Matric Memory has a Document Type Registry (ADR-025) with 131 pre-configured document types spanning 19 categories and 9 extraction strategies (`text_native`, `pdf_text`, `pdf_ocr`, `vision`, `audio_transcribe`, `video_multimodal`, `code_ast`, `office_convert`, `structured_extract`). The file attachment system (ADR-031, ADR-033) provides content-addressable blob storage with BLAKE3 deduplication and a pluggable storage backend.
 
 However, three critical gaps prevent these systems from working together effectively:
 
 ### 1. Missing MIME Types on Document Types
 
-The `document_type` table schema includes a `mime_types TEXT[]` column, but the majority of the 161+ seeded document types have empty MIME type arrays. Only the specialized media types added in migration `20260204300001` (3D models, SVG, MIDI, diagrams) were seeded with MIME types. Core types like `markdown`, `pdf`, `rust`, `python`, and `json` lack MIME mappings entirely.
+The `document_type` table schema includes a `mime_types TEXT[]` column, but the majority of the 131 seeded document types have empty MIME type arrays. Only the specialized media types added in migration `20260204300001` (3D models, SVG, MIDI, diagrams) were seeded with MIME types. Core types like `markdown`, `pdf`, `rust`, `python`, and `json` lack MIME mappings entirely.
 
 ### 2. Incomplete Detection Pipeline
 
@@ -43,7 +43,7 @@ Each `extraction_strategy` value implies a specific external tool or model (pdft
 
 ### 1. Backfill MIME Types via Seed Migration
 
-Create a migration that populates `mime_types` for all 161+ document types. Examples:
+Create a migration that populates `mime_types` for all 131 document types. Examples:
 
 | Document Type | MIME Types |
 |---------------|------------|
@@ -218,7 +218,7 @@ This pattern is not implemented immediately but establishes the contract that th
 - Adapter dispatcher: `crates/matric-jobs/src/extraction/` (future implementation)
 
 **Key Changes:**
-1. Add seed migration backfilling `mime_types` for all 161+ document types
+1. Add seed migration backfilling `mime_types` for all 131 document types
 2. Update `PgDocumentTypeRepository::detect()` to accept `mime_type` parameter and add MIME matching step at 0.95 confidence
 3. Add `get_by_mime_type()` method to `PgDocumentTypeRepository`
 4. Update `upload_attachment` handler to call `detect()` after `store_file()` and set `document_type_id` + `extraction_strategy` on the attachment

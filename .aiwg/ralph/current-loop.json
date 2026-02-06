@@ -1,14 +1,15 @@
 {
-  "active": true,
+  "active": false,
   "task": "Comprehensive documentation alignment: update all docs, MCP tool help, OpenAPI specs, .aiwg workspace, webhook/event specs to match current codebase",
   "completion": "All documentation aligned with codebase: docs/ updated, OpenAPI spec matches routes, MCP tool descriptions have detailed help/best practices, .aiwg workspace cleaned, webhook/event specs current, cargo test + MCP tests pass",
   "maxIterations": 50,
-  "currentIteration": 2,
+  "currentIteration": 3,
   "startTime": "2026-02-06T14:30:00Z",
   "timeoutMinutes": 180,
-  "status": "IN_PROGRESS",
+  "status": "SUCCESS",
   "summary": {
     "iteration1": "Audit: 6 parallel agents audited OpenAPI spec, docs/, MCP tools, .aiwg workspace, event system, extraction pipeline",
-    "iteration2": "Implementation: Updated OpenAPI spec (attachment endpoints, job types, concept scheme DELETE), operations.md (80+ env vars), architecture.md (extraction pipeline, doc type detection, job processing), MCP README (155 tools), mcp.md, 9 MCP tool descriptions improved, fixed doc type count 161→131"
+    "iteration2": "Implementation: Updated OpenAPI spec (attachment endpoints, job types, concept scheme DELETE), operations.md (80+ env vars), architecture.md (extraction pipeline, doc type detection, job processing), MCP README (155 tools), mcp.md, 9 MCP tool descriptions improved, fixed doc type count 161→131",
+    "iteration3": "Fix + verify: Fixed SKOS endpoint path, job_type values, migration table, added glossary terms, improved 10 more MCP descriptions, fixed ADR-048 count. Final verification: 163 OpenAPI ops, 155/155 MCP tools detailed, 0 broken links, 0 stale references"
   }
 }
