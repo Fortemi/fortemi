@@ -239,10 +239,7 @@ mod tests {
     }
 
     fn test_url() -> String {
-        format!(
-            "https://test-{}.example.com/webhook",
-            chrono::Utc::now().timestamp_millis()
-        )
+        format!("https://test-{}.example.com/webhook", Uuid::new_v4())
     }
 
     fn test_request(url: &str) -> CreateWebhookRequest {
@@ -277,7 +274,7 @@ mod tests {
     #[tokio::test]
     async fn test_webhook_list() {
         let repo = setup().await;
-        let suffix = chrono::Utc::now().timestamp_millis();
+        let suffix = Uuid::new_v4();
 
         let id1 = repo
             .create(CreateWebhookRequest {
@@ -382,7 +379,7 @@ mod tests {
     #[tokio::test]
     async fn test_webhook_list_active_for_event_filters_correctly() {
         let repo = setup().await;
-        let suffix = chrono::Utc::now().timestamp_millis();
+        let suffix = Uuid::new_v4();
 
         // Webhook A: subscribes to JobCompleted + NoteUpdated, active
         let id_a = repo
@@ -456,7 +453,7 @@ mod tests {
     #[tokio::test]
     async fn test_webhook_list_active_for_event_empty_events_matches_all() {
         let repo = setup().await;
-        let suffix = chrono::Utc::now().timestamp_millis();
+        let suffix = Uuid::new_v4();
 
         // Empty events array = subscribe to all events
         let id = repo

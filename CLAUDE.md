@@ -165,6 +165,8 @@ cargo test --workspace  # All crates
 - If tests need serial execution, configure CI to run them with `--test-threads=1`
 - If tests need isolation, use unique identifiers (timestamp prefixes, UUIDs)
 
+**NEVER skip database tests in CI/CD.** A test PostgreSQL instance is always available during CI builds. Do not gate tests behind `SKIP_INTEGRATION_TESTS` or similar env vars. If a test needs a database, it gets a database — fix isolation issues instead of skipping.
+
 ### PostgreSQL Migration Compatibility
 
 `#[sqlx::test]` runs migrations in a transaction. Some PostgreSQL operations **cannot run in transactions**:
