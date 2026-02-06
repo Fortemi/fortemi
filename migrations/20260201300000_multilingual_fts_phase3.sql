@@ -75,7 +75,7 @@ BEGIN
             SELECT 1 FROM pg_indexes
             WHERE indexname = 'idx_note_revised_bigm'
         ) THEN
-            EXECUTE 'CREATE INDEX CONCURRENTLY idx_note_revised_bigm
+            EXECUTE 'CREATE INDEX idx_note_revised_bigm
                 ON note_revised_current USING gin (content gin_bigm_ops)';
             RAISE NOTICE 'Created bigram index: idx_note_revised_bigm';
         END IF;
@@ -85,7 +85,7 @@ BEGIN
             SELECT 1 FROM pg_indexes
             WHERE indexname = 'idx_note_title_bigm'
         ) THEN
-            EXECUTE 'CREATE INDEX CONCURRENTLY idx_note_title_bigm
+            EXECUTE 'CREATE INDEX idx_note_title_bigm
                 ON note USING gin (title gin_bigm_ops)';
             RAISE NOTICE 'Created bigram index: idx_note_title_bigm';
         END IF;
@@ -95,7 +95,7 @@ BEGIN
             SELECT 1 FROM pg_indexes
             WHERE indexname = 'idx_skos_label_bigm'
         ) THEN
-            EXECUTE 'CREATE INDEX CONCURRENTLY idx_skos_label_bigm
+            EXECUTE 'CREATE INDEX idx_skos_label_bigm
                 ON skos_concept_label USING gin (value gin_bigm_ops)';
             RAISE NOTICE 'Created bigram index: idx_skos_label_bigm';
         END IF;

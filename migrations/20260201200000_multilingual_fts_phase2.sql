@@ -23,16 +23,15 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ============================================================================
 
 -- Trigram index on note content for emoji/symbol/substring search
--- Uses CONCURRENTLY for zero-downtime migration
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_note_revised_trgm
+CREATE INDEX IF NOT EXISTS idx_note_revised_trgm
   ON note_revised_current USING gin (content gin_trgm_ops);
 
 -- Trigram index on note titles
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_note_title_trgm
+CREATE INDEX IF NOT EXISTS idx_note_title_trgm
   ON note USING gin (title gin_trgm_ops);
 
 -- Trigram index on SKOS concept labels for fuzzy concept search
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skos_label_trgm
+CREATE INDEX IF NOT EXISTS idx_skos_label_trgm
   ON skos_concept_label USING gin (value gin_trgm_ops);
 
 -- ============================================================================

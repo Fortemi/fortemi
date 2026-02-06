@@ -850,16 +850,7 @@ GROUP BY s.id, s.notation, s.title;
 -- DEFAULT DATA
 -- ============================================================================
 
--- Create default concept scheme
-INSERT INTO skos_concept_scheme (id, notation, uri, title, description, is_system)
-VALUES (
-    gen_uuid_v7(),
-    'default',
-    'https://matric.io/schemes/default',
-    'Default Tags',
-    'Default concept scheme for general-purpose tagging',
-    TRUE
-);
+-- Seed data moved to 20260118000000_seed_default_concept_scheme.sql
 
 -- ============================================================================
 -- COMMENTS

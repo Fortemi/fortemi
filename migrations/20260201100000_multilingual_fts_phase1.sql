@@ -28,16 +28,15 @@ ALTER TEXT SEARCH CONFIGURATION matric_simple
 
 -- Create GIN index on simple tsvector for notes content
 -- This enables fast FTS queries using the simple configuration
--- CONCURRENTLY allows zero-downtime migration
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_note_revised_tsv_simple
+CREATE INDEX IF NOT EXISTS idx_note_revised_tsv_simple
   ON note_revised_current USING gin (to_tsvector('matric_simple', content));
 
 -- Create GIN index on note titles using simple config
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_note_title_tsv_simple
+CREATE INDEX IF NOT EXISTS idx_note_title_tsv_simple
   ON note USING gin (to_tsvector('matric_simple', COALESCE(title, '')));
 
 -- Create index on SKOS concept labels for simple search
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_skos_label_tsv_simple
+CREATE INDEX IF NOT EXISTS idx_skos_label_tsv_simple
   ON skos_concept_label USING gin (to_tsvector('matric_simple', value));
 
 -- ============================================================================
