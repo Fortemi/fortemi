@@ -32,6 +32,8 @@ env:
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: "-Cinstrument-coverage"
   LLVM_PROFILE_FILE: "target/coverage/profile-%p-%m.profraw"
+  # Bump to invalidate stale build caches (e.g. after repo rename)
+  CACHE_VERSION: v2
 
 jobs:
   # Build testdb image once for all jobs
@@ -63,18 +65,17 @@ jobs:
         uses: https://github.com/actions/cache@v3
         with:
           path: ~/.cargo/registry/cache
-          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ env.CACHE_VERSION }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-registry-
+            ${{ env.CACHE_VERSION }}-cargo-registry-
 
       - name: Cache cargo build
         uses: https://github.com/actions/cache@v3
         with:
           path: target
-          key: cargo-build-fast-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ env.CACHE_VERSION }}-cargo-build-fast-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-build-fast-
-            cargo-build-
+            ${{ env.CACHE_VERSION }}-cargo-build-fast-
 
       - name: Run fast tests
         run: |
@@ -103,10 +104,9 @@ jobs:
         uses: https://github.com/actions/cache@v3
         with:
           path: target
-          key: cargo-build-integration-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ env.CACHE_VERSION }}-cargo-build-integration-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-build-integration-
-            cargo-build-
+            ${{ env.CACHE_VERSION }}-cargo-build-integration-
 
       - name: Setup PostgreSQL
         run: |
