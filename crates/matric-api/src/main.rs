@@ -10472,4 +10472,297 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         // If we reach here without hanging, the bridge exited cleanly
     }
+
+    // =========================================================================
+    // E2E EVENT FLOW INTEGRATION TESTS
+    // =========================================================================
+
+    /// Spawn a test server with note creation + SSE + bridge (worker → EventBus → SSE).
+    /// Returns (base_url, event_bus, worker_tx, db).
+    async fn spawn_event_flow_test_server() -> (
+        String,
+        Arc<EventBus>,
+        tokio::sync::broadcast::Sender<WorkerEvent>,
+        Database,
+    ) {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+        let event_bus = Arc::new(EventBus::new(256));
+        let ws_connections = Arc::new(AtomicUsize::new(0));
+
+        // Worker broadcast channel for injecting synthetic events
+        let (worker_tx, worker_rx) = tokio::sync::broadcast::channel::<WorkerEvent>(32);
+
+        // Start bridge: worker broadcast → EventBus
+        let bridge_bus = event_bus.clone();
+        let bridge_db = Database::connect(&database_url).await.unwrap();
+        tokio::spawn(async move {
+            bridge_worker_events(worker_rx, bridge_bus, bridge_db).await;
+        });
+
+        // Start periodic queue status emitter
+        let qs_bus = event_bus.clone();
+        let qs_db = Database::connect(&database_url).await.unwrap();
+        tokio::spawn(async move {
+            emit_periodic_queue_status(qs_bus, qs_db).await;
+        });
+
+        let state = AppState {
+            db: db.clone(),
+            search: Arc::new(matric_search::HybridSearchEngine::new(
+                Database::connect(&database_url).await.unwrap(),
+            )),
+            issuer: "http://localhost:3000".to_string(),
+            rate_limiter: None,
+            tag_resolver: matric_api::services::TagResolver::new(
+                Database::connect(&database_url).await.unwrap(),
+            ),
+            search_cache: matric_api::services::SearchCache::disabled(),
+            event_bus: event_bus.clone(),
+            ws_connections,
+        };
+
+        let router = Router::new()
+            .route("/api/v1/notes", post(create_note))
+            .route("/api/v1/events", get(sse_events))
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{}", addr);
+
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        (base_url, event_bus, worker_tx, db)
+    }
+
+    /// Collect SSE events from the event stream until timeout.
+    /// Returns parsed JSON values for each SSE data line.
+    async fn collect_sse_events(
+        base_url: &str,
+        timeout: std::time::Duration,
+    ) -> Vec<serde_json::Value> {
+        let client = reqwest::Client::new();
+        let mut response = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        let mut collected = String::new();
+        let deadline = tokio::time::Instant::now() + timeout;
+        while tokio::time::Instant::now() < deadline {
+            let remaining =
+                (deadline - tokio::time::Instant::now()).max(std::time::Duration::from_millis(1));
+            match tokio::time::timeout(remaining, response.chunk()).await {
+                Ok(Ok(Some(chunk))) => {
+                    collected.push_str(&String::from_utf8_lossy(&chunk));
+                }
+                _ => break,
+            }
+        }
+
+        // Parse SSE format: "event: Type\ndata: {json}\n\n"
+        let mut events = Vec::new();
+        for line in collected.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                    events.push(parsed);
+                }
+            }
+        }
+        events
+    }
+
+    /// Create a note via POST and return the note_id.
+    async fn create_test_note(base_url: &str, content: &str, tags: &[&str]) -> Uuid {
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/api/v1/notes", base_url))
+            .json(&serde_json::json!({
+                "content": content,
+                "tags": tags,
+                "revision_mode": "none"
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 201, "Failed to create note");
+        let body: serde_json::Value = response.json().await.unwrap();
+        Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
+    }
+
+    /// Test A: Verify that creating a note via API emits NoteUpdated via SSE.
+    #[tokio::test]
+    async fn test_event_flow_create_note_emits_sse() {
+        let (base_url, _bus, _worker_tx, _db) = spawn_event_flow_test_server().await;
+        let test_id = Uuid::new_v4();
+        let content = format!("E2E test note {}", test_id);
+        let tag = format!("e2e-test-{}", test_id);
+
+        // Start SSE collector in background
+        let base_url_clone = base_url.clone();
+        let collector = tokio::spawn(async move {
+            collect_sse_events(&base_url_clone, std::time::Duration::from_secs(3)).await
+        });
+
+        // Give SSE client time to connect and subscribe
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Create note via POST
+        let note_id = create_test_note(&base_url, &content, &[&tag]).await;
+
+        // Collect events
+        let events = collector.await.unwrap();
+
+        // Assert: at least one NoteUpdated event with matching note_id
+        let note_updated = events.iter().find(|e| {
+            e["type"] == "NoteUpdated" && e["note_id"].as_str() == Some(&note_id.to_string())
+        });
+        assert!(
+            note_updated.is_some(),
+            "Expected NoteUpdated event for note_id={}, got events: {:?}",
+            note_id,
+            events
+        );
+    }
+
+    /// Test B: Full cascade — worker events bridged through EventBus to SSE.
+    #[tokio::test]
+    async fn test_event_flow_full_job_cascade() {
+        use matric_core::JobRepository;
+
+        let (base_url, _bus, worker_tx, db) = spawn_event_flow_test_server().await;
+        let test_id = Uuid::new_v4();
+        let content = format!("E2E cascade test {}", test_id);
+
+        // Start SSE collector (longer timeout for bridge propagation)
+        let base_url_clone = base_url.clone();
+        let collector = tokio::spawn(async move {
+            collect_sse_events(&base_url_clone, std::time::Duration::from_secs(5)).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Create note (triggers NoteUpdated + queues NLP jobs)
+        let note_id = create_test_note(&base_url, &content, &[]).await;
+
+        // Find a queued job for this note to use as job_id
+        let jobs = db.jobs.get_for_note(note_id).await.unwrap();
+        let job_id = jobs.first().map(|j| j.id).unwrap_or_else(Uuid::new_v4);
+
+        // Inject synthetic worker events via broadcast channel
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        worker_tx
+            .send(WorkerEvent::JobStarted {
+                job_id,
+                job_type: matric_core::JobType::AiRevision,
+            })
+            .unwrap();
+        worker_tx
+            .send(WorkerEvent::JobProgress {
+                job_id,
+                percent: 50,
+                message: Some("Processing...".to_string()),
+            })
+            .unwrap();
+        worker_tx
+            .send(WorkerEvent::JobCompleted {
+                job_id,
+                job_type: matric_core::JobType::AiRevision,
+            })
+            .unwrap();
+
+        // Collect events
+        let events = collector.await.unwrap();
+
+        // Assert all expected event types present
+        let has_note_updated = events.iter().any(|e| e["type"] == "NoteUpdated");
+        let has_job_started = events.iter().any(|e| e["type"] == "JobStarted");
+        let has_job_progress = events.iter().any(|e| e["type"] == "JobProgress");
+        let has_job_completed = events.iter().any(|e| e["type"] == "JobCompleted");
+
+        assert!(
+            has_note_updated,
+            "Missing NoteUpdated event. Events: {:?}",
+            events
+        );
+        assert!(
+            has_job_started,
+            "Missing JobStarted event. Events: {:?}",
+            events
+        );
+        assert!(
+            has_job_progress,
+            "Missing JobProgress event. Events: {:?}",
+            events
+        );
+        assert!(
+            has_job_completed,
+            "Missing JobCompleted event. Events: {:?}",
+            events
+        );
+
+        // Assert job_id matches in bridge-emitted events
+        let started = events.iter().find(|e| e["type"] == "JobStarted").unwrap();
+        assert_eq!(started["job_id"], job_id.to_string());
+    }
+
+    /// Test C: Failure path — JobFailed event propagated through bridge to SSE.
+    #[tokio::test]
+    async fn test_event_flow_job_failure_cascade() {
+        use matric_core::JobRepository;
+
+        let (base_url, _bus, worker_tx, db) = spawn_event_flow_test_server().await;
+        let test_id = Uuid::new_v4();
+        let content = format!("E2E failure test {}", test_id);
+
+        // Start SSE collector
+        let base_url_clone = base_url.clone();
+        let collector = tokio::spawn(async move {
+            collect_sse_events(&base_url_clone, std::time::Duration::from_secs(5)).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Create note to get a real job_id
+        let note_id = create_test_note(&base_url, &content, &[]).await;
+
+        let jobs = db.jobs.get_for_note(note_id).await.unwrap();
+        let job_id = jobs.first().map(|j| j.id).unwrap_or_else(Uuid::new_v4);
+
+        // Inject JobFailed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        worker_tx
+            .send(WorkerEvent::JobFailed {
+                job_id,
+                job_type: matric_core::JobType::Embedding,
+                error: "test inference timeout".to_string(),
+            })
+            .unwrap();
+
+        // Collect events
+        let events = collector.await.unwrap();
+
+        // Assert JobFailed event appeared with correct error message
+        let job_failed = events.iter().find(|e| e["type"] == "JobFailed");
+        assert!(
+            job_failed.is_some(),
+            "Missing JobFailed event. Events: {:?}",
+            events
+        );
+
+        let failed = job_failed.unwrap();
+        assert_eq!(failed["job_id"], job_id.to_string());
+        assert_eq!(failed["error"], "test inference timeout");
+        assert_eq!(failed["job_type"], "Embedding");
+    }
 }
