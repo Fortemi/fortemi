@@ -22,10 +22,9 @@
 -- PART 1: ENABLE POSTGIS EXTENSION
 -- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS postgis;
-
-COMMENT ON EXTENSION postgis IS
-    'PostGIS extension for W3C PROV prov:atLocation spatial queries';
+-- PostGIS extension is created by the Docker entrypoint as superuser.
+-- CREATE EXTENSION requires superuser privileges, so we skip it here.
+-- The entrypoint ensures: CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- ============================================================================
 -- PART 2: PROV LOCATION (prov:atLocation)
