@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal
 matric-core.workspace = true
-matric-db.workspace = true
+matric-db = { workspace = true, features = ["migrations"] }
 matric-search.workspace = true
 matric-jobs.workspace = true
 matric-inference.workspace = true

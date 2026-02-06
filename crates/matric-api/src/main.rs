@@ -458,6 +458,11 @@ async fn main() -> anyhow::Result<()> {
     let db = Database::connect(&database_url).await?;
     info!("Database connected");
 
+    // Run pending database migrations on startup
+    info!("Running database migrations...");
+    db.migrate().await?;
+    info!("Database migrations complete");
+
     // Initialize file storage
     let file_storage_path =
         std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());

@@ -69,30 +69,21 @@ if [ "$FRESH_INSTALL" = true ]; then
     su postgres -c "psql -c \"CREATE USER ${POSTGRES_USER:-matric} WITH PASSWORD '${POSTGRES_PASSWORD:-matric}' CREATEDB;\""
     su postgres -c "psql -c \"CREATE DATABASE ${POSTGRES_DB:-matric} OWNER ${POSTGRES_USER:-matric};\""
 
-    # Enable pgvector extension
-    echo ">>> Enabling pgvector extension..."
+    # Enable required extensions (must be done as superuser)
+    echo ">>> Enabling extensions..."
     su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS vector;'"
+    su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 fi
 
-# Run migrations
-echo ">>> Running database migrations..."
-MIGRATION_DIR="/app/migrations"
+# Ensure required extensions exist (idempotent, must run as superuser before migrations)
+echo ">>> Ensuring PostgreSQL extensions..."
+su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" 2>/dev/null || true
+su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" 2>/dev/null || true
 
-if [ -d "$MIGRATION_DIR" ]; then
-    # Sort migration files and run them in order
-    for migration in $(ls -1 "$MIGRATION_DIR"/*.sql 2>/dev/null | sort); do
-        echo "  Applying: $(basename $migration)"
-        PGPASSWORD="${POSTGRES_PASSWORD:-matric}" psql \
-            -U "${POSTGRES_USER:-matric}" \
-            -h localhost \
-            -d "${POSTGRES_DB:-matric}" \
-            -f "$migration" \
-            -q 2>/dev/null || true
-    done
-    echo ">>> Migrations complete"
-else
-    echo ">>> No migrations directory found, skipping"
-fi
+# NOTE: Database schema migrations are handled automatically by the API on startup
+# via sqlx::migrate!() with _sqlx_migrations tracking table.
+# This ensures migrations run exactly once, in order, with proper error handling.
+echo ">>> Database migrations will be applied by API on startup"
 
 # Start MCP server in background
 echo ">>> Starting MCP Server..."
