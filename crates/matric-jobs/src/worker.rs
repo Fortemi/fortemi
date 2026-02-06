@@ -12,6 +12,7 @@ use uuid::Uuid;
 use matric_core::{JobRepository, JobType, Result};
 use matric_db::Database;
 
+use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
 use crate::DEFAULT_POLL_INTERVAL_MS;
 
@@ -109,17 +110,23 @@ pub struct JobWorker {
     config: WorkerConfig,
     handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
     event_tx: broadcast::Sender<WorkerEvent>,
+    extraction_registry: Option<Arc<ExtractionRegistry>>,
 }
 
 impl JobWorker {
     /// Create a new job worker.
-    pub fn new(db: Database, config: WorkerConfig) -> Self {
+    pub fn new(
+        db: Database,
+        config: WorkerConfig,
+        extraction_registry: Option<ExtractionRegistry>,
+    ) -> Self {
         let (event_tx, _) = broadcast::channel(100);
         Self {
             db,
             config,
             handlers: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
+            extraction_registry: extraction_registry.map(Arc::new),
         }
     }
 
@@ -129,6 +136,11 @@ impl JobWorker {
         let mut handlers = self.handlers.write().await;
         handlers.insert(job_type, Arc::new(handler));
         debug!(?job_type, "Registered job handler");
+    }
+
+    /// Get a reference to the extraction registry (if configured).
+    pub fn extraction_registry(&self) -> Option<&Arc<ExtractionRegistry>> {
+        self.extraction_registry.as_ref()
     }
 
     /// Start the worker and return a handle for control.
@@ -298,6 +310,7 @@ pub struct WorkerBuilder {
     db: Database,
     config: WorkerConfig,
     handlers: Vec<Box<dyn JobHandler>>,
+    extraction_registry: Option<ExtractionRegistry>,
 }
 
 impl WorkerBuilder {
@@ -307,6 +320,7 @@ impl WorkerBuilder {
             db,
             config: WorkerConfig::default(),
             handlers: Vec::new(),
+            extraction_registry: None,
         }
     }
 
@@ -322,9 +336,15 @@ impl WorkerBuilder {
         self
     }
 
+    /// Set the extraction registry.
+    pub fn with_extraction_registry(mut self, registry: ExtractionRegistry) -> Self {
+        self.extraction_registry = Some(registry);
+        self
+    }
+
     /// Build and return the worker.
     pub async fn build(self) -> JobWorker {
-        let worker = JobWorker::new(self.db, self.config);
+        let worker = JobWorker::new(self.db, self.config, self.extraction_registry);
 
         for handler in self.handlers {
             let job_type = handler.job_type();

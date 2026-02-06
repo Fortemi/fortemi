@@ -944,6 +944,97 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProvenanceResponse'
 
+  # ===========================================================================
+  # Memory Search
+  # ===========================================================================
+  /api/v1/memories/search:
+    get:
+      summary: Search memories by location, time, or both
+      description: |
+        Unified spatiotemporal search endpoint. Mode is determined by which query parameters are provided:
+        - `lat` + `lon` → location mode (spatial search)
+        - `start` + `end` → time mode (temporal search)
+        - All parameters → combined mode (intersection)
+        At least one search dimension is required.
+      operationId: searchMemories
+      tags: [Memory Search]
+      parameters:
+        - name: lat
+          in: query
+          description: Latitude in decimal degrees (-90 to 90)
+          schema:
+            type: number
+            format: double
+        - name: lon
+          in: query
+          description: Longitude in decimal degrees (-180 to 180)
+          schema:
+            type: number
+            format: double
+        - name: radius
+          in: query
+          description: Search radius in meters (default 1000)
+          schema:
+            type: number
+            format: double
+            default: 1000
+        - name: start
+          in: query
+          description: Start of time range (ISO 8601 or flexible format)
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          description: End of time range (ISO 8601 or flexible format)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, results, count]
+                properties:
+                  mode:
+                    type: string
+                    enum: [location, time, combined]
+                  results:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+        '400':
+          description: No search dimension provided
+
+  /api/v1/notes/{id}/memory-provenance:
+    get:
+      summary: Get memory provenance for a note
+      description: Returns the complete file provenance chain for a note's attachments, including location, device, and capture time information.
+      operationId: getMemoryProvenance
+      tags: [Memory Search]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: Memory provenance (files array is empty if no provenance exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  note_id:
+                    type: string
+                    format: uuid
+                  files:
+                    type: array
+                    items:
+                      type: object
+
   /api/v1/notes/{id}/move:
     post:
       summary: Move note to collection

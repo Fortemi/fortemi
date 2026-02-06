@@ -295,6 +295,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         &self,
         filename: Option<&str>,
         content: Option<&str>,
+        mime_type: Option<&str>,
     ) -> Result<Option<DetectDocumentTypeResult>> {
         // 1. Try filename pattern match first (highest confidence)
         if let Some(fname) = filename {
@@ -305,8 +306,21 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                     detection_method: "filename_pattern".to_string(),
                 }));
             }
+        }
 
-            // 2. Try extension match
+        // 2. Try MIME type match (high confidence for binary formats)
+        if let Some(mime) = mime_type {
+            if let Some(doc_type) = self.get_by_mime_type(mime).await? {
+                return Ok(Some(DetectDocumentTypeResult {
+                    document_type: self.to_summary(&doc_type),
+                    confidence: 0.95,
+                    detection_method: "mime_type".to_string(),
+                }));
+            }
+        }
+
+        // 3. Try extension match
+        if let Some(fname) = filename {
             if let Some(ext) = std::path::Path::new(fname)
                 .extension()
                 .and_then(|e| e.to_str())
@@ -322,7 +336,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 3. Try content pattern match (magic patterns)
+        // 4. Try content pattern match (magic patterns)
         if let Some(text) = content {
             let rows = sqlx::query(
                 r#"
@@ -370,7 +384,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 4. Default to plaintext
+        // 5. Default to plaintext
         if let Some(doc_type) = self.get_by_name("plaintext").await? {
             return Ok(Some(DetectDocumentTypeResult {
                 document_type: self.to_summary(&doc_type),
@@ -430,6 +444,31 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
 }
 
 impl PgDocumentTypeRepository {
+    /// Find a document type by MIME type.
+    async fn get_by_mime_type(&self, mime_type: &str) -> Result<Option<DocumentType>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, name, display_name, category::TEXT, description,
+                   file_extensions, mime_types, magic_patterns, filename_patterns,
+                   chunking_strategy::TEXT, chunk_size_default, chunk_overlap_default,
+                   preserve_boundaries, chunking_config, recommended_config_id,
+                   content_types, tree_sitter_language,
+                   extraction_strategy::TEXT, extraction_config, requires_attachment, attachment_generates_content,
+                   is_system, is_active,
+                   created_at, updated_at, created_by, agentic_config
+            FROM document_type
+            WHERE is_active = TRUE AND $1 = ANY(mime_types)
+            LIMIT 1
+            "#,
+        )
+        .bind(mime_type)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| self.row_to_document_type(&r)))
+    }
+
     fn row_to_document_type(&self, row: &sqlx::postgres::PgRow) -> DocumentType {
         // Try to load agentic_config from database, fall back to default on error
         let agentic_config: AgenticConfig = row

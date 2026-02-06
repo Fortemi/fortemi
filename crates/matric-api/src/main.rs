@@ -42,9 +42,9 @@ use uuid::Uuid;
 use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, EventBus, JobRepository, JobType, LinkRepository,
-    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
-    TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    CreateApiKeyRequest, CreateNoteRequest, EventBus, ExtractionStrategy, JobRepository, JobType,
+    LinkRepository, ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent,
+    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
 
@@ -494,7 +494,7 @@ async fn main() -> anyhow::Result<()> {
 
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
-        let worker = JobWorker::new(db.clone(), WorkerConfig::default());
+        let worker = JobWorker::new(db.clone(), WorkerConfig::default(), None);
 
         // Register handlers - create separate backend instances
         worker
@@ -7178,6 +7178,8 @@ struct UploadAttachmentBody {
     content_type: String,
     /// Base64-encoded file data
     data: String,
+    /// Optional explicit document type override (skips auto-detection)
+    document_type_id: Option<Uuid>,
 }
 
 /// Response for file download with base64-encoded content
@@ -7221,9 +7223,34 @@ async fn upload_attachment(
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
     // Store the file
-    let attachment = file_storage
+    let mut attachment = file_storage
         .store_file(id, &body.filename, &body.content_type, &data)
         .await?;
+
+    // Phase 1: Determine extraction strategy from MIME type (pure function, no DB)
+    let ext = std::path::Path::new(&body.filename)
+        .extension()
+        .and_then(|e| e.to_str());
+    let strategy = ExtractionStrategy::from_mime_and_extension(&body.content_type, ext);
+    if file_storage
+        .set_extraction_strategy(attachment.id, strategy)
+        .await
+        .is_ok()
+    {
+        attachment.extraction_strategy = Some(strategy);
+    }
+
+    // Allow user to explicitly set document_type_id at upload (optional override)
+    if let Some(doc_type_id) = body.document_type_id {
+        if file_storage
+            .set_document_type(attachment.id, doc_type_id, None)
+            .await
+            .is_ok()
+        {
+            attachment.document_type_id = Some(doc_type_id);
+        }
+    }
+    // Document type classification happens asynchronously after extraction (Phase 2)
 
     Ok(Json(attachment))
 }

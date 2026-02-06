@@ -150,6 +150,9 @@ pub fn generate_storage_path(uuid: &Uuid) -> String {
 pub struct PgFileStorageRepository {
     pool: PgPool,
     backend: Box<dyn StorageBackend>,
+    /// Retained for API backward compatibility but no longer used.
+    /// All new uploads use filesystem storage regardless of size.
+    #[allow(dead_code)]
     inline_threshold: i64,
 }
 
@@ -216,34 +219,21 @@ impl PgFileStorageRepository {
             // Reuse existing blob (deduplication)
             blob.id
         } else {
-            // Create new blob
+            // Create new blob - always use filesystem storage
             let blob_id = Uuid::now_v7();
-            let (storage_backend, storage_path, inline_data): (
-                String,
-                Option<String>,
-                Option<Vec<u8>>,
-            ) = if size_bytes < self.inline_threshold {
-                // Store inline in database
-                ("database".to_string(), None, Some(data.to_vec()))
-            } else {
-                // Store in filesystem
-                let path = generate_storage_path(&blob_id);
-                self.backend.write(&path, data).await?;
-                ("filesystem".to_string(), Some(path), None)
-            };
+            let path = generate_storage_path(&blob_id);
+            self.backend.write(&path, data).await?;
 
             sqlx::query(
                 r#"INSERT INTO attachment_blob
-                   (id, content_hash, content_type, size_bytes, storage_backend, storage_path, data)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+                   (id, content_hash, content_type, size_bytes, storage_backend, storage_path)
+                   VALUES ($1, $2, $3, $4, 'filesystem', $5)"#,
             )
             .bind(blob_id)
             .bind(&content_hash)
             .bind(content_type)
             .bind(size_bytes)
-            .bind(&storage_backend)
-            .bind(storage_path.as_deref())
-            .bind(inline_data.as_deref())
+            .bind(&path)
             .execute(&self.pool)
             .await?;
 
@@ -259,7 +249,9 @@ impl PgFileStorageRepository {
                RETURNING id, note_id, blob_id, filename, original_filename,
                          document_type_id, status, extraction_strategy,
                          extracted_text, extracted_metadata,
-                         has_preview, is_canonical_content, created_at, updated_at"#,
+                         has_preview, is_canonical_content,
+                         detected_document_type_id, detection_confidence, detection_method,
+                         created_at, updated_at"#,
         )
         .bind(attachment_id)
         .bind(note_id)
@@ -314,10 +306,12 @@ impl PgFileStorageRepository {
         let rows = sqlx::query(
             r#"SELECT a.id, a.note_id, a.filename, ab.content_type, ab.size_bytes,
                       a.status, dt.name as document_type_name,
+                      ddt.name as detected_document_type_name, a.detection_confidence,
                       a.has_preview, a.is_canonical_content, a.created_at
                FROM attachment a
                JOIN attachment_blob ab ON a.blob_id = ab.id
                LEFT JOIN document_type dt ON a.document_type_id = dt.id
+               LEFT JOIN document_type ddt ON a.detected_document_type_id = ddt.id
                WHERE a.note_id = $1
                ORDER BY a.display_order, a.created_at"#,
         )
@@ -335,6 +329,8 @@ impl PgFileStorageRepository {
                 size_bytes: row.get("size_bytes"),
                 status: parse_attachment_status(row.get("status")),
                 document_type_name: row.get("document_type_name"),
+                detected_document_type_name: row.get("detected_document_type_name"),
+                detection_confidence: row.get("detection_confidence"),
                 has_preview: row.get("has_preview"),
                 is_canonical_content: row.get("is_canonical_content"),
                 created_at: row.get("created_at"),
@@ -363,7 +359,9 @@ impl PgFileStorageRepository {
             r#"SELECT id, note_id, blob_id, filename, original_filename,
                       document_type_id, status, extraction_strategy,
                       extracted_text, extracted_metadata,
-                      has_preview, is_canonical_content, created_at, updated_at
+                      has_preview, is_canonical_content,
+                      detected_document_type_id, detection_confidence, detection_method,
+                      created_at, updated_at
                FROM attachment
                WHERE id = $1"#,
         )
@@ -413,6 +411,94 @@ impl PgFileStorageRepository {
         .bind(extracted_metadata)
         .execute(&self.pool)
         .await?;
+
+        Ok(())
+    }
+
+    /// Set the document type and extraction strategy for an attachment.
+    pub async fn set_document_type(
+        &self,
+        attachment_id: Uuid,
+        document_type_id: Uuid,
+        extraction_strategy: Option<ExtractionStrategy>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET document_type_id = $2, extraction_strategy = $3, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(document_type_id)
+        .bind(extraction_strategy.map(|s| s.to_string()))
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Set only the extraction strategy (determined from MIME type, no document type lookup).
+    pub async fn set_extraction_strategy(
+        &self,
+        attachment_id: Uuid,
+        strategy: ExtractionStrategy,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET extraction_strategy = $2, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(strategy.to_string())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Set AI-detected document type with confidence score.
+    ///
+    /// If `auto_promote` is true and the detection is high-confidence,
+    /// also sets `document_type_id` (user-visible assignment).
+    pub async fn set_detected_document_type(
+        &self,
+        attachment_id: Uuid,
+        detected_id: Uuid,
+        confidence: f32,
+        method: &str,
+        auto_promote: bool,
+    ) -> Result<()> {
+        if auto_promote {
+            sqlx::query(
+                r#"UPDATE attachment
+                   SET detected_document_type_id = $2,
+                       detection_confidence = $3,
+                       detection_method = $4,
+                       document_type_id = $2,
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(attachment_id)
+            .bind(detected_id)
+            .bind(confidence)
+            .bind(method)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"UPDATE attachment
+                   SET detected_document_type_id = $2,
+                       detection_confidence = $3,
+                       detection_method = $4,
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(attachment_id)
+            .bind(detected_id)
+            .bind(confidence)
+            .bind(method)
+            .execute(&self.pool)
+            .await?;
+        }
 
         Ok(())
     }
@@ -492,6 +578,11 @@ fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment> {
         extracted_metadata: row.get("extracted_metadata"),
         has_preview: row.get("has_preview"),
         is_canonical_content: row.get("is_canonical_content"),
+        detected_document_type_id: row.get("detected_document_type_id"),
+        detection_confidence: row
+            .get::<Option<f64>, _>("detection_confidence")
+            .map(|v| v as f32),
+        detection_method: row.get("detection_method"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })

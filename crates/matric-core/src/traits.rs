@@ -417,6 +417,50 @@ impl JobNotifier for NoOpNotifier {
 }
 
 // =============================================================================
+// EXTRACTION ADAPTER TRAITS
+// =============================================================================
+
+/// Result of content extraction from a file attachment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExtractionResult {
+    /// Extracted text content, if any.
+    pub extracted_text: Option<String>,
+    /// Metadata about the extraction (format-specific).
+    pub metadata: JsonValue,
+    /// AI-generated description of the content.
+    pub ai_description: Option<String>,
+    /// Preview data (e.g., thumbnail bytes). Skipped in serialization.
+    #[serde(skip)]
+    pub preview_data: Option<Vec<u8>>,
+}
+
+/// Adapter for extracting content from file attachments.
+///
+/// Each adapter handles one extraction strategy (e.g., TextNative, PdfText).
+/// Adapters are registered in an `ExtractionRegistry` and dispatched based
+/// on the file's detected `ExtractionStrategy`.
+#[async_trait]
+pub trait ExtractionAdapter: Send + Sync {
+    /// The extraction strategy this adapter handles.
+    fn strategy(&self) -> crate::ExtractionStrategy;
+
+    /// Extract content from raw file data.
+    async fn extract(
+        &self,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+        config: &JsonValue,
+    ) -> Result<ExtractionResult>;
+
+    /// Check if the adapter's external dependencies are available.
+    async fn health_check(&self) -> Result<bool>;
+
+    /// Human-readable name of this adapter.
+    fn name(&self) -> &str;
+}
+
+// =============================================================================
 // CONTENT PROCESSOR TRAITS
 // =============================================================================
 
@@ -522,11 +566,12 @@ pub trait DocumentTypeRepository: Send + Sync {
     /// Delete a document type (only non-system types).
     async fn delete(&self, name: &str) -> Result<()>;
 
-    /// Detect document type from filename and optional content.
+    /// Detect document type from filename, optional content, and/or MIME type.
     async fn detect(
         &self,
         filename: Option<&str>,
         content: Option<&str>,
+        mime_type: Option<&str>,
     ) -> Result<Option<crate::DetectDocumentTypeResult>>;
 
     /// Get document type by file extension.

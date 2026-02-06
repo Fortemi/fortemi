@@ -40,6 +40,7 @@ impl PgJobRepository {
             JobType::GenerateCoarseEmbedding => "generate_coarse_embedding",
             JobType::ExifExtraction => "exif_extraction",
             JobType::ThreeDAnalysis => "3d_analysis",
+            JobType::DocumentTypeInference => "document_type_inference",
         }
     }
 
@@ -64,6 +65,7 @@ impl PgJobRepository {
             "generate_coarse_embedding" => JobType::GenerateCoarseEmbedding,
             "exif_extraction" => JobType::ExifExtraction,
             "3d_analysis" => JobType::ThreeDAnalysis,
+            "document_type_inference" => JobType::DocumentTypeInference,
             _ => JobType::ContextUpdate, // fallback
         }
     }
@@ -567,6 +569,10 @@ mod tests {
             PgJobRepository::job_type_to_str(JobType::ThreeDAnalysis),
             "3d_analysis"
         );
+        assert_eq!(
+            PgJobRepository::job_type_to_str(JobType::DocumentTypeInference),
+            "document_type_inference"
+        );
     }
 
     // Test string to JobType conversion
@@ -623,6 +629,10 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("3d_analysis"),
             JobType::ThreeDAnalysis
+        );
+        assert_eq!(
+            PgJobRepository::str_to_job_type("document_type_inference"),
+            JobType::DocumentTypeInference
         );
     }
 
@@ -747,6 +757,7 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
             JobType::ThreeDAnalysis,
+            JobType::DocumentTypeInference,
         ];
 
         for job_type in types {
@@ -791,6 +802,7 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
             JobType::ThreeDAnalysis,
+            JobType::DocumentTypeInference,
         ];
 
         let strings: Vec<&str> = types

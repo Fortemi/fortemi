@@ -41,6 +41,8 @@ pub struct DetectDocumentTypeRequest {
     pub filename: Option<String>,
     /// Optional content sample for magic pattern matching
     pub content: Option<String>,
+    /// Optional MIME type for content-type based detection
+    pub mime_type: Option<String>,
 }
 
 /// List all document types, optionally filtered by category.
@@ -165,16 +167,20 @@ pub async fn detect_document_type(
     Json(req): Json<DetectDocumentTypeRequest>,
 ) -> Result<Json<Option<matric_core::DetectDocumentTypeResult>>, ApiError> {
     // Validate that at least one detection input is provided
-    if req.filename.is_none() && req.content.is_none() {
+    if req.filename.is_none() && req.content.is_none() && req.mime_type.is_none() {
         return Err(ApiError::BadRequest(
-            "At least one of 'filename' or 'content' must be provided".to_string(),
+            "At least one of 'filename', 'content', or 'mime_type' must be provided".to_string(),
         ));
     }
 
     let result = state
         .db
         .document_types
-        .detect(req.filename.as_deref(), req.content.as_deref())
+        .detect(
+            req.filename.as_deref(),
+            req.content.as_deref(),
+            req.mime_type.as_deref(),
+        )
         .await?;
 
     Ok(Json(result))
