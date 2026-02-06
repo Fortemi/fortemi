@@ -3608,7 +3608,12 @@ USE WHEN: Need complete context about a concept including its position in the hi
   },
   {
     name: "update_concept",
-    description: "Update a concept's properties (notation, status, facet).",
+    description: `Update a concept's properties (notation, status, facet).
+
+USE WHEN: Changing lifecycle status (candidate → approved → deprecated), setting short codes (notation),
+or classifying via PMEST facets. When deprecating, provide deprecation_reason and optionally replaced_by_id.
+
+RETURNS: Updated concept object`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3713,7 +3718,12 @@ Use get_broader for parents, get_related for associative links.`,
   },
   {
     name: "add_narrower",
-    description: "Add a narrower (child) relationship (inverse of broader).",
+    description: `Add a narrower (child) relationship (inverse of broader).
+
+Creates the child link from parent → child. Equivalent to add_broader called from child's perspective.
+Max 3 parents per concept (polyhierarchy limit).
+
+Example: add_narrower({id: programming_languages_uuid, target_id: rust_uuid})`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3782,7 +3792,10 @@ RETURNS: {success: true}`,
   },
   {
     name: "untag_note_concept",
-    description: "Remove a concept tag from a note.",
+    description: `Remove a SKOS concept tag from a note.
+
+Removes only the concept association — does not affect the concept itself or note content.
+To manage simple text tags, use set_note_tags instead.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3797,7 +3810,10 @@ RETURNS: {success: true}`,
   },
   {
     name: "get_note_concepts",
-    description: "Get all SKOS concepts tagged on a note with their labels.",
+    description: `Get all SKOS concepts tagged on a note with their labels.
+
+Returns formal SKOS concept tags (not simple text tags). Each concept includes its preferred label,
+scheme, and notation. For simple text tags, check the tags field from get_note.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3828,7 +3844,10 @@ USE WHEN: Audit taxonomy health, find issues like orphan tags or under-used conc
   },
   {
     name: "get_top_concepts",
-    description: "Get top-level concepts in a scheme (concepts with no broader relations).",
+    description: `Get top-level concepts in a scheme (concepts with no broader relations).
+
+These are root nodes of the taxonomy — entry points for hierarchical navigation.
+Use get_narrower on these to explore children and build tree views.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -5274,7 +5293,8 @@ Use this as a dashboard to identify maintenance needs. Follow up with specific d
     name: "get_orphan_tags",
     description: `List tags that are not used by any notes.
 
-Returns tags with zero note count, candidates for cleanup or consolidation.`,
+Returns tags with zero note count — candidates for cleanup, consolidation, or deprecation.
+Part of the knowledge health dashboard. Use delete_concept to remove, or update_concept to deprecate.`,
     inputSchema: {
       type: "object",
       properties: {},
@@ -5287,7 +5307,10 @@ Returns tags with zero note count, candidates for cleanup or consolidation.`,
     name: "get_stale_notes",
     description: `Find notes that haven't been updated recently.
 
-Useful for content refresh initiatives or identifying abandoned knowledge.`,
+Returns notes not modified within the threshold (default: 90 days). Useful for content freshness
+audits and identifying abandoned knowledge. Consider archiving or refreshing stale content.
+
+PARAMS: days (staleness threshold, default 90), limit (default 50)`,
     inputSchema: {
       type: "object",
       properties: {
@@ -5301,12 +5324,10 @@ Useful for content refresh initiatives or identifying abandoned knowledge.`,
   },
   {
     name: "get_unlinked_notes",
-    description: `Find notes with no semantic links (isolated knowledge).
+    description: `Find notes with no semantic links (isolated knowledge islands).
 
-These notes may need:
-- More content to establish connections
-- Manual linking to related concepts
-- Review for relevance`,
+These notes have zero incoming and outgoing semantic connections — they may need more content
+to establish links, or manual review. Use reprocess_note with steps=["linking"] to retry auto-linking.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -5319,12 +5340,12 @@ These notes may need:
   },
   {
     name: "get_tag_cooccurrence",
-    description: `Analyze which tags frequently appear together.
+    description: `Analyze which tags frequently appear together on notes.
 
-Useful for:
-- Discovering implicit tag relationships
-- Identifying candidates for SKOS related relationships
-- Understanding tagging patterns`,
+Discovers implicit semantic relationships in your tagging patterns. High co-occurrence suggests
+candidates for skos:related links (use add_related) or potential tag consolidation.
+
+PARAMS: min_count (minimum co-occurrence threshold), limit (default 50)`,
     inputSchema: {
       type: "object",
       properties: {
@@ -5433,10 +5454,12 @@ Returns full job details including:
   },
   {
     name: "get_pending_jobs_count",
-    description: `Get quick count of pending jobs.
+    description: `Get count of pending jobs in the processing queue.
 
-Returns just the count of jobs waiting to be processed.
-Faster than list_jobs when you only need the count for status display.`,
+Faster than list_jobs when you only need the count for status display.
+Normal: 0-10, moderate backlog: 10-100 (after bulk ops), heavy: >100.
+
+RETURNS: { pending_count: number }`,
     inputSchema: {
       type: "object",
       properties: {},

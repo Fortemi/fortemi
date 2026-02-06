@@ -561,6 +561,52 @@ The algorithm used to split documents into smaller pieces for embedding. The cho
 
 ---
 
+### Extraction Strategy
+The method used to extract searchable text and metadata from uploaded file attachments. Different file formats require different extraction approaches.
+
+**Strategies:**
+- **text_native**: Direct text extraction (for .txt, .md, .csv)
+- **pdf_text**: PDF text layer extraction (for .pdf)
+- **code_ast**: Abstract syntax tree parsing (for source code files)
+- **vision**: AI vision model analysis (for images)
+- **audio_transcribe**: Speech-to-text transcription (for audio files)
+- **structured_extract**: Schema-aware parsing (for .json, .xml, .yaml)
+
+**Why It Matters:** The extraction strategy determines what text content is available for chunking and embedding. A PDF processed with `text_native` would yield garbled output, while `pdf_text` correctly extracts readable text.
+
+**In Matric-Memory:** Implemented via the `ExtractionAdapter` trait pattern in `crates/matric-jobs/src/adapters/`. Strategy is auto-assigned from MIME type via `ExtractionStrategy::from_mime_type()`.
+
+---
+
+### Document Type Inference
+A background job that automatically classifies uploaded file attachments into document types using a confidence-scored detection cascade.
+
+**Detection Priority:**
+1. Filename pattern match (confidence: 1.0)
+2. MIME type match (confidence: 0.95)
+3. File extension match (confidence: 0.9)
+4. Content/magic pattern match (confidence: 0.7)
+5. Default fallback (confidence: 0.1)
+
+**Why It Matters:** Correct document type classification ensures the optimal chunking strategy is applied, improving embedding quality and search relevance.
+
+**In Matric-Memory:** Runs as a `document_type_inference` job in the background worker. Detection logic in `crates/matric-db/src/document_types.rs`.
+
+---
+
+### Embedding Set
+A named collection of embeddings with independent configuration for model, dimensions, and lifecycle management.
+
+**Types:**
+- **Filter Set** (default): Shares embeddings from the default embedding set
+- **Full Set**: Maintains independent embeddings with dedicated configuration
+
+**Why It Matters:** Different use cases benefit from different embedding models. Research notes might use a high-dimensional model for precision, while quick lookups use a smaller model for speed.
+
+**In Matric-Memory:** Managed via `/api/v1/embedding-sets/*` REST endpoints and MCP tools. Supports MRL (Matryoshka Representation Learning) for storage-efficient multi-resolution embeddings.
+
+---
+
 ### Temporal-Spatial Search
 
 | Attribute | Value |

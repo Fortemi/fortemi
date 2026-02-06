@@ -318,7 +318,7 @@ For advanced knowledge organization, Fortemi implements W3C SKOS (Simple Knowled
 
 ```bash
 # Create a concept for "memory safety"
-curl -X POST http://localhost:3000/api/v1/skos/concepts \
+curl -X POST http://localhost:3000/api/v1/concepts \
   -H "Content-Type: application/json" \
   -d '{
     "pref_label": "Memory Safety",

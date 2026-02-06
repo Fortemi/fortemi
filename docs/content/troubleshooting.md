@@ -289,12 +289,12 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
 ```bash
 # Check job queue status
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embed' GROUP BY status"
+  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embedding' GROUP BY status"
 
 # If jobs are stuck, check Ollama connectivity (see "Embedding and AI Issues")
 # Or reset failed jobs
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "UPDATE job_queue SET status = 'pending' WHERE status = 'failed' AND job_type = 'embed'"
+  "UPDATE job_queue SET status = 'pending' WHERE status = 'failed' AND job_type = 'embedding'"
 ```
 
 **Wrong search mode:**
@@ -517,7 +517,7 @@ docker exec Fortémi-matric-1 curl http://host.docker.internal:11434/api/tags
 
 # 4. Check job failures
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT id, error FROM job_queue WHERE status = 'failed' AND job_type = 'embed' LIMIT 5"
+  "SELECT id, error FROM job_queue WHERE status = 'failed' AND job_type = 'embedding' LIMIT 5"
 ```
 
 **Fix:**
@@ -577,12 +577,12 @@ docker compose -f docker-compose.bundle.yml restart matric
 ```bash
 # Check job status
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embed' GROUP BY status"
+  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embedding' GROUP BY status"
 
 # Check recent failures
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
   "SELECT id, error FROM job_queue
-   WHERE status = 'failed' AND job_type = 'embed'
+   WHERE status = 'failed' AND job_type = 'embedding'
    ORDER BY updated_at DESC LIMIT 5"
 
 # Check logs
@@ -620,7 +620,7 @@ environment:
 # Restart and reset failed jobs
 docker compose -f docker-compose.bundle.yml restart matric
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "UPDATE job_queue SET status = 'pending' WHERE status = 'failed' AND job_type = 'embed'"
+  "UPDATE job_queue SET status = 'pending' WHERE status = 'failed' AND job_type = 'embedding'"
 ```
 
 **Connection timeout:**
@@ -640,7 +640,7 @@ docker compose -f docker-compose.bundle.yml restart matric
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
   "UPDATE job_queue
    SET status = 'pending', error = NULL, attempts = 0
-   WHERE status = 'failed' AND job_type = 'embed'"
+   WHERE status = 'failed' AND job_type = 'embedding'"
 
 # Worker will retry with current configuration
 ```
@@ -661,7 +661,7 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
 
 # Check for pending embedding jobs
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT COUNT(*) FROM job_queue WHERE job_type = 'embed' AND status = 'pending'"
+  "SELECT COUNT(*) FROM job_queue WHERE job_type = 'embedding' AND status = 'pending'"
 
 # Test embedding generation manually
 curl -X POST http://localhost:11434/api/embeddings \
@@ -678,7 +678,7 @@ curl -X POST http://localhost:3000/admin/reindex
 # Or wait for background jobs to complete
 # Check progress
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embed' GROUP BY status"
+  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embedding' GROUP BY status"
 ```
 
 **Wrong embedding dimension:**
@@ -741,7 +741,7 @@ docker exec Fortémi-matric-1 printenv SEMANTIC_LINK_THRESHOLD
 # Wait for embedding jobs to finish first
 # Check progress
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
-  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embed' GROUP BY status"
+  "SELECT status, COUNT(*) FROM job_queue WHERE job_type = 'embedding' GROUP BY status"
 
 # Once embeddings are complete, linking jobs will run automatically
 ```

@@ -146,13 +146,23 @@ SELECT * FROM _migrations ORDER BY applied_at;
 
 ### Current Migrations
 
+The system includes 55 migrations organized in phases. Key milestones:
+
 | Migration | Description | Phase |
 |-----------|-------------|-------|
+| `20240101000000_initial_schema.sql` | Core tables (note, tag, collection, link) | Foundation |
+| `20250115000000_embedding_sets.sql` | Embedding set management, MRL support | Embeddings |
 | `20260201100000_multilingual_fts_phase1.sql` | matric_simple config, websearch_to_tsquery | FTS Phase 1 |
 | `20260201200000_multilingual_fts_phase2.sql` | pg_trgm extension, trigram indexes | FTS Phase 2 |
 | `20260201300000_multilingual_fts_phase3.sql` | pg_bigm (optional), language configs | FTS Phase 3 |
 | `20260203000000_attachment_doctype_integration.sql` | File attachments, document type registry | Attachments |
-| `20260204000000_temporal_spatial_provenance.sql` | PostGIS, W3C PROV provenance tables, spatial indexes | Memory Search |
+| `20260204000000_temporal_spatial_provenance.sql` | PostGIS, W3C PROV provenance, spatial indexes | Memory Search |
+| `20260205000000_colbert_embeddings.sql` | ColBERT token-level embeddings | Embeddings v2 |
+| `20260205100000_webhooks.sql` | Webhook subscriptions and delivery log | Events |
+| `20260206000000_seed_mime_types.sql` | MIME type seed data for document detection | Document Types |
+| `20260207000000_add_document_type_inference_job.sql` | DocumentTypeInference job type | Extraction |
+
+All 55 migrations run automatically on startup. Use `SELECT version, description FROM _sqlx_migrations ORDER BY version` to verify.
 
 ### Verifying Migrations
 
