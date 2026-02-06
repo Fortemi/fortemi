@@ -98,6 +98,8 @@ jobs:
           echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
           echo "Starting PostgreSQL container ${DB_CONTAINER} on port ${DB_PORT}..."
 
+          # Kill any container occupying our target port (stale containers from other runs)
+          docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
           # Clean up any leftover containers with this name
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
