@@ -30,7 +30,7 @@ Three workflows in `.gitea/workflows/`:
 ### CI Runner
 
 Workflows run on `matric-builder` runner with:
-- Docker for PostgreSQL + pgvector test containers
+- Docker for PostgreSQL + pgvector + PostGIS test containers
 - Rust toolchain with coverage tools (cargo-llvm-cov)
 - Caching for cargo registry and build artifacts
 
@@ -132,9 +132,10 @@ Configure nginx to proxy to the container:
 
 ## Database
 
-- PostgreSQL 16 with pgvector extension
+- PostgreSQL 16 with pgvector (vector similarity) and PostGIS (spatial queries) extensions
 - Connection: `postgres://matric:matric@localhost/matric`
 - Migrations: `migrations/` directory
+- Extensions must be created as superuser before migrations run (handled by entrypoint/CI)
 
 ## MCP Server
 
@@ -214,8 +215,11 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - Collections/folders with hierarchy
 - Note templates with variable substitution
 - Graph exploration with recursive CTE
+- Temporal-spatial memory search (PostGIS location + time range queries)
 - PKE encryption for secure note sharing
 - Export to markdown with YAML frontmatter
+- Real-time event streaming (SSE + WebSocket + webhooks)
+- Knowledge health dashboard (orphan tags, stale notes, unlinked notes)
 - **Document Type Registry** with 131 pre-configured types
 - **Smart chunking** per document type (code uses syntactic, prose uses semantic)
 - **Auto-detection** from filename patterns and magic content

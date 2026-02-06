@@ -59,7 +59,7 @@ docker compose -f docker-compose.bundle.yml build
 ```
 
 This creates an all-in-one container with:
-- PostgreSQL 16 with pgvector
+- PostgreSQL 16 with pgvector and PostGIS
 - Matric API server (port 3000)
 - MCP server (port 3001)
 - All database migrations
@@ -70,6 +70,7 @@ This creates an all-in-one container with:
 |-----------|---------|------|
 | PostgreSQL | 16 | 5432 (internal) |
 | pgvector | Latest | - |
+| PostGIS | 3.x | - |
 | API Server | 2026.x | 3000 |
 | MCP Server | Node.js | 3001 |
 
@@ -143,13 +144,15 @@ The `_migrations` table tracks applied migrations:
 SELECT * FROM _migrations ORDER BY applied_at;
 ```
 
-### Current FTS Migrations
+### Current Migrations
 
 | Migration | Description | Phase |
 |-----------|-------------|-------|
-| `20260201100000_multilingual_fts_phase1.sql` | matric_simple config, websearch_to_tsquery | Phase 1 |
-| `20260201200000_multilingual_fts_phase2.sql` | pg_trgm extension, trigram indexes | Phase 2 |
-| `20260201300000_multilingual_fts_phase3.sql` | pg_bigm (optional), language configs | Phase 3 |
+| `20260201100000_multilingual_fts_phase1.sql` | matric_simple config, websearch_to_tsquery | FTS Phase 1 |
+| `20260201200000_multilingual_fts_phase2.sql` | pg_trgm extension, trigram indexes | FTS Phase 2 |
+| `20260201300000_multilingual_fts_phase3.sql` | pg_bigm (optional), language configs | FTS Phase 3 |
+| `20260203000000_attachment_doctype_integration.sql` | File attachments, document type registry | Attachments |
+| `20260204000000_temporal_spatial_provenance.sql` | PostGIS, W3C PROV provenance tables, spatial indexes | Memory Search |
 
 ### Verifying Migrations
 
@@ -180,6 +183,9 @@ SELECT cfgname FROM pg_ts_config WHERE cfgname LIKE 'matric_%';
 
 -- Check pg_trgm extension
 SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_trgm';
+
+-- Check PostGIS extension (required for memory search)
+SELECT extname, extversion FROM pg_extension WHERE extname = 'postgis';
 
 -- Check pg_bigm extension (optional)
 SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_bigm';

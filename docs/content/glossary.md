@@ -579,7 +579,7 @@ The algorithm used to split documents into smaller pieces for embedding. The cho
 
 **Why It Matters:** Enables contextual retrieval beyond content similarity. Find "photos from Paris during vacation" or "notes created near the office last week" without relying on text content.
 
-**In Matric-Memory:** Implemented in memory search API with PostGIS spatial indexes. Available via REST endpoints and MCP tools (search_memories_by_location, search_memories_by_time, search_memories_combined).
+**In Matric-Memory:** Spatial memory search is implemented via `GET /api/v1/memories/search`. Supports location-based (PostGIS), temporal, and combined queries on file provenance data.
 
 ---
 

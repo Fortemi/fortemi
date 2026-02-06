@@ -22,14 +22,16 @@ services:
     restart: unless-stopped
 
   db:
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      dockerfile: build/Dockerfile.testdb
     environment:
       - POSTGRES_USER=matric
       - POSTGRES_PASSWORD=matric
       - POSTGRES_DB=matric
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./crates/matric-db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:

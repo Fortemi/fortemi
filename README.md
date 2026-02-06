@@ -182,7 +182,7 @@ Full API documentation available at `/docs` (Swagger UI) and `/openapi.yaml`.
 
 Key endpoints: `/api/v1/notes` (CRUD), `/api/v1/search` (hybrid search), `/api/v1/tags` (SKOS), `/api/v1/graph/:id/explore` (knowledge graph).
 
-See [OpenAPI specification](docs/openapi.yaml) for all 107 endpoints.
+See [OpenAPI specification](docs/openapi.yaml) for all API endpoints.
 
 ### Search Modes
 

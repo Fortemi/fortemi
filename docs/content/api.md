@@ -493,265 +493,120 @@ curl -X DELETE http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-
 
 ## Memory Search
 
-Memory search endpoints enable spatiotemporal querying of notes and attachments based on geographic location, time ranges, and device provenance.
+Memory search enables temporal-spatial queries on file attachments based on when and where they were captured. Uses a single unified endpoint with parameter-based mode selection.
 
-### Search by Location
+For comprehensive documentation, see [Memory Search Guide](memory-search.md).
+
+### Search Memories
 
 ```http
-GET /api/v1/memories/search/location?lat=37.7749&lon=-122.4194&radius_meters=1000
+GET /api/v1/memories/search
 ```
 
-Search for memories (notes with attachments or location metadata) within a geographic radius.
+A single endpoint that switches between location, temporal, and combined modes based on which query parameters are provided.
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| lat | float | Yes | Latitude (WGS84 decimal degrees) |
-| lon | float | Yes | Longitude (WGS84 decimal degrees) |
-| radius_meters | int | Yes | Search radius in meters |
-| limit | int | No | Max results (default: 50) |
+| `lat` | float | Conditional | Latitude in decimal degrees (-90 to 90). Required for location/combined mode. |
+| `lon` | float | Conditional | Longitude in decimal degrees (-180 to 180). Required for location/combined mode. |
+| `radius` | float | No | Search radius in meters (default: 1000) |
+| `start` | datetime | Conditional | Start of time range (ISO 8601 or flexible format). Required for time/combined mode. |
+| `end` | datetime | Conditional | End of time range (ISO 8601 or flexible format). Required for time/combined mode. |
+
+At least one search dimension is required: `lat`+`lon` for location, `start`+`end` for temporal, or all five for combined.
+
+**Mode Selection:**
+
+| Parameters Provided | Mode | Description |
+|---------------------|------|-------------|
+| `lat` + `lon` (+ optional `radius`) | `location` | Spatial search, nearest memories |
+| `start` + `end` | `time` | Temporal search, memories in time range |
+| All five | `combined` | Intersection of spatial + temporal |
+| None | 400 error | At least one dimension required |
 
 **Response:**
 
 ```json
 {
+  "mode": "location",
   "results": [
     {
-      "note_id": "550e8400-...",
-      "attachment_id": "660e8400-...",
-      "title": "Golden Gate Bridge Visit",
-      "distance_meters": 245.3,
-      "location": {
-        "latitude": 37.7749,
-        "longitude": -122.4194,
-        "altitude": 15.5
-      },
-      "capture_time": "2026-01-24T10:30:45Z",
-      "snippet": "Beautiful view of the bridge..."
-    },
-    {
-      "note_id": "770e8400-...",
-      "attachment_id": "880e8400-...",
-      "title": "San Francisco Street Art",
-      "distance_meters": 892.1,
-      "location": {
-        "latitude": 37.7694,
-        "longitude": -122.4231,
-        "altitude": 8.2
-      },
-      "capture_time": "2026-01-24T14:20:15Z"
+      "provenance_id": "uuid",
+      "attachment_id": "uuid",
+      "note_id": "uuid",
+      "filename": "IMG_1234.jpg",
+      "content_type": "image/jpeg",
+      "distance_m": 245.7,
+      "capture_time_start": "2026-01-15T14:30:00Z",
+      "capture_time_end": "2026-01-15T14:30:00Z",
+      "location_name": "Eiffel Tower",
+      "event_type": "photo"
     }
   ],
-  "total": 2,
-  "center": {
-    "latitude": 37.7749,
-    "longitude": -122.4194
-  },
-  "radius_meters": 1000
+  "count": 1
 }
 ```
 
-**Example:**
+**Examples:**
 
 ```bash
-# Find memories within 1km of San Francisco downtown
-curl "http://localhost:3000/api/v1/memories/search/location?lat=37.7749&lon=-122.4194&radius_meters=1000" \
+# Location search: memories within 1km of a point
+curl "http://localhost:3000/api/v1/memories/search?lat=37.7749&lon=-122.4194&radius=1000" \
+  -H "Authorization: Bearer mm_key_xxx"
+
+# Temporal search: memories from January 2026
+curl "http://localhost:3000/api/v1/memories/search?start=2026-01-01&end=2026-02-01" \
+  -H "Authorization: Bearer mm_key_xxx"
+
+# Combined search: near a location during a specific week
+curl "http://localhost:3000/api/v1/memories/search?lat=37.7749&lon=-122.4194&radius=5000&start=2026-01-15&end=2026-01-20" \
   -H "Authorization: Bearer mm_key_xxx"
 ```
 
-### Search by Time Range
+### Get Memory Provenance
 
 ```http
-GET /api/v1/memories/search/timerange?start=2026-01-01T00:00:00Z&end=2026-01-31T23:59:59Z
+GET /api/v1/notes/{id}/memory-provenance
 ```
 
-Search for memories captured within a specific time range.
+Returns the complete file provenance chain for a note's attachments, including location, device, and capture time information.
 
-**Query Parameters:**
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| start | ISO8601 | Yes | Start of time range (inclusive) |
-| end | ISO8601 | Yes | End of time range (inclusive) |
-| limit | int | No | Max results (default: 50) |
-| order | string | No | `asc` or `desc` (default: `desc`) |
-
-**Response:**
-
-```json
-{
-  "results": [
-    {
-      "note_id": "550e8400-...",
-      "attachment_id": "660e8400-...",
-      "title": "January Vacation Photos",
-      "capture_time": "2026-01-15T14:30:00Z",
-      "location": {
-        "latitude": 37.7749,
-        "longitude": -122.4194
-      },
-      "device": "iPhone 14 Pro"
-    },
-    {
-      "note_id": "770e8400-...",
-      "attachment_id": null,
-      "title": "Travel Planning Notes",
-      "capture_time": "2026-01-10T09:15:00Z",
-      "location": null,
-      "device": null
-    }
-  ],
-  "total": 2,
-  "time_range": {
-    "start": "2026-01-01T00:00:00Z",
-    "end": "2026-01-31T23:59:59Z"
-  }
-}
-```
-
-**Example:**
-
-```bash
-# Find memories from January 2026
-curl "http://localhost:3000/api/v1/memories/search/timerange?start=2026-01-01T00:00:00Z&end=2026-01-31T23:59:59Z" \
-  -H "Authorization: Bearer mm_key_xxx"
-```
-
-### Combined Location and Time Search
-
-```http
-GET /api/v1/memories/search/combined?lat=37.7749&lon=-122.4194&radius_meters=5000&start=2026-01-15T00:00:00Z&end=2026-01-20T23:59:59Z
-```
-
-Search for memories matching both location and time criteria.
-
-**Query Parameters:**
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| lat | float | Yes | Latitude (WGS84 decimal degrees) |
-| lon | float | Yes | Longitude (WGS84 decimal degrees) |
-| radius_meters | int | Yes | Search radius in meters |
-| start | ISO8601 | Yes | Start of time range (inclusive) |
-| end | ISO8601 | Yes | End of time range (inclusive) |
-| limit | int | No | Max results (default: 50) |
-| order | string | No | Sort order: `distance` or `time` (default: `distance`) |
-
-**Response:**
-
-```json
-{
-  "results": [
-    {
-      "note_id": "550e8400-...",
-      "attachment_id": "660e8400-...",
-      "title": "Weekend Trip to SF",
-      "distance_meters": 342.5,
-      "capture_time": "2026-01-18T15:45:00Z",
-      "location": {
-        "latitude": 37.7725,
-        "longitude": -122.4210
-      },
-      "device": "iPhone 14 Pro",
-      "snippet": "Amazing sunset at the pier..."
-    }
-  ],
-  "total": 1,
-  "search_criteria": {
-    "center": {
-      "latitude": 37.7749,
-      "longitude": -122.4194
-    },
-    "radius_meters": 5000,
-    "time_range": {
-      "start": "2026-01-15T00:00:00Z",
-      "end": "2026-01-20T23:59:59Z"
-    }
-  }
-}
-```
-
-**Example:**
-
-```bash
-# Find memories near Golden Gate Bridge during specific week
-curl "http://localhost:3000/api/v1/memories/search/combined?lat=37.7749&lon=-122.4194&radius_meters=5000&start=2026-01-15T00:00:00Z&end=2026-01-20T23:59:59Z" \
-  -H "Authorization: Bearer mm_key_xxx"
-```
-
-### Get Note Provenance with Location
-
-```http
-GET /api/v1/notes/{id}/provenance
-```
-
-Returns the full provenance chain including location, device, and temporal context from attachments.
-
-**Response:**
+**Response (when provenance exists):**
 
 ```json
 {
   "note_id": "550e8400-...",
-  "created_at": "2026-01-24T12:00:00Z",
-  "provenance": [
-    {
-      "activity": "photo_capture",
-      "agent": "iPhone 14 Pro",
-      "timestamp": "2026-01-24T10:30:45Z",
-      "location": {
-        "latitude": 37.7749,
-        "longitude": -122.4194,
-        "altitude": 15.5,
-        "accuracy": 5.0,
-        "source": "gps"
-      },
-      "device": {
-        "device_id": "iPhone-12345",
-        "device_name": "John's iPhone",
-        "manufacturer": "Apple",
-        "model": "iPhone 14 Pro",
-        "os": "iOS",
-        "os_version": "17.2"
-      },
-      "temporal_context": {
-        "capture_time": "2026-01-24T10:30:45Z",
-        "timezone": "America/Los_Angeles",
-        "local_time": "2026-01-24T02:30:45-08:00"
-      }
-    },
-    {
-      "activity": "ai_revision",
-      "agent": "ollama:llama3.2",
-      "timestamp": "2026-01-24T12:00:00Z",
-      "inputs": ["original_content"],
-      "outputs": ["revised_content"]
-    },
-    {
-      "activity": "embedding_generation",
-      "agent": "ollama:mxbai-embed-large",
-      "timestamp": "2026-01-24T12:01:00Z"
-    }
-  ],
-  "attachments": [
+  "files": [
     {
       "attachment_id": "660e8400-...",
       "filename": "photo.jpg",
-      "capture_time": "2026-01-24T10:30:45Z",
+      "capture_time_start": "2026-01-24T10:30:45Z",
       "location": {
         "latitude": 37.7749,
-        "longitude": -122.4194,
-        "altitude": 15.5
-      }
+        "longitude": -122.4194
+      },
+      "device_name": "iPhone 14 Pro",
+      "event_type": "photo"
     }
   ]
 }
 ```
 
+**Response (no provenance):**
+
+```json
+{
+  "note_id": "550e8400-...",
+  "files": []
+}
+```
+
 **Example:**
 
 ```bash
-curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/provenance \
+curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/memory-provenance \
   -H "Authorization: Bearer mm_key_xxx"
 ```
 
@@ -1769,6 +1624,49 @@ Returns available embedding model configurations.
 GET /api/v1/embedding-configs/default
 ```
 
+### Get Embedding Config
+
+```http
+GET /api/v1/embedding-configs/{id}
+```
+
+Returns details for a specific embedding configuration.
+
+### Create Embedding Config
+
+```http
+POST /api/v1/embedding-configs
+Content-Type: application/json
+
+{
+  "name": "Custom Config",
+  "model": "mxbai-embed-large",
+  "dimension": 1024,
+  "provider": "ollama",
+  "is_default": false
+}
+```
+
+### Update Embedding Config
+
+```http
+PATCH /api/v1/embedding-configs/{id}
+Content-Type: application/json
+
+{
+  "name": "Updated Config",
+  "is_default": true
+}
+```
+
+### Delete Embedding Config
+
+```http
+DELETE /api/v1/embedding-configs/{id}
+```
+
+Deletes a non-default embedding configuration.
+
 ## Templates
 
 ### List Templates
@@ -2126,6 +2024,57 @@ Returns markdown with YAML frontmatter suitable for Obsidian/Notion import.
 | content | string | `original` or `revised` (default: `revised`) |
 | include_frontmatter | bool | Include YAML frontmatter (default: true) |
 
+## Real-Time Events
+
+Fortémi provides real-time event streaming through three channels. For comprehensive documentation, see [Real-Time Events](./real-time-events.md).
+
+### SSE (Server-Sent Events)
+
+```http
+GET /api/v1/events
+```
+
+Streams all server events as `text/event-stream`. Each event includes an `event:` type field and `data:` JSON payload. Keep-alive sent every 15 seconds.
+
+### WebSocket
+
+```http
+GET /api/v1/ws
+```
+
+Full-duplex WebSocket connection receiving JSON-encoded events. Send `"refresh"` to trigger an immediate `QueueStatus` response.
+
+### Webhooks
+
+Full CRUD for webhook subscriptions with event filtering and HMAC-SHA256 signing.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/webhooks` | POST | Create webhook subscription |
+| `/api/v1/webhooks` | GET | List all webhooks |
+| `/api/v1/webhooks/{id}` | GET | Get webhook details |
+| `/api/v1/webhooks/{id}` | PATCH | Update webhook |
+| `/api/v1/webhooks/{id}` | DELETE | Delete webhook |
+| `/api/v1/webhooks/{id}/deliveries` | GET | List delivery logs |
+| `/api/v1/webhooks/{id}/test` | POST | Send test delivery |
+
+**Create Webhook:**
+
+```http
+POST /api/v1/webhooks
+Content-Type: application/json
+
+{
+  "url": "https://example.com/webhook",
+  "events": ["NoteUpdated", "JobCompleted", "JobFailed"],
+  "secret": "optional-hmac-secret"
+}
+```
+
+**Event Types:** `QueueStatus`, `JobQueued`, `JobStarted`, `JobProgress`, `JobCompleted`, `JobFailed`, `NoteUpdated`
+
+Webhook deliveries include `X-Fortemi-Event` header and optional `X-Fortemi-Signature` (HMAC-SHA256) when a secret is configured.
+
 ## System
 
 ### Memory Info
@@ -2230,5 +2179,6 @@ The API is versioned via URL path (`/api/v1/`). Breaking changes will increment 
 ## See Also
 
 - [MCP Server Documentation](./mcp.md) - Claude integration
+- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
 - [Authentication Guide](./authentication.md) - OAuth2 flows
 - [Integration Guide](./integration.md) - Client examples

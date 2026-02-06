@@ -1073,6 +1073,118 @@ sudo nginx -s reload
 sudo nginx -s reload
 ```
 
+## Events / WebSocket Issues
+
+### WebSocket Connection Drops
+
+**Symptom:** WebSocket connections to `/api/v1/ws` disconnect frequently.
+
+**Diagnosis:**
+```bash
+# Test WebSocket directly (bypass nginx)
+wscat -c ws://localhost:3000/api/v1/ws
+
+# Check nginx configuration
+nginx -t
+```
+
+**Fix:**
+
+**Missing nginx WebSocket headers:**
+```nginx
+location /api/v1/ws {
+    proxy_pass http://localhost:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;  # 24h timeout for long-lived connections
+}
+```
+
+**Proxy timeout too short:**
+```bash
+# Increase proxy_read_timeout in nginx config
+# Default 60s is too short for WebSocket connections
+# Use 86400 (24 hours) for persistent connections
+```
+
+### SSE Not Receiving Events
+
+**Symptom:** Connected to `/api/v1/events` but no events arrive.
+
+**Diagnosis:**
+```bash
+# Test SSE directly
+curl -N http://localhost:3000/api/v1/events
+
+# Check if events are being emitted (should see keepalive every 15s)
+# If no keepalive, the connection may be buffered by a proxy
+```
+
+**Fix:**
+
+**Nginx buffering SSE responses:**
+```nginx
+location /api/v1/events {
+    proxy_pass http://localhost:3000;
+    proxy_set_header Connection '';
+    proxy_http_version 1.1;
+    chunked_transfer_encoding off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 86400;
+}
+```
+
+**No active jobs or notes being processed:**
+```bash
+# QueueStatus events only emit when subscribers are connected
+# Create a note to trigger events
+curl -X POST http://localhost:3000/api/v1/notes \
+  -H "Content-Type: application/json" \
+  -d '{"content": "test note"}'
+```
+
+### Webhook Delivery Failures
+
+**Symptom:** Webhooks created but target URL not receiving events.
+
+**Diagnosis:**
+```bash
+# Check webhook configuration
+curl http://localhost:3000/api/v1/webhooks
+
+# Check delivery logs for a webhook
+curl http://localhost:3000/api/v1/webhooks/<webhook-id>/deliveries?limit=10
+
+# Test webhook delivery manually
+curl -X POST http://localhost:3000/api/v1/webhooks/<webhook-id>/test
+```
+
+**Fix:**
+
+**Target URL unreachable:**
+```bash
+# Verify the webhook URL is accessible from the container
+docker exec Fortémi-matric-1 curl -v https://your-webhook-url.com
+```
+
+**Webhook not subscribed to correct events:**
+```bash
+# Update webhook to subscribe to specific events
+curl -X PATCH http://localhost:3000/api/v1/webhooks/<webhook-id> \
+  -H "Content-Type: application/json" \
+  -d '{"events": ["NoteUpdated", "JobCompleted", "JobFailed"]}'
+```
+
+**HMAC signature validation failing:**
+```bash
+# Verify the secret matches what the receiver expects
+# Signature is HMAC-SHA256 of the JSON payload
+# Header: X-Fortemi-Signature: sha256=<hex-digest>
+```
+
 ## Performance Issues
 
 ### High Memory Usage
@@ -1343,6 +1455,115 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
    WHERE status = 'failed'"
 ```
 
+## Events / WebSocket Issues
+
+### WebSocket Connection Drops
+
+**Symptom:** WebSocket connections to `/api/v1/ws` disconnect after a few seconds.
+
+**Diagnosis:**
+```bash
+# Test direct WebSocket connection (bypassing nginx)
+websocat ws://localhost:3000/api/v1/ws
+
+# Check nginx error logs
+sudo tail -f /var/log/nginx/error.log
+```
+
+**Fix:**
+
+**Nginx not configured for WebSocket upgrade:**
+```nginx
+# Add these headers to your nginx location block for the API:
+location / {
+    proxy_pass http://localhost:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400s;  # Keep alive for 24h
+    # ... other headers
+}
+```
+
+**Proxy timeout too short:**
+```nginx
+# Increase timeouts for long-lived connections
+proxy_read_timeout 86400s;
+proxy_send_timeout 86400s;
+```
+
+### SSE Not Receiving Events
+
+**Symptom:** Connected to `/api/v1/events` but no events arrive (only keepalive).
+
+**Diagnosis:**
+```bash
+# Check if events are being emitted
+curl -N http://localhost:3000/api/v1/events
+
+# You should see keepalive every 15 seconds:
+# : keepalive
+
+# Create a note to trigger events:
+curl -X POST http://localhost:3000/api/v1/notes \
+  -H "Content-Type: application/json" \
+  -d '{"content": "test"}'
+```
+
+**Fix:**
+
+**No activity in the system:**
+- QueueStatus events only emit when there are subscribers AND the job queue has activity
+- Create or update a note to trigger NoteUpdated and job events
+
+**Buffering by reverse proxy:**
+```nginx
+# Disable buffering for SSE endpoints
+location /api/v1/events {
+    proxy_pass http://localhost:3000;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_set_header Connection '';
+    proxy_http_version 1.1;
+    chunked_transfer_encoding off;
+}
+```
+
+### Webhook Delivery Failures
+
+**Symptom:** Webhook deliveries failing (check via `GET /api/v1/webhooks/:id/deliveries`).
+
+**Diagnosis:**
+```bash
+# List webhook deliveries
+curl http://localhost:3000/api/v1/webhooks/<id>/deliveries?limit=10
+
+# Test webhook manually
+curl -X POST http://localhost:3000/api/v1/webhooks/<id>/test
+```
+
+**Fix:**
+
+**Target URL unreachable:**
+- Verify the webhook URL is accessible from the Fortémi container
+- Check firewall rules and DNS resolution
+- Webhook delivery timeout is 10 seconds
+
+**HMAC signature mismatch:**
+- Ensure your webhook receiver validates the `X-Fortemi-Signature` header using HMAC-SHA256 with the configured secret
+- The signature is computed over the raw JSON body
+
+**Webhook not receiving expected events:**
+```bash
+# Check which events the webhook is subscribed to
+curl http://localhost:3000/api/v1/webhooks/<id>
+
+# Update event filter
+curl -X PATCH http://localhost:3000/api/v1/webhooks/<id> \
+  -H "Content-Type: application/json" \
+  -d '{"events": ["JobFailed", "JobCompleted", "NoteUpdated"]}'
+```
+
 ## Getting Help
 
 If you cannot resolve the issue with this guide:
@@ -1364,6 +1585,7 @@ docker compose -f docker-compose.bundle.yml logs -f
 - [Operators Guide](./operators-guide.md) - Deployment and maintenance procedures
 - [Configuration Reference](./configuration.md) - All environment variables and settings
 - [Embedding Model Selection](./embedding-model-selection.md) - Choosing embedding models
+- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
 
 ---
 

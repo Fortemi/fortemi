@@ -34,7 +34,7 @@ The Rust workspace consists of 7 crates that together provide vector-enhanced no
                   │
           ┌───────▼───────┐
           │   PostgreSQL  │
-          │  + pgvector   │
+          │pgvector+PostGIS│
           └───────────────┘
 ```
 
@@ -72,9 +72,11 @@ Core types and traits shared across all crates.
 - `Job`, `JobType`, `JobStatus` - Job queue models
 - `Tag`, `Link` - Relationship models
 - `SearchHit` - Search result model
+- `ServerEvent`, `EventBus` - Real-time event broadcasting (SSE, WebSocket, webhooks)
 - Repository traits: `NoteRepository`, `TagRepository`, `LinkRepository`, `JobRepository`
 
 **Advanced Features:**
+- `events.rs` - Unified event bus (`EventBus`) and `ServerEvent` enum for real-time notifications (SSE, WebSocket, webhooks, telemetry). See ADR-037.
 - `fair.rs` - FAIR metadata export (Findable, Accessible, Interoperable, Reusable) with Dublin Core and JSON-LD support
 - `temporal.rs` - Temporal filtering for time-based queries
 - `uuid_utils.rs` - UUIDv7 generation for time-ordered identifiers
@@ -82,7 +84,7 @@ Core types and traits shared across all crates.
 
 ### matric-db
 
-PostgreSQL database layer with pgvector extension for vector similarity search.
+PostgreSQL database layer with pgvector (vector similarity) and PostGIS (spatial queries) extensions.
 
 **Key Components:**
 - `Database` - Connection pool manager
@@ -93,6 +95,7 @@ PostgreSQL database layer with pgvector extension for vector similarity search.
 
 **Advanced Features:**
 - `provenance.rs` - W3C PROV tracking for AI revision operations (entities, activities, relations)
+- `memory_search.rs` - Temporal-spatial search on file provenance (PostGIS location, time range, combined queries)
 - `versioning.rs` - Dual-track note history (original content versions + revision versions)
 - `unified_filter.rs` - Multi-dimensional filtering combining tags, dates, collections, metadata
 - `strict_filter.rs` - Pre-search WHERE clause implementation for guaranteed data isolation
@@ -205,6 +208,9 @@ HTTP REST API server using Axum framework.
 
 **Key Features:**
 - RESTful endpoints for CRUD operations
+- Real-time event streaming via SSE (`/api/v1/events`) and WebSocket (`/api/v1/ws`)
+- Webhook dispatcher with HMAC-SHA256 signing (`/api/v1/webhooks`)
+- Worker event bridge: translates job worker events into ServerEvents on the EventBus
 - OpenAPI 3.1 specification
 - Swagger UI at `/docs`
 - CORS support
@@ -451,6 +457,7 @@ cargo run -p matric-api
 | ADR-006 | Envelope encryption | Efficient multi-recipient | - |
 | ADR-007 | Argon2id key storage | Memory-hard KDF protection | - |
 | ADR-008 | SKOS vocabulary | W3C standard for controlled terms | W3C[^6] |
+| ADR-037 | Unified event bus | Single broadcast channel for SSE, WebSocket, webhooks, telemetry | - |
 
 See `.aiwg/intake/option-matrix.md` for detailed analysis.
 See `docs/adr/ADR-001-strict-tag-filtering.md` for strict filtering details.

@@ -3,7 +3,7 @@
 /**
  * MCP Tool Schema Validation Tests (Issue #344)
  *
- * Validates that all 122 MCP tools have:
+ * Validates that all 155 MCP tools have:
  * - Required fields: name, description, inputSchema
  * - Valid JSON Schema structure in inputSchema
  * - Proper type definitions

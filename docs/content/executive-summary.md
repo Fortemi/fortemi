@@ -193,7 +193,7 @@ See [MCP Documentation](./mcp.md) for available tools, authentication setup, and
 
 **Security**: OAuth 2.0 authentication, API key management, rate limiting (roadmap), PKE encryption for note sharing, strict tag-based isolation for multi-tenancy.
 
-**Documentation**: OpenAPI spec covering all 107 endpoints, comprehensive guides for operators, developers, and users, inline code documentation (rustdoc), MCP tool descriptions.
+**Documentation**: OpenAPI spec covering all API endpoints, comprehensive guides for operators, developers, and users, inline code documentation (rustdoc), MCP tool descriptions.
 
 ## Getting Started
 

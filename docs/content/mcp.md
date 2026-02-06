@@ -4,26 +4,32 @@ Complete documentation for the Model Context Protocol (MCP) server that provides
 
 ## Overview
 
-The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **122 tools** organized into these categories:
+The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **155 tools** organized into these categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
 | Notes | 13 | Create, read, update, delete, restore notes |
-| Search | 3 | Hybrid semantic + full-text + strict filtering |
-| Collections | 7 | Hierarchical folder organization with update support |
-| Templates | 6 | Reusable note structures with update support |
+| Search | 2 | Hybrid semantic + full-text + strict filtering |
+| Memory Search | 4 | Spatial/temporal memory search and provenance |
+| Collections | 7 | Hierarchical folder organization |
+| Templates | 6 | Reusable note structures |
 | Document Types | 6 | Content type detection and management |
-| Embedding Sets | 9 | Focused search contexts with full CRUD |
-| Embedding Configs | 2 | Embedding model configuration |
-| Jobs | 3 | Background processing control |
+| Embedding Sets | 10 | Focused search contexts with full CRUD |
+| Embedding Configs | 6 | Embedding model configuration |
+| Jobs | 6 | Background processing control and monitoring |
 | Backup/Export | 15 | Data portability and backups |
-| Archives | 5 | Parallel memory archive management |
+| Archives | 7 | Parallel memory archive management |
 | SKOS Concepts | 24 | Hierarchical tagging with relation removal |
+| SKOS Collections | 7 | Group concepts into ordered/unordered collections |
 | Versioning | 5 | Note version history |
-| PKE Encryption | 15 | Public-key encrypted note sharing |
+| PKE Encryption | 13 | Public-key encrypted note sharing |
 | File Attachments | 5 | Upload, manage, and retrieve file attachments |
-| Memory Search | 4 | Location and time-based memory retrieval |
-| System | 4 | Health check, diagnostics, rate limiting |
+| Content Retrieval | 4 | Chunk-aware document handling |
+| Knowledge Health | 7 | Knowledge base health metrics and diagnostics |
+| Notes Timeline | 2 | Note timeline and activity feed |
+| System | 4 | Health check and diagnostics |
+| Export | 1 | SKOS Turtle RDF export |
+| Documentation | 1 | Self-documentation system |
 
 ### Tool Categories by Permission
 
@@ -34,39 +40,51 @@ Tools are categorized by their effect on system state to help you understand per
 These tools retrieve information without modifying system state:
 
 **Search & Discovery:**
-- `search_notes`, `search_notes_strict`, `list_tags`
-- `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`
+- `search_notes`, `list_tags`
 - `explore_graph`, `get_note_links`
+- `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`
+- `get_memory_provenance`
 
 **Retrieval:**
 - `list_notes`, `get_note`
 - `list_collections`, `get_collection`, `get_collection_notes`
 - `list_templates`, `get_template`
 - `list_embedding_sets`, `get_embedding_set`, `list_set_members`
-- `list_embedding_configs`, `get_default_embedding_config`
+- `list_embedding_configs`, `get_default_embedding_config`, `get_embedding_config`
 - `list_document_types`, `get_document_type`
-- `list_archives`
-- `list_attachments`, `get_attachment`, `get_attachment_metadata`
-- `get_memory_provenance`
+- `list_archives`, `get_archive`, `get_archive_stats`
+- `list_attachments`, `get_attachment`, `download_attachment`
+- `get_full_document`, `search_with_dedup`, `get_chunk_chain`
 
 **SKOS Concepts:**
 - `list_concept_schemes`, `get_concept_scheme`, `search_concepts`
 - `get_concept`, `get_concept_full`, `autocomplete_concepts`
 - `get_broader`, `get_narrower`, `get_related`
 - `get_note_concepts`, `get_governance_stats`, `get_top_concepts`
+- `list_skos_collections`, `get_skos_collection`
 
 **Versioning:**
 - `list_note_versions`, `get_note_version`, `diff_note_versions`
 
 **Jobs & System:**
-- `list_jobs`, `get_queue_stats`
-- `health_check`, `get_system_info`, `get_rate_limit_status`, `memory_info`
+- `list_jobs`, `get_job`, `get_queue_stats`, `get_pending_jobs_count`
+- `health_check`, `get_system_info`, `memory_info`
+
+**Knowledge Health:**
+- `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`
+- `get_unlinked_notes`, `get_tag_cooccurrence`, `get_note_backlinks`, `get_note_provenance`
+
+**Notes Timeline:**
+- `get_notes_timeline`, `get_notes_activity`
 
 **Export:**
-- `export_note`, `export_all_notes`
+- `export_note`, `export_all_notes`, `export_skos_turtle`
 - `backup_status`, `backup_download`
 - `list_backups`, `get_backup_info`, `get_backup_metadata`
 - `knowledge_archive_download`
+
+**Documentation:**
+- `get_documentation`
 
 #### Mutating Tools
 
@@ -87,7 +105,10 @@ These tools modify system state and may require elevated permissions:
 
 **Embedding Sets:**
 - `create_embedding_set`, `update_embedding_set`, `delete_embedding_set`
-- `add_set_members`, `remove_set_member`, `refresh_embedding_set`
+- `add_set_members`, `remove_set_member`, `refresh_embedding_set`, `reembed_all`
+
+**Embedding Configs:**
+- `create_embedding_config`, `update_embedding_config`, `delete_embedding_config`
 
 **Document Types:**
 - `create_document_type`, `update_document_type`, `delete_document_type`
@@ -107,11 +128,15 @@ These tools modify system state and may require elevated permissions:
 - `add_related`, `remove_related`
 - `tag_note_concept`, `untag_note_concept`
 
+**SKOS Collections:**
+- `create_skos_collection`, `update_skos_collection`, `delete_skos_collection`
+- `add_skos_collection_member`, `remove_skos_collection_member`
+
 **Versioning:**
 - `restore_note_version`, `delete_note_version`
 
 **Jobs:**
-- `create_job`
+- `create_job`, `reprocess_note`
 
 **Backup & Import:**
 - `backup_now`, `backup_import`, `update_backup_metadata`
@@ -387,14 +412,13 @@ Hybrid search combining full-text and semantic similarity.
   "query": "authentication",
   "strict_filter": {
     "required_tags": ["project:matric"],
-    "excluded_tags": ["draft", "archived"]
+    "excluded_tags": ["draft", "archived"],
+    "any_tags": ["status:active", "status:review"],
+    "required_schemes": ["client-acme"],
+    "excluded_schemes": ["internal"]
   }
 }
 ```
-
-#### `search_notes_strict`
-
-Dedicated tool for strict tag-filtered search. Guarantees results match filter criteria exactly.
 
 **Filter Types:**
 
@@ -411,17 +435,6 @@ Dedicated tool for strict tag-filtered search. Guarantees results match filter c
 - **Client isolation**: `required_schemes: ["client-acme"]`
 - **Project + priority**: `required_tags: ["project:x"], any_tags: ["high", "critical"]`
 - **Exclude drafts**: `excluded_tags: ["draft", "wip"]`
-
-```javascript
-search_notes_strict({
-  query: "API design",
-  required_tags: ["project:matric"],
-  any_tags: ["status:active", "status:review"],
-  excluded_schemes: ["internal"],
-  mode: "hybrid",
-  limit: 20
-})
-```
 
 #### `get_note_links`
 
@@ -490,7 +503,7 @@ Create focused search contexts for specific domains.
 | `add_set_members` | Add notes to a set |
 | `remove_set_member` | Remove note from set |
 | `refresh_embedding_set` | Regenerate set embeddings |
-| `search_notes` (with `set`) | Search within set context |
+| `reembed_all` | Re-embed all notes in set |
 
 #### `update_embedding_set`
 
@@ -568,6 +581,20 @@ remove_narrower({ concept_id: "uuid", narrower_id: "child-uuid" })
 remove_related({ concept_id: "uuid", related_id: "related-uuid" })
 ```
 
+### SKOS Collections
+
+Group concepts into ordered or unordered collections for navigation and organization.
+
+| Tool | Purpose |
+|------|---------|
+| `list_skos_collections` | List concept collections |
+| `create_skos_collection` | Create concept collection |
+| `get_skos_collection` | Get collection details |
+| `update_skos_collection` | Update collection |
+| `delete_skos_collection` | Delete collection |
+| `add_skos_collection_member` | Add concept to collection |
+| `remove_skos_collection_member` | Remove concept from collection |
+
 ### Note Versioning
 
 Dual-track versioning preserves both original and AI-enhanced content.
@@ -578,6 +605,7 @@ Dual-track versioning preserves both original and AI-enhanced content.
 | `get_note_version` | Retrieve specific version |
 | `restore_note_version` | Restore to previous version |
 | `diff_note_versions` | Compare two versions |
+| `delete_note_version` | Delete specific version |
 
 ### Backup & Export
 
@@ -598,7 +626,15 @@ Self-contained archives with notes, embeddings, links, and metadata.
 
 ### File Attachments
 
-Upload and manage files attached to notes with full metadata and provenance tracking.
+Upload and manage files attached to notes with full metadata tracking.
+
+| Tool | Description |
+|------|-------------|
+| `upload_attachment` | Upload file to note with automatic metadata extraction |
+| `list_attachments` | List all attachments for a note |
+| `get_attachment` | Get attachment metadata |
+| `download_attachment` | Download attachment binary content |
+| `delete_attachment` | Remove attachment permanently |
 
 #### `upload_attachment`
 
@@ -649,7 +685,31 @@ list_attachments({
 
 #### `get_attachment`
 
-Download the binary content of an attachment.
+Get attachment metadata including ID, filename, size, content type, and timestamps.
+
+**Parameters:**
+- `attachment_id` (required) - UUID of the attachment
+
+**Returns:** Object with attachment metadata.
+
+**Example:**
+
+```javascript
+get_attachment({
+  attachment_id: "660e8400-e29b-41d4-a716-446655440001"
+})
+// Returns: {
+//   id: "660e8400-e29b-41d4-a716-446655440001",
+//   filename: "vacation-photo.jpg",
+//   size: 2048576,
+//   content_type: "image/jpeg",
+//   created_at: "2026-02-02T10:30:00Z"
+// }
+```
+
+#### `download_attachment`
+
+Download the binary content of an attachment as base64.
 
 **Parameters:**
 - `attachment_id` (required) - UUID of the attachment
@@ -659,48 +719,12 @@ Download the binary content of an attachment.
 **Example:**
 
 ```javascript
-get_attachment({
+download_attachment({
   attachment_id: "660e8400-e29b-41d4-a716-446655440001"
 })
 // Returns: {
 //   content_base64: "/9j/4AAQSkZJRg...",
 //   content_type: "image/jpeg"
-// }
-```
-
-#### `get_attachment_metadata`
-
-Retrieve EXIF metadata and provenance information for an attachment.
-
-**Parameters:**
-- `attachment_id` (required) - UUID of the attachment
-
-**Returns:**
-- **EXIF data**: Camera make/model, GPS coordinates, timestamp, orientation, etc.
-- **Provenance**: Original filename, upload timestamp, file hash, dimensions
-
-**Example:**
-
-```javascript
-get_attachment_metadata({
-  attachment_id: "660e8400-e29b-41d4-a716-446655440001"
-})
-// Returns: {
-//   exif: {
-//     make: "Canon",
-//     model: "EOS 5D Mark IV",
-//     gps_latitude: 47.6062,
-//     gps_longitude: -122.3321,
-//     datetime_original: "2026:01:15 14:23:45",
-//     orientation: 1
-//   },
-//   provenance: {
-//     filename: "vacation-photo.jpg",
-//     uploaded_at: "2026-02-02T10:30:00Z",
-//     content_hash: "sha256:abc123...",
-//     width: 1920,
-//     height: 1080
-//   }
 // }
 ```
 
@@ -719,158 +743,48 @@ delete_attachment({
 })
 ```
 
-### Memory Search
+### Content Retrieval
 
-Search notes by geographic location and time using provenance metadata extracted from attachments.
+Chunk-aware document handling for reconstructing and navigating chunked content.
 
-#### `search_memories_by_location`
+| Tool | Description |
+|------|-------------|
+| `get_full_document` | Reconstruct chunked document |
+| `search_with_dedup` | Search with chunk deduplication |
+| `get_chunk_chain` | Get all chunks in document chain |
 
-Find memories (notes with attachments) near a specific geographic point.
+### Knowledge Health
 
-**Parameters:**
-- `latitude` (required) - Latitude in decimal degrees (-90 to 90)
-- `longitude` (required) - Longitude in decimal degrees (-180 to 180)
-- `radius_meters` (optional) - Search radius in meters (default: 1000)
-- `limit` (optional) - Maximum results (default: 20)
+Diagnostics and health metrics for your knowledge base.
 
-**Returns:** Array of notes with distance from query point.
+| Tool | Description |
+|------|-------------|
+| `get_knowledge_health` | Overall knowledge base health metrics |
+| `get_orphan_tags` | Tags not used by any notes |
+| `get_stale_notes` | Notes not updated recently |
+| `get_unlinked_notes` | Notes with no semantic links |
+| `get_tag_cooccurrence` | Tag co-occurrence statistics |
+| `get_note_backlinks` | Backlinks for a specific note |
+| `get_note_provenance` | Provenance chain for a note |
 
-**Example:**
+### Notes Timeline
 
-```javascript
-// Find memories near Seattle Space Needle
-search_memories_by_location({
-  latitude: 47.6205,
-  longitude: -122.3493,
-  radius_meters: 5000
-})
-// Returns: [
-//   {
-//     note_id: "550e8400-...",
-//     title: "Seattle Trip 2026",
-//     distance_meters: 342.5,
-//     attachment_count: 12,
-//     earliest_capture: "2026-01-15T10:00:00Z"
-//   }
-// ]
-```
+Timeline and activity views for note history.
 
-#### `search_memories_by_time`
+| Tool | Description |
+|------|-------------|
+| `get_notes_timeline` | Timeline view of notes |
+| `get_notes_activity` | Activity feed for notes |
 
-Find memories captured within a specific time range.
+### Documentation
 
-**Parameters:**
-- `start_time` (required) - ISO 8601 timestamp (e.g., "2026-01-01T00:00:00Z")
-- `end_time` (required) - ISO 8601 timestamp
-- `limit` (optional) - Maximum results (default: 20)
+Access built-in documentation for AI agents.
 
-**Returns:** Array of notes with capture time information.
+| Tool | Description |
+|------|-------------|
+| `get_documentation` | Get built-in documentation by topic |
 
-**Example:**
-
-```javascript
-// Find memories from January 2026
-search_memories_by_time({
-  start_time: "2026-01-01T00:00:00Z",
-  end_time: "2026-01-31T23:59:59Z"
-})
-// Returns: [
-//   {
-//     note_id: "550e8400-...",
-//     title: "New Year Celebration",
-//     attachment_count: 5,
-//     earliest_capture: "2026-01-01T00:15:00Z",
-//     latest_capture: "2026-01-01T02:30:00Z"
-//   }
-// ]
-```
-
-#### `search_memories_combined`
-
-Search memories by both location and time simultaneously.
-
-**Parameters:**
-- `latitude` (required) - Latitude in decimal degrees
-- `longitude` (required) - Longitude in decimal degrees
-- `radius_meters` (optional) - Search radius in meters (default: 1000)
-- `start_time` (required) - ISO 8601 timestamp
-- `end_time` (required) - ISO 8601 timestamp
-- `limit` (optional) - Maximum results (default: 20)
-
-**Returns:** Array of notes matching both geographic and temporal criteria.
-
-**Example:**
-
-```javascript
-// Find memories from Seattle in January 2026
-search_memories_combined({
-  latitude: 47.6205,
-  longitude: -122.3493,
-  radius_meters: 10000,
-  start_time: "2026-01-01T00:00:00Z",
-  end_time: "2026-01-31T23:59:59Z"
-})
-// Returns: [
-//   {
-//     note_id: "550e8400-...",
-//     title: "Pike Place Market",
-//     distance_meters: 1250.8,
-//     attachment_count: 8,
-//     earliest_capture: "2026-01-15T14:23:00Z"
-//   }
-// ]
-```
-
-#### `get_memory_provenance`
-
-Retrieve complete provenance chain for a note, including all attachment metadata and EXIF data.
-
-**Parameters:**
-- `note_id` (required) - UUID of the note
-
-**Returns:** Comprehensive provenance information including:
-- Note creation and modification timestamps
-- All attachments with EXIF data (GPS, timestamps, camera info)
-- Location clustering analysis
-- Temporal distribution of captures
-
-**Example:**
-
-```javascript
-get_memory_provenance({
-  note_id: "550e8400-e29b-41d4-a716-446655440000"
-})
-// Returns: {
-//   note: {
-//     created_at: "2026-01-15T20:00:00Z",
-//     modified_at: "2026-01-16T10:30:00Z"
-//   },
-//   attachments: [
-//     {
-//       id: "660e8400-...",
-//       filename: "IMG_0123.jpg",
-//       exif: {
-//         gps_latitude: 47.6062,
-//         gps_longitude: -122.3321,
-//         datetime_original: "2026-01-15T14:23:45Z",
-//         make: "Canon",
-//         model: "EOS 5D Mark IV"
-//       }
-//     }
-//   ],
-//   location_summary: {
-//     center_latitude: 47.6062,
-//     center_longitude: -122.3321,
-//     max_distance_meters: 450.2,
-//     photo_count: 12
-//   },
-//   temporal_summary: {
-//     earliest: "2026-01-15T14:00:00Z",
-//     latest: "2026-01-15T18:30:00Z",
-//     duration_hours: 4.5
-//   }
-// }
-```
+The `get_documentation` tool provides access to 19 documentation topics including overview, search, tags, embedding sets, templates, and more. Useful for AI agents to learn about system capabilities.
 
 ---
 
@@ -915,8 +829,7 @@ get_memory_provenance({
 6. **Attach Files with Context**
    ```
    - Upload photos/documents to relevant notes
-   - Use get_attachment_metadata to extract location/time from photos
-   - Search memories by location/time for spatial-temporal discovery
+   - Use attachment tools to manage file lifecycle
    ```
 
 ### Rate Limiting
@@ -981,8 +894,16 @@ Common error responses:
 | Tool | Description |
 |------|-------------|
 | `search_notes` | Hybrid/FTS/semantic search with optional `collection_id` and strict filtering |
-| `search_notes_strict` | Strict tag-filtered search with guaranteed isolation |
 | `list_tags` | List all tags with counts |
+
+### Memory Search
+
+| Tool | Description |
+|------|-------------|
+| `search_memories_by_location` | Find memories near geographic coordinates (PostGIS spatial) |
+| `search_memories_by_time` | Find memories within a time range (temporal) |
+| `search_memories_combined` | Find memories by location AND time |
+| `get_memory_provenance` | Get file provenance chain for a note's attachments |
 
 ### Collections
 
@@ -1033,6 +954,7 @@ update_template({
 | `add_set_members` | Add notes to set |
 | `remove_set_member` | Remove note from set |
 | `refresh_embedding_set` | Regenerate embeddings |
+| `reembed_all` | Re-embed all notes in set |
 
 ### Embedding Configs
 
@@ -1040,6 +962,10 @@ update_template({
 |------|-------------|
 | `list_embedding_configs` | List all embedding configurations |
 | `get_default_embedding_config` | Get the default embedding configuration |
+| `get_embedding_config` | Get specific embedding config by ID |
+| `create_embedding_config` | Create new embedding configuration |
+| `update_embedding_config` | Update embedding configuration |
+| `delete_embedding_config` | Delete embedding configuration |
 
 ### Document Types
 
@@ -1088,18 +1014,37 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 |------|-------------|
 | `upload_attachment` | Upload file to note with automatic metadata extraction |
 | `list_attachments` | List all attachments for a note |
-| `get_attachment` | Download attachment binary content |
-| `get_attachment_metadata` | Get EXIF and provenance data |
+| `get_attachment` | Get attachment metadata |
+| `download_attachment` | Download attachment binary content |
 | `delete_attachment` | Remove attachment permanently |
 
-### Memory Search
+### Content Retrieval
 
 | Tool | Description |
 |------|-------------|
-| `search_memories_by_location` | Find memories near geographic coordinates |
-| `search_memories_by_time` | Find memories within time range |
-| `search_memories_combined` | Combined location and time search |
-| `get_memory_provenance` | Get complete provenance chain with EXIF |
+| `get_full_document` | Reconstruct chunked document |
+| `search_with_dedup` | Search with chunk deduplication |
+| `get_chunk_chain` | Get all chunks in document chain |
+| `get_documentation` | Get built-in documentation by topic |
+
+### Knowledge Health
+
+| Tool | Description |
+|------|-------------|
+| `get_knowledge_health` | Overall knowledge base health metrics |
+| `get_orphan_tags` | Tags not used by any notes |
+| `get_stale_notes` | Notes not updated recently |
+| `get_unlinked_notes` | Notes with no semantic links |
+| `get_tag_cooccurrence` | Tag co-occurrence statistics |
+| `get_note_backlinks` | Backlinks for a specific note |
+| `get_note_provenance` | Provenance chain for a note |
+
+### Notes Timeline
+
+| Tool | Description |
+|------|-------------|
+| `get_notes_timeline` | Timeline view of notes |
+| `get_notes_activity` | Activity feed for notes |
 
 ### Jobs
 
@@ -1107,17 +1052,41 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 |------|-------------|
 | `create_job` | Queue single processing step |
 | `list_jobs` | List/filter jobs |
+| `get_job` | Get job details by ID |
 | `get_queue_stats` | Queue health summary |
+| `get_pending_jobs_count` | Count of pending jobs |
+| `reprocess_note` | Re-run pipeline steps on a note |
 
 ### Archives
 
 | Tool | Description |
 |------|-------------|
-| `list_archives` | List all archives with stats |
-| `create_archive` | Create new archive schema |
+| `list_archives` | List all archives |
+| `create_archive` | Create new archive |
+| `get_archive` | Get archive details |
 | `update_archive` | Update archive metadata |
-| `delete_archive` | Delete archive (requires force) |
+| `delete_archive` | Delete archive |
 | `set_default_archive` | Set the default archive |
+| `get_archive_stats` | Get archive statistics |
+
+#### Archive Workflow
+
+Archives provide complete isolation for different knowledge domains:
+
+```javascript
+// Create a work archive
+create_archive({
+  name: "work-2026",
+  description: "Work-related notes for 2026"
+})
+
+// Set as default for new notes
+set_default_archive({ name: "work-2026" })
+
+// List all archives
+list_archives()
+// Returns: [{ name: "default", is_default: false, note_count: 150 }, ...]
+```
 
 ### Backup & Export
 
@@ -1169,6 +1138,18 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 | `get_governance_stats` | Usage statistics |
 | `get_top_concepts` | Root concepts in scheme |
 
+### SKOS Collections
+
+| Tool | Description |
+|------|-------------|
+| `list_skos_collections` | List concept collections |
+| `create_skos_collection` | Create concept collection |
+| `get_skos_collection` | Get collection details |
+| `update_skos_collection` | Update collection |
+| `delete_skos_collection` | Delete collection |
+| `add_skos_collection_member` | Add concept to collection |
+| `remove_skos_collection_member` | Remove concept from collection |
+
 ### Versioning
 
 | Tool | Description |
@@ -1179,36 +1160,23 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 | `delete_note_version` | Delete version |
 | `diff_note_versions` | Compare versions |
 
-### Archives
-
-Parallel memory archives for isolated knowledge bases.
+### PKE Encryption
 
 | Tool | Description |
 |------|-------------|
-| `list_archives` | List all archives with stats |
-| `create_archive` | Create new archive schema |
-| `update_archive` | Update archive metadata |
-| `delete_archive` | Delete archive (requires force) |
-| `set_default_archive` | Set the default archive |
-
-#### Archive Workflow
-
-Archives provide complete isolation for different knowledge domains:
-
-```javascript
-// Create a work archive
-create_archive({
-  name: "work-2026",
-  description: "Work-related notes for 2026"
-})
-
-// Set as default for new notes
-set_default_archive({ name: "work-2026" })
-
-// List all archives
-list_archives()
-// Returns: [{ name: "default", is_default: false, note_count: 150 }, ...]
-```
+| `pke_generate_keypair` | Generate new keypair |
+| `pke_get_address` | Get public key address |
+| `pke_encrypt` | Encrypt note for recipients |
+| `pke_decrypt` | Decrypt note |
+| `pke_list_recipients` | List note recipients |
+| `pke_verify_address` | Verify address format |
+| `pke_list_keysets` | List all keysets |
+| `pke_create_keyset` | Create new keyset |
+| `pke_get_active_keyset` | Get active keyset |
+| `pke_set_active_keyset` | Set active keyset |
+| `pke_export_keyset` | Export keyset |
+| `pke_import_keyset` | Import keyset |
+| `pke_delete_keyset` | Delete keyset |
 
 ### System
 
@@ -1218,7 +1186,6 @@ list_archives()
 | `explore_graph` | Knowledge graph traversal |
 | `health_check` | System health status |
 | `get_system_info` | Comprehensive diagnostics |
-| `get_rate_limit_status` | Check API rate limits |
 
 #### `health_check`
 
@@ -1248,14 +1215,11 @@ get_system_info()
 // }
 ```
 
-#### `get_rate_limit_status`
+### Export
 
-Check current rate limit status for the API.
-
-```javascript
-get_rate_limit_status()
-// Returns: { limit: 100, remaining: 85, reset_at: "2026-02-02T12:00:00Z" }
-```
+| Tool | Description |
+|------|-------------|
+| `export_skos_turtle` | Export SKOS taxonomy as W3C RDF/Turtle |
 
 ---
 
@@ -1322,36 +1286,29 @@ for (const link of links.incoming) {
 }
 ```
 
-### Uploading Photos with Location Data
+### Uploading Files to Notes
 
 ```javascript
-// Create a travel note
+// Create a documentation note
 const note = await create_note({
-  content: "# Seattle Trip January 2026\n\nExplored Pike Place Market and Space Needle.",
-  tags: ["travel", "seattle", "2026"],
+  content: "# Project Documentation\n\nArchitecture diagrams and specifications.",
+  tags: ["documentation", "project"],
   revision_mode: "light"
 })
 
-// Upload photos from the trip
-const photo1 = await upload_attachment({
+// Upload architecture diagram
+const attachment = await upload_attachment({
   note_id: note.id,
-  filename: "space-needle.jpg",
-  content_base64: readFileAsBase64("space-needle.jpg"),
-  content_type: "image/jpeg"
+  filename: "architecture.png",
+  content_base64: readFileAsBase64("architecture.png"),
+  content_type: "image/png"
 })
 
-// Get location from EXIF
-const metadata = await get_attachment_metadata({
-  attachment_id: photo1.id
+// Get attachment metadata
+const metadata = await get_attachment({
+  attachment_id: attachment.id
 })
-console.log(`Photo taken at: ${metadata.exif.gps_latitude}, ${metadata.exif.gps_longitude}`)
-
-// Later, find all Seattle memories
-const memories = await search_memories_by_location({
-  latitude: 47.6062,
-  longitude: -122.3321,
-  radius_meters: 10000
-})
+console.log(`Uploaded: ${metadata.filename} (${metadata.size} bytes)`)
 ```
 
 ---
@@ -1390,3 +1347,4 @@ const memories = await search_memories_by_location({
 - [SKOS Tags](./tags.md) - Hierarchical tagging system
 - [Architecture](./architecture.md) - System design
 - [Backup Guide](./backup.md) - Backup strategies
+- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming

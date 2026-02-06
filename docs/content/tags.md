@@ -600,8 +600,8 @@ search_notes({
   }
 })
 
-// Dedicated strict search tool
-search_notes_strict({
+// Strict tag filtering via search_notes
+search_notes({
   query: "API design",
   required_tags: ["project:matric"],
   any_tags: ["status:active", "status:review"],
@@ -641,7 +641,7 @@ create_concept({
 })
 
 // Search guarantees ONLY ACME data
-search_notes_strict({
+search_notes({
   required_schemes: ["client-acme"],
   query: "quarterly report"
 })

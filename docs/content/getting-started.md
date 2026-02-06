@@ -19,7 +19,7 @@ docker compose -f docker-compose.bundle.yml up -d
 ```
 
 This automatically:
-- Initializes PostgreSQL 16 with pgvector extension
+- Initializes PostgreSQL 16 with pgvector and PostGIS extensions
 - Runs all database migrations
 - Starts the API on port 3000
 - Starts the MCP server on port 3001
@@ -40,7 +40,7 @@ You should see:
 }
 ```
 
-The interactive API documentation is available at http://localhost:3000/docs. This Swagger UI lets you explore all 107 endpoints and test them directly in your browser.
+The interactive API documentation is available at http://localhost:3000/docs. This Swagger UI lets you explore all API endpoints and test them directly in your browser.
 
 ## Step 2: Create Your First Notes
 
@@ -393,6 +393,7 @@ This creates version 3 with version 1's content, preserving the complete audit t
 | Optimize performance | [Operations Guide](./operations.md) |
 | Configure multilingual search | [Multilingual FTS](./multilingual-fts.md) |
 | Plan hardware requirements | [Hardware Planning](./hardware-planning.md) |
+| Monitor in real-time | [Real-Time Events](./real-time-events.md) |
 | Explore advanced features | [File Attachments](./file-attachments.md), [PKE Encryption](./pke-encryption.md) |
 
 ### Explore the API

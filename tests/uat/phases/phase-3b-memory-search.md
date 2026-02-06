@@ -53,7 +53,7 @@
 4. Create provenance: `INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type) VALUES (<attachment-id>, <location-id>, tstzrange(NOW(), NOW()), 'photo')`
 
 **Steps**:
-1. Search within 1km radius: `search_by_location({ lat: 48.8584, lon: 2.2945, radius_meters: 1000 })`
+1. Search within 1km radius: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 1000 })`
 
 **Expected Results**:
 - Returns array with 1 `MemoryLocationResult`
@@ -77,7 +77,7 @@
 **Prerequisites**: Test data from UAT-3B-001 exists
 
 **Steps**:
-1. Search in NYC (far from Paris): `search_by_location({ lat: 40.7128, lon: -74.0060, radius_meters: 1000 })`
+1. Search in NYC (far from Paris): `search_memories_by_location({ lat: 40.7128, lon: -74.0060, radius: 1000 })`
 
 **Expected Results**:
 - Returns empty array `[]`
@@ -102,7 +102,7 @@
    - Notre-Dame (48.8530, 2.3499)
 
 **Steps**:
-1. Search from Eiffel Tower with 10km radius: `search_by_location({ lat: 48.8584, lon: 2.2945, radius_meters: 10000 })`
+1. Search from Eiffel Tower with 10km radius: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 10000 })`
 
 **Expected Results**:
 - Returns 3 results
@@ -124,7 +124,7 @@
 **Prerequisites**: 3 attachments from UAT-3B-003
 
 **Steps**:
-1. Search from Eiffel Tower: `search_by_location({ lat: 48.8584, lon: 2.2945, radius_meters: 10000 })`
+1. Search from Eiffel Tower: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 10000 })`
 2. Check distances: `results[0].distance_m`, `results[1].distance_m`, `results[2].distance_m`
 
 **Expected Results**:
@@ -149,7 +149,7 @@
 2. Link provenance to named location via prov_location
 
 **Steps**:
-1. Search near Eiffel Tower: `search_by_location({ lat: 48.8584, lon: 2.2945, radius_meters: 500 })`
+1. Search near Eiffel Tower: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 500 })`
 
 **Expected Results**:
 - Results include `location_name: "Eiffel Tower"`
@@ -173,7 +173,7 @@
 1. Create attachment with capture time yesterday: `INSERT INTO file_provenance (attachment_id, capture_time, event_type) VALUES (<id>, tstzrange(NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day'), 'photo')`
 
 **Steps**:
-1. Search last 2 days: `search_by_timerange({ start: <now-2days>, end: <now> })`
+1. Search last 2 days: `search_memories_by_time({ start: <now-2days>, end: <now> })`
 
 **Expected Results**:
 - Returns 1+ results
@@ -195,7 +195,7 @@
 **Prerequisites**: Test data from UAT-3B-006
 
 **Steps**:
-1. Search last year (excluding recent data): `search_by_timerange({ start: <1-year-ago>, end: <11-months-ago> })`
+1. Search last year (excluding recent data): `search_memories_by_time({ start: <1-year-ago>, end: <11-months-ago> })`
 
 **Expected Results**:
 - Returns empty array `[]`
@@ -219,7 +219,7 @@
    - 1 day ago
 
 **Steps**:
-1. Search last 5 days: `search_by_timerange({ start: <5-days-ago>, end: <now> })`
+1. Search last 5 days: `search_memories_by_time({ start: <5-days-ago>, end: <now> })`
 
 **Expected Results**:
 - Returns 3 results
@@ -241,7 +241,7 @@
 1. Create provenance with time range: `tstzrange('2025-01-01 10:00:00+00', '2025-01-01 14:00:00+00')` (4-hour event)
 
 **Steps**:
-1. Search partially overlapping: `search_by_timerange({ start: '2025-01-01 12:00:00+00', end: '2025-01-01 16:00:00+00' })`
+1. Search partially overlapping: `search_memories_by_time({ start: '2025-01-01 12:00:00+00', end: '2025-01-01 16:00:00+00' })`
 
 **Expected Results**:
 - Returns the attachment (ranges overlap)
@@ -265,7 +265,7 @@
 1. Create attachment at Eiffel Tower captured yesterday
 
 **Steps**:
-1. Search near Eiffel Tower in last 2 days: `search_by_location_and_time({ lat: 48.8584, lon: 2.2945, radius_meters: 1000, start: <2-days-ago>, end: <now> })`
+1. Search near Eiffel Tower in last 2 days: `search_memories_combined({ lat: 48.8584, lon: 2.2945, radius: 1000, start: <2-days-ago>, end: <now> })`
 
 **Expected Results**:
 - Returns 1 result
@@ -283,7 +283,7 @@
 **Prerequisites**: Test data from UAT-3B-010
 
 **Steps**:
-1. Search NYC (wrong location) in last 2 days: `search_by_location_and_time({ lat: 40.7128, lon: -74.0060, radius_meters: 1000, start: <2-days-ago>, end: <now> })`
+1. Search NYC (wrong location) in last 2 days: `search_memories_combined({ lat: 40.7128, lon: -74.0060, radius: 1000, start: <2-days-ago>, end: <now> })`
 
 **Expected Results**:
 - Returns empty array
@@ -298,7 +298,7 @@
 **Prerequisites**: Test data from UAT-3B-010
 
 **Steps**:
-1. Search Eiffel Tower last year: `search_by_location_and_time({ lat: 48.8584, lon: 2.2945, radius_meters: 1000, start: <1-year-ago>, end: <11-months-ago> })`
+1. Search Eiffel Tower last year: `search_memories_combined({ lat: 48.8584, lon: 2.2945, radius: 1000, start: <1-year-ago>, end: <11-months-ago> })`
 
 **Expected Results**:
 - Returns empty array
@@ -321,7 +321,7 @@
 3. Create full provenance record linking attachment, location, device, and time
 
 **Steps**:
-1. Get provenance: `get_memory_provenance(<note-id>)`
+1. Get provenance: `get_memory_provenance({ note_id: <note-id> })`
 
 **Expected Results**:
 - Returns `MemoryProvenance` object
@@ -347,7 +347,7 @@
 - Note with 3 attachments, each with different provenance
 
 **Steps**:
-1. Get provenance: `get_memory_provenance(<note-id>)`
+1. Get provenance: `get_memory_provenance({ note_id: <note-id> })`
 
 **Expected Results**:
 - `files` array contains 3 elements
@@ -366,7 +366,7 @@
 - Attachment with location but no device
 
 **Steps**:
-1. Get provenance: `get_memory_provenance(<note-id>)`
+1. Get provenance: `get_memory_provenance({ note_id: <note-id> })`
 
 **Expected Results**:
 - Returns provenance with `location` populated
@@ -386,7 +386,7 @@
 - Note without attachments
 
 **Steps**:
-1. Get provenance: `get_memory_provenance(<note-id>)`
+1. Get provenance: `get_memory_provenance({ note_id: <note-id> })`
 
 **Expected Results**:
 - Returns None/null OR empty `files` array
@@ -403,8 +403,8 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Search with invalid lat: `search_by_location({ lat: 200.0, lon: 0.0, radius_meters: 1000 })`
-2. Search with invalid lon: `search_by_location({ lat: 0.0, lon: 300.0, radius_meters: 1000 })`
+1. Search with invalid lat: `search_memories_by_location({ lat: 200.0, lon: 0.0, radius: 1000 })`
+2. Search with invalid lon: `search_memories_by_location({ lat: 0.0, lon: 300.0, radius: 1000 })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -424,7 +424,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Search with negative radius: `search_by_location({ lat: 48.8584, lon: 2.2945, radius_meters: -1000 })`
+1. Search with negative radius: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: -1000 })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -439,7 +439,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Search with inverted range: `search_by_timerange({ start: <now>, end: <yesterday> })`
+1. Search with inverted range: `search_memories_by_time({ start: <now>, end: <yesterday> })`
 
 **Expected Results**:
 - Either: Returns empty array OR returns 400 error
@@ -456,8 +456,8 @@
 **Prerequisites**: Fresh database or database with no provenance records
 
 **Steps**:
-1. Search by location: `search_by_location({ lat: 0.0, lon: 0.0, radius_meters: 10000 })`
-2. Search by time: `search_by_timerange({ start: <1-year-ago>, end: <now> })`
+1. Search by location: `search_memories_by_location({ lat: 0.0, lon: 0.0, radius: 10000 })`
+2. Search by time: `search_memories_by_time({ start: <1-year-ago>, end: <now> })`
 
 **Expected Results**:
 - Both return empty arrays `[]`

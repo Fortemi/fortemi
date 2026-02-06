@@ -5,7 +5,7 @@ This guide covers deployment, operations, and troubleshooting for Fortémi using
 ## System Overview
 
 - **Deployment:** Docker bundle (all-in-one container)
-- **Components:** PostgreSQL 16 + pgvector, Rust API, Node.js MCP server
+- **Components:** PostgreSQL 16 + pgvector + PostGIS, Rust API, Node.js MCP server
 - **Ports:** 3000 (API), 3001 (MCP)
 - **Data:** PostgreSQL data in Docker volume `matric-pgdata`
 
@@ -83,6 +83,27 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket and SSE support for real-time events
+    location /api/v1/ws {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    location /api/v1/events {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400;
     }
 
     # MCP routes
@@ -296,6 +317,38 @@ curl http://localhost:3000/health
 curl https://your-domain.com/mcp/health
 ```
 
+### Real-Time Event Monitoring
+
+Fortémi provides real-time event streaming for live job and note monitoring. See [Real-Time Events](./real-time-events.md) for full documentation.
+
+**SSE for live job monitoring:**
+
+```bash
+# Stream all events (useful for monitoring job processing)
+curl -N http://localhost:3000/api/v1/events
+```
+
+Events include `QueueStatus` (every 5s), `JobQueued`, `JobStarted`, `JobProgress`, `JobCompleted`, `JobFailed`, and `NoteUpdated`.
+
+**Webhook alerts for failures:**
+
+Set up a webhook to receive alerts when jobs fail:
+
+```bash
+# Create webhook for failure alerts
+curl -X POST http://localhost:3000/api/v1/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-alerting-service.com/webhook",
+    "events": ["JobFailed"],
+    "secret": "your-hmac-secret"
+  }'
+```
+
+**WebSocket for dashboard integration:**
+
+Connect to `ws://localhost:3000/api/v1/ws` for real-time dashboard updates. Send `"refresh"` to trigger an immediate queue status broadcast.
+
 ### Container Health
 
 ```bash
@@ -381,6 +434,9 @@ docker exec Fortémi-matric-1 pg_isready -U matric
 
 # Check database exists
 docker exec Fortémi-matric-1 psql -U matric -l
+
+# Verify required extensions
+docker exec Fortémi-matric-1 psql -U matric -d matric -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'postgis');"
 ```
 
 ### Slow Performance
@@ -602,3 +658,4 @@ docker exec -i Fortémi-matric-1 psql -U matric -d matric < latest_backup.sql
 - **Repository:** https://github.com/Fortemi/fortemi
 - **Operators Guide:** [operators-guide.md](./operators-guide.md)
 - **MCP Documentation:** [mcp-server/README.md](../../mcp-server/README.md)
+- **Real-Time Events:** [real-time-events.md](./real-time-events.md)

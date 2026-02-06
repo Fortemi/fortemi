@@ -92,11 +92,21 @@ The server exposes:
 | `bulk_create_notes` | Create multiple notes in batch |
 | `update_note` | Update note content/status |
 | `delete_note` | Soft delete a note (recoverable) |
+| `restore_note` | Restore a soft-deleted note |
 | `search_notes` | Full-text and semantic search (supports embedding sets) |
 | `list_tags` | List all tags |
 | `set_note_tags` | Set tags for a note |
 | `get_note_links` | Get note relationships |
 | `export_note` | Export note as markdown |
+
+### Memory Search
+
+| Tool | Description |
+|------|-------------|
+| `search_memories_by_location` | Find memories near geographic coordinates |
+| `search_memories_by_time` | Find memories within a time range |
+| `search_memories_combined` | Find memories by location AND time |
+| `get_memory_provenance` | Get file provenance chain for a note |
 
 ### Collections (Folders)
 
@@ -105,6 +115,7 @@ The server exposes:
 | `list_collections` | List all collections |
 | `create_collection` | Create a new collection |
 | `get_collection` | Get collection details |
+| `update_collection` | Update collection metadata |
 | `delete_collection` | Delete a collection |
 | `get_collection_notes` | List notes in a collection |
 | `move_note_to_collection` | Move note to collection |
@@ -117,6 +128,7 @@ The server exposes:
 | `list_templates` | List all note templates |
 | `create_template` | Create a new template |
 | `get_template` | Get template details |
+| `update_template` | Update template metadata |
 | `delete_template` | Delete a template |
 | `instantiate_template` | Create note from template |
 
@@ -126,7 +138,10 @@ The server exposes:
 |------|-------------|
 | `create_job` | Queue specific AI processing jobs |
 | `list_jobs` | List and filter background jobs |
+| `get_job` | Get details of a specific job |
 | `get_queue_stats` | Get job queue statistics |
+| `get_pending_jobs_count` | Count pending jobs |
+| `reprocess_note` | Reprocess note through AI pipeline |
 
 ### Embedding Sets
 
@@ -135,11 +150,25 @@ The server exposes:
 | `list_embedding_sets` | List all embedding sets with stats |
 | `get_embedding_set` | Get embedding set details by slug |
 | `create_embedding_set` | Create a new embedding set |
+| `update_embedding_set` | Update embedding set configuration |
+| `delete_embedding_set` | Delete an embedding set |
 | `list_set_members` | List notes in an embedding set |
 | `add_set_members` | Add notes to an embedding set |
 | `remove_set_member` | Remove a note from an embedding set |
 | `refresh_embedding_set` | Refresh set membership based on criteria |
 | `reembed_all` | Regenerate embeddings for all notes or a specific set |
+
+### Archives
+
+| Tool | Description |
+|------|-------------|
+| `list_archives` | List all archives |
+| `create_archive` | Create new archive |
+| `get_archive` | Get archive details |
+| `update_archive` | Update archive metadata |
+| `delete_archive` | Delete archive |
+| `set_default_archive` | Set the default archive |
+| `get_archive_stats` | Get archive statistics |
 
 ### Data Deletion
 
@@ -166,18 +195,66 @@ The server exposes:
 |------|-------------|
 | `upload_attachment` | Upload file attachment to a note (base64 content) |
 | `list_attachments` | List all attachments for a note |
-| `get_attachment` | Download attachment binary content |
-| `get_attachment_metadata` | Get EXIF metadata and provenance data |
+| `get_attachment` | Get attachment metadata |
+| `download_attachment` | Download attachment binary content (base64) |
 | `delete_attachment` | Permanently remove an attachment |
 
-### Memory Search
+### SKOS Collections
 
 | Tool | Description |
 |------|-------------|
-| `search_memories_by_location` | Find memories near geographic coordinates |
-| `search_memories_by_time` | Find memories within a time range |
-| `search_memories_combined` | Combined location and time search |
-| `get_memory_provenance` | Get full provenance chain with EXIF data |
+| `list_skos_collections` | List concept collections |
+| `create_skos_collection` | Create concept collection |
+| `get_skos_collection` | Get collection details |
+| `update_skos_collection` | Update collection |
+| `delete_skos_collection` | Delete collection |
+| `add_skos_collection_member` | Add concept to collection |
+| `remove_skos_collection_member` | Remove concept from collection |
+
+### Knowledge Health
+
+| Tool | Description |
+|------|-------------|
+| `get_knowledge_health` | Overall knowledge base health metrics |
+| `get_orphan_tags` | Tags not used by any notes |
+| `get_stale_notes` | Notes not updated recently |
+| `get_unlinked_notes` | Notes with no semantic links |
+| `get_tag_cooccurrence` | Tag co-occurrence statistics |
+| `get_note_backlinks` | Backlinks for a specific note |
+| `get_note_provenance` | Provenance chain for a note |
+
+### Content Retrieval
+
+| Tool | Description |
+|------|-------------|
+| `get_full_document` | Reconstruct chunked document |
+| `search_with_dedup` | Search with chunk deduplication |
+| `get_chunk_chain` | Get all chunks in document chain |
+| `get_documentation` | Get built-in documentation by topic |
+
+### Notes Timeline
+
+| Tool | Description |
+|------|-------------|
+| `get_notes_timeline` | Timeline view of notes |
+| `get_notes_activity` | Activity feed for notes |
+
+### Embedding Configs
+
+| Tool | Description |
+|------|-------------|
+| `list_embedding_configs` | List all embedding configurations |
+| `get_default_embedding_config` | Get the default embedding configuration |
+| `get_embedding_config` | Get specific embedding config |
+| `create_embedding_config` | Create new embedding configuration |
+| `update_embedding_config` | Update embedding configuration |
+| `delete_embedding_config` | Delete embedding configuration |
+
+### SKOS Export
+
+| Tool | Description |
+|------|-------------|
+| `export_skos_turtle` | Export SKOS taxonomy as W3C RDF/Turtle |
 
 ## Document Types
 
