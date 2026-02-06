@@ -112,9 +112,10 @@ jobs:
       - name: Run migrations
         run: |
           DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
-          # Pre-create extensions as superuser (migrations reference them but matric user lacks CREATE EXTENSION)
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
+          # on first boot, but these are a safety net for containers with pre-existing data volumes)
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
             docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
@@ -191,9 +192,10 @@ jobs:
       - name: Run migrations
         run: |
           DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
-          # Pre-create extensions as superuser (migrations reference them but matric user lacks CREATE EXTENSION)
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
+          # on first boot, but these are a safety net for containers with pre-existing data volumes)
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
             docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
@@ -267,9 +269,9 @@ jobs:
             sleep 2
           done
 
-          # Pre-create extensions as superuser
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          # Ensure extensions exist (matric is superuser in testdb image)
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
           done
@@ -382,9 +384,10 @@ jobs:
       - name: Run migrations
         run: |
           DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
-          # Pre-create extensions as superuser (migrations reference them but matric user lacks CREATE EXTENSION)
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          docker exec ${DB_CONTAINER} psql -U postgres -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+          # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
+          # on first boot, but these are a safety net for containers with pre-existing data volumes)
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          docker exec ${DB_CONTAINER} psql -U matric -d matric_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
           for f in migrations/*.sql; do
             echo "Running migration: $f"
             docker exec -i ${DB_CONTAINER} psql -U matric -d matric_test -v ON_ERROR_STOP=1 < "$f"
