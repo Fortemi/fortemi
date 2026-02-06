@@ -2453,7 +2453,12 @@ Set parent_id to create a subcollection within an existing collection.`,
   },
   {
     name: "get_collection",
-    description: `Get details of a specific collection by ID.`,
+    description: `Get a collection's metadata (name, description, parent, note count).
+
+Collections organize notes into folders with optional hierarchy (parent/child).
+Use list_collections to browse, then this tool for details of a specific collection.
+
+RETURNS: id, name, description, parent_id, note_count, created_at, updated_at`,
     inputSchema: {
       type: "object",
       properties: {
@@ -2615,7 +2620,12 @@ Set default_tags and collection_id to automatically apply them to notes created 
   },
   {
     name: "get_template",
-    description: `Get a template by ID.`,
+    description: `Get a note template with its content, variables, and defaults.
+
+Returns the full template including content with {{variable}} placeholders, default tags, default collection, and format.
+Use list_templates to browse available templates, then this tool for the full content before instantiating.
+
+RETURNS: id, name, description, content, format, default_tags, collection_id, created_at, updated_at`,
     inputSchema: {
       type: "object",
       properties: {
@@ -2629,7 +2639,10 @@ Set default_tags and collection_id to automatically apply them to notes created 
   },
   {
     name: "delete_template",
-    description: `Delete a template.`,
+    description: `Delete a note template permanently.
+
+Removes the template definition. Notes previously created from this template are NOT affected.
+This action cannot be undone.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3466,7 +3479,12 @@ RETURNS: {id} - UUID of the new scheme.`,
   },
   {
     name: "get_concept_scheme",
-    description: "Get details of a specific concept scheme by ID.",
+    description: `Get a concept scheme with its metadata (title, description, namespace URI, concept count).
+
+A concept scheme is a top-level container for organizing SKOS concepts (hierarchical tags).
+Use list_concept_schemes first to find scheme IDs, then this tool for full details.
+
+RETURNS: id, title, description, namespace_uri, created_at, updated_at, concept_count`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3555,7 +3573,10 @@ RETURNS: {id} - UUID of the new concept.`,
   },
   {
     name: "get_concept",
-    description: "Get a concept with its preferred label.",
+    description: `Get a concept's basic info (ID, preferred label, scheme, status, notation).
+
+For full details including all labels, notes, and hierarchy relationships, use get_concept_full instead.
+Use search_concepts to find concept IDs by label text.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3606,7 +3627,11 @@ USE WHEN: Need complete context about a concept including its position in the hi
   },
   {
     name: "delete_concept",
-    description: "Delete a concept (must have no tags applied to notes).",
+    description: `Delete a concept permanently.
+
+The concept must not be tagged on any notes. Remove tags first with untag_note_concept if needed.
+Broader/narrower/related relationships are automatically cleaned up.
+This action cannot be undone.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3637,7 +3662,10 @@ USE WHEN: Building tag input UIs, quick lookup while typing.`,
   },
   {
     name: "get_broader",
-    description: "Get broader (parent) concepts for a concept.",
+    description: `Get broader (parent) concepts in the SKOS hierarchy.
+
+Returns the direct parent concept(s). A concept may have up to 3 broader concepts (polyhierarchy).
+Navigate up the taxonomy tree. Use get_narrower for children, get_related for associative links.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3668,7 +3696,10 @@ Example: add_broader({id: rust_concept, target_id: programming_languages_concept
   },
   {
     name: "get_narrower",
-    description: "Get narrower (child) concepts for a concept.",
+    description: `Get narrower (child) concepts in the SKOS hierarchy.
+
+Returns direct child concepts. Navigate down the taxonomy tree.
+Use get_broader for parents, get_related for associative links.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3697,7 +3728,10 @@ Example: add_broader({id: rust_concept, target_id: programming_languages_concept
   },
   {
     name: "get_related",
-    description: "Get related (associative, non-hierarchical) concepts.",
+    description: `Get related (associative) concepts — non-hierarchical connections.
+
+Returns concepts linked via skos:related (symmetric). These represent "see also" associations
+that cross hierarchy boundaries. Use get_broader/get_narrower for hierarchical navigation.`,
     inputSchema: {
       type: "object",
       properties: {

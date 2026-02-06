@@ -944,6 +944,136 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProvenanceResponse'
 
+
+  # ===========================================================================
+  # Note Attachments
+  # ===========================================================================
+  /api/v1/notes/{id}/attachments:
+    get:
+      summary: List note attachments
+      operationId: listAttachments
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: List of attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attachment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      summary: Upload attachment to note
+      operationId: uploadAttachment
+      tags: [Notes]
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, data]
+              properties:
+                filename:
+                  type: string
+                data:
+                  type: string
+                  format: byte
+                  description: Base64-encoded file data
+                content_type:
+                  type: string
+      responses:
+        '201':
+          description: Attachment uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+
+  /api/v1/attachments/{attachment_id}:
+    get:
+      summary: Get attachment metadata
+      operationId: getAttachment
+      tags: [Notes]
+      parameters:
+        - name: attachment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete attachment
+      operationId: deleteAttachment
+      tags: [Notes]
+      parameters:
+        - name: attachment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Attachment deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/v1/attachments/{attachment_id}/download:
+    get:
+      summary: Download attachment
+      operationId: downloadAttachment
+      tags: [Notes]
+      parameters:
+        - name: attachment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Attachment data (base64-encoded)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    format: byte
+                  content_type:
+                    type: string
+                  filename:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+
   # ===========================================================================
   # Memory Search
   # ===========================================================================
@@ -1889,6 +2019,23 @@ paths:
       responses:
         '204':
           description: Updated
+
+    delete:
+      summary: Delete concept scheme
+      operationId: deleteConceptScheme
+      tags: [SKOS]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Concept scheme deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/schemes/{id}/top-concepts:
     get:
@@ -4211,7 +4358,7 @@ components:
           nullable: true
         job_type:
           type: string
-          enum: [ai_revision, embedding, linking, context_update, title_generation, concept_tagging]
+          enum: [ai_revision, embedding, linking, context_update, title_generation, concept_tagging, purge_note, re_embed_all, exif_extraction, three_d_analysis, document_type_inference, create_embedding_set, refresh_embedding_set, build_set_index]
         status:
           type: string
           enum: [pending, running, completed, failed, cancelled]
@@ -4256,7 +4403,7 @@ components:
           format: uuid
         job_type:
           type: string
-          enum: [ai_revision, embedding, linking, context_update, title_generation, concept_tagging]
+          enum: [ai_revision, embedding, linking, context_update, title_generation, concept_tagging, purge_note, re_embed_all, exif_extraction, three_d_analysis, document_type_inference, create_embedding_set, refresh_embedding_set, build_set_index]
         priority:
           type: integer
         payload:
@@ -4301,6 +4448,32 @@ components:
           type: integer
         is_builtin:
           type: boolean
+
+
+    Attachment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        note_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        content_type:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+        storage_path:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     DetectDocumentTypeResponse:
       type: object

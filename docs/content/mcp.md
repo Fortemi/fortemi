@@ -8,28 +8,27 @@ The MCP server enables AI assistants (Claude, etc.) to interact with your knowle
 
 | Category | Tools | Description |
 |----------|-------|-------------|
-| Notes | 13 | Create, read, update, delete, restore notes |
+| Notes | 13 | Create, read, update, delete, restore, purge notes |
 | Search | 2 | Hybrid semantic + full-text + strict filtering |
 | Memory Search | 4 | Spatial/temporal memory search and provenance |
-| Collections | 7 | Hierarchical folder organization |
+| Collections | 8 | Hierarchical folder organization with graph exploration |
 | Templates | 6 | Reusable note structures |
 | Document Types | 6 | Content type detection and management |
+| File Attachments | 5 | Upload, manage, and retrieve file attachments |
 | Embedding Sets | 10 | Focused search contexts with full CRUD |
 | Embedding Configs | 6 | Embedding model configuration |
 | Jobs | 6 | Background processing control and monitoring |
 | Backup/Export | 15 | Data portability and backups |
 | Archives | 7 | Parallel memory archive management |
-| SKOS Concepts | 24 | Hierarchical tagging with relation removal |
+| SKOS Concepts | 25 | Hierarchical tagging with full relation management |
 | SKOS Collections | 7 | Group concepts into ordered/unordered collections |
-| Versioning | 5 | Note version history |
+| Versioning | 5 | Note version history and diff |
 | PKE Encryption | 13 | Public-key encrypted note sharing |
-| File Attachments | 5 | Upload, manage, and retrieve file attachments |
 | Content Retrieval | 4 | Chunk-aware document handling |
 | Knowledge Health | 7 | Knowledge base health metrics and diagnostics |
 | Notes Timeline | 2 | Note timeline and activity feed |
-| System | 4 | Health check and diagnostics |
+| System | 3 | Health check and diagnostics |
 | Export | 1 | SKOS Turtle RDF export |
-| Documentation | 1 | Self-documentation system |
 
 ### Tool Categories by Permission
 
@@ -51,7 +50,7 @@ These tools retrieve information without modifying system state:
 - `list_templates`, `get_template`
 - `list_embedding_sets`, `get_embedding_set`, `list_set_members`
 - `list_embedding_configs`, `get_default_embedding_config`, `get_embedding_config`
-- `list_document_types`, `get_document_type`
+- `list_document_types`, `get_document_type`, `detect_document_type`
 - `list_archives`, `get_archive`, `get_archive_stats`
 - `list_attachments`, `get_attachment`, `download_attachment`
 - `get_full_document`, `search_with_dedup`, `get_chunk_chain`
@@ -112,7 +111,6 @@ These tools modify system state and may require elevated permissions:
 
 **Document Types:**
 - `create_document_type`, `update_document_type`, `delete_document_type`
-- `detect_document_type` (read-only but may trigger auto-configuration)
 
 **Archives:**
 - `create_archive`, `update_archive`, `delete_archive`, `set_default_archive`
@@ -143,6 +141,10 @@ These tools modify system state and may require elevated permissions:
 - `knowledge_shard`, `knowledge_shard_import`
 - `database_snapshot`, `database_restore`
 - `knowledge_archive_upload`
+
+**PKE Encryption:**
+- `pke_generate_keypair`, `pke_encrypt`, `pke_decrypt`
+- `pke_create_keyset`, `pke_set_active_keyset`, `pke_export_keyset`, `pke_import_keyset`, `pke_delete_keyset`
 
 **Note about permissions:** Some MCP client environments (e.g., Claude Desktop) may restrict or prompt for user approval when using mutating tools. Read-only tools typically require no special permissions.
 
@@ -468,6 +470,7 @@ Hierarchical folder structure for notes.
 | `delete_collection` | Delete folder (soft delete) |
 | `get_collection_notes` | List notes in a folder |
 | `move_note_to_collection` | Move note to folder |
+| `explore_graph` | Explore knowledge graph from a note |
 
 #### `update_collection`
 
@@ -916,6 +919,7 @@ Common error responses:
 | `delete_collection` | Delete folder (soft delete) |
 | `get_collection_notes` | List notes in folder |
 | `move_note_to_collection` | Move note |
+| `explore_graph` | Explore knowledge graph from a note |
 
 ### Templates
 
@@ -1183,7 +1187,6 @@ list_archives()
 | Tool | Description |
 |------|-------------|
 | `memory_info` | Storage/memory statistics |
-| `explore_graph` | Knowledge graph traversal |
 | `health_check` | System health status |
 | `get_system_info` | Comprehensive diagnostics |
 

@@ -521,27 +521,144 @@ Add to crontab for daily backups:
 
 ## Configuration
 
-### Environment Variables (.env)
+### Environment Variables Reference
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ISSUER_URL` | Yes | External URL for OAuth/MCP |
-| `MCP_CLIENT_ID` | Yes | OAuth client ID for MCP token introspection |
-| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
-| `MCP_BASE_URL` | No | MCP protected resource URL (default: `${ISSUER_URL}/mcp`) |
+All environment variables are optional unless marked as required. The API reads these values at startup.
 
-### Container Environment (docker-compose.bundle.yml)
+#### Server Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RUST_LOG` | `info` | API logging level |
-| `RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
-| `OLLAMA_BASE` | - | Ollama URL for AI features |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model |
-| `OLLAMA_GEN_MODEL` | `llama3.2` | Ollama generation model |
-| `OPENAI_API_KEY` | - | OpenAI API key (alternative) |
-| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
-| `OPENAI_GEN_MODEL` | `gpt-4o-mini` | OpenAI generation model |
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `HOST` | `0.0.0.0` | HTTP server bind address | `127.0.0.1` |
+| `PORT` | `3000` | HTTP server port | `8080` |
+| `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection string | `postgres://user:pass@host:5432/db` |
+| `FILE_STORAGE_PATH` | `/var/lib/matric/files` | Directory for file attachments | `/mnt/storage/files` |
+
+#### Rate Limiting
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `RATE_LIMIT_ENABLED` | `true` | Enable rate limiting | `false` |
+| `RATE_LIMIT_REQUESTS` | `100` | Max requests per period | `1000` |
+| `RATE_LIMIT_PERIOD_SECS` | `60` | Rate limit period in seconds | `300` |
+
+#### CORS Configuration
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `ALLOWED_ORIGINS` | `https://memory.integrolabs.net,http://localhost:3000` | Comma-separated CORS origins | `https://app.example.com,https://staging.example.com` |
+
+#### Logging
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `RUST_LOG` | `matric_api=debug,tower_http=debug` | Tracing filter directives | `info` or `matric_api=trace` |
+| `LOG_FORMAT` | `text` | Log output format (`text` or `json`) | `json` |
+| `LOG_FILE` | (none) | Path to log file (enables file logging) | `/var/log/matric/api.log` |
+| `LOG_ANSI` | (auto-detected) | Force ANSI colors in logs (`true` or `false`) | `false` |
+
+#### OAuth / MCP
+
+| Variable | Required | Default | Description | Example |
+|----------|----------|---------|-------------|---------|
+| `ISSUER_URL` | Yes | `http://HOST:PORT` | External OAuth issuer URL | `https://memory.example.com` |
+| `MCP_CLIENT_ID` | Yes | (none) | OAuth client ID for MCP server token introspection | `mm_abc123` |
+| `MCP_CLIENT_SECRET` | Yes | (none) | OAuth client secret for MCP server | `secret_xyz789` |
+| `MCP_BASE_URL` | No | `${ISSUER_URL}/mcp` | MCP protected resource URL | `https://memory.example.com/mcp` |
+
+#### Ollama Backend (Primary AI Backend)
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `OLLAMA_BASE` | `http://127.0.0.1:11434` | Ollama API base URL | `http://host.docker.internal:11434` |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model name | `mxbai-embed-large` |
+| `OLLAMA_GEN_MODEL` | `gpt-oss:20b` | Ollama generation model name | `llama3.2` |
+| `OLLAMA_EMBED_DIM` | `768` | Embedding vector dimension | `1024` |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama host for model discovery | `http://ollama:11434` |
+
+#### OpenAI Backend (Alternative AI Backend)
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `OPENAI_API_KEY` | (none) | OpenAI API key | `sk-proj-...` |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL | `https://api.openai.com/v1` |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | OpenAI embedding model | `text-embedding-3-large` |
+| `OPENAI_GEN_MODEL` | `gpt-4o-mini` | OpenAI generation model | `gpt-4o` |
+| `OPENAI_EMBED_DIM` | `1536` | OpenAI embedding dimension | `3072` |
+| `OPENAI_TIMEOUT` | `60` | OpenAI request timeout (seconds) | `120` |
+| `OPENAI_SKIP_TLS_VERIFY` | `false` | Skip TLS certificate verification | `true` |
+| `OPENAI_HTTP_REFERER` | (none) | HTTP Referer header for OpenAI requests | `https://example.com` |
+| `OPENAI_X_TITLE` | (none) | X-Title header for OpenAI requests | `My App` |
+
+#### Advanced Inference Configuration
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `MATRIC_INFERENCE_DEFAULT` | `ollama` | Default inference backend (`ollama` or `openai`) | `openai` |
+| `MATRIC_OLLAMA_URL` | `http://localhost:11434` | Ollama URL (alternative to `OLLAMA_BASE`) | `http://ollama:11434` |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | `gpt-oss:20b` | Ollama generation model | `llama3.2` |
+| `MATRIC_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding model | `mxbai-embed-large` |
+| `MATRIC_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI URL | `https://custom-proxy.example.com/v1` |
+| `MATRIC_OPENAI_API_KEY` | (none) | OpenAI API key | `sk-proj-...` |
+| `MATRIC_OPENAI_GENERATION_MODEL` | `gpt-4o-mini` | OpenAI generation model | `gpt-4o` |
+| `MATRIC_OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model | `text-embedding-3-large` |
+| `MATRIC_GEN_TIMEOUT_SECS` | `120` | Generation request timeout (seconds) | `180` |
+| `MATRIC_EMBED_TIMEOUT_SECS` | `30` | Embedding request timeout (seconds) | `60` |
+
+#### Job Worker
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `WORKER_ENABLED` | `true` | Enable background job worker | `false` |
+
+#### Real-Time Events
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `MATRIC_EVENT_BUS_CAPACITY` | `256` | Event bus broadcast channel capacity | `1024` |
+| `MATRIC_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook HTTP request timeout (seconds) | `30` |
+| `MATRIC_MAX_BODY_SIZE_BYTES` | `2147483648` | Maximum request body size (2 GB for database backups) | `1073741824` |
+
+#### Full-Text Search (FTS)
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `FTS_WEBSEARCH_TO_TSQUERY` | `true` | Enable websearch syntax (OR, NOT, phrase) | `false` |
+| `FTS_TRIGRAM_FALLBACK` | `true` | Enable trigram search for emoji/symbols | `false` |
+| `FTS_BIGRAM_CJK` | `true` | Enable bigram search for CJK text | `false` |
+| `FTS_SCRIPT_DETECTION` | `true` | Auto-detect query language script | `false` |
+| `FTS_MULTILINGUAL_CONFIGS` | `true` | Enable language-specific text search configs | `false` |
+
+#### Redis Cache
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `REDIS_ENABLED` | `true` | Enable Redis search result caching | `false` |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL | `redis://redis:6379/0` |
+| `REDIS_CACHE_TTL` | `300` | Cache TTL in seconds (5 minutes) | `600` |
+
+#### Backup Operations
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `BACKUP_DEST` | `/var/backups/matric-memory` | Backup destination directory | `/mnt/backups` |
+| `BACKUP_SCRIPT_PATH` | `/usr/local/bin/backup-matric.sh` | Path to backup script | `/opt/scripts/backup.sh` |
+
+#### PostgreSQL (Bundle Deployment Only)
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `POSTGRES_USER` | `matric` | PostgreSQL superuser | `postgres` |
+| `POSTGRES_PASSWORD` | `matric` | PostgreSQL password | `secure_password` |
+| `POSTGRES_DB` | `matric` | PostgreSQL database name | `matric_prod` |
+
+### Configuration Precedence
+
+Environment variables are read with the following precedence:
+
+1. **System environment variables** (highest priority)
+2. **`.env` file** (loaded via `dotenvy::dotenv()`)
+3. **Hard-coded defaults** in `crates/matric-core/src/defaults.rs`
 
 ### AI Features Configuration
 
@@ -553,7 +670,7 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
 2. Pull required models:
    ```bash
    ollama pull nomic-embed-text
-   ollama pull llama3.2
+   ollama pull gpt-oss:20b
    ```
 3. Configure Docker to access Ollama:
    ```bash
@@ -567,14 +684,14 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
    ```
    OLLAMA_BASE=http://host.docker.internal:11434
    OLLAMA_EMBED_MODEL=nomic-embed-text
-   OLLAMA_GEN_MODEL=llama3.2
+   OLLAMA_GEN_MODEL=gpt-oss:20b
    ```
 
 **Using OpenAI:**
 
 Add to `.env`:
 ```
-OPENAI_API_KEY=sk-...your-key...
+OPENAI_API_KEY=sk-proj-...your-key...
 OPENAI_EMBED_MODEL=text-embedding-3-small
 OPENAI_GEN_MODEL=gpt-4o-mini
 ```
@@ -583,12 +700,12 @@ OPENAI_GEN_MODEL=gpt-4o-mini
 
 ```bash
 # Create a test note and request embedding generation
-curl -X POST http://localhost:3000/notes \
+curl -X POST http://localhost:3000/api/v1/notes \
   -H "Content-Type: application/json" \
   -d '{"content": "Test note for embedding generation"}'
 
 # Check job queue for embedding job
-curl http://localhost:3000/jobs?type=embedding
+curl http://localhost:3000/api/v1/jobs?type=embedding
 
 # View logs for embedding/generation errors
 docker compose -f docker-compose.bundle.yml logs | grep -i "ollama\|openai\|embedding"

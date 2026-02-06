@@ -80,9 +80,9 @@ The server exposes:
 | `/.well-known/oauth-authorization-server` | GET | OAuth2 authorization server metadata |
 | `/.well-known/oauth-protected-resource` | GET | OAuth2 protected resource metadata (RFC 9728) |
 
-## Available Tools
+## Available Tools (155 Total)
 
-### Core Operations
+### Core Note Operations
 
 | Tool | Description |
 |------|-------------|
@@ -93,11 +93,19 @@ The server exposes:
 | `update_note` | Update note content/status |
 | `delete_note` | Soft delete a note (recoverable) |
 | `restore_note` | Restore a soft-deleted note |
-| `search_notes` | Full-text and semantic search (supports embedding sets) |
-| `list_tags` | List all tags |
+| `purge_note` | Permanently delete a note and all related data |
+| `purge_notes` | Batch permanently delete multiple notes |
+| `purge_all_notes` | Delete ALL notes (requires confirm: true) |
 | `set_note_tags` | Set tags for a note |
 | `get_note_links` | Get note relationships |
 | `export_note` | Export note as markdown |
+
+### Search
+
+| Tool | Description |
+|------|-------------|
+| `search_notes` | Full-text and semantic search (supports embedding sets) |
+| `list_tags` | List all tags |
 
 ### Memory Search
 
@@ -158,6 +166,17 @@ The server exposes:
 | `refresh_embedding_set` | Refresh set membership based on criteria |
 | `reembed_all` | Regenerate embeddings for all notes or a specific set |
 
+### Embedding Configs
+
+| Tool | Description |
+|------|-------------|
+| `list_embedding_configs` | List all embedding configurations |
+| `get_default_embedding_config` | Get the default embedding configuration |
+| `get_embedding_config` | Get specific embedding config |
+| `create_embedding_config` | Create new embedding configuration |
+| `update_embedding_config` | Update embedding configuration |
+| `delete_embedding_config` | Delete embedding configuration |
+
 ### Archives
 
 | Tool | Description |
@@ -170,15 +189,7 @@ The server exposes:
 | `set_default_archive` | Set the default archive |
 | `get_archive_stats` | Get archive statistics |
 
-### Data Deletion
-
-| Tool | Description |
-|------|-------------|
-| `purge_note` | Permanently delete a note and ALL related data |
-| `purge_notes` | Batch permanently delete multiple notes |
-| `purge_all_notes` | Delete ALL notes (requires confirm: true) |
-
-### Document Type Tools
+### Document Types
 
 | Tool | Description |
 |------|-------------|
@@ -199,6 +210,36 @@ The server exposes:
 | `download_attachment` | Download attachment binary content (base64) |
 | `delete_attachment` | Permanently remove an attachment |
 
+### SKOS Concepts (Hierarchical Tags)
+
+| Tool | Description |
+|------|-------------|
+| `list_concept_schemes` | List all concept schemes (vocabularies) |
+| `create_concept_scheme` | Create a new concept scheme |
+| `get_concept_scheme` | Get concept scheme details |
+| `delete_concept_scheme` | Delete a concept scheme (with force option) |
+| `search_concepts` | Search for concepts by label or query |
+| `create_concept` | Create a new concept with optional relations |
+| `get_concept` | Get basic concept details |
+| `get_concept_full` | Get concept with all relations |
+| `update_concept` | Update concept labels, definitions, and status |
+| `delete_concept` | Delete an unused concept |
+| `autocomplete_concepts` | Type-ahead concept search |
+| `get_broader` | Get broader (parent) concepts |
+| `add_broader` | Add a broader (parent) relation |
+| `remove_broader` | Remove a broader (parent) relation |
+| `get_narrower` | Get narrower (child) concepts |
+| `add_narrower` | Add a narrower (child) relation |
+| `remove_narrower` | Remove a narrower (child) relation |
+| `get_related` | Get related (associative) concepts |
+| `add_related` | Add a related (associative) relation |
+| `remove_related` | Remove a related (associative) relation |
+| `tag_note_concept` | Tag a note with a SKOS concept |
+| `untag_note_concept` | Remove SKOS concept tag from note |
+| `get_note_concepts` | Get all SKOS concepts for a note |
+| `get_governance_stats` | Get tag governance statistics |
+| `get_top_concepts` | Get root concepts in a scheme |
+
 ### SKOS Collections
 
 | Tool | Description |
@@ -210,6 +251,16 @@ The server exposes:
 | `delete_skos_collection` | Delete collection |
 | `add_skos_collection_member` | Add concept to collection |
 | `remove_skos_collection_member` | Remove concept from collection |
+
+### Note Versioning
+
+| Tool | Description |
+|------|-------------|
+| `list_note_versions` | List all versions of a note |
+| `get_note_version` | Get a specific version of a note |
+| `restore_note_version` | Restore a note to a previous version |
+| `delete_note_version` | Delete a specific version |
+| `diff_note_versions` | Compare two versions of a note |
 
 ### Knowledge Health
 
@@ -239,16 +290,51 @@ The server exposes:
 | `get_notes_timeline` | Timeline view of notes |
 | `get_notes_activity` | Activity feed for notes |
 
-### Embedding Configs
+### Backup & Export
 
 | Tool | Description |
 |------|-------------|
-| `list_embedding_configs` | List all embedding configurations |
-| `get_default_embedding_config` | Get the default embedding configuration |
-| `get_embedding_config` | Get specific embedding config |
-| `create_embedding_config` | Create new embedding configuration |
-| `update_embedding_config` | Update embedding configuration |
-| `delete_embedding_config` | Delete embedding configuration |
+| `export_all_notes` | Export all notes as JSON |
+| `backup_now` | Trigger a manual backup |
+| `backup_status` | Get current backup status |
+| `backup_download` | Download a backup file |
+| `backup_import` | Import data from a backup |
+| `knowledge_shard` | Create a knowledge archive (shard) |
+| `knowledge_shard_import` | Import a knowledge shard |
+| `database_snapshot` | Create a database snapshot |
+| `database_restore` | Restore from database snapshot |
+| `knowledge_archive_download` | Download a .archive file |
+| `knowledge_archive_upload` | Upload a .archive file |
+| `list_backups` | List available backups |
+| `get_backup_info` | Get details about a specific backup |
+| `get_backup_metadata` | Get backup metadata |
+| `update_backup_metadata` | Update backup metadata |
+
+### PKE Encryption (Public Key Encryption)
+
+| Tool | Description |
+|------|-------------|
+| `pke_generate_keypair` | Generate a new PKE keypair |
+| `pke_get_address` | Get public key address for a keyset |
+| `pke_encrypt` | Encrypt a note for recipients |
+| `pke_decrypt` | Decrypt an encrypted note |
+| `pke_list_recipients` | List recipients who can decrypt a note |
+| `pke_verify_address` | Verify a PKE address format |
+| `pke_list_keysets` | List all PKE keysets |
+| `pke_create_keyset` | Create a new PKE keyset |
+| `pke_get_active_keyset` | Get the active PKE keyset |
+| `pke_set_active_keyset` | Set the active PKE keyset |
+| `pke_export_keyset` | Export a PKE keyset |
+| `pke_import_keyset` | Import a PKE keyset |
+| `pke_delete_keyset` | Delete a PKE keyset |
+
+### System
+
+| Tool | Description |
+|------|-------------|
+| `health_check` | System health status |
+| `get_system_info` | Comprehensive system diagnostics |
+| `memory_info` | Storage and memory statistics |
 
 ### SKOS Export
 
