@@ -42,23 +42,20 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 
 **Steps**:
 ```javascript
-// 1. Upload Python file as attachment
+// 1. Create note first
+create_note({
+  content: "# Python Code Sample",
+  tags: ["uat/chain1", "python", "code"]
+})
+// Expected: returns note_id
+
+// 2. Upload Python file as attachment
 upload_attachment({
+  note_id: "{python_note_id}",
   file_path: "/home/roctinam/dev/fortemi/tests/uat/data/documents/code-python.py",
-  description: "UAT Python code sample"
+  content_type: "text/x-python"
 })
 // Expected: returns attachment_id, content_type: "text/x-python"
-
-// 2. Create note from attachment with AI revision
-create_note({
-  content: "<content from code-python.py>",
-  tags: ["uat/chain1", "python", "code"],
-  metadata: {
-    document_type: "python",
-    source_file: "code-python.py"
-  }
-})
-// Expected: returns note_id, status 200
 ```
 
 **Expected Results**:
@@ -904,12 +901,11 @@ export_skos_turtle({
 })
 // Expected: returns Turtle RDF serialization
 
-// 2. Alternative: Export all notes in collection
-// (Note: knowledge_shard MCP tool exists)
+// 2. Export knowledge shard to file
 knowledge_shard({
-  collection_id: "{code_collection_id}"
+  output_dir: "/tmp/uat"
 })
-// Expected: returns JSON-LD knowledge shard
+// Expected: returns { saved_to: "/tmp/uat/chain3-shard.tar.gz", ... }
 ```
 
 **Expected Results**:

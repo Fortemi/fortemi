@@ -8,6 +8,8 @@
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
+> **File-Based I/O**: The `upload_attachment` and `download_attachment` tools use filesystem paths — binary data never passes through the LLM context window. `upload_attachment` reads from `file_path` on disk; `download_attachment` saves to `output_dir` and returns the saved path.
+
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
 > cd tests/uat/data/scripts && ./generate-test-data.sh
@@ -32,12 +34,13 @@
 **Steps**:
 1. Create a test note: `create_note({ content: "# Photo Test", tags: ["uat/attachments"], revision_mode: "none" })`
 2. Store the returned note ID as `attachment_test_note_id`
-3. Upload JPEG file: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-photo.jpg", content_type: "image/jpeg", data: <file-bytes> })`
+3. Upload JPEG file: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
 
 **Expected Results**:
-- Returns `{ id: "<attachment-uuid>", note_id: "<note-uuid>", filename: "test-photo.jpg", content_type: "image/jpeg", size_bytes: <size>, status: "uploaded" }`
+- Returns `{ id: "<attachment-uuid>", note_id: "<note-uuid>", filename: "jpeg-with-exif.jpg", content_type: "image/jpeg", size_bytes: <size>, status: "uploaded" }`
 - Attachment ID is UUIDv7 format
 - `created_at` timestamp is present
+- Filename defaults to basename of `file_path`
 
 **Verification**:
 - `list_attachments({ note_id: attachment_test_note_id })` returns 1 attachment
@@ -58,7 +61,7 @@
 - PDF file available (test-document.pdf)
 
 **Steps**:
-1. Upload PDF: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-document.pdf", content_type: "application/pdf", data: <pdf-bytes> })`
+1. Upload PDF: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/documents/test-document.pdf", content_type: "application/pdf" })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "application/pdf"`
@@ -82,7 +85,7 @@
 - Audio file available (test-audio.mp3)
 
 **Steps**:
-1. Upload MP3: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-audio.mp3", content_type: "audio/mpeg", data: <audio-bytes> })`
+1. Upload MP3: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/audio/test-audio.mp3", content_type: "audio/mpeg" })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "audio/mpeg"`
@@ -103,7 +106,7 @@
 - Video file available (test-video.mp4, preferably small <50MB)
 
 **Steps**:
-1. Upload MP4: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4", data: <video-bytes> })`
+1. Upload MP4: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/video/test-video.mp4", content_type: "video/mp4" })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "video/mp4"`
@@ -124,7 +127,7 @@
 - 3D model file available (test-model.glb)
 
 **Steps**:
-1. Upload GLB: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary", data: <model-bytes> })`
+1. Upload GLB: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/models/test-model.glb", content_type: "model/gltf-binary" })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "model/gltf-binary"`
@@ -146,19 +149,18 @@
 - `attachment_image_id` from UAT-2B-001
 
 **Steps**:
-1. Download file: `download_attachment({ attachment_id: attachment_image_id })`
-2. Compute BLAKE3 hash of returned data
-3. Compare with original file hash
+1. Download file: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
+2. Compute BLAKE3 hash of saved file
+3. Compare with original file hash: `tests/uat/data/images/jpeg-with-exif.jpg`
 
 **Expected Results**:
-- Returns `(data, content_type, filename)` tuple
-- `content_type` is "image/jpeg"
-- `filename` is "test-photo.jpg"
-- Data length matches original file size
-- BLAKE3 hash matches original
+- Returns `{ saved_to: "/tmp/uat/jpeg-with-exif.jpg", filename: "jpeg-with-exif.jpg", size_bytes: <size>, content_type: "image/jpeg" }`
+- `saved_to` path exists on disk
+- File size matches original
 
 **Verification**:
 - Downloaded file is byte-for-byte identical to uploaded file
+- BLAKE3 hash matches: `b3sum /tmp/uat/jpeg-with-exif.jpg` vs `b3sum tests/uat/data/images/jpeg-with-exif.jpg`
 
 ---
 
@@ -173,12 +175,13 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Download with fake UUID: `download_attachment({ attachment_id: "00000000-0000-0000-0000-000000000000" })`
+1. Download with fake UUID: `download_attachment({ id: "00000000-0000-0000-0000-000000000000", output_dir: "/tmp/uat" })`
 
 **Expected Results**:
 - Returns error with status 404
 - Error message: "Attachment not found"
 - No crash or panic
+- No file written to output_dir
 
 ---
 
@@ -197,7 +200,7 @@
 **Steps**:
 1. Create new note: `create_note({ content: "# Duplicate Test", tags: ["uat/dedup"], revision_mode: "none" })`
 2. Store note ID as `dedup_note_id`
-3. Upload same JPEG: `upload_attachment({ note_id: dedup_note_id, filename: "duplicate-photo.jpg", content_type: "image/jpeg", data: <same-file-bytes> })`
+3. Upload same JPEG: `upload_attachment({ note_id: dedup_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg", filename: "duplicate-photo.jpg" })`
 4. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
 
 **Expected Results**:
@@ -228,7 +231,7 @@
 
 **Steps**:
 1. Create note: `create_note({ content: "# EXIF Test", tags: ["uat/exif"], revision_mode: "none" })`
-2. Upload JPEG with GPS: `upload_attachment({ note_id: <note-id>, filename: "photo-with-gps.jpg", content_type: "image/jpeg", data: <gps-photo-bytes> })`
+2. Upload JPEG with GPS: `upload_attachment({ note_id: <note-id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
 3. Wait 2 seconds for EXIF extraction job
 4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -256,7 +259,7 @@
 - JPEG with camera EXIF data (Make, Model)
 
 **Steps**:
-1. Upload JPEG with camera EXIF: `upload_attachment({ filename: "camera-photo.jpg", ... })`
+1. Upload JPEG with camera EXIF: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
 2. Wait 2 seconds for EXIF extraction
 3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -280,7 +283,7 @@
 - JPEG with DateTimeOriginal EXIF tag
 
 **Steps**:
-1. Upload JPEG: `upload_attachment({ filename: "dated-photo.jpg", ... })`
+1. Upload JPEG: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
 2. Wait 2 seconds for EXIF extraction
 3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -304,7 +307,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `upload_attachment({ filename: "malware.exe", content_type: "application/x-msdownload", data: <exe-bytes> })`
+1. Attempt to upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/malware.exe", content_type: "application/x-msdownload" })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -328,7 +331,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `upload_attachment({ filename: "script.sh", content_type: "application/x-sh", data: <script-bytes> })`
+1. Attempt to upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/script.sh", content_type: "application/x-sh" })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -344,16 +347,14 @@
 **Description**: Verify MIME type matches file content (magic bytes)
 
 **Prerequisites**:
-- JPEG file bytes
-- PNG magic bytes header
+- File with mismatched extension and magic bytes (e.g., PNG magic bytes with .jpg extension)
 
 **Steps**:
-1. Modify JPEG bytes to start with PNG magic bytes (89 50 4E 47)
-2. Attempt upload: `upload_attachment({ filename: "fake.jpg", content_type: "image/jpeg", data: <png-magic-with-jpeg-data> })`
+1. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/binary-wrong-ext.jpg", content_type: "image/jpeg" })`
 
 **Expected Results**:
 - System detects mismatch (implementation-dependent)
-- Either: Corrects content_type to "image/png" OR returns error
+- Either: Corrects content_type to actual MIME type OR returns error
 - Logs warning about MIME type mismatch
 
 **Verification**:
@@ -419,7 +420,7 @@
 **Steps**:
 1. Delete attachment: `delete_attachment({ attachment_id: attachment_audio_id })`
 2. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
-3. Attempt to download: `download_attachment({ attachment_id: attachment_audio_id })`
+3. Attempt to download: `download_attachment({ id: attachment_audio_id, output_dir: "/tmp/uat" })`
 
 **Expected Results**:
 - Delete succeeds (no error)
@@ -445,7 +446,7 @@
 1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
 2. Delete duplicate: `delete_attachment({ attachment_id: attachment_duplicate_id })`
 3. Query blob reference count after
-4. Download original: `download_attachment({ attachment_id: attachment_image_id })`
+4. Download original: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
 
 **Expected Results**:
 - Delete succeeds
@@ -470,9 +471,11 @@
 
 **Prerequisites**:
 - File >2GB (or server-configured limit)
+- Note: For testing, either use `/dev/urandom` via `dd` to generate a large file, or configure a lower limit for testing
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ filename: "huge-file.bin", content_type: "application/octet-stream", data: <2.1GB-bytes> })`
+1. Generate large file: `dd if=/dev/zero of=/tmp/huge-file.bin bs=1M count=2100` (2.1GB)
+2. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "/tmp/huge-file.bin", content_type: "application/octet-stream" })`
 
 **Expected Results**:
 - Returns error with status 413 (Payload Too Large)
@@ -495,7 +498,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ filename: "test.jpg", content_type: "invalid/invalid/invalid", data: <jpeg-bytes> })`
+1. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "invalid/invalid/invalid" })`
 
 **Expected Results**:
 - Either: Server accepts and sanitizes OR returns 400 error
@@ -515,7 +518,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ note_id: "00000000-0000-0000-0000-000000000000", filename: "orphan.txt", content_type: "text/plain", data: <bytes> })`
+1. Attempt upload: `upload_attachment({ note_id: "00000000-0000-0000-0000-000000000000", file_path: "tests/uat/data/documents/test-document.pdf", content_type: "text/plain" })`
 
 **Expected Results**:
 - Returns error with status 404
@@ -563,10 +566,12 @@
 
 This phase exercises the following MCP tools:
 
-- `upload_attachment` - Upload files to notes
+- `upload_attachment` - Upload files to notes (reads from `file_path`)
 - `list_attachments` - List attachments for a note
 - `get_attachment` - Get attachment metadata
-- `download_attachment` - Download attachment data
+- `download_attachment` - Download attachment data (saves to `output_dir`)
 - `delete_attachment` - Delete attachments
+
+> **Note**: All binary file operations use filesystem paths. `upload_attachment` reads from `file_path`; `download_attachment` saves to `output_dir`. Binary data never passes through the LLM context window.
 
 All tools are verified for correct behavior, error handling, and edge cases.

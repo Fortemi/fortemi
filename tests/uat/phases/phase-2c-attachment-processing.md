@@ -8,6 +8,8 @@
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
+> **File-Based I/O**: The `upload_attachment` tool reads files directly from disk via `file_path` — binary data never passes through the LLM context window. No base64 encoding is needed.
+
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
 > cd tests/uat/data/scripts && ./generate-test-data.sh
@@ -43,7 +45,7 @@
 2. Store the returned note ID as `proc_note_id`
 3. Upload Python file:
    ```javascript
-   upload_attachment({ note_id: proc_note_id, filename: "code-python.py", content_type: "text/x-python", data: <base64-file-bytes> })
+   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
    ```
 4. Get the attachment details:
    ```javascript
@@ -76,7 +78,7 @@
 **Steps**:
 1. Upload PDF:
    ```javascript
-   upload_attachment({ note_id: proc_note_id, filename: "pdf-single-page.pdf", content_type: "application/pdf", data: <base64-pdf-bytes> })
+   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/pdf-single-page.pdf", content_type: "application/pdf" })
    ```
 2. Get attachment:
    ```javascript
@@ -107,7 +109,7 @@
    ```
 2. Upload Markdown:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "markdown-formatted.md", content_type: "text/markdown", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/markdown-formatted.md", content_type: "text/markdown" })
    ```
 3. Get attachment details
 
@@ -132,7 +134,7 @@
 **Steps**:
 1. Upload JSON:
    ```javascript
-   upload_attachment({ note_id: proc_note_id, filename: "json-config.json", content_type: "application/json", data: <base64-bytes> })
+   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/json-config.json", content_type: "application/json" })
    ```
 2. Get attachment details
 
@@ -160,7 +162,7 @@
    ```
 2. Upload with generic filename but specific MIME:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "data.bin", content_type: "image/jpeg", data: <base64-jpeg-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", filename: "data.bin", content_type: "image/jpeg" })
    ```
 3. Get attachment details
 
@@ -196,7 +198,7 @@
    ```
 4. Upload `.txt` file with override:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "readme.txt", content_type: "text/plain", data: <base64-bytes>, document_type_id: markdown_type_id })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/readme.txt", content_type: "text/plain", document_type_id: markdown_type_id })
    ```
 5. Get attachment details
 
@@ -225,7 +227,7 @@
    ```
 2. Upload with fake type ID:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain", data: <base64-bytes>, document_type_id: "00000000-0000-0000-0000-000000000000" })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
    ```
 
 **Expected Results**:
@@ -248,7 +250,7 @@
 **Steps**:
 1. Upload Rust file without `document_type_id`:
    ```javascript
-   upload_attachment({ note_id: proc_note_id, filename: "code-rust.rs", content_type: "text/x-rust", data: <base64-bytes> })
+   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/code-rust.rs", content_type: "text/x-rust" })
    ```
 2. Get attachment details
 
@@ -281,7 +283,7 @@
    ```
 3. Upload `.txt` file with YAML override:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "config.txt", content_type: "text/plain", data: <base64-yaml-content>, document_type_id: yaml_type_id })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/config.txt", content_type: "text/plain", document_type_id: yaml_type_id })
    ```
 4. Get attachment details
 
@@ -305,7 +307,7 @@
 **Steps**:
 1. Upload `.txt`:
    ```javascript
-   upload_attachment({ note_id: proc_note_id, filename: "readme.txt", content_type: "text/plain", data: <base64-bytes> })
+   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/readme.txt", content_type: "text/plain" })
    ```
 2. Get attachment details
 
@@ -356,7 +358,7 @@
    ```
 2. Upload JPEG:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "test-photo.jpg", content_type: "image/jpeg", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
    ```
 3. Get attachment details
 
@@ -386,7 +388,7 @@
    ```
 2. Upload MP3:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "english-speech.mp3", content_type: "audio/mpeg", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/audio/english-speech-5s.mp3", content_type: "audio/mpeg" })
    ```
 3. Get attachment details
 
@@ -446,15 +448,15 @@
 2. Store as `multifile_note_id`
 3. Upload Python file:
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, filename: "code-python.py", content_type: "text/x-python", data: <base64-bytes> })
+   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
    ```
 4. Upload Markdown file:
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, filename: "markdown-formatted.md", content_type: "text/markdown", data: <base64-bytes> })
+   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/documents/markdown-formatted.md", content_type: "text/markdown" })
    ```
 5. Upload JPEG:
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, filename: "photo.jpg", content_type: "image/jpeg", data: <base64-bytes> })
+   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
    ```
 6. List attachments:
    ```javascript
@@ -570,8 +572,8 @@
    ```
 2. Upload same Python file to both notes:
    ```javascript
-   upload_attachment({ note_id: note_1_id, filename: "code-python.py", content_type: "text/x-python", data: <base64-bytes> })
-   upload_attachment({ note_id: note_2_id, filename: "code-python.py", content_type: "text/x-python", data: <base64-bytes> })
+   upload_attachment({ note_id: note_1_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   upload_attachment({ note_id: note_2_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
    ```
 3. Get both attachment details
 
@@ -602,7 +604,7 @@
    ```
 2. Upload text file:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "english.txt", content_type: "text/plain", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/multilingual/english.txt", content_type: "text/plain" })
    ```
 3. Wait 3 seconds for extraction job to process
 4. Get attachment details:
@@ -635,7 +637,7 @@
    ```
 2. Upload JSON:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "json-config.json", content_type: "application/json", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/json-config.json", content_type: "application/json" })
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -663,7 +665,7 @@
    ```
 2. Upload CSV:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "csv-data.csv", content_type: "text/csv", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/csv-data.csv", content_type: "text/csv" })
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -691,7 +693,7 @@
    ```
 2. Upload Python code:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "code-python.py", content_type: "text/x-python", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -720,7 +722,7 @@
    ```
 2. Upload empty file:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "empty.txt", content_type: "text/plain", data: "" })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/edge-cases/empty.txt", content_type: "text/plain" })
    ```
 3. Wait 2 seconds
 4. Get attachment details
@@ -752,7 +754,7 @@
    ```
 2. Upload a text file:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "test-for-job.txt", content_type: "text/plain", data: <base64-text-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain" })
    ```
 3. Immediately query jobs:
    ```javascript
@@ -811,7 +813,7 @@
 1. Create note and upload file:
    ```javascript
    create_note({ content: "# Job Lifecycle Test", tags: ["uat/proc-jobs"], revision_mode: "none" })
-   upload_attachment({ note_id: <note_id>, filename: "lifecycle-test.txt", content_type: "text/plain", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain" })
    ```
 2. Immediately check jobs for `pending` status
 3. Wait 2-5 seconds and check again
@@ -841,7 +843,7 @@
    ```
 2. Upload binary-wrong-ext.jpg:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "binary-wrong-ext.jpg", content_type: "image/jpeg", data: <base64-random-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/edge-cases/binary-wrong-ext.jpg", content_type: "image/jpeg" })
    ```
 3. Wait 5-10 seconds for processing attempt
 4. Check job status:
@@ -880,7 +882,7 @@
    ```
 2. Upload English text file:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "english.txt", content_type: "text/plain", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/multilingual/english.txt", content_type: "text/plain" })
    ```
 3. Wait 5 seconds for processing
 4. Get attachment to verify extraction:
@@ -916,7 +918,7 @@
    ```
 2. Upload Rust code:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "code-rust.rs", content_type: "text/x-rust", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-rust.rs", content_type: "text/x-rust" })
    ```
 3. Wait 5 seconds for processing
 4. Get attachment:
@@ -948,15 +950,15 @@
    ```
 2. Upload PDF:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "document.pdf", content_type: "application/pdf", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/pdf-single-page.pdf", content_type: "application/pdf" })
    ```
 3. Upload Python code:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "processor.py", content_type: "text/x-python", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
    ```
 4. Upload JPEG:
    ```javascript
-   upload_attachment({ note_id: <note_id>, filename: "photo.jpg", content_type: "image/jpeg", data: <base64-bytes> })
+   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
    ```
 5. Wait 10 seconds for all extractions
 6. List attachments:

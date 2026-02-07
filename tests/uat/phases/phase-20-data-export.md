@@ -117,12 +117,15 @@ knowledge_shard({
 **MCP Tools**: `knowledge_shard`, `knowledge_shard_import`
 
 ```javascript
-// First export
-const shard = knowledge_shard({ tags: ["uat/export-test"] })
+// First export to file
+knowledge_shard({
+  output_path: "/tmp/uat/shard.tar.gz"
+})
+// Expected: returns { saved_to: "/tmp/uat/shard.tar.gz", ... }
 
-// Then import (to different instance or after delete)
+// Then import from file
 knowledge_shard_import({
-  shard: shard,
+  file_path: "/tmp/uat/shard.tar.gz",
   merge_strategy: "skip_existing"
 })
 ```
@@ -207,10 +210,13 @@ database_snapshot({
 **MCP Tool**: `backup_download`
 
 ```javascript
-backup_download()
+backup_download({
+  output_dir: "/tmp/uat"
+})
+// Returns: { saved_to: "/tmp/uat/backup-2026-02-07.sql.gz", ... }
 ```
 
-**Pass Criteria**: Returns downloadable backup file content
+**Pass Criteria**: Backup file saved to output directory
 
 ---
 
@@ -221,10 +227,14 @@ backup_download()
 **MCP Tool**: `knowledge_archive_download`
 
 ```javascript
-knowledge_archive_download({ filename: "<archive_filename>" })
+knowledge_archive_download({
+  filename: "<archive_filename>",
+  output_dir: "/tmp/uat"
+})
+// Returns: { saved_to: "/tmp/uat/<archive_filename>", ... }
 ```
 
-**Pass Criteria**: Returns archive bundle with metadata
+**Pass Criteria**: Archive file saved to output directory
 
 ---
 
@@ -234,8 +244,7 @@ knowledge_archive_download({ filename: "<archive_filename>" })
 
 ```javascript
 knowledge_archive_upload({
-  archive_base64: "<base64_encoded_archive>",
-  filename: "uat-test-archive.archive"
+  file_path: "/tmp/uat/uat-test-archive.archive"
 })
 ```
 

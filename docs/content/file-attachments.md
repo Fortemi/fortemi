@@ -731,7 +731,62 @@ CREATE INDEX idx_blob_backend ON attachment_blob(storage_backend);
 CREATE INDEX idx_blob_orphans ON attachment_blob(reference_count) WHERE reference_count = 0;
 ```
 
-## API Examples
+## MCP File Operations
+
+When using Fortémi through the MCP (Model Context Protocol) server, all binary file operations use filesystem paths instead of base64 encoding. Binary data never passes through the LLM context window.
+
+### MCP Upload
+
+```javascript
+// Upload a file from disk to a note
+upload_attachment({
+  note_id: "01948f7e-1234-5678-9abc-def012345678",
+  file_path: "/home/user/docs/research-paper.pdf",
+  content_type: "application/pdf"
+})
+// The MCP server reads the file directly from disk
+// Returns: { id, note_id, filename, content_type, size_bytes, status }
+```
+
+### MCP Download
+
+```javascript
+// Download an attachment to disk
+download_attachment({
+  id: "01948f7e-8b2a-7c3d-9e4f-5a6b7c8d9e0f",
+  output_dir: "/home/user/downloads"
+})
+// The MCP server writes the file directly to disk
+// Returns: { saved_to: "/home/user/downloads/research-paper.pdf", filename, size_bytes, content_type }
+```
+
+### MCP Knowledge Shard Export/Import
+
+```javascript
+// Export knowledge shard to file
+knowledge_shard({
+  tags: ["project-x"],
+  output_path: "/tmp/project-x-shard.json"
+})
+// Returns: { saved_to: "/tmp/project-x-shard.json", ... }
+
+// Import knowledge shard from file
+knowledge_shard_import({
+  file_path: "/tmp/project-x-shard.json",
+  merge_strategy: "skip_existing"
+})
+```
+
+### Why File-Based I/O?
+
+Binary data (images, PDFs, archives) can be megabytes or gigabytes. Passing this through the LLM context window as base64 would:
+- Consume tokens unnecessarily
+- Exceed context window limits
+- Slow down AI responses
+
+Instead, the MCP server handles file I/O directly on the filesystem, and only metadata (paths, sizes, content types) flows through the LLM conversation.
+
+## REST API Examples
 
 ### Upload File
 
