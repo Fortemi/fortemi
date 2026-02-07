@@ -27,7 +27,7 @@
 **Steps**:
 1. Create a test note: `create_note({ content: "# Photo Test", tags: ["uat/attachments"], revision_mode: "none" })`
 2. Store the returned note ID as `attachment_test_note_id`
-3. Upload JPEG file: `store_file({ note_id: attachment_test_note_id, filename: "test-photo.jpg", content_type: "image/jpeg", data: <file-bytes> })`
+3. Upload JPEG file: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-photo.jpg", content_type: "image/jpeg", data: <file-bytes> })`
 
 **Expected Results**:
 - Returns `{ id: "<attachment-uuid>", note_id: "<note-uuid>", filename: "test-photo.jpg", content_type: "image/jpeg", size_bytes: <size>, status: "uploaded" }`
@@ -35,7 +35,7 @@
 - `created_at` timestamp is present
 
 **Verification**:
-- `list_by_note(attachment_test_note_id)` returns 1 attachment
+- `list_attachments({ note_id: attachment_test_note_id })` returns 1 attachment
 - Attachment matches uploaded file metadata
 
 **Store**: `attachment_image_id`
@@ -51,14 +51,14 @@
 - PDF file available (test-document.pdf)
 
 **Steps**:
-1. Upload PDF: `store_file({ note_id: attachment_test_note_id, filename: "test-document.pdf", content_type: "application/pdf", data: <pdf-bytes> })`
+1. Upload PDF: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-document.pdf", content_type: "application/pdf", data: <pdf-bytes> })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "application/pdf"`
 - Status is "uploaded"
 
 **Verification**:
-- `list_by_note(attachment_test_note_id)` returns 2 attachments (image + PDF)
+- `list_attachments({ note_id: attachment_test_note_id })` returns 2 attachments (image + PDF)
 
 **Store**: `attachment_pdf_id`
 
@@ -73,7 +73,7 @@
 - Audio file available (test-audio.mp3)
 
 **Steps**:
-1. Upload MP3: `store_file({ note_id: attachment_test_note_id, filename: "test-audio.mp3", content_type: "audio/mpeg", data: <audio-bytes> })`
+1. Upload MP3: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-audio.mp3", content_type: "audio/mpeg", data: <audio-bytes> })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "audio/mpeg"`
@@ -92,7 +92,7 @@
 - Video file available (test-video.mp4, preferably small <50MB)
 
 **Steps**:
-1. Upload MP4: `store_file({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4", data: <video-bytes> })`
+1. Upload MP4: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4", data: <video-bytes> })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "video/mp4"`
@@ -111,7 +111,7 @@
 - 3D model file available (test-model.glb)
 
 **Steps**:
-1. Upload GLB: `store_file({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary", data: <model-bytes> })`
+1. Upload GLB: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary", data: <model-bytes> })`
 
 **Expected Results**:
 - Returns attachment record with `content_type: "model/gltf-binary"`
@@ -131,7 +131,7 @@
 - `attachment_image_id` from UAT-2B-001
 
 **Steps**:
-1. Download file: `download_file(attachment_image_id)`
+1. Download file: `download_attachment({ attachment_id: attachment_image_id })`
 2. Compute BLAKE3 hash of returned data
 3. Compare with original file hash
 
@@ -154,7 +154,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Download with fake UUID: `download_file("00000000-0000-0000-0000-000000000000")`
+1. Download with fake UUID: `download_attachment({ attachment_id: "00000000-0000-0000-0000-000000000000" })`
 
 **Expected Results**:
 - Returns error with status 404
@@ -176,7 +176,7 @@
 **Steps**:
 1. Create new note: `create_note({ content: "# Duplicate Test", tags: ["uat/dedup"], revision_mode: "none" })`
 2. Store note ID as `dedup_note_id`
-3. Upload same JPEG: `store_file({ note_id: dedup_note_id, filename: "duplicate-photo.jpg", content_type: "image/jpeg", data: <same-file-bytes> })`
+3. Upload same JPEG: `upload_attachment({ note_id: dedup_note_id, filename: "duplicate-photo.jpg", content_type: "image/jpeg", data: <same-file-bytes> })`
 4. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
 
 **Expected Results**:
@@ -205,9 +205,9 @@
 
 **Steps**:
 1. Create note: `create_note({ content: "# EXIF Test", tags: ["uat/exif"], revision_mode: "none" })`
-2. Upload JPEG with GPS: `store_file({ note_id: <note-id>, filename: "photo-with-gps.jpg", content_type: "image/jpeg", data: <gps-photo-bytes> })`
+2. Upload JPEG with GPS: `upload_attachment({ note_id: <note-id>, filename: "photo-with-gps.jpg", content_type: "image/jpeg", data: <gps-photo-bytes> })`
 3. Wait 2 seconds for EXIF extraction job
-4. Get attachment: `get(attachment_id)`
+4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - Attachment `extracted_metadata` contains GPS coordinates
@@ -231,9 +231,9 @@
 - JPEG with camera EXIF data (Make, Model)
 
 **Steps**:
-1. Upload JPEG with camera EXIF: `store_file({ filename: "camera-photo.jpg", ... })`
+1. Upload JPEG with camera EXIF: `upload_attachment({ filename: "camera-photo.jpg", ... })`
 2. Wait 2 seconds for EXIF extraction
-3. Get attachment: `get(attachment_id)`
+3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - `extracted_metadata.camera.make` present (e.g., "Apple", "Canon")
@@ -253,9 +253,9 @@
 - JPEG with DateTimeOriginal EXIF tag
 
 **Steps**:
-1. Upload JPEG: `store_file({ filename: "dated-photo.jpg", ... })`
+1. Upload JPEG: `upload_attachment({ filename: "dated-photo.jpg", ... })`
 2. Wait 2 seconds for EXIF extraction
-3. Get attachment: `get(attachment_id)`
+3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - `extracted_metadata.datetime_original` present
@@ -273,7 +273,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `store_file({ filename: "malware.exe", content_type: "application/x-msdownload", data: <exe-bytes> })`
+1. Attempt to upload: `upload_attachment({ filename: "malware.exe", content_type: "application/x-msdownload", data: <exe-bytes> })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -293,7 +293,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `store_file({ filename: "script.sh", content_type: "application/x-sh", data: <script-bytes> })`
+1. Attempt to upload: `upload_attachment({ filename: "script.sh", content_type: "application/x-sh", data: <script-bytes> })`
 
 **Expected Results**:
 - Returns error with status 400
@@ -312,7 +312,7 @@
 
 **Steps**:
 1. Modify JPEG bytes to start with PNG magic bytes (89 50 4E 47)
-2. Attempt upload: `store_file({ filename: "fake.jpg", content_type: "image/jpeg", data: <png-magic-with-jpeg-data> })`
+2. Attempt upload: `upload_attachment({ filename: "fake.jpg", content_type: "image/jpeg", data: <png-magic-with-jpeg-data> })`
 
 **Expected Results**:
 - System detects mismatch (implementation-dependent)
@@ -334,7 +334,7 @@
 - `attachment_test_note_id` with 5 attachments (UAT-2B-001 to UAT-2B-005)
 
 **Steps**:
-1. List attachments: `list_by_note(attachment_test_note_id)`
+1. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
 
 **Expected Results**:
 - Returns array of 5 `AttachmentSummary` objects
@@ -356,7 +356,7 @@
 
 **Steps**:
 1. Create note: `create_note({ content: "# No Attachments", tags: ["uat/empty"], revision_mode: "none" })`
-2. List attachments: `list_by_note(<note-id>)`
+2. List attachments: `list_attachments({ note_id: <note-id> })`
 
 **Expected Results**:
 - Returns empty array `[]`
@@ -374,9 +374,9 @@
 - `attachment_audio_id` from UAT-2B-003
 
 **Steps**:
-1. Delete attachment: `delete(attachment_audio_id)`
-2. List attachments: `list_by_note(attachment_test_note_id)`
-3. Attempt to download: `download_file(attachment_audio_id)`
+1. Delete attachment: `delete_attachment({ attachment_id: attachment_audio_id })`
+2. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
+3. Attempt to download: `download_attachment({ attachment_id: attachment_audio_id })`
 
 **Expected Results**:
 - Delete succeeds (no error)
@@ -398,9 +398,9 @@
 
 **Steps**:
 1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
-2. Delete duplicate: `delete(attachment_duplicate_id)`
+2. Delete duplicate: `delete_attachment({ attachment_id: attachment_duplicate_id })`
 3. Query blob reference count after
-4. Download original: `download_file(attachment_image_id)`
+4. Download original: `download_attachment({ attachment_id: attachment_image_id })`
 
 **Expected Results**:
 - Delete succeeds
@@ -423,7 +423,7 @@
 - File >2GB (or server-configured limit)
 
 **Steps**:
-1. Attempt upload: `store_file({ filename: "huge-file.bin", content_type: "application/octet-stream", data: <2.1GB-bytes> })`
+1. Attempt upload: `upload_attachment({ filename: "huge-file.bin", content_type: "application/octet-stream", data: <2.1GB-bytes> })`
 
 **Expected Results**:
 - Returns error with status 413 (Payload Too Large)
@@ -442,7 +442,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `store_file({ filename: "test.jpg", content_type: "invalid/invalid/invalid", data: <jpeg-bytes> })`
+1. Attempt upload: `upload_attachment({ filename: "test.jpg", content_type: "invalid/invalid/invalid", data: <jpeg-bytes> })`
 
 **Expected Results**:
 - Either: Server accepts and sanitizes OR returns 400 error
@@ -458,7 +458,7 @@
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `store_file({ note_id: "00000000-0000-0000-0000-000000000000", filename: "orphan.txt", content_type: "text/plain", data: <bytes> })`
+1. Attempt upload: `upload_attachment({ note_id: "00000000-0000-0000-0000-000000000000", filename: "orphan.txt", content_type: "text/plain", data: <bytes> })`
 
 **Expected Results**:
 - Returns error with status 404
@@ -499,3 +499,17 @@
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 
 **Notes**:
+
+---
+
+## MCP Tools Covered
+
+This phase exercises the following MCP tools:
+
+- `upload_attachment` - Upload files to notes
+- `list_attachments` - List attachments for a note
+- `get_attachment` - Get attachment metadata
+- `download_attachment` - Download attachment data
+- `delete_attachment` - Delete attachments
+
+All tools are verified for correct behavior, error handling, and edge cases.

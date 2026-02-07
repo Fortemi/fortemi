@@ -48,7 +48,7 @@
 
 **Setup**:
 1. Create test note: `create_note({ content: "# Paris Trip", tags: ["uat/memory-search"], revision_mode: "none" })`
-2. Upload photo: `store_file({ note_id: <note-id>, filename: "eiffel-tower.jpg", content_type: "image/jpeg", data: <gps-photo-bytes> })`
+2. Upload photo: `upload_attachment({ note_id: <note-id>, filename: "eiffel-tower.jpg", content_type: "image/jpeg", data: <gps-photo-bytes> })`
 3. Create location: `INSERT INTO prov_location (point, source, confidence) VALUES (ST_SetSRID(ST_MakePoint(2.2945, 48.8584), 4326)::geography, 'exif', 'high')`
 4. Create provenance: `INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type) VALUES (<attachment-id>, <location-id>, tstzrange(NOW(), NOW()), 'photo')`
 

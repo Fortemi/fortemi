@@ -1,6 +1,7 @@
 # Matric Memory
 
-> **Repository**: `fortemi/fortemi` on github.com
+> **Repository**: `fortemi/fortemi` on Gitea (git.integrolabs.net)
+> **Gitea MCP**: `owner=fortemi`, `repo=fortemi`
 > **NOT** the `roctinam/matric` monorepo - this is the standalone matric-memory project
 
 AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines.

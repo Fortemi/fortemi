@@ -177,7 +177,7 @@ search_notes({ query: "🚀", mode: "fts", limit: 10 })
 ### SEARCH-016: Strict Required Tags
 
 ```javascript
-search_notes_strict({
+search_notes({
   query: "neural",
   required_tags: ["uat/ml"],
   limit: 10
@@ -191,7 +191,7 @@ search_notes_strict({
 ### SEARCH-017: Strict Excluded Tags
 
 ```javascript
-search_notes_strict({
+search_notes({
   query: "AI",
   excluded_tags: ["uat/i18n"],
   limit: 10
@@ -205,7 +205,7 @@ search_notes_strict({
 ### SEARCH-018: Strict Any Tags
 
 ```javascript
-search_notes_strict({
+search_notes({
   query: "learning",
   any_tags: ["uat/ml/deep-learning", "uat/ml/training"],
   limit: 10
