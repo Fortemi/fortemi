@@ -589,31 +589,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_env_var_substitution() {
-        env::set_var("TEST_VAR", "test-value");
-        let content = "api_key = \"${TEST_VAR}\"";
+    fn test_env_var_substitution_with_value() {
+        // Create test content with a placeholder
+        let content = "api_key = \"${TEST_SUBSTITUTION_VAR}\"";
+
+        // Set the env var temporarily
+        env::set_var("TEST_SUBSTITUTION_VAR", "test-value");
         let result = InferenceConfig::substitute_env_vars(content);
+        env::remove_var("TEST_SUBSTITUTION_VAR");
+
         assert_eq!(result, "api_key = \"test-value\"");
-        env::remove_var("TEST_VAR");
     }
 
     #[test]
     fn test_env_var_substitution_missing() {
-        env::remove_var("MISSING_VAR");
-        let content = "api_key = \"${MISSING_VAR}\"";
+        // Ensure the var doesn't exist before testing
+        let content = "api_key = \"${NONEXISTENT_TEST_VAR_12345}\"";
         let result = InferenceConfig::substitute_env_vars(content);
-        assert_eq!(result, "api_key = \"${MISSING_VAR}\"");
+        assert_eq!(result, "api_key = \"${NONEXISTENT_TEST_VAR_12345}\"");
     }
 
     #[test]
     fn test_env_var_substitution_multiple() {
-        env::set_var("VAR1", "value1");
-        env::set_var("VAR2", "value2");
-        let content = "url = \"${VAR1}\" key = \"${VAR2}\"";
+        // Set test vars
+        env::set_var("TEST_VAR1_MULTI", "value1");
+        env::set_var("TEST_VAR2_MULTI", "value2");
+
+        let content = "url = \"${TEST_VAR1_MULTI}\" key = \"${TEST_VAR2_MULTI}\"";
         let result = InferenceConfig::substitute_env_vars(content);
+
+        env::remove_var("TEST_VAR1_MULTI");
+        env::remove_var("TEST_VAR2_MULTI");
+
         assert_eq!(result, "url = \"value1\" key = \"value2\"");
-        env::remove_var("VAR1");
-        env::remove_var("VAR2");
     }
 
     #[test]

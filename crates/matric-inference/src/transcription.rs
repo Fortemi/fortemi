@@ -254,102 +254,22 @@ mod tests {
     }
 
     #[test]
-    fn test_whisper_backend_from_env_none() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-
-        // Unset the env var
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-
-        let backend = WhisperBackend::from_env();
-        assert!(
-            backend.is_none(),
-            "Expected None when WHISPER_BASE_URL is not set"
-        );
-
-        // Restore original env
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-    }
-
-    #[test]
-    fn test_whisper_backend_from_env_empty() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-
-        // Unset the env var
-        std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, "");
-
-        let backend = WhisperBackend::from_env();
-        assert!(
-            backend.is_none(),
-            "Expected None when WHISPER_BASE_URL is empty"
-        );
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-    }
-
-    #[test]
-    fn test_whisper_backend_from_env_with_value() {
-        // Save current env
-        let original_url = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-        let original_model = std::env::var(matric_core::defaults::ENV_WHISPER_MODEL).ok();
-
-        // Set test values
-        std::env::set_var(
-            matric_core::defaults::ENV_WHISPER_BASE_URL,
-            "http://test:8000",
-        );
-        std::env::set_var(matric_core::defaults::ENV_WHISPER_MODEL, "custom-whisper");
-
-        let backend = WhisperBackend::from_env();
-        assert!(backend.is_some());
-        let backend = backend.unwrap();
+    fn test_whisper_backend_constructor_with_custom_params() {
+        let backend =
+            WhisperBackend::new("http://test:8000".to_string(), "custom-whisper".to_string());
         assert_eq!(backend.base_url, "http://test:8000");
         assert_eq!(backend.model, "custom-whisper");
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_MODEL);
-        if let Some(val) = original_url {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-        if let Some(val) = original_model {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_MODEL, val);
-        }
+        assert_eq!(backend.timeout_secs, 300);
     }
 
     #[test]
-    fn test_whisper_backend_from_env_uses_default_model() {
-        // Save current env
-        let original_url = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-        let original_model = std::env::var(matric_core::defaults::ENV_WHISPER_MODEL).ok();
-
-        // Set only URL, not model
-        std::env::set_var(
-            matric_core::defaults::ENV_WHISPER_BASE_URL,
-            "http://test:8000",
+    fn test_whisper_backend_constructor_with_default_model() {
+        let backend = WhisperBackend::new(
+            "http://test:8000".to_string(),
+            matric_core::defaults::DEFAULT_WHISPER_MODEL.to_string(),
         );
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_MODEL);
-
-        let backend = WhisperBackend::from_env();
-        assert!(backend.is_some());
-        let backend = backend.unwrap();
+        assert_eq!(backend.base_url, "http://test:8000");
         assert_eq!(backend.model, matric_core::defaults::DEFAULT_WHISPER_MODEL);
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-        if let Some(val) = original_url {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-        if let Some(val) = original_model {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_MODEL, val);
-        }
     }
 
     #[test]

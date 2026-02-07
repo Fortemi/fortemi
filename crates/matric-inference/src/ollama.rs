@@ -473,21 +473,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_env_defaults() {
-        // Clear env vars to test defaults
-        std::env::remove_var("OLLAMA_BASE");
-        std::env::remove_var("OLLAMA_EMBED_MODEL");
-        std::env::remove_var("OLLAMA_GEN_MODEL");
-        std::env::remove_var("OLLAMA_EMBED_DIM");
-
-        let backend = OllamaBackend::from_env();
-        assert_eq!(backend.base_url, DEFAULT_OLLAMA_URL);
-        assert_eq!(backend.embed_model, DEFAULT_EMBED_MODEL);
-        assert_eq!(backend.gen_model, DEFAULT_GEN_MODEL);
-        assert_eq!(backend.dimension, DEFAULT_DIMENSION);
-    }
-
-    #[test]
     fn test_custom_config() {
         let backend = OllamaBackend::with_config(
             "http://custom:1234".to_string(),

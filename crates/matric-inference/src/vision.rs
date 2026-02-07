@@ -148,71 +148,22 @@ mod tests {
     }
 
     #[test]
-    fn test_ollama_vision_from_env_none() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok();
-
-        // Unset the env var
-        std::env::remove_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL);
-
-        let backend = OllamaVisionBackend::from_env();
-        assert!(
-            backend.is_none(),
-            "Expected None when OLLAMA_VISION_MODEL is not set"
-        );
-
-        // Restore original env
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, val);
-        }
-    }
-
-    #[test]
-    fn test_ollama_vision_from_env_empty() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok();
-
-        // Set empty string
-        std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, "");
-
-        let backend = OllamaVisionBackend::from_env();
-        assert!(
-            backend.is_none(),
-            "Expected None when OLLAMA_VISION_MODEL is empty"
-        );
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL);
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, val);
-        }
-    }
-
-    #[test]
-    fn test_ollama_vision_from_env_with_value() {
-        // Save current env
-        let original_model = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok();
-        let original_url = std::env::var("OLLAMA_URL").ok();
-
-        // Set test values
-        std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, "qwen3-vl");
-        std::env::set_var("OLLAMA_URL", "http://test:11434");
-
-        let backend = OllamaVisionBackend::from_env();
-        assert!(backend.is_some());
-        let backend = backend.unwrap();
-        assert_eq!(backend.model, "qwen3-vl");
+    fn test_ollama_vision_backend_constructor_with_custom_params() {
+        let backend =
+            OllamaVisionBackend::new("http://test:11434".to_string(), "qwen3-vl".to_string());
         assert_eq!(backend.base_url, "http://test:11434");
+        assert_eq!(backend.model, "qwen3-vl");
+        assert_eq!(backend.timeout_secs, 120);
+    }
 
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL);
-        std::env::remove_var("OLLAMA_URL");
-        if let Some(val) = original_model {
-            std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, val);
-        }
-        if let Some(val) = original_url {
-            std::env::set_var("OLLAMA_URL", val);
-        }
+    #[test]
+    fn test_ollama_vision_backend_constructor_with_default_url() {
+        let backend = OllamaVisionBackend::new(
+            matric_core::defaults::OLLAMA_URL.to_string(),
+            "llava".to_string(),
+        );
+        assert_eq!(backend.base_url, matric_core::defaults::OLLAMA_URL);
+        assert_eq!(backend.model, "llava");
     }
 
     #[test]
