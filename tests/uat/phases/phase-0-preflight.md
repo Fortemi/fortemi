@@ -23,7 +23,7 @@
 **Pass Criteria**: Response contains `summary` and `storage` objects
 
 **Failure Actions**:
-- Check API is running: `curl http://localhost:3000/health`
+- Verify MCP server is running and reachable
 - Verify database connection
 - Check Ollama availability
 

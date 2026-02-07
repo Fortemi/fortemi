@@ -1,6 +1,8 @@
 # UAT Phase Documents
 
-This directory contains phase-based UAT test procedures for Matric Memory, designed for efficient agentic execution.
+This directory contains phase-based UAT test procedures for Matric Memory, designed for efficient agentic execution via MCP tools.
+
+> **MCP-First Testing Principle**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. Direct API calls (curl/fetch) are only acceptable for infrastructure-level operations that agents never perform directly (e.g., OAuth client registration, token issuance). Falling back to HTTP API for operations available as MCP tools is unacceptable.
 
 ---
 
@@ -41,7 +43,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | **Yes** |
 | 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | **Yes** |
 | 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | **Yes** |
-| 17 | [OAuth & Authentication](phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
+| 17 | [Authentication & Access Control](phase-17-oauth-auth.md) | ~12 min | 17 | **Yes** |
 | 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | **Yes** |
 | 19 | [Feature Chains (E2E)](phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | **Yes** |
@@ -72,8 +74,8 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Backup/Export | 17 | 19 | 100% |
 | PKE | 13 | 20 | 100% |
 | Observability | 7 | 12 | 100% |
-| OAuth/Auth | 9 API endpoints | 22 | 100% |
-| Caching | 6 API endpoints | 15 | 100% |
+| Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
+| Caching & Performance | 5 MCP tools | 15 | 100% |
 | Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
 | **TOTAL** | **148+** | **400+** | **100%** |
 
@@ -198,7 +200,7 @@ Phases: 0-21 (all phases in order)
 
 Each phase document is self-contained with:
 - Clear test IDs (e.g., `CRUD-001`, `PROC-001`, `SEARCH-015`, `AUTH-022`, `CACHE-015`, `CHAIN-001`)
-- Exact tool calls in JavaScript format or curl commands
+- Exact MCP tool calls in JavaScript format (curl only for OAuth infrastructure validation)
 - Pass criteria for each test
 - Phase summary table for tracking
 - Dependencies listed in Prerequisites
@@ -206,11 +208,12 @@ Each phase document is self-contained with:
 ### Agent Execution Rules
 
 Agents MUST:
-1. Execute tests sequentially within each phase
-2. Record results in the phase summary table
-3. Proceed to next phase only if prerequisites met
-4. **Execute ALL 22 phases (0-21)** - do not stop early
-5. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
+1. **Use MCP tools for all tests** - never fall back to direct HTTP API calls for operations available as MCP tools
+2. Execute tests sequentially within each phase
+3. Record results in the phase summary table
+4. Proceed to next phase only if prerequisites met
+5. **Execute ALL 23 phases (0-21, including sub-phases)** - do not stop early
+6. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
 
 ### Anti-Termination Checklist
 
@@ -224,6 +227,7 @@ Before declaring UAT complete, verify:
 
 ## Version History
 
+- **2026.2.7**: Enforced MCP-first testing philosophy across entire UAT suite. Rewrote Phase 17 (OAuth) from curl-only to MCP-first with 13 agent-perspective tests + 4 infrastructure tests. Rewrote Phase 18 (Caching) from curl-only to 100% MCP tool calls. Added MCP-first principle statement to README. Eliminated API fallbacks for all operations available as MCP tools.
 - **2026.2.6**: Added Phase 2C (Attachment Processing Pipeline) with 31 tests covering document type auto-detection on upload, extraction strategy assignment, user-supplied overrides, multi-file notes, content extraction, job queue integration, and end-to-end pipeline verification
 - **2026.2.5**: Reordered phases - moved Data Export (20) and Final Cleanup (21) to END of suite to prevent agentic early termination; renumbered Templates→Jobs from 10-15, Observability→Feature Chains from 16-19
 - **2026.2.2**: Added Phase 21 (Feature Chains) with 48 end-to-end test steps across 8 chains; comprehensive test data package (44 files, 1.8MB) with EXIF images, multilingual text, code samples, audio, and edge cases; test data generation scripts with venv support
