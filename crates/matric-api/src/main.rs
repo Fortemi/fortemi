@@ -754,6 +754,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs/:id", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
         .route("/api/v1/jobs/stats", get(queue_stats))
+        // Extraction Analytics
+        .route("/api/v1/extraction/stats", get(extraction_stats))
         // Document Types
         .route(
             "/api/v1/document-types",
@@ -4885,6 +4887,17 @@ async fn list_jobs(
 
 async fn queue_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let stats = state.db.jobs.queue_stats().await?;
+    Ok(Json(stats))
+}
+
+/// Get extraction job statistics.
+///
+/// Returns analytics for extraction jobs:
+/// - Total/completed/failed/pending counts
+/// - Average duration for completed jobs
+/// - Breakdown by extraction strategy
+async fn extraction_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let stats = matric_db::get_extraction_stats(&state.db.pool).await?;
     Ok(Json(stats))
 }
 

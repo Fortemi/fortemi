@@ -93,7 +93,7 @@ pub use file_storage::{
     compute_content_hash, generate_storage_path, FilesystemBackend, PgFileStorageRepository,
     StorageBackend,
 };
-pub use jobs::PgJobRepository;
+pub use jobs::{get_extraction_stats, PgJobRepository};
 pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository};
 pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};

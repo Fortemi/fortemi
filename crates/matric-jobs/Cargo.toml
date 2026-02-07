@@ -37,6 +37,9 @@ futures.workspace = true
 # Logging
 tracing.workspace = true
 
+# HTTP client
+reqwest.workspace = true
+
 # File handling
 tempfile = "3"
 

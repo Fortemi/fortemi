@@ -1747,6 +1747,8 @@ pub enum JobType {
     GenerateCoarseEmbedding,
     /// Extract EXIF metadata from images
     ExifExtraction,
+    /// Extract content from file attachment
+    Extraction,
     /// Analyze 3D models (geometry, materials, etc.)
     #[serde(rename = "3d_analysis")]
     ThreeDAnalysis,
@@ -1785,6 +1787,8 @@ impl JobType {
             JobType::GenerateCoarseEmbedding => 2,
             // EXIF extraction - medium priority for metadata processing
             JobType::ExifExtraction => 5,
+            // Extraction is high priority since it gates downstream work
+            JobType::Extraction => 7,
             // 3D analysis - slightly lower priority background task
             JobType::ThreeDAnalysis => 4,
             // Document type inference - low priority, runs after content extraction
@@ -1821,6 +1825,19 @@ pub struct QueueStats {
     pub completed_last_hour: i64,
     pub failed_last_hour: i64,
     pub total: i64,
+}
+
+/// Extraction job statistics and analytics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionStats {
+    pub total_jobs: i64,
+    pub completed_jobs: i64,
+    pub failed_jobs: i64,
+    pub pending_jobs: i64,
+    /// Average duration in seconds for completed extraction jobs.
+    pub avg_duration_secs: Option<f64>,
+    /// Count of jobs per extraction strategy.
+    pub strategy_breakdown: HashMap<String, i64>,
 }
 
 // =============================================================================

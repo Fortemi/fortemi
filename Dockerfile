@@ -54,11 +54,16 @@ LABEL org.opencontainers.image.vendor="fortemi"
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies including extraction toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    pandoc \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

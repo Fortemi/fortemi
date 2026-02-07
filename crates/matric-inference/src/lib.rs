@@ -11,6 +11,8 @@
 //! - Model capability flags for knowledge management tasks
 //! - Thinking model detection and response parsing
 //! - Model restriction and validation
+//! - Vision backend for image description
+//! - Transcription backend for audio-to-text
 //!
 //! # Feature Flags
 //!
@@ -44,6 +46,8 @@ pub mod profiles;
 pub mod refinement;
 pub mod selector;
 pub mod thinking;
+pub mod transcription;
+pub mod vision;
 
 #[cfg(feature = "ollama")]
 pub mod ollama;
@@ -102,3 +106,7 @@ pub use refinement::{
 };
 pub use selector::{KmOperation, ModelSelection, ModelSelector, RecommendedConfig};
 pub use thinking::{detect_thinking_type, parse_thinking_response, ThinkingResponse};
+pub use transcription::{
+    TranscriptionBackend, TranscriptionResult, TranscriptionSegment, WhisperBackend,
+};
+pub use vision::{OllamaVisionBackend, VisionBackend};

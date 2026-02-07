@@ -39,6 +39,7 @@
 
 pub mod adapters;
 pub mod extraction;
+pub mod extraction_handler;
 pub mod handler;
 pub mod worker;
 
@@ -46,11 +47,16 @@ pub mod worker;
 pub use matric_core::*;
 
 // Re-export job types
+pub use extraction_handler::ExtractionHandler;
 pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
 
 // Re-export extraction types
-pub use adapters::{PdfTextAdapter, StructuredExtractAdapter, TextNativeAdapter};
+pub use adapters::{
+    AudioTranscribeAdapter, CodeAstAdapter, ContentSummarizer, OfficeConvertAdapter, PdfOcrAdapter,
+    PdfTextAdapter, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
+    VisionAdapter,
+};
 pub use extraction::ExtractionRegistry;
 
 /// Default maximum retries for failed jobs.

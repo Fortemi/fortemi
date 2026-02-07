@@ -165,6 +165,9 @@ pub const ENV_OCR_ENABLED: &str = "OCR_ENABLED";
 /// Environment variable for LibreOffice path.
 pub const ENV_LIBREOFFICE_PATH: &str = "LIBREOFFICE_PATH";
 
+/// Default maximum text extraction size in bytes (10 MB).
+pub const TEXT_EXTRACTION_MAX_BYTES: usize = 10 * 1024 * 1024;
+
 // =============================================================================
 // SEARCH
 // =============================================================================
@@ -317,7 +320,7 @@ pub const HEALTH_WEIGHT_UNLINKED: f64 = 40.0;
 pub const HEALTH_WEIGHT_UNTAGGED: f64 = 30.0;
 
 // =============================================================================
-// DOCUMENT TYPE DETECTION CONFIDENCE (Tier 2)
+// HEALTH SCORE WEIGHTS (Tier 2)
 // =============================================================================
 
 /// Confidence when detected by filename pattern match (highest).
