@@ -55,6 +55,18 @@ See [phases/README.md](phases/README.md) for execution order and success criteri
 2. Note the starting state: `memory_info()` for baseline counts
 3. Create a results tracking structure
 
+### Negative Test Isolation
+
+Some tests deliberately trigger error responses (400, 404, 409, etc.) to verify error handling. These are marked with:
+
+```
+**Isolation**: Required
+```
+
+**Critical**: Execute these tests as standalone MCP calls — one call per turn, not batched with other operations. Claude Code's sibling call protection will fail healthy calls if they share a turn with a failing call. After an isolation test completes, resume normal batching.
+
+Approximately 27 tests across the suite require isolation. Each phase document marks them individually.
+
 ### Results Tracking Template
 
 ```yaml

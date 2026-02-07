@@ -215,6 +215,20 @@ Agents MUST:
 5. **Execute ALL 23 phases (0-21, including sub-phases)** - do not stop early
 6. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
 
+### Negative Test Isolation Protocol
+
+Tests marked with `**Isolation**: Required` expect an error response from the MCP server. These MUST be executed as standalone, single MCP calls — never batched with other tool calls in the same message.
+
+**Why**: Claude Code protects against cascading failures with a "sibling call error" mechanism. When multiple MCP calls are sent in a single turn and one returns an error, the others are automatically failed. Negative tests deliberately trigger errors, so batching them with positive tests causes false failures.
+
+**Rules**:
+1. When you encounter `**Isolation**: Required`, issue that MCP call **alone** in its own turn
+2. Evaluate the result against the stated pass criteria (the "error" IS the expected outcome)
+3. After the isolated call completes, resume normal testing in the next turn
+4. Dual-path tests (marked `**Isolation**: Recommended`) may succeed or fail — isolate to be safe
+
+**Visual scan**: Search each phase for `**Isolation**:` before starting execution to plan your batching strategy.
+
 ### Anti-Termination Checklist
 
 Before declaring UAT complete, verify:

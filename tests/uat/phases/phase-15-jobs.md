@@ -324,6 +324,8 @@ list_jobs({
 
 #### JOB-016: Create Job for Non-Existent Note
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `create_job`
 
 ```javascript
@@ -340,6 +342,8 @@ create_job({
 ---
 
 #### JOB-017: Create Invalid Job Type
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `create_job`
 

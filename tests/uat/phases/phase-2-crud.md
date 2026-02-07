@@ -98,6 +98,8 @@ get_note({ id: "<crud_test_note_id>" })
 
 ### CRUD-006: Get Note - Non-existent
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note`
 
 ```javascript

@@ -284,6 +284,8 @@ delete_note_version({
 
 ### VER-013: Verify Version Deleted
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note_version`
 
 ```javascript
@@ -302,6 +304,8 @@ get_note_version({
 
 ### VER-014: Get Non-Existent Version
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note_version`
 
 ```javascript
@@ -319,6 +323,8 @@ get_note_version({
 ---
 
 ### VER-015: Diff With Deleted Version
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `diff_note_versions`
 

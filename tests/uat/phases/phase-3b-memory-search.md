@@ -435,6 +435,8 @@
 
 ### UAT-3B-017: Search with Invalid Coordinates
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `search_memories_by_location`
 
 **Description**: Search with out-of-range latitude/longitude
@@ -458,6 +460,8 @@
 
 ### UAT-3B-018: Search with Negative Radius
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `search_memories_by_location`
 
 **Description**: Attempt search with negative radius
@@ -474,6 +478,8 @@
 ---
 
 ### UAT-3B-019: Search with Invalid Time Range
+
+**Isolation**: Recommended — dual-path test may return empty or error
 
 **MCP Tool**: `search_memories_by_time`
 

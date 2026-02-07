@@ -191,6 +191,8 @@ update_document_type({
 
 ### DOC-012: Cannot Update System Type
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `update_document_type`
 
 ```javascript
@@ -217,6 +219,8 @@ delete_document_type({ name: "uat-custom-type" })
 ---
 
 ### DOC-014: Cannot Delete System Type
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `delete_document_type`
 

@@ -350,6 +350,8 @@ delete_embedding_config({ id: test_config_id })
 
 ### EMB-020: Cannot Delete Default Config
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_default_embedding_config`, `delete_embedding_config`
 
 ```javascript

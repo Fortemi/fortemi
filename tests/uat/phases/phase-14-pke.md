@@ -122,6 +122,8 @@ pke_verify_address({
 
 #### PKE-005: Verify Invalid Address
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `pke_verify_address`
 
 ```javascript
@@ -249,6 +251,8 @@ pke_list_recipients({
 ---
 
 #### PKE-011: Decrypt with Wrong Key
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `pke_decrypt`
 

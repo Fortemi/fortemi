@@ -210,6 +210,8 @@
 
 ### PROC-007: Override with Invalid Type
 
+**Isolation**: Recommended — dual-path test may error or fallback
+
 **MCP Tool**: `create_note`, `upload_attachment`
 
 **Description**: Upload a file with an invalid (non-existent) `document_type_id` and verify graceful error handling

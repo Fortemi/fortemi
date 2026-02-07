@@ -54,6 +54,8 @@ create_note({
 
 ### EDGE-003: Invalid UUID
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note`
 
 ```javascript
@@ -66,6 +68,8 @@ get_note({ id: "not-a-uuid" })
 
 ### EDGE-004: Non-existent UUID
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note`
 
 ```javascript
@@ -77,6 +81,8 @@ get_note({ id: "00000000-0000-0000-0000-000000000000" })
 ---
 
 ### EDGE-005: Null Parameters
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `create_note`
 
@@ -246,6 +252,8 @@ create_note({
 ## Error Recovery
 
 ### EDGE-015: Retry After Error
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `get_note`, `list_notes`
 

@@ -270,6 +270,8 @@ list_notes({ tags: ["uat/archives"] })
 
 ### ARCH-014: Create Duplicate Archive Name
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `create_archive`
 
 ```javascript
@@ -319,6 +321,8 @@ delete_archive({ name: "uat-secondary" })
 
 ### ARCH-017: Verify Archive Deleted
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_archive`
 
 ```javascript
@@ -332,6 +336,8 @@ get_archive({ name: "uat-secondary" })
 ---
 
 ### ARCH-018: Delete Default Archive Prevention
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `delete_archive`
 

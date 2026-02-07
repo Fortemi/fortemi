@@ -164,6 +164,8 @@
 
 ### UAT-2B-007: Download Non-Existent Attachment
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `download_attachment`
 
 **Description**: Attempt to download non-existent attachment and verify error handling
@@ -293,6 +295,8 @@
 
 ### UAT-2B-012: Block Executable Extension
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to upload executable and verify rejection
@@ -314,6 +318,8 @@
 ---
 
 ### UAT-2B-013: Block Script Extension
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `upload_attachment`
 
@@ -456,6 +462,8 @@
 
 ### UAT-2B-019: Upload Oversized File
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to upload file exceeding size limit
@@ -478,6 +486,8 @@
 
 ### UAT-2B-020: Upload with Invalid Content Type
 
+**Isolation**: Recommended — dual-path test may return error
+
 **MCP Tool**: `upload_attachment`
 
 **Description**: Attempt upload with malformed MIME type
@@ -495,6 +505,8 @@
 ---
 
 ### UAT-2B-021: Upload to Non-Existent Note
+
+**Isolation**: Required — negative test expects error response
 
 **MCP Tool**: `upload_attachment`
 

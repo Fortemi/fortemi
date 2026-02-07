@@ -189,6 +189,8 @@ memory_info()
 
 ### AUTH-012: MCP Tool Error on Invalid Parameters
 
+**Isolation**: Required — negative test expects error response
+
 **MCP Tool**: `get_note`
 
 ```javascript
