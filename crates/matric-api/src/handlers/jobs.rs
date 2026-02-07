@@ -125,6 +125,14 @@ impl JobHandler for AiRevisionHandler {
             .and_then(|v| serde_json::from_value::<RevisionMode>(v.clone()).ok())
             .unwrap_or(RevisionMode::Full);
 
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
+
         // Skip if mode is None (shouldn't happen as we don't queue, but safety check)
         if revision_mode == RevisionMode::None {
             return JobResult::Success(Some(serde_json::json!({
@@ -340,6 +348,14 @@ impl JobHandler for EmbeddingHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
+
         ctx.report_progress(10, Some("Fetching note..."));
 
         let note = match self.db.notes.fetch(note_id).await {
@@ -510,6 +526,14 @@ impl JobHandler for TitleGenerationHandler {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
         };
+
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
 
         ctx.report_progress(20, Some("Fetching note..."));
 
@@ -851,6 +875,14 @@ impl JobHandler for PurgeNoteHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
+
         ctx.report_progress(10, Some("Finding affected embedding sets..."));
 
         // Get embedding sets this note is a member of (to update stats after deletion)
@@ -942,6 +974,14 @@ impl JobHandler for ContextUpdateHandler {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
         };
+
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
 
         ctx.report_progress(20, Some("Finding linked notes..."));
 
@@ -1152,6 +1192,14 @@ impl JobHandler for ConceptTaggingHandler {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
         };
+
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -1590,6 +1638,14 @@ impl JobHandler for ExifExtractionHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
+
         ctx.report_progress(10, Some("Fetching attachment information..."));
 
         // For now, log that EXIF extraction is not yet implemented
@@ -1644,6 +1700,14 @@ impl JobHandler for ThreeDAnalysisHandler {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
         };
+
+        // Extract schema from payload (default to "public" for backward compatibility)
+        let _schema = ctx
+            .payload()
+            .and_then(|p| p.get("schema"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public");
 
         ctx.report_progress(10, Some("Fetching 3D model information..."));
 

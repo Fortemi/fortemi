@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{Error, Result, Tag, TagRepository};
@@ -203,6 +203,107 @@ impl TagRepository for PgTagRepository {
         }
 
         tx.commit().await.map_err(Error::Database)?;
+        Ok(())
+    }
+}
+
+/// Transaction-aware variants for tag operations.
+impl PgTagRepository {
+    /// Create a tag within an existing transaction.
+    pub async fn create_tx(&self, tx: &mut Transaction<'_, Postgres>, name: &str) -> Result<()> {
+        validate_tag_name(name).map_err(Error::InvalidInput)?;
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(name)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// List all tags within an existing transaction.
+    pub async fn list_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Tag>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                t.name,
+                t.created_at_utc,
+                COUNT(n.id) as note_count
+            FROM tag t
+            LEFT JOIN note_tag nt ON t.name = nt.tag_name
+            LEFT JOIN note n ON nt.note_id = n.id AND n.deleted_at IS NULL
+            GROUP BY t.name, t.created_at_utc
+            ORDER BY t.name
+            "#,
+        )
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let tags = rows
+            .into_iter()
+            .map(|row| Tag {
+                name: row.get("name"),
+                created_at_utc: row.get("created_at_utc"),
+                note_count: row.get("note_count"),
+            })
+            .collect();
+
+        Ok(tags)
+    }
+
+    /// Add a tag to a note within an existing transaction.
+    pub async fn add_to_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        tag_name: &str,
+        source: &str,
+    ) -> Result<()> {
+        validate_tag_name(tag_name).map_err(Error::InvalidInput)?;
+        let now = Utc::now();
+
+        // Ensure tag exists
+        sqlx::query(
+            "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(tag_name)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Link tag to note
+        sqlx::query(
+            "INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)
+             ON CONFLICT (note_id, tag_name) DO NOTHING",
+        )
+        .bind(note_id)
+        .bind(tag_name)
+        .bind(source)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Remove a tag from a note within an existing transaction.
+    pub async fn remove_from_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        tag_name: &str,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM note_tag WHERE note_id = $1 AND LOWER(tag_name) = LOWER($2)")
+            .bind(note_id)
+            .bind(tag_name)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
         Ok(())
     }
 }

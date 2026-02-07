@@ -348,6 +348,23 @@ impl ArchiveRepository for PgArchiveRepository {
         Ok(archive)
     }
 
+    async fn get_default_archive(&self) -> Result<Option<ArchiveInfo>> {
+        let archive = sqlx::query_as::<_, ArchiveInfo>(
+            r#"
+            SELECT id, name, schema_name, description, created_at, last_accessed,
+                   note_count, size_bytes, is_default
+            FROM archive_registry
+            WHERE is_default = true
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(archive)
+    }
+
     async fn set_default_archive(&self, name: &str) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 

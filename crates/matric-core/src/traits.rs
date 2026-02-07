@@ -626,6 +626,13 @@ pub trait ArchiveRepository: Send + Sync {
     /// Get archive information by ID.
     async fn get_archive_by_id(&self, id: Uuid) -> Result<Option<crate::ArchiveInfo>>;
 
+    /// Get the default archive.
+    ///
+    /// Returns the archive marked as default, or None if no default is set.
+    /// Used by the archive routing middleware to determine which schema to use
+    /// for requests that don't explicitly specify an archive.
+    async fn get_default_archive(&self) -> Result<Option<crate::ArchiveInfo>>;
+
     /// Set an archive as the default.
     ///
     /// Only one archive can be default at a time. Setting a new default

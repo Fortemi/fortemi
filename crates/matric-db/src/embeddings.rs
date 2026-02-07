@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use pgvector::Vector;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{new_v7, Embedding, EmbeddingRepository, Error, Result, SearchHit};
@@ -23,56 +23,8 @@ impl PgEmbeddingRepository {
 #[async_trait]
 impl EmbeddingRepository for PgEmbeddingRepository {
     async fn store(&self, note_id: Uuid, chunks: Vec<(String, Vector)>, model: &str) -> Result<()> {
-        // Delete existing embeddings
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
-            .bind(note_id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-
-        if chunks.is_empty() {
-            return Ok(());
-        }
-
-        // Get the default embedding set ID
-        let default_set_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(Error::Database)?;
-
-        // If no default set exists, create one
-        let embedding_set_id = match default_set_id {
-            Some(id) => id,
-            None => {
-                return Err(Error::Internal(
-                    "No default embedding set found. Run migrations to create default set."
-                        .to_string(),
-                ));
-            }
-        };
-
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        let now = Utc::now();
-
-        for (i, (text, vector)) in chunks.into_iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            )
-            .bind(new_v7())
-            .bind(note_id)
-            .bind(i as i32)
-            .bind(&text)
-            .bind(&vector)
-            .bind(model)
-            .bind(now)
-            .bind(embedding_set_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-        }
-
+        self.store_tx(&mut tx, note_id, chunks, model).await?;
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
@@ -373,6 +325,171 @@ impl PgEmbeddingRepository {
 
         let rows = query_builder
             .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<f64, _>("score") as f32,
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                    embedding_status: None,
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
+}
+
+// Transaction-aware variants for archive-scoped operations
+impl PgEmbeddingRepository {
+    /// Store embeddings within an existing transaction.
+    pub async fn store_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+    ) -> Result<()> {
+        // Delete existing embeddings
+        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
+            .bind(note_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        if chunks.is_empty() {
+            return Ok(());
+        }
+
+        // Get the default embedding set ID
+        let default_set_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+        // If no default set exists, create one
+        let embedding_set_id = match default_set_id {
+            Some(id) => id,
+            None => {
+                return Err(Error::Internal(
+                    "No default embedding set found. Run migrations to create default set."
+                        .to_string(),
+                ));
+            }
+        };
+
+        let now = Utc::now();
+
+        for (i, (text, vector)) in chunks.into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            )
+            .bind(new_v7())
+            .bind(note_id)
+            .bind(i as i32)
+            .bind(&text)
+            .bind(&vector)
+            .bind(model)
+            .bind(now)
+            .bind(embedding_set_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get embeddings for a note within an existing transaction.
+    pub async fn get_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<Embedding>> {
+        let rows = sqlx::query(
+            "SELECT id, note_id, chunk_index, text, vector, model
+             FROM embedding
+             WHERE note_id = $1
+             ORDER BY chunk_index",
+        )
+        .bind(note_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let embeddings = rows
+            .into_iter()
+            .map(|row| Embedding {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                chunk_index: row.get("chunk_index"),
+                text: row.get("text"),
+                vector: row.get("vector"),
+                model: row.get("model"),
+            })
+            .collect();
+
+        Ok(embeddings)
+    }
+
+    /// Find similar embeddings within an existing transaction.
+    pub async fn find_similar_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        query_vec: &Vector,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        let archive_clause = if exclude_archived {
+            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "AND n.deleted_at IS NULL"
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ON (e.note_id)
+                   e.note_id AS note_id,
+                   1.0 - (e.vector <=> $1::vector) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM embedding e
+            JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
+            WHERE TRUE {}
+            ORDER BY e.note_id, e.vector <=> $1::vector
+            "#,
+            archive_clause
+        );
+
+        // Wrap to re-order by score after deduplication
+        let wrapped_query = format!(
+            "SELECT note_id, score, snippet, title, tags FROM ({}) sub ORDER BY score DESC LIMIT $2",
+            query
+        );
+
+        let rows = sqlx::query(&wrapped_query)
+            .bind(query_vec)
+            .bind(limit)
+            .fetch_all(&mut **tx)
             .await
             .map_err(Error::Database)?;
 

@@ -1,6 +1,7 @@
 //! matric-api - HTTP API server for matric-memory
 
 mod handlers;
+mod middleware;
 mod query_types;
 
 use std::net::SocketAddr;
@@ -13,7 +14,7 @@ use query_types::FlexibleDateTime;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Extension, Path, Query, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{
@@ -47,6 +48,10 @@ use matric_core::{
     StrictTagFilterInput, TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
+use middleware::archive_routing::{
+    archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
+};
+use tokio::sync::RwLock;
 
 // =============================================================================
 // REQUEST ID (UUIDv7)
@@ -83,6 +88,10 @@ impl MakeRequestId for MakeRequestUuidV7 {
 /// - `Light`: Structure and formatting only, no invented details
 /// - `None`: Skip AI revision entirely, store original as-is
 ///
+/// The `schema` parameter specifies which PostgreSQL schema to use for job execution:
+/// - `None` (default): Use the public schema (backward compatible)
+/// - `Some("archive_name")`: Use the specified archive schema for parallel memory isolation
+///
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -94,12 +103,16 @@ async fn queue_nlp_pipeline(
     note_id: Uuid,
     revision_mode: RevisionMode,
     event_bus: &EventBus,
+    schema: Option<&str>,
 ) {
-    // Queue AI revision with mode in payload (unless mode is None)
+    // Queue AI revision with mode and schema in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "revision_mode": revision_mode
         });
+        if let Some(s) = schema {
+            payload["schema"] = serde_json::json!(s);
+        }
         if let Ok(Some(job_id)) = db
             .jobs
             .queue_deduplicated(
@@ -125,9 +138,17 @@ async fn queue_nlp_pipeline(
         JobType::Linking,
         JobType::ConceptTagging, // SKOS auto-tagging
     ] {
+        // Create payload with schema if provided
+        let payload = schema.map(|s| serde_json::json!({ "schema": s }));
+
         if let Ok(Some(job_id)) = db
             .jobs
-            .queue_deduplicated(Some(note_id), job_type, job_type.default_priority(), None)
+            .queue_deduplicated(
+                Some(note_id),
+                job_type,
+                job_type.default_priority(),
+                payload,
+            )
             .await
         {
             event_bus.emit(ServerEvent::JobQueued {
@@ -183,6 +204,8 @@ struct AppState {
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
     ws_connections: Arc<AtomicUsize>,
+    /// Cached default archive for routing middleware (Issue #107).
+    default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -623,6 +646,12 @@ async fn main() -> anyhow::Result<()> {
         search_cache,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
+        default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
+            std::env::var("DEFAULT_ARCHIVE_CACHE_TTL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+        ))),
     };
 
     // Read max body size from env var with fallback
@@ -989,6 +1018,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -2398,6 +2431,7 @@ struct CreateNoteBody {
 
 async fn create_note(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Extract tags for SKOS processing
@@ -2428,7 +2462,15 @@ async fn create_note(
         _ => RevisionMode::Full, // "full" or unspecified
     };
 
+    // Insert note (archive-scoped insertion via SchemaContext deferred to future iteration)
     let note_id = state.db.notes.insert(req.clone()).await?;
+
+    // Determine schema for background jobs (Issue #109)
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.as_str())
+    } else {
+        None
+    };
 
     // Resolve tags via SKOS and create parent hierarchy (fixes #301)
     if let Some(tags) = tags_for_skos {
@@ -2467,8 +2509,15 @@ async fn create_note(
             .await;
     }
 
-    // Queue NLP pipeline (AI revision only if not "none", but always embedding/title/linking)
-    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
+    // Queue NLP pipeline with archive context (Issue #109)
+    queue_nlp_pipeline(
+        &state.db,
+        note_id,
+        revision_mode,
+        &state.event_bus,
+        schema_for_jobs,
+    )
+    .await;
 
     // Emit NoteUpdated event (Issue #41)
     let tags_for_event = state
@@ -2573,7 +2622,7 @@ async fn bulk_create_notes(
                 .await;
         }
 
-        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus).await;
+        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus, None).await;
     }
 
     Ok((
@@ -2645,7 +2694,7 @@ async fn update_note(
             }
         }
 
-        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
     }
 
     // Fetch and return the updated note
@@ -2748,7 +2797,7 @@ async fn restore_note(
     };
 
     // Re-run NLP pipeline to ensure note is properly indexed
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2777,7 +2826,7 @@ async fn reprocess_note(
     };
 
     // Queue full NLP pipeline
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
 
     let jobs_queued = if revision_mode == RevisionMode::None {
         vec!["embedding", "title_generation", "linking"]
@@ -3750,7 +3799,7 @@ async fn instantiate_template(
         Some("light") => RevisionMode::Light,
         _ => RevisionMode::Full,
     };
-    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus, None).await;
 
     Ok((
         StatusCode::CREATED,
@@ -6117,8 +6166,14 @@ async fn backup_import(
                     }
 
                     // Queue NLP pipeline
-                    queue_nlp_pipeline(&state.db, new_id, RevisionMode::None, &state.event_bus)
-                        .await;
+                    queue_nlp_pipeline(
+                        &state.db,
+                        new_id,
+                        RevisionMode::None,
+                        &state.event_bus,
+                        None,
+                    )
+                    .await;
 
                     imported.notes += 1;
                 }
@@ -7037,6 +7092,7 @@ async fn knowledge_shard_import(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
+                                            None,
                                         )
                                         .await;
                                     }
@@ -7401,6 +7457,7 @@ enum ApiError {
     NotFound(String),
     BadRequest(String),
     Conflict(String),
+    Internal(String),
 }
 
 impl From<matric_core::Error> for ApiError {
@@ -7443,6 +7500,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
         };
 
         let body = Json(serde_json::json!({
@@ -8134,6 +8192,7 @@ async fn knowledge_shard_import_internal(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
+                                            None,
                                         )
                                         .await;
                                     }
@@ -10084,6 +10143,7 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections: ws_connections.clone(),
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
         };
 
         let router = Router::new()
@@ -10792,6 +10852,7 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections,
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
         };
 
         let router = Router::new()
@@ -11068,6 +11129,7 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus,
             ws_connections,
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
         };
 
         let router = Router::new()
