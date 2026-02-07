@@ -210,6 +210,10 @@ struct AppState {
     default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
     /// Require authentication for protected routes (Issue #114).
     require_auth: bool,
+    /// OAuth access token lifetime (standard clients).
+    oauth_token_lifetime: chrono::Duration,
+    /// OAuth access token lifetime (MCP clients).
+    oauth_mcp_token_lifetime: chrono::Duration,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -691,6 +695,26 @@ async fn main() -> anyhow::Result<()> {
     let issuer =
         std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
+    // OAuth token lifetimes (configurable via env vars, defaults to 1h / 4h)
+    let oauth_token_lifetime_secs: u64 = std::env::var("OAUTH_TOKEN_LIFETIME_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS);
+    let oauth_mcp_token_lifetime_secs: u64 = std::env::var("OAUTH_MCP_TOKEN_LIFETIME_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS);
+    let oauth_token_lifetime = chrono::Duration::seconds(oauth_token_lifetime_secs as i64);
+    let oauth_mcp_token_lifetime = chrono::Duration::seconds(oauth_mcp_token_lifetime_secs as i64);
+    if oauth_token_lifetime_secs != matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS
+        || oauth_mcp_token_lifetime_secs != matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS
+    {
+        info!(
+            "OAuth token lifetimes: standard={}s, mcp={}s",
+            oauth_token_lifetime_secs, oauth_mcp_token_lifetime_secs
+        );
+    }
+
     // Create rate limiter if enabled
     let rate_limiter = if rate_limit_enabled {
         let quota = Quota::with_period(std::time::Duration::from_secs(rate_limit_period_secs))
@@ -724,6 +748,8 @@ async fn main() -> anyhow::Result<()> {
         require_auth: std::env::var("REQUIRE_AUTH")
             .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
             .unwrap_or(false),
+        oauth_token_lifetime,
+        oauth_mcp_token_lifetime,
     };
 
     // Read max body size from env var with fallback
@@ -1767,7 +1793,7 @@ async fn auth_middleware(
                 match state.db.oauth.validate_access_token(token).await {
                     Ok(Some(oauth_token)) => {
                         // Sliding window refresh
-                        let lifetime = token_lifetime_for_scope(&oauth_token.scope);
+                        let lifetime = state.token_lifetime_for_scope(&oauth_token.scope);
                         let _ = state
                             .db
                             .oauth
@@ -5207,15 +5233,17 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
     STANDARD.decode(input)
 }
 
-/// Determine token lifetime based on scope.
-///
-/// MCP clients (scope contains "mcp") get 4-hour tokens to support long interactive sessions.
-/// Other clients get 1-hour tokens.
-fn token_lifetime_for_scope(scope: &str) -> chrono::Duration {
-    if scope.contains("mcp") {
-        chrono::Duration::hours(4)
-    } else {
-        chrono::Duration::hours(1)
+impl AppState {
+    /// Determine token lifetime based on scope.
+    ///
+    /// MCP clients (scope contains "mcp") get longer tokens to support interactive sessions.
+    /// Lifetimes are configurable via `OAUTH_TOKEN_LIFETIME_SECS` and `OAUTH_MCP_TOKEN_LIFETIME_SECS`.
+    fn token_lifetime_for_scope(&self, scope: &str) -> chrono::Duration {
+        if scope.contains("mcp") {
+            self.oauth_mcp_token_lifetime
+        } else {
+            self.oauth_token_lifetime
+        }
     }
 }
 
@@ -5272,7 +5300,7 @@ async fn oauth_token(
                 })?;
 
             let scope = req.scope.unwrap_or(client.scope);
-            let lifetime = token_lifetime_for_scope(&scope);
+            let lifetime = state.token_lifetime_for_scope(&scope);
             let (access_token, _, token) = state
                 .db
                 .oauth
@@ -5316,7 +5344,7 @@ async fn oauth_token(
                 })?;
 
             // Create tokens
-            let lifetime = token_lifetime_for_scope(&auth_code.scope);
+            let lifetime = state.token_lifetime_for_scope(&auth_code.scope);
             let (access_token, refresh_token, token) = state
                 .db
                 .oauth
@@ -5353,7 +5381,7 @@ async fn oauth_token(
                     OAuthApiError::OAuth(OAuthError::invalid_grant("Invalid refresh token"))
                 })?;
 
-            let lifetime = token_lifetime_for_scope(&token.scope);
+            let lifetime = state.token_lifetime_for_scope(&token.scope);
             let response = matric_core::TokenResponse {
                 access_token,
                 token_type: "Bearer".to_string(),
@@ -10501,6 +10529,12 @@ mod tests {
             ws_connections: ws_connections.clone(),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            oauth_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
+            ),
+            oauth_mcp_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
+            ),
         };
 
         let router = Router::new()
@@ -11211,6 +11245,12 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            oauth_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
+            ),
+            oauth_mcp_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
+            ),
         };
 
         let router = Router::new()
@@ -11493,6 +11533,12 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            oauth_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
+            ),
+            oauth_mcp_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
+            ),
         };
 
         let router = Router::new()

@@ -245,6 +245,12 @@ pub const FILENAME_MAX_LENGTH: usize = 255;
 /// Default OAuth scope for new API keys.
 pub const OAUTH_DEFAULT_SCOPE: &str = "read";
 
+/// Default OAuth access token lifetime in seconds (1 hour).
+pub const OAUTH_TOKEN_LIFETIME_SECS: u64 = 3600;
+
+/// Default MCP OAuth access token lifetime in seconds (4 hours).
+pub const OAUTH_MCP_TOKEN_LIFETIME_SECS: u64 = 14400;
+
 // =============================================================================
 // VERSIONING
 // =============================================================================

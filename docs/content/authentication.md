@@ -394,7 +394,7 @@ curl http://localhost:3000/api/v1/notes \
 
 ### 4. Refreshing Tokens
 
-Access tokens expire after 1 hour. Use refresh tokens to obtain new access tokens without user interaction.
+Access tokens expire after 1 hour by default (configurable via `OAUTH_TOKEN_LIFETIME_SECS`). Use refresh tokens to obtain new access tokens without user interaction.
 
 **Endpoint:** `POST /oauth/token`
 
@@ -709,10 +709,25 @@ Always use PKCE (Proof Key for Code Exchange) for:
 
 ### Token Lifecycle
 
-- **Access tokens:** 1 hour expiration (use refresh tokens)
+- **Access tokens:** 1 hour default expiration (use refresh tokens)
+- **MCP access tokens:** 4 hour default expiration (longer to support interactive AI sessions)
 - **Refresh tokens:** 30 days expiration (require re-authentication after)
 - **API keys:** Optional expiration (recommend 90-365 days for rotation)
 - **Authorization codes:** 10 minutes expiration (single-use)
+
+#### Configurable Token Lifetimes
+
+Token lifetimes can be tuned via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OAUTH_TOKEN_LIFETIME_SECS` | `3600` (1 hour) | Standard access token lifetime |
+| `OAUTH_MCP_TOKEN_LIFETIME_SECS` | `14400` (4 hours) | MCP access token lifetime |
+
+**Tradeoffs:**
+- **Shorter tokens** improve security posture but require more frequent re-authentication
+- **Longer MCP tokens** reduce mid-session disconnects for interactive AI workflows
+- Recommend not exceeding 24 hours for standard tokens or 48 hours for MCP tokens
 
 ### Scope Minimization
 

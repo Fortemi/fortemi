@@ -112,6 +112,10 @@ ENV RUST_LOG=info
 
 # OAuth/Auth - Set ISSUER_URL to your external URL for OAuth discovery
 # ENV ISSUER_URL=https://memory.example.com
+# OAuth token lifetime (seconds, default: 3600 = 1 hour)
+# ENV OAUTH_TOKEN_LIFETIME_SECS=3600
+# MCP token lifetime (seconds, default: 14400 = 4 hours)
+# ENV OAUTH_MCP_TOKEN_LIFETIME_SECS=14400
 
 # Rate limiting (disable for development/testing)
 ENV RATE_LIMIT_ENABLED=false

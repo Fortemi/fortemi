@@ -86,6 +86,9 @@ services:
       # ── OAuth ──────────────────────────────────────────────────────────
       # ISSUER_URL is REQUIRED for OAuth/MCP - set in .env
       - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
+      # OAuth token lifetimes (seconds)
+      # - OAUTH_TOKEN_LIFETIME_SECS=${OAUTH_TOKEN_LIFETIME_SECS:-3600}
+      # - OAUTH_MCP_TOKEN_LIFETIME_SECS=${OAUTH_MCP_TOKEN_LIFETIME_SECS:-14400}
 
       # ── MCP Server ─────────────────────────────────────────────────────
       - MCP_TRANSPORT=http
