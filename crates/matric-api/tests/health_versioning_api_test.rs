@@ -42,7 +42,10 @@ async fn api_available() -> bool {
 macro_rules! require_api {
     () => {
         if !api_available().await {
-            eprintln!("Skipping: API_BASE_URL not set or server not available at {}", api_base_url());
+            eprintln!(
+                "Skipping: API_BASE_URL not set or server not available at {}",
+                api_base_url()
+            );
             return;
         }
     };
