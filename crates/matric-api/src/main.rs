@@ -1825,7 +1825,7 @@ async fn auth_middleware(
 /// Returns Some(Response) if the request should be rejected, None if allowed.
 fn check_scope_enforcement(
     principal: &AuthPrincipal,
-    method: &axum::http::Method,
+    _method: &axum::http::Method,
     path: &str,
 ) -> Option<axum::response::Response> {
     // Admin routes require admin scope
@@ -1840,18 +1840,9 @@ fn check_scope_enforcement(
         return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
     }
 
-    // Mutation methods require write scope (except read-only POST routes)
-    if is_mutation_method(method) && !is_readonly_post_route(path) && !principal.has_scope("write")
-    {
-        let body = serde_json::json!({
-            "error": "forbidden",
-            "error_description": format!(
-                "Insufficient scope. Required: write, have: {}",
-                principal.scope_str()
-            )
-        });
-        return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
-    }
+    // NOTE: Write scope enforcement is intentionally disabled for now.
+    // All authenticated users get read+write access. Scope infrastructure
+    // is in place for future multi-tenancy. Only admin routes are gated.
 
     None
 }
@@ -1874,35 +1865,6 @@ fn is_public_route(path: &str) -> bool {
     if path == "/api/v1/events" || path == "/api/v1/ws" {
         return true;
     }
-    false
-}
-
-/// Check if an HTTP method is a mutation (write) method.
-fn is_mutation_method(method: &axum::http::Method) -> bool {
-    matches!(
-        *method,
-        axum::http::Method::POST
-            | axum::http::Method::PUT
-            | axum::http::Method::PATCH
-            | axum::http::Method::DELETE
-    )
-}
-
-/// POST routes that are read-only (don't require write scope).
-fn is_readonly_post_route(path: &str) -> bool {
-    // Search endpoints
-    if path == "/api/v1/search" || path == "/api/v1/search/semantic" {
-        return true;
-    }
-    // Document type detection (read-only analysis)
-    if path == "/api/v1/document-types/detect" {
-        return true;
-    }
-    // PKE address lookup and recipient lookup
-    if path == "/api/v1/pke/address" || path == "/api/v1/pke/recipients" {
-        return true;
-    }
-    // OAuth token/register/introspect are already public routes
     false
 }
 
@@ -2730,19 +2692,11 @@ struct CreateNoteBody {
 }
 
 async fn create_note(
-    auth: Auth,
+    _auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement (Issue #115 — AUTH-015): write ops require write scope
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
-        return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: write, have: {}",
-            auth.principal.scope_str()
-        )));
-    }
-
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
 
@@ -2864,18 +2818,10 @@ struct BulkCreateNotesBody {
 }
 
 async fn bulk_create_notes(
-    auth: Auth,
+    _auth: Auth,
     State(state): State<AppState>,
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement (Issue #115): write ops require write scope
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
-        return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: write, have: {}",
-            auth.principal.scope_str()
-        )));
-    }
-
     if body.notes.is_empty() {
         return Ok((
             StatusCode::OK,
@@ -2972,19 +2918,11 @@ struct UpdateNoteBody {
 }
 
 async fn update_note(
-    auth: Auth,
+    _auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement (Issue #115): write ops require write scope
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
-        return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: write, have: {}",
-            auth.principal.scope_str()
-        )));
-    }
-
     // Update content if provided
     let content_changed = body.content.is_some();
     if let Some(content) = &body.content {
@@ -3040,18 +2978,10 @@ async fn update_note(
 }
 
 async fn delete_note(
-    auth: Auth,
+    _auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement (Issue #115): delete requires write scope
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
-        return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: write, have: {}",
-            auth.principal.scope_str()
-        )));
-    }
-
     state.db.notes.soft_delete(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
