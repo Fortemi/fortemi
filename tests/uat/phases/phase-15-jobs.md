@@ -4,6 +4,8 @@
 **Tools Tested**: 7 tools
 **Dependencies**: Phase 0 (preflight), Phase 2 (CRUD)
 
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+
 ---
 
 ## Overview
@@ -32,7 +34,7 @@ The job queue manages background processing tasks like AI revision, embedding ge
 
 #### JOB-001: Get Queue Stats
 
-**Tool**: `get_queue_stats`
+**MCP Tool**: `get_queue_stats`
 
 ```javascript
 get_queue_stats()
@@ -65,7 +67,7 @@ get_queue_stats()
 
 #### JOB-002: List Jobs (All)
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 list_jobs({
@@ -99,7 +101,7 @@ list_jobs({
 
 #### JOB-003: List Jobs by Status
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 list_jobs({
@@ -114,7 +116,7 @@ list_jobs({
 
 #### JOB-004: List Jobs by Type
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 list_jobs({
@@ -129,7 +131,7 @@ list_jobs({
 
 #### JOB-005: List Jobs for Note
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 // Use a note from seed data
@@ -147,7 +149,7 @@ list_jobs({
 
 #### JOB-006: Create Embedding Job
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 // Create a test note first
@@ -179,7 +181,7 @@ create_job({
 
 #### JOB-007: Create Linking Job
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 create_job({
@@ -195,7 +197,7 @@ create_job({
 
 #### JOB-008: Create Title Generation Job
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 create_job({
@@ -211,7 +213,7 @@ create_job({
 
 #### JOB-009: Verify Queue Stats Updated
 
-**Tool**: `get_queue_stats`
+**MCP Tool**: `get_queue_stats`
 
 ```javascript
 get_queue_stats()
@@ -223,7 +225,7 @@ get_queue_stats()
 
 #### JOB-010: Create AI Revision Job
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 create_job({
@@ -239,7 +241,7 @@ create_job({
 
 #### JOB-011: Verify High Priority Ordering
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 list_jobs({
@@ -256,7 +258,7 @@ list_jobs({
 
 #### JOB-012: Trigger Re-embed All
 
-**Tool**: `reembed_all`
+**MCP Tool**: `reembed_all`
 
 ```javascript
 reembed_all({
@@ -270,7 +272,7 @@ reembed_all({
 
 #### JOB-013: Re-embed Specific Set
 
-**Tool**: `reembed_all`
+**MCP Tool**: `reembed_all`
 
 ```javascript
 reembed_all({
@@ -287,7 +289,7 @@ reembed_all({
 
 #### JOB-014: Monitor Job Progress
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 // Wait briefly, then check
@@ -305,7 +307,7 @@ list_jobs({
 
 #### JOB-015: Verify Failed Jobs
 
-**Tool**: `list_jobs`
+**MCP Tool**: `list_jobs`
 
 ```javascript
 list_jobs({
@@ -322,7 +324,7 @@ list_jobs({
 
 #### JOB-016: Create Job for Non-Existent Note
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 create_job({
@@ -339,7 +341,7 @@ create_job({
 
 #### JOB-017: Create Invalid Job Type
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 create_job({
@@ -354,7 +356,7 @@ create_job({
 
 #### JOB-018: Create Duplicate Job
 
-**Tool**: `create_job`
+**MCP Tool**: `create_job`
 
 ```javascript
 // Create same job type for same note
@@ -373,70 +375,11 @@ create_job({
 
 ---
 
-## Cleanup
-
-```javascript
-// Delete test note (jobs should be cleaned up)
-delete_note({ id: job_test_note_id })
-
-// Verify jobs cleaned up
-list_jobs({ note_id: job_test_note_id })  // Should be empty
-```
-
----
-
-## Success Criteria
-
-| Test | Status | Notes |
-|------|--------|-------|
-| JOB-001 | | Get queue stats |
-| JOB-002 | | List all jobs |
-| JOB-003 | | List by status |
-| JOB-004 | | List by type |
-| JOB-005 | | List for note |
-| JOB-006 | | Create embedding job |
-| JOB-007 | | Create linking job |
-| JOB-008 | | Create title job |
-| JOB-009 | | Verify stats updated |
-| JOB-010 | | Create AI revision job |
-| JOB-011 | | Priority ordering |
-| JOB-012 | | Re-embed all |
-| JOB-013 | | Re-embed specific set |
-| JOB-014 | | Monitor progress |
-| JOB-015 | | Failed jobs info |
-| JOB-016 | | Non-existent note error |
-| JOB-017 | | Invalid job type error |
-| JOB-018 | | Duplicate job handling |
-| JOB-019 | | Get job by ID |
-| JOB-020 | | Get pending jobs count |
-| JOB-021 | | Reprocess note |
-| JOB-022 | | Reprocess note all ops |
-
-**Pass Rate Required**: 95% (21/22)
-
----
-
-## MCP Tools Covered
-
-| Tool | Tests |
-|------|-------|
-| `get_queue_stats` | JOB-001, JOB-009 |
-| `list_jobs` | JOB-002, JOB-003, JOB-004, JOB-005, JOB-011, JOB-014, JOB-015 |
-| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018 |
-| `reembed_all` | JOB-012, JOB-013 |
-| `get_job` | JOB-019 |
-| `get_pending_jobs_count` | JOB-020 |
-| `reprocess_note` | JOB-021, JOB-022 |
-
-**Coverage**: 7/7 job tools (100%)
-
----
-
 ## Individual Job Operations
 
 #### JOB-019: Get Job by ID
 
-**Tool**: `get_job`
+**MCP Tool**: `get_job`
 
 ```javascript
 get_job({ id: embedding_job_id })
@@ -463,7 +406,7 @@ get_job({ id: embedding_job_id })
 
 #### JOB-020: Get Pending Jobs Count
 
-**Tool**: `get_pending_jobs_count`
+**MCP Tool**: `get_pending_jobs_count`
 
 ```javascript
 get_pending_jobs_count()
@@ -490,7 +433,7 @@ get_pending_jobs_count()
 
 #### JOB-021: Reprocess Note
 
-**Tool**: `reprocess_note`
+**MCP Tool**: `reprocess_note`
 
 ```javascript
 reprocess_note({
@@ -516,7 +459,7 @@ reprocess_note({
 
 #### JOB-022: Reprocess Note - All Operations
 
-**Tool**: `reprocess_note`
+**MCP Tool**: `reprocess_note`
 
 ```javascript
 reprocess_note({
@@ -528,3 +471,60 @@ reprocess_note({
 **Pass Criteria**: Creates jobs for all applicable operations
 
 ---
+
+## Cleanup
+
+```javascript
+// Delete test note (jobs should be cleaned up)
+delete_note({ id: job_test_note_id })
+
+// Verify jobs cleaned up
+list_jobs({ note_id: job_test_note_id })  // Should be empty
+```
+
+---
+
+## Success Criteria
+
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| JOB-001 | Get queue stats | `get_queue_stats` | |
+| JOB-002 | List all jobs | `list_jobs` | |
+| JOB-003 | List by status | `list_jobs` | |
+| JOB-004 | List by type | `list_jobs` | |
+| JOB-005 | List for note | `list_jobs` | |
+| JOB-006 | Create embedding job | `create_job` | |
+| JOB-007 | Create linking job | `create_job` | |
+| JOB-008 | Create title job | `create_job` | |
+| JOB-009 | Verify stats updated | `get_queue_stats` | |
+| JOB-010 | Create AI revision job | `create_job` | |
+| JOB-011 | Priority ordering | `list_jobs` | |
+| JOB-012 | Re-embed all | `reembed_all` | |
+| JOB-013 | Re-embed specific set | `reembed_all` | |
+| JOB-014 | Monitor progress | `list_jobs` | |
+| JOB-015 | Failed jobs info | `list_jobs` | |
+| JOB-016 | Non-existent note error | `create_job` | |
+| JOB-017 | Invalid job type error | `create_job` | |
+| JOB-018 | Duplicate job handling | `create_job` | |
+| JOB-019 | Get job by ID | `get_job` | |
+| JOB-020 | Get pending jobs count | `get_pending_jobs_count` | |
+| JOB-021 | Reprocess note | `reprocess_note` | |
+| JOB-022 | Reprocess note all ops | `reprocess_note` | |
+
+**Pass Rate Required**: 95% (21/22)
+
+---
+
+## MCP Tools Covered
+
+| Tool | Tests |
+|------|-------|
+| `get_queue_stats` | JOB-001, JOB-009 |
+| `list_jobs` | JOB-002, JOB-003, JOB-004, JOB-005, JOB-011, JOB-014, JOB-015 |
+| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018 |
+| `reembed_all` | JOB-012, JOB-013 |
+| `get_job` | JOB-019 |
+| `get_pending_jobs_count` | JOB-020 |
+| `reprocess_note` | JOB-021, JOB-022 |
+
+**Coverage**: 7/7 job tools (100%)

@@ -3,12 +3,17 @@
 **Purpose**: Verify system readiness before testing
 **Duration**: ~2 minutes
 **Prerequisites**: MCP connection active
+**Tools Tested**: `memory_info`, `backup_status`, `list_embedding_sets`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Test Cases
 
 ### PF-001: System Health Check
+
+**MCP Tool**: `memory_info`
 
 **Tool**: `memory_info()`
 
@@ -31,6 +36,8 @@
 
 ### PF-002: Backup System Status
 
+**MCP Tool**: `backup_status`
+
 **Tool**: `backup_status()`
 
 **Expected Response**:
@@ -50,6 +57,8 @@
 ---
 
 ### PF-003: Embedding Pipeline Status
+
+**MCP Tool**: `list_embedding_sets`
 
 **Tool**: `list_embedding_sets()`
 
@@ -72,11 +81,11 @@
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| PF-001 | System Health Check | |
-| PF-002 | Backup System Status | |
-| PF-003 | Embedding Pipeline Status | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| PF-001 | System Health Check | `memory_info` | |
+| PF-002 | Backup System Status | `backup_status` | |
+| PF-003 | Embedding Pipeline Status | `list_embedding_sets` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

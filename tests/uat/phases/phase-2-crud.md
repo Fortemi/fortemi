@@ -4,12 +4,17 @@
 **Duration**: ~10 minutes
 **Prerequisites**: Phase 1 completed
 **Critical**: Yes (100% pass required)
+**Tools Tested**: `create_note`, `bulk_create_notes`, `get_note`, `list_notes`, `update_note`, `delete_note`, `purge_note`, `list_tags`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Create Operations
 
 ### CRUD-001: Create Note - Basic
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -25,6 +30,8 @@ create_note({
 ---
 
 ### CRUD-002: Create Note - With Metadata
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -42,6 +49,8 @@ create_note({
 
 ### CRUD-003: Create Note - Hierarchical Tags
 
+**MCP Tool**: `create_note`
+
 ```javascript
 create_note({
   content: "# Hierarchical Tag Test",
@@ -56,6 +65,8 @@ create_note({
 ---
 
 ### CRUD-004: Bulk Create
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 bulk_create_notes({
@@ -75,6 +86,8 @@ bulk_create_notes({
 
 ### CRUD-005: Get Note by ID
 
+**MCP Tool**: `get_note`
+
 ```javascript
 get_note({ id: "<crud_test_note_id>" })
 ```
@@ -84,6 +97,8 @@ get_note({ id: "<crud_test_note_id>" })
 ---
 
 ### CRUD-006: Get Note - Non-existent
+
+**MCP Tool**: `get_note`
 
 ```javascript
 get_note({ id: "00000000-0000-0000-0000-000000000000" })
@@ -95,6 +110,8 @@ get_note({ id: "00000000-0000-0000-0000-000000000000" })
 
 ### CRUD-007: List Notes - Basic
 
+**MCP Tool**: `list_notes`
+
 ```javascript
 list_notes({ limit: 10 })
 ```
@@ -104,6 +121,8 @@ list_notes({ limit: 10 })
 ---
 
 ### CRUD-008: List Notes - Tag Filter
+
+**MCP Tool**: `list_notes`
 
 ```javascript
 list_notes({ tags: ["uat/bulk"], limit: 50 })
@@ -115,6 +134,8 @@ list_notes({ tags: ["uat/bulk"], limit: 50 })
 
 ### CRUD-009: List Notes - Hierarchical Tag Filter
 
+**MCP Tool**: `list_notes`
+
 ```javascript
 list_notes({ tags: ["uat"], limit: 100 })
 ```
@@ -124,6 +145,8 @@ list_notes({ tags: ["uat"], limit: 100 })
 ---
 
 ### CRUD-010: Pagination
+
+**MCP Tool**: `list_notes`
 
 ```javascript
 const page1 = list_notes({ limit: 5, offset: 0 })
@@ -136,6 +159,8 @@ const page2 = list_notes({ limit: 5, offset: 5 })
 
 ### CRUD-011: Limit Zero
 
+**MCP Tool**: `list_notes`
+
 ```javascript
 list_notes({ limit: 0 })
 ```
@@ -147,6 +172,8 @@ list_notes({ limit: 0 })
 ## Update Operations
 
 ### CRUD-012: Update Content
+
+**MCP Tool**: `update_note`
 
 ```javascript
 update_note({
@@ -163,6 +190,8 @@ update_note({
 
 ### CRUD-013: Star Note
 
+**MCP Tool**: `update_note`
+
 ```javascript
 update_note({ id: "<note_id>", starred: true })
 ```
@@ -173,6 +202,8 @@ update_note({ id: "<note_id>", starred: true })
 
 ### CRUD-014: Archive Note
 
+**MCP Tool**: `update_note`
+
 ```javascript
 update_note({ id: "<note_id>", archived: true })
 ```
@@ -182,6 +213,8 @@ update_note({ id: "<note_id>", archived: true })
 ---
 
 ### CRUD-015: Update Metadata
+
+**MCP Tool**: `update_note`
 
 ```javascript
 update_note({
@@ -198,6 +231,8 @@ update_note({
 
 ### CRUD-016: Soft Delete Note
 
+**MCP Tool**: `delete_note`
+
 ```javascript
 delete_note({ id: "<note_to_delete>" })
 ```
@@ -209,6 +244,8 @@ delete_note({ id: "<note_to_delete>" })
 
 ### CRUD-017: Purge Note
 
+**MCP Tool**: `purge_note`
+
 ```javascript
 purge_note({ id: "<already_deleted_note>" })
 ```
@@ -219,25 +256,25 @@ purge_note({ id: "<already_deleted_note>" })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| CRUD-001 | Create Note - Basic | |
-| CRUD-002 | Create Note - Metadata | |
-| CRUD-003 | Create Note - Hierarchical Tags | |
-| CRUD-004 | Bulk Create | |
-| CRUD-005 | Get Note by ID | |
-| CRUD-006 | Get Note - Non-existent | |
-| CRUD-007 | List Notes - Basic | |
-| CRUD-008 | List Notes - Tag Filter | |
-| CRUD-009 | List Notes - Hierarchical Tag | |
-| CRUD-010 | Pagination | |
-| CRUD-011 | Limit Zero | |
-| CRUD-012 | Update Content | |
-| CRUD-013 | Star Note | |
-| CRUD-014 | Archive Note | |
-| CRUD-015 | Update Metadata | |
-| CRUD-016 | Soft Delete | |
-| CRUD-017 | Purge Note | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| CRUD-001 | Create Note - Basic | `create_note` | |
+| CRUD-002 | Create Note - Metadata | `create_note` | |
+| CRUD-003 | Create Note - Hierarchical Tags | `create_note`, `list_tags` | |
+| CRUD-004 | Bulk Create | `bulk_create_notes` | |
+| CRUD-005 | Get Note by ID | `get_note` | |
+| CRUD-006 | Get Note - Non-existent | `get_note` | |
+| CRUD-007 | List Notes - Basic | `list_notes` | |
+| CRUD-008 | List Notes - Tag Filter | `list_notes` | |
+| CRUD-009 | List Notes - Hierarchical Tag | `list_notes` | |
+| CRUD-010 | Pagination | `list_notes` | |
+| CRUD-011 | Limit Zero | `list_notes` | |
+| CRUD-012 | Update Content | `update_note`, `get_note` | |
+| CRUD-013 | Star Note | `update_note`, `get_note` | |
+| CRUD-014 | Archive Note | `update_note`, `list_notes` | |
+| CRUD-015 | Update Metadata | `update_note`, `get_note` | |
+| CRUD-016 | Soft Delete | `delete_note`, `list_notes` | |
+| CRUD-017 | Purge Note | `purge_note` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

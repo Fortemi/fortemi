@@ -4,6 +4,8 @@
 **Tools Tested**: 13 tools
 **Dependencies**: Phase 0 (preflight)
 
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+
 ---
 
 ## Overview
@@ -41,7 +43,7 @@ const TEST_CONTENT = "# Secret Note\n\nThis is confidential information for UAT 
 
 #### PKE-001: Generate Keypair
 
-**Tool**: `pke_generate_keypair`
+**MCP Tool**: `pke_generate_keypair`
 
 ```javascript
 pke_generate_keypair({
@@ -69,7 +71,7 @@ pke_generate_keypair({
 
 #### PKE-002: Generate Second Keypair
 
-**Tool**: `pke_generate_keypair`
+**MCP Tool**: `pke_generate_keypair`
 
 ```javascript
 pke_generate_keypair({
@@ -84,7 +86,7 @@ pke_generate_keypair({
 
 #### PKE-003: Get Address from Public Key
 
-**Tool**: `pke_get_address`
+**MCP Tool**: `pke_get_address`
 
 ```javascript
 pke_get_address({
@@ -100,7 +102,7 @@ pke_get_address({
 
 #### PKE-004: Verify Address
 
-**Tool**: `pke_verify_address`
+**MCP Tool**: `pke_verify_address`
 
 ```javascript
 pke_verify_address({
@@ -120,7 +122,7 @@ pke_verify_address({
 
 #### PKE-005: Verify Invalid Address
 
-**Tool**: `pke_verify_address`
+**MCP Tool**: `pke_verify_address`
 
 ```javascript
 pke_verify_address({
@@ -136,7 +138,7 @@ pke_verify_address({
 
 #### PKE-006: Encrypt for Single Recipient
 
-**Tool**: `pke_encrypt`
+**MCP Tool**: `pke_encrypt`
 
 ```javascript
 // First, create a file to encrypt (or use existing)
@@ -172,7 +174,7 @@ pke_encrypt({
 
 #### PKE-007: List Recipients
 
-**Tool**: `pke_list_recipients`
+**MCP Tool**: `pke_list_recipients`
 
 ```javascript
 pke_list_recipients({
@@ -193,7 +195,7 @@ pke_list_recipients({
 
 #### PKE-008: Decrypt File
 
-**Tool**: `pke_decrypt`
+**MCP Tool**: `pke_decrypt`
 
 ```javascript
 pke_decrypt({
@@ -218,7 +220,7 @@ pke_decrypt({
 
 #### PKE-009: Encrypt for Multiple Recipients
 
-**Tool**: `pke_encrypt`
+**MCP Tool**: `pke_encrypt`
 
 ```javascript
 pke_encrypt({
@@ -234,7 +236,7 @@ pke_encrypt({
 
 #### PKE-010: Verify Multiple Recipients
 
-**Tool**: `pke_list_recipients`
+**MCP Tool**: `pke_list_recipients`
 
 ```javascript
 pke_list_recipients({
@@ -248,7 +250,7 @@ pke_list_recipients({
 
 #### PKE-011: Decrypt with Wrong Key
 
-**Tool**: `pke_decrypt`
+**MCP Tool**: `pke_decrypt`
 
 ```javascript
 // Try to decrypt with secondary key when not a recipient
@@ -270,7 +272,7 @@ pke_decrypt({
 
 #### PKE-012: List Keysets
 
-**Tool**: `pke_list_keysets`
+**MCP Tool**: `pke_list_keysets`
 
 ```javascript
 pke_list_keysets()
@@ -302,7 +304,7 @@ pke_list_keysets()
 
 #### PKE-013: Create Named Keyset
 
-**Tool**: `pke_create_keyset`
+**MCP Tool**: `pke_create_keyset`
 
 ```javascript
 pke_create_keyset({
@@ -319,7 +321,7 @@ pke_create_keyset({
 
 #### PKE-014: Get Active Keyset (None)
 
-**Tool**: `pke_get_active_keyset`
+**MCP Tool**: `pke_get_active_keyset`
 
 ```javascript
 pke_get_active_keyset()
@@ -331,7 +333,7 @@ pke_get_active_keyset()
 
 #### PKE-015: Set Active Keyset
 
-**Tool**: `pke_set_active_keyset`
+**MCP Tool**: `pke_set_active_keyset`
 
 ```javascript
 pke_set_active_keyset({
@@ -345,7 +347,7 @@ pke_set_active_keyset({
 
 #### PKE-016: Verify Active Keyset
 
-**Tool**: `pke_get_active_keyset`
+**MCP Tool**: `pke_get_active_keyset`
 
 ```javascript
 pke_get_active_keyset()
@@ -357,7 +359,7 @@ pke_get_active_keyset()
 
 #### PKE-017: Export Keyset
 
-**Tool**: `pke_export_keyset`
+**MCP Tool**: `pke_export_keyset`
 
 ```javascript
 pke_export_keyset({
@@ -384,7 +386,7 @@ pke_export_keyset({
 
 #### PKE-018: Import Keyset
 
-**Tool**: `pke_import_keyset`
+**MCP Tool**: `pke_import_keyset`
 
 ```javascript
 pke_import_keyset({
@@ -401,7 +403,7 @@ pke_import_keyset({
 
 #### PKE-019: Delete Keyset
 
-**Tool**: `pke_delete_keyset`
+**MCP Tool**: `pke_delete_keyset`
 
 ```javascript
 pke_delete_keyset({
@@ -417,7 +419,7 @@ pke_delete_keyset({
 
 #### PKE-020: Delete Active Keyset
 
-**Tool**: `pke_delete_keyset`
+**MCP Tool**: `pke_delete_keyset`
 
 ```javascript
 pke_delete_keyset({
@@ -452,28 +454,28 @@ delete_note({ id: pke_test_note_id })
 
 ## Success Criteria
 
-| Test | Status | Notes |
-|------|--------|-------|
-| PKE-001 | | Generate keypair |
-| PKE-002 | | Generate second keypair |
-| PKE-003 | | Get address |
-| PKE-004 | | Verify valid address |
-| PKE-005 | | Verify invalid address |
-| PKE-006 | | Encrypt single recipient |
-| PKE-007 | | List recipients |
-| PKE-008 | | Decrypt file |
-| PKE-009 | | Encrypt multi-recipient |
-| PKE-010 | | Verify multi-recipients |
-| PKE-011 | | Wrong key error |
-| PKE-012 | | List keysets |
-| PKE-013 | | Create named keyset |
-| PKE-014 | | Get active (none) |
-| PKE-015 | | Set active keyset |
-| PKE-016 | | Verify active |
-| PKE-017 | | Export keyset |
-| PKE-018 | | Import keyset |
-| PKE-019 | | Delete keyset |
-| PKE-020 | | Delete active keyset |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| PKE-001 | Generate keypair | `pke_generate_keypair` | |
+| PKE-002 | Generate second keypair | `pke_generate_keypair` | |
+| PKE-003 | Get address | `pke_get_address` | |
+| PKE-004 | Verify valid address | `pke_verify_address` | |
+| PKE-005 | Verify invalid address | `pke_verify_address` | |
+| PKE-006 | Encrypt single recipient | `pke_encrypt` | |
+| PKE-007 | List recipients | `pke_list_recipients` | |
+| PKE-008 | Decrypt file | `pke_decrypt` | |
+| PKE-009 | Encrypt multi-recipient | `pke_encrypt` | |
+| PKE-010 | Verify multi-recipients | `pke_list_recipients` | |
+| PKE-011 | Wrong key error | `pke_decrypt` | |
+| PKE-012 | List keysets | `pke_list_keysets` | |
+| PKE-013 | Create named keyset | `pke_create_keyset` | |
+| PKE-014 | Get active (none) | `pke_get_active_keyset` | |
+| PKE-015 | Set active keyset | `pke_set_active_keyset` | |
+| PKE-016 | Verify active | `pke_get_active_keyset` | |
+| PKE-017 | Export keyset | `pke_export_keyset` | |
+| PKE-018 | Import keyset | `pke_import_keyset` | |
+| PKE-019 | Delete keyset | `pke_delete_keyset` | |
+| PKE-020 | Delete active keyset | `pke_delete_keyset` | |
 
 **Pass Rate Required**: 100% (20/20)
 

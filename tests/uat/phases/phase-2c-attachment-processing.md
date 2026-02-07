@@ -4,6 +4,9 @@
 **Duration**: ~20 minutes
 **Prerequisites**: Phase 2B file attachments completed, test data generated
 **Critical**: Yes (100% pass required)
+**Tools Tested**: `create_note`, `upload_attachment`, `get_attachment`, `list_attachments`, `get_document_type`, `detect_document_type`, `list_jobs`, `get_job`, `search_notes`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
@@ -24,6 +27,8 @@
 ## Section 1: Document Type Auto-Detection on Upload
 
 ### PROC-001: Auto-detect Python Code
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`, `detect_document_type`
 
 **Description**: Upload a Python source file as an attachment and verify document type is auto-detected as "python" with `syntactic` chunking strategy
 
@@ -60,6 +65,8 @@
 
 ### PROC-002: Auto-detect PDF
 
+**MCP Tool**: `upload_attachment`, `get_attachment`
+
 **Description**: Upload a PDF file and verify document type detected as "pdf" with `fixed` chunking
 
 **Prerequisites**:
@@ -85,6 +92,8 @@
 ---
 
 ### PROC-003: Auto-detect Markdown
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload a Markdown file and verify document type detected as "markdown" with `semantic` chunking
 
@@ -112,6 +121,8 @@
 
 ### PROC-004: Auto-detect JSON Config
 
+**MCP Tool**: `upload_attachment`, `get_attachment`
+
 **Description**: Upload a JSON configuration file and verify document type detected as "json" with `whole` chunking
 
 **Prerequisites**:
@@ -134,6 +145,8 @@
 ---
 
 ### PROC-005: Auto-detect from MIME Only
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload a file with a generic name but specific MIME type to verify detection falls back to MIME-based classification
 
@@ -163,6 +176,8 @@
 ## Section 2: User-Supplied Document Type Override
 
 ### PROC-006: Override with Valid Type
+
+**MCP Tool**: `get_document_type`, `create_note`, `upload_attachment`
 
 **Description**: Upload a `.txt` file but supply `document_type_id` for "markdown", verify the override takes precedence over auto-detection
 
@@ -195,6 +210,8 @@
 
 ### PROC-007: Override with Invalid Type
 
+**MCP Tool**: `create_note`, `upload_attachment`
+
 **Description**: Upload a file with an invalid (non-existent) `document_type_id` and verify graceful error handling
 
 **Prerequisites**: None
@@ -217,6 +234,8 @@
 ---
 
 ### PROC-008: No Override Uses Detection
+
+**MCP Tool**: `upload_attachment`, `get_attachment`
 
 **Description**: Upload a `.rs` Rust file without specifying document type and verify auto-detection returns "rust"
 
@@ -241,6 +260,8 @@
 ---
 
 ### PROC-009: Override MIME-based Detection
+
+**MCP Tool**: `get_document_type`, `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload a file detected as "plaintext" by extension, override to "yaml", and verify chunking strategy changes
 
@@ -272,6 +293,8 @@
 
 ### PROC-010: Text File -> TextNative
 
+**MCP Tool**: `upload_attachment`, `get_attachment`
+
 **Description**: Upload a plain text file and verify extraction strategy is `text_native`
 
 **Prerequisites**:
@@ -294,6 +317,8 @@
 
 ### PROC-011: PDF -> PdfText
 
+**MCP Tool**: `get_attachment`
+
 **Description**: Upload a `.pdf` file and verify extraction strategy is `pdf_text`
 
 **Prerequisites**:
@@ -314,6 +339,8 @@
 ---
 
 ### PROC-012: Image -> Vision
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload a `.jpg` image and verify extraction strategy is `vision`
 
@@ -343,6 +370,8 @@
 
 ### PROC-013: Audio -> AudioTranscribe
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload an `.mp3` audio file and verify extraction strategy is `audio_transcribe`
 
 **Prerequisites**:
@@ -371,6 +400,8 @@
 
 ### PROC-014: Code -> CodeAst
 
+**MCP Tool**: `get_attachment`
+
 **Description**: Upload `.py` and `.rs` source files and verify extraction strategy is `code_ast` (when extension is used for disambiguation)
 
 **Prerequisites**:
@@ -397,6 +428,8 @@
 ## Section 4: Multi-File Notes
 
 ### PROC-015: Multiple Files on One Note
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_attachments`
 
 **Description**: Upload 3 files of different types (`.py`, `.md`, `.jpg`) to the same note and verify all 3 attachments listed with correct types
 
@@ -437,6 +470,8 @@
 
 ### PROC-016: Mixed Types Same Note
 
+**MCP Tool**: `list_attachments`, `get_attachment`
+
 **Description**: Upload code + PDF + image to same note, verify each gets correct extraction strategy independently
 
 **Prerequisites**:
@@ -458,6 +493,8 @@
 ---
 
 ### PROC-017: Max Attachments
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_attachments`
 
 **Description**: Upload 10 files to a single note and verify all are stored and listed correctly
 
@@ -486,6 +523,8 @@
 
 ### PROC-018: Multiple Notes Each with Files
 
+**MCP Tool**: `create_note`, `upload_attachment`, `list_attachments`
+
 **Description**: Create 3 separate notes, each with 2 different file types, and verify attachment isolation (note A's files don't appear on note B)
 
 **Prerequisites**:
@@ -513,6 +552,8 @@
 ---
 
 ### PROC-019: Same File Different Notes
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload identical file to 2 different notes, verify content deduplication (same `blob_id`) but separate attachment records with independent type detection
 
@@ -545,6 +586,8 @@
 
 ### PROC-020: Text Extraction from Plain Text
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload a plain English text file and verify `extracted_text` field contains the source text
 
 **Prerequisites**:
@@ -576,6 +619,8 @@
 
 ### PROC-021: Structured Data Extraction (JSON)
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload a JSON config file and verify extracted metadata includes top-level keys and structure
 
 **Prerequisites**:
@@ -601,6 +646,8 @@
 ---
 
 ### PROC-022: Structured Data Extraction (CSV)
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload a CSV data file and verify extracted metadata includes column names and row count
 
@@ -628,6 +675,8 @@
 
 ### PROC-023: Code Extraction Preserves Structure
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload Python source code and verify extraction captures class/function names
 
 **Prerequisites**:
@@ -654,6 +703,8 @@
 ---
 
 ### PROC-024: Empty File Extraction
+
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload an empty text file and verify graceful handling with no crash
 
@@ -684,6 +735,8 @@
 ## Section 6: Job Queue Integration
 
 ### PROC-025: Upload Creates Extraction Job
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_jobs`
 
 **Description**: Upload a file and verify a job of appropriate type is created in the job queue
 
@@ -719,6 +772,8 @@
 
 ### PROC-026: Job References Correct Attachment
 
+**MCP Tool**: `list_jobs`, `get_job`
+
 **Description**: Verify the queued job's payload contains the correct attachment ID
 
 **Prerequisites**:
@@ -742,6 +797,8 @@
 ---
 
 ### PROC-027: Job Status Lifecycle
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_jobs`
 
 **Description**: Upload a file and poll job status through `pending` -> `processing` -> `completed`
 
@@ -767,6 +824,8 @@
 ---
 
 ### PROC-028: Failed Extraction Doesn't Crash
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_jobs`
 
 **Description**: Upload a file with wrong extension (random bytes with `.jpg` extension) and verify the extraction job completes with an error status but doesn't crash the system
 
@@ -805,6 +864,8 @@
 
 ### PROC-029: Full Pipeline - Text File
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`, `search_notes`
+
 **Description**: Upload a text file and verify the complete pipeline: upload -> detect type -> extract text -> searchable content exists
 
 **Prerequisites**:
@@ -839,6 +900,8 @@
 
 ### PROC-030: Full Pipeline - Code File
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload a Rust source file and verify the complete pipeline: upload -> detect "rust" -> extract with CodeAst -> function/struct names in metadata
 
 **Prerequisites**:
@@ -868,6 +931,8 @@
 ---
 
 ### PROC-031: Full Pipeline - Multi-File Note
+
+**MCP Tool**: `create_note`, `upload_attachment`, `list_attachments`, `get_attachment`
 
 **Description**: Upload PDF + code + image to one note, verify each processed with different strategies, all results associated to the same note
 
@@ -911,39 +976,39 @@
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| PROC-001 | Auto-detect Python Code | |
-| PROC-002 | Auto-detect PDF | |
-| PROC-003 | Auto-detect Markdown | |
-| PROC-004 | Auto-detect JSON Config | |
-| PROC-005 | Auto-detect from MIME Only | |
-| PROC-006 | Override with Valid Type | |
-| PROC-007 | Override with Invalid Type | |
-| PROC-008 | No Override Uses Detection | |
-| PROC-009 | Override MIME-based Detection | |
-| PROC-010 | Text File -> TextNative | |
-| PROC-011 | PDF -> PdfText | |
-| PROC-012 | Image -> Vision | |
-| PROC-013 | Audio -> AudioTranscribe | |
-| PROC-014 | Code -> CodeAst | |
-| PROC-015 | Multiple Files One Note | |
-| PROC-016 | Mixed Types Same Note | |
-| PROC-017 | Max Attachments (10) | |
-| PROC-018 | Multiple Notes with Files | |
-| PROC-019 | Same File Different Notes | |
-| PROC-020 | Text Extraction Plain Text | |
-| PROC-021 | JSON Structure Extraction | |
-| PROC-022 | CSV Structure Extraction | |
-| PROC-023 | Code Structure Extraction | |
-| PROC-024 | Empty File Extraction | |
-| PROC-025 | Upload Creates Extraction Job | |
-| PROC-026 | Job References Attachment | |
-| PROC-027 | Job Status Lifecycle | |
-| PROC-028 | Failed Extraction No Crash | |
-| PROC-029 | E2E Text File Pipeline | |
-| PROC-030 | E2E Code File Pipeline | |
-| PROC-031 | E2E Multi-File Pipeline | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| PROC-001 | Auto-detect Python Code | `create_note`, `upload_attachment`, `get_attachment`, `detect_document_type` | |
+| PROC-002 | Auto-detect PDF | `upload_attachment`, `get_attachment` | |
+| PROC-003 | Auto-detect Markdown | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-004 | Auto-detect JSON Config | `upload_attachment`, `get_attachment` | |
+| PROC-005 | Auto-detect from MIME Only | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-006 | Override with Valid Type | `get_document_type`, `create_note`, `upload_attachment` | |
+| PROC-007 | Override with Invalid Type | `create_note`, `upload_attachment` | |
+| PROC-008 | No Override Uses Detection | `upload_attachment`, `get_attachment` | |
+| PROC-009 | Override MIME-based Detection | `get_document_type`, `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-010 | Text File -> TextNative | `upload_attachment`, `get_attachment` | |
+| PROC-011 | PDF -> PdfText | `get_attachment` | |
+| PROC-012 | Image -> Vision | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-013 | Audio -> AudioTranscribe | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-014 | Code -> CodeAst | `get_attachment` | |
+| PROC-015 | Multiple Files One Note | `create_note`, `upload_attachment`, `list_attachments` | |
+| PROC-016 | Mixed Types Same Note | `list_attachments`, `get_attachment` | |
+| PROC-017 | Max Attachments (10) | `create_note`, `upload_attachment`, `list_attachments` | |
+| PROC-018 | Multiple Notes with Files | `create_note`, `upload_attachment`, `list_attachments` | |
+| PROC-019 | Same File Different Notes | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-020 | Text Extraction Plain Text | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-021 | JSON Structure Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-022 | CSV Structure Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-023 | Code Structure Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-024 | Empty File Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-025 | Upload Creates Extraction Job | `create_note`, `upload_attachment`, `list_jobs` | |
+| PROC-026 | Job References Attachment | `list_jobs`, `get_job` | |
+| PROC-027 | Job Status Lifecycle | `create_note`, `upload_attachment`, `list_jobs` | |
+| PROC-028 | Failed Extraction No Crash | `create_note`, `upload_attachment`, `list_jobs` | |
+| PROC-029 | E2E Text File Pipeline | `create_note`, `upload_attachment`, `get_attachment`, `search_notes` | |
+| PROC-030 | E2E Code File Pipeline | `create_note`, `upload_attachment`, `get_attachment` | |
+| PROC-031 | E2E Multi-File Pipeline | `create_note`, `upload_attachment`, `list_attachments`, `get_attachment` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

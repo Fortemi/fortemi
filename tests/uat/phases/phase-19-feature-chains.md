@@ -4,6 +4,9 @@
 **Duration**: ~45 minutes
 **Prerequisites**: All previous UAT phases completed, test data available
 **Critical**: Yes (100% pass required)
+**Tools Tested**: `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `explore_graph`, `export_skos_turtle`, `knowledge_shard`, `pke_encrypt`, `pke_decrypt`, `share_note_encrypted`, `read_shared_note`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `create_embedding_set`, `refresh_embedding_set`, `create_keyset`, `delete_collection`, `list_concept_schemes`, `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -28,6 +31,8 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 ---
 
 ### UAT-21-001: Upload Python Code File
+
+**MCP Tools**: `upload_attachment`, `create_note`
 
 **Description**: Upload a Python source file from test data
 
@@ -80,6 +85,8 @@ get_note({ note_id: "{note_id}" })
 
 ### UAT-21-002: Detect Document Type
 
+**MCP Tools**: `detect_document_type`, `list_document_types`
+
 **Description**: Verify document type detection for Python code
 
 **Prerequisites**:
@@ -119,6 +126,8 @@ list_document_types({})
 ---
 
 ### UAT-21-003: Verify Automatic Embedding
+
+**MCP Tools**: `list_embedding_sets`, `get_embedding_set`, `search_notes`
 
 **Description**: Verify note was automatically embedded in default set
 
@@ -161,6 +170,8 @@ search_notes({
 
 ### UAT-21-004: Semantic Search for Code
 
+**MCP Tools**: `search_notes`, `get_note`
+
 **Description**: Search for the note using semantic similarity
 
 **Prerequisites**:
@@ -201,6 +212,8 @@ get_note({ note_id: "{python_note_id}" })
 ---
 
 ### UAT-21-005: Compare Versions (List All Revisions)
+
+**MCP Tools**: `list_note_versions`, `restore_note_version`, `diff_note_versions`
 
 **Description**: List note versions using versioning system
 
@@ -250,6 +263,8 @@ list_note_versions({ note_id: "{python_note_id}" })
 ---
 
 ### UAT-21-006: Export as Markdown with Frontmatter
+
+**MCP Tool**: `export_note`
 
 **Description**: Export note as markdown with YAML frontmatter
 
@@ -305,6 +320,8 @@ export_note({
 
 ### UAT-21-007: Create Memory with Location
 
+**MCP Tool**: `create_note`
+
 **Description**: Create note with geographic coordinates
 
 **Prerequisites**:
@@ -344,6 +361,8 @@ create_note({
 
 ### UAT-21-008: Verify Provenance Record Created
 
+**MCP Tool**: `get_memory_provenance`
+
 **Description**: Verify W3C PROV provenance created automatically
 
 **Prerequisites**:
@@ -371,6 +390,8 @@ get_memory_provenance({
 ---
 
 ### UAT-21-009: Search by Location (1km radius)
+
+**MCP Tool**: `search_memories_by_location`
 
 **Description**: Search for memories near Eiffel Tower
 
@@ -416,6 +437,8 @@ search_memories_by_location({
 
 ### UAT-21-010: Search by Time Range
 
+**MCP Tool**: `search_memories_by_time`
+
 **Description**: Search for memories in July 2024
 
 **Prerequisites**:
@@ -445,6 +468,8 @@ search_memories_by_time({
 ---
 
 ### UAT-21-011: Combined Spatial-Temporal Search
+
+**MCP Tool**: `search_memories_combined`
 
 **Description**: Search for memories near Eiffel Tower in July 2024
 
@@ -478,6 +503,8 @@ search_memories_combined({
 ---
 
 ### UAT-21-012: Retrieve Full Provenance Chain
+
+**MCP Tool**: `get_memory_provenance`
 
 **Description**: Get complete provenance chain for memory
 
@@ -526,6 +553,8 @@ get_memory_provenance({
 
 ### UAT-21-013: Create SKOS Concept Scheme
 
+**MCP Tool**: `create_concept_scheme`
+
 **Description**: Create a SKOS taxonomy for UAT testing
 
 **Prerequisites**:
@@ -556,6 +585,8 @@ create_concept_scheme({
 ---
 
 ### UAT-21-014: Create Hierarchical Concepts
+
+**MCP Tools**: `create_concept`, `add_broader`, `get_narrower`
 
 **Description**: Create broader/narrower concept relationships
 
@@ -657,6 +688,8 @@ get_narrower({
 
 ### UAT-21-015: Create Collection Hierarchy
 
+**MCP Tool**: `create_collection`
+
 **Description**: Create nested collections for organizing notes
 
 **Prerequisites**:
@@ -694,6 +727,8 @@ create_collection({
 ---
 
 ### UAT-21-016: Create Tagged Notes in Collections
+
+**MCP Tools**: `create_note`, `tag_note_concept`, `move_note_to_collection`
 
 **Description**: Create notes with SKOS tags and add to collections
 
@@ -762,6 +797,8 @@ move_note_to_collection({
 
 ### UAT-21-017: Search with Strict Tag Filtering
 
+**MCP Tool**: `search_notes`
+
 **Description**: Search notes using strict SKOS tag filtering
 
 **Prerequisites**:
@@ -802,6 +839,8 @@ search_notes({
 ---
 
 ### UAT-21-018: Explore Knowledge Graph
+
+**MCP Tool**: `explore_graph`
 
 **Description**: Explore knowledge graph from Python concept (2-hop)
 
@@ -849,6 +888,8 @@ explore_graph({
 ---
 
 ### UAT-21-019: Export Knowledge Shard
+
+**MCP Tools**: `export_skos_turtle`, `knowledge_shard`
 
 **Description**: Export collection as knowledge shard (Turtle/JSON-LD)
 
@@ -913,6 +954,8 @@ knowledge_shard({
 
 ### UAT-21-020: Create Multilingual Notes
 
+**MCP Tool**: `create_note`
+
 **Description**: Create notes in multiple languages
 
 **Prerequisites**:
@@ -964,6 +1007,8 @@ create_note({
 
 ### UAT-21-021: Test English Stemming
 
+**MCP Tool**: `search_notes`
+
 **Description**: Search with stemming for English content
 
 **Prerequisites**:
@@ -1004,6 +1049,8 @@ search_notes({
 
 ### UAT-21-022: Test German Stemming
 
+**MCP Tool**: `search_notes`
+
 **Description**: Search with German stemming
 
 **Prerequisites**:
@@ -1032,6 +1079,8 @@ search_notes({
 ---
 
 ### UAT-21-023: Test CJK Bigram Matching
+
+**MCP Tool**: `search_notes`
 
 **Description**: Search Chinese text with bigram indexing
 
@@ -1074,6 +1123,8 @@ search_notes({
 
 ### UAT-21-024: Test Emoji Trigram Matching
 
+**MCP Tool**: `search_notes`
+
 **Description**: Search for emoji using trigram indexing
 
 **Prerequisites**:
@@ -1103,6 +1154,8 @@ search_notes({
 ---
 
 ### UAT-21-025: Cross-Language Semantic Discovery
+
+**MCP Tool**: `search_notes`
 
 **Description**: Use semantic search to find related notes across languages
 
@@ -1159,6 +1212,8 @@ search_notes({
 
 ### UAT-21-026: Generate PKE Keyset
 
+**MCP Tool**: `create_keyset`
+
 **Description**: Generate public/private keypair for encryption
 
 **Prerequisites**:
@@ -1190,6 +1245,8 @@ create_keyset({
 
 ### UAT-21-027: Create Sensitive Note
 
+**MCP Tool**: `create_note`
+
 **Description**: Create note with sensitive content
 
 **Prerequisites**:
@@ -1217,6 +1274,8 @@ create_note({
 ---
 
 ### UAT-21-028: Encrypt Note with PKE
+
+**MCP Tools**: `pke_encrypt`, `get_note`
 
 **Description**: Encrypt note content using PKE keyset
 
@@ -1254,6 +1313,8 @@ get_note({ note_id: "{sensitive_note_id}" })
 
 ### UAT-21-029: Generate Share Address
 
+**MCP Tool**: `share_note_encrypted`
+
 **Description**: Create shareable address for encrypted note
 
 **Prerequisites**:
@@ -1287,6 +1348,8 @@ share_note_encrypted({
 
 ### UAT-21-030: Decrypt Note
 
+**MCP Tool**: `pke_decrypt`
+
 **Description**: Decrypt note using private key
 
 **Prerequisites**:
@@ -1315,6 +1378,8 @@ pke_decrypt({
 ---
 
 ### UAT-21-031: Verify Content Integrity
+
+**MCP Tool**: `read_shared_note`
 
 **Description**: Verify decrypted content matches original
 
@@ -1364,6 +1429,8 @@ read_shared_note({
 
 ### UAT-21-032: Create Test Data for Backup
 
+**MCP Tools**: `create_note`, `get_note_links`
+
 **Description**: Create multiple notes with relationships
 
 **Prerequisites**:
@@ -1411,6 +1478,8 @@ get_note_links({ note_id: "{backup_note1_id}" })
 
 ### UAT-21-033: Create Database Snapshot
 
+**MCP Tools**: `database_snapshot`, `backup_status`
+
 **Description**: Take database backup snapshot
 
 **Prerequisites**:
@@ -1450,6 +1519,8 @@ backup_status({})
 ---
 
 ### UAT-21-034: Delete Test Data
+
+**MCP Tools**: `delete_note`, `list_notes`
 
 **Description**: Delete the test notes to simulate data loss
 
@@ -1495,6 +1566,8 @@ list_notes({ tags: ["uat/chain6"] })
 
 ### UAT-21-035: Restore from Snapshot
 
+**MCP Tools**: `database_restore`, `backup_status`
+
 **Description**: Restore database from backup snapshot
 
 **Prerequisites**:
@@ -1535,6 +1608,8 @@ backup_status({})
 ---
 
 ### UAT-21-036: Verify Data Recovery
+
+**MCP Tools**: `list_notes`, `get_note`, `get_note_links`
 
 **Description**: Verify all deleted notes and links are restored
 
@@ -1604,6 +1679,8 @@ get_note_links({ note_id: "{backup_note1_id}" })
 
 ### UAT-21-037: Create Focused Embedding Set
 
+**MCP Tool**: `create_embedding_set`
+
 **Description**: Create embedding set with tag-based criteria
 
 **Prerequisites**:
@@ -1647,6 +1724,8 @@ create_embedding_set({
 
 ### UAT-21-038: Create Matching and Non-Matching Notes
 
+**MCP Tool**: `create_note`
+
 **Description**: Create notes that match and don't match set criteria
 
 **Prerequisites**:
@@ -1688,6 +1767,8 @@ create_note({
 ---
 
 ### UAT-21-039: Verify Auto-Population
+
+**MCP Tools**: `get_embedding_set`, `search_notes`
 
 **Description**: Verify only matching notes added to embedding set
 
@@ -1732,6 +1813,8 @@ get_embedding_set({ set_id: "{python_set_id}" })
 
 ### UAT-21-040: Focused Search Within Set
 
+**MCP Tool**: `search_notes`
+
 **Description**: Search within focused embedding set
 
 **Prerequisites**:
@@ -1773,6 +1856,8 @@ search_notes({
 
 ### UAT-21-041: Update Model Configuration
 
+**MCP Tool**: `refresh_embedding_set`
+
 **Description**: Change embedding model config for set
 
 **Prerequisites**:
@@ -1799,6 +1884,8 @@ refresh_embedding_set({
 ---
 
 ### UAT-21-042: Re-Embed and Compare Results
+
+**MCP Tools**: `search_notes`, `get_embedding_set`
 
 **Description**: Trigger re-embedding and compare search results
 
@@ -1859,6 +1946,8 @@ get_embedding_set({ set_id: "{python_set_id}" })
 
 ### UAT-21-043: Get Knowledge Health Score
 
+**MCP Tool**: `get_knowledge_health`
+
 **Description**: Check overall knowledge base health
 
 **Prerequisites**:
@@ -1897,6 +1986,8 @@ get_knowledge_health({})
 
 ### UAT-21-044: Identify Orphan Tags
 
+**MCP Tool**: `get_orphan_tags`
+
 **Description**: Find tags not used by any notes
 
 **Prerequisites**:
@@ -1926,6 +2017,8 @@ get_orphan_tags({})
 ---
 
 ### UAT-21-045: Identify Stale and Unlinked Notes
+
+**MCP Tools**: `get_stale_notes`, `get_unlinked_notes`
 
 **Description**: Find notes without links or embeddings
 
@@ -1960,6 +2053,8 @@ get_unlinked_notes({})
 ---
 
 ### UAT-21-046: Export Knowledge Health Report
+
+**MCP Tools**: `health_check`, `get_knowledge_health`
 
 **Description**: Generate comprehensive health report
 
@@ -1996,6 +2091,8 @@ get_knowledge_health({})
 ---
 
 ### UAT-21-047: Remediate Identified Issues
+
+**MCP Tools**: `reembed_all`, `get_knowledge_health`
 
 **Description**: Clean up orphan tags and re-embed stale notes
 
@@ -2043,6 +2140,8 @@ get_knowledge_health({})
 ## Cleanup
 
 ### UAT-21-048: Delete All Chain Test Data
+
+**MCP Tools**: `list_notes`, `delete_note`, `delete_collection`, `list_concept_schemes`
 
 **Description**: Clean up all test data created during feature chains
 
@@ -2116,17 +2215,17 @@ list_concept_schemes({})
 
 ## Phase Summary
 
-| Chain | Name | Steps | Status |
-|-------|------|-------|--------|
-| Chain 1 | Document Lifecycle | 6 | |
-| Chain 2 | Geo-Temporal Memory | 6 | |
-| Chain 3 | Knowledge Organization | 7 | |
-| Chain 4 | Multilingual Search | 6 | |
-| Chain 5 | Encryption & Sharing | 6 | |
-| Chain 6 | Backup & Recovery | 5 | |
-| Chain 7 | Embedding Set Focus | 6 | |
-| Chain 8 | Full Observability | 5 | |
-| Cleanup | Delete Test Data | 1 | |
+| Chain | Name | Steps | MCP Tool(s) | Status |
+|-------|------|-------|-------------|--------|
+| Chain 1 | Document Lifecycle | 6 | `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note` | |
+| Chain 2 | Geo-Temporal Memory | 6 | `create_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
+| Chain 3 | Knowledge Organization | 7 | `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `search_notes`, `explore_graph`, `export_skos_turtle`, `knowledge_shard` | |
+| Chain 4 | Multilingual Search | 6 | `create_note`, `search_notes` | |
+| Chain 5 | Encryption & Sharing | 6 | `create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `share_note_encrypted`, `pke_decrypt`, `read_shared_note` | |
+| Chain 6 | Backup & Recovery | 5 | `create_note`, `get_note_links`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `get_note` | |
+| Chain 7 | Embedding Set Focus | 6 | `create_embedding_set`, `create_note`, `get_embedding_set`, `search_notes`, `refresh_embedding_set` | |
+| Chain 8 | Full Observability | 5 | `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all` | |
+| Cleanup | Delete Test Data | 1 | `list_notes`, `delete_note`, `delete_collection`, `list_concept_schemes` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

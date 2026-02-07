@@ -6,6 +6,10 @@
 **Dependencies**: Phase 0 (preflight)
 **Critical**: Yes (100% pass required)
 
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+>
+> **Exception**: Part B (Infrastructure Validation) uses curl for OAuth endpoints that agents never call directly.
+
 ---
 
 ## Overview
@@ -33,6 +37,8 @@ This phase validates that the Matric Memory authentication system works correctl
 
 ### AUTH-001: MCP Session Initialization
 
+**MCP Tool**: Session initialization (automatic)
+
 ```javascript
 // MCPTestClient initializes session automatically
 const client = new MCPTestClient(MCP_BASE_URL);
@@ -45,6 +51,8 @@ await client.initialize();
 
 ### AUTH-002: Authenticated Tool Access
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 // With valid auth, tools work normally
 search_notes({ query: "test", limit: 5 })
@@ -55,6 +63,8 @@ search_notes({ query: "test", limit: 5 })
 ---
 
 ### AUTH-003: List Available Tools (Scope Check)
+
+**MCP Tool**: Tool listing (automatic)
 
 ```javascript
 // Tool list reflects available capabilities
@@ -67,6 +77,8 @@ const tools = await client.listTools();
 ---
 
 ### AUTH-004: Write Operation with Write Scope
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -83,6 +95,8 @@ create_note({
 
 ### AUTH-005: Read Operation Returns Auth Test Note
 
+**MCP Tool**: `get_note`
+
 ```javascript
 get_note({ id: "<AUTH_NOTE_ID>" })
 ```
@@ -92,6 +106,8 @@ get_note({ id: "<AUTH_NOTE_ID>" })
 ---
 
 ### AUTH-006: Update Operation with Write Scope
+
+**MCP Tool**: `update_note`
 
 ```javascript
 update_note({
@@ -106,6 +122,8 @@ update_note({
 
 ### AUTH-007: Delete Operation with Write Scope
 
+**MCP Tool**: `delete_note`
+
 ```javascript
 delete_note({ id: "<AUTH_NOTE_ID>" })
 ```
@@ -115,6 +133,8 @@ delete_note({ id: "<AUTH_NOTE_ID>" })
 ---
 
 ### AUTH-008: Purge Operation with Write Scope (Issue #121)
+
+**MCP Tool**: `purge_note`
 
 ```javascript
 // Create a note to purge
@@ -133,6 +153,8 @@ purge_note({ id: purge_note.id, confirm: true })
 
 ### AUTH-009: Search Operations with Read Scope
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 search_notes({ query: "authentication", mode: "hybrid", limit: 5 })
 ```
@@ -142,6 +164,8 @@ search_notes({ query: "authentication", mode: "hybrid", limit: 5 })
 ---
 
 ### AUTH-010: Backup Status (Read Operation)
+
+**MCP Tool**: `backup_status`
 
 ```javascript
 backup_status()
@@ -153,6 +177,8 @@ backup_status()
 
 ### AUTH-011: Memory Info (Read Operation)
 
+**MCP Tool**: `memory_info`
+
 ```javascript
 memory_info()
 ```
@@ -163,6 +189,8 @@ memory_info()
 
 ### AUTH-012: MCP Tool Error on Invalid Parameters
 
+**MCP Tool**: `get_note`
+
 ```javascript
 // Test that auth errors are distinguishable from parameter errors
 get_note({ id: "nonexistent-uuid-value" })
@@ -172,13 +200,9 @@ get_note({ id: "nonexistent-uuid-value" })
 
 ---
 
-## Part B: OAuth Infrastructure Validation
-
-> **Note**: These tests validate the infrastructure that enables MCP authentication.
-> They use curl because OAuth endpoints are infrastructure-level, not agent-facing.
-> An agent never calls these directly - the MCP server does.
-
 ### AUTH-013: OpenID Discovery Endpoint
+
+**MCP Tool**: `memory_info`
 
 ```javascript
 // Verify via MCP health check that OAuth is configured
@@ -189,9 +213,15 @@ memory_info()
 
 ---
 
+## Part B: OAuth Infrastructure Validation
+
+> **Note**: These tests validate the infrastructure that enables MCP authentication.
+> They use curl because OAuth endpoints are infrastructure-level, not agent-facing.
+> An agent never calls these directly - the MCP server does.
+
 ### AUTH-014: MCP Server Authentication Flow
 
-> **Infrastructure Test**: Validates the MCP server's internal auth flow
+**Infrastructure Test**: Validates the MCP server's internal auth flow
 
 ```bash
 # 1. Register MCP client (one-time setup)
@@ -208,6 +238,8 @@ curl -s -X POST "$BASE_URL/oauth/register" \
 
 ### AUTH-015: Token Issuance for MCP
 
+**Infrastructure Test**: Validates OAuth token endpoint
+
 ```bash
 # Get access token for MCP session
 curl -s -X POST "$BASE_URL/oauth/token" \
@@ -221,6 +253,8 @@ curl -s -X POST "$BASE_URL/oauth/token" \
 
 ### AUTH-016: Token Introspection
 
+**Infrastructure Test**: Validates OAuth introspection endpoint
+
 ```bash
 curl -s -X POST "$BASE_URL/oauth/introspect" \
   -H "Content-Type: application/x-www-form-urlencoded" \
@@ -232,6 +266,8 @@ curl -s -X POST "$BASE_URL/oauth/introspect" \
 ---
 
 ### AUTH-017: Token Revocation
+
+**Infrastructure Test**: Validates OAuth revocation endpoint
 
 ```bash
 curl -s -X POST "$BASE_URL/oauth/revoke" \
@@ -255,25 +291,25 @@ search_notes({ query: "tags:uat/auth-test OR tags:uat/auth-purge", limit: 100 })
 
 ## Success Criteria
 
-| Test ID | Name | Type | Status |
-|---------|------|------|--------|
-| AUTH-001 | MCP Session Init | MCP | |
-| AUTH-002 | Authenticated Tool Access | MCP | |
-| AUTH-003 | List Available Tools | MCP | |
-| AUTH-004 | Write Operation (Create) | MCP | |
-| AUTH-005 | Read Operation (Get) | MCP | |
-| AUTH-006 | Update Operation | MCP | |
-| AUTH-007 | Delete Operation | MCP | |
-| AUTH-008 | Purge with Write Scope | MCP | |
-| AUTH-009 | Search with Read Scope | MCP | |
-| AUTH-010 | Backup Status | MCP | |
-| AUTH-011 | Memory Info | MCP | |
-| AUTH-012 | Error Handling (Not Auth) | MCP | |
-| AUTH-013 | Health Check (OAuth Active) | MCP | |
-| AUTH-014 | Client Registration | Infra | |
-| AUTH-015 | Token Issuance | Infra | |
-| AUTH-016 | Token Introspection | Infra | |
-| AUTH-017 | Token Revocation | Infra | |
+| Test ID | Name | MCP Tool(s) | Type | Status |
+|---------|------|-------------|------|--------|
+| AUTH-001 | MCP Session Init | Session initialization | MCP | |
+| AUTH-002 | Authenticated Tool Access | `search_notes` | MCP | |
+| AUTH-003 | List Available Tools | Tool listing | MCP | |
+| AUTH-004 | Write Operation (Create) | `create_note` | MCP | |
+| AUTH-005 | Read Operation (Get) | `get_note` | MCP | |
+| AUTH-006 | Update Operation | `update_note` | MCP | |
+| AUTH-007 | Delete Operation | `delete_note` | MCP | |
+| AUTH-008 | Purge with Write Scope | `purge_note` | MCP | |
+| AUTH-009 | Search with Read Scope | `search_notes` | MCP | |
+| AUTH-010 | Backup Status | `backup_status` | MCP | |
+| AUTH-011 | Memory Info | `memory_info` | MCP | |
+| AUTH-012 | Error Handling (Not Auth) | `get_note` | MCP | |
+| AUTH-013 | Health Check (OAuth Active) | `memory_info` | MCP | |
+| AUTH-014 | Client Registration | Infrastructure Test | Infra | |
+| AUTH-015 | Token Issuance | Infrastructure Test | Infra | |
+| AUTH-016 | Token Introspection | Infrastructure Test | Infra | |
+| AUTH-017 | Token Revocation | Infrastructure Test | Infra | |
 
 **MCP Tests**: 13 (agent-perspective)
 **Infrastructure Tests**: 4 (OAuth plumbing)

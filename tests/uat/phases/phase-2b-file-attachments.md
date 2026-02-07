@@ -4,6 +4,9 @@
 **Duration**: ~15 minutes
 **Prerequisites**: Phase 1 seed data exists, test data generated
 **Critical**: Yes (100% pass required)
+**Tools Tested**: `create_note`, `upload_attachment`, `list_attachments`, `get_attachment`, `download_attachment`, `delete_attachment`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
@@ -17,6 +20,8 @@
 ## File Upload - Basic
 
 ### UAT-2B-001: Upload Image File
+
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a JPEG image and verify attachment record creation
 
@@ -44,6 +49,8 @@
 
 ### UAT-2B-002: Upload PDF Document
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Upload a PDF file and verify storage
 
 **Prerequisites**:
@@ -66,6 +73,8 @@
 
 ### UAT-2B-003: Upload Audio File
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Upload an audio file (MP3) and verify storage
 
 **Prerequisites**:
@@ -85,6 +94,8 @@
 
 ### UAT-2B-004: Upload Video File
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Upload a video file (MP4) and verify storage
 
 **Prerequisites**:
@@ -103,6 +114,8 @@
 ---
 
 ### UAT-2B-005: Upload 3D Model File
+
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a 3D model file (GLB/GLTF) and verify storage
 
@@ -124,6 +137,8 @@
 ## File Download and Integrity
 
 ### UAT-2B-006: Download File and Verify Integrity
+
+**MCP Tool**: `download_attachment`
 
 **Description**: Download uploaded image and verify content matches
 
@@ -149,6 +164,8 @@
 
 ### UAT-2B-007: Download Non-Existent Attachment
 
+**MCP Tool**: `download_attachment`
+
 **Description**: Attempt to download non-existent attachment and verify error handling
 
 **Prerequisites**: None
@@ -166,6 +183,8 @@
 ## Content Deduplication
 
 ### UAT-2B-008: Upload Duplicate File
+
+**MCP Tool**: `create_note`, `upload_attachment`
 
 **Description**: Upload same file twice and verify deduplication
 
@@ -197,6 +216,8 @@
 
 ### UAT-2B-009: EXIF GPS Extraction
 
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+
 **Description**: Upload photo with GPS EXIF data and verify extraction
 
 **Prerequisites**:
@@ -225,6 +246,8 @@
 
 ### UAT-2B-010: EXIF Camera Metadata
 
+**MCP Tool**: `upload_attachment`, `get_attachment`
+
 **Description**: Verify camera make/model extraction from EXIF
 
 **Prerequisites**:
@@ -247,6 +270,8 @@
 
 ### UAT-2B-011: EXIF Timestamp Extraction
 
+**MCP Tool**: `upload_attachment`, `get_attachment`
+
 **Description**: Verify date/time extraction from EXIF
 
 **Prerequisites**:
@@ -268,6 +293,8 @@
 
 ### UAT-2B-012: Block Executable Extension
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Attempt to upload executable and verify rejection
 
 **Prerequisites**: None
@@ -288,6 +315,8 @@
 
 ### UAT-2B-013: Block Script Extension
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Verify rejection of script files
 
 **Prerequisites**: None
@@ -303,6 +332,8 @@
 ---
 
 ### UAT-2B-014: Magic Bytes Validation
+
+**MCP Tool**: `upload_attachment`
 
 **Description**: Verify MIME type matches file content (magic bytes)
 
@@ -328,6 +359,8 @@
 
 ### UAT-2B-015: List All Attachments for Note
 
+**MCP Tool**: `list_attachments`
+
 **Description**: List all attachments for a note with multiple files
 
 **Prerequisites**:
@@ -349,6 +382,8 @@
 
 ### UAT-2B-016: List Attachments for Note with No Attachments
 
+**MCP Tool**: `create_note`, `list_attachments`
+
 **Description**: Verify empty result for note without attachments
 
 **Prerequisites**:
@@ -367,6 +402,8 @@
 ## Attachment Deletion
 
 ### UAT-2B-017: Delete Attachment
+
+**MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment`
 
 **Description**: Delete an attachment and verify removal
 
@@ -390,6 +427,8 @@
 ---
 
 ### UAT-2B-018: Delete Attachment with Shared Blob
+
+**MCP Tool**: `delete_attachment`, `download_attachment`
 
 **Description**: Delete attachment that shares blob with another attachment (deduplication)
 
@@ -417,6 +456,8 @@
 
 ### UAT-2B-019: Upload Oversized File
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Attempt to upload file exceeding size limit
 
 **Prerequisites**:
@@ -437,6 +478,8 @@
 
 ### UAT-2B-020: Upload with Invalid Content Type
 
+**MCP Tool**: `upload_attachment`
+
 **Description**: Attempt upload with malformed MIME type
 
 **Prerequisites**: None
@@ -452,6 +495,8 @@
 ---
 
 ### UAT-2B-021: Upload to Non-Existent Note
+
+**MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to attach file to non-existent note
 
@@ -472,29 +517,29 @@
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| UAT-2B-001 | Upload Image File | |
-| UAT-2B-002 | Upload PDF Document | |
-| UAT-2B-003 | Upload Audio File | |
-| UAT-2B-004 | Upload Video File | |
-| UAT-2B-005 | Upload 3D Model File | |
-| UAT-2B-006 | Download File Integrity | |
-| UAT-2B-007 | Download Non-Existent | |
-| UAT-2B-008 | Upload Duplicate File | |
-| UAT-2B-009 | EXIF GPS Extraction | |
-| UAT-2B-010 | EXIF Camera Metadata | |
-| UAT-2B-011 | EXIF Timestamp Extraction | |
-| UAT-2B-012 | Block Executable Extension | |
-| UAT-2B-013 | Block Script Extension | |
-| UAT-2B-014 | Magic Bytes Validation | |
-| UAT-2B-015 | List All Attachments | |
-| UAT-2B-016 | List Empty Attachments | |
-| UAT-2B-017 | Delete Attachment | |
-| UAT-2B-018 | Delete Shared Blob | |
-| UAT-2B-019 | Upload Oversized File | |
-| UAT-2B-020 | Invalid Content Type | |
-| UAT-2B-021 | Upload to Non-Existent Note | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| UAT-2B-001 | Upload Image File | `create_note`, `upload_attachment`, `list_attachments` | |
+| UAT-2B-002 | Upload PDF Document | `upload_attachment`, `list_attachments` | |
+| UAT-2B-003 | Upload Audio File | `upload_attachment` | |
+| UAT-2B-004 | Upload Video File | `upload_attachment` | |
+| UAT-2B-005 | Upload 3D Model File | `upload_attachment` | |
+| UAT-2B-006 | Download File Integrity | `download_attachment` | |
+| UAT-2B-007 | Download Non-Existent | `download_attachment` | |
+| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` | |
+| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment`, `get_attachment` | |
+| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment`, `get_attachment` | |
+| UAT-2B-012 | Block Executable Extension | `upload_attachment` | |
+| UAT-2B-013 | Block Script Extension | `upload_attachment` | |
+| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` | |
+| UAT-2B-015 | List All Attachments | `list_attachments` | |
+| UAT-2B-016 | List Empty Attachments | `create_note`, `list_attachments` | |
+| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
+| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
+| UAT-2B-019 | Upload Oversized File | `upload_attachment` | |
+| UAT-2B-020 | Invalid Content Type | `upload_attachment` | |
+| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

@@ -3,12 +3,17 @@
 **Purpose**: Verify embedding sets and embedding configuration
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 1 seed data exists
+**Tools Tested**: `list_embedding_sets`, `get_embedding_set`, `create_embedding_set`, `add_set_members`, `list_set_members`, `remove_set_member`, `search_notes`, `refresh_embedding_set`, `update_embedding_set`, `delete_embedding_set`, `reembed_all`, `list_embedding_configs`, `get_default_embedding_config`, `get_embedding_config`, `create_embedding_config`, `update_embedding_config`, `delete_embedding_config`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Embedding Sets
 
 ### EMB-001: List Embedding Sets
+
+**MCP Tool**: `list_embedding_sets`
 
 ```javascript
 list_embedding_sets()
@@ -20,6 +25,8 @@ list_embedding_sets()
 
 ### EMB-002: Get Default Set
 
+**MCP Tool**: `get_embedding_set`
+
 ```javascript
 get_embedding_set({ slug: "default" })
 ```
@@ -29,6 +36,8 @@ get_embedding_set({ slug: "default" })
 ---
 
 ### EMB-003: Create Embedding Set
+
+**MCP Tool**: `create_embedding_set`
 
 ```javascript
 create_embedding_set({
@@ -44,6 +53,8 @@ create_embedding_set({
 
 ### EMB-004: Add Members to Set
 
+**MCP Tool**: `add_set_members`
+
 ```javascript
 add_set_members({
   slug: "uat-test-set",
@@ -57,6 +68,8 @@ add_set_members({
 
 ### EMB-005: List Set Members
 
+**MCP Tool**: `list_set_members`
+
 ```javascript
 list_set_members({ slug: "uat-test-set" })
 ```
@@ -66,6 +79,8 @@ list_set_members({ slug: "uat-test-set" })
 ---
 
 ### EMB-006: Remove Set Member
+
+**MCP Tool**: `remove_set_member`
 
 ```javascript
 remove_set_member({
@@ -79,6 +94,8 @@ remove_set_member({
 ---
 
 ### EMB-007: Search Within Set
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 search_notes({
@@ -95,6 +112,8 @@ search_notes({
 
 ### EMB-008: Refresh Embedding Set
 
+**MCP Tool**: `refresh_embedding_set`
+
 ```javascript
 refresh_embedding_set({ slug: "uat-test-set" })
 ```
@@ -107,6 +126,8 @@ refresh_embedding_set({ slug: "uat-test-set" })
 
 ### EMB-009: List Embedding Configs
 
+**MCP Tool**: `list_embedding_configs`
+
 ```javascript
 list_embedding_configs()
 ```
@@ -117,6 +138,8 @@ list_embedding_configs()
 
 ### EMB-010: Get Default Embedding Config
 
+**MCP Tool**: `get_default_embedding_config`
+
 ```javascript
 get_default_embedding_config()
 ```
@@ -126,6 +149,8 @@ get_default_embedding_config()
 ---
 
 ### EMB-011: Index Status
+
+**MCP Tool**: `list_embedding_sets`
 
 ```javascript
 list_embedding_sets()
@@ -139,23 +164,25 @@ list_embedding_sets()
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| EMB-001 | List Embedding Sets | |
-| EMB-002 | Get Default Set | |
-| EMB-003 | Create Embedding Set | |
-| EMB-004 | Add Members | |
-| EMB-005 | List Members | |
-| EMB-006 | Remove Member | |
-| EMB-007 | Search Within Set | |
-| EMB-008 | Refresh Set | |
-| EMB-009 | List Configs | |
-| EMB-010 | Get Default Config | |
-| EMB-011 | Index Status | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| EMB-001 | List Embedding Sets | `list_embedding_sets` | |
+| EMB-002 | Get Default Set | `get_embedding_set` | |
+| EMB-003 | Create Embedding Set | `create_embedding_set` | |
+| EMB-004 | Add Members | `add_set_members` | |
+| EMB-005 | List Members | `list_set_members` | |
+| EMB-006 | Remove Member | `remove_set_member` | |
+| EMB-007 | Search Within Set | `search_notes` | |
+| EMB-008 | Refresh Set | `refresh_embedding_set` | |
+| EMB-009 | List Configs | `list_embedding_configs` | |
+| EMB-010 | Get Default Config | `get_default_embedding_config` | |
+| EMB-011 | Index Status | `list_embedding_sets` | |
 
 ---
 
 ### EMB-012: Update Embedding Set
+
+**MCP Tool**: `update_embedding_set`
 
 ```javascript
 update_embedding_set({
@@ -172,6 +199,8 @@ update_embedding_set({
 
 ### EMB-013: Delete Embedding Set
 
+**MCP Tool**: `delete_embedding_set`
+
 ```javascript
 delete_embedding_set({ slug: "uat-test-set" })
 ```
@@ -184,6 +213,8 @@ delete_embedding_set({ slug: "uat-test-set" })
 
 ### EMB-014: Re-embed All Notes
 
+**MCP Tool**: `reembed_all`
+
 ```javascript
 reembed_all({
   force: false  // Only notes without embeddings
@@ -195,6 +226,8 @@ reembed_all({
 ---
 
 ### EMB-015: Re-embed Specific Set
+
+**MCP Tool**: `reembed_all`
 
 ```javascript
 reembed_all({
@@ -209,29 +242,31 @@ reembed_all({
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| EMB-001 | List Embedding Sets | |
-| EMB-002 | Get Default Set | |
-| EMB-003 | Create Embedding Set | |
-| EMB-004 | Add Members | |
-| EMB-005 | List Members | |
-| EMB-006 | Remove Member | |
-| EMB-007 | Search Within Set | |
-| EMB-008 | Refresh Set | |
-| EMB-009 | List Configs | |
-| EMB-010 | Get Default Config | |
-| EMB-011 | Index Status | |
-| EMB-012 | Update Embedding Set | |
-| EMB-013 | Delete Embedding Set | |
-| EMB-014 | Re-embed All Notes | |
-| EMB-015 | Re-embed Specific Set | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| EMB-001 | List Embedding Sets | `list_embedding_sets` | |
+| EMB-002 | Get Default Set | `get_embedding_set` | |
+| EMB-003 | Create Embedding Set | `create_embedding_set` | |
+| EMB-004 | Add Members | `add_set_members` | |
+| EMB-005 | List Members | `list_set_members` | |
+| EMB-006 | Remove Member | `remove_set_member` | |
+| EMB-007 | Search Within Set | `search_notes` | |
+| EMB-008 | Refresh Set | `refresh_embedding_set` | |
+| EMB-009 | List Configs | `list_embedding_configs` | |
+| EMB-010 | Get Default Config | `get_default_embedding_config` | |
+| EMB-011 | Index Status | `list_embedding_sets` | |
+| EMB-012 | Update Embedding Set | `update_embedding_set` | |
+| EMB-013 | Delete Embedding Set | `delete_embedding_set` | |
+| EMB-014 | Re-embed All Notes | `reembed_all` | |
+| EMB-015 | Re-embed Specific Set | `reembed_all` | |
 
 ---
 
 ## Embedding Config Management
 
 ### EMB-016: Get Embedding Config by ID
+
+**MCP Tool**: `get_embedding_config`
 
 ```javascript
 get_embedding_config({ id: "<config_id>" })
@@ -255,6 +290,8 @@ get_embedding_config({ id: "<config_id>" })
 ---
 
 ### EMB-017: Create Embedding Config
+
+**MCP Tool**: `create_embedding_config`
 
 ```javascript
 create_embedding_config({
@@ -282,6 +319,8 @@ create_embedding_config({
 
 ### EMB-018: Update Embedding Config
 
+**MCP Tool**: `update_embedding_config`
+
 ```javascript
 update_embedding_config({
   id: test_config_id,
@@ -296,6 +335,8 @@ update_embedding_config({
 
 ### EMB-019: Delete Non-Default Config
 
+**MCP Tool**: `delete_embedding_config`
+
 ```javascript
 // Cannot delete default config
 delete_embedding_config({ id: test_config_id })
@@ -309,6 +350,8 @@ delete_embedding_config({ id: test_config_id })
 
 ### EMB-020: Cannot Delete Default Config
 
+**MCP Tool**: `get_default_embedding_config`, `delete_embedding_config`
+
 ```javascript
 const defaultConfig = get_default_embedding_config()
 delete_embedding_config({ id: defaultConfig.id })
@@ -320,28 +363,28 @@ delete_embedding_config({ id: defaultConfig.id })
 
 ## Final Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| EMB-001 | List Embedding Sets | |
-| EMB-002 | Get Default Set | |
-| EMB-003 | Create Embedding Set | |
-| EMB-004 | Add Members | |
-| EMB-005 | List Members | |
-| EMB-006 | Remove Member | |
-| EMB-007 | Search Within Set | |
-| EMB-008 | Refresh Set | |
-| EMB-009 | List Configs | |
-| EMB-010 | Get Default Config | |
-| EMB-011 | Index Status | |
-| EMB-012 | Update Embedding Set | |
-| EMB-013 | Delete Embedding Set | |
-| EMB-014 | Re-embed All Notes | |
-| EMB-015 | Re-embed Specific Set | |
-| EMB-016 | Get Config by ID | |
-| EMB-017 | Create Config | |
-| EMB-018 | Update Config | |
-| EMB-019 | Delete Non-Default Config | |
-| EMB-020 | Cannot Delete Default | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| EMB-001 | List Embedding Sets | `list_embedding_sets` | |
+| EMB-002 | Get Default Set | `get_embedding_set` | |
+| EMB-003 | Create Embedding Set | `create_embedding_set` | |
+| EMB-004 | Add Members | `add_set_members` | |
+| EMB-005 | List Members | `list_set_members` | |
+| EMB-006 | Remove Member | `remove_set_member` | |
+| EMB-007 | Search Within Set | `search_notes` | |
+| EMB-008 | Refresh Set | `refresh_embedding_set` | |
+| EMB-009 | List Configs | `list_embedding_configs` | |
+| EMB-010 | Get Default Config | `get_default_embedding_config` | |
+| EMB-011 | Index Status | `list_embedding_sets` | |
+| EMB-012 | Update Embedding Set | `update_embedding_set` | |
+| EMB-013 | Delete Embedding Set | `delete_embedding_set` | |
+| EMB-014 | Re-embed All Notes | `reembed_all` | |
+| EMB-015 | Re-embed Specific Set | `reembed_all` | |
+| EMB-016 | Get Config by ID | `get_embedding_config` | |
+| EMB-017 | Create Config | `create_embedding_config` | |
+| EMB-018 | Update Config | `update_embedding_config` | |
+| EMB-019 | Delete Non-Default Config | `delete_embedding_config` | |
+| EMB-020 | Cannot Delete Default | `get_default_embedding_config`, `delete_embedding_config` | |
 
 **MCP Tools Covered**: `list_embedding_sets`, `get_embedding_set`, `create_embedding_set`, `list_set_members`, `add_set_members`, `remove_set_member`, `refresh_embedding_set`, `update_embedding_set`, `delete_embedding_set`, `reembed_all`, `list_embedding_configs`, `get_default_embedding_config`, `get_embedding_config`, `create_embedding_config`, `update_embedding_config`
 

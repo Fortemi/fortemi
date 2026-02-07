@@ -3,12 +3,17 @@
 **Purpose**: Verify bidirectional semantic linking and graph exploration
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 1 seed data with embeddings generated
+**Tools Tested**: `get_note_links`, `explore_graph`, `get_full_document`, `get_chunk_chain`, `search_with_dedup`, `get_note_backlinks`, `get_note_provenance`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Semantic Links
 
 ### LINK-001: Get Note Links
+
+**MCP Tool**: `get_note_links`
 
 ```javascript
 get_note_links({ id: "<ml_note_id>" })
@@ -32,6 +37,8 @@ get_note_links({ id: "<ml_note_id>" })
 
 ### LINK-002: Verify Bidirectional Links
 
+**MCP Tool**: `get_note_links`
+
 ```javascript
 // Get links from note A
 const linksA = get_note_links({ id: "<note_a_id>" })
@@ -47,6 +54,8 @@ const linksB = get_note_links({ id: linkedNoteId })
 
 ### LINK-003: Link Score Threshold
 
+**MCP Tool**: `get_note_links`
+
 ```javascript
 get_note_links({ id: "<note_id>" })
 ```
@@ -58,6 +67,8 @@ get_note_links({ id: "<note_id>" })
 ## Graph Exploration
 
 ### LINK-004: Explore Graph - Depth 1
+
+**MCP Tool**: `explore_graph`
 
 ```javascript
 explore_graph({
@@ -86,6 +97,8 @@ explore_graph({
 
 ### LINK-005: Explore Graph - Depth 2
 
+**MCP Tool**: `explore_graph`
+
 ```javascript
 explore_graph({
   id: "<ml_note_id>",
@@ -99,6 +112,8 @@ explore_graph({
 ---
 
 ### LINK-006: Graph Max Nodes Limit
+
+**MCP Tool**: `explore_graph`
 
 ```javascript
 explore_graph({
@@ -116,6 +131,8 @@ explore_graph({
 
 ### LINK-007: Cross-Topic Links
 
+**MCP Tool**: `get_note_links`
+
 ```javascript
 // ML note should link to related programming concepts
 const mlLinks = get_note_links({ id: "<backpropagation_note_id>" })
@@ -127,6 +144,8 @@ const mlLinks = get_note_links({ id: "<backpropagation_note_id>" })
 
 ### LINK-008: No Self-Links
 
+**MCP Tool**: `get_note_links`
+
 ```javascript
 const links = get_note_links({ id: "<any_note_id>" })
 ```
@@ -137,16 +156,16 @@ const links = get_note_links({ id: "<any_note_id>" })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| LINK-001 | Get Note Links | |
-| LINK-002 | Verify Bidirectional | |
-| LINK-003 | Link Score Threshold | |
-| LINK-004 | Explore Graph Depth 1 | |
-| LINK-005 | Explore Graph Depth 2 | |
-| LINK-006 | Graph Max Nodes | |
-| LINK-007 | Cross-Topic Links | |
-| LINK-008 | No Self-Links | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| LINK-001 | Get Note Links | `get_note_links` | |
+| LINK-002 | Verify Bidirectional | `get_note_links` | |
+| LINK-003 | Link Score Threshold | `get_note_links` | |
+| LINK-004 | Explore Graph Depth 1 | `explore_graph` | |
+| LINK-005 | Explore Graph Depth 2 | `explore_graph` | |
+| LINK-006 | Graph Max Nodes | `explore_graph` | |
+| LINK-007 | Cross-Topic Links | `get_note_links` | |
+| LINK-008 | No Self-Links | `get_note_links` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 
@@ -159,6 +178,8 @@ const links = get_note_links({ id: "<any_note_id>" })
 ## Chunked Document Handling
 
 ### LINK-009: Get Full Document
+
+**MCP Tool**: `get_full_document`
 
 ```javascript
 // For a chunked note, get the full reconstructed document
@@ -190,6 +211,8 @@ get_full_document({ id: "<chunked_note_id>" })
 
 ### LINK-010: Get Chunk Chain
 
+**MCP Tool**: `get_chunk_chain`
+
 ```javascript
 get_chunk_chain({
   chain_id: "<chain_id>",
@@ -202,6 +225,8 @@ get_chunk_chain({
 ---
 
 ### LINK-011: Search With Deduplication
+
+**MCP Tool**: `search_with_dedup`
 
 ```javascript
 search_with_dedup({
@@ -232,25 +257,27 @@ search_with_dedup({
 
 ## Updated Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| LINK-001 | Get Note Links | |
-| LINK-002 | Verify Bidirectional | |
-| LINK-003 | Link Score Threshold | |
-| LINK-004 | Explore Graph Depth 1 | |
-| LINK-005 | Explore Graph Depth 2 | |
-| LINK-006 | Graph Max Nodes | |
-| LINK-007 | Cross-Topic Links | |
-| LINK-008 | No Self-Links | |
-| LINK-009 | Get Full Document | |
-| LINK-010 | Get Chunk Chain | |
-| LINK-011 | Search With Dedup | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| LINK-001 | Get Note Links | `get_note_links` | |
+| LINK-002 | Verify Bidirectional | `get_note_links` | |
+| LINK-003 | Link Score Threshold | `get_note_links` | |
+| LINK-004 | Explore Graph Depth 1 | `explore_graph` | |
+| LINK-005 | Explore Graph Depth 2 | `explore_graph` | |
+| LINK-006 | Graph Max Nodes | `explore_graph` | |
+| LINK-007 | Cross-Topic Links | `get_note_links` | |
+| LINK-008 | No Self-Links | `get_note_links` | |
+| LINK-009 | Get Full Document | `get_full_document` | |
+| LINK-010 | Get Chunk Chain | `get_chunk_chain` | |
+| LINK-011 | Search With Dedup | `search_with_dedup` | |
 
 ---
 
 ## Note Backlinks & Provenance
 
 ### LINK-012: Get Note Backlinks
+
+**MCP Tool**: `get_note_backlinks`
 
 ```javascript
 get_note_backlinks({ id: "<ml_note_id>" })
@@ -279,6 +306,8 @@ get_note_backlinks({ id: "<ml_note_id>" })
 ---
 
 ### LINK-013: Get Note Provenance
+
+**MCP Tool**: `get_note_provenance`
 
 ```javascript
 get_note_provenance({ id: "<ml_note_id>" })
@@ -315,21 +344,21 @@ get_note_provenance({ id: "<ml_note_id>" })
 
 ## Updated Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| LINK-001 | Get Note Links | |
-| LINK-002 | Verify Bidirectional | |
-| LINK-003 | Link Score Threshold | |
-| LINK-004 | Explore Graph Depth 1 | |
-| LINK-005 | Explore Graph Depth 2 | |
-| LINK-006 | Graph Max Nodes | |
-| LINK-007 | Cross-Topic Links | |
-| LINK-008 | No Self-Links | |
-| LINK-009 | Get Full Document | |
-| LINK-010 | Get Chunk Chain | |
-| LINK-011 | Search With Dedup | |
-| LINK-012 | Get Note Backlinks | |
-| LINK-013 | Get Note Provenance | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| LINK-001 | Get Note Links | `get_note_links` | |
+| LINK-002 | Verify Bidirectional | `get_note_links` | |
+| LINK-003 | Link Score Threshold | `get_note_links` | |
+| LINK-004 | Explore Graph Depth 1 | `explore_graph` | |
+| LINK-005 | Explore Graph Depth 2 | `explore_graph` | |
+| LINK-006 | Graph Max Nodes | `explore_graph` | |
+| LINK-007 | Cross-Topic Links | `get_note_links` | |
+| LINK-008 | No Self-Links | `get_note_links` | |
+| LINK-009 | Get Full Document | `get_full_document` | |
+| LINK-010 | Get Chunk Chain | `get_chunk_chain` | |
+| LINK-011 | Search With Dedup | `search_with_dedup` | |
+| LINK-012 | Get Note Backlinks | `get_note_backlinks` | |
+| LINK-013 | Get Note Provenance | `get_note_provenance` | |
 
 **MCP Tools Covered**: `get_note_links`, `explore_graph`, `get_full_document`, `get_chunk_chain`, `search_with_dedup`, `get_note_backlinks`, `get_note_provenance`
 

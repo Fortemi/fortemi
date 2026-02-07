@@ -4,12 +4,17 @@
 **Duration**: ~8 minutes
 **Phase Number**: 20 (second-to-last phase)
 **Prerequisites**: All phases 0-19 completed
+**Tools Tested**: `backup_status`, `backup_now`, `export_all_notes`, `export_note`, `knowledge_shard`, `knowledge_shard_import`, `list_backups`, `get_backup_info`, `get_backup_metadata`, `update_backup_metadata`, `database_snapshot`, `backup_download`, `knowledge_archive_download`, `knowledge_archive_upload`, `database_restore`, `backup_import`, `memory_info`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Backup Status
 
 ### BACK-001: Backup Status
+
+**MCP Tool**: `backup_status`
 
 ```javascript
 backup_status()
@@ -20,6 +25,8 @@ backup_status()
 ---
 
 ### BACK-002: Trigger Backup
+
+**MCP Tool**: `backup_now`
 
 ```javascript
 backup_now()
@@ -33,6 +40,8 @@ backup_now()
 
 ### BACK-003: Export All Notes
 
+**MCP Tool**: `export_all_notes`
+
 ```javascript
 export_all_notes()
 ```
@@ -42,6 +51,8 @@ export_all_notes()
 ---
 
 ### BACK-004: Export Single Note
+
+**MCP Tool**: `export_note`
 
 ```javascript
 export_note({
@@ -56,6 +67,8 @@ export_note({
 ---
 
 ### BACK-005: Export Note - Original Content
+
+**MCP Tool**: `export_note`
 
 ```javascript
 export_note({
@@ -72,6 +85,8 @@ export_note({
 
 ### BACK-006: Create Knowledge Shard
 
+**MCP Tool**: `knowledge_shard`
+
 ```javascript
 knowledge_shard({
   include_embeddings: false,
@@ -85,6 +100,8 @@ knowledge_shard({
 
 ### BACK-007: Knowledge Shard with Components
 
+**MCP Tool**: `knowledge_shard`
+
 ```javascript
 knowledge_shard({
   components: ["notes", "concepts", "links"]
@@ -96,6 +113,8 @@ knowledge_shard({
 ---
 
 ### BACK-008: Import Knowledge Shard
+
+**MCP Tools**: `knowledge_shard`, `knowledge_shard_import`
 
 ```javascript
 // First export
@@ -116,6 +135,8 @@ knowledge_shard_import({
 
 ### BACK-009: List Backups
 
+**MCP Tool**: `list_backups`
+
 ```javascript
 list_backups()
 ```
@@ -125,6 +146,8 @@ list_backups()
 ---
 
 ### BACK-010: Get Backup Info
+
+**MCP Tool**: `get_backup_info`
 
 ```javascript
 get_backup_info({ filename: "<backup_filename>" })
@@ -136,6 +159,8 @@ get_backup_info({ filename: "<backup_filename>" })
 
 ### BACK-011: Get Backup Metadata
 
+**MCP Tool**: `get_backup_metadata`
+
 ```javascript
 get_backup_metadata({ filename: "<backup_filename>" })
 ```
@@ -145,6 +170,8 @@ get_backup_metadata({ filename: "<backup_filename>" })
 ---
 
 ### BACK-012: Update Backup Metadata
+
+**MCP Tool**: `update_backup_metadata`
 
 ```javascript
 update_backup_metadata({
@@ -163,6 +190,8 @@ update_backup_metadata({
 
 ### BACK-013: Database Snapshot
 
+**MCP Tool**: `database_snapshot`
+
 ```javascript
 database_snapshot({
   label: "uat-pre-test"
@@ -175,6 +204,8 @@ database_snapshot({
 
 ### BACK-014: Download Backup
 
+**MCP Tool**: `backup_download`
+
 ```javascript
 backup_download()
 ```
@@ -183,30 +214,11 @@ backup_download()
 
 ---
 
-## Phase Summary
-
-| Test ID | Name | Status |
-|---------|------|--------|
-| BACK-001 | Backup Status | |
-| BACK-002 | Trigger Backup | |
-| BACK-003 | Export All Notes | |
-| BACK-004 | Export Single Note | |
-| BACK-005 | Export Original Content | |
-| BACK-006 | Create Knowledge Shard | |
-| BACK-007 | Shard with Components | |
-| BACK-008 | Import Knowledge Shard | |
-| BACK-009 | List Backups | |
-| BACK-010 | Get Backup Info | |
-| BACK-011 | Get Backup Metadata | |
-| BACK-012 | Update Metadata | |
-| BACK-013 | Database Snapshot | |
-| BACK-014 | Download Backup | |
-
----
-
 ## Knowledge Archives
 
 ### BACK-015: Knowledge Archive Download
+
+**MCP Tool**: `knowledge_archive_download`
 
 ```javascript
 knowledge_archive_download({ filename: "<archive_filename>" })
@@ -217,6 +229,8 @@ knowledge_archive_download({ filename: "<archive_filename>" })
 ---
 
 ### BACK-016: Knowledge Archive Upload
+
+**MCP Tool**: `knowledge_archive_upload`
 
 ```javascript
 knowledge_archive_upload({
@@ -233,6 +247,8 @@ knowledge_archive_upload({
 
 ### BACK-017: Database Restore
 
+**MCP Tool**: `database_restore`
+
 ```javascript
 // WARNING: This is destructive - use with caution
 database_restore({
@@ -248,6 +264,8 @@ database_restore({
 ---
 
 ### BACK-018: Memory Info
+
+**MCP Tool**: `memory_info`
 
 ```javascript
 memory_info()
@@ -272,6 +290,8 @@ memory_info()
 
 ### BACK-019: Import with Conflict Resolution
 
+**MCP Tool**: `backup_import`
+
 ```javascript
 backup_import({
   backup: { notes: [...] },
@@ -286,29 +306,27 @@ backup_import({
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| BACK-001 | Backup Status | |
-| BACK-002 | Trigger Backup | |
-| BACK-003 | Export All Notes | |
-| BACK-004 | Export Single Note | |
-| BACK-005 | Export Original Content | |
-| BACK-006 | Create Knowledge Shard | |
-| BACK-007 | Shard with Components | |
-| BACK-008 | Import Knowledge Shard | |
-| BACK-009 | List Backups | |
-| BACK-010 | Get Backup Info | |
-| BACK-011 | Get Backup Metadata | |
-| BACK-012 | Update Metadata | |
-| BACK-013 | Database Snapshot | |
-| BACK-014 | Download Backup | |
-| BACK-015 | Knowledge Archive Download | |
-| BACK-016 | Knowledge Archive Upload | |
-| BACK-017 | Database Restore | |
-| BACK-018 | Memory Info | |
-| BACK-019 | Import Conflict Resolution | |
-
-**MCP Tools Covered**: `backup_status`, `backup_now`, `export_all_notes`, `export_note`, `knowledge_shard`, `knowledge_shard_import`, `list_backups`, `get_backup_info`, `get_backup_metadata`, `update_backup_metadata`, `database_snapshot`, `backup_download`, `knowledge_archive_download`, `knowledge_archive_upload`, `database_restore`, `backup_import`, `memory_info`
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| BACK-001 | Backup Status | `backup_status` | |
+| BACK-002 | Trigger Backup | `backup_now` | |
+| BACK-003 | Export All Notes | `export_all_notes` | |
+| BACK-004 | Export Single Note | `export_note` | |
+| BACK-005 | Export Original Content | `export_note` | |
+| BACK-006 | Create Knowledge Shard | `knowledge_shard` | |
+| BACK-007 | Shard with Components | `knowledge_shard` | |
+| BACK-008 | Import Knowledge Shard | `knowledge_shard`, `knowledge_shard_import` | |
+| BACK-009 | List Backups | `list_backups` | |
+| BACK-010 | Get Backup Info | `get_backup_info` | |
+| BACK-011 | Get Backup Metadata | `get_backup_metadata` | |
+| BACK-012 | Update Metadata | `update_backup_metadata` | |
+| BACK-013 | Database Snapshot | `database_snapshot` | |
+| BACK-014 | Download Backup | `backup_download` | |
+| BACK-015 | Knowledge Archive Download | `knowledge_archive_download` | |
+| BACK-016 | Knowledge Archive Upload | `knowledge_archive_upload` | |
+| BACK-017 | Database Restore | `database_restore` | |
+| BACK-018 | Memory Info | `memory_info` | |
+| BACK-019 | Import Conflict Resolution | `backup_import` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

@@ -1,8 +1,10 @@
 # UAT Phase 16: Observability
 
 **Duration**: ~10 minutes
-**Tools Tested**: 9 tools
+**Tools Tested**: 7 tools
 **Dependencies**: Phase 0 (preflight), Phase 1 (seed data), Phase 2 (CRUD)
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -16,7 +18,7 @@ This phase tests knowledge health monitoring, timeline/activity views, and obser
 
 ### OBS-001: Get Knowledge Health Overview
 
-**Tool**: `get_knowledge_health`
+**MCP Tool**: `get_knowledge_health`
 
 ```javascript
 get_knowledge_health()
@@ -50,7 +52,7 @@ get_knowledge_health()
 
 ### OBS-002: Get Orphan Tags
 
-**Tool**: `get_orphan_tags`
+**MCP Tool**: `get_orphan_tags`
 
 ```javascript
 get_orphan_tags()
@@ -76,7 +78,7 @@ get_orphan_tags()
 
 ### OBS-003: Get Stale Notes
 
-**Tool**: `get_stale_notes`
+**MCP Tool**: `get_stale_notes`
 
 ```javascript
 get_stale_notes({
@@ -107,7 +109,7 @@ get_stale_notes({
 
 ### OBS-004: Get Unlinked Notes
 
-**Tool**: `get_unlinked_notes`
+**MCP Tool**: `get_unlinked_notes`
 
 ```javascript
 get_unlinked_notes({
@@ -136,7 +138,7 @@ get_unlinked_notes({
 
 ### OBS-005: Get Tag Co-occurrence
 
-**Tool**: `get_tag_cooccurrence`
+**MCP Tool**: `get_tag_cooccurrence`
 
 ```javascript
 get_tag_cooccurrence({
@@ -173,7 +175,7 @@ get_tag_cooccurrence({
 
 ### OBS-006: Get Notes Timeline
 
-**Tool**: `get_notes_timeline`
+**MCP Tool**: `get_notes_timeline`
 
 ```javascript
 get_notes_timeline({
@@ -215,7 +217,7 @@ get_notes_timeline({
 
 ### OBS-007: Get Notes Timeline - Weekly Granularity
 
-**Tool**: `get_notes_timeline`
+**MCP Tool**: `get_notes_timeline`
 
 ```javascript
 get_notes_timeline({
@@ -231,7 +233,7 @@ get_notes_timeline({
 
 ### OBS-008: Get Notes Activity
 
-**Tool**: `get_notes_activity`
+**MCP Tool**: `get_notes_activity`
 
 ```javascript
 get_notes_activity({
@@ -267,7 +269,7 @@ get_notes_activity({
 
 ### OBS-009: Get Notes Activity - Filtered
 
-**Tool**: `get_notes_activity`
+**MCP Tool**: `get_notes_activity`
 
 ```javascript
 get_notes_activity({
@@ -283,6 +285,8 @@ get_notes_activity({
 ## Health-Based Recommendations
 
 ### OBS-010: Act on Orphan Tags
+
+**MCP Tool**: `get_orphan_tags`
 
 ```javascript
 // Get orphan tags
@@ -301,6 +305,8 @@ if (orphans.orphan_tags.length > 0) {
 
 ### OBS-011: Act on Stale Notes
 
+**MCP Tool**: `get_stale_notes`
+
 ```javascript
 // Get stale notes
 const stale = get_stale_notes({ days: 365, limit: 5 })
@@ -317,6 +323,8 @@ if (stale.stale_notes.length > 0) {
 ---
 
 ### OBS-012: Knowledge Health After Operations
+
+**MCP Tool**: `get_knowledge_health`
 
 ```javascript
 // Perform some operations
@@ -335,20 +343,20 @@ get_knowledge_health()
 
 ## Success Criteria
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| OBS-001 | Knowledge Health Overview | |
-| OBS-002 | Orphan Tags | |
-| OBS-003 | Stale Notes | |
-| OBS-004 | Unlinked Notes | |
-| OBS-005 | Tag Co-occurrence | |
-| OBS-006 | Notes Timeline | |
-| OBS-007 | Timeline Weekly | |
-| OBS-008 | Notes Activity | |
-| OBS-009 | Activity Filtered | |
-| OBS-010 | Orphan Tag Workflow | |
-| OBS-011 | Stale Note Workflow | |
-| OBS-012 | Health After Operations | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| OBS-001 | Knowledge Health Overview | `get_knowledge_health` | |
+| OBS-002 | Orphan Tags | `get_orphan_tags` | |
+| OBS-003 | Stale Notes | `get_stale_notes` | |
+| OBS-004 | Unlinked Notes | `get_unlinked_notes` | |
+| OBS-005 | Tag Co-occurrence | `get_tag_cooccurrence` | |
+| OBS-006 | Notes Timeline | `get_notes_timeline` | |
+| OBS-007 | Timeline Weekly | `get_notes_timeline` | |
+| OBS-008 | Notes Activity | `get_notes_activity` | |
+| OBS-009 | Activity Filtered | `get_notes_activity` | |
+| OBS-010 | Orphan Tag Workflow | `get_orphan_tags` | |
+| OBS-011 | Stale Note Workflow | `get_stale_notes` | |
+| OBS-012 | Health After Operations | `get_knowledge_health` | |
 
 **Pass Rate Required**: 90% (11/12)
 

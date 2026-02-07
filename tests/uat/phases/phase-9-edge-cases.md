@@ -3,17 +3,22 @@
 **Purpose**: Verify error handling and edge case behavior
 **Duration**: ~5 minutes
 **Prerequisites**: None (test data recommended)
+**Tools Tested**: `create_note`, `update_note`, `delete_note`, `get_note`, `list_notes`, `search_notes`
 
 > **Test Data**: Pre-built edge case files available in `tests/uat/data/edge-cases/`:
 > `empty.txt`, `large-text-100kb.txt`, `binary-wrong-ext.jpg`, `unicode-filename-测试.txt`,
 > `whitespace-only.txt`, `malformed-json.json`.
 > Generate with: `cd tests/uat/data/scripts && ./generate-test-data.sh`
 
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+
 ---
 
 ## Input Validation
 
 ### EDGE-001: Empty Content
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -32,6 +37,8 @@ create_note({
 
 ### EDGE-002: Very Long Content
 
+**MCP Tool**: `create_note`
+
 ```javascript
 const longContent = "# Test\n\n" + "Lorem ipsum ".repeat(10000)
 create_note({
@@ -47,6 +54,8 @@ create_note({
 
 ### EDGE-003: Invalid UUID
 
+**MCP Tool**: `get_note`
+
 ```javascript
 get_note({ id: "not-a-uuid" })
 ```
@@ -57,6 +66,8 @@ get_note({ id: "not-a-uuid" })
 
 ### EDGE-004: Non-existent UUID
 
+**MCP Tool**: `get_note`
+
 ```javascript
 get_note({ id: "00000000-0000-0000-0000-000000000000" })
 ```
@@ -66,6 +77,8 @@ get_note({ id: "00000000-0000-0000-0000-000000000000" })
 ---
 
 ### EDGE-005: Null Parameters
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -81,6 +94,8 @@ create_note({
 
 ### EDGE-006: SQL Injection Attempt
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 search_notes({
   query: "'; DROP TABLE notes; --",
@@ -95,6 +110,8 @@ search_notes({
 
 ### EDGE-007: XSS in Content
 
+**MCP Tool**: `create_note`
+
 ```javascript
 create_note({
   content: "<script>alert('xss')</script>",
@@ -108,6 +125,8 @@ create_note({
 ---
 
 ### EDGE-008: Path Traversal in Metadata
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -125,6 +144,8 @@ create_note({
 
 ### EDGE-009: Rapid Updates
 
+**MCP Tool**: `update_note`
+
 ```javascript
 // Send 5 rapid updates to same note
 for (let i = 0; i < 5; i++) {
@@ -140,6 +161,8 @@ for (let i = 0; i < 5; i++) {
 ---
 
 ### EDGE-010: Delete During Update
+
+**MCP Tool**: `update_note`, `delete_note`
 
 ```javascript
 // Start long update
@@ -157,6 +180,8 @@ delete_note({ id: "<note_id>" })
 
 ### EDGE-011: Maximum Tags
 
+**MCP Tool**: `create_note`
+
 ```javascript
 create_note({
   content: "Tag limit test",
@@ -170,6 +195,8 @@ create_note({
 ---
 
 ### EDGE-012: Deeply Nested Tags
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -185,6 +212,8 @@ create_note({
 
 ### EDGE-013: Unicode Normalization
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 // café in two different Unicode forms
 const nfc = "café"  // NFC: é as single codepoint
@@ -199,6 +228,8 @@ search_notes({ query: nfd, mode: "fts" })
 ---
 
 ### EDGE-014: Zero-Width Characters
+
+**MCP Tool**: `create_note`
 
 ```javascript
 create_note({
@@ -216,6 +247,8 @@ create_note({
 
 ### EDGE-015: Retry After Error
 
+**MCP Tool**: `get_note`, `list_notes`
+
 ```javascript
 // First: cause an error
 get_note({ id: "invalid" })
@@ -230,23 +263,23 @@ list_notes({ limit: 5 })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| EDGE-001 | Empty Content | |
-| EDGE-002 | Very Long Content | |
-| EDGE-003 | Invalid UUID | |
-| EDGE-004 | Non-existent UUID | |
-| EDGE-005 | Null Parameters | |
-| EDGE-006 | SQL Injection | |
-| EDGE-007 | XSS in Content | |
-| EDGE-008 | Path Traversal | |
-| EDGE-009 | Rapid Updates | |
-| EDGE-010 | Delete During Update | |
-| EDGE-011 | Maximum Tags | |
-| EDGE-012 | Deeply Nested Tags | |
-| EDGE-013 | Unicode Normalization | |
-| EDGE-014 | Zero-Width Characters | |
-| EDGE-015 | Retry After Error | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| EDGE-001 | Empty Content | `create_note` | |
+| EDGE-002 | Very Long Content | `create_note` | |
+| EDGE-003 | Invalid UUID | `get_note` | |
+| EDGE-004 | Non-existent UUID | `get_note` | |
+| EDGE-005 | Null Parameters | `create_note` | |
+| EDGE-006 | SQL Injection | `search_notes` | |
+| EDGE-007 | XSS in Content | `create_note` | |
+| EDGE-008 | Path Traversal | `create_note` | |
+| EDGE-009 | Rapid Updates | `update_note` | |
+| EDGE-010 | Delete During Update | `update_note`, `delete_note` | |
+| EDGE-011 | Maximum Tags | `create_note` | |
+| EDGE-012 | Deeply Nested Tags | `create_note` | |
+| EDGE-013 | Unicode Normalization | `search_notes` | |
+| EDGE-014 | Zero-Width Characters | `create_note` | |
+| EDGE-015 | Retry After Error | `get_note`, `list_notes` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

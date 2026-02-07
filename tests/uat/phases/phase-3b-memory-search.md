@@ -4,6 +4,9 @@
 **Duration**: ~15 minutes
 **Prerequisites**: Phase 1 seed data exists, PostGIS extension enabled, W3C PROV schema migrated, test data generated
 **Critical**: Yes (100% pass required)
+**Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_note`, `upload_attachment`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 > **Test Data**: GPS-tagged images for provenance testing in `tests/uat/data/provenance/`:
 > `paris-eiffel-tower.jpg` (48.8584N, 2.2945E), `newyork-statue-liberty.jpg` (40.6892N, 74.0445W),
@@ -15,6 +18,8 @@
 ## Prerequisites Check
 
 ### UAT-3B-000: Verify PostGIS and PROV Schema
+
+**MCP Tool**: N/A (SQL verification only)
 
 **Description**: Ensure PostGIS extension and W3C PROV temporal-spatial schema are available
 
@@ -39,6 +44,8 @@
 ## Search by Location
 
 ### UAT-3B-001: Search Near Location - Basic
+
+**MCP Tool**: `create_note`, `upload_attachment`, `search_memories_by_location`
 
 **Description**: Search for memories captured near a specific location (Eiffel Tower)
 
@@ -72,6 +79,8 @@
 
 ### UAT-3B-002: Search Near Location - No Results
 
+**MCP Tool**: `search_memories_by_location`
+
 **Description**: Search far from any known locations and verify empty result
 
 **Prerequisites**: Test data from UAT-3B-001 exists
@@ -90,6 +99,8 @@
 ---
 
 ### UAT-3B-003: Search with Large Radius
+
+**MCP Tool**: `search_memories_by_location`
 
 **Description**: Search with large radius covering multiple locations
 
@@ -119,6 +130,8 @@
 
 ### UAT-3B-004: Verify Distance Ordering
 
+**MCP Tool**: `search_memories_by_location`
+
 **Description**: Verify results are ordered by distance from search point (closest first)
 
 **Prerequisites**: 3 attachments from UAT-3B-003
@@ -138,6 +151,8 @@
 ---
 
 ### UAT-3B-005: Search with Named Location
+
+**MCP Tool**: `search_memories_by_location`
 
 **Description**: Search for memories at a named location (e.g., "Eiffel Tower")
 
@@ -163,6 +178,8 @@
 ## Search by Time Range
 
 ### UAT-3B-006: Search by Time Range - Basic
+
+**MCP Tool**: `search_memories_by_time`
 
 **Description**: Search for memories captured within a time range
 
@@ -190,6 +207,8 @@
 
 ### UAT-3B-007: Search by Time Range - No Results
 
+**MCP Tool**: `search_memories_by_time`
+
 **Description**: Search time range with no memories and verify empty result
 
 **Prerequisites**: Test data from UAT-3B-006
@@ -207,6 +226,8 @@
 ---
 
 ### UAT-3B-008: Search by Time Range - Ordering
+
+**MCP Tool**: `search_memories_by_time`
 
 **Description**: Verify results ordered by capture time (earliest first)
 
@@ -233,6 +254,8 @@
 
 ### UAT-3B-009: Search with Time Range Overlap
 
+**MCP Tool**: `search_memories_by_time`
+
 **Description**: Verify time range overlaps work with tstzrange
 
 **Prerequisites**: Attachment with time range (not instant)
@@ -256,6 +279,8 @@
 
 ### UAT-3B-010: Search by Location AND Time
 
+**MCP Tool**: `search_memories_combined`
+
 **Description**: Search with both spatial and temporal filters
 
 **Prerequisites**:
@@ -278,6 +303,8 @@
 
 ### UAT-3B-011: Combined Search - No Spatial Match
 
+**MCP Tool**: `search_memories_combined`
+
 **Description**: Search with correct time but wrong location
 
 **Prerequisites**: Test data from UAT-3B-010
@@ -292,6 +319,8 @@
 ---
 
 ### UAT-3B-012: Combined Search - No Temporal Match
+
+**MCP Tool**: `search_memories_combined`
 
 **Description**: Search with correct location but wrong time
 
@@ -309,6 +338,8 @@
 ## Provenance Chain Retrieval
 
 ### UAT-3B-013: Get Full Provenance Chain
+
+**MCP Tool**: `get_memory_provenance`
 
 **Description**: Retrieve complete provenance data for a note (all attachments + metadata)
 
@@ -341,6 +372,8 @@
 
 ### UAT-3B-014: Get Provenance - Multiple Attachments
 
+**MCP Tool**: `get_memory_provenance`
+
 **Description**: Retrieve provenance for note with multiple attachments
 
 **Prerequisites**:
@@ -359,6 +392,8 @@
 ---
 
 ### UAT-3B-015: Get Provenance - Partial Data
+
+**MCP Tool**: `get_memory_provenance`
 
 **Description**: Retrieve provenance when only some fields are present
 
@@ -380,6 +415,8 @@
 
 ### UAT-3B-016: Get Provenance - No Attachments
 
+**MCP Tool**: `get_memory_provenance`
+
 **Description**: Query provenance for note with no attachments
 
 **Prerequisites**:
@@ -397,6 +434,8 @@
 ## Error Handling
 
 ### UAT-3B-017: Search with Invalid Coordinates
+
+**MCP Tool**: `search_memories_by_location`
 
 **Description**: Search with out-of-range latitude/longitude
 
@@ -419,6 +458,8 @@
 
 ### UAT-3B-018: Search with Negative Radius
 
+**MCP Tool**: `search_memories_by_location`
+
 **Description**: Attempt search with negative radius
 
 **Prerequisites**: None
@@ -433,6 +474,8 @@
 ---
 
 ### UAT-3B-019: Search with Invalid Time Range
+
+**MCP Tool**: `search_memories_by_time`
 
 **Description**: Search with end time before start time
 
@@ -450,6 +493,8 @@
 ## Empty Result Handling
 
 ### UAT-3B-020: Search New Database - No Data
+
+**MCP Tool**: `search_memories_by_location`, `search_memories_by_time`
 
 **Description**: Search empty database and verify graceful empty result
 
@@ -471,29 +516,29 @@
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| UAT-3B-000 | Verify PostGIS Schema | |
-| UAT-3B-001 | Search Near Location Basic | |
-| UAT-3B-002 | Search No Spatial Results | |
-| UAT-3B-003 | Search Large Radius | |
-| UAT-3B-004 | Verify Distance Ordering | |
-| UAT-3B-005 | Search Named Location | |
-| UAT-3B-006 | Search Time Range Basic | |
-| UAT-3B-007 | Search No Temporal Results | |
-| UAT-3B-008 | Search Time Ordering | |
-| UAT-3B-009 | Search Time Range Overlap | |
-| UAT-3B-010 | Combined Location + Time | |
-| UAT-3B-011 | Combined No Spatial Match | |
-| UAT-3B-012 | Combined No Temporal Match | |
-| UAT-3B-013 | Get Full Provenance Chain | |
-| UAT-3B-014 | Get Provenance Multiple Files | |
-| UAT-3B-015 | Get Provenance Partial Data | |
-| UAT-3B-016 | Get Provenance No Attachments | |
-| UAT-3B-017 | Search Invalid Coordinates | |
-| UAT-3B-018 | Search Negative Radius | |
-| UAT-3B-019 | Search Invalid Time Range | |
-| UAT-3B-020 | Search Empty Database | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| UAT-3B-000 | Verify PostGIS Schema | N/A (SQL only) | |
+| UAT-3B-001 | Search Near Location Basic | `create_note`, `upload_attachment`, `search_memories_by_location` | |
+| UAT-3B-002 | Search No Spatial Results | `search_memories_by_location` | |
+| UAT-3B-003 | Search Large Radius | `search_memories_by_location` | |
+| UAT-3B-004 | Verify Distance Ordering | `search_memories_by_location` | |
+| UAT-3B-005 | Search Named Location | `search_memories_by_location` | |
+| UAT-3B-006 | Search Time Range Basic | `search_memories_by_time` | |
+| UAT-3B-007 | Search No Temporal Results | `search_memories_by_time` | |
+| UAT-3B-008 | Search Time Ordering | `search_memories_by_time` | |
+| UAT-3B-009 | Search Time Range Overlap | `search_memories_by_time` | |
+| UAT-3B-010 | Combined Location + Time | `search_memories_combined` | |
+| UAT-3B-011 | Combined No Spatial Match | `search_memories_combined` | |
+| UAT-3B-012 | Combined No Temporal Match | `search_memories_combined` | |
+| UAT-3B-013 | Get Full Provenance Chain | `get_memory_provenance` | |
+| UAT-3B-014 | Get Provenance Multiple Files | `get_memory_provenance` | |
+| UAT-3B-015 | Get Provenance Partial Data | `get_memory_provenance` | |
+| UAT-3B-016 | Get Provenance No Attachments | `get_memory_provenance` | |
+| UAT-3B-017 | Search Invalid Coordinates | `search_memories_by_location` | |
+| UAT-3B-018 | Search Negative Radius | `search_memories_by_location` | |
+| UAT-3B-019 | Search Invalid Time Range | `search_memories_by_time` | |
+| UAT-3B-020 | Search Empty Database | `search_memories_by_location`, `search_memories_by_time` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

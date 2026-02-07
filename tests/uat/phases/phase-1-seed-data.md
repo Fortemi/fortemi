@@ -4,10 +4,17 @@
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 0 passed
 **Cleanup Required**: Yes (Phase 11)
+**Tools Tested**: `create_collection`, `bulk_create_notes`, `list_notes`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Test Collections
+
+### SEED-COLL: Create Collections
+
+**MCP Tool**: `create_collection`
 
 Create three test collections:
 
@@ -26,6 +33,8 @@ create_collection({ name: "UAT-Personal", description: "Personal notes for UAT t
 Execute `bulk_create_notes` with the following content:
 
 ### SEED-ML-001: Neural Networks Introduction
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 {
@@ -53,6 +62,8 @@ Backpropagation is the primary training algorithm.`,
 
 ### SEED-ML-002: Deep Learning Architectures
 
+**MCP Tool**: `bulk_create_notes`
+
 ```javascript
 {
   content: `# Deep Learning Architectures
@@ -77,6 +88,8 @@ BERT, GPT, and Claude. Self-attention enables parallel processing.`,
 ```
 
 ### SEED-ML-003: Backpropagation
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 {
@@ -103,6 +116,8 @@ with respect to each weight in the network.
 
 ### SEED-RUST-001: Ownership
 
+**MCP Tool**: `bulk_create_notes`
+
 ```javascript
 {
   content: `# Rust Ownership System
@@ -124,6 +139,8 @@ Rust's ownership system ensures memory safety without garbage collection.
 ```
 
 ### SEED-RUST-002: Error Handling
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 {
@@ -148,6 +165,8 @@ Eliminates null pointer exceptions.`,
 
 ### SEED-I18N-001: Chinese AI
 
+**MCP Tool**: `bulk_create_notes`
+
 ```javascript
 {
   content: `# 人工智能简介 (Introduction to AI in Chinese)
@@ -169,6 +188,8 @@ Eliminates null pointer exceptions.`,
 
 ### SEED-I18N-002: Arabic AI
 
+**MCP Tool**: `bulk_create_notes`
+
 ```javascript
 {
   content: `# مقدمة في الذكاء الاصطناعي
@@ -186,6 +207,8 @@ Eliminates null pointer exceptions.`,
 ```
 
 ### SEED-I18N-003: Diacritics
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 {
@@ -210,6 +233,8 @@ These words should be findable with or without accents.`,
 
 ### SEED-EDGE-001: Empty Sections
 
+**MCP Tool**: `bulk_create_notes`
+
 ```javascript
 {
   content: `# Empty Sections Test
@@ -227,6 +252,8 @@ More content here.`,
 ```
 
 ### SEED-EDGE-002: Special Characters
+
+**MCP Tool**: `bulk_create_notes`
 
 ```javascript
 {
@@ -252,6 +279,8 @@ $ € £ ¥ ₹ ₿
 
 ## Verification
 
+**MCP Tool**: `list_notes`
+
 After creating seed data:
 
 ```javascript
@@ -264,19 +293,19 @@ list_notes({ tags: ["uat"], limit: 100 })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| SEED-COLL | Create Collections | |
-| SEED-ML-001 | Neural Networks | |
-| SEED-ML-002 | Deep Learning | |
-| SEED-ML-003 | Backpropagation | |
-| SEED-RUST-001 | Ownership | |
-| SEED-RUST-002 | Error Handling | |
-| SEED-I18N-001 | Chinese AI | |
-| SEED-I18N-002 | Arabic AI | |
-| SEED-I18N-003 | Diacritics | |
-| SEED-EDGE-001 | Empty Sections | |
-| SEED-EDGE-002 | Special Characters | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| SEED-COLL | Create Collections | `create_collection` | |
+| SEED-ML-001 | Neural Networks | `bulk_create_notes` | |
+| SEED-ML-002 | Deep Learning | `bulk_create_notes` | |
+| SEED-ML-003 | Backpropagation | `bulk_create_notes` | |
+| SEED-RUST-001 | Ownership | `bulk_create_notes` | |
+| SEED-RUST-002 | Error Handling | `bulk_create_notes` | |
+| SEED-I18N-001 | Chinese AI | `bulk_create_notes` | |
+| SEED-I18N-002 | Arabic AI | `bulk_create_notes` | |
+| SEED-I18N-003 | Diacritics | `bulk_create_notes` | |
+| SEED-EDGE-001 | Empty Sections | `bulk_create_notes` | |
+| SEED-EDGE-002 | Special Characters | `bulk_create_notes` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

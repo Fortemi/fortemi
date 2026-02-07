@@ -1,8 +1,10 @@
 # UAT Phase 13: SKOS Taxonomy
 
 **Duration**: ~12 minutes
-**Tools Tested**: 22 tools
+**Tools Tested**: `list_concept_schemes`, `create_concept_scheme`, `get_concept_scheme`, `delete_concept_scheme`, `create_concept`, `get_concept`, `get_concept_full`, `update_concept`, `delete_concept`, `search_concepts`, `autocomplete_concepts`, `get_broader`, `add_broader`, `get_narrower`, `add_narrower`, `get_related`, `add_related`, `remove_broader`, `remove_narrower`, `remove_related`, `tag_note_concept`, `get_note_concepts`, `untag_note_concept`, `get_top_concepts`, `get_governance_stats`, `list_skos_collections`, `create_skos_collection`, `get_skos_collection`, `update_skos_collection`, `delete_skos_collection`, `add_skos_collection_member`, `remove_skos_collection_member`, `export_skos_turtle`
 **Dependencies**: Phase 0 (preflight), Phase 1 (seed data)
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -28,7 +30,7 @@ SKOS (Simple Knowledge Organization System) provides W3C-standard semantic taggi
 
 #### SKOS-001: List Concept Schemes
 
-**Tool**: `list_concept_schemes`
+**MCP Tool**: `list_concept_schemes`
 
 ```javascript
 list_concept_schemes()
@@ -42,7 +44,7 @@ list_concept_schemes()
 
 #### SKOS-002: Create Concept Scheme
 
-**Tool**: `create_concept_scheme`
+**MCP Tool**: `create_concept_scheme`
 
 ```javascript
 create_concept_scheme({
@@ -61,7 +63,7 @@ create_concept_scheme({
 
 #### SKOS-003: Create Second Scheme
 
-**Tool**: `create_concept_scheme`
+**MCP Tool**: `create_concept_scheme`
 
 ```javascript
 create_concept_scheme({
@@ -77,7 +79,7 @@ create_concept_scheme({
 
 #### SKOS-004: Get Concept Scheme
 
-**Tool**: `get_concept_scheme`
+**MCP Tool**: `get_concept_scheme`
 
 ```javascript
 get_concept_scheme({ id: tech_scheme_id })
@@ -93,7 +95,7 @@ get_concept_scheme({ id: tech_scheme_id })
 
 #### SKOS-005: Create Root Concept
 
-**Tool**: `create_concept`
+**MCP Tool**: `create_concept`
 
 ```javascript
 create_concept({
@@ -113,7 +115,7 @@ create_concept({
 
 #### SKOS-006: Create Child Concept
 
-**Tool**: `create_concept`
+**MCP Tool**: `create_concept`
 
 ```javascript
 create_concept({
@@ -131,7 +133,7 @@ create_concept({
 
 #### SKOS-007: Create Sibling Concept
 
-**Tool**: `create_concept`
+**MCP Tool**: `create_concept`
 
 ```javascript
 create_concept({
@@ -149,7 +151,7 @@ create_concept({
 
 #### SKOS-008: Create Concept with Alt Labels
 
-**Tool**: `create_concept`
+**MCP Tool**: `create_concept`
 
 ```javascript
 create_concept({
@@ -167,7 +169,7 @@ create_concept({
 
 #### SKOS-009: Get Concept
 
-**Tool**: `get_concept`
+**MCP Tool**: `get_concept`
 
 ```javascript
 get_concept({ id: rust_concept_id })
@@ -179,7 +181,7 @@ get_concept({ id: rust_concept_id })
 
 #### SKOS-010: Get Concept Full
 
-**Tool**: `get_concept_full`
+**MCP Tool**: `get_concept_full`
 
 ```javascript
 get_concept_full({ id: programming_concept_id })
@@ -197,7 +199,7 @@ get_concept_full({ id: programming_concept_id })
 
 #### SKOS-011: Search Concepts
 
-**Tool**: `search_concepts`
+**MCP Tool**: `search_concepts`
 
 ```javascript
 search_concepts({
@@ -212,7 +214,7 @@ search_concepts({
 
 #### SKOS-012: Autocomplete Concepts
 
-**Tool**: `autocomplete_concepts`
+**MCP Tool**: `autocomplete_concepts`
 
 ```javascript
 autocomplete_concepts({
@@ -229,7 +231,7 @@ autocomplete_concepts({
 
 #### SKOS-013: Get Broader
 
-**Tool**: `get_broader`
+**MCP Tool**: `get_broader`
 
 ```javascript
 get_broader({ id: rust_concept_id })
@@ -241,7 +243,7 @@ get_broader({ id: rust_concept_id })
 
 #### SKOS-014: Get Narrower
 
-**Tool**: `get_narrower`
+**MCP Tool**: `get_narrower`
 
 ```javascript
 get_narrower({ id: programming_concept_id })
@@ -253,7 +255,7 @@ get_narrower({ id: programming_concept_id })
 
 #### SKOS-015: Add Related
 
-**Tool**: `add_related`
+**MCP Tool**: `add_related`
 
 ```javascript
 add_related({
@@ -268,7 +270,7 @@ add_related({
 
 #### SKOS-016: Get Related
 
-**Tool**: `get_related`
+**MCP Tool**: `get_related`
 
 ```javascript
 get_related({ id: ml_concept_id })
@@ -280,7 +282,7 @@ get_related({ id: ml_concept_id })
 
 #### SKOS-017: Verify Symmetric Related
 
-**Tool**: `get_related`
+**MCP Tool**: `get_related`
 
 ```javascript
 get_related({ id: python_concept_id })
@@ -294,7 +296,7 @@ get_related({ id: python_concept_id })
 
 #### SKOS-018: Add Broader
 
-**Tool**: `add_broader`
+**MCP Tool**: `add_broader`
 
 ```javascript
 // Create Deep Learning under ML
@@ -318,7 +320,7 @@ add_broader({
 
 #### SKOS-019: Add Narrower
 
-**Tool**: `add_narrower`
+**MCP Tool**: `add_narrower`
 
 ```javascript
 // Add Neural Networks under Deep Learning
@@ -344,7 +346,7 @@ add_narrower({
 
 #### SKOS-020: Tag Note with Concept
 
-**Tool**: `tag_note_concept`
+**MCP Tool**: `tag_note_concept`
 
 ```javascript
 // Use a note from seed data or create one
@@ -369,7 +371,7 @@ tag_note_concept({
 
 #### SKOS-021: Get Note Concepts
 
-**Tool**: `get_note_concepts`
+**MCP Tool**: `get_note_concepts`
 
 ```javascript
 get_note_concepts({ note_id: tagged_note_id })
@@ -381,7 +383,7 @@ get_note_concepts({ note_id: tagged_note_id })
 
 #### SKOS-022: Untag Note Concept
 
-**Tool**: `untag_note_concept`
+**MCP Tool**: `untag_note_concept`
 
 ```javascript
 untag_note_concept({
@@ -400,7 +402,7 @@ untag_note_concept({
 
 #### SKOS-023: Get Top Concepts
 
-**Tool**: `get_top_concepts`
+**MCP Tool**: `get_top_concepts`
 
 ```javascript
 get_top_concepts({ scheme_id: tech_scheme_id })
@@ -412,7 +414,7 @@ get_top_concepts({ scheme_id: tech_scheme_id })
 
 #### SKOS-024: Get Governance Stats
 
-**Tool**: `get_governance_stats`
+**MCP Tool**: `get_governance_stats`
 
 ```javascript
 get_governance_stats({ scheme_id: tech_scheme_id })
@@ -436,7 +438,7 @@ get_governance_stats({ scheme_id: tech_scheme_id })
 
 #### SKOS-025: Update Concept Status
 
-**Tool**: `update_concept`
+**MCP Tool**: `update_concept`
 
 ```javascript
 update_concept({
@@ -454,7 +456,7 @@ update_concept({
 
 #### SKOS-026: Delete Concept
 
-**Tool**: `delete_concept`
+**MCP Tool**: `delete_concept`
 
 ```javascript
 delete_concept({ id: neural_networks_id })
@@ -468,7 +470,7 @@ delete_concept({ id: neural_networks_id })
 
 #### SKOS-027: Delete Scheme
 
-**Tool**: `delete_concept_scheme`
+**MCP Tool**: `delete_concept_scheme`
 
 ```javascript
 // Delete the test scheme (may need force flag)
@@ -479,6 +481,226 @@ delete_concept_scheme({
 ```
 
 **Expected**: Scheme and concepts deleted
+
+---
+
+## SKOS Collections (#450)
+
+#### SKOS-028: List SKOS Collections
+
+**MCP Tool**: `list_skos_collections`
+
+```javascript
+list_skos_collections({ scheme_id: tech_scheme_id })
+```
+
+**Expected**: Empty array initially
+
+---
+
+#### SKOS-029: Create SKOS Collection
+
+**MCP Tool**: `create_skos_collection`
+
+```javascript
+create_skos_collection({
+  scheme_id: tech_scheme_id,
+  pref_label: "Learning Path",
+  notation: "LPATH",
+  definition: "Ordered progression of concepts",
+  ordered: true
+})
+```
+
+**Expected**: `{ id: "<uuid>" }`
+
+**Store**: `collection_id`
+
+---
+
+#### SKOS-030: Get SKOS Collection
+
+**MCP Tool**: `get_skos_collection`
+
+```javascript
+get_skos_collection({ id: collection_id })
+```
+
+**Expected**: Collection with empty members array
+
+---
+
+#### SKOS-031: Add Collection Member
+
+**MCP Tool**: `add_skos_collection_member`
+
+```javascript
+add_skos_collection_member({
+  id: collection_id,
+  concept_id: programming_concept_id,
+  position: 0
+})
+
+add_skos_collection_member({
+  id: collection_id,
+  concept_id: rust_concept_id,
+  position: 1
+})
+```
+
+**Expected**: Members added in order
+
+---
+
+#### SKOS-032: Verify Collection Members
+
+**MCP Tool**: `get_skos_collection`
+
+```javascript
+get_skos_collection({ id: collection_id })
+```
+
+**Expected**: Members in order: [Programming, Rust]
+
+---
+
+#### SKOS-033: Update SKOS Collection
+
+**MCP Tool**: `update_skos_collection`
+
+```javascript
+update_skos_collection({
+  id: collection_id,
+  pref_label: "Updated Learning Path",
+  definition: "Updated description"
+})
+```
+
+**Expected**: Collection updated successfully
+
+---
+
+#### SKOS-034: Remove Collection Member
+
+**MCP Tool**: `remove_skos_collection_member`
+
+```javascript
+remove_skos_collection_member({
+  id: collection_id,
+  concept_id: rust_concept_id
+})
+```
+
+**Expected**: Member removed
+
+**Verify**: Collection has 1 member
+
+---
+
+#### SKOS-035: Delete SKOS Collection
+
+**MCP Tool**: `delete_skos_collection`
+
+```javascript
+delete_skos_collection({ id: collection_id })
+```
+
+**Expected**: Collection deleted
+
+**Verify**: `list_skos_collections` no longer includes it
+
+---
+
+## Relation Removal (#451)
+
+#### SKOS-036: Remove Broader
+
+**MCP Tool**: `remove_broader`
+
+```javascript
+// First verify rust has broader=programming
+get_broader({ id: rust_concept_id })
+
+// Remove the relationship
+remove_broader({
+  id: rust_concept_id,
+  target_id: programming_concept_id
+})
+```
+
+**Expected**: Broader relationship removed
+
+**Verify**: `get_broader` returns empty array
+
+---
+
+#### SKOS-037: Remove Narrower
+
+**MCP Tool**: `remove_narrower`
+
+```javascript
+// Re-add the relationship first
+add_broader({ id: rust_concept_id, target_id: programming_concept_id })
+
+// Remove via narrower
+remove_narrower({
+  id: programming_concept_id,
+  target_id: rust_concept_id
+})
+```
+
+**Expected**: Narrower relationship removed (same as broader inverse)
+
+---
+
+#### SKOS-038: Remove Related
+
+**MCP Tool**: `remove_related`
+
+```javascript
+// Verify ML and Python are related
+get_related({ id: ml_concept_id })
+
+// Remove the relationship
+remove_related({
+  id: ml_concept_id,
+  target_id: python_concept_id
+})
+```
+
+**Expected**: Related relationship removed from both directions
+
+**Verify**: Both `get_related` calls return empty
+
+---
+
+## SKOS Export (#460)
+
+#### SKOS-039: Export SKOS Turtle
+
+**MCP Tool**: `export_skos_turtle`
+
+```javascript
+export_skos_turtle({ scheme_id: tech_scheme_id })
+```
+
+**Expected**: Valid W3C Turtle format containing:
+- `@prefix skos:` declaration
+- Concept scheme as `skos:ConceptScheme`
+- Concepts with `skos:prefLabel`
+- Relationships: `skos:broader`, `skos:narrower`, `skos:related`
+
+---
+
+#### SKOS-040: Export All Schemes
+
+**MCP Tool**: `export_skos_turtle`
+
+```javascript
+export_skos_turtle()  // No scheme_id = all schemes
+```
+
+**Expected**: Turtle with all concept schemes
 
 ---
 
@@ -503,343 +725,54 @@ delete_note({ id: tagged_note_id })
 
 ## Success Criteria
 
-| Test | Status | Notes |
-|------|--------|-------|
-| SKOS-001 | | List schemes |
-| SKOS-002 | | Create scheme |
-| SKOS-003 | | Create second scheme |
-| SKOS-004 | | Get scheme |
-| SKOS-005 | | Create root concept |
-| SKOS-006 | | Create child concept |
-| SKOS-007 | | Create sibling concept |
-| SKOS-008 | | Concept with alt labels |
-| SKOS-009 | | Get concept |
-| SKOS-010 | | Get concept full |
-| SKOS-011 | | Search concepts |
-| SKOS-012 | | Autocomplete |
-| SKOS-013 | | Get broader |
-| SKOS-014 | | Get narrower |
-| SKOS-015 | | Add related |
-| SKOS-016 | | Get related |
-| SKOS-017 | | Verify symmetric |
-| SKOS-018 | | Add broader |
-| SKOS-019 | | Add narrower |
-| SKOS-020 | | Tag note |
-| SKOS-021 | | Get note concepts |
-| SKOS-022 | | Untag note |
-| SKOS-023 | | Get top concepts |
-| SKOS-024 | | Governance stats |
-| SKOS-025 | | Update concept status |
-| SKOS-026 | | Delete concept |
-| SKOS-027 | | Delete scheme |
-
-**Pass Rate Required**: 95% (26/27)
-
----
-
-## MCP Tools Covered
-
-| Tool | Tests |
-|------|-------|
-| `list_concept_schemes` | SKOS-001 |
-| `create_concept_scheme` | SKOS-002, SKOS-003 |
-| `get_concept_scheme` | SKOS-004 |
-| `delete_concept_scheme` | SKOS-027 |
-| `create_concept` | SKOS-005, SKOS-006, SKOS-007, SKOS-008, SKOS-018, SKOS-019 |
-| `get_concept` | SKOS-009 |
-| `get_concept_full` | SKOS-010 |
-| `update_concept` | SKOS-025 |
-| `delete_concept` | SKOS-026 |
-| `search_concepts` | SKOS-011 |
-| `autocomplete_concepts` | SKOS-012 |
-| `get_broader` | SKOS-013 |
-| `add_broader` | SKOS-018 |
-| `get_narrower` | SKOS-014 |
-| `add_narrower` | SKOS-019 |
-| `get_related` | SKOS-016, SKOS-017 |
-| `add_related` | SKOS-015 |
-| `tag_note_concept` | SKOS-020 |
-| `get_note_concepts` | SKOS-021 |
-| `untag_note_concept` | SKOS-022 |
-| `get_top_concepts` | SKOS-023 |
-| `get_governance_stats` | SKOS-024 |
-
-**Coverage**: 22/22 SKOS tools (100%)
-
----
-
----
-
-## SKOS Collections (#450)
-
-#### SKOS-028: List SKOS Collections
-
-**Tool**: `list_skos_collections`
-
-```javascript
-list_skos_collections({ scheme_id: tech_scheme_id })
-```
-
-**Expected**: Empty array initially
-
----
-
-#### SKOS-029: Create SKOS Collection
-
-**Tool**: `create_skos_collection`
-
-```javascript
-create_skos_collection({
-  scheme_id: tech_scheme_id,
-  pref_label: "Learning Path",
-  notation: "LPATH",
-  definition: "Ordered progression of concepts",
-  ordered: true
-})
-```
-
-**Expected**: `{ id: "<uuid>" }`
-
-**Store**: `collection_id`
-
----
-
-#### SKOS-030: Get SKOS Collection
-
-**Tool**: `get_skos_collection`
-
-```javascript
-get_skos_collection({ id: collection_id })
-```
-
-**Expected**: Collection with empty members array
-
----
-
-#### SKOS-031: Add Collection Member
-
-**Tool**: `add_skos_collection_member`
-
-```javascript
-add_skos_collection_member({
-  id: collection_id,
-  concept_id: programming_concept_id,
-  position: 0
-})
-
-add_skos_collection_member({
-  id: collection_id,
-  concept_id: rust_concept_id,
-  position: 1
-})
-```
-
-**Expected**: Members added in order
-
----
-
-#### SKOS-032: Verify Collection Members
-
-**Tool**: `get_skos_collection`
-
-```javascript
-get_skos_collection({ id: collection_id })
-```
-
-**Expected**: Members in order: [Programming, Rust]
-
----
-
-#### SKOS-033: Update SKOS Collection
-
-**Tool**: `update_skos_collection`
-
-```javascript
-update_skos_collection({
-  id: collection_id,
-  pref_label: "Updated Learning Path",
-  definition: "Updated description"
-})
-```
-
-**Expected**: Collection updated successfully
-
----
-
-#### SKOS-034: Remove Collection Member
-
-**Tool**: `remove_skos_collection_member`
-
-```javascript
-remove_skos_collection_member({
-  id: collection_id,
-  concept_id: rust_concept_id
-})
-```
-
-**Expected**: Member removed
-
-**Verify**: Collection has 1 member
-
----
-
-#### SKOS-035: Delete SKOS Collection
-
-**Tool**: `delete_skos_collection`
-
-```javascript
-delete_skos_collection({ id: collection_id })
-```
-
-**Expected**: Collection deleted
-
-**Verify**: `list_skos_collections` no longer includes it
-
----
-
-## Relation Removal (#451)
-
-#### SKOS-036: Remove Broader
-
-**Tool**: `remove_broader`
-
-```javascript
-// First verify rust has broader=programming
-get_broader({ id: rust_concept_id })
-
-// Remove the relationship
-remove_broader({
-  id: rust_concept_id,
-  target_id: programming_concept_id
-})
-```
-
-**Expected**: Broader relationship removed
-
-**Verify**: `get_broader` returns empty array
-
----
-
-#### SKOS-037: Remove Narrower
-
-**Tool**: `remove_narrower`
-
-```javascript
-// Re-add the relationship first
-add_broader({ id: rust_concept_id, target_id: programming_concept_id })
-
-// Remove via narrower
-remove_narrower({
-  id: programming_concept_id,
-  target_id: rust_concept_id
-})
-```
-
-**Expected**: Narrower relationship removed (same as broader inverse)
-
----
-
-#### SKOS-038: Remove Related
-
-**Tool**: `remove_related`
-
-```javascript
-// Verify ML and Python are related
-get_related({ id: ml_concept_id })
-
-// Remove the relationship
-remove_related({
-  id: ml_concept_id,
-  target_id: python_concept_id
-})
-```
-
-**Expected**: Related relationship removed from both directions
-
-**Verify**: Both `get_related` calls return empty
-
----
-
-## SKOS Export (#460)
-
-#### SKOS-039: Export SKOS Turtle
-
-**Tool**: `export_skos_turtle`
-
-```javascript
-export_skos_turtle({ scheme_id: tech_scheme_id })
-```
-
-**Expected**: Valid W3C Turtle format containing:
-- `@prefix skos:` declaration
-- Concept scheme as `skos:ConceptScheme`
-- Concepts with `skos:prefLabel`
-- Relationships: `skos:broader`, `skos:narrower`, `skos:related`
-
----
-
-#### SKOS-040: Export All Schemes
-
-**Tool**: `export_skos_turtle`
-
-```javascript
-export_skos_turtle()  // No scheme_id = all schemes
-```
-
-**Expected**: Turtle with all concept schemes
-
----
-
-## Updated Success Criteria
-
-| Test | Status | Notes |
-|------|--------|-------|
-| SKOS-001 | | List schemes |
-| SKOS-002 | | Create scheme |
-| SKOS-003 | | Create second scheme |
-| SKOS-004 | | Get scheme |
-| SKOS-005 | | Create root concept |
-| SKOS-006 | | Create child concept |
-| SKOS-007 | | Create sibling concept |
-| SKOS-008 | | Concept with alt labels |
-| SKOS-009 | | Get concept |
-| SKOS-010 | | Get concept full |
-| SKOS-011 | | Search concepts |
-| SKOS-012 | | Autocomplete |
-| SKOS-013 | | Get broader |
-| SKOS-014 | | Get narrower |
-| SKOS-015 | | Add related |
-| SKOS-016 | | Get related |
-| SKOS-017 | | Verify symmetric |
-| SKOS-018 | | Add broader |
-| SKOS-019 | | Add narrower |
-| SKOS-020 | | Tag note |
-| SKOS-021 | | Get note concepts |
-| SKOS-022 | | Untag note |
-| SKOS-023 | | Get top concepts |
-| SKOS-024 | | Governance stats |
-| SKOS-025 | | Update concept status |
-| SKOS-026 | | Delete concept |
-| SKOS-027 | | Delete scheme |
-| SKOS-028 | | List collections |
-| SKOS-029 | | Create collection |
-| SKOS-030 | | Get collection |
-| SKOS-031 | | Add collection members |
-| SKOS-032 | | Verify member order |
-| SKOS-033 | | Update collection |
-| SKOS-034 | | Remove collection member |
-| SKOS-035 | | Delete collection |
-| SKOS-036 | | Remove broader |
-| SKOS-037 | | Remove narrower |
-| SKOS-038 | | Remove related |
-| SKOS-039 | | Export turtle (scheme) |
-| SKOS-040 | | Export turtle (all) |
+| Test | MCP Tool(s) | Status | Notes |
+|------|-------------|--------|-------|
+| SKOS-001 | `list_concept_schemes` | | List schemes |
+| SKOS-002 | `create_concept_scheme` | | Create scheme |
+| SKOS-003 | `create_concept_scheme` | | Create second scheme |
+| SKOS-004 | `get_concept_scheme` | | Get scheme |
+| SKOS-005 | `create_concept` | | Create root concept |
+| SKOS-006 | `create_concept` | | Create child concept |
+| SKOS-007 | `create_concept` | | Create sibling concept |
+| SKOS-008 | `create_concept` | | Concept with alt labels |
+| SKOS-009 | `get_concept` | | Get concept |
+| SKOS-010 | `get_concept_full` | | Get concept full |
+| SKOS-011 | `search_concepts` | | Search concepts |
+| SKOS-012 | `autocomplete_concepts` | | Autocomplete |
+| SKOS-013 | `get_broader` | | Get broader |
+| SKOS-014 | `get_narrower` | | Get narrower |
+| SKOS-015 | `add_related` | | Add related |
+| SKOS-016 | `get_related` | | Get related |
+| SKOS-017 | `get_related` | | Verify symmetric |
+| SKOS-018 | `add_broader` | | Add broader |
+| SKOS-019 | `add_narrower` | | Add narrower |
+| SKOS-020 | `tag_note_concept` | | Tag note |
+| SKOS-021 | `get_note_concepts` | | Get note concepts |
+| SKOS-022 | `untag_note_concept` | | Untag note |
+| SKOS-023 | `get_top_concepts` | | Get top concepts |
+| SKOS-024 | `get_governance_stats` | | Governance stats |
+| SKOS-025 | `update_concept` | | Update concept status |
+| SKOS-026 | `delete_concept` | | Delete concept |
+| SKOS-027 | `delete_concept_scheme` | | Delete scheme |
+| SKOS-028 | `list_skos_collections` | | List collections |
+| SKOS-029 | `create_skos_collection` | | Create collection |
+| SKOS-030 | `get_skos_collection` | | Get collection |
+| SKOS-031 | `add_skos_collection_member` | | Add collection members |
+| SKOS-032 | `get_skos_collection` | | Verify member order |
+| SKOS-033 | `update_skos_collection` | | Update collection |
+| SKOS-034 | `remove_skos_collection_member` | | Remove collection member |
+| SKOS-035 | `delete_skos_collection` | | Delete collection |
+| SKOS-036 | `remove_broader` | | Remove broader |
+| SKOS-037 | `remove_narrower` | | Remove narrower |
+| SKOS-038 | `remove_related` | | Remove related |
+| SKOS-039 | `export_skos_turtle` | | Export turtle (scheme) |
+| SKOS-040 | `export_skos_turtle` | | Export turtle (all) |
 
 **Pass Rate Required**: 95% (38/40)
 
 ---
 
-## Updated MCP Tools Covered
+## MCP Tools Covered
 
 | Tool | Tests |
 |------|-------|

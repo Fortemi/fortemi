@@ -6,6 +6,8 @@
 **Dependencies**: Phase 0 (preflight), Phase 1 (seed data), Phase 3 (search)
 **Critical**: Yes (100% pass required)
 
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+
 ---
 
 ## Overview
@@ -32,6 +34,8 @@ This phase tests search caching, cache invalidation, and performance from the ag
 
 #### CACHE-001: First Search (Baseline)
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 search_notes({ query: "machine learning algorithms", mode: "hybrid", limit: 10 })
 ```
@@ -43,6 +47,8 @@ search_notes({ query: "machine learning algorithms", mode: "hybrid", limit: 10 }
 ---
 
 #### CACHE-002: Repeated Search (Consistency)
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 // Same query immediately after CACHE-001
@@ -56,6 +62,8 @@ search_notes({ query: "machine learning algorithms", mode: "hybrid", limit: 10 }
 ---
 
 #### CACHE-003: Multiple Repeated Searches (Stability)
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 // Run same query 5 times
@@ -71,6 +79,8 @@ for (let i = 0; i < 5; i++) {
 ### Cache Invalidation on Note Operations
 
 #### CACHE-004: Cache Invalidation on Note Create
+
+**MCP Tool**: `search_notes`, `create_note`
 
 **Setup**: Run a search to populate cache
 
@@ -106,6 +116,8 @@ search_notes({ query: "kubernetes deployment", limit: 5 })
 
 #### CACHE-005: Cache Invalidation on Note Update
 
+**MCP Tool**: `search_notes`, `update_note`
+
 **Setup**: Cache a search
 
 ```javascript
@@ -133,6 +145,8 @@ search_notes({ query: "kubernetes", limit: 5 })
 
 #### CACHE-006: Cache Invalidation on Note Delete
 
+**MCP Tool**: `search_notes`, `delete_note`
+
 **Setup**: Cache a search
 
 ```javascript
@@ -159,6 +173,8 @@ search_notes({ query: "kubernetes deployment", limit: 5 })
 
 #### CACHE-007: System Health via MCP
 
+**MCP Tool**: `memory_info`
+
 ```javascript
 memory_info()
 ```
@@ -172,6 +188,8 @@ memory_info()
 ### Search Parameter Isolation
 
 #### CACHE-008: Different Embedding Sets Return Different Results
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 // Search with default embedding set
@@ -189,6 +207,8 @@ search_notes({ query: "neural networks", embedding_set: "alternative-set", limit
 
 #### CACHE-009: Multilingual Query Isolation
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 // English query
 search_notes({ query: "artificial intelligence", limit: 5 })
@@ -202,6 +222,8 @@ search_notes({ query: "kunstliche intelligenz", limit: 5 })
 ---
 
 #### CACHE-010: Tag Filter Creates Separate Cache Entries
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 // Query without tag filter
@@ -219,6 +241,8 @@ search_notes({ query: "test", tags: ["uat/cache-test"], limit: 5 })
 
 #### CACHE-011: Sequential Search Burst
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 // Run 10 sequential searches with the same query
 for (let i = 0; i < 10; i++) {
@@ -233,6 +257,8 @@ for (let i = 0; i < 10; i++) {
 ---
 
 #### CACHE-012: Varied Query Burst
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 // Run searches with different queries
@@ -254,6 +280,8 @@ for (const q of queries) {
 ---
 
 #### CACHE-013: Cache Stampede Prevention via Create + Search
+
+**MCP Tool**: `create_note`, `search_notes`
 
 ```javascript
 // Create a note to invalidate cache
@@ -277,6 +305,8 @@ search_notes({ query: "stampede test", limit: 5 })
 
 #### CACHE-014: FTS Search Consistency
 
+**MCP Tool**: `search_notes`
+
 ```javascript
 search_notes({ query: "programming", mode: "fts", limit: 10 })
 search_notes({ query: "programming", mode: "fts", limit: 10 })
@@ -287,6 +317,8 @@ search_notes({ query: "programming", mode: "fts", limit: 10 })
 ---
 
 #### CACHE-015: Semantic Search Consistency
+
+**MCP Tool**: `search_notes`
 
 ```javascript
 search_notes({ query: "programming", mode: "semantic", limit: 10 })
@@ -309,23 +341,23 @@ search_notes({ query: "tags:uat/cache-test OR tags:uat/stampede", limit: 100 })
 
 ## Success Criteria
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| CACHE-001 | First Search (Baseline) | |
-| CACHE-002 | Repeated Search (Consistency) | |
-| CACHE-003 | Multiple Repeated Searches | |
-| CACHE-004 | Invalidation on Create | |
-| CACHE-005 | Invalidation on Update | |
-| CACHE-006 | Invalidation on Delete | |
-| CACHE-007 | System Health via MCP | |
-| CACHE-008 | Embedding Set Isolation | |
-| CACHE-009 | Multilingual Query Isolation | |
-| CACHE-010 | Tag Filter Cache Keys | |
-| CACHE-011 | Sequential Search Burst | |
-| CACHE-012 | Varied Query Burst | |
-| CACHE-013 | Cache Stampede Prevention | |
-| CACHE-014 | FTS Search Consistency | |
-| CACHE-015 | Semantic Search Consistency | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| CACHE-001 | First Search (Baseline) | `search_notes` | |
+| CACHE-002 | Repeated Search (Consistency) | `search_notes` | |
+| CACHE-003 | Multiple Repeated Searches | `search_notes` | |
+| CACHE-004 | Invalidation on Create | `search_notes`, `create_note` | |
+| CACHE-005 | Invalidation on Update | `search_notes`, `update_note` | |
+| CACHE-006 | Invalidation on Delete | `search_notes`, `delete_note` | |
+| CACHE-007 | System Health via MCP | `memory_info` | |
+| CACHE-008 | Embedding Set Isolation | `search_notes` | |
+| CACHE-009 | Multilingual Query Isolation | `search_notes` | |
+| CACHE-010 | Tag Filter Cache Keys | `search_notes` | |
+| CACHE-011 | Sequential Search Burst | `search_notes` | |
+| CACHE-012 | Varied Query Burst | `search_notes` | |
+| CACHE-013 | Cache Stampede Prevention | `create_note`, `search_notes` | |
+| CACHE-014 | FTS Search Consistency | `search_notes` | |
+| CACHE-015 | Semantic Search Consistency | `search_notes` | |
 
 **Pass Rate Required**: 90% (14/15)
 

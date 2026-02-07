@@ -1,8 +1,10 @@
 # UAT Phase 12: Archives
 
 **Duration**: ~8 minutes
-**Tools Tested**: 7 tools
+**Tools Tested**: `list_archives`, `create_archive`, `get_archive`, `update_archive`, `delete_archive`, `set_default_archive`, `get_archive_stats`
 **Dependencies**: Phase 0 (preflight)
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -25,7 +27,7 @@ Archives provide schema-level data isolation, allowing multiple independent know
 
 ### ARCH-001: List Archives (Initial)
 
-**Tool**: `list_archives`
+**MCP Tool**: `list_archives`
 
 ```javascript
 list_archives()
@@ -55,7 +57,7 @@ list_archives()
 
 ### ARCH-002: Create Archive
 
-**Tool**: `create_archive`
+**MCP Tool**: `create_archive`
 
 ```javascript
 create_archive({
@@ -81,7 +83,7 @@ create_archive({
 
 ### ARCH-003: Create Second Archive
 
-**Tool**: `create_archive`
+**MCP Tool**: `create_archive`
 
 ```javascript
 create_archive({
@@ -98,7 +100,7 @@ create_archive({
 
 ### ARCH-004: List Archives (After Creation)
 
-**Tool**: `list_archives`
+**MCP Tool**: `list_archives`
 
 ```javascript
 list_archives()
@@ -114,7 +116,7 @@ list_archives()
 
 ### ARCH-005: Get Archive Details
 
-**Tool**: `get_archive`
+**MCP Tool**: `get_archive`
 
 ```javascript
 get_archive({ name: "uat-test-archive" })
@@ -140,7 +142,7 @@ get_archive({ name: "uat-test-archive" })
 
 ### ARCH-006: Get Archive Stats
 
-**Tool**: `get_archive_stats`
+**MCP Tool**: `get_archive_stats`
 
 ```javascript
 get_archive_stats({ name: "uat-test-archive" })
@@ -161,7 +163,7 @@ get_archive_stats({ name: "uat-test-archive" })
 
 ### ARCH-007: Update Archive Metadata
 
-**Tool**: `update_archive`
+**MCP Tool**: `update_archive`
 
 ```javascript
 update_archive({
@@ -178,7 +180,7 @@ update_archive({
 
 ### ARCH-008: Set Default Archive
 
-**Tool**: `set_default_archive`
+**MCP Tool**: `set_default_archive`
 
 ```javascript
 set_default_archive({ name: "uat-test-archive" })
@@ -192,7 +194,7 @@ set_default_archive({ name: "uat-test-archive" })
 
 ### ARCH-009: Verify Default Changed
 
-**Tool**: `list_archives`
+**MCP Tool**: `list_archives`
 
 ```javascript
 list_archives()
@@ -208,7 +210,7 @@ list_archives()
 
 ### ARCH-010: Create Note in Archive
 
-**Tool**: `create_note` (context: current default archive)
+**MCP Tool**: `create_note`
 
 ```javascript
 // With uat-test-archive as default
@@ -227,7 +229,7 @@ create_note({
 
 ### ARCH-011: Verify Note in Archive Stats
 
-**Tool**: `get_archive_stats`
+**MCP Tool**: `get_archive_stats`
 
 ```javascript
 get_archive_stats({ name: "uat-test-archive" })
@@ -241,7 +243,7 @@ get_archive_stats({ name: "uat-test-archive" })
 
 ### ARCH-012: Switch Back to Default
 
-**Tool**: `set_default_archive`
+**MCP Tool**: `set_default_archive`
 
 ```javascript
 set_default_archive({ name: "default" })
@@ -253,7 +255,7 @@ set_default_archive({ name: "default" })
 
 ### ARCH-013: Verify Note Isolation
 
-**Tool**: `list_notes`
+**MCP Tool**: `list_notes`
 
 ```javascript
 // With "default" as current archive
@@ -268,7 +270,7 @@ list_notes({ tags: ["uat/archives"] })
 
 ### ARCH-014: Create Duplicate Archive Name
 
-**Tool**: `create_archive`
+**MCP Tool**: `create_archive`
 
 ```javascript
 create_archive({
@@ -285,7 +287,7 @@ create_archive({
 
 ### ARCH-015: Delete Archive - Non-Empty Warning
 
-**Tool**: `delete_archive`
+**MCP Tool**: `delete_archive`
 
 ```javascript
 // uat-test-archive has 1 note
@@ -302,7 +304,7 @@ delete_archive({ name: "uat-test-archive" })
 
 ### ARCH-016: Delete Empty Archive
 
-**Tool**: `delete_archive`
+**MCP Tool**: `delete_archive`
 
 ```javascript
 // uat-secondary has no notes
@@ -317,7 +319,7 @@ delete_archive({ name: "uat-secondary" })
 
 ### ARCH-017: Verify Archive Deleted
 
-**Tool**: `get_archive`
+**MCP Tool**: `get_archive`
 
 ```javascript
 get_archive({ name: "uat-secondary" })
@@ -331,7 +333,7 @@ get_archive({ name: "uat-secondary" })
 
 ### ARCH-018: Delete Default Archive Prevention
 
-**Tool**: `delete_archive`
+**MCP Tool**: `delete_archive`
 
 ```javascript
 delete_archive({ name: "default" })
@@ -361,26 +363,26 @@ list_archives()  // Should only show default (and any pre-existing)
 
 ## Success Criteria
 
-| Test | Status | Notes |
-|------|--------|-------|
-| ARCH-001 | | List initial archives |
-| ARCH-002 | | Create archive |
-| ARCH-003 | | Create second archive |
-| ARCH-004 | | List after creation |
-| ARCH-005 | | Get archive details |
-| ARCH-006 | | Get archive stats |
-| ARCH-007 | | Update archive metadata |
-| ARCH-008 | | Set default archive |
-| ARCH-009 | | Verify default changed |
-| ARCH-010 | | Create note in archive |
-| ARCH-011 | | Verify stats updated |
-| ARCH-012 | | Switch back to default |
-| ARCH-013 | | Verify data isolation |
-| ARCH-014 | | Duplicate name error |
-| ARCH-015 | | Delete non-empty archive |
-| ARCH-016 | | Delete empty archive |
-| ARCH-017 | | Verify archive deleted |
-| ARCH-018 | | Cannot delete default |
+| Test | MCP Tool(s) | Status | Notes |
+|------|-------------|--------|-------|
+| ARCH-001 | `list_archives` | | List initial archives |
+| ARCH-002 | `create_archive` | | Create archive |
+| ARCH-003 | `create_archive` | | Create second archive |
+| ARCH-004 | `list_archives` | | List after creation |
+| ARCH-005 | `get_archive` | | Get archive details |
+| ARCH-006 | `get_archive_stats` | | Get archive stats |
+| ARCH-007 | `update_archive` | | Update archive metadata |
+| ARCH-008 | `set_default_archive` | | Set default archive |
+| ARCH-009 | `list_archives` | | Verify default changed |
+| ARCH-010 | `create_note` | | Create note in archive |
+| ARCH-011 | `get_archive_stats` | | Verify stats updated |
+| ARCH-012 | `set_default_archive` | | Switch back to default |
+| ARCH-013 | `list_notes` | | Verify data isolation |
+| ARCH-014 | `create_archive` | | Duplicate name error |
+| ARCH-015 | `delete_archive` | | Delete non-empty archive |
+| ARCH-016 | `delete_archive` | | Delete empty archive |
+| ARCH-017 | `get_archive` | | Verify archive deleted |
+| ARCH-018 | `delete_archive` | | Cannot delete default |
 
 **Pass Rate Required**: 100% (18/18)
 

@@ -3,12 +3,17 @@
 **Purpose**: Verify tag management and SKOS concept hierarchy
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 1 seed data exists
+**Tools Tested**: `list_tags`, `list_notes`, `create_note`, `set_note_tags`, `list_concept_schemes`, `create_concept_scheme`, `create_concept`, `tag_note_concept`, `get_governance_stats`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Basic Tag Operations
 
 ### TAG-001: List Tags
+
+**MCP Tool**: `list_tags`
 
 ```javascript
 list_tags()
@@ -20,6 +25,8 @@ list_tags()
 
 ### TAG-002: Verify Hierarchical Tags
 
+**MCP Tool**: `list_tags`
+
 ```javascript
 list_tags()
 ```
@@ -29,6 +36,8 @@ list_tags()
 ---
 
 ### TAG-003: Case Insensitivity
+
+**MCP Tool**: `create_note`, `list_notes`
 
 ```javascript
 // Create with uppercase
@@ -48,6 +57,8 @@ list_notes({ tags: ["uat/case-test"] })
 
 ### TAG-004: Tag Prefix Matching
 
+**MCP Tool**: `list_notes`
+
 ```javascript
 // Should find all notes with tags starting with "uat/ml"
 list_notes({ tags: ["uat/ml"], limit: 100 })
@@ -58,6 +69,8 @@ list_notes({ tags: ["uat/ml"], limit: 100 })
 ---
 
 ### TAG-005: Set Note Tags
+
+**MCP Tool**: `set_note_tags`
 
 ```javascript
 set_note_tags({
@@ -74,6 +87,8 @@ set_note_tags({
 
 ### SKOS-001: List Concept Schemes
 
+**MCP Tool**: `list_concept_schemes`
+
 ```javascript
 list_concept_schemes()
 ```
@@ -83,6 +98,8 @@ list_concept_schemes()
 ---
 
 ### SKOS-002: Create Concept Scheme
+
+**MCP Tool**: `create_concept_scheme`
 
 ```javascript
 create_concept_scheme({
@@ -96,6 +113,8 @@ create_concept_scheme({
 ---
 
 ### SKOS-003: Create Concept
+
+**MCP Tool**: `create_concept`
 
 ```javascript
 create_concept({
@@ -111,6 +130,8 @@ create_concept({
 ---
 
 ### SKOS-004: Create Hierarchy
+
+**MCP Tool**: `create_concept`
 
 ```javascript
 // Create parent
@@ -133,6 +154,8 @@ create_concept({
 
 ### SKOS-005: Tag Note with Concept
 
+**MCP Tool**: `tag_note_concept`
+
 ```javascript
 tag_note_concept({
   note_id: "<ml_note_id>",
@@ -146,6 +169,8 @@ tag_note_concept({
 
 ### SKOS-006: Get Governance Stats
 
+**MCP Tool**: `get_governance_stats`
+
 ```javascript
 get_governance_stats()
 ```
@@ -156,19 +181,19 @@ get_governance_stats()
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| TAG-001 | List Tags | |
-| TAG-002 | Verify Hierarchical Tags | |
-| TAG-003 | Case Insensitivity | |
-| TAG-004 | Tag Prefix Matching | |
-| TAG-005 | Set Note Tags | |
-| SKOS-001 | List Concept Schemes | |
-| SKOS-002 | Create Concept Scheme | |
-| SKOS-003 | Create Concept | |
-| SKOS-004 | Create Hierarchy | |
-| SKOS-005 | Tag Note with Concept | |
-| SKOS-006 | Get Governance Stats | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| TAG-001 | List Tags | `list_tags` | |
+| TAG-002 | Verify Hierarchical Tags | `list_tags` | |
+| TAG-003 | Case Insensitivity | `create_note`, `list_notes` | |
+| TAG-004 | Tag Prefix Matching | `list_notes` | |
+| TAG-005 | Set Note Tags | `set_note_tags` | |
+| SKOS-001 | List Concept Schemes | `list_concept_schemes` | |
+| SKOS-002 | Create Concept Scheme | `create_concept_scheme` | |
+| SKOS-003 | Create Concept | `create_concept` | |
+| SKOS-004 | Create Hierarchy | `create_concept` | |
+| SKOS-005 | Tag Note with Concept | `tag_note_concept` | |
+| SKOS-006 | Get Governance Stats | `get_governance_stats` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

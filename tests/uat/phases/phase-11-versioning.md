@@ -1,8 +1,10 @@
 # UAT Phase 11: Versioning
 
 **Duration**: ~7 minutes
-**Tools Tested**: 5 tools
+**Tools Tested**: `list_note_versions`, `get_note_version`, `diff_note_versions`, `restore_note_version`, `delete_note_version`
 **Dependencies**: Phase 2 (CRUD - need notes with history)
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -34,7 +36,7 @@ const VERSION_NOTE_ID = version_test_note.id
 
 ### VER-001: List Versions (Initial)
 
-**Tool**: `list_note_versions`
+**MCP Tool**: `list_note_versions`
 
 ```javascript
 list_note_versions({ note_id: VERSION_NOTE_ID })
@@ -63,7 +65,7 @@ list_note_versions({ note_id: VERSION_NOTE_ID })
 
 ### VER-002: Create Version History (Update 1)
 
-**Tool**: `update_note` (setup for versioning tests)
+**MCP Tool**: `update_note`
 
 ```javascript
 update_note({
@@ -79,7 +81,7 @@ update_note({
 
 ### VER-003: Create Version History (Update 2)
 
-**Tool**: `update_note`
+**MCP Tool**: `update_note`
 
 ```javascript
 update_note({
@@ -95,7 +97,7 @@ update_note({
 
 ### VER-004: List Versions (After Updates)
 
-**Tool**: `list_note_versions`
+**MCP Tool**: `list_note_versions`
 
 ```javascript
 list_note_versions({ note_id: VERSION_NOTE_ID })
@@ -112,7 +114,7 @@ list_note_versions({ note_id: VERSION_NOTE_ID })
 
 ### VER-005: Get Specific Version
 
-**Tool**: `get_note_version`
+**MCP Tool**: `get_note_version`
 
 ```javascript
 get_note_version({
@@ -139,7 +141,7 @@ get_note_version({
 
 ### VER-006: Get Version 2
 
-**Tool**: `get_note_version`
+**MCP Tool**: `get_note_version`
 
 ```javascript
 get_note_version({
@@ -157,7 +159,7 @@ get_note_version({
 
 ### VER-007: Diff Between Versions
 
-**Tool**: `diff_note_versions`
+**MCP Tool**: `diff_note_versions`
 
 ```javascript
 diff_note_versions({
@@ -178,7 +180,7 @@ diff_note_versions({
 
 ### VER-008: Diff Adjacent Versions
 
-**Tool**: `diff_note_versions`
+**MCP Tool**: `diff_note_versions`
 
 ```javascript
 diff_note_versions({
@@ -196,7 +198,7 @@ diff_note_versions({
 
 ### VER-009: Restore Previous Version
 
-**Tool**: `restore_note_version`
+**MCP Tool**: `restore_note_version`
 
 ```javascript
 // Current is v3, restore to v1
@@ -218,7 +220,7 @@ restore_note_version({
 
 ### VER-010: Verify Restore Created New Version
 
-**Tool**: `list_note_versions`
+**MCP Tool**: `list_note_versions`
 
 ```javascript
 list_note_versions({ note_id: VERSION_NOTE_ID })
@@ -235,7 +237,7 @@ list_note_versions({ note_id: VERSION_NOTE_ID })
 
 ### VER-011: Restore With Tags
 
-**Tool**: `restore_note_version`
+**MCP Tool**: `restore_note_version`
 
 ```javascript
 // First update tags
@@ -264,7 +266,7 @@ restore_note_version({
 
 ### VER-012: Delete Specific Version
 
-**Tool**: `delete_note_version`
+**MCP Tool**: `delete_note_version`
 
 ```javascript
 // Delete v2 (middle version)
@@ -282,7 +284,7 @@ delete_note_version({
 
 ### VER-013: Verify Version Deleted
 
-**Tool**: `get_note_version`
+**MCP Tool**: `get_note_version`
 
 ```javascript
 get_note_version({
@@ -300,7 +302,7 @@ get_note_version({
 
 ### VER-014: Get Non-Existent Version
 
-**Tool**: `get_note_version`
+**MCP Tool**: `get_note_version`
 
 ```javascript
 get_note_version({
@@ -318,7 +320,7 @@ get_note_version({
 
 ### VER-015: Diff With Deleted Version
 
-**Tool**: `diff_note_versions`
+**MCP Tool**: `diff_note_versions`
 
 ```javascript
 diff_note_versions({
@@ -348,23 +350,23 @@ list_note_versions({ note_id: VERSION_NOTE_ID })  // Should error
 
 ## Success Criteria
 
-| Test | Status | Notes |
-|------|--------|-------|
-| VER-001 | | List initial versions |
-| VER-002 | | Setup: Update 1 |
-| VER-003 | | Setup: Update 2 |
-| VER-004 | | List after updates |
-| VER-005 | | Get version 1 |
-| VER-006 | | Get version 2 |
-| VER-007 | | Diff v1 to v3 |
-| VER-008 | | Diff adjacent versions |
-| VER-009 | | Restore to v1 |
-| VER-010 | | Verify restore creates version |
-| VER-011 | | Restore with tags |
-| VER-012 | | Delete version |
-| VER-013 | | Verify version deleted |
-| VER-014 | | Get non-existent version |
-| VER-015 | | Diff with deleted version |
+| Test | MCP Tool(s) | Status | Notes |
+|------|-------------|--------|-------|
+| VER-001 | `list_note_versions` | | List initial versions |
+| VER-002 | `update_note` | | Setup: Update 1 |
+| VER-003 | `update_note` | | Setup: Update 2 |
+| VER-004 | `list_note_versions` | | List after updates |
+| VER-005 | `get_note_version` | | Get version 1 |
+| VER-006 | `get_note_version` | | Get version 2 |
+| VER-007 | `diff_note_versions` | | Diff v1 to v3 |
+| VER-008 | `diff_note_versions` | | Diff adjacent versions |
+| VER-009 | `restore_note_version` | | Restore to v1 |
+| VER-010 | `list_note_versions` | | Verify restore creates version |
+| VER-011 | `restore_note_version` | | Restore with tags |
+| VER-012 | `delete_note_version` | | Delete version |
+| VER-013 | `get_note_version` | | Verify version deleted |
+| VER-014 | `get_note_version` | | Get non-existent version |
+| VER-015 | `diff_note_versions` | | Diff with deleted version |
 
 **Pass Rate Required**: 90% (14/15 - VER-011 may vary by implementation)
 

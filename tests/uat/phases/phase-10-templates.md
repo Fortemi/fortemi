@@ -1,8 +1,10 @@
 # UAT Phase 10: Templates
 
 **Duration**: ~8 minutes
-**Tools Tested**: 6 tools
+**Tools Tested**: `list_templates`, `create_template`, `get_template`, `update_template`, `instantiate_template`, `delete_template`
 **Dependencies**: Phase 0 (preflight)
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -78,7 +80,7 @@ const CODE_REVIEW_TEMPLATE = `# Code Review: {{pr_title}}
 
 ### TMPL-001: List Templates (Empty)
 
-**Tool**: `list_templates`
+**MCP Tool**: `list_templates`
 
 ```javascript
 list_templates()
@@ -94,7 +96,7 @@ list_templates()
 
 ### TMPL-002: Create Template - Basic
 
-**Tool**: `create_template`
+**MCP Tool**: `create_template`
 
 ```javascript
 create_template({
@@ -118,7 +120,7 @@ create_template({
 
 ### TMPL-003: Create Template - With Collection
 
-**Tool**: `create_template`
+**MCP Tool**: `create_template`
 
 ```javascript
 // First ensure collection exists
@@ -146,7 +148,7 @@ create_template({
 
 ### TMPL-004: Create Template - Code Review
 
-**Tool**: `create_template`
+**MCP Tool**: `create_template`
 
 ```javascript
 create_template({
@@ -166,7 +168,7 @@ create_template({
 
 ### TMPL-005: Get Template
 
-**Tool**: `get_template`
+**MCP Tool**: `get_template`
 
 ```javascript
 get_template({ id: meeting_template_id })
@@ -192,7 +194,7 @@ get_template({ id: meeting_template_id })
 
 ### TMPL-006: List Templates (After Creation)
 
-**Tool**: `list_templates`
+**MCP Tool**: `list_templates`
 
 ```javascript
 list_templates()
@@ -208,7 +210,7 @@ list_templates()
 
 ### TMPL-007: Update Template - Content
 
-**Tool**: `update_template`
+**MCP Tool**: `update_template`
 
 ```javascript
 update_template({
@@ -227,7 +229,7 @@ update_template({
 
 ### TMPL-008: Update Template - Metadata
 
-**Tool**: `update_template`
+**MCP Tool**: `update_template`
 
 ```javascript
 update_template({
@@ -246,7 +248,7 @@ update_template({
 
 ### TMPL-009: Instantiate Template - Basic
 
-**Tool**: `instantiate_template`
+**MCP Tool**: `instantiate_template`
 
 ```javascript
 instantiate_template({
@@ -275,7 +277,7 @@ instantiate_template({
 
 ### TMPL-010: Instantiate Template - With Extra Tags
 
-**Tool**: `instantiate_template`
+**MCP Tool**: `instantiate_template`
 
 ```javascript
 instantiate_template({
@@ -305,7 +307,7 @@ instantiate_template({
 
 ### TMPL-011: Instantiate Template - With Collection
 
-**Tool**: `instantiate_template`
+**MCP Tool**: `instantiate_template`
 
 ```javascript
 // Create target collection
@@ -333,7 +335,7 @@ instantiate_template({
 
 ### TMPL-012: Instantiate Template - Missing Variables
 
-**Tool**: `instantiate_template`
+**MCP Tool**: `instantiate_template`
 
 ```javascript
 instantiate_template({
@@ -356,7 +358,7 @@ instantiate_template({
 
 ### TMPL-013: Instantiate Template - With AI Revision
 
-**Tool**: `instantiate_template`
+**MCP Tool**: `instantiate_template`
 
 ```javascript
 instantiate_template({
@@ -382,7 +384,7 @@ instantiate_template({
 
 ### TMPL-014: Delete Template
 
-**Tool**: `delete_template`
+**MCP Tool**: `delete_template`
 
 ```javascript
 delete_template({ id: code_review_template_id })
@@ -398,7 +400,7 @@ delete_template({ id: code_review_template_id })
 
 ### TMPL-015: Delete Template - Verify Notes Remain
 
-**Tool**: `delete_template` + `get_note`
+**MCP Tool**: `get_note`
 
 ```javascript
 // Instantiated notes should survive template deletion
@@ -430,23 +432,23 @@ delete_template({ id: project_template_id })
 
 ## Success Criteria
 
-| Test | Status | Notes |
-|------|--------|-------|
-| TMPL-001 | | List templates works |
-| TMPL-002 | | Create basic template |
-| TMPL-003 | | Create with collection |
-| TMPL-004 | | Create code review template |
-| TMPL-005 | | Get template by ID |
-| TMPL-006 | | List shows created templates |
-| TMPL-007 | | Update template content |
-| TMPL-008 | | Update template metadata |
-| TMPL-009 | | Basic instantiation |
-| TMPL-010 | | Instantiation with extra tags |
-| TMPL-011 | | Instantiation to collection |
-| TMPL-012 | | Missing variables handling |
-| TMPL-013 | | Instantiation with AI revision |
-| TMPL-014 | | Delete template |
-| TMPL-015 | | Notes survive template deletion |
+| Test | MCP Tool(s) | Status | Notes |
+|------|-------------|--------|-------|
+| TMPL-001 | `list_templates` | | List templates works |
+| TMPL-002 | `create_template` | | Create basic template |
+| TMPL-003 | `create_template` | | Create with collection |
+| TMPL-004 | `create_template` | | Create code review template |
+| TMPL-005 | `get_template` | | Get template by ID |
+| TMPL-006 | `list_templates` | | List shows created templates |
+| TMPL-007 | `update_template` | | Update template content |
+| TMPL-008 | `update_template` | | Update template metadata |
+| TMPL-009 | `instantiate_template` | | Basic instantiation |
+| TMPL-010 | `instantiate_template` | | Instantiation with extra tags |
+| TMPL-011 | `instantiate_template` | | Instantiation to collection |
+| TMPL-012 | `instantiate_template` | | Missing variables handling |
+| TMPL-013 | `instantiate_template` | | Instantiation with AI revision |
+| TMPL-014 | `delete_template` | | Delete template |
+| TMPL-015 | `get_note` | | Notes survive template deletion |
 
 **Pass Rate Required**: 100% (15/15)
 

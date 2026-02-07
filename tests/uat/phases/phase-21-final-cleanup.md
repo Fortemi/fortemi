@@ -5,6 +5,9 @@
 **Phase Number**: 21 (FINAL PHASE)
 **Prerequisites**: All other phases (0-20) completed
 **Critical**: Yes - ensures clean state for next test run
+**Tools Tested**: `list_notes`, `delete_note`, `purge_notes`, `purge_note`, `list_collections`, `delete_collection`, `list_embedding_sets`, `delete_embedding_set`, `list_concept_schemes`, `delete_concept`, `delete_concept_scheme`, `search_concepts`, `list_templates`, `delete_template`, `list_archives`, `delete_archive`, `memory_info`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
@@ -43,6 +46,8 @@ This phase uses **MCP tools exclusively** to clean up all UAT test data. Each cl
 
 ### CLEAN-001: Inventory UAT Test Data
 
+**MCP Tools**: `list_notes`, `list_collections`, `list_templates`
+
 ```javascript
 // Count all UAT-tagged notes
 const uatNotes = await mcp__fortemi__list_notes({
@@ -68,6 +73,8 @@ console.log(`Found ${uatTemplates.length} UAT templates`)
 
 ### CLEAN-002: Delete UAT Notes (Soft Delete)
 
+**MCP Tool**: `delete_note`
+
 ```javascript
 // Get all UAT notes
 const notes = await mcp__fortemi__list_notes({
@@ -87,6 +94,8 @@ console.log(`Soft-deleted ${notes.notes.length} UAT notes`)
 ---
 
 ### CLEAN-003: Purge UAT Notes (Permanent Removal)
+
+**MCP Tool**: `purge_notes`
 
 ```javascript
 // Use purge_notes for bulk permanent deletion
@@ -113,6 +122,8 @@ console.log("Purged all UAT-tagged notes")
 
 ### CLEAN-004: Delete UAT Collections
 
+**MCP Tools**: `list_collections`, `delete_collection`
+
 ```javascript
 // Get all collections
 const collections = await mcp__fortemi__list_collections()
@@ -132,6 +143,8 @@ console.log(`Deleted ${uatCollections.length} UAT collections`)
 ---
 
 ### CLEAN-005: Delete UAT Templates
+
+**MCP Tools**: `list_templates`, `delete_template`
 
 ```javascript
 // Get all templates
@@ -155,6 +168,8 @@ console.log(`Deleted ${uatTemplates.length} UAT templates`)
 
 ### CLEAN-006: Delete UAT Embedding Sets
 
+**MCP Tools**: `list_embedding_sets`, `delete_embedding_set`
+
 ```javascript
 // Get all embedding sets
 const sets = await mcp__fortemi__list_embedding_sets()
@@ -176,6 +191,8 @@ console.log(`Deleted ${uatSets.length} UAT embedding sets`)
 ---
 
 ### CLEAN-007: Delete UAT SKOS Concepts and Schemes
+
+**MCP Tools**: `list_concept_schemes`, `search_concepts`, `delete_concept`, `delete_concept_scheme`
 
 ```javascript
 // Get all concept schemes
@@ -208,6 +225,8 @@ console.log(`Deleted ${uatSchemes.length} UAT concept schemes`)
 
 ### CLEAN-008: Delete UAT Archives
 
+**MCP Tools**: `list_archives`, `delete_archive`
+
 ```javascript
 // Get all archives
 const archives = await mcp__fortemi__list_archives()
@@ -229,6 +248,8 @@ console.log(`Deleted ${uatArchives.length} UAT archives`)
 ---
 
 ### CLEAN-009: Verify Complete Cleanup
+
+**MCP Tools**: `list_notes`, `list_collections`
 
 ```javascript
 // Verify no UAT notes remain
@@ -260,6 +281,8 @@ console.log(`Verification: ${remainingNotes.total} notes, ${uatColl.length} coll
 
 ### CLEAN-010: Final System State Check
 
+**MCP Tool**: `memory_info`
+
 ```javascript
 // Get final system state using MCP memory_info
 const systemInfo = await mcp__fortemi__memory_info()
@@ -277,18 +300,18 @@ console.log("System health: " + (systemInfo.health?.status || "OK"))
 
 ## Phase Summary
 
-| Test ID | Name | MCP Tool(s) Used | Status |
-|---------|------|------------------|--------|
-| CLEAN-001 | Inventory UAT Data | list_notes, list_collections, list_templates | |
-| CLEAN-002 | Soft Delete Notes | delete_note | |
-| CLEAN-003 | Purge Notes | purge_notes | |
-| CLEAN-004 | Delete Collections | delete_collection | |
-| CLEAN-005 | Delete Templates | delete_template | |
-| CLEAN-006 | Delete Embedding Sets | delete_embedding_set | |
-| CLEAN-007 | Delete SKOS Data | delete_concept, delete_concept_scheme | |
-| CLEAN-008 | Delete Archives | delete_archive | |
-| CLEAN-009 | Verify Cleanup | list_notes, list_collections | |
-| CLEAN-010 | Final State Check | memory_info | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| CLEAN-001 | Inventory UAT Data | `list_notes`, `list_collections`, `list_templates` | |
+| CLEAN-002 | Soft Delete Notes | `delete_note` | |
+| CLEAN-003 | Purge Notes | `purge_notes` | |
+| CLEAN-004 | Delete Collections | `list_collections`, `delete_collection` | |
+| CLEAN-005 | Delete Templates | `list_templates`, `delete_template` | |
+| CLEAN-006 | Delete Embedding Sets | `list_embedding_sets`, `delete_embedding_set` | |
+| CLEAN-007 | Delete SKOS Data | `list_concept_schemes`, `search_concepts`, `delete_concept`, `delete_concept_scheme` | |
+| CLEAN-008 | Delete Archives | `list_archives`, `delete_archive` | |
+| CLEAN-009 | Verify Cleanup | `list_notes`, `list_collections` | |
+| CLEAN-010 | Final State Check | `memory_info` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

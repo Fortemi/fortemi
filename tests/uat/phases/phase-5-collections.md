@@ -3,12 +3,17 @@
 **Purpose**: Verify hierarchical folder organization
 **Duration**: ~3 minutes
 **Prerequisites**: Phase 1 seed data exists
+**Tools Tested**: `create_collection`, `list_collections`, `get_collection`, `move_note_to_collection`, `get_collection_notes`, `get_note`, `delete_collection`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Collection CRUD
 
 ### COLL-001: Create Collection
+
+**MCP Tool**: `create_collection`
 
 ```javascript
 create_collection({
@@ -24,6 +29,8 @@ create_collection({
 
 ### COLL-002: Create Nested Collection
 
+**MCP Tool**: `create_collection`
+
 ```javascript
 create_collection({
   name: "UAT-Subcollection",
@@ -38,6 +45,8 @@ create_collection({
 
 ### COLL-003: List Collections
 
+**MCP Tool**: `list_collections`
+
 ```javascript
 list_collections()
 ```
@@ -48,6 +57,8 @@ list_collections()
 
 ### COLL-004: List Child Collections
 
+**MCP Tool**: `list_collections`
+
 ```javascript
 list_collections({ parent_id: "<test_collection_id>" })
 ```
@@ -57,6 +68,8 @@ list_collections({ parent_id: "<test_collection_id>" })
 ---
 
 ### COLL-005: Get Collection
+
+**MCP Tool**: `get_collection`
 
 ```javascript
 get_collection({ id: "<test_collection_id>" })
@@ -69,6 +82,8 @@ get_collection({ id: "<test_collection_id>" })
 ## Note Organization
 
 ### COLL-006: Move Note to Collection
+
+**MCP Tool**: `move_note_to_collection`
 
 ```javascript
 move_note_to_collection({
@@ -83,6 +98,8 @@ move_note_to_collection({
 
 ### COLL-007: Get Collection Notes
 
+**MCP Tool**: `get_collection_notes`
+
 ```javascript
 get_collection_notes({ id: "<test_collection_id>" })
 ```
@@ -92,6 +109,8 @@ get_collection_notes({ id: "<test_collection_id>" })
 ---
 
 ### COLL-008: Verify Note Collection Assignment
+
+**MCP Tool**: `get_note`
 
 ```javascript
 get_note({ id: "<moved_note_id>" })
@@ -104,6 +123,8 @@ get_note({ id: "<moved_note_id>" })
 ## Collection Deletion
 
 ### COLL-009: Delete Empty Collection
+
+**MCP Tool**: `move_note_to_collection`, `delete_collection`
 
 ```javascript
 // First move note out
@@ -119,6 +140,8 @@ delete_collection({ id: "<empty_collection_id>" })
 
 ### COLL-010: Delete Collection with Notes (Behavior)
 
+**MCP Tool**: `delete_collection`
+
 ```javascript
 // Try to delete collection containing notes
 delete_collection({ id: "<collection_with_notes>" })
@@ -130,18 +153,18 @@ delete_collection({ id: "<collection_with_notes>" })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| COLL-001 | Create Collection | |
-| COLL-002 | Create Nested Collection | |
-| COLL-003 | List Collections | |
-| COLL-004 | List Child Collections | |
-| COLL-005 | Get Collection | |
-| COLL-006 | Move Note to Collection | |
-| COLL-007 | Get Collection Notes | |
-| COLL-008 | Verify Note Assignment | |
-| COLL-009 | Delete Empty Collection | |
-| COLL-010 | Delete Collection with Notes | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| COLL-001 | Create Collection | `create_collection` | |
+| COLL-002 | Create Nested Collection | `create_collection` | |
+| COLL-003 | List Collections | `list_collections` | |
+| COLL-004 | List Child Collections | `list_collections` | |
+| COLL-005 | Get Collection | `get_collection` | |
+| COLL-006 | Move Note to Collection | `move_note_to_collection` | |
+| COLL-007 | Get Collection Notes | `get_collection_notes` | |
+| COLL-008 | Verify Note Assignment | `get_note` | |
+| COLL-009 | Delete Empty Collection | `move_note_to_collection`, `delete_collection` | |
+| COLL-010 | Delete Collection with Notes | `delete_collection` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

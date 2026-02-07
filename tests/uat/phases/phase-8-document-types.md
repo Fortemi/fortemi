@@ -3,12 +3,17 @@
 **Purpose**: Verify document type detection, management, and chunking
 **Duration**: ~5 minutes
 **Prerequisites**: None (uses system data)
+**Tools Tested**: `list_document_types`, `get_document_type`, `detect_document_type`, `create_document_type`, `update_document_type`, `delete_document_type`
+
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
 ## Document Type Listing
 
 ### DOC-001: List All Document Types
+
+**MCP Tool**: `list_document_types`
 
 ```javascript
 list_document_types()
@@ -20,6 +25,8 @@ list_document_types()
 
 ### DOC-002: Filter by Category
 
+**MCP Tool**: `list_document_types`
+
 ```javascript
 list_document_types({ category: "code" })
 ```
@@ -29,6 +36,8 @@ list_document_types({ category: "code" })
 ---
 
 ### DOC-003: Filter by System Flag
+
+**MCP Tool**: `list_document_types`
 
 > **Note**: The `is_system` filter is not currently supported by the API or MCP tool.
 > The `list_document_types` tool only supports filtering by `category`.
@@ -46,6 +55,8 @@ list_document_types({ detail: true })
 ## Document Type Details
 
 ### DOC-004: Get Document Type
+
+**MCP Tool**: `get_document_type`
 
 ```javascript
 get_document_type({ name: "rust" })
@@ -69,6 +80,8 @@ get_document_type({ name: "rust" })
 
 ### DOC-005: Get Agentic Document Type
 
+**MCP Tool**: `get_document_type`
+
 ```javascript
 get_document_type({ name: "agent-prompt" })
 ```
@@ -80,6 +93,8 @@ get_document_type({ name: "agent-prompt" })
 ## Document Type Detection
 
 ### DOC-006: Detect by Extension
+
+**MCP Tool**: `detect_document_type`
 
 ```javascript
 detect_document_type({
@@ -93,6 +108,8 @@ detect_document_type({
 
 ### DOC-007: Detect by Filename Pattern
 
+**MCP Tool**: `detect_document_type`
+
 ```javascript
 detect_document_type({
   filename: "docker-compose.yml"
@@ -105,6 +122,8 @@ detect_document_type({
 
 ### DOC-008: Detect by Content Magic
 
+**MCP Tool**: `detect_document_type`
+
 ```javascript
 detect_document_type({
   content: "openapi: 3.1.0\ninfo:\n  title: Test API"
@@ -116,6 +135,8 @@ detect_document_type({
 ---
 
 ### DOC-009: Detect Combined
+
+**MCP Tool**: `detect_document_type`
 
 ```javascript
 detect_document_type({
@@ -131,6 +152,8 @@ detect_document_type({
 ## Custom Document Types
 
 ### DOC-010: Create Custom Type
+
+**MCP Tool**: `create_document_type`
 
 ```javascript
 create_document_type({
@@ -152,6 +175,8 @@ create_document_type({
 
 ### DOC-011: Update Custom Type
 
+**MCP Tool**: `update_document_type`
+
 ```javascript
 update_document_type({
   name: "uat-custom-type",
@@ -166,6 +191,8 @@ update_document_type({
 
 ### DOC-012: Cannot Update System Type
 
+**MCP Tool**: `update_document_type`
+
 ```javascript
 update_document_type({
   name: "rust",
@@ -179,6 +206,8 @@ update_document_type({
 
 ### DOC-013: Delete Custom Type
 
+**MCP Tool**: `delete_document_type`
+
 ```javascript
 delete_document_type({ name: "uat-custom-type" })
 ```
@@ -188,6 +217,8 @@ delete_document_type({ name: "uat-custom-type" })
 ---
 
 ### DOC-014: Cannot Delete System Type
+
+**MCP Tool**: `delete_document_type`
 
 ```javascript
 delete_document_type({ name: "rust" })
@@ -200,6 +231,8 @@ delete_document_type({ name: "rust" })
 ## Agentic Document Types
 
 ### DOC-015: List Agentic Types
+
+**MCP Tool**: `list_document_types`
 
 ```javascript
 list_document_types({ category: "agentic" })
@@ -219,6 +252,8 @@ list_document_types({ category: "agentic" })
 
 ### DOC-016: Verify Agentic Config
 
+**MCP Tool**: `get_document_type`
+
 ```javascript
 get_document_type({ name: "agent-prompt" })
 ```
@@ -229,24 +264,24 @@ get_document_type({ name: "agent-prompt" })
 
 ## Phase Summary
 
-| Test ID | Name | Status |
-|---------|------|--------|
-| DOC-001 | List All Types | |
-| DOC-002 | Filter by Category | |
-| DOC-003 | Filter by System Flag | |
-| DOC-004 | Get Document Type | |
-| DOC-005 | Get Agentic Type | |
-| DOC-006 | Detect by Extension | |
-| DOC-007 | Detect by Filename | |
-| DOC-008 | Detect by Content | |
-| DOC-009 | Detect Combined | |
-| DOC-010 | Create Custom Type | |
-| DOC-011 | Update Custom Type | |
-| DOC-012 | Cannot Update System | |
-| DOC-013 | Delete Custom Type | |
-| DOC-014 | Cannot Delete System | |
-| DOC-015 | List Agentic Types | |
-| DOC-016 | Verify Agentic Config | |
+| Test ID | Name | MCP Tool(s) | Status |
+|---------|------|-------------|--------|
+| DOC-001 | List All Types | `list_document_types` | |
+| DOC-002 | Filter by Category | `list_document_types` | |
+| DOC-003 | Filter by System Flag | `list_document_types` | |
+| DOC-004 | Get Document Type | `get_document_type` | |
+| DOC-005 | Get Agentic Type | `get_document_type` | |
+| DOC-006 | Detect by Extension | `detect_document_type` | |
+| DOC-007 | Detect by Filename | `detect_document_type` | |
+| DOC-008 | Detect by Content | `detect_document_type` | |
+| DOC-009 | Detect Combined | `detect_document_type` | |
+| DOC-010 | Create Custom Type | `create_document_type` | |
+| DOC-011 | Update Custom Type | `update_document_type` | |
+| DOC-012 | Cannot Update System | `update_document_type` | |
+| DOC-013 | Delete Custom Type | `delete_document_type` | |
+| DOC-014 | Cannot Delete System | `delete_document_type` | |
+| DOC-015 | List Agentic Types | `list_document_types` | |
+| DOC-016 | Verify Agentic Config | `get_document_type` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 
