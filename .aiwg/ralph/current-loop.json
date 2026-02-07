@@ -1,15 +1,13 @@
 {
-  "active": false,
-  "task": "Comprehensive documentation alignment: update all docs, MCP tool help, OpenAPI specs, .aiwg workspace, webhook/event specs to match current codebase",
-  "completion": "All documentation aligned with codebase: docs/ updated, OpenAPI spec matches routes, MCP tool descriptions have detailed help/best practices, .aiwg workspace cleaned, webhook/event specs current, cargo test + MCP tests pass",
-  "maxIterations": 50,
-  "currentIteration": 3,
-  "startTime": "2026-02-06T14:30:00Z",
+  "active": true,
+  "task": "Complete all 15 extraction issues (#87-#102): implement all adapters, backends, Docker toolchain, deployment configs, analytics, and epic tracker",
+  "completion": "All 15 extraction issues resolved: code implemented, tests pass, CI green, PRs ready",
+  "maxIterations": 10,
+  "currentIteration": 1,
+  "startTime": "2026-02-07T03:13:00Z",
   "timeoutMinutes": 180,
-  "status": "SUCCESS",
+  "status": "IN_PROGRESS",
   "summary": {
-    "iteration1": "Audit: 6 parallel agents audited OpenAPI spec, docs/, MCP tools, .aiwg workspace, event system, extraction pipeline",
-    "iteration2": "Implementation: Updated OpenAPI spec (attachment endpoints, job types, concept scheme DELETE), operations.md (80+ env vars), architecture.md (extraction pipeline, doc type detection, job processing), MCP README (155 tools), mcp.md, 9 MCP tool descriptions improved, fixed doc type count 161→131",
-    "iteration3": "Fix + verify: Fixed SKOS endpoint path, job_type values, migration table, added glossary terms, improved 10 more MCP descriptions, fixed ADR-048 count. Final verification: 163 OpenAPI ops, 155/155 MCP tools detailed, 0 broken links, 0 stale references"
+    "iteration1": "Initialization: gathered all 15 issue details, explored codebase architecture, identified existing adapters (TextNative, PdfText, StructuredExtract) and missing ones (PdfOcr, OfficeConvert, CodeAst, Vision, Audio, Video, ContentSummarizer). Planning parallel implementation."
   }
 }

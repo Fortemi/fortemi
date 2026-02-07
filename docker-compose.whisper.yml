@@ -1,0 +1,43 @@
+# docker-compose.whisper.yml
+# Speaches (faster-whisper-server) — OpenAI-compatible audio transcription
+# Deploy alongside the main fortemi bundle for audio extraction support.
+#
+# Usage:
+#   docker compose -f docker-compose.whisper.yml up -d
+#
+# Test:
+#   curl http://localhost:8000/health
+#   curl http://localhost:8000/v1/audio/transcriptions -F "file=@audio.mp3"
+#
+# Configure fortemi to use this service:
+#   WHISPER_BASE_URL=http://host.docker.internal:8000
+#   (or http://speaches:8000 if on same Docker network)
+
+services:
+  speaches:
+    container_name: speaches
+    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - speaches-models:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      - WHISPER__MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  speaches-models:
+    driver: local

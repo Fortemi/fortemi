@@ -13,7 +13,7 @@ homepage.workspace = true
 matric-core.workspace = true
 
 # HTTP client
-reqwest = { workspace = true, features = ["stream"] }
+reqwest = { workspace = true, features = ["stream", "multipart"] }
 
 # Serialization
 serde.workspace = true
@@ -34,6 +34,9 @@ chrono = { workspace = true }
 
 # Regex for LLM-as-Judge parsing
 regex.workspace = true
+
+# Base64 encoding for vision backend
+base64.workspace = true
 
 # Streaming (for OpenAI backend)
 futures = { workspace = true, optional = true }
