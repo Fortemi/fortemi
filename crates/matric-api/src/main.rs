@@ -1811,9 +1811,9 @@ async fn auth_middleware(
             } else {
                 // Anonymous access allowed — inject Anonymous principal
                 let mut request = request;
-                request
-                    .extensions_mut()
-                    .insert(Auth { principal: AuthPrincipal::Anonymous });
+                request.extensions_mut().insert(Auth {
+                    principal: AuthPrincipal::Anonymous,
+                });
                 next.run(request).await
             }
         }
@@ -1841,9 +1841,7 @@ fn check_scope_enforcement(
     }
 
     // Mutation methods require write scope (except read-only POST routes)
-    if is_mutation_method(method)
-        && !is_readonly_post_route(path)
-        && !principal.has_scope("write")
+    if is_mutation_method(method) && !is_readonly_post_route(path) && !principal.has_scope("write")
     {
         let body = serde_json::json!({
             "error": "forbidden",
