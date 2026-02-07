@@ -6,6 +6,11 @@ use matric_core::{ArchiveInfo, ArchiveRepository};
 use matric_db::Database;
 use uuid::Uuid;
 
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string())
+}
+
 /// Test helper to create a test archive.
 async fn create_test_archive(db: &Database, name: &str) -> ArchiveInfo {
     db.archives
@@ -21,7 +26,7 @@ async fn cleanup_archive(db: &Database, name: &str) {
 
 #[tokio::test]
 async fn test_archive_lifecycle() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -93,7 +98,7 @@ async fn test_archive_lifecycle() {
 
 #[tokio::test]
 async fn test_archive_stats_update() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -123,7 +128,7 @@ async fn test_archive_stats_update() {
 
 #[tokio::test]
 async fn test_get_nonexistent_archive() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -138,7 +143,7 @@ async fn test_get_nonexistent_archive() {
 
 #[tokio::test]
 async fn test_update_nonexistent_archive() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -152,7 +157,7 @@ async fn test_update_nonexistent_archive() {
 
 #[tokio::test]
 async fn test_delete_nonexistent_archive() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 

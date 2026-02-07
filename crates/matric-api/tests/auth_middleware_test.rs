@@ -6,6 +6,11 @@
 use matric_core::ClientRegistrationRequest;
 use matric_db::Database;
 
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string())
+}
+
 /// Helper to create a test OAuth client and get an access token.
 async fn create_test_client_and_token(db: &Database) -> (String, String) {
     // Register OAuth client
@@ -58,7 +63,7 @@ async fn create_test_client_and_token(db: &Database) -> (String, String) {
 
 #[tokio::test]
 async fn test_oauth_client_registration_and_token_creation() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -69,7 +74,7 @@ async fn test_oauth_client_registration_and_token_creation() {
 
 #[tokio::test]
 async fn test_oauth_token_introspection_works() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -89,7 +94,7 @@ async fn test_oauth_token_introspection_works() {
 
 #[tokio::test]
 async fn test_invalid_token_is_not_active() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -105,7 +110,7 @@ async fn test_invalid_token_is_not_active() {
 
 #[tokio::test]
 async fn test_expired_token_is_not_active() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -130,7 +135,7 @@ async fn test_expired_token_is_not_active() {
 
 #[tokio::test]
 async fn test_revoked_token_is_not_active() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -157,7 +162,7 @@ async fn test_revoked_token_is_not_active() {
 
 #[tokio::test]
 async fn test_token_has_correct_claims() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 
@@ -179,7 +184,7 @@ async fn test_token_has_correct_claims() {
 
 #[tokio::test]
 async fn test_multiple_tokens_for_same_client() {
-    let db = Database::connect(&std::env::var("DATABASE_URL").unwrap())
+    let db = Database::connect(&database_url())
         .await
         .expect("Failed to connect to database");
 

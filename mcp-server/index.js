@@ -1033,61 +1033,108 @@ function createMcpServer() {
         }
 
         // ============================================================================
-        // PUBLIC KEY ENCRYPTION (PKE) - Local wallet-style encryption
-        // These operations run locally via the matric-pke CLI
+        // PUBLIC KEY ENCRYPTION (PKE) - Wallet-style encryption via HTTP API
+        // All operations use /api/v1/pke/* endpoints (no CLI binary required)
         // ============================================================================
         case "pke_generate_keypair": {
-          const { execSync } = await import("node:child_process");
-          const cliArgs = ["keygen", "-p", args.passphrase];
-          if (args.output_dir) cliArgs.push("-o", args.output_dir);
-          if (args.label) cliArgs.push("-l", args.label);
-          const output = execSync(`matric-pke ${cliArgs.join(" ")}`, { encoding: "utf8" });
-          result = JSON.parse(output);
+          const apiResult = await apiRequest("POST", "/api/v1/pke/keygen", {
+            passphrase: args.passphrase,
+            label: args.label || null,
+          });
+          // Write key files to disk if output_dir specified
+          if (args.output_dir) {
+            fs.mkdirSync(args.output_dir, { recursive: true });
+            fs.writeFileSync(
+              path.join(args.output_dir, "public.key"),
+              Buffer.from(apiResult.public_key, "base64")
+            );
+            fs.writeFileSync(
+              path.join(args.output_dir, "private.key.enc"),
+              Buffer.from(apiResult.encrypted_private_key, "base64")
+            );
+            fs.writeFileSync(
+              path.join(args.output_dir, "address.txt"),
+              apiResult.address
+            );
+          }
+          result = {
+            address: apiResult.address,
+            public_key: apiResult.public_key,
+            label: apiResult.label,
+            output_dir: args.output_dir || null,
+          };
           break;
         }
 
         case "pke_get_address": {
-          const { execSync } = await import("node:child_process");
-          const output = execSync(`matric-pke address -p "${args.public_key_path}"`, { encoding: "utf8" });
-          result = JSON.parse(output);
+          // Read public key file and send as base64
+          const pubKeyBytes = fs.readFileSync(args.public_key_path);
+          const pubKeyB64 = pubKeyBytes.toString("base64");
+          const apiResult = await apiRequest("POST", "/api/v1/pke/address", {
+            public_key: pubKeyB64,
+          });
+          result = { address: apiResult.address };
           break;
         }
 
         case "pke_encrypt": {
-          const { execSync } = await import("node:child_process");
-          const recipientArgs = args.recipients.map(r => `-r "${r}"`).join(" ");
-          const output = execSync(`matric-pke encrypt -i "${args.input_path}" -o "${args.output_path}" ${recipientArgs}`, { encoding: "utf8" });
-          result = JSON.parse(output);
+          // Read input file as base64
+          const plainBytes = fs.readFileSync(args.input_path);
+          const plainB64 = plainBytes.toString("base64");
+          // Read recipient public key files as base64
+          const recipientKeys = args.recipients.map(r => {
+            const keyBytes = fs.readFileSync(r);
+            return keyBytes.toString("base64");
+          });
+          const apiResult = await apiRequest("POST", "/api/v1/pke/encrypt", {
+            plaintext: plainB64,
+            recipients: recipientKeys,
+            original_filename: path.basename(args.input_path),
+          });
+          // Write encrypted output
+          fs.writeFileSync(args.output_path, Buffer.from(apiResult.ciphertext, "base64"));
+          result = {
+            output_path: args.output_path,
+            recipients: apiResult.recipients,
+            size_bytes: Buffer.from(apiResult.ciphertext, "base64").length,
+          };
           break;
         }
 
         case "pke_decrypt": {
-          const { execSync } = await import("node:child_process");
-          const output = execSync(`matric-pke decrypt -i "${args.input_path}" -o "${args.output_path}" -k "${args.private_key_path}" -p "${args.passphrase}"`, { encoding: "utf8" });
-          result = JSON.parse(output);
+          // Read encrypted file and private key as base64
+          const cipherBytes = fs.readFileSync(args.input_path);
+          const cipherB64 = cipherBytes.toString("base64");
+          const privKeyBytes = fs.readFileSync(args.private_key_path);
+          const privKeyB64 = privKeyBytes.toString("base64");
+          const apiResult = await apiRequest("POST", "/api/v1/pke/decrypt", {
+            ciphertext: cipherB64,
+            encrypted_private_key: privKeyB64,
+            passphrase: args.passphrase,
+          });
+          // Write decrypted output
+          fs.writeFileSync(args.output_path, Buffer.from(apiResult.plaintext, "base64"));
+          result = {
+            output_path: args.output_path,
+            original_filename: apiResult.original_filename,
+          };
           break;
         }
 
         case "pke_list_recipients": {
-          const { execSync } = await import("node:child_process");
-          const output = execSync(`matric-pke recipients -i "${args.input_path}"`, { encoding: "utf8" });
-          result = JSON.parse(output);
+          // Read encrypted file as base64
+          const encBytes = fs.readFileSync(args.input_path);
+          const encB64 = encBytes.toString("base64");
+          const apiResult = await apiRequest("POST", "/api/v1/pke/recipients", {
+            ciphertext: encB64,
+          });
+          result = { recipients: apiResult.recipients };
           break;
         }
 
         case "pke_verify_address": {
-          const { execSync } = await import("node:child_process");
-          try {
-            const output = execSync(`matric-pke verify "${args.address}"`, { encoding: "utf8" });
-            result = JSON.parse(output);
-          } catch (e) {
-            // Parse the JSON output even on error (verification failure)
-            if (e.stdout) {
-              result = JSON.parse(e.stdout);
-            } else {
-              throw e;
-            }
-          }
+          const apiResult = await apiRequest("GET", `/api/v1/pke/verify/${encodeURIComponent(args.address)}`);
+          result = apiResult;
           break;
         }
 
@@ -4184,7 +4231,7 @@ USE THIS TOOL when you need:
   // ============================================================================
   {
     name: "pke_generate_keypair",
-    description: `**Requires matric-pke CLI binary in PATH.** Generate a new X25519 keypair for public-key encryption.
+    description: `Generate a new X25519 keypair for public-key encryption.
 
 Creates a wallet-style identity consisting of:
 - **Private key** - Stored encrypted with your passphrase (never share this!)
@@ -4194,6 +4241,8 @@ Creates a wallet-style identity consisting of:
 The address is derived from your public key using BLAKE3 hashing with a checksum,
 similar to cryptocurrency wallet addresses. Share your address with anyone who
 wants to send you encrypted data.
+
+If output_dir is specified, key files are written to disk (public.key, private.key.enc, address.txt).
 
 **Security Notes:**
 - Use a strong passphrase (12+ characters) to protect your private key
@@ -4223,9 +4272,9 @@ wants to send you encrypted data.
   },
   {
     name: "pke_get_address",
-    description: `**Requires matric-pke CLI binary in PATH.** Get the public address from a public key file.
+    description: `Get the public address from a public key file.
 
-Returns the mm:... address that can be shared with others.
+Reads the public key file and returns the mm:... address that can be shared with others.
 This address is what senders use to encrypt data for you.`,
     inputSchema: {
       type: "object",
@@ -4243,7 +4292,7 @@ This address is what senders use to encrypt data for you.`,
   },
   {
     name: "pke_encrypt",
-    description: `**Requires matric-pke CLI binary in PATH.** Encrypt a file for one or more recipients using public-key encryption.
+    description: `Encrypt a file for one or more recipients using public-key encryption.
 
 This uses the MMPKE01 format which provides:
 - **Multi-recipient support** - Encrypt once for multiple people
@@ -4280,12 +4329,12 @@ private key for one of the recipient public keys.`,
   },
   {
     name: "pke_decrypt",
-    description: `**Requires matric-pke CLI binary in PATH.** Decrypt a file using your private key.
+    description: `Decrypt a file using your private key.
 
 Decrypts a file that was encrypted for your public key address.
-You must have the private key file and its passphrase.
+You must have the encrypted private key file and its passphrase.
 
-Returns the decrypted content and metadata (original filename, creation date).`,
+Returns the decrypted content and metadata (original filename).`,
     inputSchema: {
       type: "object",
       properties: {
@@ -4314,10 +4363,11 @@ Returns the decrypted content and metadata (original filename, creation date).`,
   },
   {
     name: "pke_list_recipients",
-    description: `**Requires matric-pke CLI binary in PATH.** List the recipient addresses that can decrypt an encrypted file.
+    description: `List the recipient addresses that can decrypt an encrypted file.
 
-Returns the mm:... addresses of all recipients without decrypting the file.
-Useful for determining if you can decrypt a file or who it was intended for.`,
+Reads the MMPKE01 header and returns the mm:... addresses of all recipients
+without decrypting the file. Useful for determining if you can decrypt a file
+or who it was intended for.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -4334,7 +4384,7 @@ Useful for determining if you can decrypt a file or who it was intended for.`,
   },
   {
     name: "pke_verify_address",
-    description: `**Requires matric-pke CLI binary in PATH.** Verify that a public key address is valid.
+    description: `Verify that a public key address is valid.
 
 Checks that the mm:... address has:
 - Correct prefix

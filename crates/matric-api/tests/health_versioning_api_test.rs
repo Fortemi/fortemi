@@ -6,13 +6,11 @@
 //! - Note export endpoint (/api/v1/notes/:id/export)
 //!
 //! Test Pattern:
-//! - Uses `#[tokio::test]` with Database for setup/teardown
+//! - Uses `#[tokio::test]` with HTTP-only operations for setup/teardown
 //! - Tests HTTP endpoints via reqwest against API_BASE_URL (default: localhost:3000)
+//! - Requires a running API server (tests skip gracefully if unavailable)
 //! - Uses UUIDs for test data isolation
-//! - Cleans up test data after each test
 
-use matric_core::{CreateNoteRequest, NoteRepository};
-use matric_db::Database;
 use uuid::Uuid;
 
 /// Get the API base URL for testing.
@@ -21,44 +19,94 @@ fn api_base_url() -> String {
     std::env::var("API_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string())
 }
 
-/// Create a test database connection for setup/teardown operations.
-async fn test_db() -> Database {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
-    Database::connect(&database_url)
+/// Check if the API server is reachable. Returns false if connection fails.
+async fn api_available() -> bool {
+    // Only run external integration tests when API_BASE_URL is explicitly set.
+    // Without this guard, tests can accidentally hit stale API deployments on
+    // the CI host (port 3000) that don't have the latest code.
+    if std::env::var("API_BASE_URL").is_err() {
+        return false;
+    }
+    reqwest::Client::new()
+        .get(format!("{}/health", api_base_url()))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
         .await
-        .expect("Failed to connect to test database")
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
 }
 
-/// Create a test note via database and return its ID.
-async fn create_test_note(db: &Database, content: &str) -> Uuid {
-    let note = CreateNoteRequest {
-        content: content.to_string(),
-        format: "markdown".to_string(),
-        source: "test".to_string(),
-        collection_id: None,
-        tags: None,
-        metadata: None,
-        document_type_id: None,
+/// Skip test if API server is not available. These are external integration
+/// tests that require a running API server - they cannot run in CI without one.
+/// Set API_BASE_URL=http://localhost:3000 to enable these tests.
+macro_rules! require_api {
+    () => {
+        if !api_available().await {
+            eprintln!(
+                "Skipping: API_BASE_URL not set or server not available at {}",
+                api_base_url()
+            );
+            return;
+        }
     };
-
-    db.notes
-        .insert(note)
-        .await
-        .expect("Failed to create test note")
 }
 
-/// Update a note's original content to create a new version.
-async fn update_test_note(db: &Database, note_id: Uuid, new_content: &str) {
-    db.notes
-        .update_original(note_id, new_content)
+/// Create a test note via HTTP and return its ID.
+async fn create_test_note(client: &reqwest::Client, content: &str) -> Uuid {
+    let base_url = api_base_url();
+    let response = client
+        .post(format!("{}/api/v1/notes", base_url))
+        .json(&serde_json::json!({
+            "content": content,
+            "format": "markdown",
+            "source": "test"
+        }))
+        .send()
+        .await
+        .expect("Failed to create test note");
+
+    assert_eq!(response.status(), 201, "Create note should return 201");
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .expect("Failed to parse create response");
+    Uuid::parse_str(body["id"].as_str().unwrap()).expect("Invalid note ID in response")
+}
+
+/// Update a note's content via HTTP (creates a new version).
+async fn update_test_note(client: &reqwest::Client, note_id: Uuid, new_content: &str) {
+    let base_url = api_base_url();
+    let response = client
+        .patch(format!("{}/api/v1/notes/{}", base_url, note_id))
+        .json(&serde_json::json!({
+            "content": new_content,
+            "revision_mode": "none"
+        }))
+        .send()
         .await
         .expect("Failed to update test note");
+
+    assert!(
+        response.status().is_success(),
+        "Update note should succeed, got {}",
+        response.status()
+    );
 }
 
-/// Delete a test note permanently.
-async fn delete_test_note(db: &Database, note_id: Uuid) {
-    let _ = db.notes.hard_delete(note_id).await;
+/// Delete a test note permanently via HTTP.
+async fn delete_test_note(client: &reqwest::Client, note_id: Uuid) {
+    let base_url = api_base_url();
+    // Soft delete first
+    let _ = client
+        .delete(format!("{}/api/v1/notes/{}", base_url, note_id))
+        .send()
+        .await;
+    // Then purge
+    let _ = client
+        .post(format!("{}/api/v1/notes/{}/purge", base_url, note_id))
+        .send()
+        .await;
 }
 
 // =============================================================================
@@ -67,12 +115,12 @@ async fn delete_test_note(db: &Database, note_id: Uuid) {
 
 #[tokio::test]
 async fn test_get_knowledge_health_returns_health_score() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
     // Create a test note to ensure we have some data
-    let note_id = create_test_note(&db, "Test content for health check").await;
+    let note_id = create_test_note(&client, "Test content for health check").await;
 
     // Get knowledge health
     let response = client
@@ -107,11 +155,12 @@ async fn test_get_knowledge_health_returns_health_score() {
     );
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }
 
 #[tokio::test]
 async fn test_get_knowledge_health_with_custom_stale_days() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -136,6 +185,7 @@ async fn test_get_knowledge_health_with_custom_stale_days() {
 
 #[tokio::test]
 async fn test_get_orphan_tags_returns_array() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -158,6 +208,7 @@ async fn test_get_orphan_tags_returns_array() {
 
 #[tokio::test]
 async fn test_get_stale_notes_returns_data() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -178,6 +229,7 @@ async fn test_get_stale_notes_returns_data() {
 
 #[tokio::test]
 async fn test_get_unlinked_notes_returns_data() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -198,6 +250,7 @@ async fn test_get_unlinked_notes_returns_data() {
 
 #[tokio::test]
 async fn test_get_tag_cooccurrence_returns_data() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -222,18 +275,18 @@ async fn test_get_tag_cooccurrence_returns_data() {
 
 #[tokio::test]
 async fn test_versioning_full_lifecycle() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
     // Step 1: Create note (version 1)
-    let note_id = create_test_note(&db, "Original content v1").await;
+    let note_id = create_test_note(&client, "Original content v1").await;
 
     // Step 2: Update note to create version 2
-    update_test_note(&db, note_id, "Updated content v2").await;
+    update_test_note(&client, note_id, "Updated content v2").await;
 
     // Step 3: Update note again to create version 3
-    update_test_note(&db, note_id, "Updated content v3").await;
+    update_test_note(&client, note_id, "Updated content v3").await;
 
     // Step 4: List versions
     let response = client
@@ -294,16 +347,16 @@ async fn test_versioning_full_lifecycle() {
     assert_eq!(response.status(), 200, "Restore should return 200");
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }
 
 #[tokio::test]
 async fn test_get_nonexistent_version_returns_404() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
-    let note_id = create_test_note(&db, "Test content").await;
+    let note_id = create_test_note(&client, "Test content").await;
 
     // Try to get version 999 which doesn't exist
     let response = client
@@ -322,11 +375,12 @@ async fn test_get_nonexistent_version_returns_404() {
     );
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }
 
 #[tokio::test]
 async fn test_versions_for_nonexistent_note_returns_404() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -351,11 +405,11 @@ async fn test_versions_for_nonexistent_note_returns_404() {
 
 #[tokio::test]
 async fn test_export_note_returns_markdown() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
-    let note_id = create_test_note(&db, "# Test Content\n\nThis is a test note.").await;
+    let note_id = create_test_note(&client, "# Test Content\n\nThis is a test note.").await;
 
     // Export with default settings
     let response = client
@@ -376,16 +430,16 @@ async fn test_export_note_returns_markdown() {
     );
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }
 
 #[tokio::test]
 async fn test_export_note_without_frontmatter() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
-    let note_id = create_test_note(&db, "Plain content without frontmatter").await;
+    let note_id = create_test_note(&client, "Plain content without frontmatter").await;
 
     // Export without frontmatter
     let response = client
@@ -406,11 +460,12 @@ async fn test_export_note_without_frontmatter() {
     );
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }
 
 #[tokio::test]
 async fn test_export_nonexistent_note_returns_404() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
 
@@ -435,11 +490,11 @@ async fn test_export_nonexistent_note_returns_404() {
 
 #[tokio::test]
 async fn test_diff_versions_with_invalid_range() {
+    require_api!();
     let client = reqwest::Client::new();
     let base_url = api_base_url();
-    let db = test_db().await;
 
-    let note_id = create_test_note(&db, "Test content").await;
+    let note_id = create_test_note(&client, "Test content").await;
 
     // Try to diff with invalid version numbers
     let response = client
@@ -459,5 +514,5 @@ async fn test_diff_versions_with_invalid_range() {
     );
 
     // Cleanup
-    delete_test_note(&db, note_id).await;
+    delete_test_note(&client, note_id).await;
 }

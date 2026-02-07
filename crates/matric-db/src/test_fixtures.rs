@@ -30,9 +30,9 @@
 
 /// Default test database URL when DATABASE_URL is not set.
 ///
-/// Uses port 15432 to avoid conflicts with production databases.
-/// See `docs/quick-start-testing.md` for test database setup instructions.
-pub const DEFAULT_TEST_DATABASE_URL: &str = "postgres://matric:matric@localhost:15432/matric_test";
+/// In CI, DATABASE_URL is always set explicitly by the workflow.
+/// This fallback is used for local development only.
+pub const DEFAULT_TEST_DATABASE_URL: &str = "postgres://matric:matric@localhost/matric";
 
 use crate::{
     colbert::ColBERTRepository,
@@ -67,7 +67,7 @@ impl TestDatabase {
     /// Create a new test database instance.
     ///
     /// By default, connects to `DATABASE_URL` environment variable or
-    /// `postgres://matric:matric@localhost:15432/matric_test`.
+    /// `postgres://matric:matric@localhost/matric`.
     pub async fn new() -> Self {
         Self::with_cleanup(true).await
     }

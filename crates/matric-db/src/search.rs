@@ -5,7 +5,7 @@
 //! - `matric_english` for English content (default)
 //! - `matric_simple` for CJK and other scripts (no stemming)
 
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{Error, Result, SearchHit, StrictTagFilter};
@@ -654,6 +654,85 @@ impl PgFtsSearch {
         } else {
             self.search_trigram(query, limit, exclude_archived).await
         }
+    }
+}
+
+/// Transaction-aware variants for archive-scoped operations (Issue #108).
+impl PgFtsSearch {
+    /// Perform full-text search within an existing transaction.
+    ///
+    /// Uses BM25F field-weighted scoring with title/tags/content weights.
+    pub async fn search_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        query: &str,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        let archive_clause = if exclude_archived {
+            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "AND n.deleted_at IS NULL"
+        };
+
+        let sql = format!(
+            r#"
+            SELECT n.id as note_id,
+                   ts_rank(
+                       setweight(COALESCE(to_tsvector('matric_english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE((
+                           SELECT to_tsvector('matric_english', string_agg(tag_name, ' '))
+                           FROM note_tag WHERE note_id = n.id
+                       ), ''::tsvector), 'B') ||
+                       setweight(nrc.tsv, 'C'),
+                       websearch_to_tsquery('matric_english', $1),
+                       32
+                   ) AS score,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM note_revised_current nrc
+            JOIN note n ON n.id = nrc.note_id
+            WHERE (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
+                   OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+              {}
+            ORDER BY score DESC
+            LIMIT $2
+            "#,
+            archive_clause
+        );
+
+        let rows = sqlx::query(&sql)
+            .bind(query)
+            .bind(limit)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                    embedding_status: None,
+                }
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 

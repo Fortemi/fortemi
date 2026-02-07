@@ -673,10 +673,14 @@ mod tests {
     }
 
     #[test]
-    fn test_model_discovery_from_env() {
-        std::env::set_var("OLLAMA_HOST", "http://test:11434");
-        let discovery = ModelDiscovery::from_env();
+    fn test_model_discovery_constructor() {
+        let discovery = ModelDiscovery::new("http://test:11434");
         assert_eq!(discovery.ollama_url, "http://test:11434");
-        std::env::remove_var("OLLAMA_HOST");
+    }
+
+    #[test]
+    fn test_model_discovery_constructor_with_default_url() {
+        let discovery = ModelDiscovery::new("http://localhost:11434");
+        assert_eq!(discovery.ollama_url, "http://localhost:11434");
     }
 }

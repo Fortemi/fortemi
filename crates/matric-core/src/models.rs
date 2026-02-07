@@ -1747,6 +1747,8 @@ pub enum JobType {
     GenerateCoarseEmbedding,
     /// Extract EXIF metadata from images
     ExifExtraction,
+    /// Extract content from file attachment
+    Extraction,
     /// Analyze 3D models (geometry, materials, etc.)
     #[serde(rename = "3d_analysis")]
     ThreeDAnalysis,
@@ -1785,6 +1787,8 @@ impl JobType {
             JobType::GenerateCoarseEmbedding => 2,
             // EXIF extraction - medium priority for metadata processing
             JobType::ExifExtraction => 5,
+            // Extraction is high priority since it gates downstream work
+            JobType::Extraction => 7,
             // 3D analysis - slightly lower priority background task
             JobType::ThreeDAnalysis => 4,
             // Document type inference - low priority, runs after content extraction
@@ -1821,6 +1825,19 @@ pub struct QueueStats {
     pub completed_last_hour: i64,
     pub failed_last_hour: i64,
     pub total: i64,
+}
+
+/// Extraction job statistics and analytics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionStats {
+    pub total_jobs: i64,
+    pub completed_jobs: i64,
+    pub failed_jobs: i64,
+    pub pending_jobs: i64,
+    /// Average duration in seconds for completed extraction jobs.
+    pub avg_duration_secs: Option<f64>,
+    /// Count of jobs per extraction strategy.
+    pub strategy_breakdown: HashMap<String, i64>,
 }
 
 // =============================================================================
@@ -2342,6 +2359,12 @@ pub enum AuthPrincipal {
 
 impl AuthPrincipal {
     /// Check if the principal has the required scope.
+    ///
+    /// Scope hierarchy: admin > write > read > mcp
+    /// - `admin`: all operations
+    /// - `write`: create, update, delete + read
+    /// - `read`: list, get, search
+    /// - `mcp`: MCP-specific operations + read + write
     pub fn has_scope(&self, required: &str) -> bool {
         let scope = match self {
             AuthPrincipal::OAuthClient { scope, .. } => scope,
@@ -2349,17 +2372,37 @@ impl AuthPrincipal {
             AuthPrincipal::Anonymous => return false,
         };
 
-        // Admin has all permissions
-        if scope.contains("admin") {
-            return true;
+        // Check each granted scope against the hierarchy
+        for granted in scope.split_whitespace() {
+            match granted {
+                "admin" => return true, // Admin has all permissions
+                "mcp" => {
+                    // MCP scope includes read and write
+                    if required == "read" || required == "write" || required == "mcp" {
+                        return true;
+                    }
+                }
+                "write" => {
+                    // Write scope includes read
+                    if required == "read" || required == "write" {
+                        return true;
+                    }
+                }
+                s if s == required => return true,
+                _ => {}
+            }
         }
 
-        // MCP scope includes read and write
-        if scope.contains("mcp") && (required == "read" || required == "write") {
-            return true;
-        }
+        false
+    }
 
-        scope.split_whitespace().any(|s| s == required)
+    /// Get the scope string for error messages.
+    pub fn scope_str(&self) -> &str {
+        match self {
+            AuthPrincipal::OAuthClient { scope, .. } => scope,
+            AuthPrincipal::ApiKey { scope, .. } => scope,
+            AuthPrincipal::Anonymous => "none",
+        }
     }
 
     /// Check if the principal is authenticated.

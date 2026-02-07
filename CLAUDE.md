@@ -70,6 +70,55 @@ To bypass hooks (not recommended): `git commit --no-verify`
 
 See `scripts/README.md` for more details.
 
+## Authentication
+
+The API supports opt-in authentication via the `REQUIRE_AUTH` environment variable.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REQUIRE_AUTH` | `false` | Set to `true` to require auth on all `/api/v1/*` endpoints |
+| `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL (REQUIRED for OAuth/MCP) |
+
+When `REQUIRE_AUTH=false` (default), all endpoints are publicly accessible.
+When `REQUIRE_AUTH=true`, all `/api/v1/*` endpoints require a valid Bearer token.
+
+Public endpoints (always accessible regardless of `REQUIRE_AUTH`):
+- `/health`, `/api/v1/health/*`
+- `/oauth/*`, `/.well-known/*`
+- `/docs` (Swagger UI), `/openapi.yaml`
+
+### Authentication Methods
+
+1. **OAuth2 Access Token**: Obtain via `/oauth/token` (client_credentials or authorization_code grant)
+2. **API Key**: Create via `POST /api/v1/api-keys`, use as Bearer token
+
+### Example Usage
+
+```bash
+# Register an OAuth client
+curl -X POST https://your-domain.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"My App","grant_types":["client_credentials"],"scope":"read write"}'
+
+# Get an access token
+curl -X POST https://your-domain.com/oauth/token \
+  -u "CLIENT_ID:CLIENT_SECRET" \
+  -d "grant_type=client_credentials&scope=read write"
+
+# Use the token
+curl https://your-domain.com/api/v1/notes \
+  -H "Authorization: Bearer mm_at_xxxx"
+```
+
+### Enabling Auth on Existing Deployments
+
+1. Deploy with `REQUIRE_AUTH=false` (default) and register OAuth clients
+2. Create API keys for existing integrations: `POST /api/v1/api-keys`
+3. Update all clients to include `Authorization: Bearer <token>` headers
+4. Set `REQUIRE_AUTH=true` in `.env` and restart: `docker compose -f docker-compose.bundle.yml up -d`
+
 ## Deployment
 
 ### Docker Bundle

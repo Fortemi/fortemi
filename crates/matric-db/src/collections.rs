@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{new_v7, Collection, CollectionRepository, Error, NoteSummary, Result};
@@ -244,6 +244,175 @@ impl CollectionRepository for PgCollectionRepository {
             .bind(now)
             .bind(note_id)
             .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+}
+
+/// Transaction-aware variants for archive-scoped operations (Issue #108).
+impl PgCollectionRepository {
+    /// Create a collection within an existing transaction.
+    pub async fn create_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        name: &str,
+        description: Option<&str>,
+        parent_id: Option<Uuid>,
+    ) -> Result<Uuid> {
+        let id = new_v7();
+        let now = Utc::now();
+
+        sqlx::query(
+            "INSERT INTO collection (id, name, description, parent_id, created_at_utc)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(description)
+        .bind(parent_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(id)
+    }
+
+    /// Get a collection by ID within an existing transaction.
+    pub async fn get_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> Result<Option<Collection>> {
+        let row = sqlx::query(
+            r#"
+            SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
+                   COALESCE((SELECT COUNT(*) FROM note WHERE collection_id = c.id), 0) as note_count
+            FROM collection c
+            WHERE c.id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| Collection {
+            id: r.get("id"),
+            name: r.get("name"),
+            description: r.get("description"),
+            parent_id: r.get("parent_id"),
+            created_at_utc: r.get("created_at_utc"),
+            note_count: r.get("note_count"),
+        }))
+    }
+
+    /// List collections within an existing transaction.
+    pub async fn list_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_id: Option<Uuid>,
+    ) -> Result<Vec<Collection>> {
+        let rows = if let Some(pid) = parent_id {
+            sqlx::query(
+                r#"
+                SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
+                       COALESCE((SELECT COUNT(*) FROM note WHERE collection_id = c.id), 0) as note_count
+                FROM collection c
+                WHERE c.parent_id = $1
+                ORDER BY c.name
+                "#,
+            )
+            .bind(pid)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?
+        } else {
+            sqlx::query(
+                r#"
+                SELECT c.id, c.name, c.description, c.parent_id, c.created_at_utc,
+                       COALESCE((SELECT COUNT(*) FROM note WHERE collection_id = c.id), 0) as note_count
+                FROM collection c
+                WHERE c.parent_id IS NULL
+                ORDER BY c.name
+                "#,
+            )
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?
+        };
+
+        Ok(rows
+            .into_iter()
+            .map(|r| Collection {
+                id: r.get("id"),
+                name: r.get("name"),
+                description: r.get("description"),
+                parent_id: r.get("parent_id"),
+                created_at_utc: r.get("created_at_utc"),
+                note_count: r.get("note_count"),
+            })
+            .collect())
+    }
+
+    /// Update a collection within an existing transaction.
+    pub async fn update_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE collection SET name = $1, description = $2 WHERE id = $3")
+            .bind(name)
+            .bind(description)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Delete a collection within an existing transaction.
+    pub async fn delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+        // Move notes to uncategorized
+        sqlx::query("UPDATE note SET collection_id = NULL WHERE collection_id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        // Move child collections to root
+        sqlx::query("UPDATE collection SET parent_id = NULL WHERE parent_id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        // Delete the collection
+        sqlx::query("DELETE FROM collection WHERE id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Move a note to a collection within an existing transaction.
+    pub async fn move_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        collection_id: Option<Uuid>,
+    ) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query("UPDATE note SET collection_id = $1, updated_at_utc = $2 WHERE id = $3")
+            .bind(collection_id)
+            .bind(now)
+            .bind(note_id)
+            .execute(&mut **tx)
             .await
             .map_err(Error::Database)?;
         Ok(())

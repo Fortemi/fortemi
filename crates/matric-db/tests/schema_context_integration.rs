@@ -100,7 +100,7 @@ async fn test_database_default_schema() {
 #[tokio::test]
 async fn test_schema_context_sets_search_path() {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
     let pool = sqlx::Pool::<sqlx::Postgres>::connect(&database_url)
         .await
@@ -147,7 +147,7 @@ async fn test_schema_context_sets_search_path() {
 #[tokio::test]
 async fn test_schema_context_transaction_commit() {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
     let pool = sqlx::Pool::<sqlx::Postgres>::connect(&database_url)
         .await
@@ -203,7 +203,7 @@ async fn test_schema_context_transaction_commit() {
 #[tokio::test]
 async fn test_schema_context_transaction_rollback() {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
     let pool = sqlx::Pool::<sqlx::Postgres>::connect(&database_url)
         .await

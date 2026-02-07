@@ -215,6 +215,10 @@ pub async fn set_default_archive(
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     state.db.archives.set_default_archive(&name).await?;
+
+    // Invalidate default archive cache to force refresh on next request (Issue #107)
+    state.default_archive_cache.write().await.invalidate();
+
     Ok(StatusCode::NO_CONTENT)
 }
 

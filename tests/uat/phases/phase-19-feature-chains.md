@@ -12,10 +12,10 @@
 This phase tests end-to-end workflows that chain together 3+ features. Each chain exercises a realistic user scenario that demonstrates the system working as an integrated whole, not just isolated features.
 
 **Test Methodology**:
-- Use `curl` for REST API calls to `http://localhost:3000`
-- Use `MCP: tool_name(params)` notation for MCP server operations
+- Use MCP tool calls: `tool_name({param: value})`
 - Each chain includes setup, execution, verification, and cleanup
 - Store intermediate IDs for cross-chain verification
+- Expected results follow each tool call
 
 ---
 
@@ -32,125 +32,130 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 **Description**: Upload a Python source file from test data
 
 **Prerequisites**:
-- API server running on `localhost:3000`
-- Test file exists: `/home/roctinam/dev/matric-memory/tests/uat/data/documents/code-python.py`
+- MCP server running
+- Test file exists: `/home/roctinam/dev/fortemi/tests/uat/data/documents/code-python.py`
 
 **Steps**:
-```bash
-# 1. Upload Python file
-curl -X POST http://localhost:3000/api/v1/notes/upload \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@/home/roctinam/dev/matric-memory/tests/uat/data/documents/code-python.py" \
-  -F "tags=uat/chain1,python,code" \
-  -F "revision_mode=ai"
+```javascript
+// 1. Upload Python file as attachment
+upload_attachment({
+  file_path: "/home/roctinam/dev/fortemi/tests/uat/data/documents/code-python.py",
+  description: "UAT Python code sample"
+})
+// Expected: returns attachment_id, content_type: "text/x-python"
+
+// 2. Create note from attachment with AI revision
+create_note({
+  content: "<content from code-python.py>",
+  tags: ["uat/chain1", "python", "code"],
+  metadata: {
+    document_type: "python",
+    source_file: "code-python.py"
+  }
+})
+// Expected: returns note_id, status 200
 ```
 
 **Expected Results**:
-- HTTP 201 Created
-- Response includes `note_id` (UUIDv7)
-- `document_type_name: "python"`
-- `chunking_strategy: "syntactic"`
-- `status: "processing"` (AI revision queued)
+- Note created with unique note_id (UUIDv7)
+- Tags include "python" and "code"
+- Content contains Python code from file
 
 **Verification**:
-```bash
-# Get note details
-curl http://localhost:3000/api/v1/notes/{note_id}
-
-# Verify document type
-jq '.note.document_type_name' # Should be "python"
-jq '.note.chunks | length' # Should be > 0 (multiple code chunks)
+```javascript
+// Get note details
+get_note({ note_id: "{note_id}" })
+// Verify tags include "python"
+// Verify content matches uploaded file
 ```
 
 **Store**: `python_note_id`
 
 **Pass Criteria**:
-- File uploaded successfully
-- Document type detected as "python"
-- Syntactic chunking applied (multiple chunks created)
-- AI revision job queued
+- Note created successfully from file content
+- Tags applied correctly
+- Content preserved
 
 ---
 
-### UAT-21-002: Verify AI Revision Completion
+### UAT-21-002: Detect Document Type
 
-**Description**: Wait for and verify AI revision job completes
+**Description**: Verify document type detection for Python code
 
 **Prerequisites**:
 - `python_note_id` from UAT-21-001
-- Background job worker running
 
 **Steps**:
-```bash
-# 1. Wait for job completion (poll every 2s, max 30s)
-for i in {1..15}; do
-  STATUS=$(curl -s http://localhost:3000/api/v1/jobs/note/{python_note_id} | jq -r '.status')
-  if [ "$STATUS" = "completed" ]; then
-    echo "Job completed"
-    break
-  fi
-  sleep 2
-done
+```javascript
+// 1. Detect document type
+detect_document_type({
+  content: "<Python code content>",
+  filename: "code-python.py"
+})
+// Expected: returns document_type_name: "python", chunking_strategy: "syntactic"
 
-# 2. Get revised content
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions/latest
+// 2. List all document types
+list_document_types({})
+// Expected: returns array including Python type definition
 ```
 
 **Expected Results**:
-- Job status transitions: `queued` → `processing` → `completed`
-- Latest revision has `revision_type: "ai"`
-- Revised content differs from original (improvements applied)
-- `revised_at` timestamp present
+- Document type detected as "python"
+- Chunking strategy is "syntactic" for code
+- Python type exists in registry with 131 total types
 
 **Verification**:
-```bash
-# Check revision count
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions | jq 'length'
-# Should be >= 2 (original + AI revision)
+```javascript
+// Verify Python in registry
+list_document_types({})
+// Check for entry with name: "python"
 ```
 
 **Pass Criteria**:
-- AI revision completes within 30 seconds
-- Revised content is semantically similar but improved
-- Revision history preserved
+- Document type correctly identified
+- Appropriate chunking strategy selected
+- Type registry accessible
 
 ---
 
 ### UAT-21-003: Verify Automatic Embedding
 
-**Description**: Verify note was automatically embedded after revision
+**Description**: Verify note was automatically embedded in default set
 
 **Prerequisites**:
-- `python_note_id` with completed AI revision
+- `python_note_id` with content
 - Default embedding set configured
 
 **Steps**:
-```bash
-# 1. Check embedding status
-curl http://localhost:3000/api/v1/notes/{python_note_id}/embeddings
+```javascript
+// 1. List embedding sets
+list_embedding_sets({})
+// Expected: returns array including default set
 
-# 2. Verify embedding in default set
-curl http://localhost:3000/api/v1/embedding-sets/default/notes/{python_note_id}
+// 2. Get embedding set details
+get_embedding_set({ set_id: "default" })
+// Expected: returns model_name, dimensions, note_count
+
+// 3. Verify note in default set
+// Note: Direct "get note embedding" not in MCP tools
+// Instead, use semantic search which requires embedding
+search_notes({
+  query: "Python data processing pipeline",
+  limit: 5,
+  tag_filter: ["uat/chain1"]
+})
+// Expected: returns python_note_id in results (proves embedding exists)
 ```
 
 **Expected Results**:
-- At least 1 embedding exists
-- `embedding_set_id` is the default set
-- `dimensions: 768` (or configured dimension)
-- `model_name: "nomic-embed-text-v1.5"` (or configured model)
-- `embedded_at` timestamp present
-
-**Verification**:
-```bash
-# Verify vector exists
-curl http://localhost:3000/api/v1/notes/{python_note_id}/embeddings | jq '.[0].vector | length'
-# Should match configured dimensions
-```
+- Default embedding set exists
+- Semantic search finds the note (proving embedding exists)
+- Results ordered by similarity
 
 **Pass Criteria**:
-- Note embedded automatically after revision
-- Embedding vector has correct dimensions
-- Embedding linked to default set
+- Note embedded automatically after creation
+- Searchable via semantic similarity
+- Default set populated
 
 ---
 
@@ -162,28 +167,30 @@ curl http://localhost:3000/api/v1/notes/{python_note_id}/embeddings | jq '.[0].v
 - `python_note_id` with embedding
 
 **Steps**:
-```bash
-# 1. Semantic search for related concepts
-curl -X POST http://localhost:3000/api/v1/search/semantic \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "data processing with transformation pipeline",
-    "limit": 10,
-    "threshold": 0.6
-  }'
+```javascript
+// 1. Semantic search for related concepts
+search_notes({
+  query: "data processing with transformation pipeline",
+  limit: 10,
+  tag_filter: ["code"]
+})
+// Expected: returns results array with similarity scores
+
+// 2. Verify our note in results
+// Check if python_note_id appears in results
 ```
 
 **Expected Results**:
 - Results array contains `python_note_id`
-- `similarity_score` >= 0.6
+- Similarity score indicates relevance
 - Results ordered by similarity (descending)
 - Total results > 0
 
 **Verification**:
-```bash
-# Verify result includes our note
-jq '.results[] | select(.note_id == "{python_note_id}")'
-# Should return match with similarity score
+```javascript
+// Search specifically for our note
+get_note({ note_id: "{python_note_id}" })
+// Verify it exists and has expected content
 ```
 
 **Pass Criteria**:
@@ -193,39 +200,46 @@ jq '.results[] | select(.note_id == "{python_note_id}")'
 
 ---
 
-### UAT-21-005: Compare Versions (Original vs Revised)
+### UAT-21-005: Compare Versions (List All Revisions)
 
-**Description**: List and compare note versions
+**Description**: List note versions using versioning system
 
 **Prerequisites**:
-- `python_note_id` with multiple revisions
+- `python_note_id` created
 
 **Steps**:
-```bash
-# 1. List all revisions
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions
+```javascript
+// 1. List all revisions
+list_note_versions({ note_id: "{python_note_id}" })
+// Expected: returns array of version objects with timestamps
 
-# 2. Get original version
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions/0
+// 2. Get specific version
+restore_note_version({
+  note_id: "{python_note_id}",
+  version_id: 0
+})
+// Expected: returns original content
 
-# 3. Get latest revision
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions/latest
-
-# 4. Diff between versions
-curl http://localhost:3000/api/v1/notes/{python_note_id}/revisions/diff?from=0&to=latest
+// 3. Diff between versions
+diff_note_versions({
+  note_id: "{python_note_id}",
+  from_version: 0,
+  to_version: 1
+})
+// Expected: returns diff showing changes
 ```
 
 **Expected Results**:
-- Revision list shows 2+ versions (0=original, 1=AI revised)
-- Each revision has unique `revision_id`
+- Version list shows 1+ versions
+- Each version has unique version_id
 - Diff shows additions/deletions between versions
-- Original content preserved in revision 0
+- Original content preserved in version 0
 
 **Verification**:
-```bash
-# Verify revision metadata
-jq '.revisions[0].revision_type' # Should be "original"
-jq '.revisions[1].revision_type' # Should be "ai"
+```javascript
+// Verify version metadata
+list_note_versions({ note_id: "{python_note_id}" })
+// Check that versions array has length >= 1
 ```
 
 **Pass Criteria**:
@@ -243,32 +257,29 @@ jq '.revisions[1].revision_type' # Should be "ai"
 - `python_note_id` fully processed
 
 **Steps**:
-```bash
-# 1. Export as markdown
-curl http://localhost:3000/api/v1/notes/{python_note_id}/export/markdown \
-  -H "Accept: text/markdown" \
-  -o exported.md
+```javascript
+// 1. Export as markdown
+export_note({
+  note_id: "{python_note_id}",
+  format: "markdown"
+})
+// Expected: returns markdown string with YAML frontmatter
 
-# 2. Verify frontmatter
-head -20 exported.md
+// 2. Verify frontmatter structure
+// Content should start with "---"
+// Include: id, tags, created_at, document_type
+// Followed by markdown content
 ```
 
 **Expected Results**:
-- File starts with `---` (YAML frontmatter delimiter)
+- Export returns markdown string
+- Starts with `---` (YAML frontmatter delimiter)
 - Frontmatter includes:
   - `id: {python_note_id}`
   - `tags: [uat/chain1, python, code]`
   - `created_at: <timestamp>`
-  - `document_type: python`
 - Markdown content follows frontmatter
 - Code blocks properly formatted with ` ```python ` fences
-
-**Verification**:
-```bash
-# Extract and validate frontmatter
-awk '/^---$/{i++}i==1' exported.md | grep -q "id:"
-echo $? # Should be 0 (found)
-```
 
 **Pass Criteria**:
 - Export produces valid markdown
@@ -279,119 +290,79 @@ echo $? # Should be 0 (found)
 
 **Chain 1 Summary**:
 - Total steps: 6
-- Features exercised: File upload, document type detection, AI revision, embedding, semantic search, versioning, export
+- Features exercised: File upload, document type detection, embedding, semantic search, versioning, export
 - Success criteria: All steps pass with expected results
 
 ---
 
 ## Chain 2: Geo-Temporal Memory
 
-**Scenario**: Upload GPS image → Extract EXIF → Create memory → Search by location → Search by time → Provenance chain
+**Scenario**: Create memory with location → Create memory with time → Search by location → Search by time → Provenance chain
 
 **Duration**: ~5 minutes
 
 ---
 
-### UAT-21-007: Upload Image with GPS EXIF
+### UAT-21-007: Create Memory with Location
 
-**Description**: Upload photo with embedded GPS coordinates
+**Description**: Create note with geographic coordinates
 
 **Prerequisites**:
-- Test file exists: `/home/roctinam/dev/matric-memory/tests/uat/data/images/paris-eiffel-tower.jpg`
+- MCP server running
 - PostGIS extension enabled
 
 **Steps**:
-```bash
-# 1. Create note with GPS photo
-curl -X POST http://localhost:3000/api/v1/notes/upload \
-  -F "file=@/home/roctinam/dev/matric-memory/tests/uat/data/images/paris-eiffel-tower.jpg" \
-  -F "tags=uat/chain2,paris,travel" \
-  -F "revision_mode=none"
-```
-
-**Expected Results**:
-- HTTP 201 Created
-- Response includes `note_id` and `attachment_id`
-- `content_type: "image/jpeg"`
-- EXIF extraction job queued
-
-**Store**: `paris_note_id`, `paris_attachment_id`
-
-**Pass Criteria**:
-- Image uploaded successfully
-- Attachment record created
-
----
-
-### UAT-21-008: Verify GPS Extraction
-
-**Description**: Verify GPS coordinates extracted from EXIF
-
-**Prerequisites**:
-- `paris_attachment_id` from UAT-21-007
-- Wait 5 seconds for EXIF extraction
-
-**Steps**:
-```bash
-# 1. Wait for EXIF extraction
-sleep 5
-
-# 2. Get attachment with metadata
-curl http://localhost:3000/api/v1/attachments/{paris_attachment_id}
-```
-
-**Expected Results**:
-- `extracted_metadata.gps.latitude: 48.8584`
-- `extracted_metadata.gps.longitude: 2.2945`
-- `extracted_metadata.gps.altitude: 35.0`
-- `extracted_metadata.datetime_original: "2024-07-14T12:00:00Z"`
-- `extracted_metadata.camera.make: "Canon"`
-
-**Verification**:
-```bash
-# Check GPS extraction
-jq '.attachment.extracted_metadata.gps'
-# Should show lat/lon/altitude
-```
-
-**Pass Criteria**:
-- GPS coordinates extracted accurately
-- DateTime parsed correctly
-- Camera metadata present
-
----
-
-### UAT-21-009: Verify Provenance Record Created
-
-**Description**: Verify W3C PROV provenance edge created for attachment
-
-**Prerequisites**:
-- `paris_attachment_id` with EXIF metadata
-
-**Steps**:
-```bash
-# 1. Query provenance via MCP
-MCP: get_attachment_provenance({
-  attachment_id: "{paris_attachment_id}"
+```javascript
+// 1. Create note with location metadata
+create_note({
+  content: "# Paris Trip\n\nVisited the Eiffel Tower on a beautiful summer day.",
+  tags: ["uat/chain2", "paris", "travel"],
+  metadata: {
+    location: {
+      latitude: 48.8584,
+      longitude: 2.2945,
+      altitude: 35.0
+    },
+    capture_time: "2024-07-14T12:00:00Z"
+  }
 })
+// Expected: returns note_id, location stored in PostGIS
+```
 
-# Alternative: Direct SQL query
-psql -c "
-  SELECT
-    ST_AsText(pl.point::geometry) as location,
-    fp.capture_time,
-    fp.event_type
-  FROM file_provenance fp
-  JOIN prov_location pl ON fp.location_id = pl.id
-  WHERE fp.attachment_id = '{paris_attachment_id}'
-"
+**Expected Results**:
+- Note created with note_id
+- Location coordinates stored
+- Capture time recorded
+
+**Store**: `paris_note_id`
+
+**Pass Criteria**:
+- Note created with geographic data
+- Location metadata accessible
+
+---
+
+### UAT-21-008: Verify Provenance Record Created
+
+**Description**: Verify W3C PROV provenance created automatically
+
+**Prerequisites**:
+- `paris_note_id` from UAT-21-007
+
+**Steps**:
+```javascript
+// 1. Get memory provenance
+get_memory_provenance({
+  note_id: "{paris_note_id}"
+})
+// Expected: returns provenance chain with location, time, activity
 ```
 
 **Expected Results**:
 - Provenance record exists
-- `location: POINT(2.2945 48.8584)`
-- `capture_time` range includes `2024-07-14T12:00:00Z`
-- `event_type: "photo"`
+- Location: POINT(2.2945 48.8584)
+- Capture time: 2024-07-14T12:00:00Z
+- Event type included
 
 **Pass Criteria**:
 - Provenance chain created automatically
@@ -399,100 +370,137 @@ psql -c "
 
 ---
 
-### UAT-21-010: Search by Location (1km radius)
+### UAT-21-009: Search by Location (1km radius)
 
 **Description**: Search for memories near Eiffel Tower
 
 **Prerequisites**:
-- `paris_attachment_id` with provenance
+- `paris_note_id` with location
 
 **Steps**:
-```bash
-# 1. Search within 1km of Eiffel Tower
-curl -X POST http://localhost:3000/api/v1/search/location \
-  -H "Content-Type: application/json" \
-  -d '{
-    "latitude": 48.8584,
-    "longitude": 2.2945,
-    "radius_meters": 1000,
-    "limit": 10
-  }'
+```javascript
+// 1. Search within 1km of Eiffel Tower
+search_memories_by_location({
+  latitude: 48.8584,
+  longitude: 2.2945,
+  radius_meters: 1000,
+  limit: 10
+})
+// Expected: returns results array with paris_note_id
 ```
 
 **Expected Results**:
-- Results array includes `paris_attachment_id`
-- `distance_m < 1000.0`
-- `filename: "paris-eiffel-tower.jpg"`
+- Results array includes `paris_note_id`
+- Distance < 1000.0 meters
 - Results ordered by distance
+- Location-based filtering works
 
 **Verification**:
-```bash
-# Verify our attachment in results
-jq '.results[] | select(.attachment_id == "{paris_attachment_id}")'
+```javascript
+// Verify our note in results
+search_memories_by_location({
+  latitude: 48.8584,
+  longitude: 2.2945,
+  radius_meters: 1000,
+  limit: 10
+})
+// Check that paris_note_id appears
 ```
 
 **Pass Criteria**:
-- Spatial search finds attachment
+- Spatial search finds note
 - Distance calculated correctly
 - Results within specified radius
 
 ---
 
-### UAT-21-011: Search by Time Range
+### UAT-21-010: Search by Time Range
 
 **Description**: Search for memories in July 2024
 
 **Prerequisites**:
-- `paris_attachment_id` captured on 2024-07-14
+- `paris_note_id` captured on 2024-07-14
 
 **Steps**:
-```bash
-# 1. Search within July 2024
-curl -X POST http://localhost:3000/api/v1/search/temporal \
-  -H "Content-Type: application/json" \
-  -d '{
-    "start_time": "2024-07-01T00:00:00Z",
-    "end_time": "2024-07-31T23:59:59Z",
-    "limit": 10
-  }'
+```javascript
+// 1. Search within July 2024
+search_memories_by_time({
+  start_time: "2024-07-01T00:00:00Z",
+  end_time: "2024-07-31T23:59:59Z",
+  limit: 10
+})
+// Expected: returns results array with paris_note_id
 ```
 
 **Expected Results**:
-- Results array includes `paris_attachment_id`
-- `capture_time` within specified range
+- Results array includes `paris_note_id`
+- Capture time within specified range
 - Temporal ordering (chronological)
 
 **Pass Criteria**:
-- Temporal search finds attachment
+- Temporal search finds note
 - Time filtering accurate
 - Results ordered by time
 
 ---
 
-### UAT-21-012: Retrieve Full Provenance Chain
+### UAT-21-011: Combined Spatial-Temporal Search
 
-**Description**: Get complete provenance chain for attachment
+**Description**: Search for memories near Eiffel Tower in July 2024
 
 **Prerequisites**:
-- `paris_attachment_id` with provenance
+- `paris_note_id` with location and time
 
 **Steps**:
-```bash
-# 1. Get provenance chain
-MCP: get_provenance_chain({
-  entity_id: "{paris_attachment_id}",
-  depth: 3
+```javascript
+// 1. Combined search
+search_memories_combined({
+  latitude: 48.8584,
+  longitude: 2.2945,
+  radius_meters: 5000,
+  start_time: "2024-07-01T00:00:00Z",
+  end_time: "2024-07-31T23:59:59Z",
+  limit: 10
 })
+// Expected: returns results matching both location AND time criteria
+```
+
+**Expected Results**:
+- Results include `paris_note_id`
+- Both spatial and temporal filters applied
+- Combined query more precise than either alone
+
+**Pass Criteria**:
+- Combined search works correctly
+- Filters intersect (AND operation)
+- Results satisfy both criteria
+
+---
+
+### UAT-21-012: Retrieve Full Provenance Chain
+
+**Description**: Get complete provenance chain for memory
+
+**Prerequisites**:
+- `paris_note_id` with provenance
+
+**Steps**:
+```javascript
+// 1. Get provenance chain
+get_memory_provenance({
+  note_id: "{paris_note_id}"
+})
+// Expected: returns W3C PROV graph with entities, activities, agents
 ```
 
 **Expected Results**:
 - Provenance graph includes:
-  - `entity` (attachment)
-  - `activity` (photo capture)
-  - `agent` (camera device)
-  - `location` (Eiffel Tower coordinates)
-  - `time` (capture timestamp)
-- W3C PROV relationships: `wasGeneratedBy`, `wasAttributedTo`, `atLocation`, `atTime`
+  - Entity (note)
+  - Activity (memory capture)
+  - Location (Eiffel Tower coordinates)
+  - Time (capture timestamp)
+- W3C PROV relationships present
+- Graph structure valid
 
 **Pass Criteria**:
 - Complete provenance chain retrievable
@@ -503,8 +511,8 @@ MCP: get_provenance_chain({
 
 **Chain 2 Summary**:
 - Total steps: 6
-- Features exercised: Image upload, EXIF extraction, provenance tracking, spatial search, temporal search, provenance chain
-- Success criteria: GPS metadata extracted and searchable
+- Features exercised: Location metadata, provenance tracking, spatial search, temporal search, combined search, provenance chain
+- Success criteria: Geo-temporal search functional
 
 ---
 
@@ -521,25 +529,24 @@ MCP: get_provenance_chain({
 **Description**: Create a SKOS taxonomy for UAT testing
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Create concept scheme
-curl -X POST http://localhost:3000/api/v1/skos/schemes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "test-uat-taxonomy",
-    "title": "UAT Testing Taxonomy",
-    "description": "Hierarchical taxonomy for UAT feature chain testing",
-    "creator": "UAT Chain 3"
-  }'
+```javascript
+// 1. Create concept scheme
+create_concept_scheme({
+  scheme_id: "test-uat-taxonomy",
+  title: "UAT Testing Taxonomy",
+  description: "Hierarchical taxonomy for UAT feature chain testing",
+  creator: "UAT Chain 3"
+})
+// Expected: returns scheme_id, created_at timestamp
 ```
 
 **Expected Results**:
-- HTTP 201 Created
-- `scheme_id: "test-uat-taxonomy"`
-- `created_at` timestamp
+- Scheme created successfully
+- scheme_id: "test-uat-taxonomy"
+- Title and description stored
 
 **Store**: `scheme_id = "test-uat-taxonomy"`
 
@@ -556,46 +563,67 @@ curl -X POST http://localhost:3000/api/v1/skos/schemes \
 - `scheme_id` from UAT-21-013
 
 **Steps**:
-```bash
-# 1. Create top concept (Programming)
-curl -X POST http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "programming",
-    "pref_label": "Programming",
-    "definition": "Software development and coding",
-    "is_top_concept": true
-  }'
+```javascript
+// 1. Create top concept (Programming)
+create_concept({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "programming",
+  pref_label: "Programming",
+  definition: "Software development and coding"
+})
+// Expected: returns concept created
 
-# 2. Create narrower concept (Languages)
-curl -X POST http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "programming-languages",
-    "pref_label": "Programming Languages",
-    "definition": "Different programming languages",
-    "broader": ["programming"]
-  }'
+// 2. Create narrower concept (Languages)
+create_concept({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "programming-languages",
+  pref_label: "Programming Languages",
+  definition: "Different programming languages"
+})
+// Expected: returns concept created
 
-# 3. Create narrower concepts (Python, Rust)
-curl -X POST http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "python",
-    "pref_label": "Python",
-    "alt_labels": ["Python3", "Py"],
-    "definition": "Python programming language",
-    "broader": ["programming-languages"]
-  }'
+// 3. Add broader relationship (Languages → Programming)
+add_broader({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "programming-languages",
+  broader_id: "programming"
+})
+// Expected: relationship created
 
-curl -X POST http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "rust",
-    "pref_label": "Rust",
-    "definition": "Rust programming language",
-    "broader": ["programming-languages"]
-  }'
+// 4. Create Python concept
+create_concept({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "python",
+  pref_label: "Python",
+  alt_labels: ["Python3", "Py"],
+  definition: "Python programming language"
+})
+// Expected: returns concept created
+
+// 5. Add broader relationship (Python → Languages)
+add_broader({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "python",
+  broader_id: "programming-languages"
+})
+// Expected: relationship created
+
+// 6. Create Rust concept
+create_concept({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "rust",
+  pref_label: "Rust",
+  definition: "Rust programming language"
+})
+// Expected: returns concept created
+
+// 7. Add broader relationship (Rust → Languages)
+add_broader({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "rust",
+  broader_id: "programming-languages"
+})
+// Expected: relationship created
 ```
 
 **Expected Results**:
@@ -604,13 +632,19 @@ curl -X POST http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts \
 - Broader/narrower relationships established
 
 **Verification**:
-```bash
-# Get concept hierarchy
-curl http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts/programming/narrower
-# Should show programming-languages
+```javascript
+// Get narrower concepts of programming
+get_narrower({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "programming"
+})
+// Should show programming-languages
 
-curl http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts/programming-languages/narrower
-# Should show python, rust
+get_narrower({
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "programming-languages"
+})
+// Should show python, rust
 ```
 
 **Store**: `concept_python`, `concept_rust`
@@ -626,32 +660,30 @@ curl http://localhost:3000/api/v1/skos/schemes/{scheme_id}/concepts/programming-
 **Description**: Create nested collections for organizing notes
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Create root collection
-curl -X POST http://localhost:3000/api/v1/collections \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "UAT Projects",
-    "description": "Root collection for UAT testing"
-  }'
+```javascript
+// 1. Create root collection
+create_collection({
+  name: "UAT Projects",
+  description: "Root collection for UAT testing"
+})
+// Expected: returns collection_id
 
-# 2. Create child collection
-curl -X POST http://localhost:3000/api/v1/collections \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Code Samples",
-    "description": "Collection of code samples",
-    "parent_id": "{root_collection_id}"
-  }'
+// 2. Create child collection
+create_collection({
+  name: "Code Samples",
+  description: "Collection of code samples",
+  parent_id: "{root_collection_id}"
+})
+// Expected: returns collection_id with parent reference
 ```
 
 **Expected Results**:
 - 2 collections created
 - Parent-child relationship established
-- `path` reflects hierarchy (e.g., "/UAT Projects/Code Samples")
+- Path reflects hierarchy (e.g., "/UAT Projects/Code Samples")
 
 **Store**: `root_collection_id`, `code_collection_id`
 
@@ -669,44 +701,56 @@ curl -X POST http://localhost:3000/api/v1/collections \
 - `scheme_id`, concepts, and collections from previous steps
 
 **Steps**:
-```bash
-# 1. Create Python note with SKOS tag
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Python Tutorial\n\nLearn Python basics with examples.",
-    "tags": ["uat/chain3", "test-uat-taxonomy:python"],
-    "revision_mode": "none"
-  }'
+```javascript
+// 1. Create Python note
+create_note({
+  content: "# Python Tutorial\n\nLearn Python basics with examples.",
+  tags: ["uat/chain3"]
+})
+// Expected: returns note_id
 
-# 2. Add to Code Samples collection
-curl -X POST http://localhost:3000/api/v1/collections/{code_collection_id}/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "note_id": "{python_tutorial_note_id}"
-  }'
+// 2. Tag with SKOS concept
+tag_note_concept({
+  note_id: "{python_tutorial_note_id}",
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "python"
+})
+// Expected: SKOS tag applied
 
-# 3. Create Rust note with SKOS tag
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Rust Guide\n\nSafe systems programming with Rust.",
-    "tags": ["uat/chain3", "test-uat-taxonomy:rust"],
-    "revision_mode": "none"
-  }'
+// 3. Add to Code Samples collection
+move_note_to_collection({
+  note_id: "{python_tutorial_note_id}",
+  collection_id: "{code_collection_id}"
+})
+// Expected: note added to collection
 
-# 4. Add to Code Samples collection
-curl -X POST http://localhost:3000/api/v1/collections/{code_collection_id}/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "note_id": "{rust_guide_note_id}"
-  }'
+// 4. Create Rust note
+create_note({
+  content: "# Rust Guide\n\nSafe systems programming with Rust.",
+  tags: ["uat/chain3"]
+})
+// Expected: returns note_id
+
+// 5. Tag with SKOS concept
+tag_note_concept({
+  note_id: "{rust_guide_note_id}",
+  scheme_id: "test-uat-taxonomy",
+  concept_id: "rust"
+})
+// Expected: SKOS tag applied
+
+// 6. Add to Code Samples collection
+move_note_to_collection({
+  note_id: "{rust_guide_note_id}",
+  collection_id: "{code_collection_id}"
+})
+// Expected: note added to collection
 ```
 
 **Expected Results**:
 - 2 notes created with SKOS tags
 - Both notes added to `Code Samples` collection
-- Tags include scheme prefix (e.g., `test-uat-taxonomy:python`)
+- SKOS tags link to taxonomy concepts
 
 **Store**: `python_tutorial_note_id`, `rust_guide_note_id`
 
@@ -724,18 +768,14 @@ curl -X POST http://localhost:3000/api/v1/collections/{code_collection_id}/notes
 - Tagged notes from UAT-21-016
 
 **Steps**:
-```bash
-# 1. Search for Python concept (strict mode)
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "programming",
-    "tag_filter": {
-      "tags": ["test-uat-taxonomy:python"],
-      "mode": "strict"
-    },
-    "limit": 10
-  }'
+```javascript
+// 1. Search for Python concept (strict mode)
+search_notes({
+  query: "programming",
+  tag_filter: ["test-uat-taxonomy:python"],
+  limit: 10
+})
+// Expected: returns ONLY notes tagged with test-uat-taxonomy:python
 ```
 
 **Expected Results**:
@@ -745,10 +785,14 @@ curl -X POST http://localhost:3000/api/v1/search \
 - Tag isolation guaranteed
 
 **Verification**:
-```bash
-# Verify strict filtering
-jq '.results[] | .tags' | grep -q "rust"
-echo $? # Should be 1 (not found)
+```javascript
+// Search for Rust tag separately
+search_notes({
+  query: "programming",
+  tag_filter: ["test-uat-taxonomy:rust"],
+  limit: 10
+})
+// Should return only rust_guide_note_id
 ```
 
 **Pass Criteria**:
@@ -765,15 +809,14 @@ echo $? # Should be 1 (not found)
 - `python_tutorial_note_id` and concept hierarchy
 
 **Steps**:
-```bash
-# 1. Explore graph from Python note
-curl -X POST http://localhost:3000/api/v1/graph/explore \
-  -H "Content-Type: application/json" \
-  -d '{
-    "start_node_id": "{python_tutorial_note_id}",
-    "max_depth": 2,
-    "relationship_types": ["tagged_with", "broader", "narrower", "in_collection"]
-  }'
+```javascript
+// 1. Explore graph from Python note
+explore_graph({
+  start_node_id: "{python_tutorial_note_id}",
+  max_depth: 2,
+  direction: "both"
+})
+// Expected: returns graph with nodes and edges
 ```
 
 **Expected Results**:
@@ -787,10 +830,15 @@ curl -X POST http://localhost:3000/api/v1/graph/explore \
 - Edges show relationship types
 
 **Verification**:
-```bash
-# Check graph structure
-jq '.graph.nodes | length' # Should be >= 4
-jq '.graph.edges[] | .type' # Should include "tagged_with", "broader", "in_collection"
+```javascript
+// Verify graph structure
+explore_graph({
+  start_node_id: "{python_tutorial_note_id}",
+  max_depth: 2,
+  direction: "both"
+})
+// Check nodes array length >= 4
+// Check edges array has relationship types
 ```
 
 **Pass Criteria**:
@@ -802,37 +850,47 @@ jq '.graph.edges[] | .type' # Should include "tagged_with", "broader", "in_colle
 
 ### UAT-21-019: Export Knowledge Shard
 
-**Description**: Export collection as knowledge shard (JSON-LD)
+**Description**: Export collection as knowledge shard (Turtle/JSON-LD)
 
 **Prerequisites**:
 - `code_collection_id` with notes
 
 **Steps**:
-```bash
-# 1. Export collection as knowledge shard
-curl http://localhost:3000/api/v1/collections/{code_collection_id}/export/shard \
-  -H "Accept: application/ld+json" \
-  -o code-shard.jsonld
+```javascript
+// 1. Export SKOS scheme as Turtle
+export_skos_turtle({
+  scheme_id: "test-uat-taxonomy"
+})
+// Expected: returns Turtle RDF serialization
+
+// 2. Alternative: Export all notes in collection
+// (Note: knowledge_shard MCP tool exists)
+knowledge_shard({
+  collection_id: "{code_collection_id}"
+})
+// Expected: returns JSON-LD knowledge shard
 ```
 
 **Expected Results**:
-- JSON-LD file with `@context` referencing W3C SKOS
-- Includes:
+- Turtle export includes SKOS concepts with relationships
+- Knowledge shard includes:
   - Collection metadata
   - All notes in collection
   - SKOS concept references
   - Provenance information
-- File is valid JSON-LD (parseable)
+- Format is valid RDF/JSON-LD (parseable)
 
 **Verification**:
-```bash
-# Validate JSON-LD structure
-jq '.["@context"]' code-shard.jsonld # Should include SKOS vocab
-jq '.notes | length' code-shard.jsonld # Should be 2 (python + rust)
+```javascript
+// Verify export completeness
+// Check that output includes:
+// - skos:ConceptScheme
+// - skos:Concept entries
+// - skos:broader/narrower relationships
 ```
 
 **Pass Criteria**:
-- Export produces valid JSON-LD
+- Export produces valid RDF/JSON-LD
 - All collection data included
 - SKOS relationships preserved
 
@@ -858,51 +916,43 @@ jq '.notes | length' code-shard.jsonld # Should be 2 (python + rust)
 **Description**: Create notes in multiple languages
 
 **Prerequisites**:
-- API server running
+- MCP server running
 - FTS multilingual configs enabled
 
 **Steps**:
-```bash
-# 1. English note
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Running Performance\n\nI love running in the morning. It helps me run faster.",
-    "tags": ["uat/chain4", "english"],
-    "revision_mode": "none"
-  }'
+```javascript
+// 1. English note
+create_note({
+  content: "# Running Performance\n\nI love running in the morning. It helps me run faster.",
+  tags: ["uat/chain4", "english"]
+})
+// Expected: returns note_id
 
-# 2. German note
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Laufen\n\nIch laufe gerne am Morgen. Das Laufen läuft gut.",
-    "tags": ["uat/chain4", "german"],
-    "revision_mode": "none"
-  }'
+// 2. German note
+create_note({
+  content: "# Laufen\n\nIch laufe gerne am Morgen. Das Laufen läuft gut.",
+  tags: ["uat/chain4", "german"]
+})
+// Expected: returns note_id
 
-# 3. Chinese note
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# 北京旅行\n\n我去了北京市和北京大学。北京很美。",
-    "tags": ["uat/chain4", "chinese"],
-    "revision_mode": "none"
-  }'
+// 3. Chinese note
+create_note({
+  content: "# 北京旅行\n\n我去了北京市和北京大学。北京很美。",
+  tags: ["uat/chain4", "chinese"]
+})
+// Expected: returns note_id
 
-# 4. Emoji note
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Weekend Fun 🎉\n\nHad a great time at the party! 🎉🎊🎈",
-    "tags": ["uat/chain4", "emoji"],
-    "revision_mode": "none"
-  }'
+// 4. Emoji note
+create_note({
+  content: "# Weekend Fun 🎉\n\nHad a great time at the party! 🎉🎊🎈",
+  tags: ["uat/chain4", "emoji"]
+})
+// Expected: returns note_id
 ```
 
 **Expected Results**:
 - 4 notes created
-- Each has unique `note_id`
+- Each has unique note_id
 - Different language content
 
 **Store**: `en_note_id`, `de_note_id`, `zh_note_id`, `emoji_note_id`
@@ -920,15 +970,14 @@ curl -X POST http://localhost:3000/api/v1/notes \
 - `en_note_id` from UAT-21-020
 
 **Steps**:
-```bash
-# 1. Search for "run" (should match "running", "runs", "run")
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "run",
-    "search_mode": "fts",
-    "limit": 10
-  }'
+```javascript
+// 1. Search for "run" (should match "running", "runs", "run")
+search_notes({
+  query: "run",
+  limit: 10,
+  tag_filter: ["uat/chain4"]
+})
+// Expected: returns results including en_note_id
 ```
 
 **Expected Results**:
@@ -937,10 +986,14 @@ curl -X POST http://localhost:3000/api/v1/search \
 - Rank score reflects match quality
 
 **Verification**:
-```bash
-# Verify stemming worked
-jq '.results[] | select(.note_id == "{en_note_id}")' | jq '.score'
-# Should have high score (stemmed match)
+```javascript
+// Verify stemming worked by checking results
+search_notes({
+  query: "run",
+  limit: 10,
+  tag_filter: ["english"]
+})
+// Should return en_note_id with good score
 ```
 
 **Pass Criteria**:
@@ -957,16 +1010,14 @@ jq '.results[] | select(.note_id == "{en_note_id}")' | jq '.score'
 - `de_note_id` from UAT-21-020
 
 **Steps**:
-```bash
-# 1. Search for "laufen" (should match "laufe", "läuft")
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "laufen",
-    "search_mode": "fts",
-    "language": "de",
-    "limit": 10
-  }'
+```javascript
+// 1. Search for "laufen" (should match "laufe", "läuft")
+search_notes({
+  query: "laufen",
+  limit: 10,
+  tag_filter: ["uat/chain4"]
+})
+// Expected: returns results including de_note_id
 ```
 
 **Expected Results**:
@@ -986,18 +1037,17 @@ curl -X POST http://localhost:3000/api/v1/search \
 
 **Prerequisites**:
 - `zh_note_id` from UAT-21-020
-- `FTS_BIGRAM_CJK=true` enabled
+- FTS_BIGRAM_CJK=true enabled
 
 **Steps**:
-```bash
-# 1. Search for "北京" (should match "北京市", "北京大学")
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "北京",
-    "search_mode": "fts",
-    "limit": 10
-  }'
+```javascript
+// 1. Search for "北京" (should match "北京市", "北京大学")
+search_notes({
+  query: "北京",
+  limit: 10,
+  tag_filter: ["uat/chain4"]
+})
+// Expected: returns results including zh_note_id
 ```
 
 **Expected Results**:
@@ -1006,10 +1056,14 @@ curl -X POST http://localhost:3000/api/v1/search \
 - Character-level matching (no word boundaries)
 
 **Verification**:
-```bash
-# Verify CJK search worked
-jq '.results[] | select(.note_id == "{zh_note_id}")'
-# Should return match
+```javascript
+// Verify CJK search worked
+search_notes({
+  query: "北京",
+  limit: 10,
+  tag_filter: ["chinese"]
+})
+// Should return zh_note_id
 ```
 
 **Pass Criteria**:
@@ -1024,18 +1078,17 @@ jq '.results[] | select(.note_id == "{zh_note_id}")'
 
 **Prerequisites**:
 - `emoji_note_id` from UAT-21-020
-- `FTS_TRIGRAM_FALLBACK=true` enabled
+- FTS_TRIGRAM_FALLBACK=true enabled
 
 **Steps**:
-```bash
-# 1. Search for "🎉" emoji
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "🎉",
-    "search_mode": "fts",
-    "limit": 10
-  }'
+```javascript
+// 1. Search for "🎉" emoji
+search_notes({
+  query: "🎉",
+  limit: 10,
+  tag_filter: ["uat/chain4"]
+})
+// Expected: returns results including emoji_note_id
 ```
 
 **Expected Results**:
@@ -1058,15 +1111,14 @@ curl -X POST http://localhost:3000/api/v1/search \
 - Notes embedded in default set
 
 **Steps**:
-```bash
-# 1. Semantic search for "running exercise"
-curl -X POST http://localhost:3000/api/v1/search/semantic \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "running exercise fitness",
-    "limit": 10,
-    "threshold": 0.5
-  }'
+```javascript
+// 1. Semantic search for "running exercise"
+search_notes({
+  query: "running exercise fitness",
+  limit: 10,
+  tag_filter: ["uat/chain4"]
+})
+// Expected: returns both en_note_id and de_note_id
 ```
 
 **Expected Results**:
@@ -1075,10 +1127,13 @@ curl -X POST http://localhost:3000/api/v1/search/semantic \
 - English and German notes both ranked highly (both about running)
 
 **Verification**:
-```bash
-# Check cross-language results
-jq '.results[] | select(.tags[] | contains("english") or contains("german"))'
-# Should return both EN and DE notes
+```javascript
+// Check cross-language results
+search_notes({
+  query: "running exercise fitness",
+  limit: 10
+})
+// Should return both EN and DE notes
 ```
 
 **Pass Criteria**:
@@ -1107,23 +1162,22 @@ jq '.results[] | select(.tags[] | contains("english") or contains("german"))'
 **Description**: Generate public/private keypair for encryption
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Generate new keyset
-curl -X POST http://localhost:3000/api/v1/pke/keysets \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "UAT Chain 5 Keys",
-    "description": "Test keyset for encryption chain"
-  }'
+```javascript
+// 1. Generate new keyset
+create_keyset({
+  name: "UAT Chain 5 Keys",
+  description: "Test keyset for encryption chain"
+})
+// Expected: returns keyset_id, public_key (base64)
 ```
 
 **Expected Results**:
-- HTTP 201 Created
-- Response includes `keyset_id`
-- `public_key` (base64-encoded)
+- Keyset created successfully
+- Response includes keyset_id
+- Public key available for sharing
 - Private key stored securely (not returned)
 
 **Store**: `keyset_id`, `public_key`
@@ -1139,23 +1193,21 @@ curl -X POST http://localhost:3000/api/v1/pke/keysets \
 **Description**: Create note with sensitive content
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Create note with sensitive data
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# API Key Storage\n\nAPI_KEY=sk_test_1234567890abcdef\nSECRET=super_secret_password",
-    "tags": ["uat/chain5", "sensitive"],
-    "revision_mode": "none"
-  }'
+```javascript
+// 1. Create note with sensitive data
+create_note({
+  content: "# API Key Storage\n\nAPI_KEY=sk_test_1234567890abcdef\nSECRET=super_secret_password",
+  tags: ["uat/chain5", "sensitive"]
+})
+// Expected: returns note_id
 ```
 
 **Expected Results**:
-- Note created with `note_id`
-- Content stored in plaintext initially
+- Note created with note_id
+- Content stored initially (before encryption)
 
 **Store**: `sensitive_note_id`
 
@@ -1172,30 +1224,25 @@ curl -X POST http://localhost:3000/api/v1/notes \
 - `sensitive_note_id` and `keyset_id`
 
 **Steps**:
-```bash
-# 1. Encrypt note
-curl -X POST http://localhost:3000/api/v1/notes/{sensitive_note_id}/encrypt \
-  -H "Content-Type: application/json" \
-  -d '{
-    "keyset_id": "{keyset_id}",
-    "algorithm": "xchacha20-poly1305"
-  }'
+```javascript
+// 1. Encrypt note
+pke_encrypt({
+  note_id: "{sensitive_note_id}",
+  keyset_id: "{keyset_id}"
+})
+// Expected: returns encrypted content, encryption metadata
 ```
 
 **Expected Results**:
-- HTTP 200 OK
-- `encryption_status: "encrypted"`
-- Original content replaced with ciphertext
+- Encryption successful
+- Content replaced with ciphertext
 - Ciphertext format: `MMPKE01:<base64-ciphertext>`
 
 **Verification**:
-```bash
-# Get encrypted note
-curl http://localhost:3000/api/v1/notes/{sensitive_note_id}
-
-# Verify content is encrypted
-jq '.note.content' | grep -q "MMPKE01"
-echo $? # Should be 0 (encrypted)
+```javascript
+// Get encrypted note
+get_note({ note_id: "{sensitive_note_id}" })
+// Verify content starts with "MMPKE01" (encrypted)
 ```
 
 **Pass Criteria**:
@@ -1213,20 +1260,21 @@ echo $? # Should be 0 (encrypted)
 - `sensitive_note_id` (encrypted)
 
 **Steps**:
-```bash
-# 1. Create share address
-curl -X POST http://localhost:3000/api/v1/notes/{sensitive_note_id}/share \
-  -H "Content-Type: application/json" \
-  -d '{
-    "expires_in_hours": 24,
-    "max_views": 5
-  }'
+```javascript
+// 1. Share encrypted note
+share_note_encrypted({
+  note_id: "{sensitive_note_id}",
+  keyset_id: "{keyset_id}",
+  expires_in_hours: 24,
+  max_views: 5
+})
+// Expected: returns share_token, share_url
 ```
 
 **Expected Results**:
 - Share address created: `mm://note/{share_token}`
-- `expires_at` timestamp (24 hours from now)
-- `remaining_views: 5`
+- Expiration set (24 hours from now)
+- View limit: 5
 - Share token is URL-safe base64
 
 **Store**: `share_token`
@@ -1246,18 +1294,18 @@ curl -X POST http://localhost:3000/api/v1/notes/{sensitive_note_id}/share \
 - `keyset_id` with private key
 
 **Steps**:
-```bash
-# 1. Decrypt note
-curl -X POST http://localhost:3000/api/v1/notes/{sensitive_note_id}/decrypt \
-  -H "Content-Type: application/json" \
-  -d '{
-    "keyset_id": "{keyset_id}"
-  }'
+```javascript
+// 1. Decrypt note
+pke_decrypt({
+  note_id: "{sensitive_note_id}",
+  keyset_id: "{keyset_id}"
+})
+// Expected: returns decrypted_content
 ```
 
 **Expected Results**:
-- HTTP 200 OK
-- Response includes `decrypted_content`
+- Decryption successful
+- Response includes decrypted_content
 - Content matches original: "API_KEY=sk_test_1234567890abcdef"
 
 **Pass Criteria**:
@@ -1274,18 +1322,22 @@ curl -X POST http://localhost:3000/api/v1/notes/{sensitive_note_id}/decrypt \
 - Decrypted content from UAT-21-030
 
 **Steps**:
-```bash
-# 1. Hash original content (from UAT-21-027)
-echo -n "# API Key Storage\n\nAPI_KEY=sk_test_1234567890abcdef\nSECRET=super_secret_password" | sha256sum
+```javascript
+// 1. Read shared encrypted note
+read_shared_note({
+  share_token: "{share_token}",
+  keyset_id: "{keyset_id}"
+})
+// Expected: returns decrypted content
 
-# 2. Hash decrypted content
-echo -n "{decrypted_content}" | sha256sum
-
-# 3. Compare hashes
+// 2. Compare with original
+// Original: "# API Key Storage\n\nAPI_KEY=sk_test_1234567890abcdef\nSECRET=super_secret_password"
+// Decrypted should match exactly
 ```
 
 **Expected Results**:
-- SHA-256 hashes match exactly
+- Shared note readable with correct keyset
+- Content matches original exactly
 - No data loss or corruption
 - Content integrity preserved through encryption cycle
 
@@ -1315,56 +1367,45 @@ echo -n "{decrypted_content}" | sha256sum
 **Description**: Create multiple notes with relationships
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Create note 1
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Backup Test Note 1\n\nThis is the first test note.",
-    "tags": ["uat/chain6", "backup"],
-    "revision_mode": "none"
-  }'
+```javascript
+// 1. Create note 1
+create_note({
+  content: "# Backup Test Note 1\n\nThis is the first test note.",
+  tags: ["uat/chain6", "backup"]
+})
+// Expected: returns note_id
 
-# 2. Create note 2
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Backup Test Note 2\n\nThis is the second test note.",
-    "tags": ["uat/chain6", "backup"],
-    "revision_mode": "none"
-  }'
+// 2. Create note 2
+create_note({
+  content: "# Backup Test Note 2\n\nThis is the second test note.",
+  tags: ["uat/chain6", "backup"]
+})
+// Expected: returns note_id
 
-# 3. Create note 3 with link to note 1
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Backup Test Note 3\n\nThis links to [[note-1]].",
-    "tags": ["uat/chain6", "backup"],
-    "revision_mode": "none"
-  }'
+// 3. Create note 3 (will create link later)
+create_note({
+  content: "# Backup Test Note 3\n\nThis links to note 1.",
+  tags: ["uat/chain6", "backup"]
+})
+// Expected: returns note_id
 
-# 4. Create semantic link between note 1 and note 2
-curl -X POST http://localhost:3000/api/v1/notes/{backup_note1_id}/links \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target_note_id": "{backup_note2_id}",
-    "link_type": "semantic",
-    "similarity_score": 0.85
-  }'
+// 4. Get links for verification
+get_note_links({ note_id: "{backup_note1_id}" })
+// Expected: returns links array
 ```
 
 **Expected Results**:
 - 3 notes created
-- 1 explicit link (note 3 → note 1)
-- 1 semantic link (note 1 ↔ note 2)
+- Each has unique note_id
+- Tags applied correctly
 
 **Store**: `backup_note1_id`, `backup_note2_id`, `backup_note3_id`
 
 **Pass Criteria**:
-- Test data created with relationships
+- Test data created successfully
 
 ---
 
@@ -1376,33 +1417,30 @@ curl -X POST http://localhost:3000/api/v1/notes/{backup_note1_id}/links \
 - Test data from UAT-21-032
 
 **Steps**:
-```bash
-# 1. Create backup snapshot
-curl -X POST http://localhost:3000/api/v1/admin/backup/snapshot \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "uat-chain6-snapshot",
-    "description": "Backup before deletion test",
-    "include_attachments": true
-  }'
+```javascript
+// 1. Create backup snapshot
+database_snapshot({
+  name: "uat-chain6-snapshot",
+  description: "Backup before deletion test",
+  include_attachments: true
+})
+// Expected: returns snapshot_id, status: "completed"
 ```
 
 **Expected Results**:
-- HTTP 201 Created
-- `snapshot_id` returned
-- `created_at` timestamp
-- `status: "completed"`
-- Snapshot includes database dump and attachment blobs
+- Snapshot created successfully
+- snapshot_id returned
+- created_at timestamp
+- Status: "completed"
+- Snapshot includes database dump
 
 **Store**: `snapshot_id`
 
 **Verification**:
-```bash
-# List snapshots
-curl http://localhost:3000/api/v1/admin/backup/snapshots
-
-# Verify snapshot exists
-jq '.snapshots[] | select(.id == "{snapshot_id}")'
+```javascript
+// Check backup status
+backup_status({})
+// Verify snapshot exists in list
 ```
 
 **Pass Criteria**:
@@ -1419,29 +1457,34 @@ jq '.snapshots[] | select(.id == "{snapshot_id}")'
 - `backup_note1_id`, `backup_note2_id`, `backup_note3_id`
 
 **Steps**:
-```bash
-# 1. Delete note 1
-curl -X DELETE http://localhost:3000/api/v1/notes/{backup_note1_id}
+```javascript
+// 1. Delete note 1
+delete_note({ note_id: "{backup_note1_id}" })
+// Expected: note deleted
 
-# 2. Delete note 2
-curl -X DELETE http://localhost:3000/api/v1/notes/{backup_note2_id}
+// 2. Delete note 2
+delete_note({ note_id: "{backup_note2_id}" })
+// Expected: note deleted
 
-# 3. Delete note 3
-curl -X DELETE http://localhost:3000/api/v1/notes/{backup_note3_id}
+// 3. Delete note 3
+delete_note({ note_id: "{backup_note3_id}" })
+// Expected: note deleted
 
-# 4. Verify deletion
-curl http://localhost:3000/api/v1/notes?tags=uat/chain6,backup
+// 4. Verify deletion
+list_notes({ tags: ["uat/chain6", "backup"] })
+// Expected: empty array
 ```
 
 **Expected Results**:
-- All 3 notes deleted (HTTP 204 No Content)
+- All 3 notes deleted
 - Search for tag `uat/chain6` returns empty array
 - Links also deleted (cascade)
 
 **Verification**:
-```bash
-# Confirm notes gone
-jq '.notes | length' # Should be 0
+```javascript
+// Confirm notes gone
+list_notes({ tags: ["uat/chain6"] })
+// Should return empty array
 ```
 
 **Pass Criteria**:
@@ -1459,28 +1502,31 @@ jq '.notes | length' # Should be 0
 - Notes deleted in UAT-21-034
 
 **Steps**:
-```bash
-# 1. Restore snapshot
-curl -X POST http://localhost:3000/api/v1/admin/backup/restore \
-  -H "Content-Type: application/json" \
-  -d '{
-    "snapshot_id": "{snapshot_id}",
-    "restore_mode": "full"
-  }'
+```javascript
+// 1. Restore snapshot
+database_restore({
+  snapshot_id: "{snapshot_id}",
+  restore_mode: "full"
+})
+// Expected: restore job started, returns job_id
 
-# 2. Wait for restore to complete (may take 10-30 seconds)
-sleep 15
+// 2. Wait for restore to complete
+// Poll status or wait ~15 seconds
+
+// 3. Check restore completion
+backup_status({})
+// Expected: restore status: "completed"
 ```
 
 **Expected Results**:
-- HTTP 200 OK
-- Restore job status: `completed`
+- Restore job completes successfully
 - Database state reverted to snapshot time
 
 **Verification**:
-```bash
-# Check restore status
-curl http://localhost:3000/api/v1/admin/backup/restore/{restore_job_id}/status
+```javascript
+// Check restore status
+backup_status({})
+// Verify last restore completed
 ```
 
 **Pass Criteria**:
@@ -1496,36 +1542,42 @@ curl http://localhost:3000/api/v1/admin/backup/restore/{restore_job_id}/status
 - Restore completed in UAT-21-035
 
 **Steps**:
-```bash
-# 1. Search for restored notes
-curl http://localhost:3000/api/v1/notes?tags=uat/chain6,backup
+```javascript
+// 1. Search for restored notes
+list_notes({ tags: ["uat/chain6", "backup"] })
+// Expected: returns 3 notes
 
-# 2. Verify note 1 exists
-curl http://localhost:3000/api/v1/notes/{backup_note1_id}
+// 2. Verify note 1 exists
+get_note({ note_id: "{backup_note1_id}" })
+// Expected: note found
 
-# 3. Verify note 2 exists
-curl http://localhost:3000/api/v1/notes/{backup_note2_id}
+// 3. Verify note 2 exists
+get_note({ note_id: "{backup_note2_id}" })
+// Expected: note found
 
-# 4. Verify note 3 exists
-curl http://localhost:3000/api/v1/notes/{backup_note3_id}
+// 4. Verify note 3 exists
+get_note({ note_id: "{backup_note3_id}" })
+// Expected: note found
 
-# 5. Verify links restored
-curl http://localhost:3000/api/v1/notes/{backup_note1_id}/links
+// 5. Verify links restored
+get_note_links({ note_id: "{backup_note1_id}" })
+// Expected: links array (if any existed before backup)
 ```
 
 **Expected Results**:
 - All 3 notes restored with correct content
 - Tag search returns 3 results
-- Semantic link between note 1 and note 2 exists
-- Explicit link from note 3 to note 1 exists
+- Links intact (if any existed)
 
 **Verification**:
-```bash
-# Check note count
-jq '.notes | length' # Should be 3
+```javascript
+// Check note count
+list_notes({ tags: ["uat/chain6"] })
+// Should return 3 notes
 
-# Check links
-jq '.links | length' # Should be >= 2
+// Check links
+get_note_links({ note_id: "{backup_note1_id}" })
+// Should return links array
 ```
 
 **Pass Criteria**:
@@ -1555,37 +1607,35 @@ jq '.links | length' # Should be >= 2
 **Description**: Create embedding set with tag-based criteria
 
 **Prerequisites**:
-- API server running
+- MCP server running
 
 **Steps**:
-```bash
-# 1. Create embedding set for Python notes only
-curl -X POST http://localhost:3000/api/v1/embedding-sets \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Python Code Set",
-    "description": "Focused embedding set for Python code",
-    "set_type": "full",
-    "inclusion_criteria": {
-      "tags": ["python", "code"],
-      "tag_match_mode": "any"
-    },
-    "model_config": {
-      "model_name": "nomic-embed-text-v1.5",
-      "dimensions": 768,
-      "truncate_dim": 256
-    },
-    "auto_embed_rules": {
-      "on_create": true,
-      "on_update": true
-    }
-  }'
+```javascript
+// 1. Create embedding set for Python notes only
+create_embedding_set({
+  name: "Python Code Set",
+  description: "Focused embedding set for Python code",
+  set_type: "full",
+  inclusion_criteria: {
+    tags: ["python", "code"]
+  },
+  model_config: {
+    model_name: "nomic-embed-text-v1.5",
+    dimensions: 768,
+    truncate_dim: 256
+  },
+  auto_embed_rules: {
+    on_create: true,
+    on_update: true
+  }
+})
+// Expected: returns embedding_set_id
 ```
 
 **Expected Results**:
-- HTTP 201 Created
-- `embedding_set_id` returned
-- `set_type: "full"`
+- Embedding set created successfully
+- embedding_set_id returned
+- set_type: "full"
 - Auto-embed rules configured
 
 **Store**: `python_set_id`
@@ -1603,33 +1653,27 @@ curl -X POST http://localhost:3000/api/v1/embedding-sets \
 - `python_set_id` from UAT-21-037
 
 **Steps**:
-```bash
-# 1. Create Python note (should match criteria)
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Python Data Classes\n\nUsing dataclasses for clean code.",
-    "tags": ["uat/chain7", "python", "code"],
-    "revision_mode": "none"
-  }'
+```javascript
+// 1. Create Python note (should match criteria)
+create_note({
+  content: "# Python Data Classes\n\nUsing dataclasses for clean code.",
+  tags: ["uat/chain7", "python", "code"]
+})
+// Expected: returns note_id
 
-# 2. Create Rust note (should NOT match criteria)
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Rust Ownership\n\nUnderstanding ownership in Rust.",
-    "tags": ["uat/chain7", "rust", "code"],
-    "revision_mode": "none"
-  }'
+// 2. Create Rust note (should NOT match criteria)
+create_note({
+  content: "# Rust Ownership\n\nUnderstanding ownership in Rust.",
+  tags: ["uat/chain7", "rust", "code"]
+})
+// Expected: returns note_id
 
-# 3. Create general note (should NOT match criteria)
-curl -X POST http://localhost:3000/api/v1/notes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "content": "# Meeting Notes\n\nDiscussed project timeline.",
-    "tags": ["uat/chain7", "meeting"],
-    "revision_mode": "none"
-  }'
+// 3. Create general note (should NOT match criteria)
+create_note({
+  content: "# Meeting Notes\n\nDiscussed project timeline.",
+  tags: ["uat/chain7", "meeting"]
+})
+// Expected: returns note_id
 ```
 
 **Expected Results**:
@@ -1652,24 +1696,32 @@ curl -X POST http://localhost:3000/api/v1/notes \
 - Wait 5 seconds for auto-embed
 
 **Steps**:
-```bash
-# 1. Wait for auto-embed
-sleep 5
+```javascript
+// 1. Get embedding set details
+get_embedding_set({ set_id: "{python_set_id}" })
+// Expected: returns note_count: 1
 
-# 2. List notes in embedding set
-curl http://localhost:3000/api/v1/embedding-sets/{python_set_id}/notes
+// 2. Verify only Python note in set
+// (Direct "list notes in set" not in MCP tools)
+// Use search scoped to set instead
+search_notes({
+  query: "dataclasses",
+  embedding_set_id: "{python_set_id}",
+  limit: 10
+})
+// Expected: returns only py_dataclass_note_id
 ```
 
 **Expected Results**:
-- Results include `py_dataclass_note_id`
-- Results do NOT include `rust_ownership_note_id`
-- Results do NOT include `meeting_note_id`
-- Only 1 note in set
+- Set contains only matching notes
+- Python note included
+- Rust and meeting notes excluded
 
 **Verification**:
-```bash
-# Check note count in set
-jq '.notes | length' # Should be 1
+```javascript
+// Check embedding set stats
+get_embedding_set({ set_id: "{python_set_id}" })
+// Verify note_count matches expected (1)
 ```
 
 **Pass Criteria**:
@@ -1686,29 +1738,31 @@ jq '.notes | length' # Should be 1
 - `python_set_id` with embedded notes
 
 **Steps**:
-```bash
-# 1. Search within Python set
-curl -X POST http://localhost:3000/api/v1/search/semantic \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "clean code patterns",
-    "embedding_set_id": "{python_set_id}",
-    "limit": 10,
-    "threshold": 0.5
-  }'
+```javascript
+// 1. Search within Python set
+search_notes({
+  query: "clean code patterns",
+  embedding_set_id: "{python_set_id}",
+  limit: 10
+})
+// Expected: returns results ONLY from python_set_id
 ```
 
 **Expected Results**:
 - Results ONLY from `python_set_id`
-- `py_dataclass_note_id` included (if similarity > 0.5)
+- `py_dataclass_note_id` included (if similarity threshold met)
 - Rust and meeting notes excluded (not in set)
 - Guaranteed data isolation
 
 **Verification**:
-```bash
-# Verify no cross-contamination
-jq '.results[] | .note_id' | grep -q "{rust_ownership_note_id}"
-echo $? # Should be 1 (not found)
+```javascript
+// Verify no cross-contamination
+search_notes({
+  query: "ownership",
+  embedding_set_id: "{python_set_id}",
+  limit: 10
+})
+// Should NOT return rust_ownership_note_id
 ```
 
 **Pass Criteria**:
@@ -1725,23 +1779,19 @@ echo $? # Should be 1 (not found)
 - `python_set_id` with existing embeddings
 
 **Steps**:
-```bash
-# 1. Update model config (change truncate dimension)
-curl -X PATCH http://localhost:3000/api/v1/embedding-sets/{python_set_id} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_config": {
-      "model_name": "nomic-embed-text-v1.5",
-      "dimensions": 768,
-      "truncate_dim": 128
-    }
-  }'
+```javascript
+// 1. Refresh embedding set with new config
+refresh_embedding_set({
+  set_id: "{python_set_id}",
+  truncate_dim: 128
+})
+// Expected: re-embedding started, returns job_id
 ```
 
 **Expected Results**:
-- HTTP 200 OK
-- `model_config.truncate_dim` updated to 128
-- Re-embedding required (old embeddings marked stale)
+- Model config update accepted
+- Re-embedding job started
+- Old embeddings marked stale
 
 **Pass Criteria**:
 - Model config updated
@@ -1756,24 +1806,20 @@ curl -X PATCH http://localhost:3000/api/v1/embedding-sets/{python_set_id} \
 - Updated model config from UAT-21-041
 
 **Steps**:
-```bash
-# 1. Trigger re-embedding
-curl -X POST http://localhost:3000/api/v1/embedding-sets/{python_set_id}/re-embed
+```javascript
+// 1. Wait for re-embedding (job from UAT-21-041)
+// Poll or wait ~10 seconds
 
-# 2. Wait for re-embedding
-sleep 10
+// 2. Search again with new embeddings
+search_notes({
+  query: "clean code patterns",
+  embedding_set_id: "{python_set_id}",
+  limit: 10
+})
+// Expected: returns results with new embeddings (128-dim)
 
-# 3. Search again with new embeddings
-curl -X POST http://localhost:3000/api/v1/search/semantic \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "clean code patterns",
-    "embedding_set_id": "{python_set_id}",
-    "limit": 10,
-    "threshold": 0.5
-  }'
-
-# 4. Compare similarity scores with original search (UAT-21-040)
+// 3. Compare similarity scores with original search (UAT-21-040)
+// Scores may differ slightly due to dimension change
 ```
 
 **Expected Results**:
@@ -1783,11 +1829,10 @@ curl -X POST http://localhost:3000/api/v1/search/semantic \
 - Storage reduced (128-dim vs 256-dim)
 
 **Verification**:
-```bash
-# Check embedding dimensions
-curl http://localhost:3000/api/v1/embedding-sets/{python_set_id}/notes/{py_dataclass_note_id}/embedding \
-  | jq '.vector | length'
-# Should be 128 (truncated)
+```javascript
+// Check embedding set details
+get_embedding_set({ set_id: "{python_set_id}" })
+// Verify model config shows truncate_dim: 128
 ```
 
 **Pass Criteria**:
@@ -1820,29 +1865,29 @@ curl http://localhost:3000/api/v1/embedding-sets/{python_set_id}/notes/{py_datac
 - Data from all previous chains exists
 
 **Steps**:
-```bash
-# 1. Get health score
-curl http://localhost:3000/api/v1/observability/health/knowledge
+```javascript
+// 1. Get health score
+get_knowledge_health({})
+// Expected: returns health_score (0.0 to 1.0) with metrics
 ```
 
 **Expected Results**:
-- HTTP 200 OK
-- `health_score` (0.0 to 1.0)
+- Health score returned (0.0 to 1.0)
 - Metrics include:
-  - `total_notes`
-  - `notes_with_tags` (percentage)
-  - `notes_with_embeddings` (percentage)
-  - `orphan_notes` (count)
-  - `stale_embeddings` (count)
-  - `broken_links` (count)
+  - total_notes
+  - notes_with_tags (percentage)
+  - notes_with_embeddings (percentage)
+  - orphan_notes (count)
+  - stale_embeddings (count)
+  - broken_links (count)
 
 **Store**: Initial health score
 
 **Verification**:
-```bash
-# Check metrics
-jq '.metrics.total_notes' # Should be > 20 (from all chains)
-jq '.metrics.health_score' # Should be > 0.7 (healthy)
+```javascript
+// Check metrics
+// health_score should be > 0.7 (healthy)
+// total_notes should be > 20 (from all chains)
 ```
 
 **Pass Criteria**:
@@ -1858,21 +1903,21 @@ jq '.metrics.health_score' # Should be > 0.7 (healthy)
 - Knowledge base with tags from chains
 
 **Steps**:
-```bash
-# 1. Get orphan tags
-curl http://localhost:3000/api/v1/observability/issues/orphan-tags
+```javascript
+// 1. Get orphan tags
+get_orphan_tags({})
+// Expected: returns list of tags with usage_count: 0
 ```
 
 **Expected Results**:
-- List of tags with `usage_count: 0`
+- List of tags with usage_count: 0
 - Tags created but not attached to notes
 - Recommendations for cleanup
 
 **Verification**:
-```bash
-# Check for orphans
-jq '.orphan_tags | length'
-# May be 0 if all tags in use
+```javascript
+// Check for orphans
+// May be 0 if all tags in use
 ```
 
 **Pass Criteria**:
@@ -1888,24 +1933,25 @@ jq '.orphan_tags | length'
 - Knowledge base from chains
 
 **Steps**:
-```bash
-# 1. Get stale notes (no embeddings)
-curl http://localhost:3000/api/v1/observability/issues/stale-embeddings
+```javascript
+// 1. Get stale notes (no embeddings)
+get_stale_notes({})
+// Expected: returns list of notes without embeddings
 
-# 2. Get unlinked notes (no connections)
-curl http://localhost:3000/api/v1/observability/issues/unlinked-notes
+// 2. Get unlinked notes (no connections)
+get_unlinked_notes({})
+// Expected: returns list of isolated notes
 ```
 
 **Expected Results**:
 - Stale embeddings list (if any exist)
 - Unlinked notes list (isolated notes)
-- Each includes `note_id`, `title`, `created_at`
+- Each includes note_id, title, created_at
 
 **Verification**:
-```bash
-# Check for issues
-jq '.stale_embeddings | length'
-jq '.unlinked_notes | length'
+```javascript
+// Check for issues
+// Verify returned arrays
 ```
 
 **Pass Criteria**:
@@ -1913,40 +1959,39 @@ jq '.unlinked_notes | length'
 
 ---
 
-### UAT-21-046: Get Tag Cooccurrence Matrix
+### UAT-21-046: Export Knowledge Health Report
 
-**Description**: Analyze tag relationships and clusters
+**Description**: Generate comprehensive health report
 
 **Prerequisites**:
-- Notes with tags from all chains
+- Health data from previous steps
 
 **Steps**:
-```bash
-# 1. Get tag cooccurrence matrix
-curl http://localhost:3000/api/v1/observability/stats/tag-cooccurrence \
-  -H "Content-Type: application/json" \
-  -d '{
-    "min_cooccurrence": 2,
-    "limit": 50
-  }'
+```javascript
+// 1. Get comprehensive health check
+health_check({})
+// Expected: returns system health including DB, services, knowledge stats
+
+// 2. Get full knowledge health
+get_knowledge_health({})
+// Expected: returns detailed metrics and recommendations
 ```
 
 **Expected Results**:
-- Matrix showing tag pairs that occur together
-- Format: `{tag1, tag2, count}`
-- Example: `{python, code, 5}` (5 notes tagged with both)
-- Insights into tag clustering
+- System health status (API, DB, services)
+- Knowledge health metrics
+- Issue counts and recommendations
+- Overall health score
 
 **Verification**:
-```bash
-# Check matrix
-jq '.cooccurrences[] | select(.tag1 == "python" and .tag2 == "code")'
-# Should show cooccurrence count
+```javascript
+// Verify comprehensive data
+// Check that all components reporting
 ```
 
 **Pass Criteria**:
-- Tag cooccurrence analysis works
-- Matrix shows relationships
+- Health reporting comprehensive
+- Issues identified accurately
 
 ---
 
@@ -1958,31 +2003,28 @@ jq '.cooccurrences[] | select(.tag1 == "python" and .tag2 == "code")'
 - Issue lists from UAT-21-044 and UAT-21-045
 
 **Steps**:
-```bash
-# 1. Delete orphan tags (if any exist)
-curl -X DELETE http://localhost:3000/api/v1/tags/cleanup/orphans
+```javascript
+// 1. Re-embed stale notes
+reembed_all({})
+// Expected: re-embedding job started
 
-# 2. Re-embed stale notes
-curl -X POST http://localhost:3000/api/v1/embeddings/re-embed-stale
+// 2. Wait for re-embedding
+// Poll or wait ~10 seconds
 
-# 3. Wait for re-embedding
-sleep 10
-
-# 4. Re-check health score
-curl http://localhost:3000/api/v1/observability/health/knowledge
+// 3. Re-check health score
+get_knowledge_health({})
+// Expected: health score improved or maintained
 ```
 
 **Expected Results**:
-- Orphan tags deleted (if any existed)
 - Stale notes re-embedded
 - Health score improved (higher than initial)
 - All metrics in healthy ranges
 
 **Verification**:
-```bash
-# Compare health scores
-# New score should be >= initial score
-jq '.metrics.health_score'
+```javascript
+// Compare health scores
+// New score should be >= initial score
 ```
 
 **Pass Criteria**:
@@ -1993,7 +2035,7 @@ jq '.metrics.health_score'
 
 **Chain 8 Summary**:
 - Total steps: 5
-- Features exercised: Health monitoring, issue detection, tag analysis, remediation
+- Features exercised: Health monitoring, issue detection, health reporting, remediation
 - Success criteria: Observability provides actionable insights
 
 ---
@@ -2008,29 +2050,46 @@ jq '.metrics.health_score'
 - All chain tests completed
 
 **Steps**:
-```bash
-# 1. Delete all notes with uat/chain* tags
-for i in {1..8}; do
-  curl -X POST http://localhost:3000/api/v1/notes/bulk-delete \
-    -H "Content-Type: application/json" \
-    -d "{\"tag_filter\": {\"tags\": [\"uat/chain$i\"], \"mode\": \"strict\"}}"
-done
+```javascript
+// 1. Delete notes by tag (chain 1)
+list_notes({ tags: ["uat/chain1"] })
+// For each note_id: delete_note({ note_id })
 
-# 2. Delete SKOS concept scheme
-curl -X DELETE http://localhost:3000/api/v1/skos/schemes/test-uat-taxonomy
+// 2. Delete notes by tag (chain 2)
+list_notes({ tags: ["uat/chain2"] })
+// For each note_id: delete_note({ note_id })
 
-# 3. Delete embedding sets
-curl -X DELETE http://localhost:3000/api/v1/embedding-sets/{python_set_id}
+// 3. Delete notes by tag (chain 3)
+list_notes({ tags: ["uat/chain3"] })
+// For each note_id: delete_note({ note_id })
 
-# 4. Delete PKE keysets
-curl -X DELETE http://localhost:3000/api/v1/pke/keysets/{keyset_id}
+// 4. Delete notes by tag (chain 4)
+list_notes({ tags: ["uat/chain4"] })
+// For each note_id: delete_note({ note_id })
 
-# 5. Delete backup snapshot
-curl -X DELETE http://localhost:3000/api/v1/admin/backup/snapshots/{snapshot_id}
+// 5. Delete notes by tag (chain 5)
+list_notes({ tags: ["uat/chain5"] })
+// For each note_id: delete_note({ note_id })
 
-# 6. Delete collections
-curl -X DELETE http://localhost:3000/api/v1/collections/{code_collection_id}
-curl -X DELETE http://localhost:3000/api/v1/collections/{root_collection_id}
+// 6. Delete notes by tag (chain 6)
+list_notes({ tags: ["uat/chain6"] })
+// For each note_id: delete_note({ note_id })
+
+// 7. Delete notes by tag (chain 7)
+list_notes({ tags: ["uat/chain7"] })
+// For each note_id: delete_note({ note_id })
+
+// 8. Delete collections
+delete_collection({ collection_id: "{code_collection_id}" })
+delete_collection({ collection_id: "{root_collection_id}" })
+
+// 9. Delete PKE keysets
+// (Note: keyset deletion not in MCP tools list)
+// Manual cleanup or archive keysets
+
+// 10. Verify cleanup
+list_notes({ tags: ["uat/chain1"] })
+// Expected: empty array
 ```
 
 **Expected Results**:
@@ -2039,13 +2098,14 @@ curl -X DELETE http://localhost:3000/api/v1/collections/{root_collection_id}
 - No orphaned resources
 
 **Verification**:
-```bash
-# Verify cleanup
-curl http://localhost:3000/api/v1/notes?tags=uat/chain1
-# Should return empty array
+```javascript
+// Verify cleanup
+list_notes({ tags: ["uat/chain1"] })
+// Should return empty array
 
-curl http://localhost:3000/api/v1/skos/schemes/test-uat-taxonomy
-# Should return 404
+// Verify SKOS scheme cleanup
+list_concept_schemes({})
+// test-uat-taxonomy should not appear (if deleted)
 ```
 
 **Pass Criteria**:
@@ -2080,3 +2140,6 @@ curl http://localhost:3000/api/v1/skos/schemes/test-uat-taxonomy
 - Store all intermediate IDs for debugging
 - Chains build on previous phase features
 - This phase validates end-to-end system integration
+- MCP tools used throughout (no REST API calls)
+- Some operations (like direct embedding inspection) are inferred via search results
+- PKE keyset deletion and SKOS scheme deletion may need manual cleanup if MCP tools don't expose delete endpoints

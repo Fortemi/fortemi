@@ -7,7 +7,7 @@ use matric_db::Database;
 async fn test_inline_hashtag_extraction_on_note_creation() {
     // Set up test database
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
     let db = Database::connect(&database_url)
         .await
@@ -70,7 +70,7 @@ Use explicit #test-tag too.
 #[tokio::test]
 async fn test_no_inline_hashtags() {
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://matric:matric@localhost:15432/matric_test".to_string());
+        .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
     let db = Database::connect(&database_url)
         .await

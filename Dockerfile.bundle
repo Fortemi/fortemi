@@ -44,14 +44,18 @@ LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install runtime dependencies for matric-api, Node.js for MCP server, and PostGIS
+# Install runtime dependencies for matric-api, Node.js for MCP server, PostGIS, and extraction toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
     gnupg \
-    # PDF text extraction (pdftotext, pdfinfo)
+    # Extraction toolchain
     poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    pandoc \
+    ffmpeg \
     # PostGIS for spatial/geographic queries (W3C PROV prov:atLocation)
     postgresql-16-postgis-3 \
     postgresql-16-postgis-3-scripts \

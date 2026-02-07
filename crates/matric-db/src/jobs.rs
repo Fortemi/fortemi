@@ -39,6 +39,7 @@ impl PgJobRepository {
             JobType::GenerateGraphEmbedding => "generate_graph_embedding",
             JobType::GenerateCoarseEmbedding => "generate_coarse_embedding",
             JobType::ExifExtraction => "exif_extraction",
+            JobType::Extraction => "extraction",
             JobType::ThreeDAnalysis => "3d_analysis",
             JobType::DocumentTypeInference => "document_type_inference",
         }
@@ -64,6 +65,7 @@ impl PgJobRepository {
             "generate_graph_embedding" => JobType::GenerateGraphEmbedding,
             "generate_coarse_embedding" => JobType::GenerateCoarseEmbedding,
             "exif_extraction" => JobType::ExifExtraction,
+            "extraction" => JobType::Extraction,
             "3d_analysis" => JobType::ThreeDAnalysis,
             "document_type_inference" => JobType::DocumentTypeInference,
             _ => JobType::ContextUpdate, // fallback
@@ -570,6 +572,10 @@ mod tests {
             "3d_analysis"
         );
         assert_eq!(
+            PgJobRepository::job_type_to_str(JobType::Extraction),
+            "extraction"
+        );
+        assert_eq!(
             PgJobRepository::job_type_to_str(JobType::DocumentTypeInference),
             "document_type_inference"
         );
@@ -629,6 +635,10 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("3d_analysis"),
             JobType::ThreeDAnalysis
+        );
+        assert_eq!(
+            PgJobRepository::str_to_job_type("extraction"),
+            JobType::Extraction
         );
         assert_eq!(
             PgJobRepository::str_to_job_type("document_type_inference"),
@@ -756,6 +766,7 @@ mod tests {
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
+            JobType::Extraction,
             JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
         ];
@@ -801,6 +812,7 @@ mod tests {
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
+            JobType::Extraction,
             JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
         ];
@@ -844,5 +856,126 @@ mod tests {
             unique_strings.len(),
             "JobStatus strings must be unique"
         );
+    }
+}
+
+/// Get extraction job statistics.
+///
+/// Returns analytics for all extraction jobs including:
+/// - Total job counts by status
+/// - Average duration for completed jobs
+/// - Breakdown by extraction strategy
+pub async fn get_extraction_stats(pool: &Pool<Postgres>) -> Result<matric_core::ExtractionStats> {
+    use sqlx::Row;
+    use std::collections::HashMap;
+
+    // Get basic counts and average duration
+    let stats_row = sqlx::query(
+        "SELECT
+            COUNT(*) as total_jobs,
+            COUNT(*) FILTER (WHERE status = 'completed') as completed_jobs,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,
+            COUNT(*) FILTER (WHERE status = 'pending') as pending_jobs,
+            AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))
+                FILTER (WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL)
+                as avg_duration_secs
+         FROM job_queue
+         WHERE job_type = 'extraction'::job_type"
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(Error::Database)?;
+
+    let total_jobs: i64 = stats_row.get("total_jobs");
+    let completed_jobs: i64 = stats_row.get("completed_jobs");
+    let failed_jobs: i64 = stats_row.get("failed_jobs");
+    let pending_jobs: i64 = stats_row.get("pending_jobs");
+    let avg_duration_secs: Option<f64> = stats_row.try_get("avg_duration_secs").ok();
+
+    // Get strategy breakdown from payload->>'strategy'
+    let strategy_rows = sqlx::query(
+        "SELECT
+            COALESCE(payload->>'strategy', 'unknown') as strategy,
+            COUNT(*) as count
+         FROM job_queue
+         WHERE job_type = 'extraction'::job_type
+         GROUP BY payload->>'strategy'",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(Error::Database)?;
+
+    let mut strategy_breakdown = HashMap::new();
+    for row in strategy_rows {
+        let strategy: String = row.get("strategy");
+        let count: i64 = row.get("count");
+        strategy_breakdown.insert(strategy, count);
+    }
+
+    Ok(matric_core::ExtractionStats {
+        total_jobs,
+        completed_jobs,
+        failed_jobs,
+        pending_jobs,
+        avg_duration_secs,
+        strategy_breakdown,
+    })
+}
+
+#[cfg(test)]
+mod extraction_tests {
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_extraction_stats_serialization() {
+        let mut strategy_breakdown = HashMap::new();
+        strategy_breakdown.insert("pdf_text".to_string(), 5);
+        strategy_breakdown.insert("text_native".to_string(), 10);
+
+        let stats = matric_core::ExtractionStats {
+            total_jobs: 20,
+            completed_jobs: 15,
+            failed_jobs: 2,
+            pending_jobs: 3,
+            avg_duration_secs: Some(2.5),
+            strategy_breakdown,
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&stats).expect("Should serialize");
+        assert!(json.contains("\"total_jobs\":20"));
+        assert!(json.contains("\"completed_jobs\":15"));
+        assert!(json.contains("\"failed_jobs\":2"));
+        assert!(json.contains("\"pending_jobs\":3"));
+        assert!(json.contains("\"avg_duration_secs\":2.5"));
+
+        // Test deserialization
+        let deserialized: matric_core::ExtractionStats =
+            serde_json::from_str(&json).expect("Should deserialize");
+        assert_eq!(deserialized.total_jobs, 20);
+        assert_eq!(deserialized.completed_jobs, 15);
+        assert_eq!(deserialized.failed_jobs, 2);
+        assert_eq!(deserialized.pending_jobs, 3);
+        assert_eq!(deserialized.avg_duration_secs, Some(2.5));
+        assert_eq!(deserialized.strategy_breakdown.len(), 2);
+    }
+
+    #[test]
+    fn test_extraction_stats_with_null_avg() {
+        let stats = matric_core::ExtractionStats {
+            total_jobs: 5,
+            completed_jobs: 0,
+            failed_jobs: 2,
+            pending_jobs: 3,
+            avg_duration_secs: None,
+            strategy_breakdown: HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&stats).expect("Should serialize");
+        assert!(json.contains("\"avg_duration_secs\":null"));
+
+        let deserialized: matric_core::ExtractionStats =
+            serde_json::from_str(&json).expect("Should deserialize");
+        assert_eq!(deserialized.avg_duration_secs, None);
     }
 }

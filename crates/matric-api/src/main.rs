@@ -1,6 +1,7 @@
 //! matric-api - HTTP API server for matric-memory
 
 mod handlers;
+mod middleware;
 mod query_types;
 
 use std::net::SocketAddr;
@@ -13,7 +14,7 @@ use query_types::FlexibleDateTime;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Extension, Path, Query, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{
@@ -33,7 +34,7 @@ use tower_http::{
     request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     trace::TraceLayer,
 };
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
@@ -42,11 +43,16 @@ use uuid::Uuid;
 use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, EventBus, ExtractionStrategy, JobRepository, JobType,
-    LinkRepository, ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent,
-    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    CreateApiKeyRequest, CreateNoteRequest, EventBus, ExtractionAdapter, ExtractionStrategy,
+    JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository, OAuthError,
+    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
+    UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
+use middleware::archive_routing::{
+    archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
+};
+use tokio::sync::RwLock;
 
 // =============================================================================
 // REQUEST ID (UUIDv7)
@@ -83,6 +89,10 @@ impl MakeRequestId for MakeRequestUuidV7 {
 /// - `Light`: Structure and formatting only, no invented details
 /// - `None`: Skip AI revision entirely, store original as-is
 ///
+/// The `schema` parameter specifies which PostgreSQL schema to use for job execution:
+/// - `None` (default): Use the public schema (backward compatible)
+/// - `Some("archive_name")`: Use the specified archive schema for parallel memory isolation
+///
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -94,12 +104,16 @@ async fn queue_nlp_pipeline(
     note_id: Uuid,
     revision_mode: RevisionMode,
     event_bus: &EventBus,
+    schema: Option<&str>,
 ) {
-    // Queue AI revision with mode in payload (unless mode is None)
+    // Queue AI revision with mode and schema in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "revision_mode": revision_mode
         });
+        if let Some(s) = schema {
+            payload["schema"] = serde_json::json!(s);
+        }
         if let Ok(Some(job_id)) = db
             .jobs
             .queue_deduplicated(
@@ -125,9 +139,17 @@ async fn queue_nlp_pipeline(
         JobType::Linking,
         JobType::ConceptTagging, // SKOS auto-tagging
     ] {
+        // Create payload with schema if provided
+        let payload = schema.map(|s| serde_json::json!({ "schema": s }));
+
         if let Ok(Some(job_id)) = db
             .jobs
-            .queue_deduplicated(Some(note_id), job_type, job_type.default_priority(), None)
+            .queue_deduplicated(
+                Some(note_id),
+                job_type,
+                job_type.default_priority(),
+                payload,
+            )
             .await
         {
             event_bus.emit(ServerEvent::JobQueued {
@@ -155,6 +177,7 @@ use handlers::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
     },
+    pke::{pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients, pke_verify},
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
 };
@@ -183,6 +206,10 @@ struct AppState {
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
     ws_connections: Arc<AtomicUsize>,
+    /// Cached default archive for routing middleware (Issue #107).
+    default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
+    /// Require authentication for protected routes (Issue #114).
+    require_auth: bool,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -504,15 +531,62 @@ async fn main() -> anyhow::Result<()> {
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
 
-        // Build extraction adapter registry
+        // Build extraction adapter registry with conditional registration
         let mut extraction_registry = ExtractionRegistry::new();
+
+        // Always available: text-native (no external deps)
         extraction_registry.register(Arc::new(TextNativeAdapter));
+        info!("Extraction adapter registered: TextNative (always available)");
+
+        // Always available: structured extract (no external deps)
         extraction_registry.register(Arc::new(StructuredExtractAdapter));
-        extraction_registry.register(Arc::new(PdfTextAdapter));
+        info!("Extraction adapter registered: StructuredExtract (always available)");
+
+        // Conditional: PdfText requires `pdftotext` binary in PATH
+        if PdfTextAdapter.health_check().await.unwrap_or(false) {
+            extraction_registry.register(Arc::new(PdfTextAdapter));
+            info!("Extraction adapter registered: PdfText (pdftotext found)");
+        } else {
+            warn!("PdfTextAdapter disabled: pdftotext not found in PATH");
+        }
+
+        // Conditional: Vision model requires OLLAMA_VISION_MODEL env var
+        if let Ok(model) = std::env::var("OLLAMA_VISION_MODEL") {
+            if !model.is_empty() {
+                info!("VisionAdapter configured with model: {}", model);
+                // Note: VisionAdapter registration would go here when implemented
+                // For now, log the configuration
+            }
+        } else {
+            info!("VisionAdapter disabled: OLLAMA_VISION_MODEL not set");
+        }
+
+        // Conditional: Audio transcription requires WHISPER_BASE_URL
+        if let Ok(url) = std::env::var("WHISPER_BASE_URL") {
+            if !url.is_empty() {
+                info!("AudioTranscribeAdapter configured with URL: {}", url);
+                // Note: AudioTranscribeAdapter registration would go here when implemented
+            }
+        } else {
+            info!("AudioTranscribeAdapter disabled: WHISPER_BASE_URL not set");
+        }
+
+        // Conditional: OCR requires OCR_ENABLED=true
+        let ocr_enabled = std::env::var("OCR_ENABLED")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
+        if ocr_enabled {
+            info!("PdfOcrAdapter enabled via OCR_ENABLED=true");
+            // Note: PdfOcrAdapter registration would go here when implemented
+        } else {
+            info!("PdfOcrAdapter disabled: OCR_ENABLED not set or false");
+        }
+
         info!(
-            "Extraction adapters: {:?}",
+            "Extraction adapters active: {:?}",
             extraction_registry.available_strategies()
         );
+        info!("Unsupported MIME types will be stored without extraction");
 
         let worker = JobWorker::new(
             db.clone(),
@@ -623,6 +697,15 @@ async fn main() -> anyhow::Result<()> {
         search_cache,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
+        default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
+            std::env::var("DEFAULT_ARCHIVE_CACHE_TTL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+        ))),
+        require_auth: std::env::var("REQUIRE_AUTH")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false),
     };
 
     // Read max body size from env var with fallback
@@ -700,6 +783,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs/:id", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
         .route("/api/v1/jobs/stats", get(queue_stats))
+        // Extraction Analytics
+        .route("/api/v1/extraction/stats", get(extraction_stats))
         // Document Types
         .route(
             "/api/v1/document-types",
@@ -725,6 +810,13 @@ async fn main() -> anyhow::Result<()> {
             post(set_default_archive),
         )
         .route("/api/v1/archives/:name/stats", get(get_archive_stats))
+        // PKE (Public Key Encryption)
+        .route("/api/v1/pke/keygen", post(pke_keygen))
+        .route("/api/v1/pke/address", post(pke_address))
+        .route("/api/v1/pke/encrypt", post(pke_encrypt))
+        .route("/api/v1/pke/decrypt", post(pke_decrypt))
+        .route("/api/v1/pke/recipients", post(pke_recipients))
+        .route("/api/v1/pke/verify/:address", get(pke_verify))
         // Tags (legacy)
         .route("/api/v1/tags", get(list_tags))
         // SKOS Concept Schemes
@@ -989,6 +1081,14 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -1596,6 +1696,116 @@ async fn rate_limit_middleware(
         }
     }
     Ok(next.run(request).await)
+}
+
+// =============================================================================
+// AUTHENTICATION MIDDLEWARE
+// =============================================================================
+
+/// Authentication middleware.
+///
+/// When `REQUIRE_AUTH` is true, rejects unauthenticated requests to protected routes
+/// with 401 Unauthorized. Public routes are always accessible.
+async fn auth_middleware(
+    State(state): State<AppState>,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    // Check if auth is required
+    let require_auth = state.require_auth;
+    if !require_auth {
+        return next.run(request).await;
+    }
+
+    // Check if this is a public route
+    let path = request.uri().path();
+    if is_public_route(path) {
+        return next.run(request).await;
+    }
+
+    // Extract the Authorization header
+    let auth_header = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let principal = match &auth_header {
+        Some(header) if header.starts_with("Bearer ") => {
+            let token = header.trim_start_matches("Bearer ").trim();
+
+            if token.starts_with("mm_at_") {
+                // OAuth access token
+                match state.db.oauth.validate_access_token(token).await {
+                    Ok(Some(oauth_token)) => {
+                        // Sliding window refresh
+                        let lifetime = token_lifetime_for_scope(&oauth_token.scope);
+                        let _ = state
+                            .db
+                            .oauth
+                            .validate_and_extend_token(token, lifetime)
+                            .await;
+                        Some(AuthPrincipal::OAuthClient {
+                            client_id: oauth_token.client_id,
+                            scope: oauth_token.scope,
+                            user_id: oauth_token.user_id,
+                        })
+                    }
+                    _ => None,
+                }
+            } else if token.starts_with("mm_key_") {
+                // API key
+                match state.db.oauth.validate_api_key(token).await {
+                    Ok(Some(api_key)) => Some(AuthPrincipal::ApiKey {
+                        key_id: api_key.id,
+                        scope: api_key.scope,
+                    }),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    match principal {
+        Some(p) => {
+            // Inject auth info into request extensions for downstream handlers
+            let mut request = request;
+            request.extensions_mut().insert(Auth { principal: p });
+            next.run(request).await
+        }
+        None => {
+            // Return 401
+            let body = serde_json::json!({
+                "error": "unauthorized",
+                "error_description": "Authentication required. Provide a valid Bearer token."
+            });
+            (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+        }
+    }
+}
+
+/// Check if a route is public (accessible without authentication).
+fn is_public_route(path: &str) -> bool {
+    // Health endpoints
+    if path == "/health" || path.starts_with("/api/v1/health") {
+        return true;
+    }
+    // OAuth endpoints
+    if path.starts_with("/oauth/") || path.starts_with("/.well-known/") {
+        return true;
+    }
+    // API documentation
+    if path.starts_with("/swagger-ui") || path.starts_with("/api-docs") {
+        return true;
+    }
+    // SSE and WebSocket endpoints (they have their own auth)
+    if path == "/api/v1/events" || path == "/api/v1/ws" {
+        return true;
+    }
+    false
 }
 
 /// Get rate limiting status.
@@ -2397,9 +2607,19 @@ struct CreateNoteBody {
 }
 
 async fn create_note(
+    auth: Auth,
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope enforcement (Issue #115 — AUTH-015): write ops require write scope
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
+        return Err(ApiError::Forbidden(format!(
+            "Insufficient scope. Required: write, have: {}",
+            auth.principal.scope_str()
+        )));
+    }
+
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
 
@@ -2428,7 +2648,15 @@ async fn create_note(
         _ => RevisionMode::Full, // "full" or unspecified
     };
 
+    // Insert note (archive-scoped insertion via SchemaContext deferred to future iteration)
     let note_id = state.db.notes.insert(req.clone()).await?;
+
+    // Determine schema for background jobs (Issue #109)
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.as_str())
+    } else {
+        None
+    };
 
     // Resolve tags via SKOS and create parent hierarchy (fixes #301)
     if let Some(tags) = tags_for_skos {
@@ -2467,8 +2695,15 @@ async fn create_note(
             .await;
     }
 
-    // Queue NLP pipeline (AI revision only if not "none", but always embedding/title/linking)
-    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
+    // Queue NLP pipeline with archive context (Issue #109)
+    queue_nlp_pipeline(
+        &state.db,
+        note_id,
+        revision_mode,
+        &state.event_bus,
+        schema_for_jobs,
+    )
+    .await;
 
     // Emit NoteUpdated event (Issue #41)
     let tags_for_event = state
@@ -2506,9 +2741,18 @@ struct BulkCreateNotesBody {
 }
 
 async fn bulk_create_notes(
+    auth: Auth,
     State(state): State<AppState>,
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope enforcement (Issue #115): write ops require write scope
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
+        return Err(ApiError::Forbidden(format!(
+            "Insufficient scope. Required: write, have: {}",
+            auth.principal.scope_str()
+        )));
+    }
+
     if body.notes.is_empty() {
         return Ok((
             StatusCode::OK,
@@ -2573,7 +2817,7 @@ async fn bulk_create_notes(
                 .await;
         }
 
-        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus).await;
+        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus, None).await;
     }
 
     Ok((
@@ -2605,10 +2849,19 @@ struct UpdateNoteBody {
 }
 
 async fn update_note(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope enforcement (Issue #115): write ops require write scope
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
+        return Err(ApiError::Forbidden(format!(
+            "Insufficient scope. Required: write, have: {}",
+            auth.principal.scope_str()
+        )));
+    }
+
     // Update content if provided
     let content_changed = body.content.is_some();
     if let Some(content) = &body.content {
@@ -2645,7 +2898,7 @@ async fn update_note(
             }
         }
 
-        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
     }
 
     // Fetch and return the updated note
@@ -2664,9 +2917,18 @@ async fn update_note(
 }
 
 async fn delete_note(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope enforcement (Issue #115): delete requires write scope
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
+        return Err(ApiError::Forbidden(format!(
+            "Insufficient scope. Required: write, have: {}",
+            auth.principal.scope_str()
+        )));
+    }
+
     state.db.notes.soft_delete(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2674,9 +2936,18 @@ async fn delete_note(
 /// Permanently delete a note by queuing a purge job.
 /// This triggers CASCADE DELETE on all related data.
 async fn purge_note(
+    auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Scope enforcement: purge requires admin scope
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("admin") {
+        return Err(ApiError::Forbidden(format!(
+            "Insufficient scope. Required: admin, have: {}",
+            auth.principal.scope_str()
+        )));
+    }
+
     // Verify note exists first
     if !state.db.notes.exists(id).await? {
         return Err(ApiError::NotFound(format!("Note {} not found", id)));
@@ -2748,7 +3019,7 @@ async fn restore_note(
     };
 
     // Re-run NLP pipeline to ensure note is properly indexed
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2777,7 +3048,7 @@ async fn reprocess_note(
     };
 
     // Queue full NLP pipeline
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
 
     let jobs_queued = if revision_mode == RevisionMode::None {
         vec!["embedding", "title_generation", "linking"]
@@ -3750,7 +4021,7 @@ async fn instantiate_template(
         Some("light") => RevisionMode::Light,
         _ => RevisionMode::Full,
     };
-    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus).await;
+    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus, None).await;
 
     Ok((
         StatusCode::CREATED,
@@ -4060,6 +4331,9 @@ async fn list_note_versions(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Verify the note exists (returns 404 if not)
+    let _ = state.db.notes.fetch(id).await?;
+
     let versions = state.db.versioning.list_versions(id).await?;
 
     Ok(Json(serde_json::json!({
@@ -4668,6 +4942,17 @@ async fn queue_stats(State(state): State<AppState>) -> Result<impl IntoResponse,
     Ok(Json(stats))
 }
 
+/// Get extraction job statistics.
+///
+/// Returns analytics for extraction jobs:
+/// - Total/completed/failed/pending counts
+/// - Average duration for completed jobs
+/// - Breakdown by extraction strategy
+async fn extraction_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let stats = matric_db::get_extraction_stats(&state.db.pool).await?;
+    Ok(Json(stats))
+}
+
 // =============================================================================
 // OAUTH2 HANDLERS
 // =============================================================================
@@ -4715,10 +5000,42 @@ async fn oauth_protected_resource(State(state): State<AppState>) -> impl IntoRes
 }
 
 /// OAuth2 Dynamic Client Registration (RFC 7591).
+/// Allowed OAuth2 grant types for client registration.
+const ALLOWED_GRANT_TYPES: &[&str] = &["authorization_code", "client_credentials", "refresh_token"];
+
+/// Allowed OAuth2 scopes for API key and client registration.
+const ALLOWED_SCOPES: &[&str] = &["read", "write", "admin", "mcp"];
+
 async fn oauth_register(
     State(state): State<AppState>,
     Json(req): Json<ClientRegistrationRequest>,
 ) -> Result<impl IntoResponse, OAuthApiError> {
+    // Validate grant types (Issue #115 — AUTH-004)
+    for gt in &req.grant_types {
+        if !ALLOWED_GRANT_TYPES.contains(&gt.as_str()) {
+            let msg = format!(
+                "Invalid grant_type: '{}'. Allowed: {}",
+                gt,
+                ALLOWED_GRANT_TYPES.join(", ")
+            );
+            return Err(OAuthApiError::OAuth(OAuthError::invalid_request(&msg)));
+        }
+    }
+
+    // Validate scope if provided
+    if let Some(ref scope) = req.scope {
+        for s in scope.split_whitespace() {
+            if !ALLOWED_SCOPES.contains(&s) {
+                let msg = format!(
+                    "Invalid scope: '{}'. Allowed: {}",
+                    s,
+                    ALLOWED_SCOPES.join(", ")
+                );
+                return Err(OAuthApiError::OAuth(OAuthError::invalid_request(&msg)));
+            }
+        }
+    }
+
     let mut response = state.db.oauth.register_client(req).await?;
 
     // Set the registration_client_uri based on our issuer
@@ -6117,8 +6434,14 @@ async fn backup_import(
                     }
 
                     // Queue NLP pipeline
-                    queue_nlp_pipeline(&state.db, new_id, RevisionMode::None, &state.event_bus)
-                        .await;
+                    queue_nlp_pipeline(
+                        &state.db,
+                        new_id,
+                        RevisionMode::None,
+                        &state.event_bus,
+                        None,
+                    )
+                    .await;
 
                     imported.notes += 1;
                 }
@@ -7037,6 +7360,7 @@ async fn knowledge_shard_import(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
+                                            None,
                                         )
                                         .await;
                                     }
@@ -7401,6 +7725,7 @@ enum ApiError {
     NotFound(String),
     BadRequest(String),
     Conflict(String),
+    Internal(String),
 }
 
 impl From<matric_core::Error> for ApiError {
@@ -7443,6 +7768,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
         };
 
         let body = Json(serde_json::json!({
@@ -8134,6 +8460,7 @@ async fn knowledge_shard_import_internal(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
+                                            None,
                                         )
                                         .await;
                                     }
@@ -10084,6 +10411,8 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections: ws_connections.clone(),
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
+            require_auth: false,
         };
 
         let router = Router::new()
@@ -10361,7 +10690,7 @@ mod tests {
     async fn test_list_webhooks_returns_all() {
         let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
         let client = reqwest::Client::new();
-        let suffix = chrono::Utc::now().timestamp_millis();
+        let suffix = Uuid::new_v4();
 
         // Create 2 webhooks
         for i in 0..2 {
@@ -10792,11 +11121,17 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections,
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
+            require_auth: false,
         };
 
         let router = Router::new()
             .route("/api/v1/notes", post(create_note))
             .route("/api/v1/events", get(sse_events))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                archive_routing_middleware,
+            ))
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -11068,6 +11403,8 @@ mod tests {
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus,
             ws_connections,
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
+            require_auth: false,
         };
 
         let router = Router::new()

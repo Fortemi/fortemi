@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use hex;
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -216,111 +216,10 @@ fn map_row_to_note_summary(row: sqlx::postgres::PgRow) -> NoteSummary {
 #[async_trait]
 impl NoteRepository for PgNoteRepository {
     async fn insert(&self, req: CreateNoteRequest) -> Result<Uuid> {
-        let note_id = new_v7();
-        let now = Utc::now();
-        let hash = Self::hash_content(&req.content);
-
-        // Merge explicit tags with inline hashtags
-        let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
-
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-
-        // Insert note metadata
-        sqlx::query(
-            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
-             VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
-        )
-        .bind(note_id)
-        .bind(req.collection_id)
-        .bind(&req.format)
-        .bind(&req.source)
-        .bind(now)
-        .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
-        .bind(req.document_type_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Insert original content
-        sqlx::query(
-            "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(new_v7())
-        .bind(note_id)
-        .bind(&req.content)
-        .bind(&hash)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Insert initial revised content (same as original)
-        let revision_id = new_v7();
-        sqlx::query(
-            "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
-        )
-        .bind(revision_id)
-        .bind(note_id)
-        .bind(&req.content)
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Populate current revised content
-        sqlx::query(
-            "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
-        )
-        .bind(note_id)
-        .bind(&req.content)
-        .bind(revision_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Log activity
-        sqlx::query(
-            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
-             VALUES ($1, $2, 'user', 'create_note', $3, '{}'::jsonb)",
-        )
-        .bind(new_v7())
-        .bind(now)
-        .bind(note_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Add tags (merged explicit + inline)
-        for tag in all_tags {
-            // Determine source: 'user' if explicitly provided, 'inline' if extracted
-            let source = if req.tags.as_ref().is_some_and(|t| t.contains(&tag)) {
-                "user"
-            } else {
-                "inline"
-            };
-
-            // Create tag if not exists
-            sqlx::query(
-                "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            )
-            .bind(&tag)
-            .bind(now)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-            // Link tag to note
-            sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
-                .bind(note_id)
-                .bind(&tag)
-                .bind(source)
-                .execute(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
-        }
-
+        let result = self.insert_tx(&mut tx, req).await?;
         tx.commit().await.map_err(Error::Database)?;
-
-        Ok(note_id)
+        Ok(result)
     }
 
     async fn insert_bulk(&self, notes: Vec<CreateNoteRequest>) -> Result<Vec<Uuid>> {
@@ -329,326 +228,23 @@ impl NoteRepository for PgNoteRepository {
         }
 
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        let mut ids = Vec::with_capacity(notes.len());
-        let now = Utc::now();
-
-        for req in notes {
-            let note_id = new_v7();
-            let hash = Self::hash_content(&req.content);
-
-            // Merge explicit tags with inline hashtags
-            let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
-
-            // Insert note metadata
-            sqlx::query(
-                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
-                 VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
-            )
-            .bind(note_id)
-            .bind(req.collection_id)
-            .bind(&req.format)
-            .bind(&req.source)
-            .bind(now)
-            .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
-            .bind(req.document_type_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-            // Insert original content
-            sqlx::query(
-                "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
-            )
-            .bind(new_v7())
-            .bind(note_id)
-            .bind(&req.content)
-            .bind(&hash)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-            // Insert initial revised content (same as original)
-            let revision_id = new_v7();
-            sqlx::query(
-                "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
-            )
-            .bind(revision_id)
-            .bind(note_id)
-            .bind(&req.content)
-            .bind(now)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-            // Populate current revised content
-            sqlx::query(
-                "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
-            )
-            .bind(note_id)
-            .bind(&req.content)
-            .bind(revision_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-            // Add tags (merged explicit + inline)
-            for tag in &all_tags {
-                // Determine source: 'user' if explicitly provided, 'inline' if extracted
-                let source = if req.tags.as_ref().is_some_and(|t| t.contains(tag)) {
-                    "user"
-                } else {
-                    "inline"
-                };
-
-                sqlx::query(
-                    "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                )
-                .bind(tag)
-                .bind(now)
-                .execute(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
-
-                sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
-                    .bind(note_id)
-                    .bind(tag)
-                    .bind(source)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(Error::Database)?;
-            }
-
-            ids.push(note_id);
-        }
-
-        // Log bulk activity
-        sqlx::query(
-            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
-             VALUES ($1, $2, 'user', 'bulk_create', NULL, $3::jsonb)",
-        )
-        .bind(new_v7())
-        .bind(now)
-        .bind(serde_json::json!({ "count": ids.len() }))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
+        let result = self.insert_bulk_tx(&mut tx, notes).await?;
         tx.commit().await.map_err(Error::Database)?;
-
-        Ok(ids)
+        Ok(result)
     }
 
     async fn fetch(&self, id: Uuid) -> Result<NoteFull> {
-        // Update last accessed timestamp
-        sqlx::query(
-            "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2",
-        )
-        .bind(Utc::now())
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        // Fetch note metadata
-        let note_row = sqlx::query(
-            "SELECT id, collection_id, format, source, created_at_utc, updated_at_utc,
-                    starred, archived, last_accessed_at, title, metadata, chunk_metadata, document_type_id
-             FROM note WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Error::Database)?
-        .ok_or_else(|| Error::NotFound(format!("Note {} not found", id)))?;
-
-        // Fetch original content
-        let original_row = sqlx::query(
-            "SELECT content, hash, user_created_at, user_last_edited_at
-             FROM note_original WHERE note_id = $1",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        // Fetch current revision
-        let revised_row = sqlx::query(
-            "SELECT nrc.content, nrc.last_revision_id, nrc.ai_metadata, nr.model
-             FROM note_revised_current nrc
-             LEFT JOIN note_revision nr ON nr.id = nrc.last_revision_id
-             WHERE nrc.note_id = $1",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        // Fetch tags
-        let tags: Vec<String> = sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1")
-            .bind(id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Error::Database)?
-            .into_iter()
-            .map(|r| r.get("tag_name"))
-            .collect();
-
-        // Fetch links
-        let link_rows = sqlx::query(
-            r#"SELECT
-                l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
-                l.created_at_utc, l.metadata,
-                COALESCE(substring(nrc.content from 1 for 100), 'Linked note') as snippet
-               FROM link l
-               LEFT JOIN note_revised_current nrc ON nrc.note_id = l.to_note_id
-               WHERE l.from_note_id = $1
-               ORDER BY l.score DESC, l.created_at_utc DESC"#,
-        )
-        .bind(id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        let links: Vec<Link> = link_rows
-            .into_iter()
-            .map(|r| Link {
-                id: r.get("id"),
-                from_note_id: r.get("from_note_id"),
-                to_note_id: r.get("to_note_id"),
-                to_url: r.get("to_url"),
-                kind: r.get("kind"),
-                score: r.get("score"),
-                created_at_utc: r.get("created_at_utc"),
-                snippet: r.get("snippet"),
-                metadata: r.get("metadata"),
-            })
-            .collect();
-
-        Ok(NoteFull {
-            note: NoteMeta {
-                id: note_row.get("id"),
-                collection_id: note_row.get("collection_id"),
-                format: note_row.get("format"),
-                source: note_row.get("source"),
-                created_at_utc: note_row.get("created_at_utc"),
-                updated_at_utc: note_row.get("updated_at_utc"),
-                starred: note_row.get::<Option<bool>, _>("starred").unwrap_or(false),
-                archived: note_row.get::<Option<bool>, _>("archived").unwrap_or(false),
-                last_accessed_at: note_row.get("last_accessed_at"),
-                title: note_row.get("title"),
-                metadata: note_row
-                    .get::<Option<serde_json::Value>, _>("metadata")
-                    .unwrap_or_else(|| serde_json::json!({})),
-                chunk_metadata: note_row.get("chunk_metadata"),
-                document_type_id: note_row.get("document_type_id"),
-            },
-            original: NoteOriginal {
-                content: original_row.get("content"),
-                hash: original_row.get("hash"),
-                user_created_at: original_row.get("user_created_at"),
-                user_last_edited_at: original_row.get("user_last_edited_at"),
-            },
-            revised: NoteRevised {
-                content: revised_row.get("content"),
-                last_revision_id: revised_row.get("last_revision_id"),
-                ai_metadata: revised_row.get("ai_metadata"),
-                ai_generated_at: None,
-                user_last_edited_at: None,
-                is_user_edited: false,
-                generation_count: 1,
-                model: revised_row.get("model"),
-            },
-            tags,
-            links,
-        })
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let result = self.fetch_tx(&mut tx, id).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(result)
     }
 
     async fn list(&self, req: ListNotesRequest) -> Result<ListNotesResponse> {
-        let sort_by = req.sort_by.as_deref().unwrap_or("created_at_utc");
-        let sort_order = req.sort_order.as_deref().unwrap_or("desc");
-        let filter = req.filter.as_deref().unwrap_or("all");
-        let limit = req.limit.unwrap_or(50).min(100);
-        let offset = req.offset.unwrap_or(0);
-
-        let filter_clause = build_filter_clause(filter);
-        let order_clause = build_order_clause(sort_by, sort_order);
-        let tag_count = req.tags.as_ref().map(|t| t.len()).unwrap_or(0);
-
-        // Build count query
-        let mut count_query = format!(
-            "SELECT COUNT(*) as count FROM note n WHERE TRUE {} ",
-            filter_clause
-        );
-        let mut param_idx = 1;
-
-        add_tag_filters(&mut count_query, &mut param_idx, tag_count);
-        add_date_filters(
-            &mut count_query,
-            &mut param_idx,
-            req.created_after.is_some(),
-            req.created_before.is_some(),
-            req.updated_after.is_some(),
-            req.updated_before.is_some(),
-        );
-
-        // Execute count query
-        let total: i64 = {
-            let q = sqlx::query_scalar(&count_query);
-            let q = bind_list_request_params!(q, req);
-            q.fetch_one(&self.pool).await.map_err(Error::Database)?
-        };
-
-        // Build notes query
-        let mut notes_query = format!(
-            r#"
-            SELECT
-                n.id, n.created_at_utc, n.updated_at_utc, n.starred, n.archived,
-                n.title, n.metadata, n.document_type_id,
-                dt.name as document_type_name,
-                no.content as original_content,
-                nrc.content as revised_content,
-                COALESCE(
-                    (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
-                    ''
-                ) as tags
-            FROM note n
-            JOIN note_original no ON no.note_id = n.id
-            LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
-            LEFT JOIN document_type dt ON dt.id = n.document_type_id
-            WHERE TRUE {}
-            "#,
-            filter_clause
-        );
-        param_idx = 1;
-
-        add_tag_filters(&mut notes_query, &mut param_idx, tag_count);
-        add_date_filters(
-            &mut notes_query,
-            &mut param_idx,
-            req.created_after.is_some(),
-            req.created_before.is_some(),
-            req.updated_after.is_some(),
-            req.updated_before.is_some(),
-        );
-
-        notes_query.push_str(&format!(
-            "ORDER BY {} LIMIT ${} OFFSET ${}",
-            order_clause,
-            param_idx,
-            param_idx + 1
-        ));
-
-        // Execute notes query
-        let rows = {
-            let mut q = sqlx::query(&notes_query);
-            q = bind_list_request_params!(q, req);
-            q = q.bind(limit).bind(offset);
-            q.fetch_all(&self.pool).await.map_err(Error::Database)?
-        };
-
-        let notes: Vec<NoteSummary> = rows.into_iter().map(map_row_to_note_summary).collect();
-
-        Ok(ListNotesResponse { notes, total })
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let result = self.list_tx(&mut tx, req).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(result)
     }
 
     async fn update_status(&self, id: Uuid, req: UpdateNoteStatusRequest) -> Result<()> {
@@ -794,33 +390,23 @@ impl NoteRepository for PgNoteRepository {
     }
 
     async fn soft_delete(&self, id: Uuid) -> Result<()> {
-        let now = Utc::now();
-        sqlx::query("UPDATE note SET deleted_at = $1, updated_at_utc = $1 WHERE id = $2")
-            .bind(now)
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        self.soft_delete_tx(&mut tx, id).await?;
+        tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
 
     async fn hard_delete(&self, id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM note WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        self.hard_delete_tx(&mut tx, id).await?;
+        tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
 
     async fn restore(&self, id: Uuid) -> Result<()> {
-        let now = Utc::now();
-        sqlx::query("UPDATE note SET deleted_at = NULL, updated_at_utc = $1 WHERE id = $2")
-            .bind(now)
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        self.restore_tx(&mut tx, id).await?;
+        tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
 
@@ -852,6 +438,497 @@ impl NoteRepository for PgNoteRepository {
             .await
             .map_err(Error::Database)?;
         Ok(rows.into_iter().map(|r| r.get("id")).collect())
+    }
+}
+
+// =============================================================================
+// TRANSACTION-AWARE VARIANTS FOR ARCHIVE-SCOPED OPERATIONS
+// =============================================================================
+
+/// Transaction-aware variants for archive-scoped operations.
+///
+/// These methods accept an existing transaction, allowing multiple repository
+/// operations to be composed within a single database transaction. This is
+/// essential for archive operations where notes must be inserted and linked
+/// within a transactional boundary.
+impl PgNoteRepository {
+    /// Insert a note within an existing transaction.
+    pub async fn insert_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: CreateNoteRequest,
+    ) -> Result<Uuid> {
+        let note_id = new_v7();
+        let now = Utc::now();
+        let hash = Self::hash_content(&req.content);
+
+        // Merge explicit tags with inline hashtags
+        let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
+
+        // Insert note metadata
+        sqlx::query(
+            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
+             VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
+        )
+        .bind(note_id)
+        .bind(req.collection_id)
+        .bind(&req.format)
+        .bind(&req.source)
+        .bind(now)
+        .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
+        .bind(req.document_type_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Insert original content
+        sqlx::query(
+            "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(new_v7())
+        .bind(note_id)
+        .bind(&req.content)
+        .bind(&hash)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Insert initial revised content (same as original)
+        let revision_id = new_v7();
+        sqlx::query(
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
+        )
+        .bind(revision_id)
+        .bind(note_id)
+        .bind(&req.content)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Populate current revised content
+        sqlx::query(
+            "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
+        )
+        .bind(note_id)
+        .bind(&req.content)
+        .bind(revision_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Log activity
+        sqlx::query(
+            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
+             VALUES ($1, $2, 'user', 'create_note', $3, '{}'::jsonb)",
+        )
+        .bind(new_v7())
+        .bind(now)
+        .bind(note_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Add tags (merged explicit + inline)
+        for tag in all_tags {
+            // Determine source: 'user' if explicitly provided, 'inline' if extracted
+            let source = if req.tags.as_ref().is_some_and(|t| t.contains(&tag)) {
+                "user"
+            } else {
+                "inline"
+            };
+
+            // Create tag if not exists
+            sqlx::query(
+                "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            )
+            .bind(&tag)
+            .bind(now)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Link tag to note
+            sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
+                .bind(note_id)
+                .bind(&tag)
+                .bind(source)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        Ok(note_id)
+    }
+
+    /// Insert multiple notes within an existing transaction.
+    pub async fn insert_bulk_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        notes: Vec<CreateNoteRequest>,
+    ) -> Result<Vec<Uuid>> {
+        if notes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut ids = Vec::with_capacity(notes.len());
+        let now = Utc::now();
+
+        for req in notes {
+            let note_id = new_v7();
+            let hash = Self::hash_content(&req.content);
+
+            // Merge explicit tags with inline hashtags
+            let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
+
+            // Insert note metadata
+            sqlx::query(
+                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
+                 VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
+            )
+            .bind(note_id)
+            .bind(req.collection_id)
+            .bind(&req.format)
+            .bind(&req.source)
+            .bind(now)
+            .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
+            .bind(req.document_type_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Insert original content
+            sqlx::query(
+                "INSERT INTO note_original (id, note_id, content, hash) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(new_v7())
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(&hash)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Insert initial revised content (same as original)
+            let revision_id = new_v7();
+            sqlx::query(
+                "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number) VALUES ($1, $2, $3, NULL, $4, 1)",
+            )
+            .bind(revision_id)
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(now)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Populate current revised content
+            sqlx::query(
+                "INSERT INTO note_revised_current (note_id, content, last_revision_id) VALUES ($1, $2, $3)",
+            )
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(revision_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Add tags (merged explicit + inline)
+            for tag in &all_tags {
+                // Determine source: 'user' if explicitly provided, 'inline' if extracted
+                let source = if req.tags.as_ref().is_some_and(|t| t.contains(tag)) {
+                    "user"
+                } else {
+                    "inline"
+                };
+
+                sqlx::query(
+                    "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                )
+                .bind(tag)
+                .bind(now)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+                sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
+                    .bind(note_id)
+                    .bind(tag)
+                    .bind(source)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(Error::Database)?;
+            }
+
+            ids.push(note_id);
+        }
+
+        // Log bulk activity
+        sqlx::query(
+            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
+             VALUES ($1, $2, 'user', 'bulk_create', NULL, $3::jsonb)",
+        )
+        .bind(new_v7())
+        .bind(now)
+        .bind(serde_json::json!({ "count": ids.len() }))
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(ids)
+    }
+
+    /// Fetch a note within an existing transaction.
+    pub async fn fetch_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<NoteFull> {
+        // Update last accessed timestamp
+        sqlx::query(
+            "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2",
+        )
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Fetch note metadata
+        let note_row = sqlx::query(
+            "SELECT id, collection_id, format, source, created_at_utc, updated_at_utc,
+                    starred, archived, last_accessed_at, title, metadata, chunk_metadata, document_type_id
+             FROM note WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?
+        .ok_or_else(|| Error::NotFound(format!("Note {} not found", id)))?;
+
+        // Fetch original content
+        let original_row = sqlx::query(
+            "SELECT content, hash, user_created_at, user_last_edited_at
+             FROM note_original WHERE note_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Fetch current revision
+        let revised_row = sqlx::query(
+            "SELECT nrc.content, nrc.last_revision_id, nrc.ai_metadata, nr.model
+             FROM note_revised_current nrc
+             LEFT JOIN note_revision nr ON nr.id = nrc.last_revision_id
+             WHERE nrc.note_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Fetch tags
+        let tags: Vec<String> = sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1")
+            .bind(id)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?
+            .into_iter()
+            .map(|r| r.get("tag_name"))
+            .collect();
+
+        // Fetch links
+        let link_rows = sqlx::query(
+            r#"SELECT
+                l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
+                l.created_at_utc, l.metadata,
+                COALESCE(substring(nrc.content from 1 for 100), 'Linked note') as snippet
+               FROM link l
+               LEFT JOIN note_revised_current nrc ON nrc.note_id = l.to_note_id
+               WHERE l.from_note_id = $1
+               ORDER BY l.score DESC, l.created_at_utc DESC"#,
+        )
+        .bind(id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let links: Vec<Link> = link_rows
+            .into_iter()
+            .map(|r| Link {
+                id: r.get("id"),
+                from_note_id: r.get("from_note_id"),
+                to_note_id: r.get("to_note_id"),
+                to_url: r.get("to_url"),
+                kind: r.get("kind"),
+                score: r.get("score"),
+                created_at_utc: r.get("created_at_utc"),
+                snippet: r.get("snippet"),
+                metadata: r.get("metadata"),
+            })
+            .collect();
+
+        Ok(NoteFull {
+            note: NoteMeta {
+                id: note_row.get("id"),
+                collection_id: note_row.get("collection_id"),
+                format: note_row.get("format"),
+                source: note_row.get("source"),
+                created_at_utc: note_row.get("created_at_utc"),
+                updated_at_utc: note_row.get("updated_at_utc"),
+                starred: note_row.get::<Option<bool>, _>("starred").unwrap_or(false),
+                archived: note_row.get::<Option<bool>, _>("archived").unwrap_or(false),
+                last_accessed_at: note_row.get("last_accessed_at"),
+                title: note_row.get("title"),
+                metadata: note_row
+                    .get::<Option<serde_json::Value>, _>("metadata")
+                    .unwrap_or_else(|| serde_json::json!({})),
+                chunk_metadata: note_row.get("chunk_metadata"),
+                document_type_id: note_row.get("document_type_id"),
+            },
+            original: NoteOriginal {
+                content: original_row.get("content"),
+                hash: original_row.get("hash"),
+                user_created_at: original_row.get("user_created_at"),
+                user_last_edited_at: original_row.get("user_last_edited_at"),
+            },
+            revised: NoteRevised {
+                content: revised_row.get("content"),
+                last_revision_id: revised_row.get("last_revision_id"),
+                ai_metadata: revised_row.get("ai_metadata"),
+                ai_generated_at: None,
+                user_last_edited_at: None,
+                is_user_edited: false,
+                generation_count: 1,
+                model: revised_row.get("model"),
+            },
+            tags,
+            links,
+        })
+    }
+
+    /// List notes within an existing transaction.
+    pub async fn list_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: ListNotesRequest,
+    ) -> Result<ListNotesResponse> {
+        let sort_by = req.sort_by.as_deref().unwrap_or("created_at_utc");
+        let sort_order = req.sort_order.as_deref().unwrap_or("desc");
+        let filter = req.filter.as_deref().unwrap_or("all");
+        let limit = req.limit.unwrap_or(50).min(100);
+        let offset = req.offset.unwrap_or(0);
+
+        let filter_clause = build_filter_clause(filter);
+        let order_clause = build_order_clause(sort_by, sort_order);
+        let tag_count = req.tags.as_ref().map(|t| t.len()).unwrap_or(0);
+
+        // Build count query
+        let mut count_query = format!(
+            "SELECT COUNT(*) as count FROM note n WHERE TRUE {} ",
+            filter_clause
+        );
+        let mut param_idx = 1;
+
+        add_tag_filters(&mut count_query, &mut param_idx, tag_count);
+        add_date_filters(
+            &mut count_query,
+            &mut param_idx,
+            req.created_after.is_some(),
+            req.created_before.is_some(),
+            req.updated_after.is_some(),
+            req.updated_before.is_some(),
+        );
+
+        // Execute count query
+        let total: i64 = {
+            let q = sqlx::query_scalar(&count_query);
+            let q = bind_list_request_params!(q, req);
+            q.fetch_one(&mut **tx).await.map_err(Error::Database)?
+        };
+
+        // Build notes query
+        let mut notes_query = format!(
+            r#"
+            SELECT
+                n.id, n.created_at_utc, n.updated_at_utc, n.starred, n.archived,
+                n.title, n.metadata, n.document_type_id,
+                dt.name as document_type_name,
+                no.content as original_content,
+                nrc.content as revised_content,
+                COALESCE(
+                    (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                    ''
+                ) as tags
+            FROM note n
+            JOIN note_original no ON no.note_id = n.id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
+            LEFT JOIN document_type dt ON dt.id = n.document_type_id
+            WHERE TRUE {}
+            "#,
+            filter_clause
+        );
+        param_idx = 1;
+
+        add_tag_filters(&mut notes_query, &mut param_idx, tag_count);
+        add_date_filters(
+            &mut notes_query,
+            &mut param_idx,
+            req.created_after.is_some(),
+            req.created_before.is_some(),
+            req.updated_after.is_some(),
+            req.updated_before.is_some(),
+        );
+
+        notes_query.push_str(&format!(
+            "ORDER BY {} LIMIT ${} OFFSET ${}",
+            order_clause,
+            param_idx,
+            param_idx + 1
+        ));
+
+        // Execute notes query
+        let rows = {
+            let mut q = sqlx::query(&notes_query);
+            q = bind_list_request_params!(q, req);
+            q = q.bind(limit).bind(offset);
+            q.fetch_all(&mut **tx).await.map_err(Error::Database)?
+        };
+
+        let notes: Vec<NoteSummary> = rows.into_iter().map(map_row_to_note_summary).collect();
+
+        Ok(ListNotesResponse { notes, total })
+    }
+
+    /// Soft delete a note within an existing transaction.
+    pub async fn soft_delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query("UPDATE note SET deleted_at = $1, updated_at_utc = $1 WHERE id = $2")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Hard delete a note within an existing transaction.
+    pub async fn hard_delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM note WHERE id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Restore a soft-deleted note within an existing transaction.
+    pub async fn restore_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query("UPDATE note SET deleted_at = NULL, updated_at_utc = $1 WHERE id = $2")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
     }
 }
 
