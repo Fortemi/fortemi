@@ -354,11 +354,11 @@ async fn test_search_concepts_by_query() {
 
     // Create a scheme with concepts
     let scheme_id = create_test_scheme(&db, &unique_id).await;
-    let _concept1 =
+    let concept1 =
         create_test_concept(&db, scheme_id, &format!("Rust Programming {}", unique_id)).await;
-    let _concept2 =
+    let concept2 =
         create_test_concept(&db, scheme_id, &format!("Rust Language {}", unique_id)).await;
-    let _concept3 =
+    let concept3 =
         create_test_concept(&db, scheme_id, &format!("Python Programming {}", unique_id)).await;
 
     // Search for "Rust"
@@ -381,7 +381,10 @@ async fn test_search_concepts_by_query() {
         results.concepts.len()
     );
 
-    // Cleanup
+    // Cleanup - delete concepts before scheme
+    db.skos.delete_concept(concept1).await.expect("cleanup");
+    db.skos.delete_concept(concept2).await.expect("cleanup");
+    db.skos.delete_concept(concept3).await.expect("cleanup");
     db.skos.delete_scheme(scheme_id).await.expect("cleanup");
 }
 
@@ -396,8 +399,8 @@ async fn test_governance_stats() {
 
     // Create a scheme with some concepts
     let scheme_id = create_test_scheme(&db, &unique_id).await;
-    let _concept1 = create_test_concept(&db, scheme_id, "Gov Test Concept 1").await;
-    let _concept2 = create_test_concept(&db, scheme_id, "Gov Test Concept 2").await;
+    let concept1 = create_test_concept(&db, scheme_id, "Gov Test Concept 1").await;
+    let concept2 = create_test_concept(&db, scheme_id, "Gov Test Concept 2").await;
 
     // Get governance stats for the scheme
     let stats = db
@@ -410,7 +413,9 @@ async fn test_governance_stats() {
     assert_eq!(stats.scheme_id, scheme_id);
     assert!(stats.total_concepts >= 2, "Should have at least 2 concepts");
 
-    // Cleanup
+    // Cleanup - delete concepts before scheme
+    db.skos.delete_concept(concept1).await.expect("cleanup");
+    db.skos.delete_concept(concept2).await.expect("cleanup");
     db.skos.delete_scheme(scheme_id).await.expect("cleanup");
 }
 

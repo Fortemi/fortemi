@@ -4109,6 +4109,9 @@ async fn list_note_versions(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Verify the note exists (returns 404 if not)
+    let _ = state.db.notes.fetch(id).await?;
+
     let versions = state.db.versioning.list_versions(id).await?;
 
     Ok(Json(serde_json::json!({
@@ -10858,6 +10861,10 @@ mod tests {
         let router = Router::new()
             .route("/api/v1/notes", post(create_note))
             .route("/api/v1/events", get(sse_events))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                archive_routing_middleware,
+            ))
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
