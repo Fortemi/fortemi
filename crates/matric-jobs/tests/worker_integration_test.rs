@@ -15,6 +15,10 @@
 //! NOTE: These tests use #[tokio::test] with manual pool setup instead of
 //! #[sqlx::test] because migrations contain `CREATE INDEX CONCURRENTLY`
 //! which cannot run inside a transaction block.
+//!
+//! ISOLATION: Each test uses a unique JobType so workers from parallel tests
+//! never compete for the same jobs (claim_next_for_types filters by registered
+//! handler types). See the type assignment table in the source.
 
 use matric_core::{JobRepository, JobStatus, JobType};
 use matric_db::{create_pool, Database};
@@ -53,15 +57,6 @@ async fn create_test_job(
         .queue(note_id, job_type, priority, None)
         .await
         .expect("Failed to create test job")
-}
-
-/// Clean up all pending jobs in the queue.
-/// Used at start of tests that require an empty queue.
-async fn cleanup_all_pending_jobs(pool: &PgPool) {
-    sqlx::query("DELETE FROM job_queue WHERE status = 'pending'::job_status")
-        .execute(pool)
-        .await
-        .expect("Failed to clean up pending jobs");
 }
 
 /// Wait for a job to reach a specific status.
@@ -152,6 +147,22 @@ impl JobHandler for SlowHandler {
 
 // ============================================================================
 // INTEGRATION TESTS - Worker Lifecycle
+//
+// Job type assignments for parallel isolation (each test gets a unique type):
+//   processes_single_job       → ContextUpdate
+//   processes_multiple_jobs    → TitleGeneration
+//   disabled_does_not_process  → CreateEmbeddingSet
+//   broadcasts_events          → RefreshEmbeddingSet
+//   broadcasts_progress_events → BuildSetIndex
+//   retries_failed_job         → ConceptTagging
+//   broadcasts_failed_event    → ReEmbedAll
+//   skips_jobs_without_handler → PurgeNote (job) / GenerateGraphEmbedding (handler)
+//   multiple_handler_types     → EntityExtraction + GenerateFineTuningData + EmbedForSet
+//   concurrent_workers         → Embedding
+//   handles_empty_queue        → GenerateGraphEmbedding
+//   shutdown_gracefully        → GenerateCoarseEmbedding
+//   with_job_payload           → AiRevision
+//   updates_job_result         → Linking
 // ============================================================================
 
 #[tokio::test]
@@ -159,28 +170,23 @@ async fn test_worker_processes_single_job() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job
-    let job_id = create_test_job(&db, JobType::Embedding, None, 10).await;
+    let job_id = create_test_job(&db, JobType::ContextUpdate, None, 10).await;
 
-    // Create and start worker with NoOpHandler
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::ContextUpdate))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Wait for job to complete
     let completed = wait_for_job_status(&db, job_id, JobStatus::Completed, 5).await;
     assert!(completed, "Job should complete within timeout");
 
-    // Verify job was completed
     let job = db.jobs.get(job_id).await.unwrap().unwrap();
     assert_eq!(job.status, JobStatus::Completed);
     assert_eq!(job.progress_percent, 100);
 
-    // Shutdown worker
     handle.shutdown().await.unwrap();
 }
 
@@ -189,21 +195,18 @@ async fn test_worker_processes_multiple_jobs() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create multiple jobs
-    let job1 = create_test_job(&db, JobType::Embedding, None, 10).await;
-    let job2 = create_test_job(&db, JobType::Embedding, None, 5).await;
-    let job3 = create_test_job(&db, JobType::Embedding, None, 15).await;
+    let job1 = create_test_job(&db, JobType::TitleGeneration, None, 10).await;
+    let job2 = create_test_job(&db, JobType::TitleGeneration, None, 5).await;
+    let job3 = create_test_job(&db, JobType::TitleGeneration, None, 15).await;
 
-    // Create and start worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(50))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::TitleGeneration))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Wait for all jobs to complete
     let job1_done = wait_for_job_status(&db, job1, JobStatus::Completed, 10).await;
     let job2_done = wait_for_job_status(&db, job2, JobStatus::Completed, 10).await;
     let job3_done = wait_for_job_status(&db, job3, JobStatus::Completed, 10).await;
@@ -232,13 +235,12 @@ async fn test_worker_disabled_does_not_process_jobs() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Use a unique job type that no other test uses to ensure isolation
-    let job_id = create_test_job(&db, JobType::AiRevision, None, 10).await;
+    let job_id = create_test_job(&db, JobType::CreateEmbeddingSet, None, 10).await;
 
     // Create worker with disabled config
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_enabled(false))
-        .with_handler(NoOpHandler::new(JobType::AiRevision))
+        .with_handler(NoOpHandler::new(JobType::CreateEmbeddingSet))
         .build()
         .await;
 
@@ -269,10 +271,9 @@ async fn test_worker_broadcasts_events() {
     let db = Database::new(pool);
 
     // Create and start worker FIRST, then create the job
-    // This ensures our worker processes the job, not another test's worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::RefreshEmbeddingSet))
         .build()
         .await;
 
@@ -283,7 +284,7 @@ async fn test_worker_broadcasts_events() {
     sleep(Duration::from_millis(50)).await;
 
     // Create a job AFTER worker is running to ensure this worker handles it
-    let job_id = create_test_job(&db, JobType::Embedding, None, 10).await;
+    let job_id = create_test_job(&db, JobType::RefreshEmbeddingSet, None, 10).await;
 
     // Collect events until we see our job complete or timeout
     let mut received_events = Vec::new();
@@ -295,7 +296,6 @@ async fn test_worker_broadcasts_events() {
         tokio::select! {
             event = events.recv() => {
                 if let Ok(event) = event {
-                    // Check if this is our job's completion event
                     if matches!(&event, WorkerEvent::JobCompleted { job_id: id, .. } if *id == job_id) {
                         has_job_completed = true;
                     }
@@ -306,7 +306,6 @@ async fn test_worker_broadcasts_events() {
         }
     }
 
-    // Verify we got WorkerStarted, JobStarted, and JobCompleted events
     let has_worker_started = received_events
         .iter()
         .any(|e| matches!(e, WorkerEvent::WorkerStarted));
@@ -329,13 +328,12 @@ async fn test_worker_broadcasts_progress_events() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job
-    let job_id = create_test_job(&db, JobType::Embedding, None, 10).await;
+    let job_id = create_test_job(&db, JobType::BuildSetIndex, None, 10).await;
 
-    // Create and start worker with NoOpHandler (reports progress)
+    // NoOpHandler reports progress
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::BuildSetIndex))
         .build()
         .await;
 
@@ -389,13 +387,11 @@ async fn test_worker_retries_failed_job() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job
-    let job_id = create_test_job(&db, JobType::Embedding, None, 10).await;
+    let job_id = create_test_job(&db, JobType::ConceptTagging, None, 10).await;
 
     // Create handler that tracks executions and always fails
-    let (handler, executions) = TrackingHandler::new(JobType::Embedding, true);
+    let (handler, executions) = TrackingHandler::new(JobType::ConceptTagging, true);
 
-    // Create and start worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
         .with_handler(handler)
@@ -436,7 +432,7 @@ async fn test_worker_broadcasts_failed_event() {
     // Create a job with max_retries = 0 for faster test
     let job_id = db
         .jobs
-        .queue(None, JobType::Embedding, 10, None)
+        .queue(None, JobType::ReEmbedAll, 10, None)
         .await
         .unwrap();
 
@@ -448,9 +444,8 @@ async fn test_worker_broadcasts_failed_event() {
         .unwrap();
 
     // Create handler that always fails
-    let (handler, _) = TrackingHandler::new(JobType::Embedding, true);
+    let (handler, _) = TrackingHandler::new(JobType::ReEmbedAll, true);
 
-    // Create and start worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
         .with_handler(handler)
@@ -489,34 +484,32 @@ async fn test_worker_broadcasts_failed_event() {
 // ============================================================================
 
 #[tokio::test]
-async fn test_worker_handles_missing_handler() {
+async fn test_worker_skips_jobs_without_handler() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job for JobType::Linking
-    let job_id = create_test_job(&db, JobType::Linking, None, 10).await;
+    // Create a job for a type the worker does NOT handle
+    let job_id = create_test_job(&db, JobType::PurgeNote, None, 10).await;
 
-    // Create worker with only Embedding handler (no Linking handler)
+    // Create worker with a DIFFERENT handler type.
+    // The worker should never claim this job because it filters by registered types.
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::GenerateGraphEmbedding))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Wait for job to fail
-    let failed = wait_for_job_status(&db, job_id, JobStatus::Failed, 5).await;
-    assert!(failed, "Job should fail when no handler is registered");
+    // Let the worker poll a few cycles
+    sleep(Duration::from_millis(500)).await;
 
-    // Verify error message mentions missing handler
+    // Job should remain pending — the worker should not claim a type it can't handle
     let job = db.jobs.get(job_id).await.unwrap().unwrap();
-    assert_eq!(job.status, JobStatus::Failed);
-    assert!(
-        job.error_message
-            .unwrap()
-            .contains("No handler for job type"),
-        "Error should mention missing handler"
+    assert_eq!(
+        job.status,
+        JobStatus::Pending,
+        "Job should remain pending when no worker can handle its type"
     );
 
     handle.shutdown().await.unwrap();
@@ -528,22 +521,21 @@ async fn test_worker_with_multiple_handler_types() {
     let db = Database::new(pool);
 
     // Create jobs of different types
-    let job1 = create_test_job(&db, JobType::Embedding, None, 10).await;
-    let job2 = create_test_job(&db, JobType::Linking, None, 10).await;
-    let job3 = create_test_job(&db, JobType::AiRevision, None, 10).await;
+    let job1 = create_test_job(&db, JobType::EntityExtraction, None, 10).await;
+    let job2 = create_test_job(&db, JobType::GenerateFineTuningData, None, 10).await;
+    let job3 = create_test_job(&db, JobType::EmbedForSet, None, 10).await;
 
-    // Create worker with handlers for all types
+    // Create worker with handlers for all three types
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(50))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
-        .with_handler(NoOpHandler::new(JobType::Linking))
-        .with_handler(NoOpHandler::new(JobType::AiRevision))
+        .with_handler(NoOpHandler::new(JobType::EntityExtraction))
+        .with_handler(NoOpHandler::new(JobType::GenerateFineTuningData))
+        .with_handler(NoOpHandler::new(JobType::EmbedForSet))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Wait for all jobs to complete
     let job1_done = wait_for_job_status(&db, job1, JobStatus::Completed, 10).await;
     let job2_done = wait_for_job_status(&db, job2, JobStatus::Completed, 10).await;
     let job3_done = wait_for_job_status(&db, job3, JobStatus::Completed, 10).await;
@@ -636,28 +628,23 @@ async fn test_concurrent_workers_claim_different_jobs() {
 #[tokio::test]
 async fn test_worker_handles_empty_queue() {
     let pool = setup_test_pool().await;
-
-    // Clean up any leftover pending jobs from previous tests
-    cleanup_all_pending_jobs(&pool).await;
-
     let db = Database::new(pool);
 
-    // Start worker with empty queue
+    // Start worker — GenerateGraphEmbedding is unique to this test so the
+    // queue is effectively empty for this worker even if other tests have
+    // pending jobs of their own types.
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::GenerateGraphEmbedding))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Let it run for a bit
+    // Let it run for a bit — should not panic or error
     sleep(Duration::from_millis(500)).await;
 
-    // Verify pending count is still 0
-    let pending = db.jobs.pending_count().await.unwrap();
-    assert_eq!(pending, 0, "Queue should remain empty");
-
+    // Worker should still be alive (no panic). Shutdown cleanly.
     handle.shutdown().await.unwrap();
 }
 
@@ -667,11 +654,11 @@ async fn test_worker_shutdown_gracefully() {
     let db = Database::new(pool);
 
     // Create a slow job
-    create_test_job(&db, JobType::Embedding, None, 10).await;
+    create_test_job(&db, JobType::GenerateCoarseEmbedding, None, 10).await;
 
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(50))
-        .with_handler(SlowHandler::new(JobType::Embedding, 2000))
+        .with_handler(SlowHandler::new(JobType::GenerateCoarseEmbedding, 2000))
         .build()
         .await;
 
@@ -707,7 +694,6 @@ async fn test_worker_with_job_payload() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job with payload
     let payload = json!({
         "model": "test-model",
         "embedding_set_id": "test-set-123"
@@ -715,24 +701,21 @@ async fn test_worker_with_job_payload() {
 
     let job_id = db
         .jobs
-        .queue(None, JobType::Embedding, 10, Some(payload.clone()))
+        .queue(None, JobType::AiRevision, 10, Some(payload.clone()))
         .await
         .unwrap();
 
-    // Create worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
-        .with_handler(NoOpHandler::new(JobType::Embedding))
+        .with_handler(NoOpHandler::new(JobType::AiRevision))
         .build()
         .await;
 
     let handle = worker.start();
 
-    // Wait for job to complete
     let completed = wait_for_job_status(&db, job_id, JobStatus::Completed, 5).await;
     assert!(completed, "Job with payload should complete");
 
-    // Verify payload is preserved
     let job = db.jobs.get(job_id).await.unwrap().unwrap();
     assert_eq!(job.payload, Some(payload));
 
@@ -744,13 +727,11 @@ async fn test_worker_updates_job_result() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    // Create a job
-    let job_id = create_test_job(&db, JobType::Embedding, None, 10).await;
+    let job_id = create_test_job(&db, JobType::Linking, None, 10).await;
 
     // Create handler that returns result
-    let (handler, _) = TrackingHandler::new(JobType::Embedding, false);
+    let (handler, _) = TrackingHandler::new(JobType::Linking, false);
 
-    // Create worker
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
         .with_handler(handler)
@@ -759,11 +740,9 @@ async fn test_worker_updates_job_result() {
 
     let handle = worker.start();
 
-    // Wait for job to complete
     let completed = wait_for_job_status(&db, job_id, JobStatus::Completed, 5).await;
     assert!(completed, "Job should complete");
 
-    // Verify result is stored
     let job = db.jobs.get(job_id).await.unwrap().unwrap();
     assert!(job.result.is_some(), "Job result should be stored");
     assert_eq!(job.result.unwrap()["result"], "ok");
