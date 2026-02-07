@@ -686,31 +686,32 @@ Self-contained archives with notes, embeddings, links, and metadata.
 
 Upload and manage files attached to notes with full metadata tracking.
 
+> **File-based I/O:** All binary file operations use filesystem paths instead of base64 encoding. The MCP server reads/writes files directly on disk — binary data never passes through the LLM context window. For programmatic access outside MCP, use the [REST API](#rest-api-for-file-operations) directly.
+
 | Tool | Description |
 |------|-------------|
-| `upload_attachment` | Upload file to note with automatic metadata extraction |
+| `upload_attachment` | Upload file from disk to note with automatic metadata extraction |
 | `list_attachments` | List all attachments for a note |
 | `get_attachment` | Get attachment metadata |
-| `download_attachment` | Download attachment binary content |
+| `download_attachment` | Download attachment to disk |
 | `delete_attachment` | Remove attachment permanently |
 
 #### `upload_attachment`
 
-Upload a file to an existing note. Files are stored with content hashing and automatic EXIF extraction for images.
+Upload a file from disk to an existing note. The MCP server reads the file directly from the filesystem — binary data never passes through the LLM context window.
 
 **Parameters:**
 - `note_id` (required) - UUID of the note to attach the file to
-- `filename` (required) - Original filename with extension
-- `data` (required) - Base64-encoded file content
-- `content_type` (optional) - MIME type (e.g., "image/jpeg", "application/pdf")
+- `file_path` (required) - Absolute path to the file on disk
+- `content_type` (required) - MIME type (e.g., "image/jpeg", "application/pdf")
+- `filename` (optional) - Override filename (defaults to basename of file_path)
 
 **Example:**
 
 ```javascript
 upload_attachment({
   note_id: "550e8400-e29b-41d4-a716-446655440000",
-  filename: "vacation-photo.jpg",
-  data: "/9j/4AAQSkZJRg...",
+  file_path: "/home/user/photos/vacation-photo.jpg",
   content_type: "image/jpeg"
 })
 ```
@@ -767,21 +768,25 @@ get_attachment({
 
 #### `download_attachment`
 
-Download the binary content of an attachment as base64.
+Download an attachment to disk. The MCP server saves the file directly to the filesystem.
 
 **Parameters:**
-- `attachment_id` (required) - UUID of the attachment
+- `id` (required) - UUID of the attachment
+- `output_dir` (optional) - Directory to save the file (defaults to system temp dir)
 
-**Returns:** Object with `content_base64` (file content) and `content_type` (MIME type).
+**Returns:** Object with `saved_to` (file path), `filename`, `size_bytes`, and `content_type`.
 
 **Example:**
 
 ```javascript
 download_attachment({
-  attachment_id: "660e8400-e29b-41d4-a716-446655440001"
+  id: "660e8400-e29b-41d4-a716-446655440001",
+  output_dir: "/home/user/downloads"
 })
 // Returns: {
-//   content_base64: "/9j/4AAQSkZJRg...",
+//   saved_to: "/home/user/downloads/vacation-photo.jpg",
+//   filename: "vacation-photo.jpg",
+//   size_bytes: 2048576,
 //   content_type: "image/jpeg"
 // }
 ```
@@ -1354,11 +1359,10 @@ const note = await create_note({
   revision_mode: "light"
 })
 
-// Upload architecture diagram
+// Upload architecture diagram from disk
 const attachment = await upload_attachment({
   note_id: note.id,
-  filename: "architecture.png",
-  data: readFileAsBase64("architecture.png"),
+  file_path: "/home/user/docs/architecture.png",
   content_type: "image/png"
 })
 
@@ -1396,6 +1400,62 @@ console.log(`Uploaded: ${metadata.filename} (${metadata.size} bytes)`)
 - Use pagination (`limit`, `offset`)
 - Check queue stats - many pending jobs slow the system
 - Consider batch operations for multiple items
+
+---
+
+## REST API for File Operations
+
+For programmatic file operations outside MCP (scripts, CI/CD, direct uploads), use the REST API:
+
+### Upload Attachment
+
+```bash
+# Base64 JSON body
+curl -X POST https://your-domain.com/api/v1/notes/{note_id}/attachments \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "filename": "photo.jpg",
+    "content_type": "image/jpeg",
+    "data": "'$(base64 -w0 photo.jpg)'"
+  }'
+```
+
+### Download Attachment
+
+```bash
+curl -o photo.jpg https://your-domain.com/api/v1/attachments/{id}/download \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Knowledge Shard Export/Import
+
+```bash
+# Export shard to file
+curl -o shard.tar.gz https://your-domain.com/api/v1/backup/knowledge-shard \
+  -H "Accept: application/gzip" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Import shard from file
+curl -X POST https://your-domain.com/api/v1/backup/knowledge-shard/import \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"shard_base64": "'$(base64 -w0 shard.tar.gz)'", "on_conflict": "skip"}'
+```
+
+### Knowledge Archive Download/Upload
+
+```bash
+# Download archive
+curl -o backup.archive \
+  https://your-domain.com/api/v1/backup/knowledge-archive/{filename} \
+  -H "Authorization: Bearer $TOKEN"
+
+# Upload archive
+curl -X POST https://your-domain.com/api/v1/backup/knowledge-archive \
+  -F "file=@backup.archive" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 

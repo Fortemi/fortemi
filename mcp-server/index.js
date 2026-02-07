@@ -662,33 +662,43 @@ function createMcpServer() {
             throw new Error(`Shard creation failed: ${shardResponse.status}`);
           }
 
-          // Get shard as binary and convert to base64
-          const arrayBuffer = await shardResponse.arrayBuffer();
-          const base64Data = Buffer.from(arrayBuffer).toString('base64');
+          const shardArrayBuffer = await shardResponse.arrayBuffer();
 
-          // Get content-disposition for filename
-          const contentDisposition = shardResponse.headers.get('content-disposition');
-          const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
-          const filename = filenameMatch ? filenameMatch[1] : `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
+          const shardContentDisposition = shardResponse.headers.get('content-disposition');
+          const shardFilenameMatch = shardContentDisposition?.match(/filename="([^"]+)"/);
+          const shardFilename = shardFilenameMatch ? shardFilenameMatch[1] : `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
+
+          const shardOutputDir = args.output_dir || os.tmpdir();
+          if (!fs.existsSync(shardOutputDir)) {
+            fs.mkdirSync(shardOutputDir, { recursive: true });
+          }
+          const shardOutputPath = path.join(shardOutputDir, shardFilename);
+          fs.writeFileSync(shardOutputPath, Buffer.from(shardArrayBuffer));
 
           result = {
             success: true,
-            filename,
-            size_bytes: arrayBuffer.byteLength,
-            size_human: arrayBuffer.byteLength > 1024*1024
-              ? `${(arrayBuffer.byteLength / (1024*1024)).toFixed(2)} MB`
-              : `${(arrayBuffer.byteLength / 1024).toFixed(2)} KB`,
+            saved_to: shardOutputPath,
+            filename: shardFilename,
+            size_bytes: shardArrayBuffer.byteLength,
+            size_human: shardArrayBuffer.byteLength > 1024*1024
+              ? `${(shardArrayBuffer.byteLength / (1024*1024)).toFixed(2)} MB`
+              : `${(shardArrayBuffer.byteLength / 1024).toFixed(2)} KB`,
             content_type: "application/gzip",
-            base64_data: base64Data,
-            message: `Archive created: ${filename} (${arrayBuffer.byteLength} bytes). Use base64_data to save the file.`,
+            message: `Knowledge shard saved to: ${shardOutputPath}`,
           };
           break;
         }
 
         case "knowledge_shard_import": {
-          // Import a full knowledge shard from tar.gz
+          const shardPath = args.file_path;
+          if (!fs.existsSync(shardPath)) {
+            throw new Error(`File not found: ${shardPath}`);
+          }
+          const shardData = fs.readFileSync(shardPath);
+          const shardBase64 = shardData.toString('base64');
+
           const importBody = {
-            shard_base64: args.shard_base64,
+            shard_base64: shardBase64,
             include: args.include,
             dry_run: args.dry_run || false,
             on_conflict: args.on_conflict || "skip",
@@ -721,8 +731,7 @@ function createMcpServer() {
         }
 
         case "knowledge_archive_download": {
-          // Download backup + metadata as bundled .archive file
-          const dlHeaders = { "Content-Type": "application/json" };
+          const dlHeaders = {};
           const dlToken = tokenStorage.getStore()?.token;
           if (dlToken) {
             dlHeaders["Authorization"] = `Bearer ${dlToken}`;
@@ -733,31 +742,40 @@ function createMcpServer() {
           if (!response.ok) {
             throw new Error(`Download failed: ${response.status}`);
           }
-          const arrayBuffer = await response.arrayBuffer();
-          const base64Data = Buffer.from(arrayBuffer).toString('base64');
-          const contentDisposition = response.headers.get('content-disposition');
-          const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
-          const archiveFilename = filenameMatch ? filenameMatch[1] : `${args.filename}.archive`;
+          const archiveArrayBuffer = await response.arrayBuffer();
+          const archiveContentDisposition = response.headers.get('content-disposition');
+          const archiveFilenameMatch = archiveContentDisposition?.match(/filename="([^"]+)"/);
+          const archiveFilename = archiveFilenameMatch ? archiveFilenameMatch[1] : `${args.filename}.archive`;
+
+          const archiveOutputDir = args.output_dir || os.tmpdir();
+          if (!fs.existsSync(archiveOutputDir)) {
+            fs.mkdirSync(archiveOutputDir, { recursive: true });
+          }
+          const archiveOutputPath = path.join(archiveOutputDir, archiveFilename);
+          fs.writeFileSync(archiveOutputPath, Buffer.from(archiveArrayBuffer));
+
           result = {
             success: true,
+            saved_to: archiveOutputPath,
             filename: archiveFilename,
-            size_bytes: arrayBuffer.byteLength,
-            base64_data: base64Data,
-            message: `Knowledge archive downloaded: ${archiveFilename}. Contains backup file + metadata.json.`,
+            size_bytes: archiveArrayBuffer.byteLength,
+            message: `Knowledge archive saved to: ${archiveOutputPath}`,
           };
           break;
         }
 
         case "knowledge_archive_upload": {
-          // Upload a .archive file (backup + metadata bundled)
-          // This requires FormData which is complex in Node.js, so we use base64
-          const boundary = '----KnowledgeArchiveBoundary' + Date.now();
-          const archiveBuffer = Buffer.from(args.archive_base64, 'base64');
-          const filename = args.filename || 'upload.archive';
+          const archivePath = args.file_path;
+          if (!fs.existsSync(archivePath)) {
+            throw new Error(`File not found: ${archivePath}`);
+          }
+          const archiveBuffer = fs.readFileSync(archivePath);
+          const uploadFilename = args.filename || path.basename(archivePath);
 
+          const boundary = '----KnowledgeArchiveBoundary' + Date.now();
           const body = Buffer.concat([
             Buffer.from(`--${boundary}\r\n`),
-            Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`),
+            Buffer.from(`Content-Disposition: form-data; name="file"; filename="${uploadFilename}"\r\n`),
             Buffer.from('Content-Type: application/x-tar\r\n\r\n'),
             archiveBuffer,
             Buffer.from(`\r\n--${boundary}--\r\n`),
@@ -1811,10 +1829,17 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
+          const filePath = args.file_path;
+          if (!fs.existsSync(filePath)) {
+            throw new Error(`File not found: ${filePath}`);
+          }
+          const fileData = fs.readFileSync(filePath);
+          const base64Data = fileData.toString('base64');
+          const uploadFilename = args.filename || path.basename(filePath);
           const uploadBody = {
-            filename: args.filename,
+            filename: uploadFilename,
             content_type: args.content_type,
-            data: args.data,
+            data: base64Data,
           };
           if (args.document_type_id) {
             uploadBody.document_type_id = args.document_type_id;
@@ -1831,9 +1856,41 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
           break;
 
-        case "download_attachment":
-          result = await apiRequest("GET", `/api/v1/attachments/${args.id}/download`);
+        case "download_attachment": {
+          // First get attachment metadata for filename
+          const meta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
+          
+          // Download the binary content
+          const dlToken = tokenStorage.getStore()?.token;
+          const dlHeaders = {};
+          if (dlToken) {
+            dlHeaders["Authorization"] = `Bearer ${dlToken}`;
+          } else if (API_KEY) {
+            dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
+          }
+          const dlResponse = await fetch(`${API_BASE}/api/v1/attachments/${args.id}/download`, { headers: dlHeaders });
+          if (!dlResponse.ok) {
+            throw new Error(`Download failed: ${dlResponse.status}`);
+          }
+          
+          const arrayBuffer = await dlResponse.arrayBuffer();
+          const outputDir = args.output_dir || os.tmpdir();
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
+          const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
+          const outputPath = path.join(outputDir, outputFilename);
+          fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
+          
+          result = {
+            success: true,
+            saved_to: outputPath,
+            filename: outputFilename,
+            size_bytes: arrayBuffer.byteLength,
+            content_type: meta?.content_type || dlResponse.headers.get('content-type'),
+          };
           break;
+        }
 
         case "delete_attachment":
           await apiRequest("DELETE", `/api/v1/attachments/${args.id}`);
@@ -3271,16 +3328,16 @@ TIP: Use dry_run=true first to validate.`,
   },
   {
     name: "knowledge_shard",
-    description: `Create knowledge shard with notes, links, collections, tags, templates. Optionally include embeddings.
+    description: `Create knowledge shard and save to disk as .tar.gz file.
 
-RETURNS: {filename, size_bytes, size_human, base64_data} - Decode base64_data and save as .tar.gz
+Saves to output_dir (defaults to system temp directory). Returns the file path.
 
 COMPONENTS: notes, collections, tags, templates, links, embedding_sets, embeddings (large!), or "all"
 DEFAULT: notes,collections,tags,templates,links,embedding_sets (no embeddings)
 
 USE WHEN: Need knowledge shard with semantic links. Embeddings regenerate on import.
 USE INSTEAD: database_snapshot for full pg_dump with everything, export_all_notes for simple JSON.
-RESTORE: knowledge_shard_import with the base64_data`,
+RESTORE: knowledge_shard_import with the saved file path`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3288,6 +3345,7 @@ RESTORE: knowledge_shard_import with the base64_data`,
           type: "string",
           description: "Components to include: comma-separated list (notes,collections,tags,templates,links,embedding_sets,embeddings) or 'all'. Default: notes,collections,tags,templates,links,embedding_sets",
         },
+        output_dir: { type: "string", description: "Directory to save the shard file (default: system temp dir)" },
       },
     },
     annotations: {
@@ -3296,24 +3354,24 @@ RESTORE: knowledge_shard_import with the base64_data`,
   },
   {
     name: "knowledge_shard_import",
-    description: `Import knowledge shard from knowledge_shard.
+    description: `Import knowledge shard from a .tar.gz file on disk.
 
 RETURNS: {status, manifest, imported{}, skipped{}, errors[]}
 CONFLICTS: "skip" | "replace" | "merge"
 
-USE WHEN: Restore from knowledge shard created by knowledge_shard.
+USE WHEN: Restore from knowledge shard created by knowledge_shard tool.
 USE INSTEAD: backup_import for JSON, database_restore for pg_dump.
 TIP: dry_run=true first, skip_embedding_regen=true if shard has embeddings.`,
     inputSchema: {
       type: "object",
       properties: {
-        shard_base64: { type: "string", description: "Base64 shard data from knowledge_shard.base64_data" },
+        file_path: { type: "string", description: "Path to the .tar.gz shard file on disk (from knowledge_shard tool)" },
         include: { type: "string", description: "Components to import (default: all)" },
         dry_run: { type: "boolean", default: false, description: "Preview import without writing data (default: false)" },
         on_conflict: { type: "string", enum: ["skip", "replace", "merge"], default: "skip", description: "Conflict resolution: skip (keep existing), replace (overwrite), merge (add new only)" },
         skip_embedding_regen: { type: "boolean", default: false, description: "Skip embedding regeneration if shard includes embeddings (default: false)" },
       },
-      required: ["shard_base64"],
+      required: ["file_path"],
     },
     annotations: {
       destructiveHint: true,
@@ -3378,11 +3436,11 @@ WARNING: skip_snapshot=true is dangerous, always keep prerestore backup.`,
   // ============================================================================
   {
     name: "knowledge_archive_download",
-    description: `Download backup + metadata bundled as .archive file (portable tar archive).
+    description: `Download backup + metadata bundled as .archive file and save to disk.
 
-RETURNS: {success, filename, size_bytes, base64_data}
+Saves to output_dir (defaults to system temp directory). Returns the file path.
+
 FORMAT: Tar containing backup file (.sql.gz/.tar.gz) + metadata.json
-EXTENSION: .archive (knowledge archive)
 
 USE WHEN: Export backup for transfer to another system, offline storage, sharing.
 ADVANTAGE: Metadata travels WITH backup - never lose title/description/context.
@@ -3391,6 +3449,7 @@ WORKFLOW: list_backups → knowledge_archive_download → transfer → knowledge
       type: "object",
       properties: {
         filename: { type: "string", description: "Backup filename from list_backups (e.g., snapshot_database_*.sql.gz)" },
+        output_dir: { type: "string", description: "Directory to save the archive file (default: system temp dir)" },
       },
       required: ["filename"],
     },
@@ -3400,10 +3459,9 @@ WORKFLOW: list_backups → knowledge_archive_download → transfer → knowledge
   },
   {
     name: "knowledge_archive_upload",
-    description: `Upload .archive file (backup + metadata bundled). Extracts both to backup directory.
+    description: `Upload .archive file from disk. Extracts backup + metadata to backup directory.
 
 RETURNS: {success, filename, path, size_bytes, size_human, metadata}
-EXTRACTS: Backup file → backup directory, metadata.json → .meta.json sidecar
 
 USE WHEN: Restore backup from another system, import transferred archive.
 WORKFLOW: knowledge_archive_download (source) → transfer → knowledge_archive_upload (target) → database_restore
@@ -3411,10 +3469,10 @@ TIP: Metadata is automatically extracted and preserved.`,
     inputSchema: {
       type: "object",
       properties: {
-        archive_base64: { type: "string", description: "Base64-encoded .archive file" },
+        file_path: { type: "string", description: "Path to the .archive file on disk" },
         filename: { type: "string", description: "Original filename (optional, for logging)" },
       },
-      required: ["archive_base64"],
+      required: ["file_path"],
     },
     annotations: {
       destructiveHint: false,
@@ -5770,24 +5828,24 @@ Existing embeddings using this config are not affected but won't be regenerated 
   // ============================================================================
   {
     name: "upload_attachment",
-    description: `Upload a file attachment to a note.
+    description: `Upload a file attachment to a note from a local file path.
 
 Files are stored with content-hash deduplication using filesystem storage.
 
 The extraction strategy (how to extract content) is automatically determined from the MIME type.
 Document type (semantic classification) can be set explicitly or is classified asynchronously after extraction.
 
-The data parameter must be base64-encoded file content.`,
+Reads the file from disk - binary data never passes through the LLM context window.`,
     inputSchema: {
       type: "object",
       properties: {
         note_id: { type: "string", format: "uuid", description: "Note UUID to attach the file to" },
-        filename: { type: "string", description: "Filename (e.g., 'photo.jpg', 'document.pdf')" },
+        file_path: { type: "string", description: "Absolute path to the file on disk to upload" },
         content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
-        data: { type: "string", description: "Base64-encoded file content" },
+        filename: { type: "string", description: "Optional filename override (defaults to basename of file_path)" },
         document_type_id: { type: "string", format: "uuid", description: "Optional: explicit document type UUID override (skips auto-classification)" },
       },
-      required: ["note_id", "filename", "content_type", "data"],
+      required: ["note_id", "file_path", "content_type"],
     },
     annotations: { destructiveHint: false },
   },
@@ -5821,13 +5879,16 @@ Returns full attachment details including extracted metadata (EXIF, etc.) if ava
   },
   {
     name: "download_attachment",
-    description: `Download a file attachment.
+    description: `Download a file attachment to disk.
 
-Returns the file content as base64-encoded data along with content type and filename.`,
+Saves the file to output_dir (defaults to system temp directory). Returns the path to the saved file.
+
+Binary data is written directly to disk - never passes through the LLM context window.`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", format: "uuid", description: "Attachment UUID" },
+        output_dir: { type: "string", description: "Directory to save the file (default: system temp dir)" },
       },
       required: ["id"],
     },
@@ -6561,7 +6622,7 @@ knowledge_shard({
 
 // Import shard
 knowledge_shard_import({
-  shard_base64: data,
+  file_path: "/path/to/shard.tar.gz",
   on_conflict: "skip",  // skip, replace, or merge
   dry_run: true  // Preview first
 })
@@ -6646,7 +6707,7 @@ Swap entire knowledge contexts:
 backup = knowledge_shard({ include: ["notes", "embeddings", "links"] })
 
 // Load different context
-knowledge_shard_import({ shard_base64: other_data, on_conflict: "replace" })
+knowledge_shard_import({ file_path: "/path/to/other.tar.gz", on_conflict: "replace" })
 \`\`\`
 
 ## Pattern 3: Research vs Production
