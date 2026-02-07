@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostGIS for spatial queries (prov:atLocation)
     postgresql-16-postgis-3 \
     postgresql-16-postgis-3-scripts \
+    # PDF text extraction for PdfTextAdapter tests
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Auto-create extensions on database initialization.

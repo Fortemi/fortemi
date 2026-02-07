@@ -50,6 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     curl \
     gnupg \
+    # PDF text extraction (pdftotext, pdfinfo)
+    poppler-utils \
     # PostGIS for spatial/geographic queries (W3C PROV prov:atLocation)
     postgresql-16-postgis-3 \
     postgresql-16-postgis-3-scripts \

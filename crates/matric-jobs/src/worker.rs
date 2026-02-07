@@ -245,8 +245,23 @@ impl JobWorker {
                     });
                 });
 
-                // Execute the handler
-                handler.execute(ctx).await
+                // Execute the handler with timeout
+                let job_timeout = Duration::from_secs(matric_core::defaults::JOB_TIMEOUT_SECS);
+                match tokio::time::timeout(job_timeout, handler.execute(ctx)).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        warn!(
+                            ?job_id,
+                            ?job_type,
+                            "Job exceeded timeout of {}s",
+                            matric_core::defaults::JOB_TIMEOUT_SECS
+                        );
+                        JobResult::Failed(format!(
+                            "Job exceeded timeout of {}s",
+                            matric_core::defaults::JOB_TIMEOUT_SECS
+                        ))
+                    }
+                }
             }
             None => {
                 warn!(?job_type, "No handler registered for job type");

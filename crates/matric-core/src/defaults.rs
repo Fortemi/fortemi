@@ -131,6 +131,18 @@ pub const JOB_POLL_INTERVAL_MS: u64 = 500;
 /// Default maximum concurrent jobs per worker.
 pub const JOB_MAX_CONCURRENT: usize = 4;
 
+/// Default job execution timeout in seconds (5 minutes).
+pub const JOB_TIMEOUT_SECS: u64 = 300;
+
+/// Page threshold for batch PDF extraction.
+pub const LARGE_PDF_PAGE_THRESHOLD: usize = 100;
+
+/// Pages per batch for large PDF extraction.
+pub const PDF_BATCH_PAGES: usize = 50;
+
+/// Per-command timeout for external extraction tools (seconds).
+pub const EXTRACTION_CMD_TIMEOUT_SECS: u64 = 60;
+
 // =============================================================================
 // SEARCH
 // =============================================================================

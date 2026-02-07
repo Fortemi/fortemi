@@ -30,12 +30,15 @@ thiserror.workspace = true
 anyhow.workspace = true
 
 # Async
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 async-trait.workspace = true
 futures.workspace = true
 
 # Logging
 tracing.workspace = true
+
+# File handling
+tempfile = "3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

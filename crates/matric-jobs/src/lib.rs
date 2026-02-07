@@ -50,7 +50,7 @@ pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
 
 // Re-export extraction types
-pub use adapters::{StructuredExtractAdapter, TextNativeAdapter};
+pub use adapters::{PdfTextAdapter, StructuredExtractAdapter, TextNativeAdapter};
 pub use extraction::ExtractionRegistry;
 
 /// Default maximum retries for failed jobs.

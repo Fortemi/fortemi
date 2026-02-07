@@ -140,7 +140,10 @@ async fn queue_nlp_pipeline(
 }
 use matric_api::services::TagResolver;
 use matric_inference::OllamaBackend;
-use matric_jobs::{JobWorker, WorkerConfig, WorkerEvent};
+use matric_jobs::{
+    ExtractionRegistry, JobWorker, PdfTextAdapter, StructuredExtractAdapter, TextNativeAdapter,
+    WorkerConfig, WorkerEvent,
+};
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
 use handlers::{
@@ -500,7 +503,22 @@ async fn main() -> anyhow::Result<()> {
 
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
-        let worker = JobWorker::new(db.clone(), WorkerConfig::default(), None);
+
+        // Build extraction adapter registry
+        let mut extraction_registry = ExtractionRegistry::new();
+        extraction_registry.register(Arc::new(TextNativeAdapter));
+        extraction_registry.register(Arc::new(StructuredExtractAdapter));
+        extraction_registry.register(Arc::new(PdfTextAdapter));
+        info!(
+            "Extraction adapters: {:?}",
+            extraction_registry.available_strategies()
+        );
+
+        let worker = JobWorker::new(
+            db.clone(),
+            WorkerConfig::default(),
+            Some(extraction_registry),
+        );
 
         // Register handlers - create separate backend instances
         worker
