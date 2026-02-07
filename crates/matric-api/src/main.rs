@@ -34,7 +34,7 @@ use tower_http::{
     request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     trace::TraceLayer,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
@@ -505,8 +505,17 @@ async fn main() -> anyhow::Result<()> {
                 file_storage_path, e
             );
         });
+    let backend = FilesystemBackend::new(&file_storage_path);
+    // Validate storage works before accepting uploads (issue #150)
+    match backend.validate().await {
+        Ok(()) => info!("File storage validated at {}", file_storage_path),
+        Err(e) => error!(
+            "File storage validation FAILED at {}: {}",
+            file_storage_path, e
+        ),
+    }
     let db = db.with_file_storage(
-        FilesystemBackend::new(&file_storage_path),
+        backend,
         matric_core::defaults::FILE_INLINE_THRESHOLD as i64, // 1MB inline threshold
     );
     info!("File storage initialized at {}", file_storage_path);

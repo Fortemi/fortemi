@@ -124,6 +124,8 @@ services:
     volumes:
       # PostgreSQL data persistence
       - matric-pgdata:/var/lib/postgresql/data
+      # File storage (attachments, blobs)
+      - matric-files:/var/lib/matric/files
       # Backup directory
       - matric-backups:/var/backups/matric-memory
     restart: unless-stopped
@@ -139,6 +141,8 @@ services:
 
 volumes:
   matric-pgdata:
+    driver: local
+  matric-files:
     driver: local
   matric-backups:
     driver: local

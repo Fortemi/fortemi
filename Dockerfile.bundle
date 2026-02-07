@@ -177,8 +177,8 @@ EXPOSE 3000 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
-# Data volume for PostgreSQL persistence
-VOLUME ["/var/lib/postgresql/data"]
+# Data volumes for persistence
+VOLUME ["/var/lib/postgresql/data", "/var/lib/matric/files"]
 
 # Use custom entrypoint that starts PostgreSQL, runs migrations, then starts API + MCP
 ENTRYPOINT ["/app/entrypoint.sh"]

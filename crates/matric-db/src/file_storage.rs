@@ -31,6 +31,7 @@ use sqlx::{PgPool, Row};
 use std::path::PathBuf;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 /// Storage backend trait for different storage implementations.
@@ -70,26 +71,75 @@ impl FilesystemBackend {
     fn full_path(&self, path: &str) -> PathBuf {
         self.base_path.join(path)
     }
+
+    /// Validate that the storage backend can write, read, and delete files.
+    ///
+    /// Performs a full round-trip test at startup to catch filesystem issues
+    /// (overlayfs quirks, permission errors, missing directories) early.
+    pub async fn validate(&self) -> std::result::Result<(), String> {
+        let test_dir = self.base_path.join("blobs/.health-check");
+        let test_file = test_dir.join("test.bin");
+
+        // Step 1: Create directory
+        fs::create_dir_all(&test_dir)
+            .await
+            .map_err(|e| format!("create_dir_all({:?}): {}", test_dir, e))?;
+
+        // Step 2: Write file
+        let data = b"storage-health-check";
+        fs::write(&test_file, data)
+            .await
+            .map_err(|e| format!("write({:?}): {}", test_file, e))?;
+
+        // Step 3: Read file
+        let read_data = fs::read(&test_file)
+            .await
+            .map_err(|e| format!("read({:?}): {}", test_file, e))?;
+        if read_data != data {
+            return Err("read-back mismatch".to_string());
+        }
+
+        // Step 4: Delete file and directory
+        fs::remove_file(&test_file)
+            .await
+            .map_err(|e| format!("remove_file({:?}): {}", test_file, e))?;
+        let _ = fs::remove_dir(&test_dir).await; // Best-effort cleanup
+
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl StorageBackend for FilesystemBackend {
     async fn write(&self, path: &str, data: &[u8]) -> Result<()> {
         let full_path = self.full_path(path);
+        debug!(storage_path = %path, full_path = %full_path.display(), size = data.len(), "file_storage: write");
 
         // Create parent directories
         if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).await?;
+            fs::create_dir_all(parent).await.map_err(|e| {
+                warn!(parent = %parent.display(), error = %e, "file_storage: create_dir_all failed");
+                e
+            })?;
         }
 
         // Atomic write: temp file + rename
         let temp_path = full_path.with_extension("tmp");
-        let mut file = fs::File::create(&temp_path).await?;
-        file.write_all(data).await?;
+        let mut file = fs::File::create(&temp_path).await.map_err(|e| {
+            warn!(temp_path = %temp_path.display(), error = %e, "file_storage: File::create failed");
+            e
+        })?;
+        file.write_all(data).await.map_err(|e| {
+            warn!(error = %e, "file_storage: write_all failed");
+            e
+        })?;
         file.sync_all().await?;
         drop(file);
 
-        fs::rename(&temp_path, &full_path).await?;
+        fs::rename(&temp_path, &full_path).await.map_err(|e| {
+            warn!(from = %temp_path.display(), to = %full_path.display(), error = %e, "file_storage: rename failed");
+            e
+        })?;
 
         // Set permissions to 0644 (rw-r--r--, no execute)
         #[cfg(unix)]
