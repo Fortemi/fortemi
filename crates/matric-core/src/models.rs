@@ -2342,6 +2342,12 @@ pub enum AuthPrincipal {
 
 impl AuthPrincipal {
     /// Check if the principal has the required scope.
+    ///
+    /// Scope hierarchy: admin > write > read > mcp
+    /// - `admin`: all operations
+    /// - `write`: create, update, delete + read
+    /// - `read`: list, get, search
+    /// - `mcp`: MCP-specific operations + read + write
     pub fn has_scope(&self, required: &str) -> bool {
         let scope = match self {
             AuthPrincipal::OAuthClient { scope, .. } => scope,
@@ -2349,17 +2355,37 @@ impl AuthPrincipal {
             AuthPrincipal::Anonymous => return false,
         };
 
-        // Admin has all permissions
-        if scope.contains("admin") {
-            return true;
+        // Check each granted scope against the hierarchy
+        for granted in scope.split_whitespace() {
+            match granted {
+                "admin" => return true, // Admin has all permissions
+                "mcp" => {
+                    // MCP scope includes read and write
+                    if required == "read" || required == "write" || required == "mcp" {
+                        return true;
+                    }
+                }
+                "write" => {
+                    // Write scope includes read
+                    if required == "read" || required == "write" {
+                        return true;
+                    }
+                }
+                s if s == required => return true,
+                _ => {}
+            }
         }
 
-        // MCP scope includes read and write
-        if scope.contains("mcp") && (required == "read" || required == "write") {
-            return true;
-        }
+        false
+    }
 
-        scope.split_whitespace().any(|s| s == required)
+    /// Get the scope string for error messages.
+    pub fn scope_str(&self) -> &str {
+        match self {
+            AuthPrincipal::OAuthClient { scope, .. } => scope,
+            AuthPrincipal::ApiKey { scope, .. } => scope,
+            AuthPrincipal::Anonymous => "none",
+        }
     }
 
     /// Check if the principal is authenticated.

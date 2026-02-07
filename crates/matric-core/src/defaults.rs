@@ -144,6 +144,28 @@ pub const PDF_BATCH_PAGES: usize = 50;
 pub const EXTRACTION_CMD_TIMEOUT_SECS: u64 = 60;
 
 // =============================================================================
+// EXTRACTION SERVICE CONFIGURATION
+// =============================================================================
+
+/// Environment variable for the vision model name.
+pub const ENV_OLLAMA_VISION_MODEL: &str = "OLLAMA_VISION_MODEL";
+
+/// Environment variable for the Whisper transcription server URL.
+pub const ENV_WHISPER_BASE_URL: &str = "WHISPER_BASE_URL";
+
+/// Environment variable for the Whisper model name.
+pub const ENV_WHISPER_MODEL: &str = "WHISPER_MODEL";
+
+/// Default Whisper model.
+pub const DEFAULT_WHISPER_MODEL: &str = "Systran/faster-distil-whisper-large-v3";
+
+/// Environment variable to enable OCR processing.
+pub const ENV_OCR_ENABLED: &str = "OCR_ENABLED";
+
+/// Environment variable for LibreOffice path.
+pub const ENV_LIBREOFFICE_PATH: &str = "LIBREOFFICE_PATH";
+
+// =============================================================================
 // SEARCH
 // =============================================================================
 

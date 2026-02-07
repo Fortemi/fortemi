@@ -53,6 +53,7 @@ services:
       # ── API Server ─────────────────────────────────────────────────────
       - RUST_LOG=${RUST_LOG:-info}
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - MATRIC_MAX_BODY_SIZE_BYTES=${MATRIC_MAX_BODY_SIZE_BYTES:-2147483648}
 
@@ -103,6 +104,13 @@ services:
       - OLLAMA_EMBED_DIM=${OLLAMA_EMBED_DIM:-768}
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
+
+      # ── Optional Extraction Services ───────────────────────────────────
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}
+      - WHISPER_BASE_URL=${WHISPER_BASE_URL:-}
+      - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
+      - OCR_ENABLED=${OCR_ENABLED:-false}
+      - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
 
       # ── Inference: OpenAI (alternative) ────────────────────────────────
       # - OPENAI_API_KEY=${OPENAI_API_KEY}

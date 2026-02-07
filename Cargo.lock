@@ -1738,6 +1738,7 @@ dependencies = [
  "kamadak-exif",
  "lru",
  "matric-core",
+ "matric-crypto",
  "matric-db",
  "matric-inference",
  "matric-jobs",
