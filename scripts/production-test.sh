@@ -60,21 +60,40 @@ curl -sf "$BASE_URL/api/v1/search?q=test&limit=5&mode=fts" 2>&1 | jq -e '.result
 curl -sf "$BASE_URL/api/v1/search?q=semantic&limit=5&mode=semantic" 2>&1 | jq -e '.results' >/dev/null 2>&1 && pass "Semantic search" || fail "Semantic search"
 echo
 
-# 5. SKOS (concepts/schemes endpoints)
-echo "=== 5. SKOS Taxonomy ==="
+# 5. MCP Server & OAuth
+echo "=== 5. MCP Server & OAuth ==="
+MCP_URL="${MCP_URL:-http://localhost:3001}"
+# MCP server should return 401 (auth required) not connection refused
+MCP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$MCP_URL" 2>/dev/null || echo "000")
+[ "$MCP_CODE" = "401" ] && pass "MCP server reachable (returns 401)" || fail "MCP server unreachable (HTTP $MCP_CODE)"
+# OAuth discovery endpoint
+curl -sf "$BASE_URL/.well-known/oauth-authorization-server" | grep -q "issuer" 2>/dev/null && pass "OAuth discovery endpoint" || fail "OAuth discovery endpoint"
+# OAuth registration endpoint (should accept POST)
+REG_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/oauth/register" -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "000")
+[ "$REG_CODE" != "000" ] && [ "$REG_CODE" != "404" ] && pass "OAuth register endpoint (HTTP $REG_CODE)" || fail "OAuth register endpoint (HTTP $REG_CODE)"
+# Check MCP credentials are configured in running container
+if docker compose -f docker-compose.bundle.yml exec -T matric printenv MCP_CLIENT_ID 2>/dev/null | grep -q "mm_"; then
+    pass "MCP_CLIENT_ID configured in container"
+else
+    warn "MCP_CLIENT_ID not configured in container"
+fi
+echo
+
+# 6. SKOS (concepts/schemes endpoints)
+echo "=== 6. SKOS Taxonomy ==="
 curl -sf "$BASE_URL/api/v1/concepts/schemes" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/concepts/schemes" || fail "GET /api/v1/concepts/schemes"
 curl -sf "$BASE_URL/api/v1/concepts/governance" | jq -e '.' >/dev/null 2>&1 && pass "GET /api/v1/concepts/governance" || fail "GET /api/v1/concepts/governance"
 echo
 
-# 6. Jobs
-echo "=== 6. Background Jobs ==="
+# 7. Jobs
+echo "=== 7. Background Jobs ==="
 FAILED_JOBS=$(psql -U matric -h localhost -d matric -t -c "SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND created_at > NOW() - INTERVAL '1 hour';" 2>/dev/null | tr -d ' \n' || echo "0")
 FAILED_JOBS=${FAILED_JOBS:-0}
 [ "$FAILED_JOBS" -lt 10 ] 2>/dev/null && pass "Failed jobs acceptable ($FAILED_JOBS)" || warn "High failed jobs ($FAILED_JOBS)"
 echo
 
-# 7. Recent errors check
-echo "=== 7. Log Health ==="
+# 8. Recent errors check
+echo "=== 8. Log Health ==="
 RECENT_ERRORS=$(journalctl -u matric-api --since "10 minutes ago" 2>/dev/null | grep -ci error 2>/dev/null || echo "0")
 RECENT_ERRORS=${RECENT_ERRORS:-0}
 [ "$RECENT_ERRORS" -lt 5 ] 2>/dev/null && pass "Recent errors acceptable ($RECENT_ERRORS)" || warn "Recent errors elevated ($RECENT_ERRORS)"

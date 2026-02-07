@@ -7594,6 +7594,35 @@ if (MCP_TRANSPORT === "http") {
     });
   });
 
+  // Validate MCP OAuth credentials on startup
+  if (!process.env.MCP_CLIENT_ID || !process.env.MCP_CLIENT_SECRET) {
+    console.warn("WARNING: MCP_CLIENT_ID or MCP_CLIENT_SECRET not set");
+    console.warn("  Token introspection will fail — all authenticated requests will be rejected");
+    console.warn("  Fix: register an OAuth client via POST /oauth/register and set credentials");
+  } else {
+    console.log(`MCP OAuth credentials configured (client_id: ${process.env.MCP_CLIENT_ID})`);
+    // Verify credentials are valid by testing introspection
+    try {
+      const testResp = await fetch(`${API_BASE}/oauth/introspect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Authorization": `Basic ${Buffer.from(`${process.env.MCP_CLIENT_ID}:${process.env.MCP_CLIENT_SECRET}`).toString("base64")}`,
+        },
+        body: "token=startup_check",
+      });
+      if (testResp.ok) {
+        console.log("  OAuth credential validation: OK");
+      } else {
+        console.warn(`  WARNING: OAuth credential validation failed (HTTP ${testResp.status})`);
+        console.warn("  MCP client_id/secret may be stale — re-register via POST /oauth/register");
+      }
+    } catch (e) {
+      console.warn(`  WARNING: Could not reach API for credential validation: ${e.message}`);
+      console.warn("  Ensure the API is running at ${API_BASE}");
+    }
+  }
+
   app.listen(MCP_PORT, () => {
     console.log(`MCP HTTP server listening on port ${MCP_PORT}`);
     console.log(`Endpoints:`);
