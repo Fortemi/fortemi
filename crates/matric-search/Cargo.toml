@@ -12,6 +12,7 @@ homepage.workspace = true
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db" }
 
+sqlx.workspace = true
 tracing.workspace = true
 async-trait = "0.1"
 pgvector = { version = "0.4", features = ["sqlx"] }

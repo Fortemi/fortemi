@@ -1900,6 +1900,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sqlx",
  "tracing",
  "unicode-script",
  "uuid",

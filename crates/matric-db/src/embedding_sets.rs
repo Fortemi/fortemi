@@ -909,10 +909,9 @@ impl PgEmbeddingSetRepository {
     ) -> Result<EmbeddingConfigProfile> {
         let id = new_v7();
         let now = Utc::now();
-        let matryoshka_dims_json: Option<JsonValue> = request
-            .matryoshka_dims
-            .as_ref()
-            .map(|dims| serde_json::to_value(dims).unwrap_or_default());
+        // Bind matryoshka_dims as Vec<i32> directly (issue #126 EMB-017)
+        // The column is INTEGER[], not JSONB — binding as JSON causes type mismatch
+        let matryoshka_dims: Option<Vec<i32>> = request.matryoshka_dims.clone();
 
         sqlx::query(
             r#"
@@ -940,7 +939,7 @@ impl PgEmbeddingSetRepository {
         .bind(request.hnsw_ef_construction)
         .bind(now)
         .bind(request.supports_mrl)
-        .bind(&matryoshka_dims_json)
+        .bind(&matryoshka_dims)
         .bind(request.default_truncate_dim)
         .bind(request.provider.to_string())
         .bind(&request.provider_config)

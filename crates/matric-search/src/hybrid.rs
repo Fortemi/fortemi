@@ -252,6 +252,19 @@ impl HybridSearchEngine {
         Self { db }
     }
 
+    /// Get note IDs that belong to an embedding set (for FTS post-filtering, issue #125).
+    async fn get_set_member_ids(&self, set_id: Uuid) -> Result<std::collections::HashSet<Uuid>> {
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT note_id FROM embedding_set_member WHERE embedding_set_id = $1",
+        )
+        .bind(set_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(matric_core::Error::Database)?;
+
+        Ok(ids.into_iter().collect())
+    }
+
     /// Apply score weighting to search results.
     fn apply_weights(hits: Vec<SearchHit>, weight: f32) -> Vec<SearchHit> {
         hits.into_iter()
@@ -433,9 +446,16 @@ impl HybridSearch for HybridSearchEngine {
         // FTS search (if weight > 0 and query is not empty)
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
             let fts_start = Instant::now();
-            let fts_results = self
+            let mut fts_results = self
                 .fts_search_with_strategy(query, strategy, limit * 2, config)
                 .await?;
+
+            // Filter FTS results to embedding set members (issue #125)
+            if let Some(set_id) = config.embedding_set_id {
+                let member_ids = self.get_set_member_ids(set_id).await?;
+                fts_results.retain(|hit| member_ids.contains(&hit.note_id));
+            }
+
             fts_count = fts_results.len();
             debug!(
                 fts_hits = fts_count,

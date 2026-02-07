@@ -496,6 +496,15 @@ async fn main() -> anyhow::Result<()> {
     // Initialize file storage
     let file_storage_path =
         std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());
+    // Ensure storage directory exists on startup (issue #123)
+    tokio::fs::create_dir_all(&file_storage_path)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(
+                "Could not create file storage directory {}: {}",
+                file_storage_path, e
+            );
+        });
     let db = db.with_file_storage(
         FilesystemBackend::new(&file_storage_path),
         matric_core::defaults::FILE_INLINE_THRESHOLD as i64, // 1MB inline threshold
@@ -1886,10 +1895,7 @@ fn is_admin_route(path: &str) -> bool {
         // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/:id (revoke)
         return true;
     }
-    // Note purge
-    if path.ends_with("/purge") && path.starts_with("/api/v1/notes/") {
-        return true;
-    }
+    // Note purge: uses write scope (not admin) — destructive but confirmed via `confirm` param
     false
 }
 
@@ -2993,10 +2999,10 @@ async fn purge_note(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement: purge requires admin scope
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("admin") {
+    // Scope enforcement: purge requires write scope (issue #121)
+    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
         return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: admin, have: {}",
+            "Insufficient scope. Required: write, have: {}",
             auth.principal.scope_str()
         )));
     }
@@ -4813,6 +4819,34 @@ async fn refresh_embedding_set(
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check set mode first (issue #126 EMB-008)
+    let set = state
+        .db
+        .embedding_sets
+        .get_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug)))?;
+
+    if set.mode == matric_core::EmbeddingSetMode::Manual {
+        // Manual sets: queue a re-embed job for existing members instead of returning empty diff
+        let job_id = state
+            .db
+            .jobs
+            .queue(
+                None,
+                matric_core::JobType::RefreshEmbeddingSet,
+                matric_core::JobType::RefreshEmbeddingSet.default_priority(),
+                Some(serde_json::json!({ "set_slug": slug })),
+            )
+            .await?;
+        return Ok(Json(serde_json::json!({
+            "status": "queued",
+            "job_id": job_id.to_string(),
+            "mode": "manual",
+            "message": "Re-embedding job queued for manual set members"
+        })));
+    }
+
     let added = state.db.embedding_sets.refresh(&slug).await?;
     Ok(Json(serde_json::json!({ "added": added })))
 }

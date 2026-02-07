@@ -2793,7 +2793,7 @@ Returns:
 - keywords: Discovery keywords
 - document_count: Number of notes in set
 - embedding_count: Number of embedding chunks
-- index_status: pending/building/ready/stale/disabled
+- index_status: empty/pending/building/ready/stale/disabled
 
 Use slug as the 'set' parameter in search_notes for focused semantic search.`,
     inputSchema: {

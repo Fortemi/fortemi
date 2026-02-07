@@ -297,7 +297,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         content: Option<&str>,
         mime_type: Option<&str>,
     ) -> Result<Option<DetectDocumentTypeResult>> {
-        // 1. Try filename pattern match first (highest confidence)
+        // 1. Try filename pattern match first (highest confidence — exact filenames like "Dockerfile")
         if let Some(fname) = filename {
             if let Some(doc_type) = self.get_by_filename(fname).await? {
                 return Ok(Some(DetectDocumentTypeResult {
@@ -319,7 +319,21 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 3. Try extension match
+        // 3. When both filename and content are provided, try content patterns BEFORE
+        //    generic extension match (issue #124). Content patterns like "openapi: 3.1.0"
+        //    produce more specific types than generic ".yaml" extension match.
+        if let (Some(text), Some(_)) = (content, filename) {
+            if let Some(result) = self.detect_by_content(text).await? {
+                // Content pattern matched — boost confidence since we also have a filename
+                return Ok(Some(DetectDocumentTypeResult {
+                    confidence: matric_core::defaults::DETECT_CONFIDENCE_EXTENSION, // Boosted from 0.7→0.9
+                    detection_method: "combined".to_string(),
+                    ..result
+                }));
+            }
+        }
+
+        // 4. Try extension match (generic — e.g. .yaml, .json)
         if let Some(fname) = filename {
             if let Some(ext) = std::path::Path::new(fname)
                 .extension()
@@ -336,55 +350,16 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 4. Try content pattern match (magic patterns)
+        // 5. Try content pattern match alone (no filename provided)
         if let Some(text) = content {
-            let rows = sqlx::query(
-                r#"
-                SELECT id, name, display_name, category::TEXT, description,
-                       chunking_strategy::TEXT, tree_sitter_language,
-                       extraction_strategy::TEXT, requires_attachment,
-                       is_system, is_active, magic_patterns
-                FROM document_type
-                WHERE is_active = TRUE AND array_length(magic_patterns, 1) > 0
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-
-            for row in rows {
-                let patterns: Vec<String> = row.get("magic_patterns");
-                for pattern in patterns {
-                    if text.contains(&pattern) {
-                        return Ok(Some(DetectDocumentTypeResult {
-                            document_type: DocumentTypeSummary {
-                                id: row.get("id"),
-                                name: row.get("name"),
-                                display_name: row.get("display_name"),
-                                category: Self::parse_category(row.get("category")),
-                                description: row.get("description"),
-                                chunking_strategy: Self::parse_chunking_strategy(
-                                    row.get("chunking_strategy"),
-                                ),
-                                tree_sitter_language: row.get("tree_sitter_language"),
-                                extraction_strategy: Self::parse_extraction_strategy(
-                                    row.get::<Option<&str>, _>("extraction_strategy"),
-                                ),
-                                requires_attachment: row
-                                    .get::<Option<bool>, _>("requires_attachment")
-                                    .unwrap_or(false),
-                                is_system: row.get("is_system"),
-                                is_active: row.get("is_active"),
-                            },
-                            confidence: matric_core::defaults::DETECT_CONFIDENCE_CONTENT,
-                            detection_method: "content_pattern".to_string(),
-                        }));
-                    }
+            if filename.is_none() {
+                if let Some(result) = self.detect_by_content(text).await? {
+                    return Ok(Some(result));
                 }
             }
         }
 
-        // 5. Default to plaintext
+        // 6. Default to plaintext
         if let Some(doc_type) = self.get_by_name("plaintext").await? {
             return Ok(Some(DetectDocumentTypeResult {
                 document_type: self.to_summary(&doc_type),
@@ -444,6 +419,56 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
 }
 
 impl PgDocumentTypeRepository {
+    /// Helper: detect document type from content magic patterns (issue #124).
+    async fn detect_by_content(&self, text: &str) -> Result<Option<DetectDocumentTypeResult>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, name, display_name, category::TEXT, description,
+                   chunking_strategy::TEXT, tree_sitter_language,
+                   extraction_strategy::TEXT, requires_attachment,
+                   is_system, is_active, magic_patterns
+            FROM document_type
+            WHERE is_active = TRUE AND array_length(magic_patterns, 1) > 0
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        for row in &rows {
+            let patterns: Vec<String> = row.get("magic_patterns");
+            for pattern in patterns {
+                if text.contains(&pattern) {
+                    return Ok(Some(DetectDocumentTypeResult {
+                        document_type: DocumentTypeSummary {
+                            id: row.get("id"),
+                            name: row.get("name"),
+                            display_name: row.get("display_name"),
+                            category: Self::parse_category(row.get("category")),
+                            description: row.get("description"),
+                            chunking_strategy: Self::parse_chunking_strategy(
+                                row.get("chunking_strategy"),
+                            ),
+                            tree_sitter_language: row.get("tree_sitter_language"),
+                            extraction_strategy: Self::parse_extraction_strategy(
+                                row.get::<Option<&str>, _>("extraction_strategy"),
+                            ),
+                            requires_attachment: row
+                                .get::<Option<bool>, _>("requires_attachment")
+                                .unwrap_or(false),
+                            is_system: row.get("is_system"),
+                            is_active: row.get("is_active"),
+                        },
+                        confidence: matric_core::defaults::DETECT_CONFIDENCE_CONTENT,
+                        detection_method: "content_pattern".to_string(),
+                    }));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Find a document type by MIME type.
     async fn get_by_mime_type(&self, mime_type: &str) -> Result<Option<DocumentType>> {
         let row = sqlx::query(

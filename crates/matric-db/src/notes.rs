@@ -266,7 +266,11 @@ impl NoteRepository for PgNoteRepository {
             param_idx += 1;
         }
         if req.metadata.is_some() {
-            updates.push(format!("metadata = ${}", param_idx));
+            // Merge new metadata keys into existing (issue #122) instead of replacing
+            updates.push(format!(
+                "metadata = COALESCE(metadata, '{{}}'::jsonb) || ${}",
+                param_idx
+            ));
         }
 
         let query = format!("UPDATE note SET {} WHERE id = $2", updates.join(", "));
