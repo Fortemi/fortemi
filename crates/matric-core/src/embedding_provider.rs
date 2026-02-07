@@ -46,6 +46,14 @@ impl std::str::FromStr for EmbeddingProvider {
     }
 }
 
+fn default_chunk_size() -> i32 {
+    1000
+}
+
+fn default_chunk_overlap() -> i32 {
+    100
+}
+
 /// Request to create a new embedding config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEmbeddingConfigRequest {
@@ -53,7 +61,9 @@ pub struct CreateEmbeddingConfigRequest {
     pub description: Option<String>,
     pub model: String,
     pub dimension: i32,
+    #[serde(default = "default_chunk_size")]
     pub chunk_size: i32,
+    #[serde(default = "default_chunk_overlap")]
     pub chunk_overlap: i32,
 
     #[serde(default)]

@@ -698,7 +698,14 @@ function createMcpServer() {
 
         case "knowledge_archive_download": {
           // Download backup + metadata as bundled .archive file
-          const response = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive/${encodeURIComponent(args.filename)}`, { headers });
+          const dlHeaders = { "Content-Type": "application/json" };
+          const dlToken = tokenStorage.getStore()?.token;
+          if (dlToken) {
+            dlHeaders["Authorization"] = `Bearer ${dlToken}`;
+          } else if (API_KEY) {
+            dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
+          }
+          const response = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive/${encodeURIComponent(args.filename)}`, { headers: dlHeaders });
           if (!response.ok) {
             throw new Error(`Download failed: ${response.status}`);
           }
@@ -732,12 +739,18 @@ function createMcpServer() {
             Buffer.from(`\r\n--${boundary}--\r\n`),
           ]);
 
+          const ulHeaders = {};
+          const ulToken = tokenStorage.getStore()?.token;
+          if (ulToken) {
+            ulHeaders["Authorization"] = `Bearer ${ulToken}`;
+          } else if (API_KEY) {
+            ulHeaders["Authorization"] = `Bearer ${API_KEY}`;
+          }
+          ulHeaders['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+
           const uploadResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive`, {
             method: 'POST',
-            headers: {
-              ...headers,
-              'Content-Type': `multipart/form-data; boundary=${boundary}`,
-            },
+            headers: ulHeaders,
             body: body,
           });
 
@@ -1539,8 +1552,7 @@ function createMcpServer() {
           break;
 
         case "add_skos_collection_member":
-          result = await apiRequest("POST", `/api/v1/concepts/collections/${args.id}/members`, {
-            concept_id: args.concept_id,
+          result = await apiRequest("POST", `/api/v1/concepts/collections/${args.id}/members/${args.concept_id}`, {
             position: args.position,
           });
           break;
@@ -4172,7 +4184,7 @@ USE THIS TOOL when you need:
   // ============================================================================
   {
     name: "pke_generate_keypair",
-    description: `Generate a new X25519 keypair for public-key encryption.
+    description: `**Requires matric-pke CLI binary in PATH.** Generate a new X25519 keypair for public-key encryption.
 
 Creates a wallet-style identity consisting of:
 - **Private key** - Stored encrypted with your passphrase (never share this!)
@@ -4211,7 +4223,7 @@ wants to send you encrypted data.
   },
   {
     name: "pke_get_address",
-    description: `Get the public address from a public key file.
+    description: `**Requires matric-pke CLI binary in PATH.** Get the public address from a public key file.
 
 Returns the mm:... address that can be shared with others.
 This address is what senders use to encrypt data for you.`,
@@ -4231,7 +4243,7 @@ This address is what senders use to encrypt data for you.`,
   },
   {
     name: "pke_encrypt",
-    description: `Encrypt a file for one or more recipients using public-key encryption.
+    description: `**Requires matric-pke CLI binary in PATH.** Encrypt a file for one or more recipients using public-key encryption.
 
 This uses the MMPKE01 format which provides:
 - **Multi-recipient support** - Encrypt once for multiple people
@@ -4268,7 +4280,7 @@ private key for one of the recipient public keys.`,
   },
   {
     name: "pke_decrypt",
-    description: `Decrypt a file using your private key.
+    description: `**Requires matric-pke CLI binary in PATH.** Decrypt a file using your private key.
 
 Decrypts a file that was encrypted for your public key address.
 You must have the private key file and its passphrase.
@@ -4302,7 +4314,7 @@ Returns the decrypted content and metadata (original filename, creation date).`,
   },
   {
     name: "pke_list_recipients",
-    description: `List the recipient addresses that can decrypt an encrypted file.
+    description: `**Requires matric-pke CLI binary in PATH.** List the recipient addresses that can decrypt an encrypted file.
 
 Returns the mm:... addresses of all recipients without decrypting the file.
 Useful for determining if you can decrypt a file or who it was intended for.`,
@@ -4322,7 +4334,7 @@ Useful for determining if you can decrypt a file or who it was intended for.`,
   },
   {
     name: "pke_verify_address",
-    description: `Verify that a public key address is valid.
+    description: `**Requires matric-pke CLI binary in PATH.** Verify that a public key address is valid.
 
 Checks that the mm:... address has:
 - Correct prefix
@@ -5770,25 +5782,26 @@ Removes the attachment record. If no other attachments reference the same blob (
   // ============================================================================
   {
     name: "export_skos_turtle",
-    description: `Export SKOS taxonomy as W3C RDF/Turtle format.
+    description: `Export a SKOS concept scheme as W3C RDF/Turtle format.
 
-Returns valid Turtle syntax for interoperability with other SKOS tools:
+Requires a scheme_id. Returns valid Turtle syntax for interoperability with other SKOS tools:
 - Protégé, TopBraid, PoolParty
 - RDF visualization tools
 - Other knowledge management systems
 
 Includes:
-- Concept schemes with metadata
+- Concept scheme with metadata
 - Concepts with all labels (preferred, alternative, hidden)
 - Broader/narrower/related relations
 - Collection memberships and ordering
 
-Omit scheme_id to export all schemes. See get_documentation({ topic: "skos_collections" }) for collection details.`,
+Use list_skos_schemes to find available scheme_ids first.`,
     inputSchema: {
       type: "object",
       properties: {
-        scheme_id: { type: "string", format: "uuid", description: "Export specific scheme (omit for all)" },
+        scheme_id: { type: "string", format: "uuid", description: "Concept scheme UUID to export" },
       },
+      required: ["scheme_id"],
     },
     annotations: {
       readOnlyHint: true,

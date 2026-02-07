@@ -2340,9 +2340,10 @@ async fn list_notes(
     Query(query): Query<ListNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Issue #271 + #29: Validate limit parameter before database query
+    // limit=0 is valid and returns an empty array (count-only queries)
     if let Some(limit) = query.limit {
-        if limit <= 0 {
-            return Err(ApiError::BadRequest("limit must be >= 1".into()));
+        if limit < 0 {
+            return Err(ApiError::BadRequest("limit must be >= 0".into()));
         }
     }
 
@@ -6225,7 +6226,7 @@ async fn backup_trigger(
 
     // Build backup script path
     let script_path = std::env::var("BACKUP_SCRIPT_PATH")
-        .unwrap_or_else(|_| "/home/roctinam/dev/matric-memory/scripts/backup.sh".to_string());
+        .unwrap_or_else(|_| "/app/scripts/backup.sh".to_string());
 
     // Build command
     let mut cmd = Command::new(&script_path);

@@ -519,6 +519,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Webhook'
+        '404':
+          $ref: '#/components/responses/NotFound'
     patch:
       summary: Update webhook
       operationId: updateWebhook
@@ -536,11 +538,26 @@ paths:
             schema:
               type: object
               properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
                 is_active:
                   type: boolean
+                secret:
+                  type: string
       responses:
         '200':
           description: Updated webhook
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '404':
+          $ref: '#/components/responses/NotFound'
     delete:
       summary: Delete webhook
       operationId: deleteWebhook
@@ -555,6 +572,8 @@ paths:
       responses:
         '204':
           description: Webhook deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/webhooks/{id}/deliveries:
     get:
@@ -582,6 +601,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/WebhookDelivery'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/webhooks/{id}/test:
     post:
@@ -598,6 +619,16 @@ paths:
       responses:
         '200':
           description: Test delivered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: delivered
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Notes CRUD
@@ -733,6 +764,8 @@ paths:
       responses:
         '204':
           description: Note updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete a note (soft delete)
@@ -743,6 +776,8 @@ paths:
       responses:
         '204':
           description: Note soft-deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/status:
     patch:
@@ -766,6 +801,8 @@ paths:
       responses:
         '204':
           description: Status updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/restore:
     post:
@@ -777,6 +814,8 @@ paths:
       responses:
         '204':
           description: Note restored
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/purge:
     post:
@@ -789,6 +828,8 @@ paths:
       responses:
         '204':
           description: Note permanently deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/reprocess:
     post:
@@ -809,8 +850,27 @@ paths:
                   enum: [full, light, none]
                   default: none
       responses:
-        '202':
+        '200':
           description: Reprocessing jobs queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  note_id:
+                    type: string
+                    format: uuid
+                  revision_mode:
+                    type: string
+                    enum: [full, light, none]
+                  jobs_queued:
+                    type: array
+                    items:
+                      type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/tags:
     get:
@@ -828,6 +888,8 @@ paths:
                 type: array
                 items:
                   type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     put:
       summary: Set note tags
@@ -851,6 +913,8 @@ paths:
       responses:
         '204':
           description: Tags updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/links:
     get:
@@ -875,6 +939,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Link'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/backlinks:
     get:
@@ -893,6 +959,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Link'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/export:
     get:
@@ -909,6 +977,8 @@ paths:
             text/markdown:
               schema:
                 type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/full:
     get:
@@ -943,7 +1013,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProvenanceResponse'
-
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Note Attachments
@@ -996,6 +1067,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Attachment'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/attachments/{attachment_id}:
     get:
@@ -1042,6 +1115,8 @@ paths:
                     type: boolean
                   message:
                     type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/attachments/{attachment_id}/download:
     get:
@@ -1164,6 +1239,8 @@ paths:
                     type: array
                     items:
                       type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/move:
     post:
@@ -1187,6 +1264,8 @@ paths:
       responses:
         '204':
           description: Note moved
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Note Versioning
@@ -1207,6 +1286,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/NoteVersion'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/versions/{version}:
     get:
@@ -1239,6 +1320,8 @@ paths:
           description: Version deleted
         '400':
           description: Cannot delete current version
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/versions/{version}/restore:
     post:
@@ -1252,6 +1335,8 @@ paths:
       responses:
         '204':
           description: Version restored
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/notes/{id}/versions/diff:
     get:
@@ -1279,6 +1364,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VersionDiff'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Search
@@ -1326,9 +1413,44 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: set
+          in: query
+          description: Embedding set slug to search within
+          schema:
+            type: string
+            default: default
+        - name: created_after
+          in: query
+          description: Filter notes created after this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: created_before
+          in: query
+          description: Filter notes created before this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: updated_after
+          in: query
+          description: Filter notes updated after this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: updated_before
+          in: query
+          description: Filter notes updated before this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: since
+          in: query
+          description: "Relative time filter: 7d (7 days), 1w (1 week), 1m (1 month), 2h (2 hours)"
+          schema:
+            type: string
         - name: strict_filter
           in: query
-          description: JSON-encoded StrictTagFilterInput
+          description: JSON-encoded StrictTagFilterInput for SKOS-based filtering
           schema:
             type: string
       responses:
@@ -1730,6 +1852,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete custom document type
@@ -1746,6 +1870,8 @@ paths:
           description: Deleted
         '403':
           description: Cannot delete built-in type
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/document-types/detect:
     post:
@@ -1862,6 +1988,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete archive
@@ -1876,6 +2004,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/archives/{name}/set-default:
     post:
@@ -1891,6 +2021,8 @@ paths:
       responses:
         '204':
           description: Default archive set
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/archives/{name}/stats:
     get:
@@ -1910,6 +2042,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ArchiveStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # SKOS Concept Schemes
@@ -2019,6 +2153,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete concept scheme
@@ -2058,6 +2194,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/schemes/{id}/export/turtle:
     get:
@@ -2079,6 +2217,8 @@ paths:
             text/turtle:
               schema:
                 type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # SKOS Concepts
@@ -2108,15 +2248,24 @@ paths:
           schema:
             type: integer
             default: 0
+        - name: status
+          in: query
+          description: Filter by concept status
+          schema:
+            type: string
+            enum: [candidate, approved, deprecated, obsolete]
+        - name: facet_type
+          in: query
+          description: Filter by PMEST facet type
+          schema:
+            type: string
       responses:
         '200':
           description: Concepts
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Concept'
+                $ref: '#/components/schemas/SearchConceptsResponse'
 
     post:
       summary: Create concept
@@ -2151,8 +2300,8 @@ paths:
                     type: string
                 status:
                   type: string
-                  enum: [active, deprecated, proposed]
-                  default: active
+                  enum: [candidate, approved, deprecated, obsolete]
+                  default: candidate
                 facet_type:
                   type: string
       responses:
@@ -2237,7 +2386,7 @@ paths:
                     type: string
                 status:
                   type: string
-                  enum: [active, deprecated, proposed]
+                  enum: [candidate, approved, deprecated, obsolete]
                 deprecation_reason:
                   type: string
                 facet_type:
@@ -2245,6 +2394,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete concept
@@ -2255,6 +2406,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/full:
     get:
@@ -2270,6 +2423,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConceptFull'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/ancestors:
     get:
@@ -2287,6 +2442,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/descendants:
     get:
@@ -2304,6 +2461,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/broader:
     get:
@@ -2321,6 +2480,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     post:
       summary: Add broader relation
@@ -2342,6 +2503,8 @@ paths:
       responses:
         '201':
           description: Relation added
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/broader/{target_id}:
     delete:
@@ -2354,6 +2517,8 @@ paths:
       responses:
         '204':
           description: Relation removed
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/narrower:
     get:
@@ -2371,6 +2536,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     post:
       summary: Add narrower relation
@@ -2392,6 +2559,8 @@ paths:
       responses:
         '201':
           description: Relation added
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/narrower/{target_id}:
     delete:
@@ -2404,6 +2573,8 @@ paths:
       responses:
         '204':
           description: Relation removed
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/related:
     get:
@@ -2421,6 +2592,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Concept'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     post:
       summary: Add related relation
@@ -2442,6 +2615,8 @@ paths:
       responses:
         '201':
           description: Relation added
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/{id}/related/{target_id}:
     delete:
@@ -2454,6 +2629,8 @@ paths:
       responses:
         '204':
           description: Relation removed
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # SKOS Tagging
@@ -2630,6 +2807,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete SKOS collection
@@ -2645,6 +2824,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/collections/{id}/members:
     put:
@@ -2674,6 +2855,8 @@ paths:
       responses:
         '204':
           description: Members replaced
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/concepts/collections/{id}/members/{concept_id}:
     post:
@@ -2810,6 +2993,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete collection
@@ -2825,6 +3010,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/collections/{id}/notes:
     get:
@@ -2855,6 +3042,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotesListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Embedding Sets & Configs
@@ -2955,6 +3144,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete embedding set
@@ -2969,6 +3160,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/embedding-sets/{slug}/members:
     get:
@@ -2991,6 +3184,8 @@ paths:
                 items:
                   type: string
                   format: uuid
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     post:
       summary: Add members to set
@@ -3018,6 +3213,8 @@ paths:
       responses:
         '201':
           description: Members added
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/embedding-sets/{slug}/members/{note_id}:
     delete:
@@ -3055,6 +3252,8 @@ paths:
       responses:
         '202':
           description: Refresh jobs queued
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/embedding-configs:
     get:
@@ -3168,6 +3367,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete embedding config
@@ -3183,6 +3384,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Graph Exploration
@@ -3217,6 +3420,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GraphResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Templates
@@ -3324,6 +3529,8 @@ paths:
       responses:
         '204':
           description: Updated
+        '404':
+          $ref: '#/components/responses/NotFound'
 
     delete:
       summary: Delete template
@@ -3339,6 +3546,8 @@ paths:
       responses:
         '204':
           description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/templates/{id}/instantiate:
     post:
@@ -3380,6 +3589,8 @@ paths:
                   id:
                     type: string
                     format: uuid
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ===========================================================================
   # Backup & Export
@@ -3788,6 +3999,18 @@ components:
   responses:
     NotFound:
       description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource conflict (duplicate, already exists)
       content:
         application/json:
           schema:
@@ -4572,7 +4795,7 @@ components:
             type: string
         status:
           type: string
-          enum: [active, deprecated, proposed]
+          enum: [candidate, approved, deprecated, obsolete]
         facet_type:
           type: string
           nullable: true
@@ -4598,6 +4821,20 @@ components:
               items:
                 $ref: '#/components/schemas/Concept'
 
+    SearchConceptsResponse:
+      type: object
+      properties:
+        concepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Concept'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     ConceptSuggestion:
       type: object
       properties:
@@ -4614,17 +4851,31 @@ components:
     GovernanceStats:
       type: object
       properties:
+        scheme_id:
+          type: string
+          format: uuid
+        scheme_notation:
+          type: string
+        scheme_title:
+          type: string
         total_concepts:
           type: integer
-        active:
+        candidates:
+          type: integer
+        approved:
           type: integer
         deprecated:
           type: integer
-        proposed:
+        orphans:
           type: integer
-        total_schemes:
+        under_used:
           type: integer
-        total_collections:
+        missing_embeddings:
+          type: integer
+        avg_note_count:
+          type: number
+          format: double
+        max_depth:
           type: integer
 
     SkosCollection:

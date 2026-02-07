@@ -137,7 +137,7 @@ curl -X POST /api/v1/document-types \
 | personal | 8 | daily-note, journal, bookmark, highlight, annotation, todo-list, recipe, reading-list |
 | data | 8 | csv, excel, parquet-schema, avro-schema, xml-data, ndjson, geojson, ical |
 | markup | 2 | html, xml |
-| agentic | 8 | agent-definition, skill-definition, command-definition, prompt-template, claude-md, mcp-server-config, tool-definition, workflow-definition |
+| agentic | 8 | agent-prompt, agent-skill, agent-workflow, mcp-tool, rag-context, ai-conversation, fine-tune-data, evaluation-set |
 | custom | 0 | User-defined types |
 
 ## Research Document Types

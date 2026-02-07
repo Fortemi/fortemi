@@ -30,11 +30,16 @@ list_document_types({ category: "code" })
 
 ### DOC-003: Filter by System Flag
 
+> **Note**: The `is_system` filter is not currently supported by the API or MCP tool.
+> The `list_document_types` tool only supports filtering by `category`.
+> System types can be identified by checking the `is_system` field in individual type responses.
+
 ```javascript
-list_document_types({ is_system: true })
+// Workaround: list all and inspect is_system field on each type
+list_document_types({ detail: true })
 ```
 
-**Pass Criteria**: Returns only system (built-in) document types
+**Pass Criteria**: Returns types with `is_system` field present on each type object
 
 ---
 
@@ -65,7 +70,7 @@ get_document_type({ name: "rust" })
 ### DOC-005: Get Agentic Document Type
 
 ```javascript
-get_document_type({ name: "agent-definition" })
+get_document_type({ name: "agent-prompt" })
 ```
 
 **Pass Criteria**: Returns type with `category: "agentic"`
@@ -201,21 +206,21 @@ list_document_types({ category: "agentic" })
 ```
 
 **Pass Criteria**: Returns 8 agentic document types:
-- agent-definition
-- skill-definition
-- command-definition
-- prompt-template
-- claude-md
-- mcp-server-config
-- tool-definition
-- workflow-definition
+- agent-prompt
+- agent-skill
+- agent-workflow
+- mcp-tool
+- rag-context
+- ai-conversation
+- fine-tune-data
+- evaluation-set
 
 ---
 
 ### DOC-016: Verify Agentic Config
 
 ```javascript
-get_document_type({ name: "agent-definition" })
+get_document_type({ name: "agent-prompt" })
 ```
 
 **Pass Criteria**: Type includes `agentic_config` with generation hints
