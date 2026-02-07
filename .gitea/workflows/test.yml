@@ -300,6 +300,16 @@ jobs:
           cargo llvm-cov --all-features --package matric-jobs --test worker_integration_test -- --test-threads=1
         timeout-minutes: 15
 
+      - name: Generate coverage (matric-jobs lib tests)
+        run: |
+          DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+
+          # Run matric-jobs lib tests (adapter unit tests, extraction registry, extraction handler)
+          # These are independent of worker integration tests and safe to run in parallel
+          cargo llvm-cov --all-features --package matric-jobs --lib --no-clean
+        timeout-minutes: 5
+
       - name: Generate coverage (other tests)
         run: |
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
