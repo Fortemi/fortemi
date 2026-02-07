@@ -701,7 +701,7 @@ Upload a file to an existing note. Files are stored with content hashing and aut
 **Parameters:**
 - `note_id` (required) - UUID of the note to attach the file to
 - `filename` (required) - Original filename with extension
-- `content_base64` (required) - Base64-encoded file content
+- `data` (required) - Base64-encoded file content
 - `content_type` (optional) - MIME type (e.g., "image/jpeg", "application/pdf")
 
 **Example:**
@@ -710,7 +710,7 @@ Upload a file to an existing note. Files are stored with content hashing and aut
 upload_attachment({
   note_id: "550e8400-e29b-41d4-a716-446655440000",
   filename: "vacation-photo.jpg",
-  content_base64: "/9j/4AAQSkZJRg...",
+  data: "/9j/4AAQSkZJRg...",
   content_type: "image/jpeg"
 })
 ```
@@ -1358,7 +1358,7 @@ const note = await create_note({
 const attachment = await upload_attachment({
   note_id: note.id,
   filename: "architecture.png",
-  content_base64: readFileAsBase64("architecture.png"),
+  data: readFileAsBase64("architecture.png"),
   content_type: "image/png"
 })
 
