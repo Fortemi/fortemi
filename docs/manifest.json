@@ -41,6 +41,8 @@
       "sections": [
         { "id": "developers-api", "title": "API Reference", "summary": "REST API endpoints with request/response examples.", "file": "api.md" },
         { "id": "developers-mcp", "title": "MCP Server", "summary": "Model Context Protocol server for AI agent integration.", "file": "mcp.md" },
+        { "id": "developers-mcp-deployment", "title": "MCP Deployment", "summary": "Advanced MCP credential management, security, and deployment configuration.", "file": "mcp-deployment.md" },
+        { "id": "developers-mcp-troubleshooting", "title": "MCP Troubleshooting", "summary": "Diagnostic commands and common MCP connection issues.", "file": "mcp-troubleshooting.md" },
         { "id": "developers-document-types", "title": "Document Types", "summary": "Content type detection, chunking strategies, and custom types.", "file": "document-types-guide.md" }
       ]
     },

@@ -42,26 +42,18 @@ docker compose -f docker-compose.bundle.yml up -d
 # 3. Wait for initialization (first run takes ~60 seconds)
 docker compose -f docker-compose.bundle.yml logs -f
 
-# 4. Register MCP OAuth client (REQUIRED for MCP authentication)
-curl -X POST https://your-domain.com/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
-# Save the returned client_id and client_secret
-
-# 5. Configure environment
+# 4. Configure environment
 cat > .env <<EOF
-ISSUER_URL=https://your-domain.com
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
+ISSUER_URL=http://localhost:3000
 EOF
 
-# 6. Restart with configuration
+# 5. Restart with configuration
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 
-# 7. Verify
+# 6. Verify (MCP credentials are auto-registered on startup)
 curl http://localhost:3000/health
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+curl http://localhost:3001/.well-known/oauth-protected-resource
 ```
 
 ### Nginx Configuration
@@ -275,12 +267,12 @@ The MCP server runs automatically inside the Docker bundle on port 3001.
 
 ```bash
 # Check OAuth protected resource metadata
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+curl http://localhost:3001/.well-known/oauth-protected-resource
 
 # Expected response:
 # {
-#   "resource": "https://your-domain.com/mcp",
-#   "authorization_servers": ["https://your-domain.com"],
+#   "resource": "http://localhost:3000/mcp",
+#   "authorization_servers": ["http://localhost:3000"],
 #   ...
 # }
 ```
@@ -293,7 +285,7 @@ Project `.mcp.json`:
 {
   "mcpServers": {
     "fortemi": {
-      "url": "https://your-domain.com/mcp"
+      "url": "http://localhost:3001"
     }
   }
 }
@@ -302,7 +294,7 @@ Project `.mcp.json`:
 ### MCP Health Check
 
 ```bash
-curl https://your-domain.com/mcp/health
+curl http://localhost:3001/health
 ```
 
 ## Monitoring and Health Checks
@@ -313,8 +305,8 @@ curl https://your-domain.com/mcp/health
 # API health
 curl http://localhost:3000/health
 
-# MCP health (via nginx)
-curl https://your-domain.com/mcp/health
+# MCP health
+curl http://localhost:3001/health
 ```
 
 ### Real-Time Event Monitoring
@@ -396,32 +388,23 @@ docker ps
 **Fix:**
 ```bash
 # Create/update .env with ISSUER_URL
-echo "ISSUER_URL=https://your-domain.com" >> .env
+echo "ISSUER_URL=http://localhost:3000" >> .env
 
 # Restart container
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 
 # Verify
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+curl http://localhost:3001/.well-known/oauth-protected-resource
 ```
 
 **Symptom:** MCP returns "unauthorized" even with valid token
 
-**Cause:** Missing `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` - the MCP server cannot introspect tokens
+**Cause:** MCP credentials invalid or auto-registration failed
 
 **Fix:**
 ```bash
-# Register an OAuth client for MCP
-curl -X POST https://your-domain.com/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
-
-# Add returned credentials to .env
-echo "MCP_CLIENT_ID=mm_xxxxx" >> .env
-echo "MCP_CLIENT_SECRET=xxxxx" >> .env
-
-# Restart container
+# Restart — credentials are auto-registered on startup
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```

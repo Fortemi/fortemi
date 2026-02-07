@@ -7,33 +7,24 @@ Quick reference for deploying, monitoring, and maintaining Fortemi with Docker.
 ### First-Time Setup
 
 ```bash
-# 1. Start container (creates database)
-docker compose -f docker-compose.bundle.yml up -d
-
-# 2. Wait for healthy status
-docker compose -f docker-compose.bundle.yml logs -f
-
-# 3. Register MCP OAuth client (required for MCP token validation)
-curl -X POST https://your-domain.com/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
-# Save the returned client_id and client_secret
-
-# 4. Configure environment
+# 1. Configure URL (required for OAuth/MCP)
 cat > .env <<EOF
-ISSUER_URL=https://your-domain.com
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
+ISSUER_URL=http://localhost:3000
 EOF
 
-# 5. Restart with configuration
-docker compose -f docker-compose.bundle.yml down
+# 2. Start container (initializes database, auto-registers MCP credentials)
 docker compose -f docker-compose.bundle.yml up -d
 
-# 6. Verify
+# 3. Wait for healthy status
+docker compose -f docker-compose.bundle.yml logs -f
+# Look for: "=== Matric Memory Bundle Ready ==="
+
+# 4. Verify
 curl http://localhost:3000/health
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
+curl http://localhost:3001/.well-known/oauth-protected-resource
 ```
+
+MCP OAuth credentials are managed automatically. The bundle registers an OAuth client on startup and persists credentials on the database volume. No manual credential configuration is needed.
 
 ### Standard Deployment
 
@@ -71,7 +62,7 @@ docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 
-# Full reset (wipes database)
+# Full reset (wipes database — MCP credentials auto-regenerate)
 docker compose -f docker-compose.bundle.yml down -v
 docker compose -f docker-compose.bundle.yml up -d
 ```
@@ -115,8 +106,8 @@ Set in `.env` file (project root):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ISSUER_URL` | Yes | External URL for OAuth/MCP |
-| `MCP_CLIENT_ID` | Yes | OAuth client ID for MCP token introspection |
-| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
+| `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed, set only for manual override) |
+| `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed, set only for manual override) |
 | `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |
 
 Container variables (docker-compose.bundle.yml):
@@ -170,7 +161,7 @@ docker compose -f docker-compose.bundle.yml exec matric \
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | MCP auth fails with "localhost" URL | Missing `ISSUER_URL` | Add `ISSUER_URL` to `.env`, restart |
-| MCP returns "unauthorized" with valid token | Missing MCP credentials | Register OAuth client, add `MCP_CLIENT_ID/SECRET` to `.env` |
+| MCP returns "unauthorized" with valid token | Missing MCP credentials | Check startup logs, restart container (auto-registers on startup) |
 | Container unhealthy | Startup still in progress | Wait 60s, check logs |
 | "column X does not exist" | Old image | Rebuild: `docker compose build` |
 | Connection refused on :3000 | Container not running | `docker compose up -d` |
@@ -179,15 +170,21 @@ docker compose -f docker-compose.bundle.yml exec matric \
 
 ## MCP Server
 
-The MCP server runs automatically on port 3001 in the Docker bundle.
+The MCP server runs automatically on port 3001 in the Docker bundle. OAuth credentials are auto-managed — no manual registration needed.
 
-### Verify MCP Configuration
+### Verify MCP Status
 
 ```bash
+# Check startup logs for credential status
+docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credential"
+# Expected: "MCP credentials valid" or "Registered MCP client: mm_xxxxx"
+
 # Check OAuth metadata returns correct URL
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
-# Should show: "resource": "https://your-domain.com/mcp"
+curl http://localhost:3001/.well-known/oauth-protected-resource
+# Should show: "resource": "http://localhost:3000/mcp"
 ```
+
+For advanced credential management and security considerations, see the [MCP Deployment Guide](./mcp-deployment.md).
 
 ### Claude Code Integration
 
@@ -196,7 +193,7 @@ Project `.mcp.json`:
 {
   "mcpServers": {
     "fortemi": {
-      "url": "https://your-domain.com/mcp"
+      "url": "http://localhost:3001"
     }
   }
 }

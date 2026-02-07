@@ -280,7 +280,7 @@ MATRIC_API_URL=http://localhost:3000
 Before configuring MCP, register an OAuth client for token introspection:
 
 ```bash
-curl -X POST https://your-domain.com/oauth/register \
+curl -X POST http://localhost:3000/oauth/register \
   -H "Content-Type: application/json" \
   -d '{
     "client_name": "MCP Server",

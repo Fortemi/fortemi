@@ -10,19 +10,21 @@ Run these commands to quickly identify the issue:
 # 1. Check container is running
 docker compose -f docker-compose.bundle.yml ps
 
-# 2. Check MCP health
-curl https://your-domain.com/mcp/health
+# 2. Check startup logs for MCP credential status
+docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credential"
+# Expected: "MCP credentials valid" or "Registered MCP client: mm_xxxxx"
 
 # 3. Check OAuth protected resource metadata
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
-# Should return: { "resource": "https://your-domain.com/mcp", ... }
+curl http://localhost:3001/.well-known/oauth-protected-resource
+# Should return: { "resource": "http://localhost:3000/mcp", ... }
 
 # 4. Check OAuth authorization server metadata
-curl https://your-domain.com/mcp/.well-known/oauth-authorization-server
-# Should return: { "issuer": "https://your-domain.com", ... }
+curl http://localhost:3000/.well-known/oauth-authorization-server
+# Should return: { "issuer": "http://localhost:3000", ... }
 
-# 5. Check environment variables in container
-docker exec Fortémi-matric-1 printenv | grep -E 'ISSUER_URL|MCP_'
+# 5. Check MCP server is reachable (should return 401, not connection refused)
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/
+# Expected: 401 (auth required)
 ```
 
 ## Common Issues
@@ -33,47 +35,43 @@ docker exec Fortémi-matric-1 printenv | grep -E 'ISSUER_URL|MCP_'
 
 **Diagnosis:**
 ```bash
-curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
-# Look at "resource" field - if it says "localhost", that's the problem
+curl http://localhost:3001/.well-known/oauth-protected-resource
+# Look at "resource" field - it should match your ISSUER_URL
 ```
 
 **Cause:** `ISSUER_URL` not set in `.env`
 
 **Fix:**
 ```bash
-echo "ISSUER_URL=https://your-domain.com" >> .env
+echo "ISSUER_URL=http://localhost:3000" >> .env
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
-### 2. "unauthorized" with valid token
+### 2. "unauthorized" after deploy
 
-**Symptom:** Authentication succeeds but MCP requests fail with "unauthorized"
+**Symptom:** MCP requests fail with "unauthorized"
 
 **Diagnosis:**
 ```bash
-# Check if MCP has client credentials
-docker exec Fortémi-matric-1 printenv | grep MCP_CLIENT
-# If empty, that's the problem
+# Check startup logs for credential status
+docker compose -f docker-compose.bundle.yml logs matric | grep -E "credential|auto-regist"
 ```
 
-**Cause:** `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` not configured - MCP server cannot introspect tokens
+**Cause:** MCP credentials are invalid or auto-registration failed
 
-**Fix:**
+**Fix:** In most cases, a restart resolves this since credentials are auto-registered on startup:
 ```bash
-# Register OAuth client for MCP
-curl -X POST https://your-domain.com/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
-
-# Add credentials to .env
-echo "MCP_CLIENT_ID=mm_xxxxx" >> .env
-echo "MCP_CLIENT_SECRET=xxxxx" >> .env
-
-# Restart
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
+
+If auto-registration itself is failing, check that the API is starting correctly:
+```bash
+docker compose -f docker-compose.bundle.yml logs matric | grep -E "ERROR|API is healthy"
+```
+
+For manual credential management, see the [MCP Deployment Guide](./mcp-deployment.md).
 
 ### 3. "Authentication successful but reconnection failed"
 
@@ -109,10 +107,10 @@ mv /tmp/creds.json ~/.claude/.credentials.json
 docker compose -f docker-compose.bundle.yml logs --tail=50
 
 # Check if MCP process is running
-docker exec Fortémi-matric-1 ps aux | grep node
+docker exec fortemi-matric-1 ps aux | grep node
 
 # Check internal health
-docker exec Fortémi-matric-1 curl -s http://localhost:3001/health
+docker exec fortemi-matric-1 curl -s http://localhost:3001/health
 ```
 
 **Cause:** MCP server crashed or didn't start
@@ -133,7 +131,7 @@ docker compose -f docker-compose.bundle.yml up -d
 
 **Diagnosis:**
 ```bash
-# Test direct container access
+# Test direct container access (bypassing nginx)
 curl http://localhost:3001/health
 
 # If that works, nginx is the issue
@@ -148,6 +146,8 @@ location = /mcp {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_read_timeout 86400s;
 }
 
 location /mcp/ {
@@ -155,8 +155,29 @@ location /mcp/ {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+    proxy_read_timeout 86400s;
 }
 ```
+
+### 6. MCP credentials keep regenerating on every restart
+
+**Symptom:** Startup logs always show "Auto-registering MCP OAuth client" instead of "Loading MCP credentials from persistent storage"
+
+**Cause:** The `.env` file has stale `MCP_CLIENT_ID`/`MCP_CLIENT_SECRET` values that override the persisted credentials. The stale values fail validation, triggering re-registration each time.
+
+**Fix:** Remove or comment out `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET` from `.env` to let auto-management handle it:
+```bash
+# Edit .env - comment out or remove these lines:
+# MCP_CLIENT_ID=mm_xxxxx
+# MCP_CLIENT_SECRET=xxxxx
+
+# Restart
+docker compose -f docker-compose.bundle.yml down
+docker compose -f docker-compose.bundle.yml up -d
+```
+
+The entrypoint prioritizes persisted credentials (from the pgdata volume) over env vars, but only if the persisted file exists. On clean deploys, env vars are tried first, and if they're stale, a new client is registered.
 
 ## Token Validation
 
@@ -166,25 +187,8 @@ Test if a token is valid:
 # Get token from Claude Code credentials
 TOKEN=$(cat ~/.claude/.credentials.json | jq -r '.mcpOAuth["Fortémi|HASH"].accessToken')
 
-# Introspect token
-CLIENT_ID=$(cat ~/.claude/.credentials.json | jq -r '.mcpOAuth["Fortémi|HASH"].clientId')
-CLIENT_SECRET=$(cat ~/.claude/.credentials.json | jq -r '.mcpOAuth["Fortémi|HASH"].clientSecret')
-
-curl -X POST https://your-domain.com/oauth/introspect \
-  -u "$CLIENT_ID:$CLIENT_SECRET" \
-  -d "token=$TOKEN"
-
-# Should return { "active": true, ... }
-```
-
-## MCP Initialize Test
-
-Test full MCP connection:
-
-```bash
-TOKEN="your-access-token"
-
-curl -X POST https://your-domain.com/mcp/ \
+# Test against MCP server (should return SSE initialize response)
+curl -X POST http://localhost:3001/ \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer $TOKEN" \
@@ -193,14 +197,16 @@ curl -X POST https://your-domain.com/mcp/ \
 # Should return SSE event with initialize result
 ```
 
-## Required Environment Variables
+## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ISSUER_URL` | Yes | External domain URL (e.g., `http://localhost:3000`) |
-| `MCP_CLIENT_ID` | Yes | OAuth client ID for token introspection |
-| `MCP_CLIENT_SECRET` | Yes | OAuth client secret |
+| `ISSUER_URL` | Yes | External URL (e.g., `http://localhost:3000`) |
+| `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed by default) |
+| `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed by default) |
 | `MCP_BASE_URL` | No | Defaults to `${ISSUER_URL}/mcp` |
+
+For the full environment variable reference and credential lifecycle details, see the [MCP Deployment Guide](./mcp-deployment.md).
 
 ## Claude Code Credential Location
 
@@ -212,7 +218,7 @@ Structure:
   "mcpOAuth": {
     "server-name|config-hash": {
       "serverName": "Fortémi",
-      "serverUrl": "https://domain.com/mcp",
+      "serverUrl": "http://localhost:3001",
       "clientId": "mm_xxxxx",
       "clientSecret": "xxxxx",
       "accessToken": "mm_at_xxxxx",
@@ -225,11 +231,9 @@ Structure:
 
 ## First-Time Setup Checklist
 
-1. [ ] Start container: `docker compose -f docker-compose.bundle.yml up -d`
-2. [ ] Wait for healthy: `docker compose logs -f`
-3. [ ] Register MCP OAuth client: `POST /oauth/register`
-4. [ ] Create `.env` with `ISSUER_URL`, `MCP_CLIENT_ID`, `MCP_CLIENT_SECRET`
-5. [ ] Restart: `docker compose down && docker compose up -d`
-6. [ ] Verify protected resource: `curl .../mcp/.well-known/oauth-protected-resource`
-7. [ ] Verify MCP credentials in container: `printenv | grep MCP_CLIENT`
-8. [ ] Test Claude Code: `/mcp`
+1. [ ] Set `ISSUER_URL` in `.env` (e.g., `http://localhost:3000`)
+2. [ ] Start container: `docker compose -f docker-compose.bundle.yml up -d`
+3. [ ] Wait for ready: look for `"=== Matric Memory Bundle Ready ==="` in logs
+4. [ ] Verify API: `curl http://localhost:3000/health`
+5. [ ] Verify OAuth metadata: `curl http://localhost:3001/.well-known/oauth-protected-resource`
+6. [ ] Connect from Claude Code: add `"url": "http://localhost:3001"` to `.mcp.json`

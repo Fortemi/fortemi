@@ -193,15 +193,15 @@ When enabling authentication on an existing deployment:
 - [ ] Distribute credentials to all clients/users
 - [ ] Test authentication with a sample request:
   ```bash
-  curl -H "Authorization: Bearer mm_at_xxxx" https://your-domain.com/api/v1/notes
+  curl -H "Authorization: Bearer mm_at_xxxx" http://localhost:3000/api/v1/notes
   ```
 
 ### Enable Authentication
 
 1. Set `REQUIRE_AUTH=true` in `.env`
 2. Restart: `docker compose -f docker-compose.bundle.yml up -d`
-3. Verify public endpoints still work: `curl https://your-domain.com/health`
-4. Verify auth is enforced: `curl https://your-domain.com/api/v1/notes` (should return 401)
+3. Verify public endpoints still work: `curl http://localhost:3000/health`
+4. Verify auth is enforced: `curl http://localhost:3000/api/v1/notes` (should return 401)
 
 ### Rollback
 

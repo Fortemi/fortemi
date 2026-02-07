@@ -173,7 +173,7 @@ Configure Claude Code or other MCP clients to connect:
 {
   "mcpServers": {
     "fortemi": {
-      "url": "https://your-domain.com/mcp"
+      "url": "http://localhost:3001"
     }
   }
 }

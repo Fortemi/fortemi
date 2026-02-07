@@ -667,22 +667,16 @@ This sets both:
 
 Without this, OAuth metadata will advertise `localhost` URLs, causing authentication failures.
 
-### Critical: MCP OAuth Client Credentials
+### MCP OAuth Credentials (Auto-Managed)
 
-The MCP server needs OAuth client credentials to introspect incoming bearer tokens:
+The MCP server needs OAuth client credentials to introspect incoming bearer tokens. **These are managed automatically** by the Docker bundle entrypoint:
 
-```bash
-# Register an OAuth client for MCP token introspection
-curl -X POST https://your-domain.com/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+1. On startup, the entrypoint waits for the API to be healthy
+2. If no valid credentials exist, it registers a new OAuth client automatically
+3. Credentials are persisted on the database volume (`$PGDATA/.fortemi-mcp-credentials`)
+4. On subsequent restarts, persisted credentials are loaded and validated
 
-# Add the returned credentials to .env
-MCP_CLIENT_ID=mm_xxxxx
-MCP_CLIENT_SECRET=xxxxx
-```
-
-Without `MCP_CLIENT_ID` and `MCP_CLIENT_SECRET`, the MCP server cannot validate OAuth tokens and will reject all authenticated requests.
+No manual configuration of `MCP_CLIENT_ID` or `MCP_CLIENT_SECRET` is needed. For manual override or advanced credential management, see the [MCP Deployment Guide](../docs/content/mcp-deployment.md).
 
 ### Nginx Configuration
 
@@ -734,8 +728,8 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
-| `MCP_CLIENT_ID` | - | OAuth client ID for token introspection |
-| `MCP_CLIENT_SECRET` | - | OAuth client secret for token introspection |
+| `MCP_CLIENT_ID` | (auto) | OAuth client ID for token introspection (auto-managed) |
+| `MCP_CLIENT_SECRET` | (auto) | OAuth client secret for token introspection (auto-managed) |
 
 ## Troubleshooting
 

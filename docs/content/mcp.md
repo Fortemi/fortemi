@@ -2,6 +2,61 @@
 
 Complete documentation for the Model Context Protocol (MCP) server that provides AI agent access to Fortémi.
 
+## Connecting to Fortémi
+
+### Remote Access (Recommended)
+
+Add this to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "fortemi": {
+      "url": "http://localhost:3001"
+    }
+  }
+}
+```
+
+On first connection, your MCP client will perform an OAuth2 authentication flow. No manual credential setup is needed — the server handles credential management automatically.
+
+**Requirements:**
+- `ISSUER_URL` must be set in your `.env` (e.g., `http://localhost:3000`)
+- For remote access, configure nginx to proxy `/mcp` to port 3001
+
+### Local Access (Development)
+
+For local development with the source code:
+
+```json
+{
+  "mcpServers": {
+    "fortemi": {
+      "command": "node",
+      "args": ["./mcp-server/index.js"],
+      "env": {
+        "FORTEMI_URL": "http://localhost:3000"
+      }
+    }
+  }
+}
+```
+
+Local (stdio) transport requires no authentication.
+
+### How Authentication Works
+
+The MCP server uses OAuth2 for secure access:
+
+1. Your MCP client connects and discovers the OAuth server via `.well-known` endpoints
+2. The client authenticates and receives a bearer token
+3. Every MCP request includes this token
+4. The MCP server validates the token against the API's introspection endpoint
+
+**Credentials are managed automatically.** The Docker bundle registers its own OAuth client on startup and persists the credentials. You never need to manually configure `MCP_CLIENT_ID` or `MCP_CLIENT_SECRET` unless you want explicit control.
+
+For advanced credential management, security considerations, and manual configuration, see the [MCP Deployment Guide](./mcp-deployment.md).
+
 ## Overview
 
 The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **155 tools** organized into these categories:
