@@ -61,12 +61,12 @@ mod text_search_config {
             english_count
         );
 
-        // skos_tags.rs should use 'matric_english' in at least 2 places:
-        // - search_concepts() method
-        // - list() method with query filter
+        // skos_tags.rs should use 'matric_english' in at least 1 place:
+        // - search_concepts() method (FTS via websearch_to_tsquery)
+        // Note: search_labels() uses ILIKE prefix matching (not FTS)
         assert!(
-            matric_english_count >= 2,
-            "skos_tags.rs should use 'matric_english' at least 2 times, found {}",
+            matric_english_count >= 1,
+            "skos_tags.rs should use 'matric_english' at least 1 time, found {}",
             matric_english_count
         );
     }

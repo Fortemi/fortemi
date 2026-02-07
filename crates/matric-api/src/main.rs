@@ -1879,23 +1879,16 @@ fn is_public_route(path: &str) -> bool {
 
 /// Routes that require admin scope for all methods.
 fn is_admin_route(path: &str) -> bool {
-    // Backup operations
-    if path.starts_with("/api/v1/backup/import")
-        || path.starts_with("/api/v1/backup/trigger")
-        || path.starts_with("/api/v1/backup/swap")
-    {
-        return true;
-    }
-    // Metadata update is also admin
-    if path.starts_with("/api/v1/backup/metadata/") {
-        return true;
-    }
-    // API key management
+    // NOTE: Backup and metadata routes removed from admin enforcement for
+    // pre-tenancy permissive mode. All authenticated users get full access.
+    // Scope infrastructure kept in place for future multi-tenancy.
+    // See: issues #129, #140, commit 49d9f3f
+
+    // API key management (kept as admin — security-sensitive)
     if path.starts_with("/api/v1/api-keys") && !path.ends_with("/api-keys") {
         // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/:id (revoke)
         return true;
     }
-    // Note purge: uses write scope (not admin) — destructive but confirmed via `confirm` param
     false
 }
 
@@ -2995,17 +2988,13 @@ async fn delete_note(
 /// Permanently delete a note by queuing a purge job.
 /// This triggers CASCADE DELETE on all related data.
 async fn purge_note(
-    auth: Auth,
+    _auth: Auth,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Scope enforcement: purge requires write scope (issue #121)
-    if auth.principal.is_authenticated() && !auth.principal.has_scope("write") {
-        return Err(ApiError::Forbidden(format!(
-            "Insufficient scope. Required: write, have: {}",
-            auth.principal.scope_str()
-        )));
-    }
+    // NOTE: Write scope enforcement removed for pre-tenancy permissive mode.
+    // Scope infrastructure kept in place for future multi-tenancy.
+    // See: issue #129, commit 49d9f3f
 
     // Verify note exists first
     if !state.db.notes.exists(id).await? {
@@ -3315,7 +3304,14 @@ async fn update_concept(
     Json(body): Json<matric_core::UpdateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     state.db.skos.update_concept(id, body).await?;
-    Ok(StatusCode::NO_CONTENT)
+    // Return updated concept for better REST semantics (issue #142)
+    let concept = state
+        .db
+        .skos
+        .get_concept_with_label(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Concept {id} not found after update")))?;
+    Ok(Json(concept))
 }
 
 async fn delete_concept(
@@ -4185,6 +4181,39 @@ async fn search_memories(
              start+end for temporal search, or all for combined search."
                 .to_string(),
         ));
+    }
+
+    // Validate coordinate bounds (issue #148)
+    if let Some(lat) = query.lat {
+        if !(-90.0..=90.0).contains(&lat) {
+            return Err(ApiError::BadRequest(format!(
+                "Latitude must be between -90 and 90, got {lat}"
+            )));
+        }
+    }
+    if let Some(lon) = query.lon {
+        if !(-180.0..=180.0).contains(&lon) {
+            return Err(ApiError::BadRequest(format!(
+                "Longitude must be between -180 and 180, got {lon}"
+            )));
+        }
+    }
+    if let Some(radius) = query.radius {
+        if radius <= 0.0 {
+            return Err(ApiError::BadRequest(format!(
+                "Radius must be positive, got {radius}"
+            )));
+        }
+    }
+    // Validate time range ordering
+    if has_time {
+        let start_dt = query.start.unwrap().0;
+        let end_dt = query.end.unwrap().0;
+        if end_dt < start_dt {
+            return Err(ApiError::BadRequest(
+                "End time must be >= start time".to_string(),
+            ));
+        }
     }
 
     if has_location && has_time {

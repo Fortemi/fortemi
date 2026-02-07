@@ -1519,6 +1519,10 @@ impl SkosLabelRepository for PgSkosRepository {
     }
 
     async fn search_labels(&self, query: &str, limit: i64) -> Result<Vec<SkosConceptWithLabel>> {
+        // Use ILIKE prefix matching for autocomplete (issue #132).
+        // websearch_to_tsquery doesn't support prefix matching; short inputs
+        // like "Mac" won't match "Machine Learning" via FTS stemming.
+        let like_pattern = format!("{}%", query);
         let sql = format!(
             r#"
             SELECT DISTINCT {},
@@ -1529,14 +1533,14 @@ impl SkosLabelRepository for PgSkosRepository {
             LEFT JOIN skos_concept_label l2 ON c.id = l2.concept_id
                 AND l2.label_type = 'pref_label' AND l2.language = 'en'
             LEFT JOIN skos_concept_scheme s ON c.primary_scheme_id = s.id
-            WHERE l.tsv @@ websearch_to_tsquery('matric_english', $1)
+            WHERE l.value ILIKE $1
             ORDER BY l2.value
             LIMIT $2
             "#,
             CONCEPT_COLUMNS
         );
         let rows = sqlx::query(&sql)
-            .bind(query)
+            .bind(&like_pattern)
             .bind(limit)
             .fetch_all(&self.pool)
             .await

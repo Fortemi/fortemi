@@ -105,6 +105,31 @@ async fn refresh_and_get(state: &AppState) -> ArchiveContext {
     ctx
 }
 
+/// Resolve the archive context from cache or database.
+///
+/// This is intentionally a separate function so the RwLockReadGuard is
+/// guaranteed to be dropped before the caller proceeds. In async Rust,
+/// holding an RwLock read guard across an `.await` in the same function
+/// can cause deadlocks when downstream handlers need a write lock on the
+/// same RwLock (the async generator may keep the guard alive in its state
+/// even after NLL considers it dead).
+async fn resolve_archive_context(state: &AppState) -> ArchiveContext {
+    {
+        let cache = state.default_archive_cache.read().await;
+        if let Some(ref cached) = cache.archive {
+            if !cache.is_expired() {
+                return cached.clone();
+            }
+        } else if !cache.is_expired() {
+            return ArchiveContext::default();
+        }
+        // Read lock dropped here at end of block
+    }
+
+    // Cache expired or missing — refresh with write lock
+    refresh_and_get(state).await
+}
+
 /// Archive routing middleware function.
 ///
 /// Injects an ArchiveContext into request extensions based on the default
@@ -119,26 +144,7 @@ pub async fn archive_routing_middleware(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // Read cache
-    let cache = state.default_archive_cache.read().await;
-
-    let ctx = if let Some(ref cached) = cache.archive {
-        if !cache.is_expired() {
-            // Cache hit and not expired
-            cached.clone()
-        } else {
-            // Cache expired - drop read lock and refresh
-            drop(cache);
-            refresh_and_get(&state).await
-        }
-    } else if cache.is_expired() {
-        // No cache and expired - drop read lock and refresh
-        drop(cache);
-        refresh_and_get(&state).await
-    } else {
-        // No cache but not expired yet (initial state)
-        ArchiveContext::default()
-    };
+    let ctx = resolve_archive_context(&state).await;
 
     // Inject archive context into request extensions
     req.extensions_mut().insert(ctx);

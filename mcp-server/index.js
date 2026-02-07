@@ -16,6 +16,14 @@ import os from "node:os";
 import { execSync } from "node:child_process";
 import * as DEFAULTS from "./constants/defaults.js";
 
+// Prevent unhandled errors from crashing the MCP server process (issue #131)
+process.on("uncaughtException", (err) => {
+  console.error("[mcp] Uncaught exception (process kept alive):", err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[mcp] Unhandled rejection (process kept alive):", reason);
+});
+
 const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
@@ -24,6 +32,20 @@ const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 
 // AsyncLocalStorage for per-request token context
 const tokenStorage = new AsyncLocalStorage();
+
+// Helper to read a public key file — supports both JSON keyset format (from create_keyset)
+// and raw binary format (from generate_keypair with output_dir)
+function readPublicKeyAsBase64(keyPath) {
+  const content = fs.readFileSync(keyPath, "utf8");
+  try {
+    const keyFile = JSON.parse(content);
+    if (keyFile.public_key) return keyFile.public_key; // Already base64
+  } catch {
+    // Not JSON — treat as raw binary key
+  }
+  const rawBytes = fs.readFileSync(keyPath);
+  return rawBytes.toString("base64");
+}
 
 // Helper to make API requests (uses session token in HTTP mode, API_KEY in stdio mode)
 async function apiRequest(method, path, body = null) {
@@ -49,7 +71,9 @@ async function apiRequest(method, path, body = null) {
     throw new Error(`API error ${response.status}: ${error}`);
   }
   if (response.status === 204) return null;
-  return response.json();
+  const text = await response.text();
+  if (!text || text.trim() === '') return null;
+  return JSON.parse(text);
 }
 
 /**
@@ -169,8 +193,8 @@ function createMcpServer() {
 
         case "search_memories_by_time": {
           const params = new URLSearchParams();
-          params.set("start", encodeURIComponent(args.start));
-          params.set("end", encodeURIComponent(args.end));
+          params.set("start", args.start);
+          params.set("end", args.end);
           result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
           break;
         }
@@ -180,8 +204,8 @@ function createMcpServer() {
           params.set("lat", args.lat);
           params.set("lon", args.lon);
           if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
-          params.set("start", encodeURIComponent(args.start));
-          params.set("end", encodeURIComponent(args.end));
+          params.set("start", args.start);
+          params.set("end", args.end);
           result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
           break;
         }
@@ -1067,9 +1091,8 @@ function createMcpServer() {
         }
 
         case "pke_get_address": {
-          // Read public key file and send as base64
-          const pubKeyBytes = fs.readFileSync(args.public_key_path);
-          const pubKeyB64 = pubKeyBytes.toString("base64");
+          // Read public key file — supports both JSON keyset format and raw binary
+          const pubKeyB64 = readPublicKeyAsBase64(args.public_key_path);
           const apiResult = await apiRequest("POST", "/api/v1/pke/address", {
             public_key: pubKeyB64,
           });
@@ -1081,11 +1104,8 @@ function createMcpServer() {
           // Read input file as base64
           const plainBytes = fs.readFileSync(args.input_path);
           const plainB64 = plainBytes.toString("base64");
-          // Read recipient public key files as base64
-          const recipientKeys = args.recipients.map(r => {
-            const keyBytes = fs.readFileSync(r);
-            return keyBytes.toString("base64");
-          });
+          // Read recipient public key files — supports both JSON keyset and raw binary
+          const recipientKeys = args.recipients.map(r => readPublicKeyAsBase64(r));
           const apiResult = await apiRequest("POST", "/api/v1/pke/encrypt", {
             plaintext: plainB64,
             recipients: recipientKeys,
@@ -1960,9 +1980,9 @@ Use this to find photos, documents, or other attachments that were created or ca
     inputSchema: {
       type: "object",
       properties: {
-        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)" },
-        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)" },
-        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000 },
+        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)", minimum: -90, maximum: 90 },
+        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)", minimum: -180, maximum: 180 },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, minimum: 0, exclusiveMinimum: true },
       },
       required: ["lat", "lon"],
     },
@@ -1995,9 +2015,9 @@ Use this to find content from specific events at known locations and times.`,
     inputSchema: {
       type: "object",
       properties: {
-        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)" },
-        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)" },
-        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000 },
+        lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)", minimum: -90, maximum: 90 },
+        lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)", minimum: -180, maximum: 180 },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, minimum: 0, exclusiveMinimum: true },
         start: { type: "string", description: "Start of time range (ISO 8601 format, e.g. '2024-01-15T00:00:00Z')" },
         end: { type: "string", description: "End of time range (ISO 8601 format)" },
       },
