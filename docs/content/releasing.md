@@ -181,6 +181,32 @@ sudo systemctl restart matric-api
 # Follow hotfix procedure above
 ```
 
+## Authentication Migration Guide
+
+When enabling authentication on an existing deployment:
+
+### Pre-Migration Checklist
+
+- [ ] Deploy latest version with `REQUIRE_AUTH=false` (default)
+- [ ] Register OAuth clients for all integrations: `POST /oauth/register`
+- [ ] Create API keys for CLI/automation: `POST /api/v1/api-keys`
+- [ ] Distribute credentials to all clients/users
+- [ ] Test authentication with a sample request:
+  ```bash
+  curl -H "Authorization: Bearer mm_at_xxxx" https://your-domain.com/api/v1/notes
+  ```
+
+### Enable Authentication
+
+1. Set `REQUIRE_AUTH=true` in `.env`
+2. Restart: `docker compose -f docker-compose.bundle.yml up -d`
+3. Verify public endpoints still work: `curl https://your-domain.com/health`
+4. Verify auth is enforced: `curl https://your-domain.com/api/v1/notes` (should return 401)
+
+### Rollback
+
+Set `REQUIRE_AUTH=false` in `.env` and restart to disable auth immediately.
+
 ## Automation Status
 
 Current automation (implemented):

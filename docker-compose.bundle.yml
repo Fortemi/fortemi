@@ -82,6 +82,10 @@ services:
       # ── Backup ─────────────────────────────────────────────────────────
       - BACKUP_DEST=${BACKUP_DEST:-/var/backups/matric-memory}
 
+      # ── Authentication ──────────────────────────────────────────────────
+      # Set to true to require auth on all /api/v1/* routes (default: off)
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+
       # ── OAuth ──────────────────────────────────────────────────────────
       # ISSUER_URL is REQUIRED for OAuth/MCP - set in .env
       - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
