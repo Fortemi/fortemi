@@ -21,6 +21,12 @@ fn api_base_url() -> String {
 
 /// Check if the API server is reachable. Returns false if connection fails.
 async fn api_available() -> bool {
+    // Only run external integration tests when API_BASE_URL is explicitly set.
+    // Without this guard, tests can accidentally hit stale API deployments on
+    // the CI host (port 3000) that don't have the latest code.
+    if std::env::var("API_BASE_URL").is_err() {
+        return false;
+    }
     reqwest::Client::new()
         .get(format!("{}/health", api_base_url()))
         .timeout(std::time::Duration::from_secs(2))
@@ -32,10 +38,11 @@ async fn api_available() -> bool {
 
 /// Skip test if API server is not available. These are external integration
 /// tests that require a running API server - they cannot run in CI without one.
+/// Set API_BASE_URL=http://localhost:3000 to enable these tests.
 macro_rules! require_api {
     () => {
         if !api_available().await {
-            eprintln!("Skipping: API server not available at {}", api_base_url());
+            eprintln!("Skipping: API_BASE_URL not set or server not available at {}", api_base_url());
             return;
         }
     };

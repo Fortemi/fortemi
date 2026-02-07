@@ -73,6 +73,10 @@ mod tests {
     async fn test_registry_conditional_registration() {
         let mut registry = ExtractionRegistry::new();
 
+        // Register always-available adapters
+        registry.register(Arc::new(TextNativeAdapter));
+        registry.register(Arc::new(StructuredExtractAdapter));
+
         // Only register PDF adapter if it's available
         if PdfTextAdapter.health_check().await.unwrap_or(false) {
             registry.register(Arc::new(PdfTextAdapter));
@@ -82,8 +86,8 @@ mod tests {
         // PDF may or may not be present depending on environment
         let strategies = registry.available_strategies();
         assert!(
-            !strategies.is_empty(),
-            "Registry should have at least some strategies"
+            strategies.len() >= 2,
+            "Registry should have at least TextNative and StructuredExtract"
         );
     }
 

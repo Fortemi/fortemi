@@ -10690,7 +10690,7 @@ mod tests {
     async fn test_list_webhooks_returns_all() {
         let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
         let client = reqwest::Client::new();
-        let suffix = chrono::Utc::now().timestamp_millis();
+        let suffix = Uuid::new_v4();
 
         // Create 2 webhooks
         for i in 0..2 {

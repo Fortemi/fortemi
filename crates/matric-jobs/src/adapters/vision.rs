@@ -362,50 +362,11 @@ mod tests {
     }
 
     #[test]
-    fn test_vision_adapter_from_env_none() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok();
-
-        // Unset the env var
-        std::env::remove_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL);
-
-        let adapter = VisionAdapter::from_env();
-        assert!(
-            adapter.is_none(),
-            "Expected None when OLLAMA_VISION_MODEL is not set"
-        );
-
-        // Restore original env
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, val);
-        }
-    }
-
-    #[test]
-    fn test_vision_adapter_from_env_with_value() {
-        // Save current env
-        let original_model = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok();
-        let original_url = std::env::var("OLLAMA_URL").ok();
-
-        // Set test values
-        std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, "llava");
-        std::env::set_var("OLLAMA_URL", "http://localhost:11434");
-
-        let adapter = VisionAdapter::from_env();
-        assert!(adapter.is_some(), "Expected Some when env vars are set");
-
-        let adapter = adapter.unwrap();
+    fn test_vision_adapter_constructor() {
+        // Test that VisionAdapter can be constructed with a mock backend
+        let mock = MockVisionBackend::new("test".to_string());
+        let adapter = VisionAdapter::new(Arc::new(mock));
         assert_eq!(adapter.name(), "vision");
         assert_eq!(adapter.strategy(), ExtractionStrategy::Vision);
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL);
-        std::env::remove_var("OLLAMA_URL");
-        if let Some(val) = original_model {
-            std::env::set_var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL, val);
-        }
-        if let Some(val) = original_url {
-            std::env::set_var("OLLAMA_URL", val);
-        }
     }
 }

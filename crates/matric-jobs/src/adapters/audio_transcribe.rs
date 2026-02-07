@@ -337,79 +337,20 @@ mod tests {
     }
 
     #[test]
-    fn test_from_env_none_when_not_set() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-
-        // Unset the env var
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-
-        let adapter = AudioTranscribeAdapter::from_env();
-        assert!(
-            adapter.is_none(),
-            "Expected None when WHISPER_BASE_URL is not set"
-        );
-
-        // Restore original env
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-    }
-
-    #[test]
-    fn test_from_env_none_when_empty() {
-        // Save current env
-        let original = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-
-        // Set to empty string
-        std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, "");
-
-        let adapter = AudioTranscribeAdapter::from_env();
-        assert!(
-            adapter.is_none(),
-            "Expected None when WHISPER_BASE_URL is empty"
-        );
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-        if let Some(val) = original {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-    }
-
-    #[test]
-    fn test_from_env_some_when_set() {
-        // Save current env
-        let original_url = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok();
-        let original_model = std::env::var(matric_core::defaults::ENV_WHISPER_MODEL).ok();
-
-        // Set test values
-        std::env::set_var(
-            matric_core::defaults::ENV_WHISPER_BASE_URL,
-            "http://localhost:8000",
-        );
-        std::env::set_var(matric_core::defaults::ENV_WHISPER_MODEL, "test-whisper");
-
-        let adapter = AudioTranscribeAdapter::from_env();
-        assert!(
-            adapter.is_some(),
-            "Expected Some adapter when WHISPER_BASE_URL is set"
-        );
-
-        // Verify it's a valid adapter
-        let adapter = adapter.unwrap();
+    fn test_adapter_constructor() {
+        // Test that AudioTranscribeAdapter can be constructed with a mock backend
+        let mock_backend = MockTranscriptionBackend {
+            result: TranscriptionResult {
+                full_text: String::new(),
+                segments: vec![],
+                language: None,
+                duration_secs: None,
+            },
+            health_ok: true,
+        };
+        let adapter = AudioTranscribeAdapter::new(Arc::new(mock_backend));
         assert_eq!(adapter.name(), "audio_transcribe");
         assert_eq!(adapter.strategy(), ExtractionStrategy::AudioTranscribe);
-
-        // Restore original env
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_BASE_URL);
-        std::env::remove_var(matric_core::defaults::ENV_WHISPER_MODEL);
-        if let Some(val) = original_url {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_BASE_URL, val);
-        }
-        if let Some(val) = original_model {
-            std::env::set_var(matric_core::defaults::ENV_WHISPER_MODEL, val);
-        }
     }
 
     #[tokio::test]

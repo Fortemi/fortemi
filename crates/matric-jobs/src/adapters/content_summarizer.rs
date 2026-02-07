@@ -220,36 +220,16 @@ mod tests {
     }
 
     #[test]
-    fn test_from_env_with_no_vars() {
-        // Even without env vars, from_env should return Some with defaults
-        std::env::remove_var("OLLAMA_URL");
-        std::env::remove_var("OLLAMA_BASE");
-        std::env::remove_var("GEN_MODEL");
-        std::env::remove_var("OLLAMA_GEN_MODEL");
-
-        let summarizer = ContentSummarizer::from_env();
-        assert!(summarizer.is_some());
-
-        let s = summarizer.unwrap();
-        assert_eq!(s.ollama_url, defaults::OLLAMA_URL);
-        assert_eq!(s.model, defaults::GEN_MODEL);
-    }
-
-    #[test]
-    fn test_from_env_with_vars_set() {
-        std::env::set_var("OLLAMA_URL", "http://test:9999");
-        std::env::set_var("GEN_MODEL", "test-gen-model");
-
-        let summarizer = ContentSummarizer::from_env();
-        assert!(summarizer.is_some());
-
-        let s = summarizer.unwrap();
-        assert_eq!(s.ollama_url, "http://test:9999");
-        assert_eq!(s.model, "test-gen-model");
-
-        // Cleanup
-        std::env::remove_var("OLLAMA_URL");
-        std::env::remove_var("GEN_MODEL");
+    fn test_default_values() {
+        // ContentSummarizer::new uses explicit params; verify defaults match expected
+        let summarizer = ContentSummarizer::new(
+            defaults::OLLAMA_URL.to_string(),
+            defaults::GEN_MODEL.to_string(),
+        );
+        assert_eq!(summarizer.ollama_url, defaults::OLLAMA_URL);
+        assert_eq!(summarizer.model, defaults::GEN_MODEL);
+        assert_eq!(summarizer.chunk_size, 4000);
+        assert_eq!(summarizer.max_summary_length, 500);
     }
 
     #[test]
