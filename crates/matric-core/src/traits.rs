@@ -270,6 +270,10 @@ pub trait JobRepository: Send + Sync {
     /// Claim the next pending job for processing.
     async fn claim_next(&self) -> Result<Option<Job>>;
 
+    /// Claim the next pending job whose type is in `job_types`.
+    /// An empty slice means "claim any type" (same as `claim_next`).
+    async fn claim_next_for_types(&self, job_types: &[JobType]) -> Result<Option<Job>>;
+
     /// Update job progress.
     async fn update_progress(
         &self,

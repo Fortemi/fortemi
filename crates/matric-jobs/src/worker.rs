@@ -205,8 +205,13 @@ impl JobWorker {
     async fn process_next_job(&self) -> bool {
         let start = Instant::now();
 
-        // Claim the next job from the queue
-        let job = match self.db.jobs.claim_next().await {
+        // Only claim jobs this worker has handlers for
+        let job_types: Vec<JobType> = {
+            let handlers = self.handlers.read().await;
+            handlers.keys().copied().collect()
+        };
+
+        let job = match self.db.jobs.claim_next_for_types(&job_types).await {
             Ok(Some(job)) => job,
             Ok(None) => {
                 debug!("No jobs available");

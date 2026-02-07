@@ -192,15 +192,26 @@ impl JobRepository for PgJobRepository {
     }
 
     async fn claim_next(&self) -> Result<Option<Job>> {
-        let now = Utc::now();
+        self.claim_next_for_types(&[]).await
+    }
 
-        // Use FOR UPDATE SKIP LOCKED for concurrent processing
+    async fn claim_next_for_types(&self, job_types: &[JobType]) -> Result<Option<Job>> {
+        let now = Utc::now();
+        let type_strings: Vec<String> = job_types
+            .iter()
+            .map(|jt| Self::job_type_to_str(*jt).to_string())
+            .collect();
+
+        // Use FOR UPDATE SKIP LOCKED for concurrent processing.
+        // Filter by job type BEFORE locking (proven 20x faster than lock-then-filter
+        // per graphile-worker benchmarks). Empty array = claim any type.
         let row = sqlx::query(
             "UPDATE job_queue
              SET status = 'running'::job_status, started_at = $1
              WHERE id = (
                  SELECT id FROM job_queue
                  WHERE status = 'pending'::job_status
+                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
                  ORDER BY priority DESC, created_at ASC
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -210,6 +221,7 @@ impl JobRepository for PgJobRepository {
                        created_at, started_at, completed_at",
         )
         .bind(now)
+        .bind(&type_strings)
         .fetch_optional(&self.pool)
         .await
         .map_err(Error::Database)?;
