@@ -7403,9 +7403,12 @@ if (MCP_TRANSPORT === "http") {
         return { valid: false };
       }
 
-      // Check for MCP or read scope
+      // Check for MCP scope (includes read+write) or at minimum read scope.
+      // Tokens with "mcp" scope can perform all operations.
+      // Tokens with only "read" scope can list/get but mutations will be
+      // rejected by the Fortemi API's scope enforcement.
       const scopes = (introspection.scope || "").split(" ");
-      if (!scopes.includes("mcp") && !scopes.includes("read")) {
+      if (!scopes.includes("mcp") && !scopes.includes("read") && !scopes.includes("admin")) {
         return { valid: false };
       }
 
@@ -7578,13 +7581,16 @@ if (MCP_TRANSPORT === "http") {
   });
 
   // OAuth Protected Resource Metadata (RFC 9728) - required by MCP OAuth clients
-  // Returns this MCP server as the resource, with authorization_servers pointing to main API
+  // Returns this MCP server as the resource, with authorization_servers pointing to main API.
+  // "mcp" scope is listed first — it grants read+write access for MCP operations.
+  // Clients SHOULD request "mcp" scope to enable full read/write functionality.
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
     res.json({
       resource: MCP_BASE_URL,
       authorization_servers: [process.env.ISSUER_URL || API_BASE],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["mcp", "read"],
+      scopes_supported: ["mcp"],
+      resource_documentation: "https://memory.integrolabs.net/api-docs",
     });
   });
 

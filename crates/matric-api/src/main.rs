@@ -1704,31 +1704,41 @@ async fn rate_limit_middleware(
 
 /// Authentication middleware.
 ///
-/// When `REQUIRE_AUTH` is true, rejects unauthenticated requests to protected routes
-/// with 401 Unauthorized. Public routes are always accessible.
+/// Always validates Bearer tokens when present, regardless of `REQUIRE_AUTH`.
+/// This ensures scope enforcement works for authenticated requests even when
+/// anonymous access is allowed.
+///
+/// Behavior:
+/// - Public routes: bypass all auth (health, oauth, docs, SSE/WS)
+/// - Bearer token present + valid: inject Auth with proper scope, enforce scopes
+/// - Bearer token present + invalid: always reject with 401
+/// - No token + REQUIRE_AUTH=true: reject with 401
+/// - No token + REQUIRE_AUTH=false: allow as Anonymous
+///
+/// Scope enforcement (centralized):
+/// - Mutation methods (POST/PUT/PATCH/DELETE) on non-read-only routes require "write" scope
+/// - Admin routes (backup/*, api-keys/*) require "admin" scope
 async fn auth_middleware(
     State(state): State<AppState>,
     request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    // Check if auth is required
-    let require_auth = state.require_auth;
-    if !require_auth {
+    let path = request.uri().path().to_string();
+    let method = request.method().clone();
+
+    // Public routes bypass all auth
+    if is_public_route(&path) {
         return next.run(request).await;
     }
 
-    // Check if this is a public route
-    let path = request.uri().path();
-    if is_public_route(path) {
-        return next.run(request).await;
-    }
-
-    // Extract the Authorization header
+    // Always try to parse Bearer token if present
     let auth_header = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+
+    let has_token = auth_header.is_some();
 
     let principal = match &auth_header {
         Some(header) if header.starts_with("Bearer ") => {
@@ -1769,22 +1779,83 @@ async fn auth_middleware(
         _ => None,
     };
 
+    // Handle authentication result
     match principal {
         Some(p) => {
-            // Inject auth info into request extensions for downstream handlers
+            // Valid token — enforce scope based on method and route
+            if let Some(err_response) = check_scope_enforcement(&p, &method, &path) {
+                return err_response;
+            }
+
+            // Inject auth info into request extensions
             let mut request = request;
             request.extensions_mut().insert(Auth { principal: p });
             next.run(request).await
         }
-        None => {
-            // Return 401
+        None if has_token => {
+            // Token was present but invalid — always reject
             let body = serde_json::json!({
                 "error": "unauthorized",
-                "error_description": "Authentication required. Provide a valid Bearer token."
+                "error_description": "Invalid or expired bearer token."
             });
             (StatusCode::UNAUTHORIZED, Json(body)).into_response()
         }
+        None => {
+            // No token provided
+            if state.require_auth {
+                let body = serde_json::json!({
+                    "error": "unauthorized",
+                    "error_description": "Authentication required. Provide a valid Bearer token."
+                });
+                (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+            } else {
+                // Anonymous access allowed — inject Anonymous principal
+                let mut request = request;
+                request
+                    .extensions_mut()
+                    .insert(Auth { principal: AuthPrincipal::Anonymous });
+                next.run(request).await
+            }
+        }
     }
+}
+
+/// Check scope enforcement for authenticated requests.
+///
+/// Returns Some(Response) if the request should be rejected, None if allowed.
+fn check_scope_enforcement(
+    principal: &AuthPrincipal,
+    method: &axum::http::Method,
+    path: &str,
+) -> Option<axum::response::Response> {
+    // Admin routes require admin scope
+    if is_admin_route(path) && !principal.has_scope("admin") {
+        let body = serde_json::json!({
+            "error": "forbidden",
+            "error_description": format!(
+                "Insufficient scope. Required: admin, have: {}",
+                principal.scope_str()
+            )
+        });
+        return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
+    }
+
+    // Mutation methods require write scope (except read-only POST routes)
+    if is_mutation_method(method)
+        && !is_readonly_post_route(path)
+        && !principal.has_scope("write")
+    {
+        let body = serde_json::json!({
+            "error": "forbidden",
+            "error_description": format!(
+                "Insufficient scope. Required: write, have: {}",
+                principal.scope_str()
+            )
+        });
+        return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
+    }
+
+    None
 }
 
 /// Check if a route is public (accessible without authentication).
@@ -1803,6 +1874,60 @@ fn is_public_route(path: &str) -> bool {
     }
     // SSE and WebSocket endpoints (they have their own auth)
     if path == "/api/v1/events" || path == "/api/v1/ws" {
+        return true;
+    }
+    false
+}
+
+/// Check if an HTTP method is a mutation (write) method.
+fn is_mutation_method(method: &axum::http::Method) -> bool {
+    matches!(
+        *method,
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
+    )
+}
+
+/// POST routes that are read-only (don't require write scope).
+fn is_readonly_post_route(path: &str) -> bool {
+    // Search endpoints
+    if path == "/api/v1/search" || path == "/api/v1/search/semantic" {
+        return true;
+    }
+    // Document type detection (read-only analysis)
+    if path == "/api/v1/document-types/detect" {
+        return true;
+    }
+    // PKE address lookup and recipient lookup
+    if path == "/api/v1/pke/address" || path == "/api/v1/pke/recipients" {
+        return true;
+    }
+    // OAuth token/register/introspect are already public routes
+    false
+}
+
+/// Routes that require admin scope for all methods.
+fn is_admin_route(path: &str) -> bool {
+    // Backup operations
+    if path.starts_with("/api/v1/backup/import")
+        || path.starts_with("/api/v1/backup/trigger")
+        || path.starts_with("/api/v1/backup/swap")
+    {
+        return true;
+    }
+    // Metadata update is also admin
+    if path.starts_with("/api/v1/backup/metadata/") {
+        return true;
+    }
+    // API key management
+    if path.starts_with("/api/v1/api-keys") && !path.ends_with("/api-keys") {
+        // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/:id (revoke)
+        return true;
+    }
+    // Note purge
+    if path.ends_with("/purge") && path.starts_with("/api/v1/notes/") {
         return true;
     }
     false
@@ -5857,60 +5982,23 @@ impl FromRequestParts<AppState> for Auth {
 
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &AppState,
+        _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // Get Authorization header
-        let auth_header = parts
-            .headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok());
+        // Read Auth from extensions (injected by auth_middleware).
+        // The middleware always runs before handlers and sets Auth for all cases:
+        // - Valid token → OAuthClient or ApiKey principal
+        // - Invalid token → request rejected before reaching handler
+        // - No token + REQUIRE_AUTH=true → request rejected before reaching handler
+        // - No token + REQUIRE_AUTH=false → Anonymous principal
+        if let Some(auth) = parts.extensions.get::<Auth>() {
+            return Ok(auth.clone());
+        }
 
-        let principal = match auth_header {
-            Some(header) if header.starts_with("Bearer ") => {
-                let token = header.trim_start_matches("Bearer ").trim();
-
-                // Try to validate as OAuth access token with sliding window refresh
-                if token.starts_with("mm_at_") {
-                    // Determine token lifetime based on scope
-                    // We'll use validate_access_token first to get the scope, then extend if needed
-                    match state.db.oauth.validate_access_token(token).await {
-                        Ok(Some(oauth_token)) => {
-                            // Extend token expiry on each use (sliding window)
-                            let lifetime = token_lifetime_for_scope(&oauth_token.scope);
-                            let _ = state
-                                .db
-                                .oauth
-                                .validate_and_extend_token(token, lifetime)
-                                .await;
-
-                            AuthPrincipal::OAuthClient {
-                                client_id: oauth_token.client_id,
-                                scope: oauth_token.scope,
-                                user_id: oauth_token.user_id,
-                            }
-                        }
-                        _ => AuthPrincipal::Anonymous,
-                    }
-                }
-                // Try to validate as API key
-                else if token.starts_with("mm_key_") {
-                    match state.db.oauth.validate_api_key(token).await {
-                        Ok(Some(api_key)) => AuthPrincipal::ApiKey {
-                            key_id: api_key.id,
-                            scope: api_key.scope,
-                        },
-                        _ => AuthPrincipal::Anonymous,
-                    }
-                }
-                // Unknown token format
-                else {
-                    AuthPrincipal::Anonymous
-                }
-            }
-            _ => AuthPrincipal::Anonymous,
-        };
-
-        Ok(Auth { principal })
+        // Fallback: middleware didn't run (e.g., in tests without middleware layer).
+        // Default to Anonymous.
+        Ok(Auth {
+            principal: AuthPrincipal::Anonymous,
+        })
     }
 }
 

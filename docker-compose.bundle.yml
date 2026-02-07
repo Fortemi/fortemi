@@ -83,10 +83,6 @@ services:
       # ── Backup ─────────────────────────────────────────────────────────
       - BACKUP_DEST=${BACKUP_DEST:-/var/backups/matric-memory}
 
-      # ── Authentication ──────────────────────────────────────────────────
-      # Set to true to require auth on all /api/v1/* routes (default: off)
-      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
-
       # ── OAuth ──────────────────────────────────────────────────────────
       # ISSUER_URL is REQUIRED for OAuth/MCP - set in .env
       - ISSUER_URL=${ISSUER_URL:-https://localhost:3000}
@@ -95,6 +91,8 @@ services:
       - MCP_TRANSPORT=http
       - MCP_PORT=3001
       - MCP_BASE_URL=${MCP_BASE_URL:-${ISSUER_URL:-https://localhost:3000}/mcp}
+      # Internal API URL for MCP→API calls (avoids nginx hairpin)
+      - FORTEMI_URL=${FORTEMI_URL:-http://localhost:3000}
       # MCP OAuth client credentials - register via POST /oauth/register
       - MCP_CLIENT_ID=${MCP_CLIENT_ID}
       - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}
