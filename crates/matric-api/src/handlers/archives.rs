@@ -211,6 +211,20 @@ pub async fn delete_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    // Guard: cannot delete the default archive (fixes #240)
+    let archive = state
+        .db
+        .archives
+        .get_archive_by_name(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Archive not found: {}", name)))?;
+
+    if archive.is_default {
+        return Err(ApiError::BadRequest(
+            "Cannot delete the default archive. Set another archive as default first.".into(),
+        ));
+    }
+
     state.db.archives.drop_archive_schema(&name).await?;
     Ok(StatusCode::NO_CONTENT)
 }

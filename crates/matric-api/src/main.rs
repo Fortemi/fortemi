@@ -1009,6 +1009,7 @@ async fn main() -> anyhow::Result<()> {
                 .delete(delete_collection),
         )
         .route("/api/v1/collections/:id/notes", get(get_collection_notes))
+        .route("/api/v1/collections/:id/export", get(export_collection))
         .route("/api/v1/notes/:id/move", post(move_note_to_collection))
         // Embedding sets
         .route(
@@ -1781,20 +1782,31 @@ async fn rate_limit_middleware(
 // CACHE CONTROL MIDDLEWARE (fixes #211)
 // =============================================================================
 
-/// Sets HTTP Cache-Control headers based on request method and path.
+/// Sets HTTP Cache-Control and ETag headers based on request method and path.
 ///
-/// Policy:
+/// Cache-Control policy:
 /// - Mutation requests (POST/PUT/PATCH/DELETE): `no-store`
 /// - Stable reference data (document-types, concepts/schemes): `public, max-age=300`
 /// - Single-resource GETs with ID: `private, no-cache` (allows conditional caching)
 /// - List/search endpoints: `private, no-cache`
 /// - Health endpoints: `no-cache, max-age=0`
+///
+/// ETag support:
+/// - GET responses on /api/v1/ get a weak ETag derived from response body hash
+/// - If-None-Match requests return 304 Not Modified when ETag matches
 async fn cache_control_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    use axum::body::Body;
+
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    let if_none_match = request
+        .headers()
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     let mut response = next.run(request).await;
 
@@ -1803,7 +1815,9 @@ async fn cache_control_middleware(
         return response;
     }
 
-    let cache_value = if method != Method::GET && method != Method::HEAD {
+    let is_get = method == Method::GET || method == Method::HEAD;
+
+    let cache_value = if !is_get {
         // Mutations must never be cached
         "no-store"
     } else if path.starts_with("/api/v1/document-types")
@@ -1833,7 +1847,46 @@ async fn cache_control_middleware(
             .append(header::VARY, "X-Fortemi-Memory".parse().unwrap());
     }
 
-    response
+    // ETag support for successful GET responses on API paths
+    if is_get && path.starts_with("/api/v1/") && response.status().is_success() {
+        // Collect body bytes to compute hash
+        let (parts, body) = response.into_parts();
+        if let Ok(bytes) = axum::body::to_bytes(body, 2 * 1024 * 1024).await {
+            // Compute weak ETag from FNV-1a hash of body
+            let hash = bytes.iter().fold(0xcbf29ce484222325u64, |h, &b| {
+                (h ^ b as u64).wrapping_mul(0x100000001b3)
+            });
+            let etag = format!("W/\"{:x}\"", hash);
+
+            // Check If-None-Match
+            if let Some(client_etag) = if_none_match {
+                if client_etag.contains(&etag) || client_etag.trim() == etag {
+                    let mut not_modified = axum::response::Response::new(Body::empty());
+                    *not_modified.status_mut() = StatusCode::NOT_MODIFIED;
+                    not_modified
+                        .headers_mut()
+                        .insert(header::ETAG, etag.parse().unwrap());
+                    // Preserve cache headers
+                    for (k, v) in parts.headers.iter() {
+                        if k == header::CACHE_CONTROL || k == header::VARY {
+                            not_modified.headers_mut().insert(k.clone(), v.clone());
+                        }
+                    }
+                    return not_modified;
+                }
+            }
+
+            let mut response = axum::response::Response::from_parts(parts, Body::from(bytes));
+            response
+                .headers_mut()
+                .insert(header::ETAG, etag.parse().unwrap());
+            return response;
+        }
+        // If body collection fails (too large), return without ETag
+        axum::response::Response::from_parts(parts, Body::empty())
+    } else {
+        response
+    }
 }
 
 // =============================================================================
@@ -3178,6 +3231,8 @@ struct UpdateNoteBody {
     #[serde(default)]
     revision_mode: Option<String>,
     metadata: Option<serde_json::Value>,
+    /// Replace all tags on this note (full replacement, not merge)
+    tags: Option<Vec<String>>,
 }
 
 async fn update_note(
@@ -3211,6 +3266,25 @@ async fn update_note(
         let notes = matric_db::PgNoteRepository::new(pool.clone());
         ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
             .await?;
+    }
+
+    // Update tags if provided (#226)
+    if let Some(tags) = body.tags {
+        // Validate tags
+        for tag in &tags {
+            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+                return Err(ApiError::BadRequest(format!(
+                    "Tag '{}...' exceeds {} character limit",
+                    &tag[..50.min(tag.len())],
+                    matric_core::defaults::TAG_NAME_MAX_LENGTH
+                )));
+            }
+        }
+        let repo = matric_db::PgTagRepository::new(pool.clone());
+        ctx.execute(move |tx| {
+            Box::pin(async move { repo.set_for_note_tx(tx, id, tags, "api").await })
+        })
+        .await?;
     }
 
     // Queue full NLP pipeline if content changed
@@ -4614,6 +4688,91 @@ async fn get_collection_notes(
     ))
 }
 
+/// Export all notes in a collection as markdown with YAML frontmatter.
+async fn export_collection(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(collection_id): Path<Uuid>,
+    Query(query): Query<ExportQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Fetch all notes in this collection
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let notes_in_collection = ctx
+        .query(move |tx| {
+            Box::pin(async move { repo.get_notes_tx(tx, collection_id, 10000, 0).await })
+        })
+        .await?;
+
+    let mut output = String::new();
+
+    for note_summary in &notes_in_collection {
+        let note_id = note_summary.id;
+        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let tag_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+        let result = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    let note = notes.fetch_tx(tx, note_id).await?;
+                    let tags = tag_repo.get_for_note_tx(tx, note_id).await?;
+                    Ok((note, tags))
+                })
+            })
+            .await;
+
+        if let Ok((note_full, tags)) = result {
+            // Add YAML frontmatter
+            if query.include_frontmatter {
+                output.push_str("---\n");
+                output.push_str(&format!("id: {}\n", note_full.note.id));
+                if let Some(ref title) = note_full.note.title {
+                    let escaped_title = title.replace('\"', "\\\"");
+                    output.push_str(&format!("title: \"{}\"\n", escaped_title));
+                }
+                output.push_str(&format!(
+                    "created: {}\n",
+                    note_full.note.created_at_utc.to_rfc3339()
+                ));
+                output.push_str(&format!(
+                    "updated: {}\n",
+                    note_full.note.updated_at_utc.to_rfc3339()
+                ));
+                if !tags.is_empty() {
+                    output.push_str("tags:\n");
+                    for tag in &tags {
+                        output.push_str(&format!("  - {}\n", tag));
+                    }
+                }
+                output.push_str("---\n\n");
+            }
+
+            let use_original = query.content.as_deref() == Some("original");
+            let content = if use_original || note_full.revised.content.is_empty() {
+                &note_full.original.content
+            } else {
+                &note_full.revised.content
+            };
+            output.push_str(content);
+            output.push_str("\n\n---\n\n"); // separator between notes
+        }
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "text/markdown; charset=utf-8".parse().unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"collection-{}.md\"", collection_id)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((StatusCode::OK, headers, output))
+}
+
 #[derive(Debug, Deserialize)]
 struct MoveNoteBody {
     collection_id: Option<Uuid>,
@@ -5747,19 +5906,16 @@ async fn federated_search(
             SELECT
                 n.id AS note_id,
                 ts_rank_cd(nrc.tsv, websearch_to_tsquery('english', $1)) AS score,
-                ts_headline('english', n.content, websearch_to_tsquery('english', $1),
-                    'MaxFragments=1,MaxWords=30,MinWords=10') AS snippet,
+                substring(nrc.content for 200) AS snippet,
                 n.title,
                 COALESCE(
-                    array_agg(DISTINCT nt.tag) FILTER (WHERE nt.tag IS NOT NULL),
-                    '{}'
+                    (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                    ''
                 ) AS tags
-            FROM note n
-            JOIN note_revised_current nrc ON nrc.note_id = n.id
-            LEFT JOIN note_tag nt ON nt.note_id = n.id
-            WHERE n.soft_deleted = false
+            FROM note_revised_current nrc
+            JOIN note n ON n.id = nrc.note_id
+            WHERE n.deleted_at IS NULL
                 AND nrc.tsv @@ websearch_to_tsquery('english', $1)
-            GROUP BY n.id, n.title, n.content, nrc.tsv
             ORDER BY score DESC
             LIMIT $2
             "#,
@@ -5776,12 +5932,18 @@ async fn federated_search(
         drop(tx);
 
         for row in rows {
+            let tags_str: String = row.get("tags");
+            let tags = if tags_str.is_empty() {
+                Vec::new()
+            } else {
+                tags_str.split(',').map(|s| s.trim().to_string()).collect()
+            };
             all_results.push(FederatedSearchHit {
                 note_id: row.get("note_id"),
                 score: row.get("score"),
                 snippet: row.get("snippet"),
                 title: row.get("title"),
-                tags: row.get("tags"),
+                tags,
                 memory: memory_name.clone(),
             });
         }
@@ -9021,6 +9183,16 @@ async fn upload_attachment(
         .decode(&body.data)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
+    // Validate file safety — block executables and dangerous file types (fixes #241)
+    let validation = matric_core::validate_file(&body.filename, &data, 50 * 1024 * 1024);
+    if !validation.allowed {
+        return Err(ApiError::BadRequest(
+            validation
+                .block_reason
+                .unwrap_or_else(|| "File blocked by safety policy".to_string()),
+        ));
+    }
+
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
 
@@ -9117,6 +9289,16 @@ async fn upload_attachment_multipart(
     let content_type = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
     let data = data
         .ok_or_else(|| ApiError::BadRequest("Missing file data in multipart form".to_string()))?;
+
+    // Validate file safety — block executables and dangerous file types (fixes #241)
+    let validation = matric_core::validate_file(&filename, &data, 50 * 1024 * 1024);
+    if !validation.allowed {
+        return Err(ApiError::BadRequest(
+            validation
+                .block_reason
+                .unwrap_or_else(|| "File blocked by safety policy".to_string()),
+        ));
+    }
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;

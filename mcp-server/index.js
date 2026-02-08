@@ -81,6 +81,14 @@ async function apiRequest(method, path, body = null) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const error = await response.text();
+    // Surface token expiry clearly so MCP clients can re-authenticate (fixes #239)
+    if (response.status === 401) {
+      throw new Error(
+        "MCP server requires re-authorization (token expired). " +
+        "Please obtain a new access token and reconnect. " +
+        `Details: ${error}`
+      );
+    }
     throw new Error(`API error ${response.status}: ${error}`);
   }
   if (response.status === 204) return null;
@@ -1137,6 +1145,7 @@ function createMcpServer() {
           result = {
             address: apiResult.address,
             public_key: apiResult.public_key,
+            encrypted_private_key: apiResult.encrypted_private_key,
             label: apiResult.label,
             output_dir: args.output_dir || null,
           };
@@ -1910,17 +1919,27 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments`;
-          const bodyTemplate = { filename: args.filename, content_type: args.content_type };
-          if (args.document_type_id) bodyTemplate.document_type_id = args.document_type_id;
-
-          result = {
-            upload_url: uploadUrl,
-            method: "POST",
-            body_template: { ...bodyTemplate, data: "<base64-encoded-file-content>" },
-            curl_command: `curl -X POST "${uploadUrl}" \\\n  -H "Content-Type: application/json" \\\n  -d "$(jq -n --arg data \\"$(base64 -w0 ${args.filename})\\" '${JSON.stringify(bodyTemplate)} + {data: $data}')"`,
-            instructions: "Base64-encode your file and include it as the 'data' field in the JSON body. Use the curl_command above or adapt for your HTTP client.",
-          };
+          if (args.data) {
+            // Direct upload: POST base64 data to the API
+            const uploadBody = {
+              filename: args.filename,
+              content_type: args.content_type,
+              data: args.data,
+            };
+            if (args.document_type_id) uploadBody.document_type_id = args.document_type_id;
+            result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
+          } else {
+            // Template mode: return endpoint info for manual upload
+            const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments`;
+            const bodyTemplate = { filename: args.filename, content_type: args.content_type };
+            if (args.document_type_id) bodyTemplate.document_type_id = args.document_type_id;
+            result = {
+              upload_url: uploadUrl,
+              method: "POST",
+              body_template: { ...bodyTemplate, data: "<base64-encoded-file-content>" },
+              instructions: "Provide 'data' parameter with base64-encoded file content for direct upload, or use the upload_url with an HTTP client.",
+            };
+          }
           break;
         }
 

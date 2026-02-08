@@ -256,8 +256,11 @@ pub const OAUTH_DEFAULT_SCOPE: &str = "read";
 /// Default OAuth access token lifetime in seconds (1 hour).
 pub const OAUTH_TOKEN_LIFETIME_SECS: u64 = 3600;
 
-/// Default MCP OAuth access token lifetime in seconds (4 hours).
-pub const OAUTH_MCP_TOKEN_LIFETIME_SECS: u64 = 14400;
+/// Default MCP OAuth access token lifetime in seconds (24 hours).
+/// MCP sessions are long-lived interactive sessions. Combined with the sliding
+/// window refresh (extends expiry on each authenticated request), this ensures
+/// sessions stay alive as long as there's activity within 24 hours.
+pub const OAUTH_MCP_TOKEN_LIFETIME_SECS: u64 = 86400;
 
 // =============================================================================
 // VERSIONING

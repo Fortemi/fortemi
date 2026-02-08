@@ -681,12 +681,12 @@ impl PgOAuthRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Create a new token pair with same lifetime as original
-        // MCP clients (scope contains "mcp") get 4 hours, others get 1 hour
+        // Create a new token pair using configurable defaults
+        // MCP clients (scope contains "mcp") get 24 hours, others get 1 hour
         let lifetime = if scope.contains("mcp") {
-            Duration::hours(4)
+            Duration::seconds(matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64)
         } else {
-            Duration::hours(1)
+            Duration::seconds(matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64)
         };
         self.create_token_with_lifetime(client_id, &scope, user_id.as_deref(), true, lifetime)
             .await

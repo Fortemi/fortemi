@@ -359,6 +359,9 @@ impl HybridSearchEngine {
     }
 
     /// Perform FTS search with the appropriate strategy.
+    ///
+    /// Applies strict_filter for all strategies: English FTS uses server-side SQL
+    /// filtering; non-English strategies use post-filtering (fixes #235, #236).
     async fn fts_search_with_strategy(
         &self,
         query: &str,
@@ -366,7 +369,7 @@ impl HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<SearchHit>> {
-        match strategy {
+        let mut results = match strategy {
             SearchStrategy::FtsEnglish => {
                 if let Some(ref strict_filter) = config.strict_filter {
                     self.db
@@ -377,39 +380,101 @@ impl HybridSearchEngine {
                             limit,
                             config.exclude_archived,
                         )
-                        .await
+                        .await?
                 } else {
                     self.db
                         .search
                         .search(query, limit, config.exclude_archived)
-                        .await
+                        .await?
                 }
             }
             SearchStrategy::FtsSimple => {
                 self.db
                     .search
                     .search_simple(query, limit, config.exclude_archived)
-                    .await
+                    .await?
             }
             SearchStrategy::Trigram => {
                 self.db
                     .search
                     .search_trigram(query, limit, config.exclude_archived)
-                    .await
+                    .await?
             }
             SearchStrategy::Bigram => {
                 self.db
                     .search
                     .search_bigram(query, limit, config.exclude_archived)
-                    .await
+                    .await?
             }
             SearchStrategy::Cjk => {
                 self.db
                     .search
                     .search_cjk(query, limit, config.exclude_archived)
-                    .await
+                    .await?
+            }
+        };
+
+        // Post-filter by strict_filter for non-English strategies (fixes #236).
+        // English FTS handles this server-side via search_with_strict_filter.
+        if strategy != SearchStrategy::FtsEnglish {
+            if let Some(ref strict_filter) = config.strict_filter {
+                if strict_filter.match_none {
+                    return Ok(Vec::new());
+                }
+                if !strict_filter.is_empty() {
+                    let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
+                    if !note_ids.is_empty() {
+                        let matching = self
+                            .filter_notes_by_strict_filter(&note_ids, strict_filter)
+                            .await?;
+                        results.retain(|hit| matching.contains(&hit.note_id));
+                    }
+                }
             }
         }
+
+        Ok(results)
+    }
+
+    /// Post-filter a set of note IDs by strict tag filter (fixes #235, #236).
+    ///
+    /// Used for non-English FTS strategies and the search_filtered path where
+    /// strict_filter cannot be applied server-side in the FTS query.
+    async fn filter_notes_by_strict_filter(
+        &self,
+        note_ids: &[Uuid],
+        filter: &matric_core::StrictTagFilter,
+    ) -> Result<std::collections::HashSet<Uuid>> {
+        use matric_db::strict_filter::StrictFilterQueryBuilder;
+
+        let builder = StrictFilterQueryBuilder::new(filter.clone(), 1);
+        let (filter_clause, filter_params) = builder.build();
+
+        let sql = format!(
+            "SELECT n.id FROM note n WHERE n.id = ANY($1::uuid[]) AND {}",
+            filter_clause
+        );
+
+        let mut q = sqlx::query_scalar::<_, Uuid>(&sql);
+        q = q.bind(note_ids);
+
+        for param in &filter_params {
+            q = match param {
+                matric_db::strict_filter::QueryParam::Uuid(id) => q.bind(id),
+                matric_db::strict_filter::QueryParam::UuidArray(ids) => q.bind(ids),
+                matric_db::strict_filter::QueryParam::Int(val) => q.bind(val),
+                matric_db::strict_filter::QueryParam::Timestamp(ts) => q.bind(ts),
+                matric_db::strict_filter::QueryParam::Bool(b) => q.bind(b),
+                matric_db::strict_filter::QueryParam::String(s) => q.bind(s),
+                matric_db::strict_filter::QueryParam::StringArray(arr) => q.bind(arr),
+            };
+        }
+
+        let ids = q
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(matric_core::Error::Database)?;
+        Ok(ids.into_iter().collect())
     }
 }
 
@@ -567,11 +632,33 @@ impl HybridSearch for HybridSearchEngine {
 
         // FTS search with filters
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
-            let fts_results = self
+            let mut fts_results = self
                 .db
                 .search
                 .search_filtered(query, filters, limit * 2, config.exclude_archived)
                 .await?;
+
+            // Apply strict_filter post-filtering (fixes #235 — search_filtered path)
+            if let Some(ref strict_filter) = config.strict_filter {
+                if strict_filter.match_none {
+                    fts_results.clear();
+                } else if !strict_filter.is_empty() {
+                    let note_ids: Vec<Uuid> = fts_results.iter().map(|h| h.note_id).collect();
+                    if !note_ids.is_empty() {
+                        let matching = self
+                            .filter_notes_by_strict_filter(&note_ids, strict_filter)
+                            .await?;
+                        fts_results.retain(|hit| matching.contains(&hit.note_id));
+                    }
+                }
+            }
+
+            // Filter FTS results to embedding set members (fixes #237)
+            if let Some(set_id) = config.embedding_set_id {
+                let member_ids = self.get_set_member_ids(set_id).await?;
+                fts_results.retain(|hit| member_ids.contains(&hit.note_id));
+            }
+
             debug!(fts_hits = fts_results.len(), "FTS filtered retrieval");
 
             if !fts_results.is_empty() {
