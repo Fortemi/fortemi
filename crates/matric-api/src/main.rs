@@ -9707,13 +9707,60 @@ async fn database_backup_restore(
 
         use std::io::Write;
         if let Some(mut stdin) = child.stdin.take() {
-            // First drop all tables in a transaction-safe way
+            // First drop all user tables and types for a clean restore.
+            // Extension-owned tables (e.g. spatial_ref_sys from PostGIS) must be
+            // excluded — they cannot be dropped without dropping the extension itself,
+            // and the dump will skip them via CREATE EXTENSION IF NOT EXISTS.
             let drop_script = r#"
+-- Drop all user tables (exclude extension-owned like spatial_ref_sys)
 DO $$ DECLARE
     r RECORD;
 BEGIN
-    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+    FOR r IN (
+        SELECT c.relname AS tablename
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.objid = c.oid AND d.deptype = 'e'
+          )
+    ) LOOP
+        EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END $$;
+
+-- Drop all custom enum types so the dump can recreate them
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT t.typname
+        FROM pg_type t
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'public' AND t.typtype = 'e'
+    ) LOOP
+        EXECUTE 'DROP TYPE IF EXISTS public.' || quote_ident(r.typname) || ' CASCADE';
+    END LOOP;
+END $$;
+
+-- Drop all user-defined functions so the dump can recreate them
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT p.oid, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.objid = p.oid AND d.deptype = 'e'
+          )
+    ) LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS public.' || quote_ident(r.proname)
+                || '(' || r.args || ') CASCADE';
     END LOOP;
 END $$;
 "#;
