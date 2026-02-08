@@ -85,6 +85,19 @@ The MCP server enables AI assistants (Claude, etc.) to interact with your knowle
 | System | 3 | Health check and diagnostics |
 | Export | 1 | SKOS Turtle RDF export |
 
+### Memory-Scoped Operations
+
+All MCP tools operate within the context of the **active memory**. Use `select_memory` to switch memories:
+
+1. `select_memory({ name: "work-2026" })` - Sets active memory for the session
+2. All subsequent tool calls (create_note, search_notes, list_tags, etc.) operate on `work-2026`
+3. `get_active_memory()` - Check which memory is active
+4. Omitting `select_memory` = operations target the default memory
+
+**Important:** Search operations (`search_notes`, `search_with_dedup`) currently only work in the default (public) archive. Non-default archives return an error.
+
+Memory management tools (`list_archives`, `create_archive`, `delete_archive`, `get_archive`, `update_archive`, `set_default_archive`, `get_archive_stats`, `clone_memory`, `select_memory`, `get_active_memory`, `get_memories_overview`, `search_memories_federated`) are NOT memory-scoped - they operate on the global archive registry.
+
 ### Tool Categories by Permission
 
 Tools are categorized by their effect on system state to help you understand permission requirements in restricted environments.
@@ -1125,14 +1138,19 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 
 | Tool | Description |
 |------|-------------|
-| `list_archives` | List all memory archives with metadata |
-| `create_archive` | Create new memory archive |
+| `list_archives` / `list_memories` | List all memory archives with metadata |
+| `create_archive` / `create_memory` | Create new memory archive |
 | `get_archive` | Get memory archive details |
 | `update_archive` | Update memory archive metadata |
-| `delete_archive` | Delete memory archive and all data |
+| `delete_archive` / `delete_memory` | Delete memory archive and all data |
 | `set_default_archive` | Set the default memory archive |
 | `get_archive_stats` | Get memory archive statistics |
+| `clone_memory` | Clone existing memory with all data |
+| `select_memory` | Set active memory for MCP session |
+| `get_active_memory` | Get currently active memory name |
 | `get_memories_overview` | Get capacity and usage statistics across all memories |
+| `search_memories_federated` | Search across multiple memories simultaneously |
+
 
 #### Memory Switching
 

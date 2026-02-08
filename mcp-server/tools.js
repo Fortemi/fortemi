@@ -23,7 +23,7 @@ export default [
   // ============================================================================
   {
     name: "list_notes",
-    description: `List notes from the memory system.
+    description: `List notes from the active memory only.
 
 Returns note summaries with titles, snippets, tags, and metadata. Notes are returned with both their original content and AI-enhanced revisions.
 
@@ -77,7 +77,9 @@ Use this to retrieve the full context of a note for analysis or reference.`,
   },
   {
     name: "search_notes",
-    description: `Search notes using hybrid full-text and semantic search.
+    description: `Search notes using hybrid full-text and semantic search within the active memory only.
+
+**IMPORTANT**: Currently search is limited to the default (public) archive. Non-default archives return an error for search operations.
 
 Search modes:
 - 'hybrid' (default): Combines keyword matching with semantic similarity for best results
@@ -266,7 +268,9 @@ Returns the complete markdown text ready to save as a .md file.`,
   // ============================================================================
   {
     name: "create_note",
-    description: `Create a new note with FULL AI ENHANCEMENT PIPELINE.
+    description: `Create a new note in the active memory with FULL AI ENHANCEMENT PIPELINE.
+
+Use select_memory first to target a specific memory. If no memory is selected, the note is created in the default memory.
 
 This is the primary method for adding knowledge. After creation, the note automatically goes through:
 
@@ -314,9 +318,7 @@ Tags support hierarchical paths using "/" separator (max 5 levels):
 Examples:
 - ["archive"] - flat tag
 - ["programming/rust", "learning"] - mixed tags
-- ["ai/ml/deep-learning", "projects/research"] - hierarchical tags
-
-Tags are automatically converted to W3C SKOS concepts with proper broader/narrower relationships.`,
+- ["ai/ml/deep-learning", "projects/research"] - hierarchical tags`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1320,6 +1322,8 @@ FILTERS: starred_only, tags[], created_after/before (ISO 8601)`,
     name: "backup_now",
     description: `Run backup script: pg_dump → compress → ship to destinations (local/s3/rsync).
 
+Backup operations respect the active memory context.
+
 RETURNS: {status, output, timestamp} - Check output for success/failure details.
 
 USE WHEN: Need automated backup with compression and remote shipping.
@@ -1359,7 +1363,9 @@ NEXT: list_backups for full file listing, memory_info for storage breakdown.`,
   },
   {
     name: "backup_download",
-    description: `Same as export_all_notes but with download headers. Use for file saving.
+    description: `Same as export_all_notes but with download headers. Respects the active memory context.
+
+Use for file saving.
 
 USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.gz format.`,
     inputSchema: {
@@ -1430,7 +1436,9 @@ TIP: Use dry_run=true first to validate.`,
   },
   {
     name: "knowledge_shard",
-    description: `Create knowledge shard and save to disk as .tar.gz file.
+    description: `Create knowledge shard and save to disk as .tar.gz file from the active memory.
+
+Backup operations respect the active memory context.
 
 Saves to output_dir (defaults to system temp directory). Returns the file path.
 
@@ -1456,14 +1464,11 @@ RESTORE: knowledge_shard_import with the saved file path`,
   },
   {
     name: "knowledge_shard_import",
-    description: `Import knowledge shard from a .tar.gz file on disk.
+    description: `Import knowledge shard from a .tar.gz file on disk into the active memory.
 
-RETURNS: {status, manifest, imported{}, skipped{}, errors[]}
-CONFLICTS: "skip" | "replace" | "merge"
+Backup operations respect the active memory context.
 
-USE WHEN: Restore from knowledge shard created by knowledge_shard tool.
-USE INSTEAD: backup_import for JSON, database_restore for pg_dump.
-TIP: dry_run=true first, skip_embedding_regen=true if shard has embeddings.`,
+RETURNS: {status, manifest, imported{}, skipped{}, errors[]}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -3140,7 +3145,9 @@ Combined detection (most accurate):
   // ============================================================================
   {
     name: "list_archives",
-    description: `List all memory archives.
+    description: `List all memory archives with their names, sizes, note counts, and schema versions.
+
+Use select_memory to switch the active memory for subsequent operations.
 
 Archives provide schema-level data isolation, allowing multiple independent memory spaces within the same database.
 
@@ -3843,7 +3850,9 @@ Use for audit trails and activity dashboards.`,
   // ============================================================================
   {
     name: "list_embedding_configs",
-    description: `List all embedding model configurations.
+    description: `List all embedding model configurations (shared across all memories).
+
+Embedding configurations are memory-independent and shared system-wide.
 
 Returns available embedding models with:
 - id: Config UUID
@@ -4092,7 +4101,9 @@ Use list_concept_schemes to find available scheme_ids first.`,
   // ============================================================================
   {
     name: "select_memory",
-    description: `Set the active memory (archive) for this MCP session.
+    description: `Switch the active memory for all subsequent MCP operations in this session.
+
+All CRUD, search, tag, collection, template, versioning, and attachment operations will target the selected memory. If not called, operations target the default memory.
 
 All subsequent API calls from this session will automatically route to the selected memory using the X-Fortemi-Memory header.
 

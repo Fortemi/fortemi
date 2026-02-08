@@ -80,6 +80,7 @@ The API supports opt-in authentication via the `REQUIRE_AUTH` environment variab
 |----------|---------|-------------|
 | `REQUIRE_AUTH` | `false` | Set to `true` to require auth on all `/api/v1/*` endpoints |
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL (REQUIRED for OAuth/MCP) |
+| `MAX_MEMORIES` | `100` | Maximum number of memory archives (schema-level isolation) |
 
 When `REQUIRE_AUTH=false` (default), all endpoints are publicly accessible.
 When `REQUIRE_AUTH=true`, all `/api/v1/*` endpoints require a valid Bearer token.
@@ -273,6 +274,25 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Document Type Registry** with 131 pre-configured types
 - **Smart chunking** per document type (code uses syntactic, prose uses semantic)
 - **Auto-detection** from filename patterns and magic content
+
+### Multi-Memory Architecture
+
+Fortemi supports parallel memory archives for data isolation. Each memory operates as a separate PostgreSQL schema.
+
+**Key concepts:**
+- `X-Fortemi-Memory` HTTP header selects the target memory per request
+- Default memory maps to `public` schema (backward compatible - no header needed)
+- All 91 API handlers route through `SchemaContext` with `SET LOCAL search_path`
+- 14 shared tables (auth, jobs, config) + 41 per-memory tables (notes, tags, embeddings, etc.)
+- Archives created via `POST /api/v1/archives` with automatic schema cloning
+- Auto-migration ensures existing archives gain new tables on access
+
+**Current limitations:**
+- Search (FTS + semantic) restricted to default archive only
+- No cross-archive note linking
+- Federated search across archives is planned but not yet implemented
+
+**For agents:** See `docs/content/multi-memory-agent-guide.md` for segmentation strategies and decision framework.
 
 ### Embedding Sets
 

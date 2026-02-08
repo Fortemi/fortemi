@@ -1,8 +1,8 @@
-# Fortémi Architecture
+# Fortemi Architecture
 
 ## Overview
 
-Fortémi is an AI-enhanced knowledge management system implementing Retrieval-Augmented Generation (RAG)[^1] with hybrid search combining full-text retrieval (BM25)[^2] and dense passage retrieval[^3] via Reciprocal Rank Fusion (RRF)[^4]. The system provides automatic knowledge graph construction[^5] through semantic similarity analysis and W3C SKOS-compliant[^6] controlled vocabulary management.
+Fortemi is an AI-enhanced knowledge management system implementing Retrieval-Augmented Generation (RAG)[^1] with hybrid search combining full-text retrieval (BM25)[^2] and dense passage retrieval[^3] via Reciprocal Rank Fusion (RRF)[^4]. The system provides automatic knowledge graph construction[^5] through semantic similarity analysis and W3C SKOS-compliant[^6] controlled vocabulary management.
 
 The Rust workspace consists of 7 crates that together provide vector-enhanced note storage, hybrid retrieval, NLP pipeline management, and cryptographic data protection.
 
@@ -62,9 +62,11 @@ matric-core (traits, types, errors)
 
 ## Multi-Memory Architecture
 
-Fortemi supports parallel memory archives using PostgreSQL schema isolation. Each memory operates as an independent namespace with complete data isolation.
+Fortemi supports parallel memory archives using PostgreSQL schema isolation. Each memory operates as an independent namespace with complete data isolation. Implementation is complete as of 2026-02-08, with all 91 API handlers routing through `SchemaContext`.
 
 ### Schema-Based Isolation
+
+Each memory is a PostgreSQL schema containing a full set of per-user data tables. Shared infrastructure (authentication, job queue, document types, migration tracking) lives in the `public` schema and is accessible to all memories via `search_path`.
 
 ```
 Database Structure:
@@ -72,12 +74,17 @@ Database Structure:
 │   ├── archive_registry - Memory metadata
 │   ├── oauth_clients - Authentication
 │   ├── api_keys - API keys
-│   └── ... (14 shared tables)
+│   ├── job_queue - Background jobs
+│   ├── embedding_config - Model configs
+│   └── ... (14 shared tables total)
 ├── default schema (default memory)
 │   ├── note - Notes and content
 │   ├── embedding - Vector embeddings
-│   ├── note_links - Semantic relationships
-│   └── ... (41 per-memory tables)
+│   ├── link - Semantic relationships
+│   ├── tag, skos_* - Taxonomy
+│   ├── file_storage, attachment - Files
+│   ├── template - Note templates
+│   └── ... (41 per-memory tables total)
 └── custom schemas (user-created memories)
     └── Same 41-table structure per memory
 ```
@@ -111,6 +118,26 @@ The system uses a **deny-list** model: all tables are per-memory unless explicit
 - Search: `search_cache` (if Redis not enabled)
 - Versioning: Various version tracking tables
 
+### Per-Request Routing
+
+Requests are routed to specific memories via the `X-Fortemi-Memory` header. The `archive_routing_middleware` in `crates/matric-api/src/middleware/archive_routing.rs` resolves the target schema:
+
+1. **Header present**: Looks up the memory by name in `archive_registry`, returns 404 if not found, auto-migrates schema if outdated
+2. **Header absent**: Falls back to `DefaultArchiveCache` (60-second TTL) to resolve the default archive
+3. **No default set**: Falls back to `public` schema
+
+The middleware injects an `ArchiveContext { schema, is_default }` into request extensions. All 91 handlers extract this context and create a `SchemaContext` via `state.db.for_schema(&archive_ctx.schema)?`, which sets `SET LOCAL search_path TO {schema}, public` per transaction.
+
+### Handler Transaction Patterns
+
+Handlers use one of two patterns depending on complexity:
+
+**`execute()` for simple operations** (most handlers): Pass a closure to `ctx.execute(move |tx| ...)` which handles the full transaction lifecycle (begin, SET LOCAL, commit/rollback).
+
+**`begin_tx()` for complex operations** (file_storage, analytics, loops): Call `ctx.begin_tx().await?` to get a pre-configured transaction, then call multiple `_tx` methods directly. Used when repositories cannot be moved into closures.
+
+Repository methods have parallel `_tx` variants accepting `&mut Transaction<'_, Postgres>` (Option A from ADR-068), using `&mut **tx` instead of `&self.pool`.
+
 ### Auto-Migration
 
 Memories are automatically migrated when accessed:
@@ -121,22 +148,11 @@ Memories are automatically migrated when accessed:
 4. `schema_version` is updated to reflect current table count
 5. Operation is idempotent and non-destructive
 
-### Per-Request Routing
+### Current Limitations
 
-Requests are routed to specific memories via `X-Fortemi-Memory` header:
+The standard hybrid search endpoint (`GET /api/v1/search`) currently rejects non-public archives, returning a 400 error. This is a temporary limitation because the `HybridSearchEngine` operates directly on the connection pool without `SchemaContext` support. Federated search (`POST /api/v1/search/federated`) works across all memories using dynamically-built schema-qualified queries.
 
-```rust
-// Middleware extracts header
-let memory_name = req.headers()
-    .get("X-Fortemi-Memory")
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("default");
-
-// Sets PostgreSQL search_path for transaction
-SET LOCAL search_path TO {memory_name}, public;
-```
-
-See [Multi-Memory Guide](./multi-memory.md) for usage documentation.
+See [Multi-Memory Design](../architecture/multi-memory-design.md) for the comprehensive design document and [Multi-Memory Guide](./multi-memory.md) for usage documentation.
 
 ## Crate Details
 
@@ -182,6 +198,7 @@ PostgreSQL database layer with pgvector (vector similarity) and PostGIS (spatial
 - `oauth.rs` - OAuth provider integration for authentication
 - `skos_tags.rs` - W3C SKOS semantic tagging with Collections support
 - `document_types.rs` - Document type detection pipeline with confidence scoring
+- `schema_context.rs` - Schema-scoped database operations for multi-memory isolation
 
 **Tables:**
 - `note` - Note metadata
@@ -408,7 +425,7 @@ Confidence scores guide downstream decisions:
 | 0.1 | Default fallback | Unknown files default to plaintext |
 
 **Decision Logic:**
-- High confidence (≥0.9): Apply specialized chunking without confirmation
+- High confidence (>=0.9): Apply specialized chunking without confirmation
 - Medium confidence (0.7-0.89): Apply strategy but log for review
 - Low confidence (<0.7): Use semantic chunking (safest fallback)
 
@@ -654,14 +671,14 @@ DocumentType {
 ### Extraction Flow
 
 ```
-File Upload → Document Type Detection → Strategy Selection → Adapter Dispatch
-                     ↓                          ↓                  ↓
+File Upload -> Document Type Detection -> Strategy Selection -> Adapter Dispatch
+                     |                          |                  |
               (filename, MIME)          ExtractionStrategy   Registry.extract()
-                     ↓                          ↓                  ↓
+                     |                          |                  |
               confidence: 0.95              TextNative         UTF-8 decode
-                     ↓                          ↓                  ↓
+                     |                          |                  |
               "python" type              StructuredExtract   Parse + validate
-                                                 ↓                  ↓
+                                                 |                  |
                                             Return Result    ExtractionResult
 ```
 
@@ -865,10 +882,10 @@ pub enum WorkerEvent {
 
 **Event Flow:**
 ```
-Worker → tokio::sync::broadcast → EventBus → API Subscribers
-   ↓                                   ↓              ↓
+Worker -> tokio::sync::broadcast -> EventBus -> API Subscribers
+   |                                   |              |
 JobProgress                      ServerEvent      SSE/WebSocket
-   ↓                                   ↓              ↓
+   |                                   |              |
 {percent: 50}              JobProgress payload   Client UI update
 ```
 
@@ -976,12 +993,12 @@ FOR UPDATE SKIP LOCKED;
 
 **Status Transitions:**
 ```
-Pending → Running → Completed
-    ↓         ↓
+Pending -> Running -> Completed
+    |         |
     └─────> Failed (retry_count < MAX_RETRIES)
-              ↓
+              |
            Pending (retry with backoff)
-              ↓
+              |
            Failed (retry_count >= MAX_RETRIES)
 ```
 
@@ -1081,15 +1098,15 @@ The HNSW (Hierarchical Navigable Small World)[^9] index provides approximate nea
 
 ### Reciprocal Rank Fusion (RRF)
 
-Fortémi implements adaptive RRF[^4] for combining lexical and semantic retrieval results:
+Fortemi implements adaptive RRF[^4] for combining lexical and semantic retrieval results:
 
 ```rust
 // RRF score calculation (Cormack et al., 2009)
-score(doc) = Σ 1/(k + rank_i(doc))
+score(doc) = Sigma 1/(k + rank_i(doc))
 
 // Adaptive k parameter (default k=20)
-// Short queries (≤2 tokens): k *= 0.7 (tighter fusion)
-// Long queries (≥6 tokens): k *= 1.3 (looser fusion)
+// Short queries (<=2 tokens): k *= 0.7 (tighter fusion)
+// Long queries (>=6 tokens): k *= 1.3 (looser fusion)
 // Quoted queries: k *= 0.6 (precision focus)
 ```
 
@@ -1142,7 +1159,7 @@ Query-dependent FTS/semantic weight selection:
 
 ## Knowledge Graph Construction
 
-Fortémi automatically constructs a knowledge graph[^5] by discovering semantic relationships between notes:
+Fortemi automatically constructs a knowledge graph[^5] by discovering semantic relationships between notes:
 
 1. **Embedding Generation** - Each note is encoded as a 768-dim sentence embedding[^7]
 2. **Similarity Computation** - Cosine similarity calculated between all note pairs
@@ -1254,9 +1271,11 @@ cargo run -p matric-api
 | ADR-007 | Argon2id key storage | Memory-hard KDF protection | - |
 | ADR-008 | SKOS vocabulary | W3C standard for controlled terms | W3C[^6] |
 | ADR-037 | Unified event bus | Single broadcast channel for SSE, WebSocket, webhooks, telemetry | - |
+| ADR-068 | Archive isolation routing | Schema-per-memory with SchemaContext + middleware | See ADR-068 |
 
 See `.aiwg/intake/option-matrix.md` for detailed analysis.
 See `docs/adr/ADR-001-strict-tag-filtering.md` for strict filtering details.
+See `docs/adr/ADR-068-archive-isolation-routing.md` for multi-memory implementation details.
 
 ---
 
@@ -1268,7 +1287,7 @@ See `docs/adr/ADR-001-strict-tag-filtering.md` for strict filtering details.
 
 [^3]: Karpukhin, V., et al. (2020). "Dense passage retrieval for open-domain question answering." EMNLP 2020. [REF-029]
 
-[^4]: Cormack, G. V., Clarke, C. L. A., & Büttcher, S. (2009). "Reciprocal rank fusion outperforms condorcet and individual rank learning methods." SIGIR '09. [REF-027]
+[^4]: Cormack, G. V., Clarke, C. L. A., & Buttcher, S. (2009). "Reciprocal rank fusion outperforms condorcet and individual rank learning methods." SIGIR '09. [REF-027]
 
 [^5]: Hogan, A., et al. (2021). "Knowledge graphs." ACM Computing Surveys. [REF-032]
 

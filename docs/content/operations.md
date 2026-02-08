@@ -20,6 +20,7 @@ This guide covers deployment, operations, and troubleshooting for Fortémi using
 7. [Troubleshooting](#troubleshooting)
 8. [Backup and Recovery](#backup-and-recovery)
 9. [Configuration](#configuration)
+10. [Multi-Memory Operations](#multi-memory-operations)
 
 ## Initial Setup
 
@@ -626,6 +627,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `BACKUP_DEST` | `/var/backups/matric-memory` | Backup destination directory | `/mnt/backups` |
 | `BACKUP_SCRIPT_PATH` | `/usr/local/bin/backup-matric.sh` | Path to backup script | `/opt/scripts/backup.sh` |
+| `MAX_MEMORIES` | `100` | Maximum number of memory archives | `50` |
 
 #### PostgreSQL (Bundle Deployment Only)
 
@@ -715,6 +717,67 @@ nano docker-compose.bundle.yml
 docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
+
+## Multi-Memory Operations
+
+Fortemi's multi-memory architecture provides isolated memory archives with independent schemas. All 91 API handlers route through schema-scoped transactions for complete data isolation.
+
+### Schema Monitoring
+
+```bash
+# List all memory schemas
+docker exec fortemi-matric-1 psql -U matric -d matric -c "
+SELECT name, schema_name, note_count, pg_size_pretty(size_bytes::bigint) as size, is_default
+FROM archive_registry ORDER BY created_at;"
+
+# Check schema version drift (compare per-memory table counts)
+docker exec fortemi-matric-1 psql -U matric -d matric -c "
+SELECT ar.name, ar.schema_version,
+  (SELECT count(*) FROM information_schema.tables
+   WHERE table_schema = ar.schema_name) as actual_tables
+FROM archive_registry ar;"
+
+# Per-memory disk usage
+docker exec fortemi-matric-1 psql -U matric -d matric -c "
+SELECT nspname AS schema, pg_size_pretty(sum(pg_total_relation_size(pg_class.oid)))
+FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid
+WHERE nspname LIKE 'archive_%' OR nspname = 'public'
+GROUP BY nspname ORDER BY sum(pg_total_relation_size(pg_class.oid)) DESC;"
+```
+
+### Per-Memory Backup
+
+```bash
+# Backup specific memory
+docker exec fortemi-matric-1 pg_dump -U matric -d matric -n archive_work_2026 > work-memory-backup.sql
+
+# Backup all memories
+for schema in $(docker exec fortemi-matric-1 psql -U matric -d matric -t -c "SELECT schema_name FROM archive_registry"); do
+  docker exec fortemi-matric-1 pg_dump -U matric -d matric -n "$schema" > "backup_${schema}.sql"
+done
+```
+
+### Per-Memory Maintenance
+
+```bash
+# Vacuum specific memory schema
+docker exec fortemi-matric-1 psql -U matric -d matric -c "
+SET search_path TO archive_work_2026, public;
+VACUUM ANALYZE note; VACUUM ANALYZE embedding;"
+
+# Reindex specific memory
+docker exec fortemi-matric-1 psql -U matric -d matric -c "
+REINDEX SCHEMA archive_work_2026;"
+```
+
+### Troubleshooting Multi-Memory
+
+| Issue | Cause | Resolution |
+|-------|-------|------------|
+| "relation does not exist" | Schema auto-migration hasn't run | Access memory to trigger migration |
+| Schema version mismatch | Check `archive_registry.schema_version` vs actual table count | Review migration logs |
+| "Memory not found" 404 | Check `X-Fortemi-Memory` header value matches `archive_registry.name` exactly | Header value is case-sensitive |
+| Performance degradation with many schemas | Each schema adds minimal overhead | VACUUM must run per-schema |
 
 ## Quick Reference
 

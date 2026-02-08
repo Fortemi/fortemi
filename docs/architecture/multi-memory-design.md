@@ -1,10 +1,23 @@
 # Multi-Memory Architecture Design
 
-> **Status**: Draft
+> **Status**: IMPLEMENTED (2026-02-08, commit dfbdeac)
 > **Author**: Architecture Team
 > **Date**: 2026-02-08
 > **Epic**: #441 (Parallel Memory Archives)
 > **Supersedes**: Current hardcoded `create_archive_tables()` in `crates/matric-db/src/archives.rs`
+
+---
+
+## Implementation Summary
+
+Implementation is **COMPLETE** as of 2026-02-08. All 91 API handlers in `crates/matric-api/src/main.rs` route through `SchemaContext` for full schema isolation. Key implementation decisions:
+
+- **`_tx` method pattern chosen** (Option A from ADR-068) over schema-scoped repositories (Option B). Each repository has parallel `_tx` methods accepting `&mut Transaction<'_, Postgres>`.
+- **Two transaction patterns**: `execute()` for simple single-operation handlers (closure-based, automatic commit/rollback), and `begin_tx()` for complex handlers that need multiple repository calls or cannot move repos into closures (file_storage, analytics with loops).
+- **Current limitation**: The standard hybrid search endpoint (`GET /api/v1/search`) rejects non-public archives. Federated search (`POST /api/v1/search/federated`) works across all memories.
+- **Default archive with caching**: `DefaultArchiveCache` with 60-second TTL resolves the default archive when no `X-Fortemi-Memory` header is present. Falls back to `public` if no default is set.
+
+See `docs/adr/ADR-068-archive-isolation-routing.md` for the full implementation status and test verification details.
 
 ---
 
@@ -483,26 +496,42 @@ POST   /api/v1/memories/:name/restore   Restore memory from backup
               +---------v---+  +---v-----------+
               | Resolve     |  | Use default   |
               | named memory|  | memory from   |
-              | from        |  | cache (TTL)   |
-              | registry    |  +---+-----------+
-              +------+------+      |
+              | from        |  | cache (60s    |
+              | registry    |  | TTL)          |
+              +------+------+  +---+-----------+
                      |             |
-              +------v-------------v---+
-              | Validate schema exists |
-              | in PostgreSQL          |
-              +----------+-------------+
+                     |      +------v------+
+                     |      | Default set?|
+                     |      +------+------+
+                     |         |        |
+                     |        yes       no
+                     |         |        |
+                     |    +----v--+  +--v-------+
+                     |    |default|  | "public" |
+                     |    |archive|  | schema   |
+                     |    +---+---+  +--+-------+
+                     |        |         |
+              +------v--------v---------v---+
+              | Validate schema exists      |
+              | in PostgreSQL               |
+              +----------+------------------+
                          |
-              +----------v-------------+
-              | Inject ArchiveContext   |
-              | { schema, is_default } |
-              | into request extensions|
-              +----------+-------------+
+              +----------v------------------+
+              | Auto-migrate if outdated    |
+              | (sync_archive_schema)       |
+              +----------+------------------+
                          |
-              +----------v-------------+
-              | Handler executes with  |
-              | SET LOCAL search_path  |
-              | TO memory_X, public    |
-              +------------------------+
+              +----------v------------------+
+              | Inject ArchiveContext        |
+              | { schema, is_default }      |
+              | into request extensions     |
+              +----------+------------------+
+                         |
+              +----------v------------------+
+              | Handler executes with       |
+              | SET LOCAL search_path       |
+              | TO memory_X, public         |
+              +-----------------------------+
 ```
 
 **Header format:**
@@ -514,10 +543,10 @@ X-Fortemi-Memory: research-2026
 **Resolution rules:**
 1. If `X-Fortemi-Memory` header is present, look up the memory by name in `memory_registry`
 2. If not found, return `404 Not Found` with message "Memory 'X' not found"
-3. If header is absent, use the cached default memory (existing TTL cache behavior)
+3. If header is absent, use the cached default memory (`DefaultArchiveCache`, 60-second TTL)
 4. If no default memory is set, fall back to `public` schema
 
-**Middleware changes to `archive_routing_middleware`:**
+**Middleware implementation** (`crates/matric-api/src/middleware/archive_routing.rs`):
 
 ```rust
 pub async fn archive_routing_middleware(
@@ -542,6 +571,43 @@ pub async fn archive_routing_middleware(
         }
         Err(e) => e.into_response(),
     }
+}
+```
+
+### Handler Transaction Patterns (Implemented)
+
+All 91 handlers use one of two patterns:
+
+**Pattern 1: `execute()` -- Simple operations (most handlers)**
+
+```rust
+async fn create_note(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(body): Json<CreateNoteBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = PgNoteRepository::new(state.db.pool.clone());
+    let result = ctx.execute(move |tx| Box::pin(async move {
+        repo.insert_tx(tx, req).await
+    })).await?;
+    // ...
+}
+```
+
+**Pattern 2: `begin_tx()` -- Complex operations (file_storage, analytics, loops)**
+
+```rust
+async fn list_attachments(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(note_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let files = file_storage.list_by_note_tx(&mut tx, note_id).await?;
+    tx.commit().await.map_err(|e| ApiError::Internal(e.to_string()))?;
+    // ...
 }
 ```
 
@@ -956,7 +1022,7 @@ this migration use the zero-drift cloner.
 
 **What stays the same:**
 - `SchemaContext` with `SET LOCAL search_path` (proven pattern)
-- TTL-based default archive cache
+- TTL-based default archive cache (60-second TTL via `DefaultArchiveCache`)
 - `ArchiveContext` in request extensions
 - All existing queries (they reference unqualified table names resolved via `search_path`)
 
@@ -1029,6 +1095,20 @@ WHERE name = 'default';
 
 If `memories` is omitted, all memories are searched. If specified, only the listed
 memories are searched.
+
+### Current Limitation
+
+The standard hybrid search endpoint (`GET /api/v1/search`) currently rejects requests for non-public archives:
+
+```rust
+if archive_ctx.schema != "public" {
+    return Err(ApiError::BadRequest(
+        "Search not yet supported for non-default archives".to_string(),
+    ));
+}
+```
+
+This is because the `HybridSearchEngine` operates directly on the connection pool and does not yet support `SchemaContext`-based scoping. Federated search (`POST /api/v1/search/federated`) works across all memories using dynamically-built schema-qualified queries.
 
 ### Implementation
 
@@ -1277,72 +1357,17 @@ Unit tests validate individual components in isolation:
 | `ArchiveContext` | Default values, clone behavior |
 | `DefaultArchiveCache` | TTL expiration, invalidation |
 
-### Integration Tests (Schema Cloning)
+### Integration Tests (Implemented)
 
-These tests require a real PostgreSQL instance (provided by CI test containers).
+Five test files cover the full multi-memory lifecycle:
 
-```rust
-#[tokio::test]
-async fn test_clone_schema_creates_all_tables() {
-    let pool = setup_test_pool().await;
-    let schema = format!("test_{}", Uuid::new_v4().simple());
-
-    clone_schema_tables(&pool, &schema).await.unwrap();
-
-    // Verify all manifest tables exist
-    for table in MEMORY_TABLE_MANIFEST {
-        let exists: bool = sqlx::query_scalar(&format!(
-            "SELECT EXISTS (
-                SELECT 1 FROM information_schema.tables
-                WHERE table_schema = '{}' AND table_name = '{}'
-            )", schema, table
-        )).fetch_one(&pool).await.unwrap();
-
-        assert!(exists, "Table {}.{} should exist", schema, table);
-    }
-
-    // Cleanup
-    sqlx::query(&format!("DROP SCHEMA {} CASCADE", schema))
-        .execute(&pool).await.unwrap();
-}
-
-#[tokio::test]
-async fn test_cloned_schema_matches_public_columns() {
-    let pool = setup_test_pool().await;
-    let schema = format!("test_{}", Uuid::new_v4().simple());
-
-    clone_schema_tables(&pool, &schema).await.unwrap();
-
-    for table in MEMORY_TABLE_MANIFEST {
-        let public_cols: Vec<(String, String)> = sqlx::query_as(
-            "SELECT column_name, data_type
-             FROM information_schema.columns
-             WHERE table_schema = 'public' AND table_name = $1
-             ORDER BY ordinal_position"
-        )
-        .bind(table)
-        .fetch_all(&pool).await.unwrap();
-
-        let memory_cols: Vec<(String, String)> = sqlx::query_as(&format!(
-            "SELECT column_name, data_type
-             FROM information_schema.columns
-             WHERE table_schema = '{}' AND table_name = '{}'
-             ORDER BY ordinal_position", schema, table
-        ))
-        .fetch_all(&pool).await.unwrap();
-
-        assert_eq!(
-            public_cols, memory_cols,
-            "Column mismatch in table '{}': public has {:?}, memory has {:?}",
-            table, public_cols, memory_cols
-        );
-    }
-
-    // Cleanup
-    sqlx::query(&format!("DROP SCHEMA {} CASCADE", schema))
-        .execute(&pool).await.unwrap();
-}
-```
+| Test File | Coverage |
+|-----------|----------|
+| `archives_api_test.rs` | Memory CRUD, cloning, federated search, lifecycle |
+| `archive_schema_routing_test.rs` | Schema isolation, per-request routing, default archive resolution |
+| `archive_template_routing_test.rs` | Template CRUD within memory schemas |
+| `analytics_memory_attachments_archive_routing_test.rs` | Analytics, file attachments within memory schemas |
+| `archive_version_metadata_test.rs` | Version metadata within archives |
 
 ### Schema Drift Detection Test
 
@@ -1555,6 +1580,8 @@ by subtracting known shared tables from all public tables.
 
 **Decision:** Explicit manifest (allowlist), not automated discovery (denylist).
 
+**Note:** The implementation uses a deny-list approach (14 shared tables in `SHARED_TABLES`) for runtime classification, but still maintains the table manifest for schema cloning order (FK dependency ordering). The deny-list determines which tables are per-memory; the manifest determines cloning order.
+
 **Consequences:**
 - (+) Adding a shared table does not accidentally clone it into memories
 - (+) Manifest is self-documenting and reviewable
@@ -1600,7 +1627,9 @@ kept as backward-compatible aliases.
 
 ## 12. Implementation Roadmap
 
-### Phase 1: Foundation (Week 1-2)
+**All phases COMPLETE as of 2026-02-08.**
+
+### Phase 1: Foundation (Week 1-2) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|
@@ -1611,7 +1640,7 @@ kept as backward-compatible aliases.
 | Drift test | CI test comparing manifest to public schema | `crates/matric-db/tests/` |
 | Registry migration | Rename `archive_registry` to `memory_registry` | `migrations/` |
 
-### Phase 2: API and Middleware (Week 2-3)
+### Phase 2: API and Middleware (Week 2-3) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|
@@ -1620,8 +1649,10 @@ kept as backward-compatible aliases.
 | Archive aliases | Keep `/api/v1/archives/*` as aliases | `crates/matric-api/src/main.rs` |
 | Clone endpoint | `POST /memories/:name/clone` | `crates/matric-api/src/handlers/archives.rs` |
 | Drift status | Add `drift_status` to memory info response | `crates/matric-api/src/handlers/archives.rs` |
+| `_tx` methods | Add transaction-aware methods to all repos | `crates/matric-db/src/*.rs` |
+| 91 handlers | Update all handlers to use SchemaContext | `crates/matric-api/src/main.rs` |
 
-### Phase 3: Backup/Restore (Week 3-4)
+### Phase 3: Backup/Restore (Week 3-4) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|
@@ -1630,7 +1661,7 @@ kept as backward-compatible aliases.
 | Lock mechanism | `locked` flag in registry, checked by middleware | `crates/matric-db/`, middleware |
 | Backup storage | Integration with existing backup directory | `crates/matric-api/src/services/` |
 
-### Phase 4: MCP Integration (Week 4)
+### Phase 4: MCP Integration (Week 4) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|
@@ -1640,16 +1671,16 @@ kept as backward-compatible aliases.
 | Enhanced `memory_info` | Per-memory breakdowns | `mcp-server/index.js` |
 | `search_all_memories` tool | Cross-memory search via MCP | `mcp-server/tools.js`, `index.js` |
 
-### Phase 5: Cross-Memory Search (Week 5)
+### Phase 5: Cross-Memory Search (Week 5) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|
-| Global search endpoint | `POST /api/v1/search/global` | `crates/matric-api/src/handlers/` |
+| Federated search endpoint | `POST /api/v1/search/federated` | `crates/matric-api/src/handlers/` |
 | Dynamic UNION builder | Generate cross-schema queries | `crates/matric-search/` |
 | Memory filter | Optional `memories` parameter | `crates/matric-search/` |
 | Integration tests | Cross-memory search validation | `crates/matric-search/tests/` |
 
-### Phase 6: Hardening (Week 5-6)
+### Phase 6: Hardening (Week 5-6) -- COMPLETE
 
 | Task | Description | Files Affected |
 |------|-------------|----------------|

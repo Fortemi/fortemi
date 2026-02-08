@@ -142,6 +142,94 @@ sudo systemctl start matric-backup.timer
 systemctl list-timers matric-backup.timer
 ```
 
+## Per-Memory Backup
+
+The multi-memory architecture allows schema-level backup and restore operations. Each memory archive maintains independent data in its own PostgreSQL schema.
+
+### How X-Fortemi-Memory Header Scopes Backup Operations
+
+- **Application-level backups** (JSON export, knowledge shards) use the `X-Fortemi-Memory` header to scope operations to a specific memory
+- **Database-level backups** (pg_dump) can target specific schemas or the entire database
+- **Without the header**, all backup operations default to the `default` memory
+
+### Per-Schema pg_dump for Memory-Level Backup
+
+```bash
+# Backup a specific memory schema
+docker exec fortemi-matric-1 pg_dump -U matric -d matric -n archive_work_2026 > work-memory-backup.sql
+
+# Backup all memories
+for schema in $(docker exec fortemi-matric-1 psql -U matric -d matric -t -c "SELECT schema_name FROM archive_registry"); do
+  docker exec fortemi-matric-1 pg_dump -U matric -d matric -n "$schema" > "backup_${schema}.sql"
+done
+
+# Backup multiple specific memories
+docker exec fortemi-matric-1 pg_dump -U matric -d matric \
+  -n archive_work_2026 \
+  -n archive_personal_2026 \
+  > multi-memory-backup.sql
+```
+
+### Full Database pg_dump Includes ALL Schemas
+
+A full database backup captures all memory archives plus shared infrastructure:
+
+```bash
+# Full backup (all memories + shared tables)
+docker exec fortemi-matric-1 pg_dump -U matric -d matric > full-backup.sql
+
+# This includes:
+# - public schema (shared infrastructure: archive_registry, oauth tables, etc.)
+# - All archive_* schemas (per-memory data)
+```
+
+### Restore Caveats
+
+Restoring a memory backup requires the target schema to exist:
+
+```bash
+# Option 1: Create memory first, then restore data
+curl -X POST http://localhost:3000/api/v1/memories \
+  -H "Content-Type: application/json" \
+  -d '{"name": "work-2026", "description": "Restored work memory"}'
+
+# Then restore the schema backup
+docker exec -i fortemi-matric-1 psql -U matric -d matric < work-memory-backup.sql
+
+# Option 2: Restore full database backup (recreates all schemas)
+docker exec -i fortemi-matric-1 psql -U matric -d matric < full-backup.sql
+```
+
+**Important:** Schema-level restores assume the schema structure already exists. If restoring to a fresh instance:
+1. Let Fortemi create the memory (which runs migrations)
+2. Then restore data into the schema
+
+OR
+
+1. Restore full database backup (includes schema creation)
+
+### Knowledge Shard Export Respects Active Memory Context
+
+Knowledge shards export data from the memory specified by `X-Fortemi-Memory`:
+
+```bash
+# Export work memory as knowledge shard
+curl http://localhost:3000/api/v1/backup/knowledge-shard \
+  -H "X-Fortemi-Memory: work-2026" \
+  -o work-2026.shard
+
+# Export default memory (no header)
+curl http://localhost:3000/api/v1/backup/knowledge-shard \
+  -o default-memory.shard
+
+# Restore shard to different memory
+SHARD=$(base64 -w0 work-2026.shard)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
+  -H "Content-Type: application/json" \
+  -H "X-Fortemi-Memory: work-2026-restored" \
+  -d "{\"shard_base64\": \"$SHARD\"}"
+```
+
 ## Memory-Scoped Backups
 
 All backup operations respect the `X-Fortemi-Memory` header. Without it, backups operate on the `default` memory.

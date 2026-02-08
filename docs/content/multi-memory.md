@@ -30,25 +30,27 @@ Each memory operates in its own PostgreSQL schema:
 
 ```
 Database: matric
-├── public (shared tables)
-│   ├── archive_registry (memory metadata)
-│   ├── oauth_clients
-│   ├── api_keys
-│   └── ... (14 shared tables total)
-├── default (default memory)
+├── public (default memory + shared tables)
+│   ├── archive_registry (shared)
+│   ├── oauth_clients (shared)
+│   ├── api_keys (shared)
+│   ├── note (default memory data)
+│   ├── embedding (default memory data)
+│   ├── note_links (default memory data)
+│   ├── skos_concepts (default memory data)
+│   └── ... (41 per-memory tables + 14 shared tables)
+├── archive_work_2026 (custom memory)
 │   ├── note
 │   ├── note_original
 │   ├── embedding
-│   ├── note_links
-│   ├── skos_concepts
 │   └── ... (41 per-memory tables)
-├── work-2026 (custom memory)
-│   ├── note
-│   ├── note_original
-│   └── ...
-└── research (custom memory)
-    └── ...
+└── archive_research (custom memory)
+    ├── note
+    ├── embedding
+    └── ... (41 per-memory tables)
 ```
+
+**Note:** The default memory uses the `public` schema. The seed migration (`20260208000002_seed_default_archive.sql`) creates a registry entry named "default" with `schema_name = 'public'`.
 
 ### Shared vs Per-Memory Tables
 
@@ -189,7 +191,12 @@ curl http://localhost:3000/api/v1/notes \
   -H "X-Fortemi-Memory: work-2026"
 ```
 
-**If no header is provided**, the request operates on the **default** memory.
+**If no header is provided**, the request operates on the **default** memory configured via `set_default_archive` API. If no default is configured, requests fall back to the `public` schema.
+
+**Default Archive Caching:**
+- The default archive is cached for 60 seconds (configurable via `DEFAULT_ARCHIVE_CACHE_TTL` environment variable) to minimize database queries
+- Setting a new default via the API invalidates the cache immediately
+- This provides a balance between performance and responsiveness to configuration changes
 
 ### MCP Memory Management
 
@@ -243,6 +250,8 @@ delete_memory({ name: "old-project" })
 ## Federated Search
 
 Search across multiple memories simultaneously with unified result ranking.
+
+**IMPORTANT LIMITATION:** Currently, per-memory search (FTS + semantic) is restricted to the default (public) memory. Non-default memories return HTTP 400 for search operations. Federated search across multiple archives is planned for a future release.
 
 ### Search All Memories
 
@@ -330,10 +339,14 @@ curl -X POST http://localhost:3000/api/v1/archives/work-2026/clone \
 ### Clone Process
 
 1. **Schema Creation**: Creates new PostgreSQL schema with `new_name`
-2. **Table Copy**: Copies all 41 per-memory tables
-3. **Data Copy**: Uses `INSERT INTO ... SELECT` with `session_replication_role = 'replica'` to bypass triggers and constraints
-4. **Relationship Preservation**: UUIDs remain identical, preserving all links and embeddings
-5. **Auto-Migration**: New memory is automatically at current schema version
+2. **Table Structure Copy**: Creates empty tables using `CREATE TABLE ... (LIKE ... INCLUDING ALL)`
+3. **FK Dependency Resolution**: Orders tables by foreign key dependencies using recursive CTE
+4. **Data Copy**: Uses `INSERT INTO new.table SELECT columns FROM old.table` (filtering out generated columns)
+5. **Relationship Preservation**: UUIDs remain identical, preserving all links and embeddings
+6. **FK and Trigger Recreation**: Re-creates foreign keys and triggers separately
+7. **Auto-Migration**: New memory is automatically at current schema version
+
+**Note:** The implementation does NOT use `session_replication_role = 'replica'`. Instead, it copies data in FK dependency order, ensuring referential integrity without requiring superuser privileges.
 
 ### Use Cases
 
@@ -504,9 +517,15 @@ Operations **cannot** cross memory boundaries:
 
 **Exception**: Federated search explicitly searches multiple memories and attributes results to their source memory.
 
+### Current Limitations
+
+1. **Search**: Full-text and semantic search currently only works in the default (public) archive. Non-default archives return HTTP 400 for search endpoints. Federated cross-archive search is planned for a future release.
+2. **Embedding generation**: Background jobs for embedding generation use the archive context from the job payload, but the embedding pipeline must be manually triggered per-archive.
+3. **Cross-archive operations**: No API support for copying notes between archives. Use export/import workflow instead.
+
 ## Migration from Single-Memory Deployment
 
-Existing deployments automatically have a `default` memory containing all current data. No migration is required.
+Existing deployments automatically have a `default` memory mapped to the `public` schema. This happens via the seed migration (`20260208000002_seed_default_archive.sql`) which inserts a registry entry on first startup. No manual migration is required.
 
 ### Step-by-Step Migration
 
@@ -541,7 +560,7 @@ Existing deployments automatically have a `default` memory containing all curren
 
 | Header | Values | Description |
 |--------|--------|-------------|
-| `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: "default") |
+| `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: configured default or "public") |
 
 ### MCP Tools
 

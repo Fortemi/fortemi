@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Date:** 2026-02-06
-**Implementation Completed:** 2026-02-07
+**Implementation Completed:** 2026-02-08
 **Deciders:** Technical Lead
 **Related Issue:** Gitea #68
 
@@ -347,7 +347,7 @@ struct AppState {
 
 **Mitigation:**
 - Write comprehensive integration tests FIRST (test-first per implementer guidelines)
-- Test matrix: (no default archive, default=public, default=custom archive) × (all CRUD operations)
+- Test matrix: (no default archive, default=public, default=custom archive) x (all CRUD operations)
 - Deploy behind feature flag initially
 - Phased rollout: read operations first, write operations second
 
@@ -482,7 +482,7 @@ Target: Cache hit adds <1ms P99 latency.
 - RESTful
 
 **Cons:**
-- Massive API surface duplication (every endpoint × N archives)
+- Massive API surface duplication (every endpoint x N archives)
 - URL-based routing conflicts
 - Poor UX for switching archives
 
@@ -542,42 +542,54 @@ Target: Cache hit adds <1ms P99 latency.
 
 ## Decision Outcome
 
-**Status:** Implemented (2026-02-07)
+**Status:** Implemented (2026-02-08)
 
 This ADR documents the technical approach for implementing archive isolation routing. Implementation followed the test-first methodology outlined in the Software Implementer role guidelines.
 
 ## Implementation Status
 
-**Status:** Implemented (2026-02-07)
+**Status:** COMPLETE (2026-02-08, commit dfbdeac)
+
+All tests pass. All 91 API handlers route through SchemaContext.
 
 ### What Was Built
 
-The multi-memory system was successfully implemented with the following key changes from the original proposal:
+The multi-memory system was successfully implemented with the following architecture:
 
-1. **Header-Based Routing Instead of Default Archive**:
-   - Implementation uses `X-Fortemi-Memory` header for per-request memory selection
-   - No "default archive" concept - cleaner and more explicit
-   - Defaults to "default" memory if no header provided
-   - **Rationale:** More explicit control, better for multi-tenant scenarios, simpler caching
+1. **Hybrid Routing: Header + Default Archive with TTL Cache**:
+   - Implementation uses `X-Fortemi-Memory` header for explicit per-request memory selection
+   - When no header is present, falls back to `DefaultArchiveCache` (60-second TTL) to resolve the default archive
+   - When no default archive is set, falls back to the `public` schema
+   - Resolution order: `X-Fortemi-Memory` header > cached default archive > `public` schema
+   - `DefaultArchiveCache` stores the resolved `ArchiveContext` with TTL expiration, invalidated on `set_default_archive` calls
 
 2. **Archive Middleware** (`crates/matric-api/src/middleware/archive_routing.rs`):
-   - Extracts `X-Fortemi-Memory` header from requests
-   - Injects memory context into request extensions
-   - Validates memory exists before routing
-   - Sets PostgreSQL `search_path` per transaction
+   - Checks `X-Fortemi-Memory` header first; if present, looks up archive by name and returns 404 if not found
+   - Auto-migrates schema on access (`sync_archive_schema`) if schema is outdated
+   - If no header, uses `resolve_archive_context()` which reads from `DefaultArchiveCache` (RwLock-protected)
+   - Injects `ArchiveContext { schema, is_default }` into request extensions
 
-3. **Per-Request Routing**:
-   - All CRUD handlers updated to use memory context from extensions
-   - SchemaContext sets `search_path` per transaction: `SET LOCAL search_path TO {memory_name}, public`
-   - Complete data isolation per memory verified in integration tests
+3. **All 91 Handlers Routed Through SchemaContext**:
+   - Every handler in `crates/matric-api/src/main.rs` that performs database operations extracts `Extension(archive_ctx): Extension<ArchiveContext>` and creates a `SchemaContext` via `state.db.for_schema(&archive_ctx.schema)?`
+   - This includes all CRUD handlers, SKOS handlers, file storage handlers, analytics handlers, template handlers, versioning handlers, provenance handlers, and collection handlers
 
-4. **Auto-Migration**:
+4. **`_tx` Method Pattern (Option A from ADR)**:
+   - Each repository gained parallel `_tx` methods accepting `&mut Transaction<'_, Postgres>` instead of using the internal pool
+   - Example: `PgNoteRepository::insert()` (pool-based, backward compat) alongside `insert_tx()` (transaction-aware)
+   - Inside `_tx` methods, queries use `&mut **tx` instead of `&self.pool`
+   - Repositories with `_tx` methods: notes, tags, collections, links, templates, file_storage, versioning, provenance, memory_search, SKOS tags (`skos_tags_tx.rs`)
+
+5. **Two Transaction Patterns**:
+   - **`execute()` pattern** for simple operations: handler creates a `SchemaContext`, passes a closure to `ctx.execute(move |tx| ...)` which handles transaction lifecycle (begin, SET LOCAL search_path, commit/rollback)
+   - **`begin_tx()` pattern** for complex operations: handler calls `ctx.begin_tx().await?` to get a pre-configured transaction, then calls multiple `_tx` methods on it directly. Used by file_storage handlers, analytics handlers with loops, and any handler that cannot move the repository into a closure. Caller is responsible for committing the transaction.
+
+6. **Auto-Migration**:
    - Schema version tracking via `archive_registry.schema_version` (table count)
-   - Missing tables created on memory access
+   - Missing tables created on memory access via `sync_archive_schema()`
    - Non-destructive, idempotent migration
    - Uses same `CREATE TABLE` statements that initialized default memory
 
-5. **Memory Management API**:
+7. **Memory Management API**:
    - `POST /api/v1/memories` - Create memory
    - `GET /api/v1/memories` - List all memories
    - `GET /api/v1/memories/:name` - Get memory details
@@ -585,24 +597,41 @@ The multi-memory system was successfully implemented with the following key chan
    - `PATCH /api/v1/memories/:name` - Update memory metadata
    - `GET /api/v1/memories/overview` - Aggregate statistics
 
-6. **Memory Cloning**:
-   - Deep copy using `session_replication_role = 'replica'` to bypass foreign key checks
+8. **Memory Cloning**:
+   - Deep copy using FK-ordered `INSERT...SELECT` with generated column filtering
+   - Does NOT use `session_replication_role = 'replica'` (no superuser required)
    - Preserves all UUIDs and relationships
    - Creates new isolated schema with complete data copy
    - Verified via integration tests
 
-7. **Federated Search**:
+9. **Federated Search**:
    - `POST /api/v1/search/federated` endpoint
    - Parallel search across multiple memories
    - Unified result ranking with memory attribution
    - Score normalization per memory for fair comparison
    - Supports `["all"]` or specific memory names
 
-8. **MCP Session Context**:
-   - MCP server maintains per-session memory context in `sessionMemories` Map
-   - `select_memory` tool switches active memory for session
-   - `get_active_memory` tool checks current memory
-   - All MCP tools automatically inject `X-Fortemi-Memory` header
+10. **MCP Session Context**:
+    - MCP server maintains per-session memory context in `sessionMemories` Map
+    - `select_memory` tool switches active memory for session
+    - `get_active_memory` tool checks current memory
+    - All MCP tools automatically inject `X-Fortemi-Memory` header
+
+### Current Limitations
+
+**Search (FTS + semantic) restricted to public schema:**
+
+The hybrid search handler (`search_notes`) currently rejects requests for non-public archives with a 400 error:
+
+```rust
+if archive_ctx.schema != "public" {
+    return Err(ApiError::BadRequest(
+        "Search not yet supported for non-default archives".to_string(),
+    ));
+}
+```
+
+This is a temporary limitation. The `HybridSearchEngine` operates directly on the connection pool and does not yet support schema-scoped search via `SchemaContext`. Federated search (`POST /api/v1/search/federated`) works across memories using dynamically-built schema-qualified queries, but the standard search endpoint is restricted. This will be addressed in a follow-up iteration by adding `_tx` methods to the search engine.
 
 ### Deviations from Original ADR
 
@@ -627,13 +656,13 @@ The final implementation uses a deny-list approach (14 shared tables) instead of
 - Document types
 - Provenance tracking
 
-**No Default Archive Concept:**
+**Default Archive IS Used (Correcting Earlier Documentation):**
 
-The original proposal included a "default archive" setting with caching. The implemented solution is simpler:
-- Per-request header routing (`X-Fortemi-Memory`)
-- No caching layer needed
-- More explicit and predictable behavior
-- Better for API clients and multi-tenant scenarios
+The original ADR proposed a default archive with caching. An earlier revision of this Implementation Status section stated "No default archive concept - cleaner and more explicit." This was inaccurate. The actual implementation DOES use a default archive concept:
+- `DefaultArchiveCache` with 60-second TTL is implemented in `archive_routing.rs`
+- The middleware checks `X-Fortemi-Memory` header first, then falls back to the cached default archive, then falls back to `public`
+- Cache is invalidated when `set_default_archive` is called
+- This matches the original ADR proposal
 
 **MCP Session Context:**
 
@@ -641,21 +670,29 @@ MCP server maintains per-session memory context (`sessionMemories` Map), automat
 
 ### Verification
 
-All integration tests pass:
+All integration tests pass across 5 test files:
+- `crates/matric-api/tests/archives_api_test.rs` - Memory CRUD, cloning, federated search, lifecycle
+- `crates/matric-api/tests/archive_schema_routing_test.rs` - Schema isolation, per-request routing, default archive resolution
+- `crates/matric-api/tests/archive_template_routing_test.rs` - Template CRUD operations within memory schemas
+- `crates/matric-api/tests/analytics_memory_attachments_archive_routing_test.rs` - Analytics, file attachments, and attachment routing within memory schemas
+- `crates/matric-api/tests/archive_version_metadata_test.rs` - Version metadata within archives
+
+Test coverage includes:
 - Memory creation and deletion
-- Per-memory CRUD operations (notes, tags, collections, embeddings)
+- Per-memory CRUD operations (notes, tags, collections, embeddings, templates, file attachments)
+- Schema isolation verification (data in one memory not visible in another)
 - Federated search across memories
 - Memory cloning with data integrity verification
 - Auto-migration on schema version mismatch
 - Background job isolation (embedding generation)
-
-See `crates/matric-api/tests/archives_api_test.rs` for comprehensive test coverage.
+- Default archive cache behavior and TTL expiration
 
 ### Performance Impact
 
 - Header extraction: Negligible (<0.1ms)
-- Memory validation: Cached in memory, <1ms
-- `SET LOCAL search_path`: PostgreSQL session-local, <0.5ms
+- Default archive cache (warm): <1ms (RwLock read)
+- Default archive cache (cold/expired): One DB query to refresh, then cached for 60s
+- `SET LOCAL search_path`: PostgreSQL session-local, <0.5ms per transaction
 - No measurable P99 latency regression
 
 ### Documentation
@@ -664,6 +701,8 @@ Updated documentation:
 - `docs/content/multi-memory.md` - Comprehensive standalone guide
 - `docs/content/getting-started.md` - Added Step 7 for memory management
 - `docs/content/backup.md` - Memory-scoped backup operations
+- `docs/content/architecture.md` - Multi-memory architecture section
+- `docs/architecture/multi-memory-design.md` - Comprehensive design document
 - MCP tools documented for memory management
 - API reference updated with memory endpoints
 
@@ -674,3 +713,4 @@ Future enhancements (not in scope):
 2. Cross-memory note linking
 3. Memory-level permissions and access control
 4. Memory templates for quick setup
+5. Schema-scoped hybrid search (remove current `public`-only restriction)
