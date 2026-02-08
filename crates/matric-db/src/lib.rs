@@ -72,6 +72,14 @@ pub mod test_fixtures;
 // Re-export core types
 pub use matric_core::*;
 
+/// Escape LIKE/ILIKE wildcard characters (`%`, `_`, `\`) in user input.
+pub fn escape_like(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 // Re-export chunking types
 pub use chunking::{
     Chunk, Chunker, ChunkerConfig, ParagraphChunker, RecursiveChunker, SemanticChunker,

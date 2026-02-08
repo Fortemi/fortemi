@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use matric_core::{Error, Result, SearchHit, StrictTagFilter};
 
+use crate::escape_like;
 use crate::strict_filter::{QueryParam, StrictFilterQueryBuilder};
 
 /// Full-text search provider using PostgreSQL tsvector.
@@ -275,9 +276,11 @@ impl PgFtsSearch {
         for token in filters.split_whitespace() {
             if let Some(tag) = token.strip_prefix("tag:") {
                 params.push(tag.to_string());
+                let exact_idx = params.len();
+                params.push(escape_like(tag));
+                let like_idx = params.len();
                 sql.push_str(&format!(
-                    " AND n.id IN (SELECT note_id FROM note_tag WHERE LOWER(tag_name) = LOWER(${}::text) OR LOWER(tag_name) LIKE LOWER(${}::text) || '/%')",
-                    params.len(), params.len()
+                    " AND n.id IN (SELECT note_id FROM note_tag WHERE LOWER(tag_name) = LOWER(${exact_idx}::text) OR LOWER(tag_name) LIKE LOWER(${like_idx}::text) || '/%' ESCAPE '\\')",
                 ));
             } else if let Some(collection) = token.strip_prefix("collection:") {
                 if let Ok(uuid) = Uuid::parse_str(collection) {
@@ -285,33 +288,25 @@ impl PgFtsSearch {
                     sql.push_str(&format!(" AND n.collection_id = ${}::uuid", params.len()));
                 }
             } else if let Some(ts) = token.strip_prefix("created_after:") {
-                // Temporal filter: notes created after this ISO 8601 timestamp
-                params.push(ts.to_string());
-                sql.push_str(&format!(
-                    " AND n.created_at >= ${}::timestamptz",
-                    params.len()
-                ));
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(" AND n.created_at >= ${}::timestamptz", params.len()));
+                }
             } else if let Some(ts) = token.strip_prefix("created_before:") {
-                // Temporal filter: notes created before this ISO 8601 timestamp
-                params.push(ts.to_string());
-                sql.push_str(&format!(
-                    " AND n.created_at <= ${}::timestamptz",
-                    params.len()
-                ));
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(" AND n.created_at <= ${}::timestamptz", params.len()));
+                }
             } else if let Some(ts) = token.strip_prefix("updated_after:") {
-                // Temporal filter: notes updated after this ISO 8601 timestamp
-                params.push(ts.to_string());
-                sql.push_str(&format!(
-                    " AND n.updated_at >= ${}::timestamptz",
-                    params.len()
-                ));
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(" AND n.updated_at >= ${}::timestamptz", params.len()));
+                }
             } else if let Some(ts) = token.strip_prefix("updated_before:") {
-                // Temporal filter: notes updated before this ISO 8601 timestamp
-                params.push(ts.to_string());
-                sql.push_str(&format!(
-                    " AND n.updated_at <= ${}::timestamptz",
-                    params.len()
-                ));
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(" AND n.updated_at <= ${}::timestamptz", params.len()));
+                }
             }
         }
 
@@ -397,6 +392,7 @@ impl PgFtsSearch {
 
         // Trigram search using similarity() function and ILIKE for exact matches
         // The % operator uses the pg_trgm.similarity_threshold (default 0.3)
+        // $1 = raw query (for similarity), $2 = escaped query (for ILIKE), $3 = limit
         let sql = format!(
             r#"
             SELECT DISTINCT ON (n.id)
@@ -415,8 +411,8 @@ impl PgFtsSearch {
             JOIN note n ON n.id = nrc.note_id
             WHERE (
                 nrc.content % $1
-                OR nrc.content ILIKE '%' || $1 || '%'
-                OR n.title ILIKE '%' || $1 || '%'
+                OR nrc.content ILIKE '%' || $2 || '%' ESCAPE '\'
+                OR n.title ILIKE '%' || $2 || '%' ESCAPE '\'
             )
             {}
             ORDER BY n.id, score DESC
@@ -425,10 +421,12 @@ impl PgFtsSearch {
         );
 
         // Re-sort by score after DISTINCT ON
-        let sql_with_sort = format!("SELECT * FROM ({}) AS t ORDER BY score DESC LIMIT $2", sql);
+        let sql_with_sort = format!("SELECT * FROM ({}) AS t ORDER BY score DESC LIMIT $3", sql);
+        let escaped_query = escape_like(query);
 
         let rows = sqlx::query(&sql_with_sort)
             .bind(query)
+            .bind(&escaped_query)
             .bind(limit)
             .fetch_all(&self.pool)
             .await

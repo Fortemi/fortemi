@@ -79,14 +79,22 @@ fn build_filter_clause(filter: &str) -> &'static str {
 }
 
 /// Build the order clause based on sort_by and sort_order.
+fn validate_sort_order(sort_order: &str) -> &'static str {
+    match sort_order.to_uppercase().as_str() {
+        "ASC" => "ASC",
+        _ => "DESC",
+    }
+}
+
 fn build_order_clause(sort_by: &str, sort_order: &str) -> String {
+    let validated = validate_sort_order(sort_order);
     match sort_by {
-        "updated_at" => format!("n.updated_at_utc {}", sort_order),
+        "updated_at" => format!("n.updated_at_utc {}", validated),
         "accessed_at" => format!(
             "COALESCE(n.last_accessed_at, n.created_at_utc) {}",
-            sort_order
+            validated
         ),
-        _ => format!("n.created_at_utc {}", sort_order),
+        _ => format!("n.created_at_utc {}", validated),
     }
 }
 
@@ -94,7 +102,7 @@ fn build_order_clause(sort_by: &str, sort_order: &str) -> String {
 fn add_tag_filters(query: &mut String, param_idx: &mut usize, tag_count: usize) {
     for _ in 0..tag_count {
         query.push_str(&format!(
-            "AND EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = LOWER(${}) OR LOWER(nt.tag_name) LIKE LOWER(${}) || '/%')) ",
+            "AND EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = LOWER(${}) OR LOWER(nt.tag_name) LIKE LOWER(${}) || '/%' ESCAPE '\\')) ",
             param_idx, param_idx
         ));
         *param_idx += 1;
@@ -1182,14 +1190,15 @@ impl PgNoteRepository {
         let filter_result = builder.build();
 
         // Build order clause
+        let validated_order = validate_sort_order(sort_order);
         let order_clause = match sort_by {
-            "updated_at" => format!("n.updated_at_utc {}", sort_order),
+            "updated_at" => format!("n.updated_at_utc {}", validated_order),
             "accessed_at" => format!(
                 "COALESCE(n.last_accessed_at, n.created_at_utc) {}",
-                sort_order
+                validated_order
             ),
-            "title" => format!("n.title {} NULLS LAST", sort_order),
-            _ => format!("n.created_at_utc {}", sort_order),
+            "title" => format!("n.title {} NULLS LAST", validated_order),
+            _ => format!("n.created_at_utc {}", validated_order),
         };
 
         // Build full query with optional CTE

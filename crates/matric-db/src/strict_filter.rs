@@ -143,7 +143,7 @@ impl StrictFilterQueryBuilder {
         for tag_name in &self.filter.required_string_tags {
             param_idx += 1;
             clauses.push(format!(
-                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = LOWER(${}::text) OR LOWER(nt.tag_name) LIKE LOWER(${}::text) || '/%'))",
+                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = LOWER(${}::text) OR LOWER(nt.tag_name) LIKE LOWER(${}::text) || '/%' ESCAPE '\\'))",
                 param_idx, param_idx
             ));
             params.push(QueryParam::String(tag_name.clone()));
@@ -154,7 +154,7 @@ impl StrictFilterQueryBuilder {
         if !self.filter.any_string_tags.is_empty() {
             param_idx += 1;
             clauses.push(format!(
-                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = ANY(SELECT LOWER(unnest(${}::text[]))) OR EXISTS (SELECT 1 FROM unnest(${}::text[]) AS t WHERE LOWER(nt.tag_name) LIKE LOWER(t) || '/%')))",
+                "EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = ANY(SELECT LOWER(unnest(${}::text[]))) OR EXISTS (SELECT 1 FROM unnest(${}::text[]) AS t WHERE LOWER(nt.tag_name) LIKE LOWER(t) || '/%' ESCAPE '\\')))",
                 param_idx, param_idx
             ));
             params.push(QueryParam::StringArray(self.filter.any_string_tags.clone()));
@@ -165,7 +165,7 @@ impl StrictFilterQueryBuilder {
         if !self.filter.excluded_string_tags.is_empty() {
             param_idx += 1;
             clauses.push(format!(
-                "NOT EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = ANY(SELECT LOWER(unnest(${}::text[]))) OR EXISTS (SELECT 1 FROM unnest(${}::text[]) AS t WHERE LOWER(nt.tag_name) LIKE LOWER(t) || '/%')))",
+                "NOT EXISTS (SELECT 1 FROM note_tag nt WHERE nt.note_id = n.id AND (LOWER(nt.tag_name) = ANY(SELECT LOWER(unnest(${}::text[]))) OR EXISTS (SELECT 1 FROM unnest(${}::text[]) AS t WHERE LOWER(nt.tag_name) LIKE LOWER(t) || '/%' ESCAPE '\\')))",
                 param_idx, param_idx
             ));
             params.push(QueryParam::StringArray(
