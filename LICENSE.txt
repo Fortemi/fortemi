@@ -1,11 +1,11 @@
 ================================================================================
 matric-memory Change License
 
-This license (AGPL-3.0) takes effect on February 5, 2030 as specified in the
-LICENSE file. Until that date, use of this software is governed by the
-Business Source License 1.1 in the LICENSE file.
+This license (AGPL-3.0) takes effect on February 8, 2030 as specified in the
+BSL-LICENSE file. Until that date, use of this software is governed by the
+Business Source License 1.1 in the BSL-LICENSE file.
 
-See: LICENSE
+See: BSL-LICENSE
 ================================================================================
 
                     GNU AFFERO GENERAL PUBLIC LICENSE
