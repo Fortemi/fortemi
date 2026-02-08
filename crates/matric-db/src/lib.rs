@@ -162,6 +162,8 @@ pub struct Database {
     /// File storage repository (note: requires backend configuration).
     /// Use `with_file_storage` to configure.
     pub file_storage: Option<PgFileStorageRepository>,
+    /// File storage base path for cloning (used by Clone impl to reconstruct backend).
+    file_storage_path: Option<String>,
     /// SKOS tags repository (convenience alias).
     pub skos_tags: PgSkosRepository,
     /// Webhook repository for outbound HTTP notifications (Issue #44).
@@ -193,6 +195,7 @@ impl Database {
             memory_search: PgMemorySearchRepository::new(pool.clone()),
             colbert: ColBERTRepository::new(pool.clone()),
             file_storage: None,
+            file_storage_path: None,
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
@@ -216,6 +219,20 @@ impl Database {
             backend,
             inline_threshold,
         ));
+        self
+    }
+
+    /// Configure file storage with a filesystem backend path.
+    ///
+    /// Unlike `with_file_storage`, this stores the path so that `Clone` can
+    /// reconstruct the backend correctly (instead of using a `/dev/null` placeholder).
+    pub fn with_filesystem_storage(mut self, path: &str, inline_threshold: i64) -> Self {
+        self.file_storage = Some(PgFileStorageRepository::new(
+            self.pool.clone(),
+            FilesystemBackend::new(path),
+            inline_threshold,
+        ));
+        self.file_storage_path = Some(path.to_string());
         self
     }
 
@@ -322,15 +339,14 @@ impl Clone for Database {
             versioning: VersioningRepository::new(self.pool.clone()),
             memory_search: PgMemorySearchRepository::new(self.pool.clone()),
             colbert: ColBERTRepository::new(self.pool.clone()),
-            file_storage: self.file_storage.as_ref().map(|_fs| {
-                // Note: This creates a new instance with the same pool, but without the backend.
-                // For proper cloning with backend, file_storage should be reconfigured.
+            file_storage: self.file_storage_path.as_ref().map(|path| {
                 PgFileStorageRepository::new(
                     self.pool.clone(),
-                    FilesystemBackend::new("/dev/null"), // Placeholder
+                    FilesystemBackend::new(path),
                     10_485_760,
                 )
             }),
+            file_storage_path: self.file_storage_path.clone(),
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),

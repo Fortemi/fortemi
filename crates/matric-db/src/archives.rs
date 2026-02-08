@@ -62,15 +62,17 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Note original content table
+        // Note original content table (must have `id` column — used by insert flow)
         sqlx::query(&format!(
             r#"
             CREATE TABLE {schema}.note_original (
+                id UUID NOT NULL,
                 note_id UUID PRIMARY KEY REFERENCES {schema}.note(id) ON DELETE CASCADE,
                 content TEXT NOT NULL,
                 hash TEXT NOT NULL,
-                user_created_at TIMESTAMPTZ,
-                user_last_edited_at TIMESTAMPTZ
+                version_number INTEGER NOT NULL DEFAULT 1,
+                user_created_at TIMESTAMPTZ DEFAULT NOW(),
+                user_last_edited_at TIMESTAMPTZ DEFAULT NOW()
             )
             "#,
             schema = schema_name
@@ -79,19 +81,59 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Note revised content table
+        // Note revised current content table (name must match note insert queries)
         sqlx::query(&format!(
             r#"
-            CREATE TABLE {schema}.note_revised (
+            CREATE TABLE {schema}.note_revised_current (
                 note_id UUID PRIMARY KEY REFERENCES {schema}.note(id) ON DELETE CASCADE,
                 content TEXT NOT NULL,
                 last_revision_id UUID,
-                ai_metadata JSONB,
-                ai_generated_at TIMESTAMPTZ,
+                ai_metadata JSONB DEFAULT '{{}}'::jsonb,
+                tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
+            )
+            "#,
+            schema = schema_name
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Note revision history table (tracks all revisions)
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE {schema}.note_revision (
+                id UUID PRIMARY KEY,
+                note_id UUID NOT NULL REFERENCES {schema}.note(id) ON DELETE CASCADE,
+                parent_revision_id UUID REFERENCES {schema}.note_revision(id),
+                revision_number INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'ai_enhancement',
+                summary TEXT,
+                rationale TEXT,
+                created_at_utc TIMESTAMPTZ NOT NULL,
+                ai_generated_at TIMESTAMPTZ DEFAULT NOW(),
                 user_last_edited_at TIMESTAMPTZ,
-                is_user_edited BOOLEAN DEFAULT FALSE,
-                generation_count INTEGER DEFAULT 0,
+                is_user_edited BOOLEAN NOT NULL DEFAULT FALSE,
+                generation_count INTEGER NOT NULL DEFAULT 1,
                 model TEXT
+            )
+            "#,
+            schema = schema_name
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Activity log table (tracks note lifecycle events)
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE {schema}.activity_log (
+                id UUID PRIMARY KEY,
+                at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                note_id UUID REFERENCES {schema}.note(id) ON DELETE SET NULL,
+                meta JSONB DEFAULT '{{}}'::jsonb
             )
             "#,
             schema = schema_name
@@ -139,6 +181,7 @@ impl PgArchiveRepository {
             CREATE TABLE {schema}.note_tag (
                 note_id UUID REFERENCES {schema}.note(id) ON DELETE CASCADE,
                 tag_name TEXT REFERENCES {schema}.tag(name) ON DELETE CASCADE,
+                source TEXT DEFAULT 'manual',
                 PRIMARY KEY (note_id, tag_name)
             )
             "#,
@@ -200,6 +243,10 @@ impl PgArchiveRepository {
             format!("CREATE INDEX IF NOT EXISTS idx_{}_emb_note ON {}.embedding(note_id)", schema_name.replace(".", "_"), schema_name),
             format!("CREATE INDEX IF NOT EXISTS idx_{}_link_frm ON {}.link(from_note_id)", schema_name.replace(".", "_"), schema_name),
             format!("CREATE INDEX IF NOT EXISTS idx_{}_link_to ON {}.link(to_note_id) WHERE to_note_id IS NOT NULL", schema_name.replace(".", "_"), schema_name),
+            format!("CREATE INDEX IF NOT EXISTS idx_{}_nrev_note ON {}.note_revision(note_id)", schema_name.replace(".", "_"), schema_name),
+            format!("CREATE INDEX IF NOT EXISTS idx_{}_nrc_tsv ON {}.note_revised_current USING GIN(tsv)", schema_name.replace(".", "_"), schema_name),
+            format!("CREATE INDEX IF NOT EXISTS idx_{}_alog_note ON {}.activity_log(note_id)", schema_name.replace(".", "_"), schema_name),
+            format!("CREATE INDEX IF NOT EXISTS idx_{}_alog_time ON {}.activity_log(at_utc DESC)", schema_name.replace(".", "_"), schema_name),
         ];
 
         for stmt in index_statements {

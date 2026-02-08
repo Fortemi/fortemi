@@ -507,17 +507,20 @@ async fn main() -> anyhow::Result<()> {
             file_storage_path, e
         );
     }
-    let backend = FilesystemBackend::new(&file_storage_path);
     // Validate storage works before accepting uploads (issue #150)
-    match backend.validate().await {
-        Ok(()) => info!("File storage validated at {}", file_storage_path),
-        Err(e) => error!(
-            "File storage validation FAILED at {}: {}",
-            file_storage_path, e
-        ),
+    {
+        let backend = FilesystemBackend::new(&file_storage_path);
+        match backend.validate().await {
+            Ok(()) => info!("File storage validated at {}", file_storage_path),
+            Err(e) => error!(
+                "File storage validation FAILED at {}: {}",
+                file_storage_path, e
+            ),
+        }
     }
-    let db = db.with_file_storage(
-        backend,
+    // Use with_filesystem_storage so Clone reconstructs the real backend (fix #154)
+    let db = db.with_filesystem_storage(
+        &file_storage_path,
         matric_core::defaults::FILE_INLINE_THRESHOLD as i64, // 1MB inline threshold
     );
     info!("File storage initialized at {}", file_storage_path);
@@ -9737,8 +9740,25 @@ END $$;
         .is_ok();
 
     // Step 4: Rebuild indexes and refresh query planner stats post-restore
+    // Run each step separately so partial failures don't block the rest.
     if db_ok {
-        let reindex_sql = "REINDEX DATABASE matric; VACUUM ANALYZE;";
+        let post_restore_sql = r#"
+-- Rebuild all indexes (GIN, B-tree, GiST) to ensure consistency
+REINDEX DATABASE matric;
+
+-- Full vacuum + analyze to update planner statistics for all tables
+VACUUM ANALYZE;
+
+-- Explicit ANALYZE on FTS-critical tables for accurate GIN index stats
+ANALYZE note_revised_current;
+ANALYZE note;
+ANALYZE note_tag;
+ANALYZE note_original;
+ANALYZE embedding;
+
+-- Verify GIN indexes exist on tsvector columns (no-op if present)
+CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING GIN(tsv);
+"#;
         let reindex_result = std::process::Command::new("psql")
             .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
             .env("PGPASSWORD", "matric")
@@ -9749,7 +9769,7 @@ END $$;
             .and_then(|mut child| {
                 if let Some(mut stdin) = child.stdin.take() {
                     use std::io::Write;
-                    let _ = stdin.write_all(reindex_sql.as_bytes());
+                    let _ = stdin.write_all(post_restore_sql.as_bytes());
                 }
                 child.wait_with_output()
             });
@@ -9762,7 +9782,7 @@ END $$;
                 tracing::warn!("Post-restore REINDEX/VACUUM failed: {}", e);
             }
             _ => {
-                tracing::info!("Post-restore REINDEX and VACUUM ANALYZE completed successfully");
+                tracing::info!("Post-restore REINDEX, VACUUM ANALYZE, and FTS index rebuild completed successfully");
             }
         }
     }
