@@ -71,8 +71,8 @@ pub trait SkosConceptSchemeRepository: Send + Sync {
     /// Update a concept scheme.
     async fn update_scheme(&self, id: Uuid, req: UpdateConceptSchemeRequest) -> Result<()>;
 
-    /// Delete a concept scheme (must be empty).
-    async fn delete_scheme(&self, id: Uuid) -> Result<()>;
+    /// Delete a concept scheme. If `force` is true, cascade-delete all concepts.
+    async fn delete_scheme(&self, id: Uuid, force: bool) -> Result<()>;
 
     /// Get top concepts for a scheme.
     async fn get_top_concepts(&self, scheme_id: Uuid) -> Result<Vec<SkosConceptSummary>>;
@@ -531,22 +531,7 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
         Ok(())
     }
 
-    async fn delete_scheme(&self, id: Uuid) -> Result<()> {
-        // Check if scheme has concepts
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM skos_concept WHERE primary_scheme_id = $1")
-                .bind(id)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(Error::Database)?;
-
-        if count > 0 {
-            return Err(Error::InvalidInput(format!(
-                "Cannot delete scheme with {} concepts",
-                count
-            )));
-        }
-
+    async fn delete_scheme(&self, id: Uuid, force: bool) -> Result<()> {
         // Check if system scheme
         let is_system: bool =
             sqlx::query_scalar("SELECT is_system FROM skos_concept_scheme WHERE id = $1")
@@ -560,6 +545,38 @@ impl SkosConceptSchemeRepository for PgSkosRepository {
             return Err(Error::InvalidInput(
                 "Cannot delete system scheme".to_string(),
             ));
+        }
+
+        // Check if scheme has concepts
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skos_concept WHERE primary_scheme_id = $1")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+
+        if count > 0 && !force {
+            return Err(Error::InvalidInput(format!(
+                "Cannot delete scheme with {} concepts. Use force=true to cascade delete.",
+                count
+            )));
+        }
+
+        if count > 0 && force {
+            // Cascade delete: remove all concepts in this scheme.
+            // Relations are cleaned up via ON DELETE CASCADE on the foreign keys.
+            // Delete concept_in_scheme memberships first, then concepts.
+            sqlx::query("DELETE FROM skos_concept_in_scheme WHERE scheme_id = $1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+
+            sqlx::query("DELETE FROM skos_concept WHERE primary_scheme_id = $1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(Error::Database)?;
         }
 
         sqlx::query("DELETE FROM skos_concept_scheme WHERE id = $1")
@@ -1747,9 +1764,13 @@ impl SkosRelationRepository for PgSkosRepository {
         object_id: Uuid,
         relation_type: SkosSemanticRelation,
     ) -> Result<()> {
+        // For symmetric relations (Related), delete both directions.
+        // skos:related is symmetric per W3C SKOS spec - removing one direction
+        // must also remove the inferred inverse.
         sqlx::query(
-            "DELETE FROM skos_semantic_relation_edge 
-             WHERE subject_id = $1 AND object_id = $2 AND relation_type = $3::skos_semantic_relation"
+            "DELETE FROM skos_semantic_relation_edge
+             WHERE ((subject_id = $1 AND object_id = $2) OR (subject_id = $2 AND object_id = $1))
+             AND relation_type = $3::skos_semantic_relation",
         )
         .bind(subject_id)
         .bind(object_id)

@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import tools from "./tools.js";
-import { execSync } from "node:child_process";
+// execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
 // Prevent unhandled errors from crashing the MCP server process (issue #131)
@@ -790,6 +790,7 @@ function createMcpServer() {
             ulHeaders["Authorization"] = `Bearer ${API_KEY}`;
           }
           ulHeaders['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+          ulHeaders['Content-Length'] = body.length.toString();
 
           const uploadResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive`, {
             method: 'POST',
@@ -1110,8 +1111,13 @@ function createMcpServer() {
         }
 
         case "pke_get_address": {
-          // Read public key file — supports both JSON keyset format and raw binary
-          const pubKeyB64 = readPublicKeyAsBase64(args.public_key_path);
+          // Accept base64 directly (preferred) or read from filesystem (fallback)
+          const pubKeyB64 = args.public_key
+            ? args.public_key
+            : args.public_key_path
+              ? readPublicKeyAsBase64(args.public_key_path)
+              : null;
+          if (!pubKeyB64) throw new Error("Provide either public_key (base64) or public_key_path");
           const apiResult = await apiRequest("POST", "/api/v1/pke/address", {
             public_key: pubKeyB64,
           });
@@ -1120,20 +1126,33 @@ function createMcpServer() {
         }
 
         case "pke_encrypt": {
-          // Read input file as base64
-          const plainBytes = fs.readFileSync(args.input_path);
-          const plainB64 = plainBytes.toString("base64");
-          // Read recipient public key files — supports both JSON keyset and raw binary
-          const recipientKeys = args.recipients.map(r => readPublicKeyAsBase64(r));
+          // API mode (preferred): base64 plaintext + base64 recipient keys
+          // File mode (fallback): filesystem paths
+          let plainB64, recipientKeysB64, origFilename;
+          if (args.plaintext && args.recipient_keys) {
+            plainB64 = args.plaintext;
+            recipientKeysB64 = args.recipient_keys;
+            origFilename = args.original_filename || null;
+          } else if (args.input_path && args.output_path && args.recipients) {
+            const plainBytes = fs.readFileSync(args.input_path);
+            plainB64 = plainBytes.toString("base64");
+            recipientKeysB64 = args.recipients.map(r => readPublicKeyAsBase64(r));
+            origFilename = path.basename(args.input_path);
+          } else {
+            throw new Error("Provide either (plaintext + recipient_keys) for API mode or (input_path + output_path + recipients) for file mode");
+          }
           const apiResult = await apiRequest("POST", "/api/v1/pke/encrypt", {
             plaintext: plainB64,
-            recipients: recipientKeys,
-            original_filename: path.basename(args.input_path),
+            recipients: recipientKeysB64,
+            original_filename: origFilename,
           });
-          // Write encrypted output
-          fs.writeFileSync(args.output_path, Buffer.from(apiResult.ciphertext, "base64"));
+          // Write to disk only in file mode
+          if (args.output_path) {
+            fs.writeFileSync(args.output_path, Buffer.from(apiResult.ciphertext, "base64"));
+          }
           result = {
-            output_path: args.output_path,
+            ciphertext: args.output_path ? undefined : apiResult.ciphertext,
+            output_path: args.output_path || null,
             recipients: apiResult.recipients,
             size_bytes: Buffer.from(apiResult.ciphertext, "base64").length,
           };
@@ -1141,29 +1160,43 @@ function createMcpServer() {
         }
 
         case "pke_decrypt": {
-          // Read encrypted file and private key as base64
-          const cipherBytes = fs.readFileSync(args.input_path);
-          const cipherB64 = cipherBytes.toString("base64");
-          const privKeyBytes = fs.readFileSync(args.private_key_path);
-          const privKeyB64 = privKeyBytes.toString("base64");
+          // API mode (preferred): base64 ciphertext + base64 encrypted_private_key
+          // File mode (fallback): filesystem paths
+          let cipherB64, privKeyB64;
+          if (args.ciphertext && args.encrypted_private_key) {
+            cipherB64 = args.ciphertext;
+            privKeyB64 = args.encrypted_private_key;
+          } else if (args.input_path && args.private_key_path) {
+            cipherB64 = fs.readFileSync(args.input_path).toString("base64");
+            privKeyB64 = fs.readFileSync(args.private_key_path).toString("base64");
+          } else {
+            throw new Error("Provide either (ciphertext + encrypted_private_key) for API mode or (input_path + private_key_path) for file mode");
+          }
           const apiResult = await apiRequest("POST", "/api/v1/pke/decrypt", {
             ciphertext: cipherB64,
             encrypted_private_key: privKeyB64,
             passphrase: args.passphrase,
           });
-          // Write decrypted output
-          fs.writeFileSync(args.output_path, Buffer.from(apiResult.plaintext, "base64"));
+          // Write to disk only in file mode
+          if (args.output_path) {
+            fs.writeFileSync(args.output_path, Buffer.from(apiResult.plaintext, "base64"));
+          }
           result = {
-            output_path: args.output_path,
+            plaintext: args.output_path ? undefined : apiResult.plaintext,
+            output_path: args.output_path || null,
             original_filename: apiResult.original_filename,
           };
           break;
         }
 
         case "pke_list_recipients": {
-          // Read encrypted file as base64
-          const encBytes = fs.readFileSync(args.input_path);
-          const encB64 = encBytes.toString("base64");
+          // Accept base64 directly (preferred) or read from filesystem (fallback)
+          const encB64 = args.ciphertext
+            ? args.ciphertext
+            : args.input_path
+              ? fs.readFileSync(args.input_path).toString("base64")
+              : null;
+          if (!encB64) throw new Error("Provide either ciphertext (base64) or input_path");
           const apiResult = await apiRequest("POST", "/api/v1/pke/recipients", {
             ciphertext: encB64,
           });
@@ -1206,12 +1239,14 @@ function createMcpServer() {
                 continue;
               }
 
-              // Get address from public key
+              // Get address from public key via HTTP API (no CLI binary required)
               let address = null;
               try {
-                const addrOutput = execSync(`matric-pke address -p "${publicKeyPath}"`, { encoding: 'utf8' });
-                const addrData = JSON.parse(addrOutput);
-                address = addrData.address;
+                const pubKeyB64 = readPublicKeyAsBase64(publicKeyPath);
+                const addrResult = await apiRequest("POST", "/api/v1/pke/address", {
+                  public_key: pubKeyB64,
+                });
+                address = addrResult.address;
               } catch (e) {
                 // Skip if we can't get address
                 continue;
@@ -1219,12 +1254,12 @@ function createMcpServer() {
 
               // Get created timestamp from directory
               const stats = fs.statSync(keysetDir);
+              const pubKeyB64 = readPublicKeyAsBase64(publicKeyPath);
 
               keysets.push({
                 name: entry.name,
                 address,
-                public_key_path: publicKeyPath,
-                private_key_path: privateKeyPath,
+                public_key: pubKeyB64,
                 created: stats.birthtime.toISOString(),
               });
             }
@@ -1251,19 +1286,27 @@ function createMcpServer() {
               throw new Error(`Keyset '${args.name}' already exists`);
             }
 
-            // Create directory
+            // Generate keypair via HTTP API (no CLI binary required)
+            const keygenResult = await apiRequest("POST", "/api/v1/pke/keygen", {
+              passphrase: args.passphrase,
+              label: args.name,
+            });
+
+            // Create directory and write key files
             fs.mkdirSync(keysetDir, { recursive: true });
+            fs.writeFileSync(
+              path.join(keysetDir, 'public.key'),
+              Buffer.from(keygenResult.public_key, 'base64')
+            );
+            fs.writeFileSync(
+              path.join(keysetDir, 'private.key.enc'),
+              Buffer.from(keygenResult.encrypted_private_key, 'base64')
+            );
 
-            // Generate keypair using matric-pke
-            const output = execSync(`matric-pke keygen -p "${args.passphrase}" -o "${keysetDir}"`, { encoding: 'utf8' });
-            const keygenData = JSON.parse(output);
-
-            // Return keyset info with normalized paths
             result = {
               name: args.name,
-              address: keygenData.address,
-              public_key_path: path.join(keysetDir, 'public.key'),
-              private_key_path: path.join(keysetDir, 'private.key.enc'),
+              address: keygenResult.address,
+              public_key: keygenResult.public_key,
               created: new Date().toISOString(),
             };
           } catch (e) {
@@ -1285,6 +1328,7 @@ function createMcpServer() {
 
             // Read active keyset name
             const activeKeyset = fs.readFileSync(activeFile, 'utf8').trim();
+            if (!activeKeyset) { result = null; break; }
 
             const keysetDir = path.join(keysDir, activeKeyset);
             const publicKeyPath = path.join(keysetDir, 'public.key');
@@ -1296,18 +1340,19 @@ function createMcpServer() {
               break;
             }
 
-            // Get address from public key
-            const addrOutput = execSync(`matric-pke address -p "${publicKeyPath}"`, { encoding: 'utf8' });
-            const addrData = JSON.parse(addrOutput);
+            // Get address via HTTP API (no CLI binary required)
+            const pubKeyB64 = readPublicKeyAsBase64(publicKeyPath);
+            const addrResult = await apiRequest("POST", "/api/v1/pke/address", {
+              public_key: pubKeyB64,
+            });
 
             // Get created timestamp
             const stats = fs.statSync(keysetDir);
 
             result = {
               name: activeKeyset,
-              address: addrData.address,
-              public_key_path: publicKeyPath,
-              private_key_path: privateKeyPath,
+              address: addrResult.address,
+              public_key: pubKeyB64,
               created: stats.birthtime.toISOString(),
             };
           } catch (e) {
@@ -1455,16 +1500,17 @@ function createMcpServer() {
             fs.copyFileSync(sourcePublicKey, destPublicKey);
             fs.copyFileSync(sourcePrivateKey, destPrivateKey);
 
-            // Get address from imported public key
-            const addrOutput = execSync(`matric-pke address -p "${destPublicKey}"`, { encoding: 'utf8' });
-            const addrData = JSON.parse(addrOutput);
+            // Get address from imported public key via HTTP API (no CLI binary required)
+            const importedPubKeyB64 = readPublicKeyAsBase64(destPublicKey);
+            const addrResult = await apiRequest("POST", "/api/v1/pke/address", {
+              public_key: importedPubKeyB64,
+            });
 
             result = {
               success: true,
               keyset_name: args.name,
-              address: addrData.address,
-              public_key_path: destPublicKey,
-              private_key_path: destPrivateKey,
+              address: addrResult.address,
+              public_key: importedPubKeyB64,
               message: `Keyset imported as '${args.name}'`,
             };
           } catch (e) {
@@ -1806,18 +1852,19 @@ function createMcpServer() {
         // SKOS TURTLE EXPORT (#460)
         // ============================================================================
         case "export_skos_turtle": {
-          if (!args.scheme_id) {
-            throw new Error("scheme_id is required for SKOS Turtle export");
-          }
           // Fetch as text since this returns Turtle format, not JSON
           const sessionToken = tokenStorage.getStore()?.token;
-          const headers = { "Accept": "text/turtle" };
+          const turtleHeaders = { "Accept": "text/turtle" };
           if (sessionToken) {
-            headers["Authorization"] = `Bearer ${sessionToken}`;
+            turtleHeaders["Authorization"] = `Bearer ${sessionToken}`;
           } else if (API_KEY) {
-            headers["Authorization"] = `Bearer ${API_KEY}`;
+            turtleHeaders["Authorization"] = `Bearer ${API_KEY}`;
           }
-          const turtleResponse = await fetch(`${API_BASE}/api/v1/concepts/schemes/${args.scheme_id}/export/turtle`, { headers });
+          // If scheme_id provided, export single scheme; otherwise export all
+          const turtleUrl = args.scheme_id
+            ? `${API_BASE}/api/v1/concepts/schemes/${args.scheme_id}/export/turtle`
+            : `${API_BASE}/api/v1/concepts/schemes/export/turtle`;
+          const turtleResponse = await fetch(turtleUrl, { headers: turtleHeaders });
           if (!turtleResponse.ok) {
             throw new Error(`Turtle export failed: ${turtleResponse.status}`);
           }

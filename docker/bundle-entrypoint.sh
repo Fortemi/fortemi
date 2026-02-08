@@ -85,6 +85,13 @@ su postgres -c "psql -d ${POSTGRES_DB:-matric} -c 'CREATE EXTENSION IF NOT EXIST
 # This ensures migrations run exactly once, in order, with proper error handling.
 echo ">>> Database migrations will be applied by API on startup"
 
+# Create required directories for file storage and backups
+echo ">>> Creating storage directories..."
+mkdir -p /var/lib/matric/files
+mkdir -p /var/backups/matric-memory
+echo "  File storage: /var/lib/matric/files"
+echo "  Backup storage: /var/backups/matric-memory"
+
 # --- Start API first (MCP needs the API for credential validation) ---
 echo ">>> Starting Matric API..."
 mkdir -p /var/log/matric

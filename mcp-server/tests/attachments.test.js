@@ -13,13 +13,50 @@ describe("Phase 2b: File Attachments", () => {
 
   after(async () => {
     for (const id of cleanup.fileIds) {
-      try { await client.callTool("delete_file", { id }); } catch {}
+      try { await client.callTool("delete_attachment", { id }); } catch {}
     }
     for (const id of cleanup.noteIds) {
       try { await client.callTool("delete_note", { id }); } catch {}
     }
     await client.close();
   });
+
+  /**
+   * Helper function to upload a file via HTTP API after getting upload hints from MCP
+   */
+  async function uploadFile(noteId, filename, content, contentType) {
+    // Get upload URL and instructions from MCP
+    const uploadHints = await client.callTool("upload_attachment", {
+      note_id: noteId,
+      filename,
+      content_type: contentType,
+    });
+
+    assert.ok(uploadHints.upload_url, "Should return upload_url");
+    assert.ok(uploadHints.method === "POST", "Should use POST method");
+
+    // Perform actual upload via HTTP API
+    const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:3000";
+    const response = await fetch(`${apiBaseUrl}/api/v1/notes/${noteId}/attachments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        filename,
+        content_type: contentType,
+        data: Buffer.from(content).toString("base64"),
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Upload failed: ${response.status} ${text}`);
+    }
+
+    const result = await response.json();
+    return result;
+  }
 
   test("ATT-001: Store file attachment to a note", async () => {
     // Create a note first
@@ -31,13 +68,13 @@ describe("Phase 2b: File Attachments", () => {
     assert.ok(note.id, "Should return note ID");
     cleanup.noteIds.push(note.id);
 
-    // Store a text file attachment
-    const file = await client.callTool("store_file", {
-      note_id: note.id,
-      filename: "test-document.txt",
-      content_base64: Buffer.from("Hello, this is test content for attachment testing.").toString("base64"),
-      content_type: "text/plain",
-    });
+    // Upload a text file attachment via HTTP API
+    const file = await uploadFile(
+      note.id,
+      "test-document.txt",
+      "Hello, this is test content for attachment testing.",
+      "text/plain"
+    );
     assert.ok(file.id || file.file_id, "Should return file ID");
     cleanup.fileIds.push(file.id || file.file_id);
   });
@@ -51,14 +88,16 @@ describe("Phase 2b: File Attachments", () => {
     });
     cleanup.noteIds.push(note.id);
 
-    await client.callTool("store_file", {
-      note_id: note.id,
-      filename: "list-test.txt",
-      content_base64: Buffer.from("List test content").toString("base64"),
-      content_type: "text/plain",
-    });
+    // Upload file
+    await uploadFile(
+      note.id,
+      "list-test.txt",
+      "List test content",
+      "text/plain"
+    );
 
-    const files = await client.callTool("list_files_by_note", {
+    // List attachments using MCP tool
+    const files = await client.callTool("list_attachments", {
       note_id: note.id,
     });
     assert.ok(Array.isArray(files) || files.files, "Should return files array");
@@ -75,19 +114,22 @@ describe("Phase 2b: File Attachments", () => {
     cleanup.noteIds.push(note.id);
 
     const originalContent = "Retrievable test content with UTF-8: café ñ";
-    const stored = await client.callTool("store_file", {
-      note_id: note.id,
-      filename: "retrievable.txt",
-      content_base64: Buffer.from(originalContent).toString("base64"),
-      content_type: "text/plain",
-    });
+    const stored = await uploadFile(
+      note.id,
+      "retrievable.txt",
+      originalContent,
+      "text/plain"
+    );
     const fileId = stored.id || stored.file_id;
     cleanup.fileIds.push(fileId);
 
-    const content = await client.callTool("get_file_content", {
+    // Get attachment metadata using MCP tool
+    const attachment = await client.callTool("get_attachment", {
       id: fileId,
     });
-    assert.ok(content, "Should return file content");
+    assert.ok(attachment, "Should return attachment metadata");
+    assert.ok(attachment.id === fileId, "Should match the uploaded file ID");
+    assert.ok(attachment._api_urls, "Should include API URLs for download");
   });
 
   test("ATT-004: Delete file attachment", async () => {
@@ -98,15 +140,16 @@ describe("Phase 2b: File Attachments", () => {
     });
     cleanup.noteIds.push(note.id);
 
-    const stored = await client.callTool("store_file", {
-      note_id: note.id,
-      filename: "deletable.txt",
-      content_base64: Buffer.from("Delete me").toString("base64"),
-      content_type: "text/plain",
-    });
+    const stored = await uploadFile(
+      note.id,
+      "deletable.txt",
+      "Delete me",
+      "text/plain"
+    );
     const fileId = stored.id || stored.file_id;
 
-    const result = await client.callTool("delete_file", { id: fileId });
+    // Delete using MCP tool
+    const result = await client.callTool("delete_attachment", { id: fileId });
     assert.ok(result, "Delete should succeed");
   });
 });

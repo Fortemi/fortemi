@@ -2452,19 +2452,26 @@ If output_dir is specified, key files are written to disk (public.key, private.k
   },
   {
     name: "pke_get_address",
-    description: `Get the public address from a public key file.
+    description: `Get the public address from a public key (base64 or file path).
 
-Reads the public key file and returns the mm:... address that can be shared with others.
-This address is what senders use to encrypt data for you.`,
+Returns the mm:... address derived from a public key. This address is what senders
+use to encrypt data for you.
+
+Provide EITHER public_key (base64) OR public_key_path (filesystem). Base64 is
+preferred for MCP workflows since no filesystem access is needed.`,
     inputSchema: {
       type: "object",
       properties: {
+        public_key: {
+          type: "string",
+          description: "Base64-encoded public key bytes (preferred — no filesystem access needed)"
+        },
         public_key_path: {
           type: "string",
-          description: "Path to the public key file"
+          description: "Path to the public key file (fallback for local CLI workflows)"
         },
       },
-      required: ["public_key_path"],
+      required: [],
     },
     annotations: {
       readOnlyHint: true,
@@ -2472,36 +2479,47 @@ This address is what senders use to encrypt data for you.`,
   },
   {
     name: "pke_encrypt",
-    description: `Encrypt a file for one or more recipients using public-key encryption.
+    description: `Encrypt data for one or more recipients using public-key encryption (MMPKE01 format).
 
-This uses the MMPKE01 format which provides:
-- **Multi-recipient support** - Encrypt once for multiple people
-- **Forward secrecy** - Each encryption uses fresh ephemeral keys
-- **Authenticated encryption** - AES-256-GCM detects tampering
+Provides multi-recipient support, forward secrecy (ephemeral keys), and authenticated
+encryption (AES-256-GCM).
 
-Recipients are specified by their public key files. To encrypt for someone,
-you need their public key file (which contains their mm:... address).
+**API mode (preferred for MCP):** Pass plaintext and recipient_keys as base64 strings.
+Returns base64 ciphertext directly — no filesystem access needed.
 
-The encrypted file can only be decrypted by someone with the corresponding
-private key for one of the recipient public keys.`,
+**File mode (local CLI):** Pass input_path, output_path, and recipients (file paths).
+Reads/writes files on disk.`,
     inputSchema: {
       type: "object",
       properties: {
+        plaintext: {
+          type: "string",
+          description: "Base64-encoded plaintext to encrypt (preferred — no filesystem needed)"
+        },
+        recipient_keys: {
+          type: "array",
+          items: { type: "string" },
+          description: "Base64-encoded recipient public keys (use with plaintext)"
+        },
+        original_filename: {
+          type: "string",
+          description: "Original filename to embed in encrypted header (optional, for API mode)"
+        },
         input_path: {
           type: "string",
-          description: "Path to the file to encrypt"
+          description: "Path to the file to encrypt (fallback for local CLI workflows)"
         },
         output_path: {
           type: "string",
-          description: "Path for the encrypted output file"
+          description: "Path for the encrypted output file (required with input_path)"
         },
         recipients: {
           type: "array",
           items: { type: "string" },
-          description: "Paths to recipient public key files"
+          description: "Paths to recipient public key files (fallback for local CLI workflows)"
         },
       },
-      required: ["input_path", "output_path", "recipients"],
+      required: [],
     },
     annotations: {
       destructiveHint: false,
@@ -2509,33 +2527,42 @@ private key for one of the recipient public keys.`,
   },
   {
     name: "pke_decrypt",
-    description: `Decrypt a file using your private key.
+    description: `Decrypt data using your private key.
 
-Decrypts a file that was encrypted for your public key address.
-You must have the encrypted private key file and its passphrase.
+**API mode (preferred for MCP):** Pass ciphertext and encrypted_private_key as base64
+strings plus the passphrase. Returns base64 plaintext — no filesystem access needed.
 
-Returns the decrypted content and metadata (original filename).`,
+**File mode (local CLI):** Pass input_path, output_path, and private_key_path.
+Reads/writes files on disk.`,
     inputSchema: {
       type: "object",
       properties: {
+        ciphertext: {
+          type: "string",
+          description: "Base64-encoded ciphertext (preferred — no filesystem needed)"
+        },
+        encrypted_private_key: {
+          type: "string",
+          description: "Base64-encoded encrypted private key (use with ciphertext)"
+        },
         input_path: {
           type: "string",
-          description: "Path to the encrypted file"
+          description: "Path to the encrypted file (fallback for local CLI workflows)"
         },
         output_path: {
           type: "string",
-          description: "Path for the decrypted output"
+          description: "Path for the decrypted output (required with input_path)"
         },
         private_key_path: {
           type: "string",
-          description: "Path to your encrypted private key file"
+          description: "Path to your encrypted private key file (fallback for local CLI workflows)"
         },
         passphrase: {
           type: "string",
           description: "Passphrase for the private key"
         },
       },
-      required: ["input_path", "output_path", "private_key_path", "passphrase"],
+      required: ["passphrase"],
     },
     annotations: {
       destructiveHint: false,
@@ -2543,20 +2570,26 @@ Returns the decrypted content and metadata (original filename).`,
   },
   {
     name: "pke_list_recipients",
-    description: `List the recipient addresses that can decrypt an encrypted file.
+    description: `List the recipient addresses that can decrypt encrypted data.
 
 Reads the MMPKE01 header and returns the mm:... addresses of all recipients
-without decrypting the file. Useful for determining if you can decrypt a file
-or who it was intended for.`,
+without decrypting. Useful for determining if you can decrypt or who it was intended for.
+
+Provide EITHER ciphertext (base64) OR input_path (filesystem). Base64 is preferred
+for MCP workflows.`,
     inputSchema: {
       type: "object",
       properties: {
+        ciphertext: {
+          type: "string",
+          description: "Base64-encoded ciphertext (preferred — no filesystem needed)"
+        },
         input_path: {
           type: "string",
-          description: "Path to the encrypted file"
+          description: "Path to the encrypted file (fallback for local CLI workflows)"
         },
       },
-      required: ["input_path"],
+      required: [],
     },
     annotations: {
       readOnlyHint: true,
@@ -2597,12 +2630,12 @@ Returns validation status and version info.`,
 Returns an array of keyset information including:
 - **name** - The keyset identifier
 - **address** - The mm:... public address
-- **public_key_path** - Path to the public key file
-- **private_key_path** - Path to the encrypted private key file
+- **public_key** - Base64-encoded public key
 - **created** - Timestamp when the keyset was created
 
 Keysets are stored in ~/.matric/keys/{name}/ and provide named identities
-for different encryption contexts (personal, work, projects, etc.).`,
+for different encryption contexts (personal, work, projects, etc.).
+Addresses are computed via the HTTP API (no CLI binary required).`,
     inputSchema: {
       type: "object",
       properties: {},
@@ -2613,17 +2646,17 @@ for different encryption contexts (personal, work, projects, etc.).`,
   },
   {
     name: "pke_create_keyset",
-    description: `Create a new named PKE keyset.
+    description: `Create a new named PKE keyset via the HTTP API.
 
-Creates a new keyset directory at ~/.matric/keys/{name}/ containing:
-- public_key.pem - Public key (shareable)
-- private_key.enc - Encrypted private key (secured with passphrase)
+Generates a keypair using the API (no CLI binary required) and stores it locally
+at ~/.matric/keys/{name}/ containing:
+- public.key - Public key (shareable)
+- private.key.enc - Encrypted private key (secured with passphrase)
 
 **Use Cases:**
 - Separate work and personal identities
 - Project-specific encryption keys
 - Team-shared keysets (via secure key exchange)
-- Multi-device synchronization (backup/restore)
 
 **Security:**
 - Passphrase must be at least 12 characters
@@ -2653,6 +2686,7 @@ Creates a new keyset directory at ~/.matric/keys/{name}/ containing:
 
 Returns the keyset information for the currently active keyset, or null if no
 keyset is active. The active keyset is read from ~/.matric/keys/active file.
+Address is computed via the HTTP API (no CLI binary required).
 
 The active keyset is used as the default identity for encryption/decryption
 operations in auto-provisioning workflows.`,
@@ -4024,9 +4058,11 @@ Removes the attachment record. If no other attachments reference the same blob (
   // ============================================================================
   {
     name: "export_skos_turtle",
-    description: `Export a SKOS concept scheme as W3C RDF/Turtle format.
+    description: `Export SKOS concept scheme(s) as W3C RDF/Turtle format.
 
-Requires a scheme_id. Returns valid Turtle syntax for interoperability with other SKOS tools:
+If scheme_id is provided, exports a single scheme. If omitted, exports ALL active schemes in one Turtle document.
+
+Returns valid Turtle syntax for interoperability with other SKOS tools:
 - Protégé, TopBraid, PoolParty
 - RDF visualization tools
 - Other knowledge management systems
@@ -4037,13 +4073,13 @@ Includes:
 - Broader/narrower/related relations
 - Collection memberships and ordering
 
-Use list_skos_schemes to find available scheme_ids first.`,
+Use list_concept_schemes to find available scheme_ids first.`,
     inputSchema: {
       type: "object",
       properties: {
-        scheme_id: { type: "string", format: "uuid", description: "Concept scheme UUID to export" },
+        scheme_id: { type: "string", format: "uuid", description: "Concept scheme UUID to export. Omit to export ALL schemes." },
       },
-      required: ["scheme_id"],
+      required: [],
     },
     annotations: {
       readOnlyHint: true,

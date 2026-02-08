@@ -142,7 +142,7 @@ async fn test_concept_scheme_lifecycle() {
 
     // 5. Delete concept scheme (cleanup)
     db.skos
-        .delete_scheme(scheme_id)
+        .delete_scheme(scheme_id, true)
         .await
         .expect("Failed to delete scheme");
 
@@ -186,8 +186,14 @@ async fn test_list_concept_schemes_filtering() {
     assert!(active_schemes.iter().all(|s| s.is_active));
 
     // Cleanup
-    db.skos.delete_scheme(scheme_id1).await.expect("cleanup");
-    db.skos.delete_scheme(scheme_id2).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id1, true)
+        .await
+        .expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id2, true)
+        .await
+        .expect("cleanup");
 }
 
 // =============================================================================
@@ -273,7 +279,10 @@ async fn test_concept_lifecycle() {
     assert!(deleted.is_none(), "Concept should be deleted");
 
     // Cleanup scheme
-    db.skos.delete_scheme(scheme_id).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id, true)
+        .await
+        .expect("cleanup");
 }
 
 #[tokio::test]
@@ -340,7 +349,10 @@ async fn test_concept_relations() {
     // Cleanup
     db.skos.delete_concept(child_id).await.expect("cleanup");
     db.skos.delete_concept(parent_id).await.expect("cleanup");
-    db.skos.delete_scheme(scheme_id).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id, true)
+        .await
+        .expect("cleanup");
 }
 
 // =============================================================================
@@ -385,7 +397,10 @@ async fn test_search_concepts_by_query() {
     db.skos.delete_concept(concept1).await.expect("cleanup");
     db.skos.delete_concept(concept2).await.expect("cleanup");
     db.skos.delete_concept(concept3).await.expect("cleanup");
-    db.skos.delete_scheme(scheme_id).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id, true)
+        .await
+        .expect("cleanup");
 }
 
 // =============================================================================
@@ -416,7 +431,10 @@ async fn test_governance_stats() {
     // Cleanup - delete concepts before scheme
     db.skos.delete_concept(concept1).await.expect("cleanup");
     db.skos.delete_concept(concept2).await.expect("cleanup");
-    db.skos.delete_scheme(scheme_id).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id, true)
+        .await
+        .expect("cleanup");
 }
 
 #[tokio::test]
@@ -513,14 +531,17 @@ async fn test_delete_scheme_with_concepts_fails() {
     let scheme_id = create_test_scheme(&db, &unique_id).await;
     let concept_id = create_test_concept(&db, scheme_id, "Blocking Concept").await;
 
-    // Attempt to delete scheme should fail (has concepts)
-    let result = db.skos.delete_scheme(scheme_id).await;
+    // Attempt to delete scheme without force should fail (has concepts)
+    let result = db.skos.delete_scheme(scheme_id, false).await;
     assert!(
         result.is_err(),
-        "Should fail to delete scheme with concepts"
+        "Should fail to delete scheme with concepts when force=false"
     );
 
     // Cleanup: delete concept first, then scheme
     db.skos.delete_concept(concept_id).await.expect("cleanup");
-    db.skos.delete_scheme(scheme_id).await.expect("cleanup");
+    db.skos
+        .delete_scheme(scheme_id, true)
+        .await
+        .expect("cleanup");
 }

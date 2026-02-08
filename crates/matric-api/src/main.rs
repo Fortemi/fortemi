@@ -500,15 +500,13 @@ async fn main() -> anyhow::Result<()> {
     // Initialize file storage
     let file_storage_path =
         std::env::var("FILE_STORAGE_PATH").unwrap_or_else(|_| "/var/lib/matric/files".to_string());
-    // Ensure storage directory exists on startup (issue #123)
-    tokio::fs::create_dir_all(&file_storage_path)
-        .await
-        .unwrap_or_else(|e| {
-            warn!(
-                "Could not create file storage directory {}: {}",
-                file_storage_path, e
-            );
-        });
+    // Ensure storage directory exists on startup (issue #123, #154)
+    if let Err(e) = tokio::fs::create_dir_all(&file_storage_path).await {
+        error!(
+            "Could not create file storage directory {}: {} — attachment uploads will fail!",
+            file_storage_path, e
+        );
+    }
     let backend = FilesystemBackend::new(&file_storage_path);
     // Validate storage works before accepting uploads (issue #150)
     match backend.validate().await {
@@ -932,6 +930,10 @@ async fn main() -> anyhow::Result<()> {
             get(list_attachments).post(upload_attachment),
         )
         .route(
+            "/api/v1/notes/:id/attachments/upload",
+            post(upload_attachment_multipart),
+        )
+        .route(
             "/api/v1/attachments/:attachment_id",
             get(get_attachment).delete(delete_attachment),
         )
@@ -945,6 +947,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/concepts/schemes/:id/export/turtle",
             get(export_scheme_turtle),
+        )
+        .route(
+            "/api/v1/concepts/schemes/export/turtle",
+            get(export_all_schemes_turtle),
         )
         // SKOS Collections (W3C SKOS Section 9)
         .route(
@@ -2759,8 +2765,16 @@ async fn create_note(
         _ => RevisionMode::Full, // "full" or unspecified
     };
 
-    // Insert note (archive-scoped insertion via SchemaContext deferred to future iteration)
-    let note_id = state.db.notes.insert(req.clone()).await?;
+    // Insert note (archive-scoped via SchemaContext when active archive != public)
+    let note_id = if archive_ctx.schema != "public" {
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let req_clone = req.clone();
+        ctx.execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req_clone).await }))
+            .await?
+    } else {
+        state.db.notes.insert(req.clone()).await?
+    };
 
     // Determine schema for background jobs (Issue #109)
     let schema_for_jobs = if archive_ctx.schema != "public" {
@@ -2854,6 +2868,7 @@ struct BulkCreateNotesBody {
 async fn bulk_create_notes(
     _auth: Auth,
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.notes.is_empty() {
@@ -2896,8 +2911,16 @@ async fn bulk_create_notes(
         })
         .collect();
 
-    // Bulk insert all notes
-    let ids = state.db.notes.insert_bulk(requests.clone()).await?;
+    // Bulk insert all notes (archive-scoped via SchemaContext when active archive != public)
+    let ids = if archive_ctx.schema != "public" {
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let reqs = requests.clone();
+        ctx.execute(move |tx| Box::pin(async move { notes.insert_bulk_tx(tx, reqs).await }))
+            .await?
+    } else {
+        state.db.notes.insert_bulk(requests.clone()).await?
+    };
 
     // Queue NLP pipeline for each note based on revision mode
     for (i, note_id) in ids.iter().enumerate() {
@@ -3111,10 +3134,13 @@ async fn restore_note(
 struct ReprocessNoteBody {
     /// AI revision mode: "full" (default), "light", or "none"
     revision_mode: Option<String>,
+    /// Specific pipeline steps to run. If omitted or contains "all", runs all steps.
+    steps: Option<Vec<String>>,
 }
 
-/// Manually trigger the full NLP pipeline for a note.
+/// Manually trigger NLP pipeline steps for a note.
 /// Useful for re-processing after model changes or fixing failed jobs.
+/// When `steps` is provided, only the specified steps are queued.
 async fn reprocess_note(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -3123,21 +3149,79 @@ async fn reprocess_note(
     // Verify note exists
     let _ = state.db.notes.fetch(id).await?;
 
+    let body = body.map(|b| b.0);
+
     // Parse revision mode (default to Full)
-    let revision_mode = match body.and_then(|b| b.revision_mode.clone()).as_deref() {
+    let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
         Some("light") => RevisionMode::Light,
         Some("none") => RevisionMode::None,
         _ => RevisionMode::Full,
     };
 
-    // Queue full NLP pipeline
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
+    // Determine which steps to run
+    let requested_steps = body.as_ref().and_then(|b| b.steps.as_ref());
+    let run_all = requested_steps.is_none()
+        || requested_steps
+            .map(|s| s.is_empty() || s.iter().any(|step| step == "all"))
+            .unwrap_or(true);
 
-    let jobs_queued = if revision_mode == RevisionMode::None {
-        vec!["embedding", "title_generation", "linking"]
-    } else {
-        vec!["ai_revision", "embedding", "title_generation", "linking"]
+    let should_run = |step: &str| -> bool {
+        run_all
+            || requested_steps
+                .map(|s| s.iter().any(|rs| rs == step))
+                .unwrap_or(false)
     };
+
+    let mut jobs_queued = Vec::new();
+
+    // Queue AI revision if requested and mode != None
+    if revision_mode != RevisionMode::None && should_run("ai_revision") {
+        let payload = serde_json::json!({ "revision_mode": revision_mode });
+        if let Ok(Some(job_id)) = state
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(id),
+                JobType::AiRevision,
+                JobType::AiRevision.default_priority(),
+                Some(payload),
+            )
+            .await
+        {
+            state.event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::AiRevision),
+                note_id: Some(id),
+            });
+            jobs_queued.push("ai_revision");
+        }
+    }
+
+    // Queue remaining pipeline steps selectively
+    let step_types = [
+        ("embedding", JobType::Embedding),
+        ("title_generation", JobType::TitleGeneration),
+        ("linking", JobType::Linking),
+        ("concept_tagging", JobType::ConceptTagging),
+    ];
+
+    for (step_name, job_type) in &step_types {
+        if should_run(step_name) {
+            if let Ok(Some(job_id)) = state
+                .db
+                .jobs
+                .queue_deduplicated(Some(id), *job_type, job_type.default_priority(), None)
+                .await
+            {
+                state.event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", job_type),
+                    note_id: Some(id),
+                });
+                jobs_queued.push(step_name);
+            }
+        }
+    }
 
     Ok(Json(serde_json::json!({
         "message": "NLP pipeline queued",
@@ -3226,11 +3310,18 @@ async fn update_concept_scheme(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize)]
+struct DeleteSchemeQuery {
+    force: Option<bool>,
+}
+
 async fn delete_concept_scheme(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    Query(query): Query<DeleteSchemeQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.delete_scheme(id).await?;
+    let force = query.force.unwrap_or(false);
+    state.db.skos.delete_scheme(id, force).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3681,6 +3772,88 @@ async fn export_scheme_turtle(
     }
 
     // Return with proper content type
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/turtle; charset=utf-8",
+        )],
+        turtle,
+    ))
+}
+
+/// Export all concept schemes as a single Turtle document.
+async fn export_all_schemes_turtle(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get all active schemes
+    let schemes = state.db.skos.list_schemes(false).await?;
+
+    let mut turtle = String::new();
+
+    // Common prefixes (once at the top)
+    turtle.push_str("@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n");
+    turtle.push_str("@prefix dct: <http://purl.org/dc/terms/> .\n");
+    turtle.push_str("@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n");
+
+    for scheme in &schemes {
+        let prefix = format!("s_{}", scheme.notation.replace('-', "_"));
+        turtle.push_str(&format!(
+            "@prefix {}: <urn:matric:scheme:{}:> .\n",
+            prefix, scheme.notation
+        ));
+    }
+    turtle.push('\n');
+
+    for scheme in &schemes {
+        let prefix = format!("s_{}", scheme.notation.replace('-', "_"));
+
+        // Scheme definition
+        turtle.push_str(&format!(
+            "{}:scheme a skos:ConceptScheme ;\n    dct:title \"{}\"@en",
+            prefix,
+            escape_turtle(&scheme.title)
+        ));
+        if let Some(desc) = &scheme.description {
+            turtle.push_str(&format!(
+                " ;\n    dct:description \"{}\"@en",
+                escape_turtle(desc)
+            ));
+        }
+        turtle.push_str(" .\n\n");
+
+        // Get concepts in the scheme
+        let search_req = matric_core::SearchConceptsRequest {
+            scheme_id: Some(scheme.id),
+            limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
+            ..Default::default()
+        };
+        let concepts_resp = state.db.skos.search_concepts(search_req).await?;
+
+        for concept in &concepts_resp.concepts {
+            let id_str = concept.concept.id.to_string();
+            let notation = concept.concept.notation.as_deref().unwrap_or(&id_str);
+            let concept_uri = format!("{}:{}", prefix, notation);
+
+            turtle.push_str(&format!("{} a skos:Concept", concept_uri));
+            turtle.push_str(&format!(" ;\n    skos:inScheme {}:scheme", prefix));
+
+            if let Some(pref) = &concept.pref_label {
+                turtle.push_str(&format!(
+                    " ;\n    skos:prefLabel \"{}\"@{}",
+                    escape_turtle(pref),
+                    concept.label_language.as_deref().unwrap_or("en")
+                ));
+            }
+
+            turtle.push_str(&format!(
+                " ;\n    skos:note \"status: {:?}\"@en",
+                concept.concept.status
+            ));
+
+            turtle.push_str(" .\n\n");
+        }
+    }
+
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,
@@ -5009,6 +5182,16 @@ async fn create_job(
             )))
         }
     };
+
+    // Validate note exists before queuing (avoids raw FK constraint error)
+    if let Some(note_id) = body.note_id {
+        state
+            .db
+            .notes
+            .fetch(note_id)
+            .await
+            .map_err(|_| ApiError::NotFound(format!("Note not found: {}", note_id)))?;
+    }
 
     let priority = body.priority.unwrap_or_else(|| job_type.default_priority());
     let job_id = state
@@ -6637,7 +6820,8 @@ async fn backup_import(
 
 #[derive(Debug, Deserialize)]
 struct BackupTriggerBody {
-    /// Target destinations: local, s3, rsync, or all
+    /// Target destinations: local, s3, rsync, or all (reserved for future use)
+    #[allow(dead_code)]
     destinations: Option<Vec<String>>,
     /// Dry run mode - show what would be done without executing
     #[serde(default)]
@@ -6651,58 +6835,97 @@ struct BackupTriggerResponse {
     timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-/// Trigger an immediate database backup.
+/// Trigger an immediate database backup using native pg_dump.
+///
+/// This replaces the previous shell-script-based approach. The backup is created
+/// as a compressed .sql.gz file in the backup directory, using the same format
+/// as `database_backup_snapshot` but with the `auto_` prefix.
 async fn backup_trigger(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     body: Option<Json<BackupTriggerBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use std::process::Command;
-
     let body = body.map(|b| b.0).unwrap_or(BackupTriggerBody {
         destinations: None,
         dry_run: false,
     });
 
-    // Build backup script path
-    let script_path = std::env::var("BACKUP_SCRIPT_PATH")
-        .unwrap_or_else(|_| "/app/scripts/backup.sh".to_string());
+    let backup_dir =
+        std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
-    // Build command
-    let mut cmd = Command::new(&script_path);
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot create backup dir: {}", e)))?;
+
+    let timestamp = chrono::Utc::now();
+    let ts_str = timestamp.format("%Y%m%d_%H%M%S");
+    let filename = format!("{}_database_{}.sql.gz", backup_prefix::AUTO, ts_str);
+    let path = std::path::Path::new(&backup_dir).join(&filename);
 
     if body.dry_run {
-        cmd.arg("--dry-run");
+        return Ok(Json(BackupTriggerResponse {
+            status: "dry_run".to_string(),
+            output: format!("Would create backup: {}", path.display()),
+            timestamp,
+        }));
     }
 
-    if let Some(destinations) = &body.destinations {
-        for dest in destinations {
-            cmd.arg("--destination").arg(dest);
-        }
-    }
+    // Get note count for metadata
+    let note_count = state
+        .db
+        .notes
+        .list(ListNotesRequest {
+            limit: Some(1),
+            ..Default::default()
+        })
+        .await
+        .map(|r| r.total)
+        .ok();
 
-    // Execute backup script
-    let output = cmd
+    // Run pg_dump
+    let output = std::process::Command::new("pg_dump")
+        .args(["-U", "matric", "-h", "localhost", "matric"])
+        .env("PGPASSWORD", "matric")
         .output()
-        .map_err(|e| ApiError::BadRequest(format!("Failed to execute backup script: {}", e)))?;
+        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let combined_output = if stderr.is_empty() {
-        stdout
-    } else {
-        format!("{}\n\nSTDERR:\n{}", stdout, stderr)
-    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Ok(Json(BackupTriggerResponse {
+            status: "failed".to_string(),
+            output: format!("pg_dump error: {}", stderr),
+            timestamp,
+        }));
+    }
 
-    let status = if output.status.success() {
-        "success"
-    } else {
-        "failed"
-    };
+    // Compress and save
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let file = std::fs::File::create(&path)
+        .map_err(|e| ApiError::BadRequest(format!("Cannot create file: {}", e)))?;
+    let mut encoder = GzEncoder::new(file, Compression::default());
+    encoder
+        .write_all(&output.stdout)
+        .map_err(|e| ApiError::BadRequest(format!("Write failed: {}", e)))?;
+    encoder
+        .finish()
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
+    // Save metadata sidecar file
+    let mut metadata = BackupMetadata::auto(note_count, None);
+    if let Err(e) = metadata.populate_version_info(&state.db.pool).await {
+        tracing::warn!("Failed to populate version info: {}", e);
+    }
+    if let Err(e) = metadata.save(&path) {
+        tracing::warn!("Failed to save backup metadata: {}", e);
+    }
 
     Ok(Json(BackupTriggerResponse {
-        status: status.to_string(),
-        output: combined_output,
-        timestamp: chrono::Utc::now(),
+        status: "success".to_string(),
+        output: format!("Backup created: {} ({}).", filename, format_size(size)),
+        timestamp,
     }))
 }
 
@@ -7771,6 +7994,93 @@ async fn upload_attachment(
     Ok(Json(attachment))
 }
 
+/// Upload a file attachment via multipart/form-data.
+///
+/// Expects a multipart form with:
+/// - `file`: the file data (required)
+/// - `document_type_id`: optional UUID for explicit document type override
+async fn upload_attachment_multipart(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let mut filename: Option<String> = None;
+    let mut content_type: Option<String> = None;
+    let mut data: Option<Vec<u8>> = None;
+    let mut document_type_id: Option<Uuid> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+    {
+        let field_name = field.name().map(|n| n.to_string());
+        match field_name.as_deref() {
+            Some("file") => {
+                filename = field.file_name().map(|n| n.to_string());
+                content_type = field.content_type().map(|c| c.to_string());
+                data = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?
+                        .to_vec(),
+                );
+            }
+            Some("document_type_id") => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                document_type_id = val.parse::<Uuid>().ok();
+            }
+            _ => {} // ignore unknown fields
+        }
+    }
+
+    let filename = filename
+        .ok_or_else(|| ApiError::BadRequest("Missing file in multipart form".to_string()))?;
+    let content_type = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
+    let data = data
+        .ok_or_else(|| ApiError::BadRequest("Missing file data in multipart form".to_string()))?;
+
+    // Store the file
+    let mut attachment = file_storage
+        .store_file(id, &filename, &content_type, &data)
+        .await?;
+
+    // Set extraction strategy
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str());
+    let strategy = ExtractionStrategy::from_mime_and_extension(&content_type, ext);
+    if file_storage
+        .set_extraction_strategy(attachment.id, strategy)
+        .await
+        .is_ok()
+    {
+        attachment.extraction_strategy = Some(strategy);
+    }
+
+    if let Some(doc_type_id) = document_type_id {
+        if file_storage
+            .set_document_type(attachment.id, doc_type_id, None)
+            .await
+            .is_ok()
+        {
+            attachment.document_type_id = Some(doc_type_id);
+        }
+    }
+
+    Ok(Json(attachment))
+}
+
 /// Get attachment metadata
 async fn get_attachment(
     State(state): State<AppState>,
@@ -7860,13 +8170,31 @@ impl From<matric_core::Error> for ApiError {
                             "A concept with this notation already exists in the scheme".to_string()
                         } else if msg.contains("idx_unique_tag_name") || msg.contains("tag_name") {
                             "A tag with this name already exists".to_string()
+                        } else if msg.contains("collection_name_key")
+                            || msg.contains("collection") && msg.contains("unique")
+                        {
+                            "A collection with this name already exists".to_string()
                         } else {
-                            msg
+                            // Generic friendly message - never expose raw constraint names
+                            "A record with this value already exists".to_string()
                         };
                     return ApiError::Conflict(friendly_msg);
                 }
-                if msg.contains("Polyhierarchy limit") || msg.contains("foreign key") {
+                if msg.contains("Polyhierarchy limit") {
                     return ApiError::BadRequest(msg);
+                }
+                if msg.contains("foreign key") {
+                    // Provide user-friendly messages for FK violations
+                    let friendly_msg = if msg.contains("job_queue_note_id_fkey")
+                        || msg.contains("job_queue") && msg.contains("note")
+                    {
+                        "Note not found".to_string()
+                    } else if msg.contains("note_tag") {
+                        "Referenced note or tag not found".to_string()
+                    } else {
+                        "Referenced resource not found".to_string()
+                    };
+                    return ApiError::BadRequest(friendly_msg);
                 }
                 ApiError::Database(err)
             }
@@ -9407,6 +9735,37 @@ END $$;
         })
         .await
         .is_ok();
+
+    // Step 4: Rebuild indexes and refresh query planner stats post-restore
+    if db_ok {
+        let reindex_sql = "REINDEX DATABASE matric; VACUUM ANALYZE;";
+        let reindex_result = std::process::Command::new("psql")
+            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
+            .env("PGPASSWORD", "matric")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(reindex_sql.as_bytes());
+                }
+                child.wait_with_output()
+            });
+        match &reindex_result {
+            Ok(o) if !o.status.success() => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                tracing::warn!("Post-restore REINDEX/VACUUM had warnings: {}", stderr);
+            }
+            Err(e) => {
+                tracing::warn!("Post-restore REINDEX/VACUUM failed: {}", e);
+            }
+            _ => {
+                tracing::info!("Post-restore REINDEX and VACUUM ANALYZE completed successfully");
+            }
+        }
+    }
 
     let success = output.status.success() && db_ok;
 
