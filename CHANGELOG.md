@@ -7,6 +7,239 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.8] - 2026-02-08
+
+### Highlights
+
+This is the largest release since the project's inception — **90 commits**, **262 files changed**,
+**+67,000 / -29,000 lines** across every layer of the stack. The headline feature is **Multi-Memory
+Architecture**: fully isolated knowledge bases backed by PostgreSQL schema-per-memory isolation,
+with zero-drift cloning, per-request routing, session-scoped MCP memory selection, federated
+cross-memory search, and memory-scoped backup/restore.
+
+Alongside multi-memory, this release resolves **50 issues** discovered during two comprehensive UAT
+passes (530+ MCP test cases, 96.3% pass rate), hardens authentication and OAuth scopes, rewrites
+the database restore pipeline, adds the content extraction framework, and ships the MCP file-based
+I/O pattern.
+
+| What Changed | Why You Care | Learn More |
+|--------------|--------------|------------|
+| **Multi-Memory Architecture** | Create, switch, and isolate independent knowledge bases per PostgreSQL schema | [User Guide](docs/content/multi-memory.md) · [Design](docs/architecture/multi-memory-design.md) · [ADR-068](docs/adr/ADR-068-archive-isolation-routing.md) |
+| **X-Fortemi-Memory Header** | Per-request memory routing with 3-step fallback (header → default cache → public) | [Architecture](docs/content/architecture.md) |
+| **MCP Session Memory** | `select_memory` / `get_active_memory` tools bind a memory to an AI agent session | [MCP Guide](docs/content/mcp.md) · [Agent Guide](docs/content/multi-memory-agent-guide.md) |
+| **Federated Search** | Search across multiple memories in a single query | [Search Guide](docs/content/search-guide.md) |
+| **Memory-Scoped Backup/Restore** | Per-memory `pg_dump --schema` and `DROP SCHEMA CASCADE` restore | [Backup Guide](docs/content/backup.md) · [Operations](docs/content/operations.md) |
+| **Content Extraction Pipeline** | Document type registry (131 types), smart chunking, PDF/code/media adapters | [Document Types](docs/content/document-types-guide.md) · [Extraction Design](docs/content/extraction-pipeline-design.md) |
+| **Auth Middleware & OAuth Scopes** | Centralized scope enforcement, configurable token lifetimes, API key support | [Authentication](docs/content/authentication.md) · [ADR-071](docs/architecture/ADR-071-auth-middleware.md) |
+| **MCP File-Based I/O** | Replaced base64 binary tools with HTTP API upload/download for remote agents | [MCP Guide](docs/content/mcp.md) · [File Attachments](docs/content/file-attachments.md) |
+| **Database Restore Rewrite** | Thread-safe psql pipe, extension-owned object exclusion, FTS index rebuild | [Backup Guide](docs/content/backup.md) |
+| **50 UAT Issues Resolved** | Two comprehensive UAT passes with 530+ MCP test cases | [Troubleshooting](docs/content/troubleshooting.md) |
+
+### Added
+
+#### Multi-Memory Architecture (#170 Epic, #171–#181)
+
+The flagship feature of this release. Each "memory" is a fully isolated PostgreSQL schema containing
+all per-memory tables (notes, tags, collections, links, embeddings, SKOS concepts, files, templates,
+etc.) while sharing infrastructure tables (auth, jobs, migrations) in the public schema.
+
+- **Zero-drift schema cloning** (#171) — `CREATE TABLE ... (LIKE public.table INCLUDING ALL)` with
+  deny-list approach. New migrations automatically included without code changes. FK discovery from
+  `information_schema` with proper schema-qualification.
+- **Text search config cloning** (#172) — Custom FTS configurations (e.g., `matric_english`) cloned
+  into each memory schema via `pg_ts_config` catalog queries.
+- **Per-request memory selection** (#173) — `X-Fortemi-Memory` header on every API request. Middleware
+  validates memory exists (404), resolves schema, injects `ArchiveContext`. 3-step fallback:
+  header → `DefaultArchiveCache` (60s TTL) → public schema.
+- **All 91 API handlers routed** — Every handler uses `SchemaContext` with `SET LOCAL search_path`
+  per transaction. `_tx` method pattern on all repositories for transaction-scoped isolation.
+- **MCP session memory selection** (#174) — `select_memory` and `get_active_memory` tools. Session
+  state tracked per transport. All MCP API calls automatically include `X-Fortemi-Memory` header.
+- **Memory-scoped backup** (#175) — `GET /api/v1/backup/memory/:name` using `pg_dump --schema`.
+- **Memory-scoped restore** (#176) — `DROP SCHEMA IF EXISTS CASCADE` + `pg_restore`. Clean and atomic
+  because memories are self-contained schemas.
+- **Cross-memory federated search** (#177) — `POST /api/v1/search/federated` with dynamic UNION ALL
+  across specified schemas. Results annotated with `memory_name`.
+- **Memory clone endpoint** (#178) — `POST /api/v1/memories/:name/clone` with FK-ordered
+  `INSERT...SELECT` via recursive CTE. Handles generated columns. No superuser required.
+- **Memory API naming** (#179) — `/api/v1/memories/*` routes with `/api/v1/archives/*` backward
+  compatibility. MCP tools use "memory" terminology.
+- **Schema drift detection test** (#180) — CI-time integration test comparing archive table/column
+  structure against public schema.
+- **Default archive seed migration** (#158) — Fresh deployments now seed a default archive pointing
+  to the public schema.
+- **Archive schema version tracking** — `schema_version` column on `archive_registry` for
+  auto-sync detection.
+
+#### Content Extraction Pipeline (#87–#99, #101, #102)
+
+- Complete content extraction framework with pluggable adapters
+- **Document Type Registry** — 131 pre-configured types across 19 categories
+- Auto-detection from filename patterns, extensions, and content analysis
+- Category-specific chunking strategies (semantic, syntactic, per_section, fixed)
+- REST API and MCP tools for document type management
+- See: [Document Types Guide](docs/content/document-types-guide.md), [Extraction Design](docs/content/extraction-pipeline-design.md)
+
+#### Authentication & Security (#103, #111, #112, #114, #115, #118, #119)
+
+- **Auth middleware** — Centralized Bearer token validation with `REQUIRE_AUTH` toggle
+- **OAuth2 scope enforcement** — Centralized scope checks for all mutation endpoints
+- **Configurable OAuth token lifetimes** — `ACCESS_TOKEN_TTL` and `REFRESH_TOKEN_TTL` env vars
+- **API key system** — `POST /api/v1/api-keys` for programmatic access
+- **PKE HTTP API** — Encryption tools accessible via REST (not just CLI binary)
+- See: [Authentication Guide](docs/content/authentication.md), [ADR-071](docs/architecture/ADR-071-auth-middleware.md)
+
+#### Archive Isolation Pipeline (#86, #107–#110, #113)
+
+- Archive creation with full schema cloning
+- Archive metadata (stats, version tracking)
+- PKE keyset registry per archive
+- Archive-scoped operations
+
+#### MCP Server Improvements
+
+- **File-based I/O pattern** — Replaced base64 binary tools with HTTP API upload/download.
+  MCP tools now guide agents to use `POST /api/v1/attachments` multipart upload.
+- **Tool definition extraction** — `tools.js` extracted from `index.js` for maintainability
+- **Automated JSON Schema validation** — All 100+ MCP tool schemas validated against draft 2020-12
+  on startup. One broken schema no longer blocks all tools.
+- **MCP OAuth auto-registration** — Bundle entrypoint auto-registers OAuth client credentials
+  on first startup. Credentials persisted at `$PGDATA/.fortemi-mcp-credentials`.
+- **10+ tool descriptions updated** with memory scoping context and search limitation warnings
+- See: [MCP Guide](docs/content/mcp.md), [MCP Deployment](docs/content/mcp-deployment.md)
+
+#### Eventing & Streaming Infrastructure
+
+- Server-Sent Events (SSE) for real-time note change notifications
+- WebSocket support for bidirectional streaming
+- Webhook system for external integrations
+- See: [Real-time Events](docs/content/real-time-events.md)
+
+#### Documentation (10 files, +851/-216 lines)
+
+- **NEW: Multi-Memory Agent Guide** — 15KB purpose-built guide for AI agents with decision matrix,
+  5 segmentation strategies, tradeoffs table, and common mistakes.
+  See: [Agent Guide](docs/content/multi-memory-agent-guide.md)
+- **ADR-068 rewritten** — Full implementation status with all 91 handlers documented
+- **Architecture docs updated** — Routing flow, transaction patterns, SchemaContext
+- **Operations guide expanded** — Multi-memory monitoring, per-memory backup, troubleshooting
+- **Backup guide expanded** — Per-memory backup procedures and restore caveats
+- **MCP tool table expanded** — 8 → 12 memory management tools documented
+- **CLAUDE.md updated** — Multi-memory section, MAX_MEMORIES config
+
+### Fixed
+
+#### Database Restore Pipeline (Complete Rewrite)
+
+The restore system was rewritten for correctness and robustness:
+
+- **Thread-safe psql pipe** (#166) — `tokio::task::spawn_blocking` to prevent pipe deadlocks
+  with large dumps
+- **Extension-owned object exclusion** — DROP script queries `pg_depend` with `deptype = 'e'`
+  to skip PostGIS-owned objects like `spatial_ref_sys`
+- **Comprehensive object cleanup** — DROP tables, enum types, functions, text search configs,
+  dictionaries, views, and sequences before restore
+- **FTS index rebuild** — REINDEX + ANALYZE after restore to rebuild search indexes (#166)
+- See: [Backup Guide](docs/content/backup.md)
+
+#### UAT Wave 1: 17 Issues (#132–#151)
+
+- **SKOS search fixes** (#132, #133, #134, #149) — `autocomplete_concepts` and `search_concepts`
+  now work with custom schemes; `get_concept_full` returns complete data
+- **Auth scope fixes** (#135, #138, #139, #140) — MCP tools for backup, archive, location search,
+  and embedding config no longer return 403
+- **Attachment upload** (#137, #150, #153, #154, #155) — File storage diagnostics, volume mount
+  validation, HTTP API upload guidance for remote agents
+- **MCP response fixes** (#141, #142) — `add_skos_collection_member` JSON parsing,
+  `update_concept` null return
+- **PKE address format** (#143) — PEM-stored keys now correctly converted to raw 32-byte binary
+- **Time search validation** (#144–#148) — ISO 8601 timestamps with colons accepted; invalid
+  coordinates rejected with 400
+- **Job worker isolation** (#151) — Workers only claim jobs they have handlers for
+
+#### UAT Wave 2: 18 Issues (#152–#169)
+
+- **Error message sanitization** (#152, #163) — Raw SQL constraint names replaced with
+  user-friendly messages
+- **Attachment file I/O** (#153, #154, #155, #157) — Complete HTTP API workflow documented
+  for remote MCP agents
+- **MCP test tool names** (#156) — Attachment test references corrected
+- **Default archive on fresh deploy** (#158) — `list_archives()` no longer returns empty
+- **Archive note routing** (#159) — Notes now land in the active archive, not always public
+- **SKOS relation cleanup** (#160) — `remove_related` cleans up inverse relations
+- **SKOS export all schemes** (#161) — Export without scheme_id now exports all schemes
+- **PKE remote access** (#162) — PKE tools work via API, not just local filesystem
+- **Job reprocessing** (#164) — `reprocess_note` respects `steps` parameter
+- **SKOS cascade delete** (#165) — `delete_concept_scheme(force=true)` cascade-deletes concepts
+- **Archive schema completeness** (#169) — `note_original` table included in schema cloning
+
+#### CI/CD & Build Fixes
+
+- **Migration timestamp deduplication** — Duplicate prefixes cause `_sqlx_migrations_pkey` violations
+- **CONCURRENTLY removed from migrations** — sqlx wraps migrations in transactions
+- **COMMENT ON EXTENSION removed** — Requires superuser; non-owner can't comment
+- **Env var race conditions eliminated** — Constructor injection replaces `std::env::set_var` in tests
+- **Auto-migrate on startup** — `sqlx::migrate!()` runs on API startup from `main.rs`
+- **Stale container cleanup** — CI kills containers by port before starting new ones
+
+#### Refactoring
+
+- **Centralized constants** (#60) — Magic numbers moved to `defaults.rs`
+- **Algorithm config** (#61, #62) — Runtime-overridable algorithm parameters
+- **Hardcoded chunking eliminated** — Chunking config now driven by document type registry
+
+### Changed
+
+- **Workspace version**: `2026.2.7` → `2026.2.8`
+- **Migration count**: 57 → 59 migration files
+- **MCP tool count**: ~95 → 100+ tools (memory management additions)
+- **API handler count**: 91 handlers, all schema-routed
+- **Test infrastructure**: Two UAT passes (530+ MCP test cases, 96.3% pass rate)
+
+### Database Migrations
+
+| Migration | Purpose |
+|-----------|---------|
+| `20260208000002_seed_default_archive.sql` | Seed default archive for fresh deployments |
+| `20260208100000_archive_schema_version.sql` | Add schema_version tracking to archive_registry |
+
+Plus significant refactoring of 28 existing migrations (removed CONCURRENTLY, fixed timestamps,
+separated schema DDL from seed data).
+
+### Breaking Changes
+
+None. Full backward compatibility maintained:
+- `/api/v1/archives/*` routes continue to work alongside new `/api/v1/memories/*`
+- Default behavior (no `X-Fortemi-Memory` header) routes to public schema as before
+- Existing MCP tool names preserved; new tools added with "memory" terminology
+
+### Upgrade Notes
+
+1. **Database migrations run automatically** on startup via `sqlx::migrate!()`
+2. **Fresh deployments** now seed a default archive — `list_archives()` returns the public schema
+3. **MCP clients** should update tool descriptions — memory-scoping context added to 10+ tools
+4. **Backup scripts** — If using custom backup scripts, consider switching to per-memory backup
+   (`GET /api/v1/backup/memory/:name`) for targeted exports
+5. **Docker bundle** — MCP OAuth credentials now auto-registered on first startup; manual
+   registration no longer required
+
+### Issues Resolved
+
+**50 issues closed** in this release:
+
+- **Epic**: #170 (Multi-Memory Schema Isolation)
+- **Multi-Memory**: #158, #159, #169, #171–#181
+- **Auth & Security**: #135, #138, #139, #140, #152, #163
+- **MCP Server**: #134, #137, #141, #142, #149, #153, #174
+- **Backup & Restore**: #136, #166, #167, #168, #175, #176
+- **Search**: #132, #133, #144–#148, #177
+- **SKOS**: #160, #161, #165
+- **Attachments**: #150, #154, #155, #157
+- **CI/Testing**: #151, #156
+- **PKE**: #143, #162
+- **Jobs**: #164
+- **Documentation**: #181
+
 ## [2026.2.7] - 2026-02-05
 
 ### Fixed
@@ -495,7 +728,13 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.2...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.8...HEAD
+[2026.2.8]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.8
+[2026.2.7]: https://github.com/fortemi/fortemi/compare/v2026.2.6...v2026.2.7
+[2026.2.6]: https://github.com/fortemi/fortemi/compare/v2026.2.5...v2026.2.6
+[2026.2.5]: https://github.com/fortemi/fortemi/compare/v2026.2.4...v2026.2.5
+[2026.2.4]: https://github.com/fortemi/fortemi/compare/v2026.2.3...v2026.2.4
+[2026.2.3]: https://github.com/fortemi/fortemi/compare/v2026.2.2...v2026.2.3
 [2026.2.2]: https://github.com/fortemi/fortemi/compare/v2026.2.0...v2026.2.2
 [2026.2.0]: https://github.com/fortemi/fortemi/compare/v2026.1.12...v2026.2.0
 [2026.1.12]: https://github.com/fortemi/fortemi/compare/v2026.1.11...v2026.1.12
