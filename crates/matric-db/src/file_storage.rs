@@ -297,7 +297,7 @@ impl PgFileStorageRepository {
                (id, note_id, blob_id, filename, original_filename, status)
                VALUES ($1, $2, $3, $4, $4, 'uploaded')
                RETURNING id, note_id, blob_id, filename, original_filename,
-                         document_type_id, status, extraction_strategy,
+                         document_type_id, status::TEXT, extraction_strategy::TEXT,
                          extracted_text, extracted_metadata,
                          has_preview, is_canonical_content,
                          detected_document_type_id, detection_confidence, detection_method,
@@ -355,7 +355,7 @@ impl PgFileStorageRepository {
     pub async fn list_by_note(&self, note_id: Uuid) -> Result<Vec<AttachmentSummary>> {
         let rows = sqlx::query(
             r#"SELECT a.id, a.note_id, a.filename, ab.content_type, ab.size_bytes,
-                      a.status, dt.name as document_type_name,
+                      a.status::TEXT, dt.name as document_type_name,
                       ddt.name as detected_document_type_name, a.detection_confidence,
                       a.has_preview, a.is_canonical_content, a.created_at
                FROM attachment a
@@ -407,7 +407,7 @@ impl PgFileStorageRepository {
     pub async fn get(&self, attachment_id: Uuid) -> Result<Attachment> {
         let row = sqlx::query(
             r#"SELECT id, note_id, blob_id, filename, original_filename,
-                      document_type_id, status, extraction_strategy,
+                      document_type_id, status::TEXT, extraction_strategy::TEXT,
                       extracted_text, extracted_metadata,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
