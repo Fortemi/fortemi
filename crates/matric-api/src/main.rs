@@ -9782,9 +9782,7 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
                 })
         })
         .await
-        .unwrap_or_else(|e| {
-            Err(std::io::Error::other(format!("task panicked: {}", e)))
-        });
+        .unwrap_or_else(|e| Err(std::io::Error::other(format!("task panicked: {}", e))));
         match &reindex_result {
             Ok(o) if !o.status.success() => {
                 let stderr = String::from_utf8_lossy(&o.stderr);
