@@ -1160,7 +1160,8 @@ pub struct DocumentTypeSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDocumentTypeRequest {
     pub name: String,
-    pub display_name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub category: DocumentCategory,
     #[serde(default)]
     pub description: Option<String>,

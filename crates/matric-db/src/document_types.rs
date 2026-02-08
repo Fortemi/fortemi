@@ -162,6 +162,20 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
 
     async fn create(&self, req: CreateDocumentTypeRequest) -> Result<Uuid> {
         let id = new_v7();
+        // Auto-generate display_name from name if not provided (kebab-case → Title Case)
+        let display_name = req.display_name.unwrap_or_else(|| {
+            req.name
+                .split(['-', '_'])
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
 
         sqlx::query(
             r#"
@@ -182,7 +196,7 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         )
         .bind(id)
         .bind(&req.name)
-        .bind(&req.display_name)
+        .bind(&display_name)
         .bind(req.category.to_string())
         .bind(&req.description)
         .bind(&req.file_extensions)

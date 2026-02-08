@@ -3,5 +3,5 @@
 -- Fixes issue #158: No default archive representing public schema.
 
 INSERT INTO archive_registry (name, schema_name, description, is_default, created_at)
-VALUES ('default', 'public', 'Default archive (public schema)', true, NOW())
+VALUES ('public', 'public', 'Default archive (public schema)', true, NOW())
 ON CONFLICT DO NOTHING;
