@@ -1830,29 +1830,17 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          const filePath = args.file_path;
-          if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}. If the file is on your local machine (not the MCP server), upload directly via HTTP API:\n\ncurl -X POST ${API_BASE}/api/v1/notes/${args.note_id}/attachments \\\n  -H "Content-Type: application/json" \\\n  -d '{"filename":"${args.filename || path.basename(filePath)}","content_type":"${args.content_type}","data":"<base64-encoded-data>"}'`);
-          }
-          const fileData = fs.readFileSync(filePath);
-          const base64Data = fileData.toString('base64');
-          const uploadFilename = args.filename || path.basename(filePath);
-          const uploadBody = {
-            filename: uploadFilename,
-            content_type: args.content_type,
-            data: base64Data,
+          const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments`;
+          const bodyTemplate = { filename: args.filename, content_type: args.content_type };
+          if (args.document_type_id) bodyTemplate.document_type_id = args.document_type_id;
+
+          result = {
+            upload_url: uploadUrl,
+            method: "POST",
+            body_template: { ...bodyTemplate, data: "<base64-encoded-file-content>" },
+            curl_command: `curl -X POST "${uploadUrl}" \\\n  -H "Content-Type: application/json" \\\n  -d "$(jq -n --arg data \\"$(base64 -w0 ${args.filename})\\" '${JSON.stringify(bodyTemplate)} + {data: $data}')"`,
+            instructions: "Base64-encode your file and include it as the 'data' field in the JSON body. Use the curl_command above or adapt for your HTTP client.",
           };
-          if (args.document_type_id) {
-            uploadBody.document_type_id = args.document_type_id;
-          }
-          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
-          // Include API URL for agent reference
-          if (result && result.id) {
-            result._api_urls = {
-              download: `${API_BASE}/api/v1/attachments/${result.id}/download`,
-              metadata: `${API_BASE}/api/v1/attachments/${result.id}`,
-            };
-          }
           break;
         }
 
@@ -1871,52 +1859,18 @@ function createMcpServer() {
           break;
 
         case "download_attachment": {
-          // First get attachment metadata for filename
           const meta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
           const downloadUrl = `${API_BASE}/api/v1/attachments/${args.id}/download`;
+          const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
 
-          if (args.output_dir) {
-            // Method 1: MCP server downloads to disk
-            const dlToken = tokenStorage.getStore()?.token;
-            const dlHeaders = {};
-            if (dlToken) {
-              dlHeaders["Authorization"] = `Bearer ${dlToken}`;
-            } else if (API_KEY) {
-              dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
-            }
-            const dlResponse = await fetch(downloadUrl, { headers: dlHeaders });
-            if (!dlResponse.ok) {
-              throw new Error(`Download failed: ${dlResponse.status}`);
-            }
-
-            const arrayBuffer = await dlResponse.arrayBuffer();
-            const outputDir = args.output_dir;
-            if (!fs.existsSync(outputDir)) {
-              fs.mkdirSync(outputDir, { recursive: true });
-            }
-            const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
-            const outputPath = path.join(outputDir, outputFilename);
-            fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-
-            result = {
-              success: true,
-              saved_to: outputPath,
-              filename: outputFilename,
-              size_bytes: arrayBuffer.byteLength,
-              content_type: meta?.content_type || dlResponse.headers.get('content-type'),
-              download_url: downloadUrl,
-            };
-          } else {
-            // Method 2: Return metadata + direct download URL for agent to use
-            const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
-            result = {
-              filename: outputFilename,
-              size_bytes: meta?.size_bytes,
-              content_type: meta?.content_type,
-              download_url: downloadUrl,
-              curl_command: `curl -o "${outputFilename}" "${downloadUrl}"`,
-            };
-          }
+          result = {
+            filename: outputFilename,
+            size_bytes: meta?.size_bytes,
+            content_type: meta?.content_type,
+            download_url: downloadUrl,
+            curl_command: `curl -o "${outputFilename}" "${downloadUrl}"`,
+            instructions: "Execute the curl_command above (or equivalent HTTP GET) to download the file.",
+          };
           break;
         }
 

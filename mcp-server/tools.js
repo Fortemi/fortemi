@@ -3930,24 +3930,15 @@ Existing embeddings using this config are not affected but won't be regenerated 
   // ============================================================================
   {
     name: "upload_attachment",
-    description: `Upload a file attachment to a note.
+    description: `Upload a file attachment to a note via the HTTP API.
 
-Two methods are available depending on your environment:
+Returns the API endpoint URL and a ready-to-use curl command for uploading.
+The agent should execute the curl command (or equivalent HTTP request) to transfer the file.
 
-**Method 1 — MCP file_path (recommended when MCP server has filesystem access)**:
-Pass file_path pointing to the file on the MCP server's filesystem.
-The MCP server reads the file, base64-encodes it, and uploads via API.
-
-**Method 2 — Direct HTTP API (recommended for remote/Docker deployments)**:
-Use curl or HTTP client to POST directly to the API:
-\`\`\`
-curl -X POST {api_base}/api/v1/notes/{note_id}/attachments \\
-  -H "Content-Type: application/json" \\
-  -d '{"filename":"photo.jpg","content_type":"image/jpeg","data":"<base64>"}'
-\`\`\`
-Or use multipart/form-data for large files.
-
-The response includes the attachment UUID — use list_attachments or get_attachment to manage metadata.
+Workflow:
+1. Call this tool with note_id, filename, and content_type
+2. Execute the returned curl command with your file's base64 data
+3. Use list_attachments or get_attachment to verify and manage the upload
 
 Files are stored with content-hash deduplication. Extraction strategy is auto-determined from MIME type.
 Document type (semantic classification) can be set explicitly or is classified asynchronously after extraction.`,
@@ -3955,12 +3946,11 @@ Document type (semantic classification) can be set explicitly or is classified a
       type: "object",
       properties: {
         note_id: { type: "string", format: "uuid", description: "Note UUID to attach the file to" },
-        file_path: { type: "string", description: "Absolute path to the file on the MCP server's filesystem (Method 1)" },
+        filename: { type: "string", description: "Filename for the attachment (e.g., 'photo.jpg')" },
         content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
-        filename: { type: "string", description: "Optional filename override (defaults to basename of file_path)" },
         document_type_id: { type: "string", format: "uuid", description: "Optional: explicit document type UUID override (skips auto-classification)" },
       },
-      required: ["note_id", "file_path", "content_type"],
+      required: ["note_id", "filename", "content_type"],
     },
     annotations: { destructiveHint: false },
   },
@@ -3995,27 +3985,21 @@ Response includes _api_urls with direct download URL and curl command for binary
   },
   {
     name: "download_attachment",
-    description: `Download a file attachment.
+    description: `Get the download URL and curl command for a file attachment.
 
-Two methods are available depending on your environment:
+Returns the direct HTTP API URL and a ready-to-use curl command for downloading.
+The agent should execute the curl command (or equivalent HTTP request) to retrieve the file.
 
-**Method 1 — MCP download to disk (when MCP server has filesystem access)**:
-Pass output_dir and the MCP server downloads the binary to that directory.
-Returns the local file path for further processing.
+Workflow:
+1. Call this tool with the attachment UUID
+2. Execute the returned curl command to download the file
+3. The file is saved to the current directory (or specify -o path)
 
-**Method 2 — Direct HTTP API (recommended for remote/Docker deployments)**:
-Use curl or HTTP client to GET directly from the API:
-\`\`\`
-curl -o photo.jpg {api_base}/api/v1/attachments/{id}/download
-\`\`\`
-
-Use get_attachment first to retrieve metadata (filename, content_type, size) before downloading.
-Binary data never passes through the LLM context window in either method.`,
+Binary data never passes through the LLM context window.`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", format: "uuid", description: "Attachment UUID" },
-        output_dir: { type: "string", description: "Directory to save the file (Method 1, default: system temp dir)" },
       },
       required: ["id"],
     },
