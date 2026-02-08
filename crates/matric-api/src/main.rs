@@ -5828,50 +5828,72 @@ async fn memories_overview(
 use matric_core::{AddMembersRequest, CreateEmbeddingSetRequest, UpdateEmbeddingSetRequest};
 
 /// List all embedding sets for discovery
-async fn list_embedding_sets(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let sets = state.db.embedding_sets.list().await?;
+async fn list_embedding_sets(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let sets = ctx
+        .query(move |tx| Box::pin(async move { repo.list_tx(tx).await }))
+        .await?;
     Ok(Json(sets))
 }
 
 /// Get an embedding set by slug
 async fn get_embedding_set(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let set = state
-        .db
-        .embedding_sets
-        .get_by_slug(&slug)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = ctx
+        .query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug).await }))
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug)))?;
+        .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?;
     Ok(Json(set))
 }
 
 /// Create a new embedding set
 async fn create_embedding_set(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let set = state.db.embedding_sets.create(body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = ctx
+        .execute(move |tx| Box::pin(async move { repo.create_tx(tx, body).await }))
+        .await?;
     Ok((StatusCode::CREATED, Json(set)))
 }
 
 /// Update an embedding set
 async fn update_embedding_set(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
     Json(body): Json<UpdateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let set = state.db.embedding_sets.update(&slug, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = ctx
+        .execute(move |tx| Box::pin(async move { repo.update_tx(tx, &slug, body).await }))
+        .await?;
     Ok(Json(set))
 }
 
 /// Delete an embedding set (not allowed for system sets)
 async fn delete_embedding_set(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.embedding_sets.delete(&slug).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { repo.delete_tx(tx, &slug).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5884,6 +5906,7 @@ struct ListMembersQuery {
 /// List members of an embedding set
 async fn list_embedding_set_members(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
     Query(query): Query<ListMembersQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -5891,10 +5914,12 @@ async fn list_embedding_set_members(
         .limit
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE);
     let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
-    let members = state
-        .db
-        .embedding_sets
-        .list_members(&slug, limit, offset)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let members = ctx
+        .query(move |tx| {
+            Box::pin(async move { repo.list_members_tx(tx, &slug, limit, offset).await })
+        })
         .await?;
     Ok(Json(members))
 }
@@ -5902,48 +5927,55 @@ async fn list_embedding_set_members(
 /// Add notes to an embedding set
 async fn add_embedding_set_members(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
     Json(body): Json<AddMembersRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.db.embedding_sets.add_members(&slug, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let count = ctx
+        .execute(move |tx| Box::pin(async move { repo.add_members_tx(tx, &slug, body).await }))
+        .await?;
     Ok(Json(serde_json::json!({ "added": count })))
 }
 
 /// Remove a note from an embedding set
 async fn remove_embedding_set_member(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((slug, note_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let removed = state
-        .db
-        .embedding_sets
-        .remove_member(&slug, note_id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let removed = ctx
+        .execute(move |tx| {
+            Box::pin(async move { repo.remove_member_tx(tx, &slug, note_id).await })
+        })
         .await?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError::NotFound(format!(
-            "Note {} not found in embedding set {}",
-            note_id, slug
-        )))
+        Err(ApiError::NotFound("Note not found in embedding set".to_string()))
     }
 }
 
 /// Refresh an embedding set by re-evaluating criteria
 async fn refresh_embedding_set(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Check set mode first (issue #126 EMB-008)
-    let set = state
-        .db
-        .embedding_sets
-        .get_by_slug(&slug)
+    // First check the mode within the archive schema
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let slug_clone = slug.clone();
+    let set = ctx
+        .query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_clone).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug)))?;
 
     if set.mode == matric_core::EmbeddingSetMode::Manual {
-        // Manual sets: queue a re-embed job for existing members instead of returning empty diff
+        // Manual sets: queue a re-embed job (jobs are global, not per-schema)
         let job_id = state
             .db
             .jobs
@@ -5962,7 +5994,10 @@ async fn refresh_embedding_set(
         })));
     }
 
-    let added = state.db.embedding_sets.refresh(&slug).await?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let added = ctx
+        .execute(move |tx| Box::pin(async move { repo.refresh_tx(tx, &slug).await }))
+        .await?;
     Ok(Json(serde_json::json!({ "added": added })))
 }
 

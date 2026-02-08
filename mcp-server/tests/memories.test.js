@@ -79,7 +79,7 @@ describe("Multi-Memory Features (UAT)", () => {
     assert.ok(result, "Should return a result");
     assert.ok(result.id, "Result should contain memory ID");
     assert.strictEqual(result.name, memName, "Memory name should match");
-    assert.strictEqual(result.schema_name, `mem_${memName}`, "Schema name should be prefixed");
+    assert.strictEqual(result.schema_name, `archive_${memName}`, "Schema name should be prefixed");
 
     cleanup.memoryNames.push(memName);
     console.log(`  ✓ Created memory: ${memName} (id: ${result.id})`);

@@ -3543,6 +3543,8 @@ if (MCP_TRANSPORT === "http") {
 
   // Store active transports by session ID
   const transports = new Map();
+  // Track transports being initialized (to prevent race conditions during handleRequest)
+  const pendingTransports = new Map();
 
   /**
    * Send 401 with RFC 9728 compliant WWW-Authenticate header.
@@ -3667,12 +3669,14 @@ if (MCP_TRANSPORT === "http") {
     const existingSession = sessionId ? transports.get(sessionId) : undefined;
 
     let transport;
+    let isNewTransport = false;
     if (existingSession && existingSession.type === 'streamable') {
       // Reuse existing transport for this session
       console.log(`[mcp] Reusing existing transport for session ${sessionId}`);
       transport = existingSession.transport;
     } else {
       // Create new StreamableHTTP transport
+      isNewTransport = true;
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
       });
@@ -3680,31 +3684,39 @@ if (MCP_TRANSPORT === "http") {
       // Create and connect new MCP server for this transport
       const mcpServer = createMcpServer();
       await mcpServer.connect(transport);
-      console.log(`[mcp] Transport connected (sessionId set after handleRequest)`);
+      console.log(`[mcp] Transport connected (sessionId will be set during handleRequest)`);
 
       // Set up cleanup on close
       transport.onclose = () => {
         console.log(`[mcp] Transport closed: ${transport?.sessionId}`);
         if (transport?.sessionId) {
           transports.delete(transport.sessionId);
+          pendingTransports.delete(transport.sessionId);
         }
       };
     }
 
     // Handle the request with token context
     try {
+      // For new transports, handleRequest will call the sessionIdGenerator and set transport.sessionId
+      // We need to store it SYNCHRONOUSLY after handleRequest completes to avoid race conditions
       const contextSessionId = transport.sessionId;
       await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
         await transport.handleRequest(req, res);
       });
 
-      // Store transport AFTER handleRequest - sessionId is only set after first request
-      if (transport.sessionId && !transports.has(transport.sessionId)) {
-        console.log(`[mcp] Storing transport with sessionId: ${transport.sessionId}`);
+      // Store transport IMMEDIATELY after handleRequest - sessionId is now set
+      // This prevents the race where concurrent requests arrive before storage
+      if (isNewTransport && transport.sessionId && !transports.has(transport.sessionId)) {
+        console.log(`[mcp] Storing new transport with sessionId: ${transport.sessionId}`);
         transports.set(transport.sessionId, { transport, token: req.accessToken, type: 'streamable' });
       }
     } catch (error) {
       console.error(`[mcp] Error handling request:`, error);
+      // Clean up pending transport on error
+      if (isNewTransport && transport?.sessionId) {
+        pendingTransports.delete(transport.sessionId);
+      }
       if (!res.headersSent) {
         res.status(500).json({ error: error.message });
       }

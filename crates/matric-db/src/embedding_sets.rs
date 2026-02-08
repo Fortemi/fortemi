@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use serde_json::Value as JsonValue;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
@@ -247,212 +247,10 @@ impl PgEmbeddingSetRepository {
 
     /// Update an embedding set.
     pub async fn update(&self, slug: &str, req: UpdateEmbeddingSetRequest) -> Result<EmbeddingSet> {
-        // First check if it exists and is not a system set (for certain updates)
-        let existing = self
-            .get_by_slug(slug)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
-
-        let mut updates = Vec::new();
-        let mut params: Vec<Box<dyn std::any::Any + Send + Sync>> = Vec::new();
-        let mut param_idx = 1;
-
-        // Build dynamic update query
-        if let Some(name) = &req.name {
-            if existing.is_system {
-                return Err(Error::InvalidInput(
-                    "Cannot rename system embedding set".to_string(),
-                ));
-            }
-            updates.push(format!("name = ${}", param_idx));
-            params.push(Box::new(name.clone()));
-            param_idx += 1;
-        }
-
-        if let Some(description) = &req.description {
-            updates.push(format!("description = ${}", param_idx));
-            params.push(Box::new(description.clone()));
-            param_idx += 1;
-        }
-
-        if let Some(purpose) = &req.purpose {
-            updates.push(format!("purpose = ${}", param_idx));
-            params.push(Box::new(purpose.clone()));
-            param_idx += 1;
-        }
-
-        if let Some(usage_hints) = &req.usage_hints {
-            updates.push(format!("usage_hints = ${}", param_idx));
-            params.push(Box::new(usage_hints.clone()));
-            param_idx += 1;
-        }
-
-        if let Some(keywords) = &req.keywords {
-            updates.push(format!("keywords = ${}", param_idx));
-            params.push(Box::new(keywords.clone()));
-            param_idx += 1;
-        }
-
-        if let Some(is_active) = req.is_active {
-            if existing.is_system && !is_active {
-                return Err(Error::InvalidInput(
-                    "Cannot deactivate system embedding set".to_string(),
-                ));
-            }
-            updates.push(format!("is_active = ${}", param_idx));
-            params.push(Box::new(is_active));
-            param_idx += 1;
-        }
-
-        if let Some(auto_refresh) = req.auto_refresh {
-            updates.push(format!("auto_refresh = ${}", param_idx));
-            params.push(Box::new(auto_refresh));
-            param_idx += 1;
-        }
-
-        // For complex updates, use simpler approach
-        if let Some(mode) = &req.mode {
-            let _ = param_idx;
-            sqlx::query(&format!(
-                "UPDATE embedding_set SET mode = '{}'::embedding_set_mode, updated_at = NOW() WHERE slug = $1",
-                mode
-            ))
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(criteria) = &req.criteria {
-            let json =
-                serde_json::to_value(criteria).map_err(|e| Error::Internal(e.to_string()))?;
-            sqlx::query(
-                "UPDATE embedding_set SET criteria = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(&json)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(agent_metadata) = &req.agent_metadata {
-            let json =
-                serde_json::to_value(agent_metadata).map_err(|e| Error::Internal(e.to_string()))?;
-            sqlx::query(
-                "UPDATE embedding_set SET agent_metadata = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(&json)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        // Apply simple string/bool updates
-        if !updates.is_empty() {
-            updates.push("updated_at = NOW()".to_string());
-            let _query = format!(
-                "UPDATE embedding_set SET {} WHERE slug = ${}",
-                updates.join(", "),
-                param_idx
-            );
-
-            // Use simple query for now - dynamic binding is complex
-            sqlx::query(&format!(
-                "UPDATE embedding_set SET updated_at = NOW() WHERE slug = '{}'",
-                slug.replace('\'', "''")
-            ))
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        // Handle individual field updates with proper binding
-        if let Some(description) = &req.description {
-            sqlx::query(
-                "UPDATE embedding_set SET description = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(description)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(purpose) = &req.purpose {
-            sqlx::query(
-                "UPDATE embedding_set SET purpose = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(purpose)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(usage_hints) = &req.usage_hints {
-            sqlx::query(
-                "UPDATE embedding_set SET usage_hints = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(usage_hints)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(keywords) = &req.keywords {
-            sqlx::query(
-                "UPDATE embedding_set SET keywords = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(keywords)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        if let Some(name) = &req.name {
-            if !existing.is_system {
-                sqlx::query(
-                    "UPDATE embedding_set SET name = $1, updated_at = NOW() WHERE slug = $2",
-                )
-                .bind(name)
-                .bind(slug)
-                .execute(&self.pool)
-                .await
-                .map_err(Error::Database)?;
-            }
-        }
-
-        if let Some(is_active) = req.is_active {
-            if !existing.is_system || is_active {
-                sqlx::query(
-                    "UPDATE embedding_set SET is_active = $1, updated_at = NOW() WHERE slug = $2",
-                )
-                .bind(is_active)
-                .bind(slug)
-                .execute(&self.pool)
-                .await
-                .map_err(Error::Database)?;
-            }
-        }
-
-        if let Some(auto_refresh) = req.auto_refresh {
-            sqlx::query(
-                "UPDATE embedding_set SET auto_refresh = $1, updated_at = NOW() WHERE slug = $2",
-            )
-            .bind(auto_refresh)
-            .bind(slug)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        self.get_by_slug(slug)
-            .await?
-            .ok_or_else(|| Error::Internal("Failed to update embedding set".to_string()))
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let result = self.update_tx(&mut tx, slug, req).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(result)
     }
 
     /// Delete an embedding set (not allowed for system sets).
@@ -1638,6 +1436,870 @@ impl PgEmbeddingSetRepository {
             updated_at: row.get("updated_at"),
             created_by: row.get("created_by"),
         })
+    }
+}
+
+// =============================================================================
+// TRANSACTION-AWARE VARIANTS (Issue #186)
+// =============================================================================
+
+/// Transaction-aware variants for archive-scoped operations.
+impl PgEmbeddingSetRepository {
+    /// Get the default embedding config ID within a transaction.
+    pub async fn get_default_config_id_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Uuid> {
+        let row = sqlx::query("SELECT id FROM embedding_config WHERE is_default = TRUE")
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        row.map(|r| r.get("id"))
+            .ok_or_else(|| Error::NotFound("Default embedding config not found".to_string()))
+    }
+
+    /// Get the default embedding set ID within a transaction.
+    pub async fn get_default_set_id_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Uuid> {
+        let row =
+            sqlx::query("SELECT id FROM embedding_set WHERE is_system = TRUE AND slug = 'default'")
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+        row.map(|r| r.get("id"))
+            .ok_or_else(|| Error::NotFound("Default embedding set not found".to_string()))
+    }
+
+    /// List all embedding sets within a transaction.
+    pub async fn list_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<EmbeddingSetSummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                es.id,
+                es.name,
+                es.slug,
+                es.description,
+                es.purpose,
+                es.set_type::text as set_type,
+                es.document_count,
+                es.embedding_count,
+                es.index_status::text as index_status,
+                es.is_system,
+                es.keywords,
+                es.truncate_dim,
+                ec.model,
+                ec.dimension,
+                ec.supports_mrl
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.is_active = TRUE
+            ORDER BY es.is_system DESC, es.document_count DESC
+            "#,
+        )
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let sets = rows
+            .into_iter()
+            .map(|row| {
+                let status_str: String = row.get("index_status");
+                let set_type_str: Option<String> = row.get("set_type");
+                EmbeddingSetSummary {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    slug: row.get("slug"),
+                    description: row.get("description"),
+                    purpose: row.get("purpose"),
+                    set_type: set_type_str
+                        .map(|s| s.parse().unwrap_or_default())
+                        .unwrap_or_default(),
+                    document_count: row.get("document_count"),
+                    embedding_count: row.get("embedding_count"),
+                    index_status: status_str.parse().unwrap_or_default(),
+                    is_system: row.get("is_system"),
+                    keywords: row.get::<Vec<String>, _>("keywords"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    truncate_dim: row.get("truncate_dim"),
+                    supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
+                }
+            })
+            .collect();
+
+        Ok(sets)
+    }
+
+    /// Get an embedding set by slug within a transaction.
+    pub async fn get_by_slug_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        slug: &str,
+    ) -> Result<Option<EmbeddingSet>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id, name, slug, description, purpose, usage_hints, keywords,
+                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                truncate_dim, auto_embed_rules,
+                index_status::text as index_status, index_type,
+                document_count, embedding_count, embeddings_current, index_size_bytes,
+                is_system, is_active, auto_refresh,
+                agent_metadata, created_at, updated_at, created_by
+            FROM embedding_set
+            WHERE slug = $1
+            "#,
+        )
+        .bind(slug)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => Ok(Some(self.row_to_embedding_set(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get an embedding set by ID within a transaction.
+    pub async fn get_by_id_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> Result<Option<EmbeddingSet>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id, name, slug, description, purpose, usage_hints, keywords,
+                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                truncate_dim, auto_embed_rules,
+                index_status::text as index_status, index_type,
+                document_count, embedding_count, embeddings_current, index_size_bytes,
+                is_system, is_active, auto_refresh,
+                agent_metadata, created_at, updated_at, created_by
+            FROM embedding_set
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => Ok(Some(self.row_to_embedding_set(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the default embedding set within a transaction.
+    pub async fn get_default_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Option<EmbeddingSet>> {
+        self.get_by_slug_tx(tx, "default").await
+    }
+
+    /// Get the default embedding set ID (fast path) within a transaction.
+    pub async fn get_default_id_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Uuid> {
+        let row = sqlx::query("SELECT get_default_embedding_set_id() as id")
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => {
+                let id: Option<Uuid> = row.get("id");
+                id.ok_or_else(|| Error::NotFound("Default embedding set not found".to_string()))
+            }
+            None => Err(Error::NotFound(
+                "Default embedding set not found".to_string(),
+            )),
+        }
+    }
+
+    /// Create a new embedding set within a transaction.
+    pub async fn create_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: CreateEmbeddingSetRequest,
+    ) -> Result<EmbeddingSet> {
+        let id = new_v7();
+        let slug = req.slug.unwrap_or_else(|| slugify(&req.name));
+        let now = Utc::now();
+
+        let criteria_json =
+            serde_json::to_value(&req.criteria).map_err(|e| Error::Internal(e.to_string()))?;
+        let agent_metadata_json = serde_json::to_value(&req.agent_metadata)
+            .map_err(|e| Error::Internal(e.to_string()))?;
+        let auto_embed_rules_json = serde_json::to_value(&req.auto_embed_rules)
+            .map_err(|e| Error::Internal(e.to_string()))?;
+
+        let config_id = match req.embedding_config_id {
+            Some(id) => Some(id),
+            None => Some(self.get_default_config_id_tx(tx).await?),
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO embedding_set (
+                id, name, slug, description, purpose, usage_hints, keywords,
+                set_type, mode, criteria, embedding_config_id, truncate_dim,
+                auto_embed_rules, agent_metadata,
+                created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
+                $13, $14,
+                $15, $15
+            )
+            "#,
+        )
+        .bind(id)
+        .bind(&req.name)
+        .bind(&slug)
+        .bind(&req.description)
+        .bind(&req.purpose)
+        .bind(&req.usage_hints)
+        .bind(&req.keywords)
+        .bind(req.set_type.to_string())
+        .bind(req.mode.to_string())
+        .bind(&criteria_json)
+        .bind(config_id)
+        .bind(req.truncate_dim)
+        .bind(&auto_embed_rules_json)
+        .bind(&agent_metadata_json)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        self.get_by_id_tx(tx, id)
+            .await?
+            .ok_or_else(|| Error::Internal("Failed to create embedding set".to_string()))
+    }
+
+    /// Delete an embedding set within a transaction (not allowed for system sets).
+    pub async fn delete_tx(&self, tx: &mut Transaction<'_, Postgres>, slug: &str) -> Result<()> {
+        let existing = self
+            .get_by_slug_tx(tx, slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
+
+        if existing.is_system {
+            return Err(Error::InvalidInput(
+                "Cannot delete system embedding set".to_string(),
+            ));
+        }
+
+        sqlx::query("DELETE FROM embedding_set WHERE slug = $1")
+            .bind(slug)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Update an embedding set within a transaction (single-query COALESCE pattern).
+    pub async fn update_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        slug: &str,
+        req: UpdateEmbeddingSetRequest,
+    ) -> Result<EmbeddingSet> {
+        // Validate existence and system constraints
+        let existing = self
+            .get_by_slug_tx(tx, slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", slug)))?;
+
+        if existing.is_system {
+            if req.name.is_some() {
+                return Err(Error::InvalidInput(
+                    "Cannot rename system embedding set".to_string(),
+                ));
+            }
+            if req.is_active == Some(false) {
+                return Err(Error::InvalidInput(
+                    "Cannot deactivate system embedding set".to_string(),
+                ));
+            }
+        }
+
+        // Serialize JSON fields
+        let criteria_json = req
+            .criteria
+            .as_ref()
+            .map(|c| serde_json::to_value(c).map_err(|e| Error::Internal(e.to_string())))
+            .transpose()?;
+        let agent_metadata_json = req
+            .agent_metadata
+            .as_ref()
+            .map(|m| serde_json::to_value(m).map_err(|e| Error::Internal(e.to_string())))
+            .transpose()?;
+        let mode_str = req.mode.as_ref().map(|m| m.to_string());
+
+        // Single UPDATE with COALESCE — NULL params preserve existing values
+        let row = sqlx::query(
+            r#"
+            UPDATE embedding_set SET
+                name = COALESCE($2, name),
+                description = COALESCE($3, description),
+                purpose = COALESCE($4, purpose),
+                usage_hints = COALESCE($5, usage_hints),
+                keywords = COALESCE($6, keywords),
+                is_active = COALESCE($7, is_active),
+                auto_refresh = COALESCE($8, auto_refresh),
+                mode = COALESCE($9::embedding_set_mode, mode),
+                criteria = COALESCE($10, criteria),
+                agent_metadata = COALESCE($11, agent_metadata),
+                updated_at = NOW()
+            WHERE slug = $1
+            RETURNING
+                id, name, slug, description, purpose, usage_hints, keywords,
+                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                truncate_dim, auto_embed_rules,
+                index_status::text as index_status, index_type,
+                document_count, embedding_count, embeddings_current, index_size_bytes,
+                is_system, is_active, auto_refresh,
+                agent_metadata, created_at, updated_at, created_by
+            "#,
+        )
+        .bind(slug)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(&req.purpose)
+        .bind(&req.usage_hints)
+        .bind(&req.keywords)
+        .bind(req.is_active)
+        .bind(req.auto_refresh)
+        .bind(&mode_str)
+        .bind(&criteria_json)
+        .bind(&agent_metadata_json)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        self.row_to_embedding_set(row)
+    }
+
+    /// List members of an embedding set within a transaction.
+    pub async fn list_members_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_slug: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<EmbeddingSetMember>> {
+        let set = self
+            .get_by_slug_tx(tx, set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+
+        let rows = sqlx::query(
+            r#"
+            SELECT embedding_set_id, note_id, membership_type, added_at, added_by
+            FROM embedding_set_member
+            WHERE embedding_set_id = $1
+            ORDER BY added_at DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(set.id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let members = rows
+            .into_iter()
+            .map(|row| EmbeddingSetMember {
+                embedding_set_id: row.get("embedding_set_id"),
+                note_id: row.get("note_id"),
+                membership_type: row.get("membership_type"),
+                added_at: row.get("added_at"),
+                added_by: row.get("added_by"),
+            })
+            .collect();
+
+        Ok(members)
+    }
+
+    /// Add notes to an embedding set within a transaction.
+    pub async fn add_members_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_slug: &str,
+        req: AddMembersRequest,
+    ) -> Result<i64> {
+        let set = self
+            .get_by_slug_tx(tx, set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+
+        let mut count = 0i64;
+        for note_id in &req.note_ids {
+            let result = sqlx::query(
+                r#"
+                INSERT INTO embedding_set_member (embedding_set_id, note_id, membership_type, added_by)
+                VALUES ($1, $2, 'manual_include', $3)
+                ON CONFLICT (embedding_set_id, note_id) DO UPDATE SET
+                    membership_type = 'manual_include',
+                    added_by = EXCLUDED.added_by,
+                    added_at = NOW()
+                "#,
+            )
+            .bind(set.id)
+            .bind(note_id)
+            .bind(&req.added_by)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            count += result.rows_affected() as i64;
+        }
+
+        // Mark index as stale
+        sqlx::query("UPDATE embedding_set SET index_status = 'stale' WHERE id = $1")
+            .bind(set.id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(count)
+    }
+
+    /// Remove a note from an embedding set within a transaction.
+    pub async fn remove_member_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_slug: &str,
+        note_id: Uuid,
+    ) -> Result<bool> {
+        let set = self
+            .get_by_slug_tx(tx, set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+
+        let result = sqlx::query(
+            "DELETE FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
+        )
+        .bind(set.id)
+        .bind(note_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        if result.rows_affected() > 0 {
+            sqlx::query("DELETE FROM embedding WHERE embedding_set_id = $1 AND note_id = $2")
+                .bind(set.id)
+                .bind(note_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Find notes matching embedding set criteria within a transaction.
+    pub async fn find_matching_notes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<Uuid>> {
+        let set = self
+            .get_by_id_tx(tx, set_id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_id)))?;
+
+        let criteria = &set.criteria;
+        let mut conditions = Vec::new();
+        let mut query = String::from(
+            "SELECT DISTINCT n.id FROM note n \
+             LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id \
+             WHERE n.deleted_at IS NULL",
+        );
+
+        if criteria.exclude_archived {
+            conditions.push("(n.archived IS FALSE OR n.archived IS NULL)".to_string());
+        }
+
+        if !criteria.include_all {
+            if !criteria.tags.is_empty() {
+                let tag_conditions: Vec<String> = criteria
+                    .tags
+                    .iter()
+                    .map(|t| {
+                        let escaped = t.replace('\'', "''");
+                        format!(
+                            "(LOWER(tag_name) = LOWER('{}') OR LOWER(tag_name) LIKE LOWER('{}') || '/%')",
+                            escaped, escaped
+                        )
+                    })
+                    .collect();
+                conditions.push(format!(
+                    "n.id IN (SELECT note_id FROM note_tag WHERE {})",
+                    tag_conditions.join(" OR ")
+                ));
+            }
+
+            if !criteria.collections.is_empty() {
+                let collections_list = criteria
+                    .collections
+                    .iter()
+                    .map(|c| format!("'{}'", c))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                conditions.push(format!("n.collection_id IN ({})", collections_list));
+            }
+
+            if let Some(fts_query) = &criteria.fts_query {
+                conditions.push(format!(
+                    "nrc.tsv @@ websearch_to_tsquery('matric_english', '{}')",
+                    fts_query.replace('\'', "''")
+                ));
+            }
+
+            if let Some(after) = criteria.created_after {
+                conditions.push(format!("n.created_at_utc > '{}'", after));
+            }
+            if let Some(before) = criteria.created_before {
+                conditions.push(format!("n.created_at_utc < '{}'", before));
+            }
+        }
+
+        if !conditions.is_empty() {
+            query.push_str(" AND ");
+            query.push_str(&conditions.join(" AND "));
+        }
+
+        query.push_str(&format!(" LIMIT {}", limit));
+
+        let rows = sqlx::query(&query)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
+    }
+
+    /// Refresh an embedding set by re-evaluating criteria within a transaction.
+    pub async fn refresh_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_slug: &str,
+    ) -> Result<i64> {
+        let set = self
+            .get_by_slug_tx(tx, set_slug)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+
+        if set.mode == EmbeddingSetMode::Manual {
+            return Ok(0);
+        }
+
+        let matching_notes = self.find_matching_notes_tx(tx, set.id, 1_000_000).await?;
+
+        let mut added = 0i64;
+        for note_id in &matching_notes {
+            let result = sqlx::query(
+                r#"
+                INSERT INTO embedding_set_member (embedding_set_id, note_id, membership_type)
+                VALUES ($1, $2, 'auto')
+                ON CONFLICT (embedding_set_id, note_id) DO NOTHING
+                "#,
+            )
+            .bind(set.id)
+            .bind(note_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            added += result.rows_affected() as i64;
+        }
+
+        sqlx::query(
+            "UPDATE embedding_set SET last_refresh_at = NOW(), updated_at = NOW() WHERE id = $1",
+        )
+        .bind(set.id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(added)
+    }
+
+    /// Check if a note is a member of an embedding set within a transaction.
+    pub async fn is_member_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_id: Uuid,
+        note_id: Uuid,
+    ) -> Result<bool> {
+        let row = sqlx::query(
+            "SELECT 1 FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
+        )
+        .bind(set_id)
+        .bind(note_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.is_some())
+    }
+
+    /// Update the index status of an embedding set within a transaction.
+    pub async fn update_index_status_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_id: Uuid,
+        status: EmbeddingIndexStatus,
+    ) -> Result<()> {
+        sqlx::query(&format!(
+            "UPDATE embedding_set SET index_status = '{}'::embedding_index_status, updated_at = NOW() WHERE id = $1",
+            status
+        ))
+        .bind(set_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Mark index as ready and update timestamp within a transaction.
+    pub async fn mark_index_ready_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_id: Uuid,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE embedding_set
+            SET index_status = 'ready'::embedding_index_status,
+                last_indexed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(set_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Get all embedding set IDs that a note is a member of within a transaction.
+    pub async fn get_sets_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        let rows =
+            sqlx::query("SELECT embedding_set_id FROM embedding_set_member WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| r.get("embedding_set_id"))
+            .collect())
+    }
+
+    /// Refresh statistics for an embedding set within a transaction.
+    pub async fn refresh_stats_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        set_id: Uuid,
+    ) -> Result<()> {
+        sqlx::query("SELECT update_embedding_set_stats($1)")
+            .bind(set_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// List all embedding configs within a transaction.
+    pub async fn list_configs_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<EmbeddingConfigProfile>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+                   hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
+                   supports_mrl, matryoshka_dims, default_truncate_dim,
+                   provider::text, provider_config, content_types
+            FROM embedding_config
+            ORDER BY is_default DESC, name
+            "#,
+        )
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let configs = rows
+            .into_iter()
+            .map(|row| {
+                let provider_str: Option<String> = row.get("provider");
+                let provider = provider_str
+                    .and_then(|s| s.parse::<EmbeddingProvider>().ok())
+                    .unwrap_or_default();
+                EmbeddingConfigProfile {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    chunk_size: row.get("chunk_size"),
+                    chunk_overlap: row.get("chunk_overlap"),
+                    hnsw_m: row.get("hnsw_m"),
+                    hnsw_ef_construction: row.get("hnsw_ef_construction"),
+                    ivfflat_lists: row.get("ivfflat_lists"),
+                    is_default: row.get("is_default"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
+                    matryoshka_dims: row.get("matryoshka_dims"),
+                    default_truncate_dim: row.get("default_truncate_dim"),
+                    provider,
+                    provider_config: row
+                        .get::<Option<JsonValue>, _>("provider_config")
+                        .unwrap_or_default(),
+                    content_types: row
+                        .get::<Option<Vec<String>>, _>("content_types")
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        Ok(configs)
+    }
+
+    /// Get the default embedding config within a transaction.
+    pub async fn get_default_config_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<Option<EmbeddingConfigProfile>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+                   hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
+                   supports_mrl, matryoshka_dims, default_truncate_dim,
+                   provider::text, provider_config, content_types
+            FROM embedding_config
+            WHERE is_default = TRUE
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => {
+                let provider_str: Option<String> = row.get("provider");
+                let provider = provider_str
+                    .and_then(|s| s.parse::<EmbeddingProvider>().ok())
+                    .unwrap_or_default();
+                Ok(Some(EmbeddingConfigProfile {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    chunk_size: row.get("chunk_size"),
+                    chunk_overlap: row.get("chunk_overlap"),
+                    hnsw_m: row.get("hnsw_m"),
+                    hnsw_ef_construction: row.get("hnsw_ef_construction"),
+                    ivfflat_lists: row.get("ivfflat_lists"),
+                    is_default: row.get("is_default"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
+                    matryoshka_dims: row.get("matryoshka_dims"),
+                    default_truncate_dim: row.get("default_truncate_dim"),
+                    provider,
+                    provider_config: row
+                        .get::<Option<JsonValue>, _>("provider_config")
+                        .unwrap_or_default(),
+                    content_types: row
+                        .get::<Option<Vec<String>>, _>("content_types")
+                        .unwrap_or_default(),
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get an embedding config by ID within a transaction.
+    pub async fn get_config_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> Result<Option<EmbeddingConfigProfile>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+                   hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
+                   supports_mrl, matryoshka_dims, default_truncate_dim,
+                   provider::text, provider_config, content_types
+            FROM embedding_config
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => {
+                let provider_str: Option<String> = row.get("provider");
+                let provider = provider_str
+                    .and_then(|s| s.parse::<EmbeddingProvider>().ok())
+                    .unwrap_or_default();
+                Ok(Some(EmbeddingConfigProfile {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    description: row.get("description"),
+                    model: row.get("model"),
+                    dimension: row.get("dimension"),
+                    chunk_size: row.get("chunk_size"),
+                    chunk_overlap: row.get("chunk_overlap"),
+                    hnsw_m: row.get("hnsw_m"),
+                    hnsw_ef_construction: row.get("hnsw_ef_construction"),
+                    ivfflat_lists: row.get("ivfflat_lists"),
+                    is_default: row.get("is_default"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                    supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
+                    matryoshka_dims: row.get("matryoshka_dims"),
+                    default_truncate_dim: row.get("default_truncate_dim"),
+                    provider,
+                    provider_config: row
+                        .get::<Option<JsonValue>, _>("provider_config")
+                        .unwrap_or_default(),
+                    content_types: row
+                        .get::<Option<Vec<String>>, _>("content_types")
+                        .unwrap_or_default(),
+                }))
+            }
+            None => Ok(None),
+        }
     }
 }
 
