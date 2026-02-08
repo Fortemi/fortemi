@@ -1832,7 +1832,7 @@ function createMcpServer() {
         case "upload_attachment": {
           const filePath = args.file_path;
           if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
+            throw new Error(`File not found: ${filePath}. If the file is on your local machine (not the MCP server), upload directly via HTTP API:\n\ncurl -X POST ${API_BASE}/api/v1/notes/${args.note_id}/attachments \\\n  -H "Content-Type: application/json" \\\n  -d '{"filename":"${args.filename || path.basename(filePath)}","content_type":"${args.content_type}","data":"<base64-encoded-data>"}'`);
           }
           const fileData = fs.readFileSync(filePath);
           const base64Data = fileData.toString('base64');
@@ -1846,6 +1846,13 @@ function createMcpServer() {
             uploadBody.document_type_id = args.document_type_id;
           }
           result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
+          // Include API URL for agent reference
+          if (result && result.id) {
+            result._api_urls = {
+              download: `${API_BASE}/api/v1/attachments/${result.id}/download`,
+              metadata: `${API_BASE}/api/v1/attachments/${result.id}`,
+            };
+          }
           break;
         }
 
@@ -1855,41 +1862,61 @@ function createMcpServer() {
 
         case "get_attachment":
           result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
+          if (result && result.id) {
+            result._api_urls = {
+              download: `${API_BASE}/api/v1/attachments/${result.id}/download`,
+              download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${API_BASE}/api/v1/attachments/${result.id}/download"`,
+            };
+          }
           break;
 
         case "download_attachment": {
           // First get attachment metadata for filename
           const meta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
-          
-          // Download the binary content
-          const dlToken = tokenStorage.getStore()?.token;
-          const dlHeaders = {};
-          if (dlToken) {
-            dlHeaders["Authorization"] = `Bearer ${dlToken}`;
-          } else if (API_KEY) {
-            dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
+          const downloadUrl = `${API_BASE}/api/v1/attachments/${args.id}/download`;
+
+          if (args.output_dir) {
+            // Method 1: MCP server downloads to disk
+            const dlToken = tokenStorage.getStore()?.token;
+            const dlHeaders = {};
+            if (dlToken) {
+              dlHeaders["Authorization"] = `Bearer ${dlToken}`;
+            } else if (API_KEY) {
+              dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
+            }
+            const dlResponse = await fetch(downloadUrl, { headers: dlHeaders });
+            if (!dlResponse.ok) {
+              throw new Error(`Download failed: ${dlResponse.status}`);
+            }
+
+            const arrayBuffer = await dlResponse.arrayBuffer();
+            const outputDir = args.output_dir;
+            if (!fs.existsSync(outputDir)) {
+              fs.mkdirSync(outputDir, { recursive: true });
+            }
+            const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
+            const outputPath = path.join(outputDir, outputFilename);
+            fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
+
+            result = {
+              success: true,
+              saved_to: outputPath,
+              filename: outputFilename,
+              size_bytes: arrayBuffer.byteLength,
+              content_type: meta?.content_type || dlResponse.headers.get('content-type'),
+              download_url: downloadUrl,
+            };
+          } else {
+            // Method 2: Return metadata + direct download URL for agent to use
+            const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
+            result = {
+              filename: outputFilename,
+              size_bytes: meta?.size_bytes,
+              content_type: meta?.content_type,
+              download_url: downloadUrl,
+              curl_command: `curl -o "${outputFilename}" "${downloadUrl}"`,
+            };
           }
-          const dlResponse = await fetch(`${API_BASE}/api/v1/attachments/${args.id}/download`, { headers: dlHeaders });
-          if (!dlResponse.ok) {
-            throw new Error(`Download failed: ${dlResponse.status}`);
-          }
-          
-          const arrayBuffer = await dlResponse.arrayBuffer();
-          const outputDir = args.output_dir || os.tmpdir();
-          if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-          }
-          const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
-          const outputPath = path.join(outputDir, outputFilename);
-          fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-          
-          result = {
-            success: true,
-            saved_to: outputPath,
-            filename: outputFilename,
-            size_bytes: arrayBuffer.byteLength,
-            content_type: meta?.content_type || dlResponse.headers.get('content-type'),
-          };
           break;
         }
 
