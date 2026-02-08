@@ -1890,6 +1890,11 @@ pub struct ArchiveInfo {
     pub size_bytes: Option<i64>,
     #[serde(default)]
     pub is_default: bool,
+    /// Schema version for auto-migration detection.
+    /// Compared against current public schema table count to determine
+    /// if the archive needs new tables from recent migrations.
+    #[serde(default)]
+    pub schema_version: i32,
 }
 
 // =============================================================================

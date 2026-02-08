@@ -36,6 +36,15 @@ pub struct UpdateArchiveRequest {
     pub description: Option<String>,
 }
 
+/// Request body for cloning an archive.
+#[derive(Debug, Deserialize)]
+pub struct CloneArchiveRequest {
+    /// Name for the cloned archive
+    pub new_name: String,
+    /// Optional description for the clone
+    pub description: Option<String>,
+}
+
 /// Response for archive statistics.
 #[derive(Debug, Serialize)]
 pub struct ArchiveStatsResponse {
@@ -115,6 +124,15 @@ pub async fn create_archive(
         return Err(ApiError::BadRequest(
             "Archive name cannot be empty".to_string(),
         ));
+    }
+
+    // Enforce MAX_MEMORIES limit (only prevents creation, not growth of existing memories)
+    let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
+    if current_count >= state.max_memories {
+        return Err(ApiError::BadRequest(format!(
+            "Memory limit reached ({}/{}). Delete unused memories or increase MAX_MEMORIES.",
+            current_count, state.max_memories
+        )));
     }
 
     // Check if archive already exists
@@ -257,6 +275,62 @@ pub async fn get_archive_stats(
     }))
 }
 
+/// Clone an archive (deep copy with data).
+///
+/// Creates a new archive that is a complete copy of the source, including all
+/// notes, embeddings, collections, tags, and links. The schema structure is
+/// cloned first, then all data is bulk-copied with FK checks deferred.
+///
+/// # Path Parameters
+/// - `name`: Source archive name to clone from
+///
+/// # Request Body
+/// JSON object with:
+/// - `new_name`: Name for the cloned archive (required)
+/// - `description`: Optional description
+///
+/// # Returns
+/// - 201 Created with new archive information
+/// - 400 Bad Request if validation fails or target name already exists
+/// - 404 Not Found if source archive doesn't exist
+/// - 500 Internal Server Error if cloning fails
+pub async fn clone_archive(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(req): Json<CloneArchiveRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    if req.new_name.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Clone name cannot be empty".to_string(),
+        ));
+    }
+
+    // Enforce MAX_MEMORIES limit (clone creates a new memory)
+    let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
+    if current_count >= state.max_memories {
+        return Err(ApiError::BadRequest(format!(
+            "Memory limit reached ({}/{}). Delete unused memories or increase MAX_MEMORIES.",
+            current_count, state.max_memories
+        )));
+    }
+
+    let archive = state
+        .db
+        .archives
+        .clone_archive_schema(&name, &req.new_name, req.description.as_deref())
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": archive.id,
+            "name": archive.name,
+            "schema_name": archive.schema_name,
+            "cloned_from": name
+        })),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +369,42 @@ mod tests {
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("\"note_count\":42"));
         assert!(json.contains("\"size_bytes\":1024"));
+    }
+
+    // =============================================================================
+    // NEW UNIT TESTS FOR MULTI-MEMORY CAPABILITIES
+    // =============================================================================
+
+    #[test]
+    fn test_clone_archive_request_deserialization() {
+        let json = r#"{"new_name":"cloned-archive","description":"Cloned description"}"#;
+        let req: CloneArchiveRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.new_name, "cloned-archive");
+        assert_eq!(req.description, Some("Cloned description".to_string()));
+    }
+
+    #[test]
+    fn test_clone_archive_request_without_description() {
+        let json = r#"{"new_name":"cloned-archive"}"#;
+        let req: CloneArchiveRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.new_name, "cloned-archive");
+        assert!(req.description.is_none());
+    }
+
+    #[test]
+    fn test_clone_archive_request_missing_new_name_fails() {
+        let json = r#"{"description":"Should fail"}"#;
+        let result: Result<CloneArchiveRequest, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "Missing new_name should fail deserialization"
+        );
+    }
+
+    #[test]
+    fn test_update_archive_request_null_description() {
+        let json = r#"{"description":null}"#;
+        let req: UpdateArchiveRequest = serde_json::from_str(json).unwrap();
+        assert!(req.description.is_none());
     }
 }

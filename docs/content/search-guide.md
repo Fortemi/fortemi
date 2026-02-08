@@ -492,6 +492,80 @@ Large documents are automatically chunked for embedding. The search system:
 
 This ensures comprehensive coverage while maintaining clean results.
 
+## Federated Search
+
+Search across multiple memories simultaneously with unified result ranking.
+
+### Search All Memories
+
+```bash
+curl -X POST http://localhost:3000/api/v1/search/federated \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "machine learning",
+    "memories": ["all"]
+  }'
+```
+
+### Search Specific Memories
+
+```bash
+curl -X POST http://localhost:3000/api/v1/search/federated \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "project documentation",
+    "memories": ["default", "work-notes", "research"]
+  }'
+```
+
+### Federated Search Response
+
+```json
+{
+  "results": [
+    {
+      "note_id": "550e8400-...",
+      "memory": "work-notes",
+      "score": 0.92,
+      "title": "Project Documentation",
+      "snippet": "...machine learning algorithms...",
+      "tags": ["project", "ml"]
+    },
+    {
+      "note_id": "660e8400-...",
+      "memory": "research",
+      "score": 0.85,
+      "title": "ML Research Papers",
+      "snippet": "...deep learning techniques...",
+      "tags": ["research", "ml"]
+    }
+  ],
+  "total": 2,
+  "memories_searched": ["work-notes", "research"]
+}
+```
+
+### How It Works
+
+1. **Parallel Execution**: Searches run concurrently across all specified memories
+2. **Score Normalization**: Each memory's scores are normalized to [0,1] range
+3. **Unified Ranking**: Results are merged and re-sorted by normalized score
+4. **Memory Attribution**: Each result includes `memory` field showing source
+
+### Performance Considerations
+
+- Federated search latency = slowest memory search time
+- Use specific memory names instead of `["all"]` when possible
+- Consider memory size when searching many memories (large memories slow down federation)
+
+### Use Cases
+
+- **Cross-project search**: Find related work across all project memories
+- **Multi-client search**: Search across client memories for patterns
+- **Comprehensive research**: Discover connections across research and work notes
+
+See the [Multi-Memory Guide](./multi-memory.md) for comprehensive documentation.
+
 ## Troubleshooting Poor Results
 
 ### No Results Returned
@@ -525,4 +599,4 @@ See [Troubleshooting Guide](./troubleshooting.md) for comprehensive diagnostics.
 
 ---
 
-*See also: [Architecture](./architecture.md) | [Best Practices](./best-practices.md) | [Configuration](./configuration.md) | [Glossary](./glossary.md)*
+*See also: [Architecture](./architecture.md) | [Best Practices](./best-practices.md) | [Configuration](./configuration.md) | [Multi-Memory Guide](./multi-memory.md) | [Glossary](./glossary.md)*

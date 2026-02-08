@@ -2024,6 +2024,186 @@ Returns markdown with YAML frontmatter suitable for Obsidian/Notion import.
 | content | string | `original` or `revised` (default: `revised`) |
 | include_frontmatter | bool | Include YAML frontmatter (default: true) |
 
+## Memory Management
+
+Fortemi supports parallel memory archives for organizing different knowledge domains with full schema-level isolation.
+
+### Request Header
+
+All endpoints support memory routing via the `X-Fortemi-Memory` header:
+
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: "default") |
+
+### List Memories
+
+```http
+GET /api/v1/memories
+```
+
+Returns all memory archives with metadata (name, description, note count, size, schema version).
+
+### Create Memory
+
+```http
+POST /api/v1/memories
+Content-Type: application/json
+
+{
+  "name": "work-notes",
+  "description": "Work-related documentation"
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "550e8400-...",
+  "name": "work-notes",
+  "schema_name": "archive_work_notes"
+}
+```
+
+Returns HTTP 400 if `MAX_MEMORIES` limit is reached.
+
+### Get Memory
+
+```http
+GET /api/v1/memories/:name
+```
+
+### Update Memory
+
+```http
+PATCH /api/v1/memories/:name
+Content-Type: application/json
+
+{
+  "description": "Updated description"
+}
+```
+
+### Delete Memory
+
+```http
+DELETE /api/v1/memories/:name
+```
+
+Permanently deletes the memory schema and all data. Cannot be undone.
+
+### Set Default Memory
+
+```http
+POST /api/v1/archives/:name/default
+```
+
+Sets the specified memory as default. Only one memory can be default at a time.
+
+### Get Memory Statistics
+
+```http
+GET /api/v1/archives/:name/stats
+```
+
+Returns note count and storage size for a specific memory.
+
+### Get Memories Overview
+
+```http
+GET /api/v1/memories/overview
+```
+
+Returns aggregate statistics across all memories:
+
+```json
+{
+  "capacity": {
+    "max_memories": 100,
+    "current_count": 3,
+    "available": 97
+  },
+  "usage": {
+    "total_notes": 1768,
+    "total_size_bytes": 60817408,
+    "total_size_human": "58.02 MB"
+  },
+  "memories": [
+    {
+      "name": "default",
+      "note_count": 1200,
+      "size_bytes": 41943040,
+      "is_default": true
+    }
+  ],
+  "database": {
+    "total_size_bytes": 209715200,
+    "total_size_human": "200.00 MB"
+  }
+}
+```
+
+### Clone Memory
+
+```http
+POST /api/v1/archives/:name/clone
+Content-Type: application/json
+
+{
+  "new_name": "work-notes-backup",
+  "description": "Backup before migration"
+}
+```
+
+Creates a deep copy of the memory including all notes, embeddings, tags, collections, and relationships.
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "660e8400-...",
+  "name": "work-notes-backup",
+  "schema_name": "archive_work_notes_backup",
+  "cloned_from": "work-notes"
+}
+```
+
+### Federated Search
+
+```http
+POST /api/v1/search/federated
+Content-Type: application/json
+
+{
+  "query": "project documentation",
+  "memories": ["default", "work-notes"]
+}
+```
+
+Searches across multiple memories in parallel with unified result ranking.
+
+**Response:**
+
+```json
+{
+  "results": [
+    {
+      "note_id": "...",
+      "memory": "work-notes",
+      "score": 0.92,
+      "title": "Project Docs",
+      "snippet": "...",
+      "tags": ["project"]
+    }
+  ],
+  "total": 1,
+  "memories_searched": ["default", "work-notes"]
+}
+```
+
+Use `"memories": ["all"]` to search every memory.
+
 ## Real-Time Events
 
 Fortémi provides real-time event streaming through three channels. For comprehensive documentation, see [Real-Time Events](./real-time-events.md).
@@ -2179,6 +2359,7 @@ The API is versioned via URL path (`/api/v1/`). Breaking changes will increment 
 ## See Also
 
 - [MCP Server Documentation](./mcp.md) - Claude integration
+- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
 - [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
 - [Authentication Guide](./authentication.md) - OAuth2 flows
 - [Integration Guide](./integration.md) - Client examples

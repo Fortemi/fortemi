@@ -60,6 +60,84 @@ matric-core (traits, types, errors)
               └── uses all other crates
 ```
 
+## Multi-Memory Architecture
+
+Fortemi supports parallel memory archives using PostgreSQL schema isolation. Each memory operates as an independent namespace with complete data isolation.
+
+### Schema-Based Isolation
+
+```
+Database Structure:
+├── public schema (shared tables)
+│   ├── archive_registry - Memory metadata
+│   ├── oauth_clients - Authentication
+│   ├── api_keys - API keys
+│   └── ... (14 shared tables)
+├── default schema (default memory)
+│   ├── note - Notes and content
+│   ├── embedding - Vector embeddings
+│   ├── note_links - Semantic relationships
+│   └── ... (41 per-memory tables)
+└── custom schemas (user-created memories)
+    └── Same 41-table structure per memory
+```
+
+### Deny-List Approach
+
+The system uses a **deny-list** model: all tables are per-memory unless explicitly listed in `SHARED_TABLES` (14 tables). This ensures:
+
+- Zero drift when new tables are added (automatically per-memory)
+- Clear separation between shared infrastructure and memory-specific data
+- Automatic migration when memories access new table structures
+
+### Shared vs Per-Memory Tables
+
+**Shared Tables (14):**
+- Authentication: `oauth_clients`, `oauth_authorization_codes`, `oauth_access_tokens`, `oauth_refresh_tokens`, `api_keys`
+- Job Queue: `job_queue` (jobs reference memory context in payload)
+- Events: `event_subscription`, `webhook`, `webhook_delivery`
+- System: `embedding_config`, `archive_registry`, `backup_metadata`, `_sqlx_migrations`
+
+**Per-Memory Tables (41):**
+- Notes: `note`, `note_original`, `note_revision`, `note_version`
+- Embeddings: `embedding`, `embedding_set`, `embedding_set_member`, `embedding_set_stats`
+- Links: `note_links`
+- Tags: `tag`, `tag_note`, `skos_concept_schemes`, `skos_concepts`, `skos_labels`, `skos_relations`, `skos_collections`, `skos_collection_members`
+- Collections: `collection`, `collection_note`
+- Templates: `template`
+- Attachments: `file_attachment`, `file_provenance`, `file_metadata`
+- Document Types: `document_type`, `document_type_pattern`
+- Provenance: `provenance_activity`, `provenance_edge`
+- Search: `search_cache` (if Redis not enabled)
+- Versioning: Various version tracking tables
+
+### Auto-Migration
+
+Memories are automatically migrated when accessed:
+
+1. System checks `schema_version` in `archive_registry` (table count)
+2. If `schema_version < expected_version`, missing tables are created
+3. Uses same `CREATE TABLE` statements that initialized default memory
+4. `schema_version` is updated to reflect current table count
+5. Operation is idempotent and non-destructive
+
+### Per-Request Routing
+
+Requests are routed to specific memories via `X-Fortemi-Memory` header:
+
+```rust
+// Middleware extracts header
+let memory_name = req.headers()
+    .get("X-Fortemi-Memory")
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("default");
+
+// Sets PostgreSQL search_path for transaction
+SET LOCAL search_path TO {memory_name}, public;
+```
+
+See [Multi-Memory Guide](./multi-memory.md) for usage documentation.
+
 ## Crate Details
 
 ### matric-core

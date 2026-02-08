@@ -1660,14 +1660,15 @@ TIP: database_snapshot auto-creates metadata if title/description provided.`,
   },
   {
     name: "memory_info",
-    description: `Get storage sizing and hardware recommendations for capacity planning.
+    description: `Get storage sizing and hardware recommendations for the ACTIVE memory.
 
 RETURNS: {summary, embedding_sets[], storage, recommendations}
 SUMMARY: total_notes, total_embeddings, total_links, total_collections, total_tags, total_templates
 STORAGE: database_total_bytes, embedding_table_bytes, notes_table_bytes, estimated_memory_for_search
 RECOMMENDATIONS: min_ram_gb, recommended_ram_gb, notes[] (GPU vs CPU usage explained)
 
-USE WHEN: Plan hardware, estimate scaling costs, understand storage breakdown.
+USE WHEN: Plan hardware, estimate scaling costs, understand storage breakdown for the current memory.
+NOTE: For aggregate stats across ALL memories, use get_memories_overview instead.
 KEY INSIGHT: GPU = embedding generation (Ollama), CPU = vector search (pgvector). More RAM = faster search.`,
     inputSchema: {
       type: "object",
@@ -4080,6 +4081,180 @@ Use list_concept_schemes to find available scheme_ids first.`,
         scheme_id: { type: "string", format: "uuid", description: "Concept scheme UUID to export. Omit to export ALL schemes." },
       },
       required: [],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // MEMORY MANAGEMENT - Session-based archive selection
+  // ============================================================================
+  {
+    name: "select_memory",
+    description: `Set the active memory (archive) for this MCP session.
+
+All subsequent API calls from this session will automatically route to the selected memory using the X-Fortemi-Memory header.
+
+Use list_memories to see available memories. Use "public" to select the default public memory.
+
+The selected memory persists for the duration of this MCP session.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Memory name to select (e.g., 'personal', 'work', 'public')" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "get_active_memory",
+    description: `Get the currently active memory for this MCP session.
+
+Returns the name of the memory that all API calls are routing to, or "public (default)" if no memory has been explicitly selected.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "list_memories",
+    description: `List all available memories (archives).
+
+Each memory is an isolated namespace with its own notes, tags, collections, and knowledge graph.
+
+Returns metadata including:
+- name: Memory identifier
+- description: Purpose/description
+- is_default: Whether this is the default memory
+- created_at_utc: Creation timestamp
+- note_count, size_bytes: Content statistics
+
+For aggregate capacity/overhead across all memories, use get_memories_overview.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "create_memory",
+    description: `Create a new memory (archive) for data isolation.
+
+Memories provide complete data isolation - each memory has its own:
+- Notes and content
+- Tags and SKOS concepts
+- Collections and hierarchies
+- Semantic links and embeddings
+- Templates and configurations
+
+Use cases:
+- Personal vs work separation
+- Client/project isolation
+- Public vs private knowledge
+- Testing/experimentation sandbox`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Memory name (alphanumeric, hyphens, underscores)" },
+        description: { type: "string", description: "Purpose or description (optional)" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "delete_memory",
+    description: `Delete a memory and all its data permanently.
+
+WARNING: This is destructive and irreversible. All notes, tags, collections, embeddings, and configuration in this memory will be permanently deleted.
+
+Cannot delete:
+- The default memory
+- The "public" memory
+- Non-existent memories
+
+Use with extreme caution.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Memory name to delete" },
+      },
+      required: ["name"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
+  {
+    name: "clone_memory",
+    description: `Clone an existing memory (archive) to a new memory with all data.
+
+Creates a deep copy of the source memory including all notes, tags, collections, embeddings, links, and templates.
+
+Use cases:
+- Creating a snapshot before risky operations
+- Forking a knowledge base for experimentation
+- Duplicating a project template with data`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        source_name: { type: "string", description: "Name of the memory to clone from" },
+        new_name: { type: "string", description: "Name for the cloned memory" },
+        description: { type: "string", description: "Optional description for the clone" },
+      },
+      required: ["source_name", "new_name"],
+    },
+  },
+  {
+    name: "get_memories_overview",
+    description: `Get aggregate capacity overview across ALL running memories.
+
+This is the primary tool for understanding system overhead and planning memory allocation.
+
+RETURNS:
+- memory_count: How many memories are active
+- max_memories: Maximum allowed (configurable via MAX_MEMORIES)
+- remaining_slots: How many more memories can be created
+- total_notes: Aggregate note count across all memories + public
+- total_size_bytes / total_size_human: Aggregate table storage across all memories
+- database_size_bytes / database_size_human: Total database size on disk (pg_database_size — includes all schemas, indexes, attachment blobs)
+- memories[]: Per-memory breakdown (name, note_count, size_bytes, is_default, created_at)
+
+USE WHEN: Check how much capacity is left, plan memory allocation, monitor overhead.
+KEY INSIGHT: If system handles 100k docs, 3 memories with ~33k each uses full capacity.
+database_size_bytes is the true on-disk footprint for the entire database.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "search_memories_federated",
+    description: `Search across multiple memories simultaneously using full-text search.
+
+Runs the query against each specified memory and merges results sorted by relevance score. Each result is annotated with its source memory name.
+
+Use this when you need to find information across knowledge boundaries, e.g., searching both personal and work memories at once.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Search query string" },
+        memories: {
+          type: "array",
+          items: { type: "string" },
+          description: "Memory names to search (use [\"all\"] for all memories)",
+        },
+        limit: { type: "integer", description: "Maximum results per memory (default 10)" },
+      },
+      required: ["q", "memories"],
     },
     annotations: {
       readOnlyHint: true,

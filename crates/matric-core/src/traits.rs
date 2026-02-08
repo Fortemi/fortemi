@@ -648,6 +648,30 @@ pub trait ArchiveRepository: Send + Sync {
 
     /// Update archive statistics (note count, size).
     async fn update_archive_stats(&self, name: &str) -> Result<()>;
+
+    /// Synchronize an archive schema with the current public schema.
+    ///
+    /// Detects tables that exist in public but are missing from the archive
+    /// (due to new migrations since the archive was created) and creates them.
+    /// Called automatically when an archive is accessed and its schema_version
+    /// is outdated.
+    async fn sync_archive_schema(&self, name: &str) -> Result<()>;
+
+    /// Clone an existing archive to a new archive.
+    ///
+    /// Creates a new archive with the same schema structure as the source,
+    /// then copies all data from the source archive's tables into the new one.
+    ///
+    /// # Arguments
+    /// * `source_name` - Name of the archive to clone from
+    /// * `new_name` - Name for the cloned archive
+    /// * `description` - Optional description for the new archive
+    async fn clone_archive_schema(
+        &self,
+        source_name: &str,
+        new_name: &str,
+        description: Option<&str>,
+    ) -> Result<crate::ArchiveInfo>;
 }
 
 #[cfg(test)]

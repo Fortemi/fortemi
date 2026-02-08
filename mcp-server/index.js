@@ -34,6 +34,9 @@ const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 // AsyncLocalStorage for per-request token context
 const tokenStorage = new AsyncLocalStorage();
 
+// Per-session active memory storage (sessionId -> memory name)
+const sessionMemories = new Map();
+
 // Helper to read a public key file — supports both JSON keyset format (from create_keyset)
 // and raw binary format (from generate_keypair with output_dir)
 function readPublicKeyAsBase64(keyPath) {
@@ -61,6 +64,15 @@ async function apiRequest(method, path, body = null) {
     headers["Authorization"] = `Bearer ${API_KEY}`;
   }
 
+  // Add X-Fortemi-Memory header if active memory is set for this session
+  const sessionId = tokenStorage.getStore()?.sessionId;
+  if (sessionId) {
+    const activeMemory = sessionMemories.get(sessionId);
+    if (activeMemory) {
+      headers["X-Fortemi-Memory"] = activeMemory;
+    }
+  }
+
   const options = { method, headers };
   if (body) {
     options.body = JSON.stringify(body);
@@ -75,6 +87,14 @@ async function apiRequest(method, path, body = null) {
   const text = await response.text();
   if (!text || text.trim() === '') return null;
   return JSON.parse(text);
+}
+
+// Format bytes to human-readable string (e.g., "1.23 GB")
+function formatBytes(bytes) {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 2 : 0) + " " + units[i];
 }
 
 /**
@@ -1925,6 +1945,81 @@ function createMcpServer() {
           await apiRequest("DELETE", `/api/v1/attachments/${args.id}`);
           result = { success: true };
           break;
+        // ============================================================================
+        // MEMORY MANAGEMENT TOOLS
+        // ============================================================================
+        case "select_memory": {
+          // Store the active memory for this session
+          const store = tokenStorage.getStore();
+          const sessionId = store?.sessionId;
+          if (sessionId) {
+            sessionMemories.set(sessionId, args.name);
+            result = {
+              success: true,
+              message: `Active memory set to: ${args.name}`,
+              active_memory: args.name
+            };
+          } else {
+            throw new Error("Session context not available - memory selection requires HTTP transport");
+          }
+          break;
+        }
+
+        case "get_active_memory": {
+          const store = tokenStorage.getStore();
+          const sessionId = store?.sessionId;
+          const activeMemory = sessionId ? sessionMemories.get(sessionId) : null;
+          result = {
+            active_memory: activeMemory || "public (default)",
+            is_explicit: !!activeMemory
+          };
+          break;
+        }
+
+        case "list_memories": {
+          result = await apiRequest("GET", "/api/v1/archives");
+          break;
+        }
+
+        case "create_memory": {
+          const body = { name: args.name };
+          if (args.description) {
+            body.description = args.description;
+          }
+          result = await apiRequest("POST", "/api/v1/archives", body);
+          break;
+        }
+
+        case "delete_memory": {
+          result = await apiRequest("DELETE", `/api/v1/archives/${encodeURIComponent(args.name)}`);
+          break;
+        }
+
+        case "clone_memory": {
+          const body = { new_name: args.new_name };
+          if (args.description) {
+            body.description = args.description;
+          }
+          result = await apiRequest("POST", `/api/v1/archives/${encodeURIComponent(args.source_name)}/clone`, body);
+          break;
+        }
+
+        case "get_memories_overview": {
+          // Overview includes database_size_bytes (pg_database_size) which covers
+          // ALL data on disk: all schemas, tables, indexes, attachment blobs, etc.
+          result = await apiRequest("GET", "/api/v1/memories/overview");
+          break;
+        }
+
+        case "search_memories_federated": {
+          const body = { q: args.q, memories: args.memories };
+          if (args.limit) {
+            body.limit = args.limit;
+          }
+          result = await apiRequest("POST", "/api/v1/search/federated", body);
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -3530,11 +3625,13 @@ if (MCP_TRANSPORT === "http") {
     res.on("close", () => {
       console.log(`[sse] Connection closed for session ${sessionId}`);
       transports.delete(sessionId);
+      sessionMemories.delete(sessionId); // Clean up session memory
     });
 
     // Create a new MCP server for this connection and connect
     const mcpServer = createMcpServer();
-    await tokenStorage.run({ token: req.accessToken }, async () => {
+    const contextSessionId = transport.sessionId;
+    await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
       await mcpServer.connect(transport);
     });
     console.log(`[sse] MCP server connected for session ${sessionId}`);
@@ -3557,7 +3654,7 @@ if (MCP_TRANSPORT === "http") {
 
     // Execute the message handler with the session's token context
     console.log(`[messages] Handling message for session ${sessionId}`);
-    await tokenStorage.run({ token: session.token }, async () => {
+    await tokenStorage.run({ token: session.token, sessionId }, async () => {
       await session.transport.handlePostMessage(req, res, req.body);
     });
   });
@@ -3596,7 +3693,8 @@ if (MCP_TRANSPORT === "http") {
 
     // Handle the request with token context
     try {
-      await tokenStorage.run({ token: req.accessToken }, async () => {
+      const contextSessionId = transport.sessionId;
+      await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
         await transport.handleRequest(req, res);
       });
 
@@ -3626,7 +3724,7 @@ if (MCP_TRANSPORT === "http") {
       });
     }
 
-    await tokenStorage.run({ token: session.token }, async () => {
+    await tokenStorage.run({ token: session.token, sessionId }, async () => {
       await session.transport.handleRequest(req, res);
     });
   });
@@ -3639,6 +3737,7 @@ if (MCP_TRANSPORT === "http") {
     if (session && session.type === 'streamable') {
       await session.transport.close();
       transports.delete(sessionId);
+      sessionMemories.delete(sessionId); // Clean up session memory
     }
 
     res.status(200).end();

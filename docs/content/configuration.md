@@ -141,6 +141,31 @@ WORKER_THREADS=4
 JOB_POLL_INTERVAL=10
 ```
 
+### Memory Management
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MAX_MEMORIES` | Integer | `100` | Maximum number of memory archives allowed |
+
+**Example:**
+```bash
+MAX_MEMORIES=200
+```
+
+**Memory Limits:**
+- Attempting to create memories beyond `MAX_MEMORIES` returns HTTP 400
+- Check current usage via `GET /api/v1/memories/overview`
+- Each memory adds minimal overhead (<1MB metadata + indexes)
+
+### Request Headers
+
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: "default") |
+| `Authorization` | Bearer token | API authentication (when `AUTH_ENABLED=true`) |
+
+The `X-Fortemi-Memory` header routes all API requests to a specific memory archive. Without this header, requests operate on the `default` memory. See the [Multi-Memory Guide](./multi-memory.md) for details.
+
 ### Ollama Inference
 
 Ollama is the default inference backend for local LLM inference without API costs.
@@ -850,5 +875,6 @@ Configuration changes take effect immediately on startup.
 - [MCP Server](./mcp.md) - Claude integration and MCP protocol details
 - [Multilingual FTS](./multilingual-fts.md) - Search feature flags and language support
 - [Authentication](./authentication.md) - OAuth setup and user management
+- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
 - [Search Guide](./search-guide.md) - Search modes and query syntax
 - [Hardware Planning](./hardware-planning.md) - Capacity planning and performance optimization

@@ -142,6 +142,59 @@ sudo systemctl start matric-backup.timer
 systemctl list-timers matric-backup.timer
 ```
 
+## Memory-Scoped Backups
+
+All backup operations respect the `X-Fortemi-Memory` header. Without it, backups operate on the `default` memory.
+
+### Backup Specific Memory
+
+```bash
+# Export work memory only
+curl http://localhost:3000/api/v1/backup/export \
+  -H "X-Fortemi-Memory: work-notes" \
+  -o work-notes-backup.json
+
+# Create knowledge shard for specific memory
+curl http://localhost:3000/api/v1/backup/knowledge-shard \
+  -H "X-Fortemi-Memory: work-notes" \
+  -o work-notes.shard
+```
+
+### Full Database Backup (All Memories)
+
+Database backup includes all memories and shared tables:
+
+```bash
+# Database backup includes all memories and shared tables
+curl http://localhost:3000/api/v1/backup/database -o full-backup.sql
+```
+
+### Restore to Different Memory
+
+```bash
+# First, create the target memory
+curl -X POST http://localhost:3000/api/v1/memories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "work-notes-restored",
+    "description": "Restored from backup"
+  }'
+
+# Encode shard and restore to target memory
+SHARD=$(base64 -w0 work-notes.shard)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
+  -H "Content-Type: application/json" \
+  -H "X-Fortemi-Memory: work-notes-restored" \
+  -d "{\"shard_base64\": \"$SHARD\"}"
+```
+
+Memory-scoped backups are useful for:
+- Creating per-project backups before major changes
+- Migrating specific memories between instances
+- Isolating backup/restore operations by project or team
+
+See the [Multi-Memory Guide](./multi-memory.md) for comprehensive memory management documentation.
+
 ## MCP Backup Tools
 
 ### export_all_notes

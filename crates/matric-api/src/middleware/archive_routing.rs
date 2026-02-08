@@ -93,6 +93,20 @@ async fn refresh_and_get(state: &AppState) -> ArchiveContext {
         }
     };
 
+    // Auto-migrate if schema is outdated
+    if let Err(e) = state
+        .db
+        .archives
+        .sync_archive_schema(&archive_info.name)
+        .await
+    {
+        tracing::warn!(
+            "Failed to sync default archive '{}': {}",
+            archive_info.name,
+            e
+        );
+    }
+
     // Update cache with fetched archive
     let ctx = ArchiveContext {
         schema: archive_info.schema_name,
@@ -130,23 +144,78 @@ async fn resolve_archive_context(state: &AppState) -> ArchiveContext {
     refresh_and_get(state).await
 }
 
+/// Header name for per-request memory selection.
+///
+/// Clients can send `X-Fortemi-Memory: <name>` to route the request to a
+/// specific memory (archive schema). If absent, the default memory is used.
+pub const MEMORY_HEADER: &str = "x-fortemi-memory";
+
 /// Archive routing middleware function.
 ///
-/// Injects an ArchiveContext into request extensions based on the default
-/// archive setting. Uses a TTL-based cache to minimize database queries.
+/// Injects an ArchiveContext into request extensions based on:
+/// 1. `X-Fortemi-Memory` header (explicit per-request selection)
+/// 2. Default archive setting (cached, TTL-based)
+/// 3. Fallback to public schema
 ///
-/// Future enhancements (not in Issue #107):
-/// - Extract archive selection from request headers or query params
-/// - Support per-user archive defaults
-/// - Archive-specific request routing
+/// If the header specifies a memory that doesn't exist, returns 404.
 pub async fn archive_routing_middleware(
     State(state): State<AppState>,
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let ctx = resolve_archive_context(&state).await;
+    // Check for explicit memory selection via header
+    if let Some(memory_name) = req.headers().get(MEMORY_HEADER) {
+        let name = match memory_name.to_str() {
+            Ok(n) => n.to_string(),
+            Err(_) => {
+                return axum::response::Response::builder()
+                    .status(axum::http::StatusCode::BAD_REQUEST)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"error":"Invalid X-Fortemi-Memory header value"}"#,
+                    ))
+                    .unwrap();
+            }
+        };
 
-    // Inject archive context into request extensions
+        // Look up the requested memory
+        match state.db.archives.get_archive_by_name(&name).await {
+            Ok(Some(info)) => {
+                // Auto-migrate if schema is outdated (non-blocking best-effort)
+                if let Err(e) = state.db.archives.sync_archive_schema(&name).await {
+                    tracing::warn!("Failed to sync archive schema '{}': {}", name, e);
+                }
+                let ctx = ArchiveContext {
+                    schema: info.schema_name,
+                    is_default: false,
+                };
+                req.extensions_mut().insert(ctx);
+                return next.run(req).await;
+            }
+            Ok(None) => {
+                return axum::response::Response::builder()
+                    .status(axum::http::StatusCode::NOT_FOUND)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(format!(
+                        r#"{{"error":"Memory not found: {}"}}"#,
+                        name
+                    )))
+                    .unwrap();
+            }
+            Err(_) => {
+                return axum::response::Response::builder()
+                    .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"error":"Failed to look up memory"}"#,
+                    ))
+                    .unwrap();
+            }
+        }
+    }
+
+    // No explicit selection — use default archive (cached)
+    let ctx = resolve_archive_context(&state).await;
     req.extensions_mut().insert(ctx);
 
     next.run(req).await
@@ -197,5 +266,10 @@ mod tests {
         assert!(cache.archive.is_none());
         assert_eq!(cache.last_refresh, DateTime::<Utc>::UNIX_EPOCH);
         assert!(cache.is_expired());
+    }
+
+    #[test]
+    fn test_memory_header_constant() {
+        assert_eq!(MEMORY_HEADER, "x-fortemi-memory");
     }
 }

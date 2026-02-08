@@ -5,10 +5,43 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
+
+/// Tables shared across all memories (deny list).
+///
+/// These tables contain global system data and are NOT cloned per-memory.
+/// Any table in `public` NOT in this list is automatically cloned when
+/// creating a new memory, ensuring zero-drift as migrations add tables.
+const SHARED_TABLES: &[&str] = &[
+    "_sqlx_migrations",
+    "api_key",
+    "archive_registry",
+    "document_type",
+    "embedding_config",
+    "file_upload_audit",
+    "job_history",
+    "job_queue",
+    "oauth_authorization_code",
+    "oauth_client",
+    "oauth_token",
+    "pke_public_keys",
+    "user_config",
+    "user_metadata_label",
+];
+
+/// Map PostgreSQL foreign key action code to SQL clause.
+fn fk_action_sql(code: &str) -> &str {
+    match code {
+        "c" => "CASCADE",
+        "n" => "SET NULL",
+        "d" => "SET DEFAULT",
+        "r" => "RESTRICT",
+        _ => "NO ACTION", // 'a' = no action (default)
+    }
+}
 
 /// PostgreSQL implementation of ArchiveRepository.
 pub struct PgArchiveRepository {
@@ -23,238 +56,488 @@ impl PgArchiveRepository {
 
     /// Generate a valid PostgreSQL schema name from an archive name.
     ///
-    /// Replaces hyphens with underscores and ensures it starts with a letter.
+    /// Sanitizes the input to only allow alphanumeric characters and underscores,
+    /// preventing SQL injection in DDL statements that use format!().
     fn generate_schema_name(name: &str) -> String {
-        let sanitized = name.replace(['-', ' '], "_").to_lowercase();
+        let sanitized: String = name
+            .chars()
+            .map(|c| if c == '-' || c == ' ' { '_' } else { c })
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect::<String>()
+            .to_lowercase();
         format!("archive_{}", sanitized)
     }
 
-    /// Create all necessary tables in the archive schema.
+    /// Create all necessary tables in the archive schema by dynamically cloning
+    /// from the public schema.
     ///
-    /// Replicates the public schema structure but isolated within the archive.
+    /// Uses `CREATE TABLE ... (LIKE public.table INCLUDING ALL)` to copy table
+    /// structure including columns, defaults, constraints (CHECK, NOT NULL),
+    /// indexes, generated columns, and storage parameters. Foreign keys and
+    /// triggers are cloned separately since LIKE does not copy them.
+    ///
+    /// This approach uses a deny list ([`SHARED_TABLES`]) instead of an allow
+    /// list, so new tables added by migrations are automatically included —
+    /// zero drift by design.
     async fn create_archive_tables(&self, schema_name: &str) -> Result<()> {
+        // Step 1: Discover all per-memory tables from the public schema.
+        // Any table NOT in SHARED_TABLES and NOT extension-owned is cloned.
+        let shared: Vec<String> = SHARED_TABLES.iter().map(|s| s.to_string()).collect();
+        let tables: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname::text
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND c.relkind = 'r'
+                AND c.relname != ALL($1::text[])
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    WHERE d.objid = c.oid AND d.deptype = 'e'
+                )
+            ORDER BY c.relname
+            "#,
+        )
+        .bind(&shared)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        if tables.is_empty() {
+            return Err(Error::Internal(
+                "No per-memory tables found in public schema".to_string(),
+            ));
+        }
+
+        // Step 2: Discover foreign key constraints on per-memory tables.
+        // Uses pg_constraint with unnest to properly handle composite FKs.
+        let fk_rows = sqlx::query(
+            r#"
+            SELECT
+                c.conname::text AS constraint_name,
+                src.relname::text AS source_table,
+                ref.relname::text AS reference_table,
+                c.confdeltype::text AS delete_action,
+                c.confupdtype::text AS update_action,
+                array_agg(sa.attname::text ORDER BY u.ord) AS source_columns,
+                array_agg(ra.attname::text ORDER BY u.ord) AS reference_columns
+            FROM pg_constraint c
+            JOIN pg_class src ON c.conrelid = src.oid
+            JOIN pg_namespace sn ON src.relnamespace = sn.oid
+            JOIN pg_class ref ON c.confrelid = ref.oid
+            CROSS JOIN LATERAL (
+                SELECT *
+                FROM unnest(c.conkey, c.confkey)
+                    WITH ORDINALITY AS t(src_num, ref_num, ord)
+            ) u
+            JOIN pg_attribute sa
+                ON sa.attrelid = c.conrelid AND sa.attnum = u.src_num
+            JOIN pg_attribute ra
+                ON ra.attrelid = c.confrelid AND ra.attnum = u.ref_num
+            WHERE c.contype = 'f'
+                AND sn.nspname = 'public'
+                AND src.relname = ANY($1::text[])
+            GROUP BY c.conname, src.relname, ref.relname,
+                     c.confdeltype, c.confupdtype
+            ORDER BY src.relname, c.conname
+            "#,
+        )
+        .bind(&tables)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        // Step 3: Discover triggers on per-memory tables.
+        // LIKE never copies triggers, so we clone them from public.
+        let trigger_rows = sqlx::query(
+            r#"
+            SELECT
+                c.relname::text AS table_name,
+                pg_get_triggerdef(t.oid) AS trigger_def
+            FROM pg_trigger t
+            JOIN pg_class c ON t.tgrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND NOT t.tgisinternal
+                AND c.relname = ANY($1::text[])
+            ORDER BY c.relname, t.tgname
+            "#,
+        )
+        .bind(&tables)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        // Step 4: Discover custom text search configurations in public schema.
+        // Custom configs (e.g., matric_english) must exist in the memory's
+        // schema for search_path resolution during full-text search queries.
+        let ts_configs: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.cfgname::text
+            FROM pg_ts_config c
+            JOIN pg_namespace n ON n.oid = c.cfgnamespace
+            WHERE n.nspname = 'public'
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        // Execute all DDL in a single transaction for atomicity.
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Note table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.note (
-                id UUID PRIMARY KEY,
-                collection_id UUID,
-                format TEXT NOT NULL,
-                source TEXT NOT NULL,
-                created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                starred BOOLEAN DEFAULT FALSE,
-                archived BOOLEAN DEFAULT FALSE,
-                soft_deleted BOOLEAN DEFAULT FALSE,
-                soft_deleted_at TIMESTAMPTZ,
-                last_accessed_at TIMESTAMPTZ,
-                title TEXT,
-                metadata JSONB DEFAULT '{{}}',
-                chunk_metadata JSONB,
-                document_type_id UUID
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+        // Step 5: Create tables using LIKE ... INCLUDING ALL.
+        // Copies columns, defaults, CHECK/NOT NULL constraints, indexes,
+        // generated columns, identity, and storage. FKs and triggers excluded.
+        for table in &tables {
+            sqlx::query(&format!(
+                "CREATE TABLE {}.{} (LIKE public.{} INCLUDING ALL)",
+                schema_name, table, table
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
 
-        // Note original content table (must have `id` column — used by insert flow)
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.note_original (
-                id UUID NOT NULL,
-                note_id UUID PRIMARY KEY REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                content TEXT NOT NULL,
-                hash TEXT NOT NULL,
-                version_number INTEGER NOT NULL DEFAULT 1,
-                user_created_at TIMESTAMPTZ DEFAULT NOW(),
-                user_last_edited_at TIMESTAMPTZ DEFAULT NOW()
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+        // Step 6: Add foreign key constraints.
+        // Per-memory table references point to new schema; shared table
+        // references point to public (e.g., note.document_type_id → public.document_type).
+        for row in &fk_rows {
+            let source_table: &str = row.get("source_table");
+            let constraint_name: &str = row.get("constraint_name");
+            let ref_table: &str = row.get("reference_table");
+            let delete_action: &str = row.get("delete_action");
+            let update_action: &str = row.get("update_action");
+            let source_columns: Vec<String> = row.get("source_columns");
+            let ref_columns: Vec<String> = row.get("reference_columns");
 
-        // Note revised current content table (name must match note insert queries)
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.note_revised_current (
-                note_id UUID PRIMARY KEY REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                content TEXT NOT NULL,
-                last_revision_id UUID,
-                ai_metadata JSONB DEFAULT '{{}}'::jsonb,
-                tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+            let ref_schema = if tables.contains(&ref_table.to_string()) {
+                schema_name
+            } else {
+                "public"
+            };
 
-        // Note revision history table (tracks all revisions)
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.note_revision (
-                id UUID PRIMARY KEY,
-                note_id UUID NOT NULL REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                parent_revision_id UUID REFERENCES {schema}.note_revision(id),
-                revision_number INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                type TEXT NOT NULL DEFAULT 'ai_enhancement',
-                summary TEXT,
-                rationale TEXT,
-                created_at_utc TIMESTAMPTZ NOT NULL,
-                ai_generated_at TIMESTAMPTZ DEFAULT NOW(),
-                user_last_edited_at TIMESTAMPTZ,
-                is_user_edited BOOLEAN NOT NULL DEFAULT FALSE,
-                generation_count INTEGER NOT NULL DEFAULT 1,
-                model TEXT
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+            let fk_sql = format!(
+                "ALTER TABLE {}.{} ADD CONSTRAINT {} \
+                 FOREIGN KEY ({}) REFERENCES {}.{} ({}) \
+                 ON DELETE {} ON UPDATE {}",
+                schema_name,
+                source_table,
+                constraint_name,
+                source_columns.join(", "),
+                ref_schema,
+                ref_table,
+                ref_columns.join(", "),
+                fk_action_sql(delete_action),
+                fk_action_sql(update_action),
+            );
 
-        // Activity log table (tracks note lifecycle events)
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.activity_log (
-                id UUID PRIMARY KEY,
-                at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                actor TEXT NOT NULL,
-                action TEXT NOT NULL,
-                note_id UUID REFERENCES {schema}.note(id) ON DELETE SET NULL,
-                meta JSONB DEFAULT '{{}}'::jsonb
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Collection table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.collection (
-                id UUID PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                parent_id UUID,
-                created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Tag table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.tag (
-                name TEXT PRIMARY KEY,
-                created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                soft_deleted BOOLEAN DEFAULT FALSE,
-                soft_deleted_at TIMESTAMPTZ
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Note-tag association table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.note_tag (
-                note_id UUID REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                tag_name TEXT REFERENCES {schema}.tag(name) ON DELETE CASCADE,
-                source TEXT DEFAULT 'manual',
-                PRIMARY KEY (note_id, tag_name)
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Embedding table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.embedding (
-                id UUID PRIMARY KEY,
-                note_id UUID REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                chunk_index INTEGER NOT NULL,
-                text TEXT NOT NULL,
-                vector vector(768),
-                model TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Link table
-        sqlx::query(&format!(
-            r#"
-            CREATE TABLE {schema}.link (
-                id UUID PRIMARY KEY,
-                from_note_id UUID REFERENCES {schema}.note(id) ON DELETE CASCADE,
-                to_note_id UUID,
-                to_url TEXT,
-                kind TEXT NOT NULL,
-                score REAL DEFAULT 0.0,
-                created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                snippet TEXT,
-                metadata JSONB
-            )
-            "#,
-            schema = schema_name
-        ))
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-        // Create indexes for performance (one at a time to avoid prepared statement issues)
-        // Use IF NOT EXISTS for idempotency - PostgreSQL truncates identifiers to 63 chars,
-        // which can cause name collisions with long schema names (especially UUID-based test schemas)
-        let index_statements = vec![
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_coll ON {}.note(collection_id)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_crtd ON {}.note(created_at_utc DESC)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_updt ON {}.note(updated_at_utc DESC)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_star ON {}.note(starred) WHERE starred = true", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_arch ON {}.note(archived) WHERE archived = true", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_note_sdel ON {}.note(soft_deleted) WHERE soft_deleted = false", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_emb_note ON {}.embedding(note_id)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_link_frm ON {}.link(from_note_id)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_link_to ON {}.link(to_note_id) WHERE to_note_id IS NOT NULL", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_nrev_note ON {}.note_revision(note_id)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_nrc_tsv ON {}.note_revised_current USING GIN(tsv)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_alog_note ON {}.activity_log(note_id)", schema_name.replace(".", "_"), schema_name),
-            format!("CREATE INDEX IF NOT EXISTS idx_{}_alog_time ON {}.activity_log(at_utc DESC)", schema_name.replace(".", "_"), schema_name),
-        ];
-
-        for stmt in index_statements {
-            sqlx::query(&stmt)
+            sqlx::query(&fk_sql)
                 .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
         }
+
+        // Step 7: Clone triggers (LIKE never copies triggers).
+        // Rewrite the table reference from public to the new schema.
+        // Trigger function references stay in public — they resolve via
+        // search_path at runtime, correctly operating on per-memory data.
+        for row in &trigger_rows {
+            let table_name: &str = row.get("table_name");
+            let trigger_def: &str = row.get("trigger_def");
+
+            let new_def = trigger_def.replace(
+                &format!("ON public.{}", table_name),
+                &format!("ON {}.{}", schema_name, table_name),
+            );
+
+            sqlx::query(&new_def)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        // Step 8: Clone text search configurations.
+        for config in &ts_configs {
+            sqlx::query(&format!(
+                "CREATE TEXT SEARCH CONFIGURATION {}.{} (COPY = public.{})",
+                schema_name, config, config
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Compute the current schema version (count of per-memory tables in public).
+    ///
+    /// Used to detect when an archive is outdated and needs auto-migration.
+    async fn current_schema_version(&self) -> Result<i32> {
+        let shared: Vec<String> = SHARED_TABLES.iter().map(|s| s.to_string()).collect();
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND c.relkind = 'r'
+                AND c.relname != ALL($1::text[])
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    WHERE d.objid = c.oid AND d.deptype = 'e'
+                )
+            "#,
+        )
+        .bind(&shared)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(count as i32)
+    }
+
+    /// Synchronize an archive schema with the current public schema.
+    ///
+    /// Detects tables that exist in public but are missing from the archive,
+    /// and creates them using `LIKE ... INCLUDING ALL` plus FKs and triggers.
+    /// This handles archives created before recent migrations added new tables.
+    pub async fn sync_archive_schema(&self, archive_name: &str) -> Result<()> {
+        let archive = self
+            .get_archive_by_name(archive_name)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Archive not found: {}", archive_name)))?;
+
+        let current_version = self.current_schema_version().await?;
+        if archive.schema_version >= current_version {
+            return Ok(()); // Already up to date
+        }
+
+        let schema_name = &archive.schema_name;
+
+        // Find tables in public but missing from the archive
+        let shared: Vec<String> = SHARED_TABLES.iter().map(|s| s.to_string()).collect();
+        let missing_tables: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname::text
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND c.relkind = 'r'
+                AND c.relname != ALL($1::text[])
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    WHERE d.objid = c.oid AND d.deptype = 'e'
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_class ac
+                    JOIN pg_namespace an ON ac.relnamespace = an.oid
+                    WHERE an.nspname = $2
+                        AND ac.relname = c.relname
+                        AND ac.relkind = 'r'
+                )
+            ORDER BY c.relname
+            "#,
+        )
+        .bind(&shared)
+        .bind(schema_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        if missing_tables.is_empty() {
+            // Tables match — just update the version
+            sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE name = $2")
+                .bind(current_version)
+                .bind(archive_name)
+                .execute(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+            return Ok(());
+        }
+
+        // Get all per-memory tables (needed for FK reference resolution)
+        let all_per_memory: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname::text
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND c.relkind = 'r'
+                AND c.relname != ALL($1::text[])
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    WHERE d.objid = c.oid AND d.deptype = 'e'
+                )
+            ORDER BY c.relname
+            "#,
+        )
+        .bind(&shared)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        // Create missing tables
+        for table in &missing_tables {
+            sqlx::query(&format!(
+                "CREATE TABLE {}.{} (LIKE public.{} INCLUDING ALL)",
+                schema_name, table, table
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        // Add FKs for the new tables only
+        let fk_rows = sqlx::query(
+            r#"
+            SELECT
+                c.conname::text AS constraint_name,
+                src.relname::text AS source_table,
+                ref.relname::text AS reference_table,
+                c.confdeltype::text AS delete_action,
+                c.confupdtype::text AS update_action,
+                array_agg(sa.attname::text ORDER BY u.ord) AS source_columns,
+                array_agg(ra.attname::text ORDER BY u.ord) AS reference_columns
+            FROM pg_constraint c
+            JOIN pg_class src ON c.conrelid = src.oid
+            JOIN pg_namespace sn ON src.relnamespace = sn.oid
+            JOIN pg_class ref ON c.confrelid = ref.oid
+            CROSS JOIN LATERAL (
+                SELECT *
+                FROM unnest(c.conkey, c.confkey)
+                    WITH ORDINALITY AS t(src_num, ref_num, ord)
+            ) u
+            JOIN pg_attribute sa
+                ON sa.attrelid = c.conrelid AND sa.attnum = u.src_num
+            JOIN pg_attribute ra
+                ON ra.attrelid = c.confrelid AND ra.attnum = u.ref_num
+            WHERE c.contype = 'f'
+                AND sn.nspname = 'public'
+                AND src.relname = ANY($1::text[])
+            GROUP BY c.conname, src.relname, ref.relname,
+                     c.confdeltype, c.confupdtype
+            ORDER BY src.relname, c.conname
+            "#,
+        )
+        .bind(&missing_tables)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        for row in &fk_rows {
+            let source_table: &str = row.get("source_table");
+            let constraint_name: &str = row.get("constraint_name");
+            let ref_table: &str = row.get("reference_table");
+            let delete_action: &str = row.get("delete_action");
+            let update_action: &str = row.get("update_action");
+            let source_columns: Vec<String> = row.get("source_columns");
+            let ref_columns: Vec<String> = row.get("reference_columns");
+
+            let ref_schema = if all_per_memory.contains(&ref_table.to_string()) {
+                schema_name.as_str()
+            } else {
+                "public"
+            };
+
+            let fk_sql = format!(
+                "ALTER TABLE {}.{} ADD CONSTRAINT {} \
+                 FOREIGN KEY ({}) REFERENCES {}.{} ({}) \
+                 ON DELETE {} ON UPDATE {}",
+                schema_name,
+                source_table,
+                constraint_name,
+                source_columns.join(", "),
+                ref_schema,
+                ref_table,
+                ref_columns.join(", "),
+                fk_action_sql(delete_action),
+                fk_action_sql(update_action),
+            );
+
+            sqlx::query(&fk_sql)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        // Clone triggers for missing tables
+        let trigger_rows = sqlx::query(
+            r#"
+            SELECT
+                c.relname::text AS table_name,
+                pg_get_triggerdef(t.oid) AS trigger_def
+            FROM pg_trigger t
+            JOIN pg_class c ON t.tgrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public'
+                AND NOT t.tgisinternal
+                AND c.relname = ANY($1::text[])
+            ORDER BY c.relname, t.tgname
+            "#,
+        )
+        .bind(&missing_tables)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        for row in &trigger_rows {
+            let table_name: &str = row.get("table_name");
+            let trigger_def: &str = row.get("trigger_def");
+
+            let new_def = trigger_def.replace(
+                &format!("ON public.{}", table_name),
+                &format!("ON {}.{}", schema_name, table_name),
+            );
+
+            sqlx::query(&new_def)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        // Clone any missing text search configs
+        let ts_configs: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.cfgname::text
+            FROM pg_ts_config c
+            JOIN pg_namespace n ON n.oid = c.cfgnamespace
+            WHERE n.nspname = 'public'
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_ts_config ac
+                    JOIN pg_namespace an ON an.oid = ac.cfgnamespace
+                    WHERE an.nspname = $1
+                        AND ac.cfgname = c.cfgname
+                )
+            "#,
+        )
+        .bind(schema_name)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        for config in &ts_configs {
+            sqlx::query(&format!(
+                "CREATE TEXT SEARCH CONFIGURATION {}.{} (COPY = public.{})",
+                schema_name, config, config
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        // Update version to current
+        sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE name = $2")
+            .bind(current_version)
+            .bind(archive_name)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
@@ -271,11 +554,14 @@ impl ArchiveRepository for PgArchiveRepository {
         let schema_name = Self::generate_schema_name(name);
         let now = Utc::now();
 
+        // Compute current schema version (count of per-memory tables)
+        let schema_version = self.current_schema_version().await?;
+
         // Create the archive registry entry first
         sqlx::query(
             r#"
-            INSERT INTO archive_registry (id, name, schema_name, description, created_at, note_count, size_bytes, is_default)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, false)
+            INSERT INTO archive_registry (id, name, schema_name, description, created_at, note_count, size_bytes, is_default, schema_version)
+            VALUES ($1, $2, $3, $4, $5, 0, 0, false, $6)
             "#
         )
         .bind(id)
@@ -283,6 +569,7 @@ impl ArchiveRepository for PgArchiveRepository {
         .bind(&schema_name)
         .bind(description)
         .bind(now)
+        .bind(schema_version)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -316,6 +603,7 @@ impl ArchiveRepository for PgArchiveRepository {
             note_count: Some(0),
             size_bytes: Some(0),
             is_default: false,
+            schema_version,
         })
     }
 
@@ -349,7 +637,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archives = sqlx::query_as::<_, ArchiveInfo>(
             r#"
             SELECT id, name, schema_name, description, created_at, last_accessed,
-                   note_count, size_bytes, is_default
+                   note_count, size_bytes, is_default, schema_version
             FROM archive_registry
             ORDER BY created_at DESC
             "#,
@@ -365,7 +653,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archive = sqlx::query_as::<_, ArchiveInfo>(
             r#"
             SELECT id, name, schema_name, description, created_at, last_accessed,
-                   note_count, size_bytes, is_default
+                   note_count, size_bytes, is_default, schema_version
             FROM archive_registry
             WHERE name = $1
             "#,
@@ -382,7 +670,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archive = sqlx::query_as::<_, ArchiveInfo>(
             r#"
             SELECT id, name, schema_name, description, created_at, last_accessed,
-                   note_count, size_bytes, is_default
+                   note_count, size_bytes, is_default, schema_version
             FROM archive_registry
             WHERE id = $1
             "#,
@@ -399,7 +687,7 @@ impl ArchiveRepository for PgArchiveRepository {
         let archive = sqlx::query_as::<_, ArchiveInfo>(
             r#"
             SELECT id, name, schema_name, description, created_at, last_accessed,
-                   note_count, size_bytes, is_default
+                   note_count, size_bytes, is_default, schema_version
             FROM archive_registry
             WHERE is_default = true
             LIMIT 1
@@ -489,5 +777,83 @@ impl ArchiveRepository for PgArchiveRepository {
         .map_err(Error::Database)?;
 
         Ok(())
+    }
+
+    async fn sync_archive_schema(&self, name: &str) -> Result<()> {
+        // Delegates to the inherent method on PgArchiveRepository
+        PgArchiveRepository::sync_archive_schema(self, name).await
+    }
+
+    async fn clone_archive_schema(
+        &self,
+        source_name: &str,
+        new_name: &str,
+        description: Option<&str>,
+    ) -> Result<ArchiveInfo> {
+        // Verify source exists
+        let source = self
+            .get_archive_by_name(source_name)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Source archive not found: {}", source_name)))?;
+
+        // Check new name doesn't already exist
+        if self.get_archive_by_name(new_name).await?.is_some() {
+            return Err(Error::Internal(format!(
+                "Archive '{}' already exists",
+                new_name
+            )));
+        }
+
+        // Create the new archive with empty tables
+        let new_archive = self.create_archive_schema(new_name, description).await?;
+
+        // Discover per-memory tables in the source schema
+        let tables: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname::text
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = $1
+                AND c.relkind = 'r'
+            ORDER BY c.relname
+            "#,
+        )
+        .bind(&source.schema_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        // Copy data in a single transaction with FK checks disabled
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        // Disable FK checks for bulk copy (session_replication_role = 'replica'
+        // tells PostgreSQL to skip trigger-based FK enforcement)
+        sqlx::query("SET LOCAL session_replication_role = 'replica'")
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        for table in &tables {
+            sqlx::query(&format!(
+                "INSERT INTO {}.{} SELECT * FROM {}.{}",
+                new_archive.schema_name, table, source.schema_name, table
+            ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        // Re-enable FK checks
+        sqlx::query("SET LOCAL session_replication_role = 'origin'")
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        tx.commit().await.map_err(Error::Database)?;
+
+        // Update stats on the new archive
+        let _ = self.update_archive_stats(new_name).await;
+
+        Ok(new_archive)
     }
 }

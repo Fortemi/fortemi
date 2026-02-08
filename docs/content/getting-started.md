@@ -380,6 +380,59 @@ curl -X POST http://localhost:3000/api/v1/notes/{id}/versions/1/restore
 
 This creates version 3 with version 1's content, preserving the complete audit trail.
 
+## Step 7: Working with Multiple Memories
+
+Fortemi supports parallel memory archives for organizing different projects or knowledge domains. Each memory operates as an isolated namespace with complete data separation.
+
+### Create a Memory
+
+```bash
+curl -X POST http://localhost:3000/api/v1/memories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "work-notes",
+    "description": "Work-related documentation"
+  }'
+```
+
+### Switch Between Memories
+
+Use the `X-Fortemi-Memory` header to operate on a specific memory:
+
+```bash
+# Create note in work memory
+curl -X POST http://localhost:3000/api/v1/notes \
+  -H "Content-Type: application/json" \
+  -H "X-Fortemi-Memory: work-notes" \
+  -d '{
+    "title": "Project Meeting Notes",
+    "content": "# Q1 Planning Meeting\n\nDiscussed roadmap priorities..."
+  }'
+
+# Search in work memory
+curl "http://localhost:3000/api/v1/search?q=meeting" \
+  -H "X-Fortemi-Memory: work-notes"
+```
+
+Without the header, operations default to the "default" memory. All your previous notes from Steps 2-6 are in the default memory.
+
+### Search Across Memories
+
+Search multiple memories simultaneously with unified result ranking:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/search/federated \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "project documentation",
+    "memories": ["default", "work-notes"]
+  }'
+```
+
+Results include memory attribution showing which memory each result came from. This enables cross-project discovery while maintaining data isolation.
+
+See the [Multi-Memory Guide](./multi-memory.md) for comprehensive documentation on memory management, cloning, and federated search.
+
 ## What's Next?
 
 | Goal | Guide |
@@ -395,6 +448,7 @@ This creates version 3 with version 1's content, preserving the complete audit t
 | Plan hardware requirements | [Hardware Planning](./hardware-planning.md) |
 | Monitor in real-time | [Real-Time Events](./real-time-events.md) |
 | Explore advanced features | [File Attachments](./file-attachments.md), [PKE Encryption](./pke-encryption.md) |
+| Organize with multiple memories | [Multi-Memory Guide](./multi-memory.md) |
 
 ### Explore the API
 
@@ -406,6 +460,8 @@ The full API reference is available at http://localhost:3000/docs. Key endpoints
 - `POST /api/v1/ai/revise` - AI-powered note revision
 - `POST /api/v1/export/markdown` - Export to Markdown with YAML frontmatter
 - `GET /api/v1/document-types` - View 131 pre-configured document types
+- `POST /api/v1/memories` - Create and manage memory archives
+- `POST /api/v1/search/federated` - Search across multiple memories
 
 See the [API Documentation](./api.md) for detailed endpoint specifications and examples.
 

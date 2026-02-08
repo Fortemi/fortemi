@@ -170,8 +170,8 @@ use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, S
 
 use handlers::{
     archives::{
-        create_archive, delete_archive, get_archive, get_archive_stats, list_archives,
-        set_default_archive, update_archive,
+        clone_archive, create_archive, delete_archive, get_archive, get_archive_stats,
+        list_archives, set_default_archive, update_archive,
     },
     document_types::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
@@ -214,6 +214,8 @@ struct AppState {
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
     oauth_mcp_token_lifetime: chrono::Duration,
+    /// Maximum number of memories (archives) allowed.
+    max_memories: i64,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -751,6 +753,10 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(false),
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
+        max_memories: std::env::var("MAX_MEMORIES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(matric_core::defaults::MAX_MEMORIES),
     };
 
     // Read max body size from env var with fallback
@@ -806,6 +812,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/versions/diff", get(diff_note_versions))
         // Search
         .route("/api/v1/search", get(search_notes))
+        .route("/api/v1/search/federated", post(federated_search))
         // Memory search (spatial/temporal provenance)
         .route("/api/v1/memories/search", get(search_memories))
         .route(
@@ -855,6 +862,22 @@ async fn main() -> anyhow::Result<()> {
             post(set_default_archive),
         )
         .route("/api/v1/archives/:name/stats", get(get_archive_stats))
+        .route("/api/v1/archives/:name/clone", post(clone_archive))
+        // Memories (aliases for archives - user-facing terminology, Issue #179)
+        .route("/api/v1/memories", get(list_archives).post(create_archive))
+        .route("/api/v1/memories/overview", get(memories_overview))
+        .route(
+            "/api/v1/memories/:name",
+            get(get_archive)
+                .patch(update_archive)
+                .delete(delete_archive),
+        )
+        .route(
+            "/api/v1/memories/:name/set-default",
+            post(set_default_archive),
+        )
+        .route("/api/v1/memories/:name/stats", get(get_archive_stats))
+        .route("/api/v1/memories/:name/clone", post(clone_archive))
         // PKE (Public Key Encryption)
         .route("/api/v1/pke/keygen", post(pke_keygen))
         .route("/api/v1/pke/address", post(pke_address))
@@ -1087,6 +1110,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/backup/database/restore",
             post(database_backup_restore),
         )
+        // Memory-scoped backup (single archive schema)
+        .route("/api/v1/backup/memory/:name", get(memory_backup_download))
         // Knowledge archives (backup + metadata bundled as .archive)
         .route(
             "/api/v1/backup/knowledge-archive/:filename",
@@ -4944,6 +4969,288 @@ async fn search_notes(
     }
 
     Ok(Json(response))
+}
+
+// =============================================================================
+// FEDERATED SEARCH (Cross-memory, Issue #177)
+// =============================================================================
+
+/// Request body for cross-memory federated search.
+#[derive(Debug, Deserialize)]
+struct FederatedSearchRequest {
+    /// Search query string
+    q: String,
+    /// Memory names to search across, or ["all"] for all memories
+    memories: Vec<String>,
+    /// Maximum results per memory (default 10)
+    limit: Option<i64>,
+}
+
+/// A single federated search hit annotated with its source memory.
+#[derive(Debug, Clone, Serialize)]
+struct FederatedSearchHit {
+    note_id: Uuid,
+    score: f32,
+    snippet: Option<String>,
+    title: Option<String>,
+    tags: Vec<String>,
+    /// Which memory this result came from
+    memory: String,
+}
+
+/// Response for federated search across memories.
+#[derive(Debug, Serialize)]
+struct FederatedSearchResponse {
+    results: Vec<FederatedSearchHit>,
+    query: String,
+    total: usize,
+    memories_searched: Vec<String>,
+}
+
+/// Search across multiple memories using FTS.
+///
+/// Runs a full-text search query against each specified memory schema
+/// and merges the results, sorted by relevance score. Each result is
+/// annotated with its source memory name.
+///
+/// # Request Body
+/// - `q`: Search query string
+/// - `memories`: Array of memory names, or `["all"]` for all memories
+/// - `limit`: Max results per memory (default 10)
+async fn federated_search(
+    State(state): State<AppState>,
+    Json(body): Json<FederatedSearchRequest>,
+) -> Result<Json<FederatedSearchResponse>, ApiError> {
+    use matric_core::ArchiveRepository;
+    use sqlx::Row;
+
+    let limit = body.limit.unwrap_or(10);
+
+    // Resolve which schemas to search
+    let schemas: Vec<(String, String)> = if body.memories.len() == 1 && body.memories[0] == "all" {
+        // Search all memories plus public
+        let mut schemas = vec![("public".to_string(), "public".to_string())];
+        let archives = state.db.archives.list_archive_schemas().await?;
+        for a in archives {
+            schemas.push((a.name, a.schema_name));
+        }
+        schemas
+    } else {
+        let mut schemas = Vec::new();
+        for name in &body.memories {
+            if name == "public" {
+                schemas.push(("public".to_string(), "public".to_string()));
+            } else {
+                let archive = state
+                    .db
+                    .archives
+                    .get_archive_by_name(name)
+                    .await?
+                    .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
+                schemas.push((archive.name, archive.schema_name));
+            }
+        }
+        schemas
+    };
+
+    let memories_searched: Vec<String> = schemas.iter().map(|(name, _)| name.clone()).collect();
+    let mut all_results: Vec<FederatedSearchHit> = Vec::new();
+
+    // Search each memory schema using FTS within a transaction
+    for (memory_name, schema_name) in &schemas {
+        let mut tx = state
+            .db
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| ApiError::Internal(format!("Failed to begin transaction: {}", e)))?;
+
+        // Set search_path for this schema
+        sqlx::query(&format!("SET LOCAL search_path TO {}, public", schema_name))
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Failed to set search_path: {}", e)))?;
+
+        // Run FTS query
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                n.id AS note_id,
+                ts_rank_cd(n.search_vector, websearch_to_tsquery('english', $1)) AS score,
+                ts_headline('english', n.content, websearch_to_tsquery('english', $1),
+                    'MaxFragments=1,MaxWords=30,MinWords=10') AS snippet,
+                n.title,
+                COALESCE(
+                    array_agg(DISTINCT nt.tag) FILTER (WHERE nt.tag IS NOT NULL),
+                    '{}'
+                ) AS tags
+            FROM note n
+            LEFT JOIN note_tag nt ON nt.note_id = n.id
+            WHERE n.soft_deleted = false
+                AND n.search_vector @@ websearch_to_tsquery('english', $1)
+            GROUP BY n.id, n.title, n.content, n.search_vector
+            ORDER BY score DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(&body.q)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| {
+            ApiError::Internal(format!("Search failed in memory '{}': {}", memory_name, e))
+        })?;
+
+        // Transaction automatically rolled back (read-only, no commit needed)
+        drop(tx);
+
+        for row in rows {
+            all_results.push(FederatedSearchHit {
+                note_id: row.get("note_id"),
+                score: row.get("score"),
+                snippet: row.get("snippet"),
+                title: row.get("title"),
+                tags: row.get("tags"),
+                memory: memory_name.clone(),
+            });
+        }
+    }
+
+    // Sort by score descending across all memories
+    all_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let total = all_results.len();
+
+    Ok(Json(FederatedSearchResponse {
+        results: all_results,
+        query: body.q,
+        total,
+        memories_searched,
+    }))
+}
+
+// =============================================================================
+// MEMORIES OVERVIEW
+// =============================================================================
+
+/// Per-memory statistics in the overview response.
+#[derive(Debug, Serialize)]
+struct MemoryBreakdown {
+    name: String,
+    note_count: i32,
+    size_bytes: i64,
+    is_default: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Aggregate overview of all running memories.
+#[derive(Debug, Serialize)]
+struct MemoriesOverviewResponse {
+    /// Total number of memories (archives) currently active.
+    memory_count: i64,
+    /// Maximum allowed memories (from MAX_MEMORIES config).
+    max_memories: i64,
+    /// How many more memories can be created.
+    remaining_slots: i64,
+    /// Aggregate note count across all memories + public.
+    total_notes: i64,
+    /// Aggregate storage bytes across all memories + public (table-level).
+    total_size_bytes: i64,
+    /// Human-readable total size.
+    total_size_human: String,
+    /// Total database size on disk (pg_database_size).
+    database_size_bytes: i64,
+    /// Human-readable database size.
+    database_size_human: String,
+    /// Per-memory breakdown sorted by note count descending.
+    memories: Vec<MemoryBreakdown>,
+}
+
+/// GET /api/v1/memories/overview
+///
+/// Returns aggregate stats across all running memories, showing total capacity
+/// usage, remaining slots, and per-memory breakdown. This is the primary
+/// tool for users/agents to understand system overhead and plan memory allocation.
+async fn memories_overview(
+    State(state): State<AppState>,
+) -> Result<Json<MemoriesOverviewResponse>, ApiError> {
+    use matric_core::ArchiveRepository;
+
+    let archives = state.db.archives.list_archive_schemas().await?;
+
+    // Update stats for each archive (best-effort)
+    for archive in &archives {
+        let _ = state.db.archives.update_archive_stats(&archive.name).await;
+    }
+
+    // Re-fetch with updated stats
+    let archives = state.db.archives.list_archive_schemas().await?;
+
+    // Count notes in public schema
+    let public_notes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.note WHERE soft_deleted = false")
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap_or(0);
+
+    let public_size: i64 = sqlx::query_scalar(
+        "SELECT pg_total_relation_size('public.note'::regclass) + pg_total_relation_size('public.embedding'::regclass)",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0);
+
+    let mut total_notes: i64 = public_notes;
+    let mut total_size: i64 = public_size;
+    let mut breakdowns = vec![MemoryBreakdown {
+        name: "public".to_string(),
+        note_count: public_notes as i32,
+        size_bytes: public_size,
+        is_default: archives.iter().all(|a| !a.is_default),
+        created_at: chrono::Utc::now(), // public has no creation time
+    }];
+
+    for archive in &archives {
+        let notes = archive.note_count.unwrap_or(0);
+        let size = archive.size_bytes.unwrap_or(0);
+        total_notes += notes as i64;
+        total_size += size;
+        breakdowns.push(MemoryBreakdown {
+            name: archive.name.clone(),
+            note_count: notes,
+            size_bytes: size,
+            is_default: archive.is_default,
+            created_at: archive.created_at,
+        });
+    }
+
+    // Sort by note_count descending
+    breakdowns.sort_by(|a, b| b.note_count.cmp(&a.note_count));
+
+    let memory_count = archives.len() as i64;
+    let remaining = (state.max_memories - memory_count).max(0);
+
+    // Get total database size on disk
+    let db_size: i64 = sqlx::query_scalar("SELECT pg_database_size(current_database())")
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap_or(0);
+
+    Ok(Json(MemoriesOverviewResponse {
+        memory_count,
+        max_memories: state.max_memories,
+        remaining_slots: remaining,
+        total_notes,
+        total_size_bytes: total_size,
+        total_size_human: format_size(total_size as u64),
+        database_size_bytes: db_size,
+        database_size_human: format_size(db_size as u64),
+        memories: breakdowns,
+    }))
 }
 
 // =============================================================================
@@ -9320,6 +9627,72 @@ struct SnapshotRequest {
 }
 
 /// Download a fresh database backup (pg_dump).
+/// Download a backup of a single memory (archive schema).
+///
+/// Uses `pg_dump --schema` to export just the memory's tables, producing a
+/// much smaller backup than a full database dump.
+async fn memory_backup_download(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    use matric_core::ArchiveRepository;
+
+    // Look up the archive to get the schema name
+    let archive = state
+        .db
+        .archives
+        .get_archive_by_name(&name)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to look up memory: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("memory_{}_{}.sql.gz", name, timestamp);
+
+    // Run pg_dump with --schema to export only this memory's schema
+    let output = std::process::Command::new("pg_dump")
+        .args([
+            "-U",
+            "matric",
+            "-h",
+            "localhost",
+            "--schema",
+            &archive.schema_name,
+            "matric",
+        ])
+        .env("PGPASSWORD", "matric")
+        .output()
+        .map_err(|e| ApiError::BadRequest(format!("pg_dump failed: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ApiError::BadRequest(format!("pg_dump error: {}", stderr)));
+    }
+
+    // Compress with gzip
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(&output.stdout)
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|e| ApiError::BadRequest(format!("Compression failed: {}", e)))?;
+
+    let headers = [
+        (header::CONTENT_TYPE, "application/gzip".to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename),
+        ),
+    ];
+
+    Ok((headers, compressed))
+}
+
 async fn database_backup_download(
     State(_state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -9580,6 +9953,11 @@ struct DatabaseRestoreRequest {
     /// Skip creating a pre-restore snapshot (not recommended)
     #[serde(default)]
     skip_snapshot: bool,
+    /// Optional: restore into a specific memory (archive schema).
+    /// Uses clean DROP SCHEMA CASCADE + recreate instead of object enumeration.
+    /// If omitted, restores to the public schema (full database restore).
+    #[serde(default)]
+    memory: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -9590,6 +9968,126 @@ struct DatabaseRestoreResponse {
     restored_from: String,
     /// Time to wait for DB reconnection
     reconnect_delay_ms: u64,
+}
+
+/// Restore a backup into a specific memory using DROP SCHEMA CASCADE.
+///
+/// This is dramatically simpler than public schema restore because:
+/// 1. DROP SCHEMA CASCADE cleanly removes everything (no object enumeration)
+/// 2. The dump SQL recreates the schema and all objects
+/// 3. No risk of leftover objects from previous state
+async fn memory_scoped_restore(
+    state: &AppState,
+    backup_path: &std::path::Path,
+    filename: &str,
+    memory_name: &str,
+) -> Result<Json<DatabaseRestoreResponse>, ApiError> {
+    use matric_core::ArchiveRepository;
+
+    // Look up the archive to get the schema name
+    let archive = state
+        .db
+        .archives
+        .get_archive_by_name(memory_name)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to look up memory: {}", e)))?
+        .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", memory_name)))?;
+
+    let schema_name = archive.schema_name.clone();
+
+    // Decompress if needed
+    let sql_content = if filename.ends_with(".sql.gz") {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+
+        let file = std::fs::File::open(backup_path)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot open backup: {}", e)))?;
+        let mut decoder = GzDecoder::new(file);
+        let mut content = String::new();
+        decoder
+            .read_to_string(&mut content)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot decompress: {}", e)))?;
+        content
+    } else {
+        std::fs::read_to_string(backup_path)
+            .map_err(|e| ApiError::BadRequest(format!("Cannot read backup: {}", e)))?
+    };
+
+    // Step 1: Drop the schema (CASCADE removes all tables, indexes, triggers, etc.)
+    sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name))
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to drop schema: {}", e)))?;
+
+    // Step 2: Feed the dump SQL to psql.
+    // The dump (from pg_dump --schema) will CREATE SCHEMA + all objects.
+    let output = tokio::task::spawn_blocking(move || {
+        let mut child = std::process::Command::new("psql")
+            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
+            .env("PGPASSWORD", "matric")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        let stdin = child.stdin.take();
+        let writer = std::thread::spawn(move || {
+            use std::io::Write;
+            if let Some(mut stdin) = stdin {
+                let _ = stdin.write_all(sql_content.as_bytes());
+            }
+        });
+
+        let output = child.wait_with_output();
+        let _ = writer.join();
+        output
+    })
+    .await
+    .map_err(|e| ApiError::BadRequest(format!("psql task panicked: {}", e)))?
+    .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
+
+    let success = output.status.success();
+
+    // Step 3: If restore failed, recreate empty archive tables so the schema is usable
+    if !success {
+        tracing::warn!(
+            "Memory restore for '{}' had issues, ensuring schema is usable",
+            memory_name
+        );
+        // Recreate from public schema as fallback
+        if let Err(e) = state
+            .db
+            .archives
+            .create_archive_schema(memory_name, archive.description.as_deref())
+            .await
+        {
+            tracing::error!(
+                "Failed to recreate archive schema after failed restore: {}",
+                e
+            );
+        }
+    }
+
+    // Step 4: Update schema version after restore
+    if let Err(e) = state.db.archives.sync_archive_schema(memory_name).await {
+        tracing::warn!("Failed to sync schema version after restore: {}", e);
+    }
+
+    Ok(Json(DatabaseRestoreResponse {
+        success,
+        message: if success {
+            format!("Memory '{}' restored from {}", memory_name, filename)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            format!(
+                "Memory restore may have issues: {}",
+                stderr.chars().take(500).collect::<String>()
+            )
+        },
+        prerestore_backup: None,
+        restored_from: filename.to_string(),
+        reconnect_delay_ms: 0,
+    }))
 }
 
 /// Restore from a database backup file.
@@ -9620,6 +10118,11 @@ async fn database_backup_restore(
         return Err(ApiError::BadRequest(
             "Only .sql.gz or .sql files can be restored".to_string(),
         ));
+    }
+
+    // Memory-scoped restore: use clean DROP SCHEMA CASCADE approach
+    if let Some(ref memory_name) = req.memory {
+        return memory_scoped_restore(&state, &backup_path, &req.filename, memory_name).await;
     }
 
     // Get current note count for metadata
@@ -11057,6 +11560,7 @@ mod tests {
             oauth_mcp_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
+            max_memories: matric_core::defaults::MAX_MEMORIES,
         };
 
         let router = Router::new()
@@ -11773,6 +12277,7 @@ mod tests {
             oauth_mcp_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
+            max_memories: matric_core::defaults::MAX_MEMORIES,
         };
 
         let router = Router::new()
@@ -12061,6 +12566,7 @@ mod tests {
             oauth_mcp_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
+            max_memories: matric_core::defaults::MAX_MEMORIES,
         };
 
         let router = Router::new()

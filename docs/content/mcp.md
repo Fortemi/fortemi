@@ -59,7 +59,7 @@ For advanced credential management, security considerations, and manual configur
 
 ## Overview
 
-The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **155 tools** organized into these categories:
+The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **163 tools** organized into these categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -74,7 +74,7 @@ The MCP server enables AI assistants (Claude, etc.) to interact with your knowle
 | Embedding Configs | 6 | Embedding model configuration |
 | Jobs | 6 | Background processing control and monitoring |
 | Backup/Export | 15 | Data portability and backups |
-| Archives | 7 | Parallel memory archive management |
+| Memory Management | 8 | Multi-memory archives, cloning, federated search, overview |
 | SKOS Concepts | 25 | Hierarchical tagging with full relation management |
 | SKOS Collections | 7 | Group concepts into ordered/unordered collections |
 | Versioning | 5 | Note version history and diff |
@@ -1121,35 +1121,85 @@ See [Document Types Guide](./document-types-guide.md) for best practices.
 | `get_pending_jobs_count` | Count of pending jobs |
 | `reprocess_note` | Re-run pipeline steps on a note |
 
-### Archives
+### Memory Management
 
 | Tool | Description |
 |------|-------------|
-| `list_archives` | List all archives |
-| `create_archive` | Create new archive |
-| `get_archive` | Get archive details |
-| `update_archive` | Update archive metadata |
-| `delete_archive` | Delete archive |
-| `set_default_archive` | Set the default archive |
-| `get_archive_stats` | Get archive statistics |
+| `list_archives` | List all memory archives with metadata |
+| `create_archive` | Create new memory archive |
+| `get_archive` | Get memory archive details |
+| `update_archive` | Update memory archive metadata |
+| `delete_archive` | Delete memory archive and all data |
+| `set_default_archive` | Set the default memory archive |
+| `get_archive_stats` | Get memory archive statistics |
+| `get_memories_overview` | Get capacity and usage statistics across all memories |
 
-#### Archive Workflow
+#### Memory Switching
 
-Archives provide complete isolation for different knowledge domains:
+The MCP server maintains per-session memory context. Use `select_memory` to switch the active memory for all subsequent operations:
 
 ```javascript
-// Create a work archive
+// Switch to a specific memory
+select_memory({ name: "work-notes" })
+// All future operations use work-notes memory
+
+// Check which memory is active
+get_active_memory()
+// Returns: { name: "work-notes" }
+```
+
+#### Memory Lifecycle
+
+```javascript
+// Create a new memory
 create_archive({
-  name: "work-2026",
-  description: "Work-related notes for 2026"
+  name: "client-acme",
+  description: "ACME Corp project notes"
 })
 
-// Set as default for new notes
-set_default_archive({ name: "work-2026" })
+// Clone a memory (deep copy with all data)
+clone_memory({
+  source_name: "work-notes",
+  new_name: "work-notes-backup",
+  description: "Backup before major refactoring"
+})
 
-// List all archives
-list_archives()
-// Returns: [{ name: "default", is_default: false, note_count: 150 }, ...]
+// Search across multiple memories
+search_memories_federated({
+  query: "project documentation",
+  memories: ["all"]  // or specific names: ["work", "research"]
+})
+
+// Get aggregate statistics and capacity
+get_memories_overview()
+// Returns: { capacity, usage, memories, database }
+```
+
+#### Memory Overview
+
+The `get_memories_overview` tool returns system-wide memory statistics:
+
+```json
+{
+  "capacity": {
+    "max_memories": 100,
+    "current_count": 5,
+    "available": 95
+  },
+  "usage": {
+    "total_notes": 5432,
+    "total_size_bytes": 157286400,
+    "total_size_human": "150.00 MB"
+  },
+  "memories": [
+    {"name": "default", "note_count": 3210, "size_bytes": 104857600},
+    {"name": "work-notes", "note_count": 1500, "size_bytes": 41943040}
+  ],
+  "database": {
+    "total_size_bytes": 209715200,
+    "total_size_human": "200.00 MB"
+  }
+}
 ```
 
 ### Backup & Export
@@ -1462,6 +1512,7 @@ curl -X POST https://your-domain.com/api/v1/backup/knowledge-archive \
 ## Related Documentation
 
 - [API Reference](./api.md) - REST API documentation
+- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
 - [SKOS Tags](./tags.md) - Hierarchical tagging system
 - [Architecture](./architecture.md) - System design
 - [Backup Guide](./backup.md) - Backup strategies

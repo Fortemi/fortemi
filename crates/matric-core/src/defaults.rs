@@ -218,6 +218,14 @@ pub const FINETUNE_MIN_QUALITY: f32 = 4.0;
 pub const FINETUNE_VALIDATION_SPLIT: f32 = 0.1;
 
 // =============================================================================
+// MEMORY / ARCHIVE LIMITS
+// =============================================================================
+
+/// Maximum number of memories (archives) that can be created.
+/// Configurable via `MAX_MEMORIES` env var.
+pub const MAX_MEMORIES: i64 = 100;
+
+// =============================================================================
 // CROSS-ARCHIVE SEARCH
 // =============================================================================
 
