@@ -419,7 +419,8 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
 }
 
 impl PgDocumentTypeRepository {
-    /// Helper: detect document type from content magic patterns (issue #124).
+    /// Helper: detect document type from content magic patterns (issue #124, #199).
+    /// Scores each type by number of matching patterns rather than first-match-wins.
     async fn detect_by_content(&self, text: &str) -> Result<Option<DetectDocumentTypeResult>> {
         let rows = sqlx::query(
             r#"
@@ -429,41 +430,50 @@ impl PgDocumentTypeRepository {
                    is_system, is_active, magic_patterns
             FROM document_type
             WHERE is_active = TRUE AND array_length(magic_patterns, 1) > 0
+            ORDER BY name
             "#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(Error::Database)?;
 
-        for row in &rows {
+        let mut best_idx: Option<usize> = None;
+        let mut best_score: usize = 0;
+
+        for (idx, row) in rows.iter().enumerate() {
             let patterns: Vec<String> = row.get("magic_patterns");
-            for pattern in patterns {
-                if text.contains(&pattern) {
-                    return Ok(Some(DetectDocumentTypeResult {
-                        document_type: DocumentTypeSummary {
-                            id: row.get("id"),
-                            name: row.get("name"),
-                            display_name: row.get("display_name"),
-                            category: Self::parse_category(row.get("category")),
-                            description: row.get("description"),
-                            chunking_strategy: Self::parse_chunking_strategy(
-                                row.get("chunking_strategy"),
-                            ),
-                            tree_sitter_language: row.get("tree_sitter_language"),
-                            extraction_strategy: Self::parse_extraction_strategy(
-                                row.get::<Option<&str>, _>("extraction_strategy"),
-                            ),
-                            requires_attachment: row
-                                .get::<Option<bool>, _>("requires_attachment")
-                                .unwrap_or(false),
-                            is_system: row.get("is_system"),
-                            is_active: row.get("is_active"),
-                        },
-                        confidence: matric_core::defaults::DETECT_CONFIDENCE_CONTENT,
-                        detection_method: "content_pattern".to_string(),
-                    }));
-                }
+            let score = patterns.iter().filter(|p| text.contains(p.as_str())).count();
+            if score > best_score {
+                best_score = score;
+                best_idx = Some(idx);
             }
+        }
+
+        if let Some(idx) = best_idx {
+            let row = &rows[idx];
+            return Ok(Some(DetectDocumentTypeResult {
+                document_type: DocumentTypeSummary {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    display_name: row.get("display_name"),
+                    category: Self::parse_category(row.get("category")),
+                    description: row.get("description"),
+                    chunking_strategy: Self::parse_chunking_strategy(
+                        row.get("chunking_strategy"),
+                    ),
+                    tree_sitter_language: row.get("tree_sitter_language"),
+                    extraction_strategy: Self::parse_extraction_strategy(
+                        row.get::<Option<&str>, _>("extraction_strategy"),
+                    ),
+                    requires_attachment: row
+                        .get::<Option<bool>, _>("requires_attachment")
+                        .unwrap_or(false),
+                    is_system: row.get("is_system"),
+                    is_active: row.get("is_active"),
+                },
+                confidence: matric_core::defaults::DETECT_CONFIDENCE_CONTENT,
+                detection_method: "content_pattern".to_string(),
+            }));
         }
 
         Ok(None)

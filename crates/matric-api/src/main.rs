@@ -4427,15 +4427,19 @@ async fn create_collection(
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
-    let id = ctx
-        .execute(move |tx| {
+    let collection = ctx
+        .query(move |tx| {
             Box::pin(async move {
-                repo.create_tx(tx, &body.name, body.description.as_deref(), body.parent_id)
-                    .await
+                let id = repo
+                    .create_tx(tx, &body.name, body.description.as_deref(), body.parent_id)
+                    .await?;
+                repo.get_tx(tx, id)
+                    .await?
+                    .ok_or_else(|| matric_core::Error::NotFound("Collection not found".into()))
             })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+    Ok((StatusCode::CREATED, Json(collection)))
 }
 
 async fn get_collection(
@@ -6121,7 +6125,11 @@ async fn create_job(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": job_id })),
+        Json(serde_json::json!({
+            "id": job_id,
+            "status": "queued",
+            "message": format!("{:?} job queued", job_type),
+        })),
     ))
 }
 
