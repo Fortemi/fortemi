@@ -508,29 +508,29 @@ async fn test_clone_archive_schema() {
 
     // Insert a test note into the source archive using direct SQL
     let note_id = Uuid::now_v7();
+    let now = Utc::now();
+
     sqlx::query(&format!(
-        "SET LOCAL search_path TO {}, public",
+        "INSERT INTO {}.note (id, format, source, created_at_utc, updated_at_utc, metadata)
+         VALUES ($1, 'markdown', 'test-source', $2, $2, '{{}}')",
         source.schema_name
     ))
-    .execute(&pool)
-    .await
-    .expect("Failed to set search path");
-
-    sqlx::query(
-        "INSERT INTO note (id, original_content, original_content_format, source_id, soft_deleted)
-         VALUES ($1, $2, 'markdown', 'test-source', false)",
-    )
     .bind(note_id)
-    .bind("Test note content for cloning")
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to insert test note");
 
-    // Reset search path to default
-    sqlx::query("SET LOCAL search_path TO public")
-        .execute(&pool)
-        .await
-        .expect("Failed to reset search path");
+    sqlx::query(&format!(
+        "INSERT INTO {}.note_original (note_id, content, hash)
+         VALUES ($1, $2, 'testhash')",
+        source.schema_name
+    ))
+    .bind(note_id)
+    .bind("Test note content for cloning")
+    .execute(&pool)
+    .await
+    .expect("Failed to insert test note content");
 
     // Clone the archive
     let clone = db
@@ -558,7 +558,7 @@ async fn test_clone_archive_schema() {
 
     // Verify cloned note content
     let cloned_content: String = sqlx::query_scalar(&format!(
-        "SELECT original_content FROM {}.note WHERE id = $1",
+        "SELECT content FROM {}.note_original WHERE note_id = $1",
         clone.schema_name
     ))
     .bind(note_id)
