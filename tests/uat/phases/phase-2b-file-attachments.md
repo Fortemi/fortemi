@@ -6,9 +6,35 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `create_note`, `upload_attachment`, `list_attachments`, `get_attachment`, `download_attachment`, `delete_attachment`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **Attachment Workflow Architecture**: The attachment system uses a hybrid HTTP+MCP approach optimized for binary file transfer:
+>
+> **For Remote MCP Deployments** (the common case):
+> - **Upload**: Use HTTP API with base64-encoded JSON body
+> - **Manage**: Use MCP tools (`list_attachments`, `get_attachment`, `delete_attachment`) for metadata
+> - **Download**: Use HTTP API to retrieve binary data
+>
+> **For Co-located MCP Deployments** (MCP server on same machine):
+> - **Upload**: Use MCP `upload_attachment` tool with `file_path` parameter
+> - **Manage**: Same MCP tools
+> - **Download**: Use MCP `download_attachment` tool with `output_dir` parameter
+>
+> **Why This Architecture**:
+> - Binary data transfer via HTTP API avoids passing large base64 payloads through MCP protocol
+> - MCP tools excel at metadata operations (list, get details, delete)
+> - Co-located deployments can use filesystem-based I/O for efficiency
 
-> **File-Based I/O**: The `upload_attachment` and `download_attachment` tools use filesystem paths — binary data never passes through the LLM context window. `upload_attachment` reads from `file_path` on disk; `download_attachment` saves to `output_dir` and returns the saved path.
+> **HTTP Upload Pattern** (for remote deployments):
+> ```bash
+> # 1. Encode file and upload via HTTP API
+> python3 -c "import base64,json; data=base64.b64encode(open('FILE_PATH','rb').read()).decode(); print(json.dumps({'filename':'NAME','content_type':'MIME','data':data}))" > /tmp/upload.json
+> curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/upload.json \
+>   https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments
+> ```
+>
+> **HTTP Download Pattern**:
+> ```bash
+> curl -s -o OUTPUT_FILE https://memory.integrolabs.net/api/v1/attachments/{attachment_id}/download
+> ```
 
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
@@ -23,7 +49,7 @@
 
 ### UAT-2B-001: Upload Image File
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload a JPEG image and verify attachment record creation
 
@@ -34,13 +60,19 @@
 **Steps**:
 1. Create a test note: `create_note({ content: "# Photo Test", tags: ["uat/attachments"], revision_mode: "none" })`
 2. Store the returned note ID as `attachment_test_note_id`
-3. Upload JPEG file: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+3. **Co-located Upload** (MCP): `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+4. **Remote Upload** (HTTP API):
+   ```bash
+   python3 -c "import base64,json; data=base64.b64encode(open('tests/uat/data/images/jpeg-with-exif.jpg','rb').read()).decode(); print(json.dumps({'filename':'jpeg-with-exif.jpg','content_type':'image/jpeg','data':data}))" > /tmp/upload.json
+   curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/upload.json \
+     https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments
+   ```
 
 **Expected Results**:
 - Returns `{ id: "<attachment-uuid>", note_id: "<note-uuid>", filename: "jpeg-with-exif.jpg", content_type: "image/jpeg", size_bytes: <size>, status: "uploaded" }`
 - Attachment ID is UUIDv7 format
 - `created_at` timestamp is present
-- Filename defaults to basename of `file_path`
+- Filename defaults to basename of `file_path` (MCP) or `filename` field (HTTP)
 
 **Verification**:
 - `list_attachments({ note_id: attachment_test_note_id })` returns 1 attachment
@@ -52,7 +84,7 @@
 
 ### UAT-2B-002: Upload PDF Document
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload a PDF file and verify storage
 
@@ -61,7 +93,8 @@
 - PDF file available (test-document.pdf)
 
 **Steps**:
-1. Upload PDF: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/documents/test-document.pdf", content_type: "application/pdf" })`
+1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/documents/test-document.pdf", content_type: "application/pdf" })`
+2. **Remote**: Use HTTP upload pattern with PDF file
 
 **Expected Results**:
 - Returns attachment record with `content_type: "application/pdf"`
@@ -76,7 +109,7 @@
 
 ### UAT-2B-003: Upload Audio File
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload an audio file (MP3) and verify storage
 
@@ -85,7 +118,8 @@
 - Audio file available (test-audio.mp3)
 
 **Steps**:
-1. Upload MP3: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/audio/test-audio.mp3", content_type: "audio/mpeg" })`
+1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/audio/test-audio.mp3", content_type: "audio/mpeg" })`
+2. **Remote**: Use HTTP upload pattern
 
 **Expected Results**:
 - Returns attachment record with `content_type: "audio/mpeg"`
@@ -97,7 +131,7 @@
 
 ### UAT-2B-004: Upload Video File
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload a video file (MP4) and verify storage
 
@@ -106,7 +140,8 @@
 - Video file available (test-video.mp4, preferably small <50MB)
 
 **Steps**:
-1. Upload MP4: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/video/test-video.mp4", content_type: "video/mp4" })`
+1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/video/test-video.mp4", content_type: "video/mp4" })`
+2. **Remote**: Use HTTP upload pattern
 
 **Expected Results**:
 - Returns attachment record with `content_type: "video/mp4"`
@@ -118,7 +153,7 @@
 
 ### UAT-2B-005: Upload 3D Model File
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload a 3D model file (GLB/GLTF) and verify storage
 
@@ -127,7 +162,8 @@
 - 3D model file available (test-model.glb)
 
 **Steps**:
-1. Upload GLB: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/models/test-model.glb", content_type: "model/gltf-binary" })`
+1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/models/test-model.glb", content_type: "model/gltf-binary" })`
+2. **Remote**: Use HTTP upload pattern
 
 **Expected Results**:
 - Returns attachment record with `content_type: "model/gltf-binary"`
@@ -141,7 +177,7 @@
 
 ### UAT-2B-006: Download File and Verify Integrity
 
-**MCP Tool**: `download_attachment`
+**MCP Tool**: `download_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Download uploaded image and verify content matches
 
@@ -149,12 +185,17 @@
 - `attachment_image_id` from UAT-2B-001
 
 **Steps**:
-1. Download file: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
-2. Compute BLAKE3 hash of saved file
-3. Compare with original file hash: `tests/uat/data/images/jpeg-with-exif.jpg`
+1. **Co-located**: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
+2. **Remote**:
+   ```bash
+   curl -s -o /tmp/uat/jpeg-with-exif.jpg https://memory.integrolabs.net/api/v1/attachments/{attachment_image_id}/download
+   ```
+3. Compute BLAKE3 hash of saved file
+4. Compare with original file hash: `tests/uat/data/images/jpeg-with-exif.jpg`
 
 **Expected Results**:
-- Returns `{ saved_to: "/tmp/uat/jpeg-with-exif.jpg", filename: "jpeg-with-exif.jpg", size_bytes: <size>, content_type: "image/jpeg" }`
+- MCP returns `{ saved_to: "/tmp/uat/jpeg-with-exif.jpg", filename: "jpeg-with-exif.jpg", size_bytes: <size>, content_type: "image/jpeg" }`
+- HTTP returns binary data with `Content-Type: image/jpeg` and `Content-Disposition` headers
 - `saved_to` path exists on disk
 - File size matches original
 
@@ -168,14 +209,15 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `download_attachment`
+**MCP Tool**: `download_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Attempt to download non-existent attachment and verify error handling
 
 **Prerequisites**: None
 
 **Steps**:
-1. Download with fake UUID: `download_attachment({ id: "00000000-0000-0000-0000-000000000000", output_dir: "/tmp/uat" })`
+1. **Co-located**: `download_attachment({ id: "00000000-0000-0000-0000-000000000000", output_dir: "/tmp/uat" })`
+2. **Remote**: `curl -s -o /tmp/uat/test.bin https://memory.integrolabs.net/api/v1/attachments/00000000-0000-0000-0000-000000000000/download`
 
 **Expected Results**:
 - Returns error with status 404
@@ -189,7 +231,7 @@
 
 ### UAT-2B-008: Upload Duplicate File
 
-**MCP Tool**: `create_note`, `upload_attachment`
+**MCP Tool**: `create_note`, `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Upload same file twice and verify deduplication
 
@@ -200,8 +242,9 @@
 **Steps**:
 1. Create new note: `create_note({ content: "# Duplicate Test", tags: ["uat/dedup"], revision_mode: "none" })`
 2. Store note ID as `dedup_note_id`
-3. Upload same JPEG: `upload_attachment({ note_id: dedup_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg", filename: "duplicate-photo.jpg" })`
-4. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
+3. **Co-located**: `upload_attachment({ note_id: dedup_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg", filename: "duplicate-photo.jpg" })`
+4. **Remote**: Use HTTP upload pattern with same file
+5. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
 
 **Expected Results**:
 - New attachment record created with different attachment ID
@@ -221,7 +264,7 @@
 
 ### UAT-2B-009: EXIF GPS Extraction
 
-**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
+**MCP Tool**: `create_note`, `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
 
 **Description**: Upload photo with GPS EXIF data and verify extraction
 
@@ -231,7 +274,7 @@
 
 **Steps**:
 1. Create note: `create_note({ content: "# EXIF Test", tags: ["uat/exif"], revision_mode: "none" })`
-2. Upload JPEG with GPS: `upload_attachment({ note_id: <note-id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+2. Upload JPEG with GPS (use MCP or HTTP as appropriate)
 3. Wait 2 seconds for EXIF extraction job
 4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -251,7 +294,7 @@
 
 ### UAT-2B-010: EXIF Camera Metadata
 
-**MCP Tool**: `upload_attachment`, `get_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
 
 **Description**: Verify camera make/model extraction from EXIF
 
@@ -259,7 +302,7 @@
 - JPEG with camera EXIF data (Make, Model)
 
 **Steps**:
-1. Upload JPEG with camera EXIF: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+1. Upload JPEG with camera EXIF (use MCP or HTTP as appropriate)
 2. Wait 2 seconds for EXIF extraction
 3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -275,7 +318,7 @@
 
 ### UAT-2B-011: EXIF Timestamp Extraction
 
-**MCP Tool**: `upload_attachment`, `get_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
 
 **Description**: Verify date/time extraction from EXIF
 
@@ -283,7 +326,7 @@
 - JPEG with DateTimeOriginal EXIF tag
 
 **Steps**:
-1. Upload JPEG: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+1. Upload JPEG (use MCP or HTTP as appropriate)
 2. Wait 2 seconds for EXIF extraction
 3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
@@ -300,14 +343,14 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Attempt to upload executable and verify rejection
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/malware.exe", content_type: "application/x-msdownload" })`
+1. Attempt to upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/malware.exe`
 
 **Expected Results**:
 - Returns error with status 400
@@ -324,14 +367,14 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Verify rejection of script files
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/script.sh", content_type: "application/x-sh" })`
+1. Attempt to upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/script.sh`
 
 **Expected Results**:
 - Returns error with status 400
@@ -342,7 +385,7 @@
 
 ### UAT-2B-014: Magic Bytes Validation
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Verify MIME type matches file content (magic bytes)
 
@@ -350,7 +393,7 @@
 - File with mismatched extension and magic bytes (e.g., PNG magic bytes with .jpg extension)
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/edge-cases/binary-wrong-ext.jpg", content_type: "image/jpeg" })`
+1. Attempt upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/binary-wrong-ext.jpg`
 
 **Expected Results**:
 - System detects mismatch (implementation-dependent)
@@ -410,7 +453,7 @@
 
 ### UAT-2B-017: Delete Attachment
 
-**MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment`
+**MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Delete an attachment and verify removal
 
@@ -420,7 +463,7 @@
 **Steps**:
 1. Delete attachment: `delete_attachment({ attachment_id: attachment_audio_id })`
 2. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
-3. Attempt to download: `download_attachment({ id: attachment_audio_id, output_dir: "/tmp/uat" })`
+3. Attempt to download (use MCP or HTTP as appropriate)
 
 **Expected Results**:
 - Delete succeeds (no error)
@@ -435,7 +478,7 @@
 
 ### UAT-2B-018: Delete Attachment with Shared Blob
 
-**MCP Tool**: `delete_attachment`, `download_attachment`
+**MCP Tool**: `delete_attachment`, `download_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Delete attachment that shares blob with another attachment (deduplication)
 
@@ -446,7 +489,7 @@
 1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
 2. Delete duplicate: `delete_attachment({ attachment_id: attachment_duplicate_id })`
 3. Query blob reference count after
-4. Download original: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
+4. Download original (use MCP or HTTP as appropriate)
 
 **Expected Results**:
 - Delete succeeds
@@ -465,7 +508,7 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Attempt to upload file exceeding size limit
 
@@ -475,7 +518,7 @@
 
 **Steps**:
 1. Generate large file: `dd if=/dev/zero of=/tmp/huge-file.bin bs=1M count=2100` (2.1GB)
-2. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "/tmp/huge-file.bin", content_type: "application/octet-stream" })`
+2. Attempt upload (use MCP or HTTP as appropriate)
 
 **Expected Results**:
 - Returns error with status 413 (Payload Too Large)
@@ -491,14 +534,14 @@
 
 **Isolation**: Recommended — dual-path test may return error
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Attempt upload with malformed MIME type
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "invalid/invalid/invalid" })`
+1. Attempt upload with content_type: "invalid/invalid/invalid"
 
 **Expected Results**:
 - Either: Server accepts and sanitizes OR returns 400 error
@@ -511,14 +554,14 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment`
+**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
 
 **Description**: Attempt to attach file to non-existent note
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload: `upload_attachment({ note_id: "00000000-0000-0000-0000-000000000000", file_path: "tests/uat/data/documents/test-document.pdf", content_type: "text/plain" })`
+1. Attempt upload with note_id: "00000000-0000-0000-0000-000000000000"
 
 **Expected Results**:
 - Returns error with status 404
@@ -532,29 +575,29 @@
 
 ## Phase Summary
 
-| Test ID | Name | MCP Tool(s) | Status |
-|---------|------|-------------|--------|
-| UAT-2B-001 | Upload Image File | `create_note`, `upload_attachment`, `list_attachments` | |
-| UAT-2B-002 | Upload PDF Document | `upload_attachment`, `list_attachments` | |
-| UAT-2B-003 | Upload Audio File | `upload_attachment` | |
-| UAT-2B-004 | Upload Video File | `upload_attachment` | |
-| UAT-2B-005 | Upload 3D Model File | `upload_attachment` | |
-| UAT-2B-006 | Download File Integrity | `download_attachment` | |
-| UAT-2B-007 | Download Non-Existent | `download_attachment` | |
-| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` | |
-| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
-| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment`, `get_attachment` | |
-| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment`, `get_attachment` | |
-| UAT-2B-012 | Block Executable Extension | `upload_attachment` | |
-| UAT-2B-013 | Block Script Extension | `upload_attachment` | |
-| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` | |
+| Test ID | Name | Tools | Status |
+|---------|------|-------|--------|
+| UAT-2B-001 | Upload Image File | `create_note`, `upload_attachment` (MCP) OR HTTP API, `list_attachments` | |
+| UAT-2B-002 | Upload PDF Document | `upload_attachment` (MCP) OR HTTP API, `list_attachments` | |
+| UAT-2B-003 | Upload Audio File | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-004 | Upload Video File | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-005 | Upload 3D Model File | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-006 | Download File Integrity | `download_attachment` (MCP) OR HTTP API | |
+| UAT-2B-007 | Download Non-Existent | `download_attachment` (MCP) OR HTTP API | |
+| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
+| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
+| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
+| UAT-2B-012 | Block Executable Extension | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-013 | Block Script Extension | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` (MCP) OR HTTP API | |
 | UAT-2B-015 | List All Attachments | `list_attachments` | |
 | UAT-2B-016 | List Empty Attachments | `create_note`, `list_attachments` | |
-| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
-| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
-| UAT-2B-019 | Upload Oversized File | `upload_attachment` | |
-| UAT-2B-020 | Invalid Content Type | `upload_attachment` | |
-| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` | |
+| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` (MCP) OR HTTP API | |
+| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` (MCP) OR HTTP API | |
+| UAT-2B-019 | Upload Oversized File | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-020 | Invalid Content Type | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` (MCP) OR HTTP API | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 
@@ -562,16 +605,23 @@
 
 ---
 
-## MCP Tools Covered
+## Tools and Architecture
 
-This phase exercises the following MCP tools:
+This phase exercises the hybrid attachment system:
 
-- `upload_attachment` - Upload files to notes (reads from `file_path`)
+**MCP Tools** (for metadata operations):
 - `list_attachments` - List attachments for a note
 - `get_attachment` - Get attachment metadata
-- `download_attachment` - Download attachment data (saves to `output_dir`)
 - `delete_attachment` - Delete attachments
 
-> **Note**: All binary file operations use filesystem paths. `upload_attachment` reads from `file_path`; `download_attachment` saves to `output_dir`. Binary data never passes through the LLM context window.
+**MCP Tools** (co-located file I/O):
+- `upload_attachment` - Upload files from MCP server filesystem (reads from `file_path`)
+- `download_attachment` - Download files to MCP server filesystem (saves to `output_dir`)
+
+**HTTP API** (remote binary transfer):
+- `POST /api/v1/notes/{id}/attachments` - Upload with base64-encoded JSON body
+- `GET /api/v1/attachments/{id}/download` - Download binary data with Content-Type/Content-Disposition headers
+
+> **Architecture Note**: Binary file operations use filesystem paths (MCP co-located) or HTTP API (remote deployments). Binary data never passes through the MCP protocol for remote deployments, ensuring efficient large file handling.
 
 All tools are verified for correct behavior, error handling, and edge cases.
