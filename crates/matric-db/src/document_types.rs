@@ -456,7 +456,10 @@ impl PgDocumentTypeRepository {
 
         for (idx, row) in rows.iter().enumerate() {
             let patterns: Vec<String> = row.get("magic_patterns");
-            let score = patterns.iter().filter(|p| text.contains(p.as_str())).count();
+            let score = patterns
+                .iter()
+                .filter(|p| text.contains(p.as_str()))
+                .count();
             if score > best_score {
                 best_score = score;
                 best_idx = Some(idx);
@@ -472,9 +475,7 @@ impl PgDocumentTypeRepository {
                     display_name: row.get("display_name"),
                     category: Self::parse_category(row.get("category")),
                     description: row.get("description"),
-                    chunking_strategy: Self::parse_chunking_strategy(
-                        row.get("chunking_strategy"),
-                    ),
+                    chunking_strategy: Self::parse_chunking_strategy(row.get("chunking_strategy")),
                     tree_sitter_language: row.get("tree_sitter_language"),
                     extraction_strategy: Self::parse_extraction_strategy(
                         row.get::<Option<&str>, _>("extraction_strategy"),

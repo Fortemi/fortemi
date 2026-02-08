@@ -290,22 +290,34 @@ impl PgFtsSearch {
             } else if let Some(ts) = token.strip_prefix("created_after:") {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
-                    sql.push_str(&format!(" AND n.created_at >= ${}::timestamptz", params.len()));
+                    sql.push_str(&format!(
+                        " AND n.created_at >= ${}::timestamptz",
+                        params.len()
+                    ));
                 }
             } else if let Some(ts) = token.strip_prefix("created_before:") {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
-                    sql.push_str(&format!(" AND n.created_at <= ${}::timestamptz", params.len()));
+                    sql.push_str(&format!(
+                        " AND n.created_at <= ${}::timestamptz",
+                        params.len()
+                    ));
                 }
             } else if let Some(ts) = token.strip_prefix("updated_after:") {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
-                    sql.push_str(&format!(" AND n.updated_at >= ${}::timestamptz", params.len()));
+                    sql.push_str(&format!(
+                        " AND n.updated_at >= ${}::timestamptz",
+                        params.len()
+                    ));
                 }
             } else if let Some(ts) = token.strip_prefix("updated_before:") {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
-                    sql.push_str(&format!(" AND n.updated_at <= ${}::timestamptz", params.len()));
+                    sql.push_str(&format!(
+                        " AND n.updated_at <= ${}::timestamptz",
+                        params.len()
+                    ));
                 }
             }
         }

@@ -1156,6 +1156,7 @@ async fn main() -> anyhow::Result<()> {
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
+        .layer(axum::middleware::from_fn(cache_control_middleware))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             rate_limit_middleware,
@@ -1774,6 +1775,65 @@ async fn rate_limit_middleware(
         }
     }
     Ok(next.run(request).await)
+}
+
+// =============================================================================
+// CACHE CONTROL MIDDLEWARE (fixes #211)
+// =============================================================================
+
+/// Sets HTTP Cache-Control headers based on request method and path.
+///
+/// Policy:
+/// - Mutation requests (POST/PUT/PATCH/DELETE): `no-store`
+/// - Stable reference data (document-types, concepts/schemes): `public, max-age=300`
+/// - Single-resource GETs with ID: `private, no-cache` (allows conditional caching)
+/// - List/search endpoints: `private, no-cache`
+/// - Health endpoints: `no-cache, max-age=0`
+async fn cache_control_middleware(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+
+    let mut response = next.run(request).await;
+
+    // Skip if handler already set Cache-Control
+    if response.headers().contains_key(header::CACHE_CONTROL) {
+        return response;
+    }
+
+    let cache_value = if method != Method::GET && method != Method::HEAD {
+        // Mutations must never be cached
+        "no-store"
+    } else if path.starts_with("/api/v1/document-types")
+        || path.starts_with("/api/v1/concepts/schemes")
+    {
+        // Stable reference data — cache for 5 minutes
+        "public, max-age=300"
+    } else if path.starts_with("/health") || path.starts_with("/api/v1/health") {
+        // Health checks — always fresh
+        "no-cache, max-age=0"
+    } else if path.starts_with("/api/v1/") {
+        // All other API GETs — allow private caching with revalidation
+        "private, no-cache"
+    } else {
+        // Static assets (docs, openapi.yaml)
+        "public, max-age=3600"
+    };
+
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, cache_value.parse().unwrap());
+
+    // Responses vary by archive selection header
+    if path.starts_with("/api/v1/") {
+        response
+            .headers_mut()
+            .append(header::VARY, "X-Fortemi-Memory".parse().unwrap());
+    }
+
+    response
 }
 
 // =============================================================================
@@ -2861,11 +2921,16 @@ async fn create_note(
                     matric_core::defaults::TAG_NAME_MAX_LENGTH
                 )));
             }
-            let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+            let depth = tag
+                .split('/')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .count();
             if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
                 return Err(ApiError::BadRequest(format!(
                     "Tag '{}' exceeds maximum depth of {} levels",
-                    tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+                    tag,
+                    matric_core::tags::MAX_TAG_PATH_DEPTH
                 )));
             }
         }
@@ -2999,14 +3064,22 @@ async fn bulk_create_notes(
                 if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
                     return Err(ApiError::BadRequest(format!(
                         "Note at index {}: tag '{}...' exceeds {} character limit",
-                        i, &tag[..50.min(tag.len())], matric_core::defaults::TAG_NAME_MAX_LENGTH
+                        i,
+                        &tag[..50.min(tag.len())],
+                        matric_core::defaults::TAG_NAME_MAX_LENGTH
                     )));
                 }
-                let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+                let depth = tag
+                    .split('/')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .count();
                 if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
                     return Err(ApiError::BadRequest(format!(
                         "Note at index {}: tag '{}' exceeds maximum depth of {} levels",
-                        i, tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+                        i,
+                        tag,
+                        matric_core::tags::MAX_TAG_PATH_DEPTH
                     )));
                 }
             }
@@ -3460,14 +3533,20 @@ async fn set_note_tags(
         if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
             return Err(ApiError::BadRequest(format!(
                 "Tag '{}...' exceeds {} character limit",
-                &tag[..50.min(tag.len())], matric_core::defaults::TAG_NAME_MAX_LENGTH
+                &tag[..50.min(tag.len())],
+                matric_core::defaults::TAG_NAME_MAX_LENGTH
             )));
         }
-        let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+        let depth = tag
+            .split('/')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .count();
         if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
             return Err(ApiError::BadRequest(format!(
                 "Tag '{}' exceeds maximum depth of {} levels",
-                tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+                tag,
+                matric_core::tags::MAX_TAG_PATH_DEPTH
             )));
         }
     }
@@ -5972,14 +6051,14 @@ async fn remove_embedding_set_member(
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     let removed = ctx
-        .execute(move |tx| {
-            Box::pin(async move { repo.remove_member_tx(tx, &slug, note_id).await })
-        })
+        .execute(move |tx| Box::pin(async move { repo.remove_member_tx(tx, &slug, note_id).await }))
         .await?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError::NotFound("Note not found in embedding set".to_string()))
+        Err(ApiError::NotFound(
+            "Note not found in embedding set".to_string(),
+        ))
     }
 }
 
