@@ -1915,6 +1915,21 @@ function createMcpServer() {
 }
 
 // Define available tools with comprehensive documentation for consuming agents
+//
+// IMPORTANT: inputSchema must be valid JSON Schema draft 2020-12.
+// Common pitfalls when defining tool schemas:
+//
+//   1. NULLABLE TYPES: Do NOT use `type: ["string", "null"]` (draft-04/07 syntax).
+//      Instead use: `anyOf: [{ type: "string" }, { type: "null" }]`
+//
+//   2. EXCLUSIVE BOUNDS: Do NOT use `exclusiveMinimum: true` (draft-04 boolean syntax).
+//      Instead use: `exclusiveMinimum: <number>` (the actual exclusive bound value)
+//      Example: `exclusiveMinimum: 0` means "must be > 0"
+//
+//   3. These constraints are enforced by the Claude API at connection time.
+//      Invalid schemas cause "JSON schema is invalid" errors that prevent
+//      ALL tools from loading, not just the broken one.
+//
 const tools = [
   // ============================================================================
   // READ OPERATIONS - No processing triggered
@@ -2039,7 +2054,7 @@ Use this to find photos, documents, or other attachments that were created or ca
       properties: {
         lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)", minimum: -90, maximum: 90 },
         lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)", minimum: -180, maximum: 180 },
-        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, minimum: 0, exclusiveMinimum: true },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, exclusiveMinimum: 0 },
       },
       required: ["lat", "lon"],
     },
@@ -2074,7 +2089,7 @@ Use this to find content from specific events at known locations and times.`,
       properties: {
         lat: { type: "number", description: "Latitude in decimal degrees (-90 to 90)", minimum: -90, maximum: 90 },
         lon: { type: "number", description: "Longitude in decimal degrees (-180 to 180)", minimum: -180, maximum: 180 },
-        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, minimum: 0, exclusiveMinimum: true },
+        radius: { type: "number", description: "Search radius in meters (default: 1000)", default: 1000, exclusiveMinimum: 0 },
         start: { type: "string", description: "Start of time range (ISO 8601 format, e.g. '2024-01-15T00:00:00Z')" },
         end: { type: "string", description: "End of time range (ISO 8601 format)" },
       },
@@ -2634,7 +2649,7 @@ Use to rename collections, add descriptions, or reorganize hierarchy by changing
         id: { type: "string", format: "uuid", description: "Collection UUID to update" },
         name: { type: "string", description: "New collection name" },
         description: { type: "string", description: "New collection description" },
-        parent_id: { type: ["string", "null"], format: "uuid", description: "New parent collection UUID, or null to move to root" },
+        parent_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }], description: "New parent collection UUID, or null to move to root" },
       },
       required: ["id"],
     },
@@ -2804,7 +2819,7 @@ Use to modify template name, description, content, format, default tags, or defa
         content: { type: "string", description: "New template content with {{variable}} placeholders" },
         format: { type: "string", description: "Content format (e.g., markdown, plain)" },
         default_tags: { type: "array", items: { type: "string" }, description: "New default tags" },
-        collection_id: { type: ["string", "null"], format: "uuid", description: "New default collection UUID, or null for none" },
+        collection_id: { anyOf: [{ type: "string", format: "uuid" }, { type: "null" }], description: "New default collection UUID, or null for none" },
       },
       required: ["id"],
     },
@@ -5110,7 +5125,7 @@ Currently supports updating the archive description.
           description: "Archive name"
         },
         description: {
-          type: ["string", "null"],
+          anyOf: [{ type: "string" }, { type: "null" }],
           description: "New description (null to clear)"
         }
       },
