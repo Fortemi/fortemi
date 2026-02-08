@@ -2851,9 +2851,16 @@ async fn create_note(
         None
     };
 
-    // Validate tag depth before processing (fixes #193)
+    // Validate tag depth and length before processing (fixes #193, #189)
     if let Some(ref tags) = tags_for_skos {
         for tag in tags {
+            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+                return Err(ApiError::BadRequest(format!(
+                    "Tag '{}...' exceeds {} character limit",
+                    &tag[..50.min(tag.len())],
+                    matric_core::defaults::TAG_NAME_MAX_LENGTH
+                )));
+            }
             let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
             if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
                 return Err(ApiError::BadRequest(format!(
@@ -2986,9 +2993,15 @@ async fn bulk_create_notes(
                 i
             )));
         }
-        // Validate tag depth (fixes #193)
+        // Validate tag depth and length (fixes #193, #189)
         if let Some(ref tags) = note.tags {
             for tag in tags {
+                if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+                    return Err(ApiError::BadRequest(format!(
+                        "Note at index {}: tag '{}...' exceeds {} character limit",
+                        i, &tag[..50.min(tag.len())], matric_core::defaults::TAG_NAME_MAX_LENGTH
+                    )));
+                }
                 let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
                 if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
                     return Err(ApiError::BadRequest(format!(
@@ -3442,8 +3455,14 @@ async fn set_note_tags(
     Path(id): Path<Uuid>,
     Json(body): Json<SetTagsBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Validate tag depth (fixes #193)
+    // Validate tag depth and length (fixes #193, #189)
     for tag in &body.tags {
+        if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+            return Err(ApiError::BadRequest(format!(
+                "Tag '{}...' exceeds {} character limit",
+                &tag[..50.min(tag.len())], matric_core::defaults::TAG_NAME_MAX_LENGTH
+            )));
+        }
         let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
         if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
             return Err(ApiError::BadRequest(format!(
@@ -4567,8 +4586,9 @@ async fn explore_graph(
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
-    let depth = query.depth;
-    let max_nodes = query.max_nodes;
+    // Clamp resource limits to prevent DoS (fixes #218)
+    let depth = query.depth.clamp(0, 10);
+    let max_nodes = query.max_nodes.clamp(1, 1000);
     let result = ctx
         .query(move |tx| {
             Box::pin(async move { links.traverse_graph_tx(tx, id, depth, max_nodes).await })

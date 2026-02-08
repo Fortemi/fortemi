@@ -77,7 +77,24 @@ impl StrictFilterQueryBuilder {
     /// - Vector of query parameters in the order they appear in the SQL
     ///
     /// If the filter is empty, returns ("TRUE", empty vec).
+    /// Maximum number of elements across all filter arrays (prevents DoS via #218).
+    const MAX_FILTER_ELEMENTS: usize = 1000;
+
     pub fn build(&self) -> (String, Vec<QueryParam>) {
+        // Enforce total filter array size limit (fixes #218)
+        let total_elements = self.filter.required_concepts.len()
+            + self.filter.any_concepts.len()
+            + self.filter.excluded_concepts.len()
+            + self.filter.required_schemes.len()
+            + self.filter.excluded_schemes.len()
+            + self.filter.required_string_tags.len()
+            + self.filter.any_string_tags.len()
+            + self.filter.excluded_string_tags.len();
+        if total_elements > Self::MAX_FILTER_ELEMENTS {
+            // Return match-nothing clause instead of erroring — safe degradation
+            return ("FALSE".to_string(), vec![]);
+        }
+
         let mut clauses = Vec::new();
         let mut params = Vec::new();
         let mut param_idx = self.param_offset;
