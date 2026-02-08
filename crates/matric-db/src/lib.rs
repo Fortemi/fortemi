@@ -52,6 +52,7 @@ pub mod schema_context;
 pub mod schema_validation;
 pub mod search;
 pub mod skos_tags;
+mod skos_tags_tx;
 pub mod strict_filter;
 #[cfg(feature = "tree-sitter")]
 pub mod syntactic_chunker;

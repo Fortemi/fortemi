@@ -4,4 +4,4 @@
 
 INSERT INTO archive_registry (name, schema_name, description, is_default, created_at)
 VALUES ('default', 'public', 'Default archive (public schema)', true, NOW())
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT DO NOTHING;

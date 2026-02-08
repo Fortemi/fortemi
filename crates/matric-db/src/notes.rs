@@ -934,6 +934,198 @@ impl PgNoteRepository {
             .map_err(Error::Database)?;
         Ok(())
     }
+
+    /// Update note status within an existing transaction.
+    pub async fn update_status_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        req: UpdateNoteStatusRequest,
+    ) -> Result<()> {
+        // Check if note exists first (issue #362)
+        if !self.exists_tx(tx, id).await? {
+            return Err(Error::NotFound(format!("Note {} not found", id)));
+        }
+        let mut updates: Vec<String> = vec!["updated_at_utc = $1".to_string()];
+        let now = Utc::now();
+        // $1 = now, $2 = id, then dynamic params start at $3
+        let mut param_idx = 3;
+
+        if req.starred.is_some() {
+            updates.push(format!("starred = ${}", param_idx));
+            param_idx += 1;
+        }
+        if req.archived.is_some() {
+            updates.push(format!("archived = ${}", param_idx));
+            param_idx += 1;
+        }
+        if req.metadata.is_some() {
+            // Merge new metadata keys into existing (issue #122) instead of replacing
+            updates.push(format!(
+                "metadata = COALESCE(metadata, '{{}}'::jsonb) || ${}",
+                param_idx
+            ));
+        }
+
+        let query = format!("UPDATE note SET {} WHERE id = $2", updates.join(", "));
+
+        let mut q = sqlx::query(&query).bind(now).bind(id);
+        if let Some(starred) = req.starred {
+            q = q.bind(starred);
+        }
+        if let Some(archived) = req.archived {
+            q = q.bind(archived);
+        }
+        if let Some(metadata) = req.metadata {
+            q = q.bind(metadata);
+        }
+
+        q.execute(&mut **tx).await.map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Update original note content within an existing transaction.
+    pub async fn update_original_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        content: &str,
+    ) -> Result<()> {
+        // Check if note exists first (issue #362)
+        if !self.exists_tx(tx, id).await? {
+            return Err(Error::NotFound(format!("Note {} not found", id)));
+        }
+        let now = Utc::now();
+        let hash = Self::hash_content(content);
+
+        sqlx::query(
+            "UPDATE note_original SET content = $1, hash = $2, user_last_edited_at = $3 WHERE note_id = $4",
+        )
+        .bind(content)
+        .bind(&hash)
+        .bind(now)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        sqlx::query("UPDATE note SET updated_at_utc = $1 WHERE id = $2")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        sqlx::query(
+            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
+             VALUES ($1, $2, 'user', 'update_original', $3, '{}'::jsonb)",
+        )
+        .bind(new_v7())
+        .bind(now)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(())
+    }
+
+    /// Update revised note content within an existing transaction.
+    pub async fn update_revised_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        content: &str,
+        rationale: Option<&str>,
+    ) -> Result<Uuid> {
+        let now = Utc::now();
+        let revision_id = new_v7();
+
+        // Insert revision record into history table
+        sqlx::query(
+            "INSERT INTO note_revision (id, note_id, content, rationale, created_at_utc, revision_number)
+             VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(revision_number) FROM note_revision WHERE note_id = $2), 0) + 1)",
+        )
+        .bind(revision_id)
+        .bind(id)
+        .bind(content)
+        .bind(rationale)
+        .bind(now)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Update the current revision snapshot (note_revised_current is a materialized table, not a view)
+        sqlx::query(
+            "UPDATE note_revised_current SET content = $1, last_revision_id = $2 WHERE note_id = $3",
+        )
+        .bind(content)
+        .bind(revision_id)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Update note timestamp
+        sqlx::query("UPDATE note SET updated_at_utc = $1 WHERE id = $2")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        // Log activity
+        sqlx::query(
+            "INSERT INTO activity_log (id, at_utc, actor, action, note_id, meta)
+             VALUES ($1, $2, 'user', 'revise', $3, '{}'::jsonb)",
+        )
+        .bind(new_v7())
+        .bind(now)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(revision_id)
+    }
+
+    /// Check if note exists within an existing transaction.
+    pub async fn exists_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool> {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(exists)
+    }
+
+    /// Update note title within an existing transaction.
+    pub async fn update_title_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        title: &str,
+    ) -> Result<()> {
+        let now = Utc::now();
+        sqlx::query("UPDATE note SET title = $1, updated_at_utc = $2 WHERE id = $3")
+            .bind(title)
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// List all note IDs within an existing transaction.
+    pub async fn list_all_ids_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<Uuid>> {
+        let sql = "SELECT id FROM note WHERE deleted_at IS NULL ORDER BY created_at_utc DESC";
+        let rows = sqlx::query(sql)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
+    }
 }
 
 // =============================================================================

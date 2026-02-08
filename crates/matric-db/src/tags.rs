@@ -306,4 +306,68 @@ impl PgTagRepository {
             .map_err(Error::Database)?;
         Ok(())
     }
+
+    /// Get tags for a note within an existing transaction.
+    pub async fn get_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<String>> {
+        let rows =
+            sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1 ORDER BY tag_name")
+                .bind(note_id)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+        let tags = rows.into_iter().map(|row| row.get("tag_name")).collect();
+        Ok(tags)
+    }
+
+    /// Set tags for a note within an existing transaction.
+    pub async fn set_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        tags: Vec<String>,
+        source: &str,
+    ) -> Result<()> {
+        // Validate all tag names first
+        for tag_name in &tags {
+            validate_tag_name(tag_name).map_err(Error::InvalidInput)?;
+        }
+
+        let now = Utc::now();
+
+        // Remove existing tags
+        sqlx::query("DELETE FROM note_tag WHERE note_id = $1")
+            .bind(note_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+        // Add new tags
+        for tag_name in tags {
+            // Ensure tag exists
+            sqlx::query(
+                "INSERT INTO tag (name, created_at_utc) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            )
+            .bind(&tag_name)
+            .bind(now)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            // Link tag to note
+            sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, $3)")
+                .bind(note_id)
+                .bind(&tag_name)
+                .bind(source)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        Ok(())
+    }
 }

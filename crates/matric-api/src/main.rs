@@ -48,7 +48,7 @@ use matric_core::{
     RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
     UpdateNoteStatusRequest,
 };
-use matric_db::{Database, FilesystemBackend, SkosTagResolutionRepository};
+use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
@@ -2047,6 +2047,7 @@ struct TimelineBucket {
 /// Get notes grouped by time periods for timeline visualization.
 async fn get_notes_timeline(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let period = query.period.as_deref().unwrap_or("day");
@@ -2083,7 +2084,11 @@ async fn get_notes_timeline(
         updated_before: None,
     };
 
-    let response = state.db.notes.list(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let response = ctx
+        .query(move |tx| Box::pin(async move { notes.list_tx(tx, req).await }))
+        .await?;
 
     // Group notes by period
     let mut buckets: std::collections::HashMap<i64, Vec<Uuid>> = std::collections::HashMap::new();
@@ -2197,6 +2202,7 @@ struct ActivityEntry {
 /// Get recent note activity (created and modified notes).
 async fn get_notes_activity(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ActivityQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let since = query
@@ -2237,13 +2243,17 @@ async fn get_notes_activity(
         updated_before: None,
     };
 
-    let (created_response, updated_response) = tokio::join!(
-        state.db.notes.list(created_req),
-        state.db.notes.list(updated_req)
-    );
-
-    let created_notes = created_response?;
-    let updated_notes = updated_response?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let (created_notes, updated_notes) = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let created = notes.list_tx(tx, created_req).await?;
+                let updated = notes.list_tx(tx, updated_req).await?;
+                Ok((created, updated))
+            })
+        })
+        .await?;
 
     // Combine and deduplicate
     let mut activity: std::collections::HashMap<Uuid, ActivityEntry> =
@@ -2310,6 +2320,7 @@ struct HealthQuery {
 /// Get overall knowledge health metrics.
 async fn get_knowledge_health(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stale_days = query
@@ -2317,23 +2328,31 @@ async fn get_knowledge_health(
         .unwrap_or(matric_core::defaults::STALE_DAYS);
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let links_repo = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+
+    let mut tx = ctx.begin_tx().await?;
+
     // Get total note count
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
+    let all_notes = notes_repo
+        .list_tx(
+            &mut tx,
+            ListNotesRequest {
+                limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
+                offset: None,
+                filter: None,
+                sort_by: None,
+                sort_order: None,
+                collection_id: None,
+                tags: None,
+                created_after: None,
+                created_before: None,
+                updated_after: None,
+                updated_before: None,
+            },
+        )
         .await?;
 
     let total_notes = all_notes.total;
@@ -2346,10 +2365,8 @@ async fn get_knowledge_health(
         .count();
 
     // Get notes without any links (unlinked)
-    let all_links = state
-        .db
-        .links
-        .list_all(matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
+    let all_links = links_repo
+        .list_all_tx(&mut tx, matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
         .await
         .unwrap_or_default();
     let linked_note_ids: std::collections::HashSet<Uuid> = all_links
@@ -2369,14 +2386,12 @@ async fn get_knowledge_health(
         .count();
 
     // Get orphan tags (used only once)
-    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
     let mut tag_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut notes_with_tags: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
+        let note_tags = tags_repo
+            .get_for_note_tx(&mut tx, note.id)
             .await
             .unwrap_or_default();
         if !note_tags.is_empty() {
@@ -2390,6 +2405,8 @@ async fn get_knowledge_health(
 
     // Get notes without any tags/concepts
     let notes_without_tags = all_notes.notes.len() - notes_with_tags.len();
+
+    drop(tx); // read-only, no commit needed
 
     // Calculate health score (0-100)
     let health_score = if total_notes > 0 {
@@ -2422,45 +2439,52 @@ async fn get_knowledge_health(
 /// Get tags used only once (orphan tags).
 async fn get_orphan_tags(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query
         .limit
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let mut tx = ctx.begin_tx().await?;
+
     // Get all notes and their tags
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
+    let all_notes = notes_repo
+        .list_tx(
+            &mut tx,
+            ListNotesRequest {
+                limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
+                offset: None,
+                filter: None,
+                sort_by: None,
+                sort_order: None,
+                collection_id: None,
+                tags: None,
+                created_after: None,
+                created_before: None,
+                updated_after: None,
+                updated_before: None,
+            },
+        )
         .await?;
 
     // Count tag usage
     let mut tag_usage: std::collections::HashMap<String, Vec<Uuid>> =
         std::collections::HashMap::new();
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
+        let note_tags = tags_repo
+            .get_for_note_tx(&mut tx, note.id)
             .await
             .unwrap_or_default();
         for tag in note_tags {
             tag_usage.entry(tag).or_default().push(note.id);
         }
     }
+
+    drop(tx);
 
     // Filter to orphan tags (used exactly once)
     let orphan_tags: Vec<serde_json::Value> = tag_usage
@@ -2484,6 +2508,7 @@ async fn get_orphan_tags(
 /// Get notes not updated in a long time.
 async fn get_stale_notes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stale_days = query
@@ -2494,23 +2519,24 @@ async fn get_stale_notes(
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
     let stale_threshold = chrono::Utc::now() - chrono::Duration::days(stale_days);
 
-    // Get notes updated before the threshold
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-            offset: None,
-            filter: None,
-            sort_by: Some("updated_at".to_string()),
-            sort_order: Some("asc".to_string()),
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: Some(stale_threshold),
-        })
+    let req_for_query = ListNotesRequest {
+        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
+        offset: None,
+        filter: None,
+        sort_by: Some("updated_at".to_string()),
+        sort_order: Some("asc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: Some(stale_threshold),
+    };
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let all_notes = ctx
+        .query(move |tx| Box::pin(async move { notes.list_tx(tx, req_for_query).await }))
         .await?;
 
     let stale_notes: Vec<serde_json::Value> = all_notes
@@ -2538,19 +2564,43 @@ async fn get_stale_notes(
 /// Get notes with no incoming or outgoing links.
 async fn get_unlinked_notes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query
         .limit
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
 
-    // Get all links to find linked notes
-    let all_links = state
-        .db
-        .links
-        .list_all(matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
-        .await
-        .unwrap_or_default();
+    let req = ListNotesRequest {
+        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
+        offset: None,
+        filter: None,
+        sort_by: Some("created_at".to_string()),
+        sort_order: Some("desc".to_string()),
+        collection_id: None,
+        tags: None,
+        created_after: None,
+        created_before: None,
+        updated_after: None,
+        updated_before: None,
+    };
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let links_repo = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let (all_links, all_notes) = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let links = links_repo
+                    .list_all_tx(tx, matric_core::defaults::INTERNAL_FETCH_LIMIT, 0)
+                    .await
+                    .unwrap_or_default();
+                let notes = notes_repo.list_tx(tx, req).await?;
+                Ok((links, notes))
+            })
+        })
+        .await?;
+
     let linked_note_ids: std::collections::HashSet<Uuid> = all_links
         .iter()
         .flat_map(|link| {
@@ -2561,25 +2611,6 @@ async fn get_unlinked_notes(
             ids
         })
         .collect();
-
-    // Get all notes
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-            offset: None,
-            filter: None,
-            sort_by: Some("created_at".to_string()),
-            sort_order: Some("desc".to_string()),
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
-        .await?;
 
     // Filter to unlinked notes
     let unlinked_notes: Vec<serde_json::Value> = all_notes
@@ -2607,27 +2638,34 @@ async fn get_unlinked_notes(
 /// Get tag co-occurrence patterns.
 async fn get_tag_cooccurrence(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<HealthQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT) as usize;
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let mut tx = ctx.begin_tx().await?;
+
     // Get all notes
-    let all_notes = state
-        .db
-        .notes
-        .list(ListNotesRequest {
-            limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-            offset: None,
-            filter: None,
-            sort_by: None,
-            sort_order: None,
-            collection_id: None,
-            tags: None,
-            created_after: None,
-            created_before: None,
-            updated_after: None,
-            updated_before: None,
-        })
+    let all_notes = notes_repo
+        .list_tx(
+            &mut tx,
+            ListNotesRequest {
+                limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
+                offset: None,
+                filter: None,
+                sort_by: None,
+                sort_order: None,
+                collection_id: None,
+                tags: None,
+                created_after: None,
+                created_before: None,
+                updated_after: None,
+                updated_before: None,
+            },
+        )
         .await?;
 
     // Build co-occurrence matrix
@@ -2635,10 +2673,8 @@ async fn get_tag_cooccurrence(
         std::collections::HashMap::new();
 
     for note in &all_notes.notes {
-        let note_tags = state
-            .db
-            .tags
-            .get_for_note(note.id)
+        let note_tags = tags_repo
+            .get_for_note_tx(&mut tx, note.id)
             .await
             .unwrap_or_default();
         // Generate all pairs
@@ -2653,6 +2689,8 @@ async fn get_tag_cooccurrence(
             }
         }
     }
+
+    drop(tx);
 
     // Sort by frequency and take top pairs
     let mut pairs: Vec<_> = cooccurrence.into_iter().collect();
@@ -2700,6 +2738,7 @@ struct ListNotesQuery {
 
 async fn list_notes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Issue #271 + #29: Validate limit parameter before database query
@@ -2739,7 +2778,11 @@ async fn list_notes(
         updated_before: query.updated_before.map(|dt| dt.into_inner()),
     };
 
-    let response = state.db.notes.list(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let response = ctx
+        .query(move |tx| Box::pin(async move { notes.list_tx(tx, req).await }))
+        .await?;
     Ok(Json(response))
 }
 
@@ -2793,16 +2836,13 @@ async fn create_note(
         _ => RevisionMode::Full, // "full" or unspecified
     };
 
-    // Insert note (archive-scoped via SchemaContext when active archive != public)
-    let note_id = if archive_ctx.schema != "public" {
-        let ctx = state.db.for_schema(&archive_ctx.schema)?;
-        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-        let req_clone = req.clone();
-        ctx.execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req_clone).await }))
-            .await?
-    } else {
-        state.db.notes.insert(req.clone()).await?
-    };
+    // Insert note (archive-scoped via SchemaContext)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let req_clone = req.clone();
+    let note_id = ctx
+        .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req_clone).await }))
+        .await?;
 
     // Determine schema for background jobs (Issue #109)
     let schema_for_jobs = if archive_ctx.schema != "public" {
@@ -2813,26 +2853,36 @@ async fn create_note(
 
     // Resolve tags via SKOS and create parent hierarchy (fixes #301)
     if let Some(tags) = tags_for_skos {
-        let mut concept_ids = Vec::new();
-        for tag in &tags {
-            // Parse hierarchical tag (e.g., "programming/rust" -> ["programming", "rust"])
-            let tag_input = TagInput::parse(tag);
-            // Resolve or create SKOS concepts (auto-creates parent tags)
-            if let Ok(resolved) = state.db.skos.resolve_or_create_tag(&tag_input).await {
-                concept_ids.push(resolved.concept_id);
-            }
-        }
-        // Tag the note with resolved SKOS concepts
-        if !concept_ids.is_empty() {
-            let batch_req = BatchTagNoteRequest {
-                note_id,
-                concept_ids,
-                source: "user".to_string(),
-                confidence: None,
-                created_by: None,
-            };
-            let _ = state.db.skos.batch_tag_note(batch_req).await;
-        }
+        let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+        let ctx_for_tags = state.db.for_schema(&archive_ctx.schema)?;
+
+        let _ = ctx_for_tags
+            .execute(move |tx| {
+                Box::pin(async move {
+                    let mut concept_ids = Vec::new();
+                    for tag in &tags {
+                        // Parse hierarchical tag (e.g., "programming/rust" -> ["programming", "rust"])
+                        let tag_input = TagInput::parse(tag);
+                        // Resolve or create SKOS concepts (auto-creates parent tags)
+                        if let Ok(resolved) = skos.resolve_or_create_tag_tx(tx, &tag_input).await {
+                            concept_ids.push(resolved.concept_id);
+                        }
+                    }
+                    // Tag the note with resolved SKOS concepts
+                    if !concept_ids.is_empty() {
+                        let batch_req = BatchTagNoteRequest {
+                            note_id,
+                            concept_ids,
+                            source: "user".to_string(),
+                            confidence: None,
+                            created_by: None,
+                        };
+                        skos.batch_tag_note_tx(tx, batch_req).await?;
+                    }
+                    Ok::<_, matric_core::Error>(())
+                })
+            })
+            .await;
     }
 
     // If mode is "none", copy original to revised (so embedding/search works on it)
@@ -2939,15 +2989,19 @@ async fn bulk_create_notes(
         })
         .collect();
 
-    // Bulk insert all notes (archive-scoped via SchemaContext when active archive != public)
-    let ids = if archive_ctx.schema != "public" {
-        let ctx = state.db.for_schema(&archive_ctx.schema)?;
-        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-        let reqs = requests.clone();
-        ctx.execute(move |tx| Box::pin(async move { notes.insert_bulk_tx(tx, reqs).await }))
-            .await?
+    // Bulk insert all notes (archive-scoped via SchemaContext)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let reqs = requests.clone();
+    let ids = ctx
+        .execute(move |tx| Box::pin(async move { notes.insert_bulk_tx(tx, reqs).await }))
+        .await?;
+
+    // Determine schema for background jobs
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.as_str())
     } else {
-        state.db.notes.insert_bulk(requests.clone()).await?
+        None
     };
 
     // Queue NLP pipeline for each note based on revision mode
@@ -2971,7 +3025,14 @@ async fn bulk_create_notes(
                 .await;
         }
 
-        queue_nlp_pipeline(&state.db, *note_id, revision_mode, &state.event_bus, None).await;
+        queue_nlp_pipeline(
+            &state.db,
+            *note_id,
+            revision_mode,
+            &state.event_bus,
+            schema_for_jobs,
+        )
+        .await;
     }
 
     Ok((
@@ -2985,9 +3046,14 @@ async fn bulk_create_notes(
 
 async fn get_note(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let note = state.db.notes.fetch(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let note = ctx
+        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
+        .await?;
     Ok(Json(note))
 }
 
@@ -3005,13 +3071,22 @@ struct UpdateNoteBody {
 async fn update_note(
     _auth: Auth,
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let pool = state.db.pool.clone();
+
     // Update content if provided
     let content_changed = body.content.is_some();
     if let Some(content) = &body.content {
-        state.db.notes.update_original(id, content).await?;
+        let notes = matric_db::PgNoteRepository::new(pool.clone());
+        let content_clone = content.clone();
+        ctx.execute(move |tx| {
+            Box::pin(async move { notes.update_original_tx(tx, id, &content_clone).await })
+        })
+        .await?;
     }
 
     // Update status if provided
@@ -3021,7 +3096,9 @@ async fn update_note(
             archived: body.archived,
             metadata: body.metadata,
         };
-        state.db.notes.update_status(id, req).await?;
+        let notes = matric_db::PgNoteRepository::new(pool.clone());
+        ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
+            .await?;
     }
 
     // Queue full NLP pipeline if content changed
@@ -3036,10 +3113,21 @@ async fn update_note(
         // If mode is "none", copy original to revised (so embedding/search works on it)
         if revision_mode == RevisionMode::None {
             if let Some(content) = &body.content {
-                let _ = state
-                    .db
-                    .notes
-                    .update_revised(id, content, Some("Original preserved (no AI revision)"))
+                let notes = matric_db::PgNoteRepository::new(pool.clone());
+                let content_clone = content.clone();
+                let _ = ctx
+                    .execute(move |tx| {
+                        Box::pin(async move {
+                            notes
+                                .update_revised_tx(
+                                    tx,
+                                    id,
+                                    &content_clone,
+                                    Some("Original preserved (no AI revision)"),
+                                )
+                                .await
+                        })
+                    })
                     .await;
             }
         }
@@ -3048,7 +3136,10 @@ async fn update_note(
     }
 
     // Fetch and return the updated note
-    let note = state.db.notes.fetch(id).await?;
+    let notes = matric_db::PgNoteRepository::new(pool);
+    let note = ctx
+        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
+        .await?;
 
     // Emit NoteUpdated event (Issue #41)
     state.event_bus.emit(ServerEvent::NoteUpdated {
@@ -3065,9 +3156,13 @@ async fn update_note(
 async fn delete_note(
     _auth: Auth,
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.notes.soft_delete(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { notes.soft_delete_tx(tx, id).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3076,6 +3171,7 @@ async fn delete_note(
 async fn purge_note(
     _auth: Auth,
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     // NOTE: Write scope enforcement removed for pre-tenancy permissive mode.
@@ -3083,7 +3179,13 @@ async fn purge_note(
     // See: issue #129, commit 49d9f3f
 
     // Verify note exists first
-    if !state.db.notes.exists(id).await? {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let exists = ctx
+        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
+        .await?;
+
+    if !exists {
         return Err(ApiError::NotFound(format!("Note {} not found", id)));
     }
 
@@ -3120,6 +3222,7 @@ struct UpdateStatusBody {
 
 async fn update_note_status(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateStatusBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3128,7 +3231,10 @@ async fn update_note_status(
         archived: body.archived,
         metadata: None,
     };
-    state.db.notes.update_status(id, req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3140,10 +3246,14 @@ struct RestoreNoteQuery {
 
 async fn restore_note(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<RestoreNoteQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.notes.restore(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { notes.restore_tx(tx, id).await }))
+        .await?;
 
     // Parse revision mode (default to Full)
     let revision_mode = match query.revision_mode.as_deref() {
@@ -3152,8 +3262,22 @@ async fn restore_note(
         _ => RevisionMode::Full,
     };
 
+    // Determine schema for background jobs
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.as_str())
+    } else {
+        None
+    };
+
     // Re-run NLP pipeline to ensure note is properly indexed
-    queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
+    queue_nlp_pipeline(
+        &state.db,
+        id,
+        revision_mode,
+        &state.event_bus,
+        schema_for_jobs,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3171,11 +3295,16 @@ struct ReprocessNoteBody {
 /// When `steps` is provided, only the specified steps are queued.
 async fn reprocess_note(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     body: Option<Json<ReprocessNoteBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Verify note exists
-    let _ = state.db.notes.fetch(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let _ = ctx
+        .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
+        .await?;
 
     let body = body.map(|b| b.0);
 
@@ -3265,9 +3394,14 @@ async fn reprocess_note(
 
 async fn get_note_tags(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let tags = state.db.tags.get_for_note(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let tags = ctx
+        .query(move |tx| Box::pin(async move { repo.get_for_note_tx(tx, id).await }))
+        .await?;
     Ok(Json(tags))
 }
 
@@ -3278,15 +3412,28 @@ struct SetTagsBody {
 
 async fn set_note_tags(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<SetTagsBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.tags.set_for_note(id, body.tags, "api").await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move { repo.set_for_note_tx(tx, id, body.tags, "api").await })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_tags(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let tags = state.db.tags.list().await?;
+async fn list_tags(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let tags = ctx
+        .query(move |tx| Box::pin(async move { repo.list_tx(tx).await }))
+        .await?;
     Ok(Json(tags))
 }
 
@@ -3294,36 +3441,42 @@ async fn list_tags(State(state): State<AppState>) -> Result<impl IntoResponse, A
 // SKOS CONCEPT HANDLERS
 // =============================================================================
 
-use matric_db::{
-    SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository,
-    SkosGovernanceRepository, SkosLabelRepository, SkosRelationRepository, SkosTaggingRepository,
-};
-
 // --- Concept Scheme Handlers ---
 
 async fn list_concept_schemes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let schemes = state.db.skos.list_schemes(false).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let schemes = ctx
+        .query(move |tx| Box::pin(async move { skos.list_schemes_tx(tx, false).await }))
+        .await?;
     Ok(Json(schemes))
 }
 
 async fn create_concept_scheme(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptSchemeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let id = state.db.skos.create_scheme(body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let id = ctx
+        .execute(move |tx| Box::pin(async move { skos.create_scheme_tx(tx, body).await }))
+        .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
 async fn get_concept_scheme(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let scheme = state
-        .db
-        .skos
-        .get_scheme(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let scheme = ctx
+        .query(move |tx| Box::pin(async move { skos.get_scheme_tx(tx, id).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound("Concept scheme not found".to_string()))?;
     Ok(Json(scheme))
@@ -3331,10 +3484,14 @@ async fn get_concept_scheme(
 
 async fn update_concept_scheme(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptSchemeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.update_scheme(id, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.update_scheme_tx(tx, id, body).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3345,19 +3502,28 @@ struct DeleteSchemeQuery {
 
 async fn delete_concept_scheme(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<DeleteSchemeQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let force = query.force.unwrap_or(false);
-    state.db.skos.delete_scheme(id, force).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.delete_scheme_tx(tx, id, force).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_top_concepts(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let concepts = state.db.skos.get_top_concepts(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let concepts = ctx
+        .query(move |tx| Box::pin(async move { skos.get_top_concepts_tx(tx, id).await }))
+        .await?;
     Ok(Json(concepts))
 }
 
@@ -3377,6 +3543,7 @@ struct SearchConceptsQuery {
 
 async fn search_concepts(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<SearchConceptsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let req = matric_core::SearchConceptsRequest {
@@ -3391,15 +3558,24 @@ async fn search_concepts(
         max_depth: None,
         has_antipattern: None,
     };
-    let result = state.db.skos.search_concepts(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| Box::pin(async move { skos.search_concepts_tx(tx, req).await }))
+        .await?;
     Ok(Json(result))
 }
 
 async fn create_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let id = state.db.skos.create_concept(body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let id = ctx
+        .execute(move |tx| Box::pin(async move { skos.create_concept_tx(tx, body).await }))
+        .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -3411,29 +3587,32 @@ struct AutocompleteQuery {
 
 async fn autocomplete_concepts(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<AutocompleteQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let concepts = state
-        .db
-        .skos
-        .search_labels(
-            &query.q,
-            query
-                .limit
-                .unwrap_or(matric_core::defaults::PAGE_LIMIT_AUTOCOMPLETE),
-        )
+    let query_str = query.q.clone();
+    let limit = query
+        .limit
+        .unwrap_or(matric_core::defaults::PAGE_LIMIT_AUTOCOMPLETE);
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let concepts = ctx
+        .query(move |tx| {
+            Box::pin(async move { skos.search_labels_tx(tx, &query_str, limit).await })
+        })
         .await?;
     Ok(Json(concepts))
 }
 
 async fn get_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let concept = state
-        .db
-        .skos
-        .get_concept_with_label(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let concept = ctx
+        .query(move |tx| Box::pin(async move { skos.get_concept_with_label_tx(tx, id).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound("Concept not found".to_string()))?;
     Ok(Json(concept))
@@ -3441,12 +3620,13 @@ async fn get_concept(
 
 async fn get_concept_full(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let concept = state
-        .db
-        .skos
-        .get_concept_full(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let concept = ctx
+        .query(move |tx| Box::pin(async move { skos.get_concept_full_tx(tx, id).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound("Concept not found".to_string()))?;
     Ok(Json(concept))
@@ -3454,25 +3634,37 @@ async fn get_concept_full(
 
 async fn update_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.update_concept(id, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     // Return updated concept for better REST semantics (issue #142)
-    let concept = state
-        .db
-        .skos
-        .get_concept_with_label(id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Concept {id} not found after update")))?;
+    let concept = ctx
+        .execute(move |tx| {
+            Box::pin(async move {
+                skos.update_concept_tx(tx, id, body).await?;
+                skos.get_concept_with_label_tx(tx, id)
+                    .await?
+                    .ok_or_else(|| {
+                        matric_core::Error::NotFound(format!("Concept {id} not found after update"))
+                    })
+            })
+        })
+        .await?;
     Ok(Json(concept))
 }
 
 async fn delete_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.delete_concept(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.delete_concept_tx(tx, id).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3480,62 +3672,112 @@ async fn delete_concept(
 
 async fn get_ancestors(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Get broader relations which represent ancestors
-    let relations = state
-        .db
-        .skos
-        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Broader))
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let relations = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                skos.get_semantic_relations_tx(
+                    tx,
+                    id,
+                    Some(matric_core::SkosSemanticRelation::Broader),
+                )
+                .await
+            })
+        })
         .await?;
     Ok(Json(relations))
 }
 
 async fn get_descendants(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Get narrower relations which represent descendants
-    let relations = state
-        .db
-        .skos
-        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Narrower))
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let relations = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                skos.get_semantic_relations_tx(
+                    tx,
+                    id,
+                    Some(matric_core::SkosSemanticRelation::Narrower),
+                )
+                .await
+            })
+        })
         .await?;
     Ok(Json(relations))
 }
 
 async fn get_broader(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let relations = state
-        .db
-        .skos
-        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Broader))
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let relations = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                skos.get_semantic_relations_tx(
+                    tx,
+                    id,
+                    Some(matric_core::SkosSemanticRelation::Broader),
+                )
+                .await
+            })
+        })
         .await?;
     Ok(Json(relations))
 }
 
 async fn get_narrower(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let relations = state
-        .db
-        .skos
-        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Narrower))
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let relations = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                skos.get_semantic_relations_tx(
+                    tx,
+                    id,
+                    Some(matric_core::SkosSemanticRelation::Narrower),
+                )
+                .await
+            })
+        })
         .await?;
     Ok(Json(relations))
 }
 
 async fn get_related(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let relations = state
-        .db
-        .skos
-        .get_semantic_relations(id, Some(matric_core::SkosSemanticRelation::Related))
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let relations = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                skos.get_semantic_relations_tx(
+                    tx,
+                    id,
+                    Some(matric_core::SkosSemanticRelation::Related),
+                )
+                .await
+            })
+        })
         .await?;
     Ok(Json(relations))
 }
@@ -3547,6 +3789,7 @@ struct AddRelationBody {
 
 async fn add_broader(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3558,7 +3801,10 @@ async fn add_broader(
         is_inferred: false,
         created_by: Some("api".to_string()),
     };
-    state.db.skos.create_semantic_relation(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -3567,6 +3813,7 @@ async fn add_broader(
 
 async fn add_narrower(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3578,7 +3825,10 @@ async fn add_narrower(
         is_inferred: false,
         created_by: Some("api".to_string()),
     };
-    state.db.skos.create_semantic_relation(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -3587,6 +3837,7 @@ async fn add_narrower(
 
 async fn add_related(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3598,7 +3849,10 @@ async fn add_related(
         is_inferred: false,
         created_by: Some("api".to_string()),
     };
-    state.db.skos.create_semantic_relation(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -3607,49 +3861,67 @@ async fn add_related(
 
 async fn remove_broader(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .skos
-        .delete_semantic_relation_by_triple(
-            id,
-            target_id,
-            matric_core::SkosSemanticRelation::Broader,
-        )
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            skos.delete_semantic_relation_by_triple_tx(
+                tx,
+                id,
+                target_id,
+                matric_core::SkosSemanticRelation::Broader,
+            )
+            .await
+        })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn remove_narrower(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .skos
-        .delete_semantic_relation_by_triple(
-            id,
-            target_id,
-            matric_core::SkosSemanticRelation::Narrower,
-        )
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            skos.delete_semantic_relation_by_triple_tx(
+                tx,
+                id,
+                target_id,
+                matric_core::SkosSemanticRelation::Narrower,
+            )
+            .await
+        })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn remove_related(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .skos
-        .delete_semantic_relation_by_triple(
-            id,
-            target_id,
-            matric_core::SkosSemanticRelation::Related,
-        )
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            skos.delete_semantic_relation_by_triple_tx(
+                tx,
+                id,
+                target_id,
+                matric_core::SkosSemanticRelation::Related,
+            )
+            .await
+        })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3657,9 +3929,14 @@ async fn remove_related(
 
 async fn get_note_concepts(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let concepts = state.db.skos.get_note_tags_with_labels(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let concepts = ctx
+        .query(move |tx| Box::pin(async move { skos.get_note_tags_with_labels_tx(tx, id).await }))
+        .await?;
     Ok(Json(concepts))
 }
 
@@ -3671,6 +3948,7 @@ struct TagNoteBody {
 
 async fn tag_note_with_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<TagNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -3683,7 +3961,10 @@ async fn tag_note_with_concept(
         is_primary: body.is_primary.unwrap_or(false),
         created_by: None,
     };
-    state.db.skos.tag_note(req).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.tag_note_tx(tx, req).await }))
+        .await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -3692,9 +3973,15 @@ async fn tag_note_with_concept(
 
 async fn untag_note_concept(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((note_id, concept_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.untag_note(note_id, concept_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move { skos.untag_note_tx(tx, note_id, concept_id).await })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3707,37 +3994,54 @@ struct GovernanceQuery {
 
 async fn get_governance_stats(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<GovernanceQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Use default scheme if none provided
-    let scheme_id = match query.scheme_id {
-        Some(id) => id,
-        None => state.db.skos.get_default_scheme_id().await?,
-    };
-    let stats = state.db.skos.get_governance_stats(scheme_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let scheme_id_opt = query.scheme_id;
+    let stats = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let scheme_id = match scheme_id_opt {
+                    Some(id) => id,
+                    None => skos.get_default_scheme_id_tx(tx).await?,
+                };
+                skos.get_governance_stats_tx(tx, scheme_id).await
+            })
+        })
+        .await?;
     Ok(Json(stats))
 }
 
 /// Export a concept scheme in W3C SKOS Turtle format.
 async fn export_scheme_turtle(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Get the scheme
-    let scheme = state
-        .db
-        .skos
-        .get_scheme(id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Concept scheme not found".to_string()))?;
+    // Get the scheme and concepts in a single transaction
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let (scheme, concepts_resp) = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let scheme = skos.get_scheme_tx(tx, id).await?.ok_or_else(|| {
+                    matric_core::Error::NotFound("Concept scheme not found".to_string())
+                })?;
 
-    // Get all concepts in the scheme
-    let search_req = matric_core::SearchConceptsRequest {
-        scheme_id: Some(id),
-        limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
-        ..Default::default()
-    };
-    let concepts_resp = state.db.skos.search_concepts(search_req).await?;
+                let search_req = matric_core::SearchConceptsRequest {
+                    scheme_id: Some(id),
+                    limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
+                    ..Default::default()
+                };
+                let concepts_resp = skos.search_concepts_tx(tx, search_req).await?;
+
+                Ok::<_, matric_core::Error>((scheme, concepts_resp))
+            })
+        })
+        .await?;
 
     // Build Turtle output
     let mut turtle = String::new();
@@ -3812,9 +4116,32 @@ async fn export_scheme_turtle(
 /// Export all concept schemes as a single Turtle document.
 async fn export_all_schemes_turtle(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Get all active schemes
-    let schemes = state.db.skos.list_schemes(false).await?;
+    // Get all schemes and their concepts in a single transaction
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+
+    let schemes_with_concepts = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let schemes = skos.list_schemes_tx(tx, false).await?;
+                let mut result = Vec::new();
+
+                for scheme in schemes {
+                    let search_req = matric_core::SearchConceptsRequest {
+                        scheme_id: Some(scheme.id),
+                        limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
+                        ..Default::default()
+                    };
+                    let concepts_resp = skos.search_concepts_tx(tx, search_req).await?;
+                    result.push((scheme, concepts_resp));
+                }
+
+                Ok::<_, matric_core::Error>(result)
+            })
+        })
+        .await?;
 
     let mut turtle = String::new();
 
@@ -3823,7 +4150,7 @@ async fn export_all_schemes_turtle(
     turtle.push_str("@prefix dct: <http://purl.org/dc/terms/> .\n");
     turtle.push_str("@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n");
 
-    for scheme in &schemes {
+    for (scheme, _) in &schemes_with_concepts {
         let prefix = format!("s_{}", scheme.notation.replace('-', "_"));
         turtle.push_str(&format!(
             "@prefix {}: <urn:matric:scheme:{}:> .\n",
@@ -3832,7 +4159,7 @@ async fn export_all_schemes_turtle(
     }
     turtle.push('\n');
 
-    for scheme in &schemes {
+    for (scheme, concepts_resp) in &schemes_with_concepts {
         let prefix = format!("s_{}", scheme.notation.replace('-', "_"));
 
         // Scheme definition
@@ -3849,13 +4176,7 @@ async fn export_all_schemes_turtle(
         }
         turtle.push_str(" .\n\n");
 
-        // Get concepts in the scheme
-        let search_req = matric_core::SearchConceptsRequest {
-            scheme_id: Some(scheme.id),
-            limit: matric_core::defaults::INTERNAL_FETCH_LIMIT,
-            ..Default::default()
-        };
-        let concepts_resp = state.db.skos.search_concepts(search_req).await?;
+        // Concepts already fetched in transaction
 
         for concept in &concepts_resp.concepts {
             let id_str = concept.concept.id.to_string();
@@ -3911,28 +4232,40 @@ struct ListSkosCollectionsQuery {
 
 async fn list_skos_collections(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ListSkosCollectionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let collections = state.db.skos.list_collections(query.scheme_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let scheme_id = query.scheme_id;
+    let collections = ctx
+        .query(move |tx| Box::pin(async move { skos.list_collections_tx(tx, scheme_id).await }))
+        .await?;
     Ok(Json(collections))
 }
 
 async fn create_skos_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateSkosCollectionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let id = state.db.skos.create_collection(body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let id = ctx
+        .execute(move |tx| Box::pin(async move { skos.create_collection_tx(tx, body).await }))
+        .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
 async fn get_skos_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let collection = state
-        .db
-        .skos
-        .get_collection_with_members(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let collection = ctx
+        .query(move |tx| Box::pin(async move { skos.get_collection_with_members_tx(tx, id).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound("SKOS collection not found".to_string()))?;
     Ok(Json(collection))
@@ -3940,27 +4273,41 @@ async fn get_skos_collection(
 
 async fn update_skos_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateSkosCollectionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.update_collection(id, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.update_collection_tx(tx, id, body).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_skos_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.delete_collection(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { skos.delete_collection_tx(tx, id).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn replace_skos_collection_members(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateCollectionMembersRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.skos.replace_collection_members(id, body).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move { skos.replace_collection_members_tx(tx, id, body).await })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3971,27 +4318,37 @@ struct AddMemberBody {
 
 async fn add_skos_collection_member(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
     body: Option<Json<AddMemberBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     let position = body.and_then(|b| b.position);
-    state
-        .db
-        .skos
-        .add_collection_member(collection_id, concept_id, position)
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            skos.add_collection_member_tx(tx, collection_id, concept_id, position)
+                .await
+        })
+    })
+    .await?;
     Ok(StatusCode::CREATED)
 }
 
 async fn remove_skos_collection_member(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .skos
-        .remove_collection_member(collection_id, concept_id)
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            skos.remove_collection_member_tx(tx, collection_id, concept_id)
+                .await
+        })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4008,9 +4365,15 @@ struct ListCollectionsQuery {
 
 async fn list_collections(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ListCollectionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let collections = state.db.collections.list(query.parent_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let parent_id = query.parent_id;
+    let collections = ctx
+        .query(move |tx| Box::pin(async move { repo.list_tx(tx, parent_id).await }))
+        .await?;
     Ok(Json(collections))
 }
 
@@ -4023,24 +4386,31 @@ struct CreateCollectionBody {
 
 async fn create_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateCollectionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let id = state
-        .db
-        .collections
-        .create(&body.name, body.description.as_deref(), body.parent_id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let id = ctx
+        .execute(move |tx| {
+            Box::pin(async move {
+                repo.create_tx(tx, &body.name, body.description.as_deref(), body.parent_id)
+                    .await
+            })
+        })
         .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
 async fn get_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let collection = state
-        .db
-        .collections
-        .get(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let collection = ctx
+        .query(move |tx| Box::pin(async move { repo.get_tx(tx, id).await }))
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Collection {} not found", id)))?;
     Ok(Json(collection))
@@ -4054,22 +4424,31 @@ struct UpdateCollectionBody {
 
 async fn update_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateCollectionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .collections
-        .update(id, &body.name, body.description.as_deref())
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| {
+        Box::pin(async move {
+            repo.update_tx(tx, id, &body.name, body.description.as_deref())
+                .await
+        })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.db.collections.delete(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { repo.delete_tx(tx, id).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4081,12 +4460,17 @@ struct CollectionNotesQuery {
 
 async fn get_collection_notes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<CollectionNotesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
     let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
-    let notes = state.db.collections.get_notes(id, limit, offset).await?;
+    let notes = ctx
+        .query(move |tx| Box::pin(async move { repo.get_notes_tx(tx, id, limit, offset).await }))
+        .await?;
     Ok(Json(
         serde_json::json!({ "notes": notes, "collection_id": id }),
     ))
@@ -4099,14 +4483,17 @@ struct MoveNoteBody {
 
 async fn move_note_to_collection(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(note_id): Path<Uuid>,
     Json(body): Json<MoveNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .db
-        .collections
-        .move_note(note_id, body.collection_id)
-        .await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let collection_id = body.collection_id;
+    ctx.execute(move |tx| {
+        Box::pin(async move { repo.move_note_tx(tx, note_id, collection_id).await })
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4134,13 +4521,18 @@ fn default_max_nodes() -> i64 {
 
 async fn explore_graph(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<GraphQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state
-        .db
-        .links
-        .traverse_graph(id, query.depth, query.max_nodes)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let depth = query.depth;
+    let max_nodes = query.max_nodes;
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move { links.traverse_graph_tx(tx, id, depth, max_nodes).await })
+        })
         .await?;
     Ok(Json(result))
 }
@@ -4149,10 +4541,16 @@ async fn explore_graph(
 // TEMPLATE HANDLERS
 // =============================================================================
 
-async fn list_templates(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::TemplateRepository;
-    let templates = state.db.templates.list().await?;
-    Ok(Json(templates))
+async fn list_templates(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+        .await?;
+    Ok(Json(result))
 }
 
 #[derive(Debug, Deserialize)]
@@ -4167,21 +4565,23 @@ struct CreateTemplateBody {
 
 async fn create_template(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{CreateTemplateRequest, TemplateRepository};
+    use matric_core::CreateTemplateRequest;
 
-    let id = state
-        .db
-        .templates
-        .create(CreateTemplateRequest {
-            name: body.name,
-            description: body.description,
-            content: body.content,
-            format: body.format,
-            default_tags: body.default_tags,
-            collection_id: body.collection_id,
-        })
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let req = CreateTemplateRequest {
+        name: body.name,
+        description: body.description,
+        content: body.content,
+        format: body.format,
+        default_tags: body.default_tags,
+        collection_id: body.collection_id,
+    };
+    let id = ctx
+        .execute(move |tx| Box::pin(async move { templates.create_tx(tx, req).await }))
         .await?;
 
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
@@ -4189,14 +4589,13 @@ async fn create_template(
 
 async fn get_template(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::TemplateRepository;
-
-    let template = state
-        .db
-        .templates
-        .get(id)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let template = ctx
+        .query(move |tx| Box::pin(async move { templates.get_tx(tx, id).await }))
         .await?
         .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
 
@@ -4214,24 +4613,22 @@ struct UpdateTemplateBody {
 
 async fn update_template(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{TemplateRepository, UpdateTemplateRequest};
+    use matric_core::UpdateTemplateRequest;
 
-    state
-        .db
-        .templates
-        .update(
-            id,
-            UpdateTemplateRequest {
-                name: body.name,
-                description: body.description,
-                content: body.content,
-                default_tags: body.default_tags,
-                collection_id: body.collection_id,
-            },
-        )
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let req = UpdateTemplateRequest {
+        name: body.name,
+        description: body.description,
+        content: body.content,
+        default_tags: body.default_tags,
+        collection_id: body.collection_id,
+    };
+    ctx.execute(move |tx| Box::pin(async move { templates.update_tx(tx, id, req).await }))
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -4239,10 +4636,13 @@ async fn update_template(
 
 async fn delete_template(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::TemplateRepository;
-    state.db.templates.delete(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    ctx.execute(move |tx| Box::pin(async move { templates.delete_tx(tx, id).await }))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4262,16 +4662,19 @@ struct InstantiateTemplateBody {
 
 async fn instantiate_template(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<InstantiateTemplateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{CreateNoteRequest, NoteRepository, TemplateRepository};
+    use matric_core::CreateNoteRequest;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let template_id = id;
 
     // Get the template
-    let template = state
-        .db
-        .templates
-        .get(id)
+    let template = ctx
+        .query(move |tx| Box::pin(async move { templates.get_tx(tx, template_id).await }))
         .await?
         .ok_or_else(|| matric_core::Error::NotFound(format!("Template {} not found", id)))?;
 
@@ -4292,18 +4695,18 @@ async fn instantiate_template(
     let collection_id = body.collection_id.or(template.collection_id);
 
     // Create the note
-    let note_id = state
-        .db
-        .notes
-        .insert(CreateNoteRequest {
-            content,
-            format: template.format.clone(),
-            source: "template".to_string(),
-            collection_id,
-            tags,
-            metadata: None,
-            document_type_id: None,
-        })
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let create_req = CreateNoteRequest {
+        content,
+        format: template.format.clone(),
+        source: "template".to_string(),
+        collection_id,
+        tags,
+        metadata: None,
+        document_type_id: None,
+    };
+    let note_id = ctx
+        .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, create_req).await }))
         .await?;
 
     // Parse and queue NLP pipeline
@@ -4332,19 +4735,39 @@ struct NoteLinksResponse {
 
 async fn get_note_links(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let outgoing = state.db.links.get_outgoing(id).await?;
-    let incoming = state.db.links.get_incoming(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let pool = state.db.pool.clone();
+    let note_id = id;
+
+    let outgoing = {
+        let links = matric_db::PgLinkRepository::new(pool.clone());
+        ctx.query(move |tx| Box::pin(async move { links.get_outgoing_tx(tx, note_id).await }))
+            .await?
+    };
+
+    let incoming = {
+        let links = matric_db::PgLinkRepository::new(pool.clone());
+        ctx.query(move |tx| Box::pin(async move { links.get_incoming_tx(tx, note_id).await }))
+            .await?
+    };
+
     Ok(Json(NoteLinksResponse { outgoing, incoming }))
 }
 
 /// Get backlinks (notes that link TO this note).
 async fn get_note_backlinks(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let backlinks = state.db.links.get_incoming(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let backlinks = ctx
+        .query(move |tx| Box::pin(async move { links.get_incoming_tx(tx, id).await }))
+        .await?;
     Ok(Json(serde_json::json!({
         "note_id": id,
         "backlinks": backlinks,
@@ -4363,12 +4786,38 @@ async fn get_note_backlinks(
 /// - Edges (derivation relationships to source notes)
 async fn get_note_provenance(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let chain = state.db.provenance.get_chain(id).await?;
-    let activities = state.db.provenance.get_activities_for_note(id).await?;
-    let edges = state.db.provenance.get_edges_for_note(id).await?;
-    let derived = state.db.provenance.get_derived_notes(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let pool = state.db.pool.clone();
+    let note_id = id;
+
+    let chain = {
+        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
+        ctx.query(move |tx| Box::pin(async move { prov.get_chain_tx(tx, note_id).await }))
+            .await?
+    };
+
+    let activities = {
+        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
+        ctx.query(move |tx| {
+            Box::pin(async move { prov.get_activities_for_note_tx(tx, note_id).await })
+        })
+        .await?
+    };
+
+    let edges = {
+        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
+        ctx.query(move |tx| Box::pin(async move { prov.get_edges_for_note_tx(tx, note_id).await }))
+            .await?
+    };
+
+    let derived = {
+        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
+        ctx.query(move |tx| Box::pin(async move { prov.get_derived_notes_tx(tx, note_id).await }))
+            .await?
+    };
 
     Ok(Json(serde_json::json!({
         "note_id": id,
@@ -4406,6 +4855,7 @@ struct MemorySearchQuery {
 /// - All five → combined spatial + temporal search
 async fn search_memories(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<MemorySearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let has_location = query.lat.is_some() && query.lon.is_some();
@@ -4460,10 +4910,16 @@ async fn search_memories(
         let start = query.start.unwrap().into_inner();
         let end = query.end.unwrap().into_inner();
 
-        let results = state
-            .db
-            .memory_search
-            .search_by_location_and_time(lat, lon, radius, start, end)
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let memory_search = matric_db::PgMemorySearchRepository::new(state.db.pool.clone());
+        let results = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    memory_search
+                        .search_by_location_and_time_tx(tx, lat, lon, radius, start, end)
+                        .await
+                })
+            })
             .await?;
 
         Ok(Json(serde_json::json!({
@@ -4477,10 +4933,16 @@ async fn search_memories(
         let lon = query.lon.unwrap();
         let radius = query.radius.unwrap_or(1000.0);
 
-        let results = state
-            .db
-            .memory_search
-            .search_by_location(lat, lon, radius)
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let memory_search = matric_db::PgMemorySearchRepository::new(state.db.pool.clone());
+        let results = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    memory_search
+                        .search_by_location_tx(tx, lat, lon, radius)
+                        .await
+                })
+            })
             .await?;
 
         Ok(Json(serde_json::json!({
@@ -4493,10 +4955,12 @@ async fn search_memories(
         let start = query.start.unwrap().into_inner();
         let end = query.end.unwrap().into_inner();
 
-        let results = state
-            .db
-            .memory_search
-            .search_by_timerange(start, end)
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let memory_search = matric_db::PgMemorySearchRepository::new(state.db.pool.clone());
+        let results = ctx
+            .query(move |tx| {
+                Box::pin(async move { memory_search.search_by_timerange_tx(tx, start, end).await })
+            })
             .await?;
 
         Ok(Json(serde_json::json!({
@@ -4513,9 +4977,16 @@ async fn search_memories(
 /// capture time information for all file attachments.
 async fn get_memory_provenance_handler(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let provenance = state.db.memory_search.get_memory_provenance(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let memory_search = matric_db::PgMemorySearchRepository::new(state.db.pool.clone());
+    let provenance = ctx
+        .query(move |tx| {
+            Box::pin(async move { memory_search.get_memory_provenance_tx(tx, id).await })
+        })
+        .await?;
 
     match provenance {
         Some(prov) => Ok(Json(serde_json::json!(prov))),
@@ -4546,11 +5017,22 @@ fn default_true() -> bool {
 
 async fn export_note(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<ExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let note_full = state.db.notes.fetch(id).await?;
-    let tags = state.db.tags.get_for_note(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let tag_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let (note_full, tags) = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let note = notes.fetch_tx(tx, id).await?;
+                let tags = tag_repo.get_for_note_tx(tx, id).await?;
+                Ok((note, tags))
+            })
+        })
+        .await?;
 
     let mut output = String::new();
 
@@ -4636,8 +5118,14 @@ async fn export_note(
 /// For regular notes, it simply returns the note content as-is.
 async fn get_full_document(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if archive_ctx.schema != "public" {
+        return Err(ApiError::BadRequest(
+            "Document reconstruction not yet supported for non-default archives".to_string(),
+        ));
+    }
     use matric_api::services::ReconstructionService;
 
     let reconstruction_service = ReconstructionService::new(state.db.clone());
@@ -4653,12 +5141,20 @@ async fn get_full_document(
 /// List all versions for a note (both original and revision tracks).
 async fn list_note_versions(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Verify the note exists (returns 404 if not)
-    let _ = state.db.notes.fetch(id).await?;
-
-    let versions = state.db.versioning.list_versions(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let versioning = matric_db::VersioningRepository::new(state.db.pool.clone());
+    let versions = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let _ = notes.fetch_tx(tx, id).await?;
+                versioning.list_versions_tx(tx, id).await
+            })
+        })
+        .await?;
 
     Ok(Json(serde_json::json!({
         "note_id": versions.note_id,
@@ -4689,17 +5185,20 @@ struct GetVersionQuery {
 /// Get a specific version of a note.
 async fn get_note_version(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, version)): Path<(Uuid, i32)>,
     Query(query): Query<GetVersionQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let track = query.track.as_deref().unwrap_or("original");
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::VersioningRepository::new(state.db.pool.clone());
 
     match track {
         "original" => {
-            let version_data = state
-                .db
-                .versioning
-                .get_original_version(id, version)
+            let version_data = ctx
+                .query(move |tx| {
+                    Box::pin(async move { repo.get_original_version_tx(tx, id, version).await })
+                })
                 .await?
                 .ok_or_else(|| ApiError::NotFound(format!("Version {} not found", version)))?;
 
@@ -4715,10 +5214,10 @@ async fn get_note_version(
             })))
         }
         "revision" => {
-            let revision = state
-                .db
-                .versioning
-                .get_revision_version(id, version)
+            let revision = ctx
+                .query(move |tx| {
+                    Box::pin(async move { repo.get_revision_version_tx(tx, id, version).await })
+                })
                 .await?
                 .ok_or_else(|| ApiError::NotFound(format!("Revision {} not found", version)))?;
 
@@ -4752,13 +5251,20 @@ struct RestoreVersionRequest {
 /// Restore a previous version of a note.
 async fn restore_note_version(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, version)): Path<(Uuid, i32)>,
     Json(request): Json<RestoreVersionRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let new_version = state
-        .db
-        .versioning
-        .restore_original_version(id, version, request.restore_tags)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::VersioningRepository::new(state.db.pool.clone());
+    let restore_tags = request.restore_tags;
+    let new_version = ctx
+        .execute(move |tx| {
+            Box::pin(async move {
+                repo.restore_original_version_tx(tx, id, version, restore_tags)
+                    .await
+            })
+        })
         .await?;
 
     Ok(Json(serde_json::json!({
@@ -4772,9 +5278,14 @@ async fn restore_note_version(
 /// Delete a specific version from history.
 async fn delete_note_version(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, version)): Path<(Uuid, i32)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let deleted = state.db.versioning.delete_version(id, version).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::VersioningRepository::new(state.db.pool.clone());
+    let deleted = ctx
+        .execute(move |tx| Box::pin(async move { repo.delete_version_tx(tx, id, version).await }))
+        .await?;
 
     if deleted {
         Ok(Json(serde_json::json!({
@@ -4797,13 +5308,16 @@ struct DiffVersionsQuery {
 /// Generate a diff between two versions.
 async fn diff_note_versions(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<DiffVersionsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let diff = state
-        .db
-        .versioning
-        .diff_versions(id, query.from, query.to)
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::VersioningRepository::new(state.db.pool.clone());
+    let from = query.from;
+    let to = query.to;
+    let diff = ctx
+        .query(move |tx| Box::pin(async move { repo.diff_versions_tx(tx, id, from, to).await }))
         .await?;
 
     // Return as plain text (unified diff format)
@@ -4854,8 +5368,14 @@ struct SearchResponse {
 
 async fn search_notes(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<SearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if archive_ctx.schema != "public" {
+        return Err(ApiError::BadRequest(
+            "Search not yet supported for non-default archives".to_string(),
+        ));
+    }
     let limit = query
         .limit
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_SEARCH);
@@ -5019,6 +5539,7 @@ struct FederatedSearchResponse {
 /// - `limit`: Max results per memory (default 10)
 async fn federated_search(
     State(state): State<AppState>,
+    Extension(_archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<FederatedSearchRequest>,
 ) -> Result<Json<FederatedSearchResponse>, ApiError> {
     use matric_core::ArchiveRepository;
@@ -6615,7 +7136,7 @@ async fn backup_export(
     State(state): State<AppState>,
     Query(query): Query<BackupExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{NoteRepository, TemplateRepository};
+    use matric_core::NoteRepository;
 
     // Build list request with filters
     let tags = query.tags.map(|t| {
@@ -6695,7 +7216,13 @@ async fn backup_export(
     let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
 
     // Fetch templates
-    let templates = state.db.templates.list().await.unwrap_or_default();
+    let templates = {
+        let ctx = state.db.for_schema("public")?;
+        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+            .await
+    }
+    .unwrap_or_default();
     let templates_json: Vec<serde_json::Value> = templates
         .iter()
         .map(|t| {
@@ -6739,7 +7266,7 @@ async fn backup_download(
     State(state): State<AppState>,
     Query(query): Query<BackupExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{NoteRepository, TemplateRepository};
+    use matric_core::NoteRepository;
 
     // Build list request with filters (same as backup_export)
     let tags = query.tags.map(|t| {
@@ -6818,7 +7345,13 @@ async fn backup_download(
     let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
 
     // Fetch templates
-    let templates = state.db.templates.list().await.unwrap_or_default();
+    let templates = {
+        let ctx = state.db.for_schema("public")?;
+        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+            .await
+    }
+    .unwrap_or_default();
     let templates_json: Vec<serde_json::Value> = templates
         .iter()
         .map(|t| {
@@ -7088,7 +7621,7 @@ async fn backup_import(
             tmpl.get("content").and_then(|v| v.as_str()),
         ) {
             if !body.dry_run {
-                use matric_core::{CreateTemplateRequest, TemplateRepository};
+                use matric_core::CreateTemplateRequest;
                 let req = CreateTemplateRequest {
                     name: name.to_string(),
                     description: tmpl
@@ -7103,7 +7636,15 @@ async fn backup_import(
                     default_tags: None,
                     collection_id: None,
                 };
-                match state.db.templates.create(req).await {
+                let res = {
+                    let ctx = state.db.for_schema("public")?;
+                    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                    ctx.execute(move |tx| {
+                        Box::pin(async move { templates.create_tx(tx, req).await })
+                    })
+                    .await
+                };
+                match res {
                     Ok(_) => imported.templates += 1,
                     Err(_) => skipped.templates += 1,
                 }
@@ -7438,7 +7979,7 @@ async fn knowledge_shard(
 ) -> Result<impl IntoResponse, ApiError> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
-    use matric_core::{NoteRepository, TemplateRepository};
+    use matric_core::NoteRepository;
     use sha2::{Digest, Sha256};
 
     use tar::Builder;
@@ -7559,7 +8100,13 @@ async fn knowledge_shard(
 
         // Export templates
         if components.contains(&"templates") {
-            let templates = state.db.templates.list().await.unwrap_or_default();
+            let templates = {
+                let ctx = state.db.for_schema("public")?;
+                let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+                    .await
+            }
+            .unwrap_or_default();
             counts.templates = templates.len();
             let templates_json: Vec<serde_json::Value> = templates
                 .iter()
@@ -7810,7 +8357,7 @@ async fn knowledge_shard_import(
 ) -> Result<impl IntoResponse, ApiError> {
     use base64::Engine;
     use flate2::read::GzDecoder;
-    use matric_core::{CreateNoteRequest, NoteRepository, TemplateRepository};
+    use matric_core::CreateNoteRequest;
     use tar::Archive;
 
     // Decode base64 shard
@@ -8113,7 +8660,16 @@ async fn knowledge_shard_import(
                                         .and_then(|s| Uuid::parse_str(s).ok()),
                                 };
 
-                                match state.db.templates.create(req).await {
+                                let res = {
+                                    let ctx = state.db.for_schema("public")?;
+                                    let templates =
+                                        matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                                    ctx.execute(move |tx| {
+                                        Box::pin(async move { templates.create_tx(tx, req).await })
+                                    })
+                                    .await
+                                };
+                                match res {
                                     Ok(_) => imported.templates += 1,
                                     Err(e) => errors
                                         .push(format!("Failed to import template {}: {}", name, e)),
@@ -8242,6 +8798,7 @@ struct DownloadAttachmentResponse {
 /// List all attachments for a note
 async fn list_attachments(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -8250,13 +8807,17 @@ async fn list_attachments(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
-    let attachments = file_storage.list_by_note(id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let attachments = file_storage.list_by_note_tx(&mut tx, id).await?;
+    drop(tx);
     Ok(Json(attachments))
 }
 
 /// Upload a file attachment to a note
 async fn upload_attachment(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UploadAttachmentBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -8271,9 +8832,12 @@ async fn upload_attachment(
         .decode(&body.data)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+
     // Store the file
     let mut attachment = file_storage
-        .store_file(id, &body.filename, &body.content_type, &data)
+        .store_file_tx(&mut tx, id, &body.filename, &body.content_type, &data)
         .await?;
 
     // Phase 1: Determine extraction strategy from MIME type (pure function, no DB)
@@ -8282,7 +8846,7 @@ async fn upload_attachment(
         .and_then(|e| e.to_str());
     let strategy = ExtractionStrategy::from_mime_and_extension(&body.content_type, ext);
     if file_storage
-        .set_extraction_strategy(attachment.id, strategy)
+        .set_extraction_strategy_tx(&mut tx, attachment.id, strategy)
         .await
         .is_ok()
     {
@@ -8292,7 +8856,7 @@ async fn upload_attachment(
     // Allow user to explicitly set document_type_id at upload (optional override)
     if let Some(doc_type_id) = body.document_type_id {
         if file_storage
-            .set_document_type(attachment.id, doc_type_id, None)
+            .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
             .await
             .is_ok()
         {
@@ -8300,6 +8864,10 @@ async fn upload_attachment(
         }
     }
     // Document type classification happens asynchronously after extraction (Phase 2)
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok(Json(attachment))
 }
@@ -8311,6 +8879,7 @@ async fn upload_attachment(
 /// - `document_type_id`: optional UUID for explicit document type override
 async fn upload_attachment_multipart(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -8360,9 +8929,12 @@ async fn upload_attachment_multipart(
     let data = data
         .ok_or_else(|| ApiError::BadRequest("Missing file data in multipart form".to_string()))?;
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+
     // Store the file
     let mut attachment = file_storage
-        .store_file(id, &filename, &content_type, &data)
+        .store_file_tx(&mut tx, id, &filename, &content_type, &data)
         .await?;
 
     // Set extraction strategy
@@ -8371,7 +8943,7 @@ async fn upload_attachment_multipart(
         .and_then(|e| e.to_str());
     let strategy = ExtractionStrategy::from_mime_and_extension(&content_type, ext);
     if file_storage
-        .set_extraction_strategy(attachment.id, strategy)
+        .set_extraction_strategy_tx(&mut tx, attachment.id, strategy)
         .await
         .is_ok()
     {
@@ -8380,7 +8952,7 @@ async fn upload_attachment_multipart(
 
     if let Some(doc_type_id) = document_type_id {
         if file_storage
-            .set_document_type(attachment.id, doc_type_id, None)
+            .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
             .await
             .is_ok()
         {
@@ -8388,12 +8960,17 @@ async fn upload_attachment_multipart(
         }
     }
 
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
     Ok(Json(attachment))
 }
 
 /// Get attachment metadata
 async fn get_attachment(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -8402,13 +8979,17 @@ async fn get_attachment(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
-    let attachment = file_storage.get(attachment_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let attachment = file_storage.get_tx(&mut tx, attachment_id).await?;
+    drop(tx);
     Ok(Json(attachment))
 }
 
 /// Download a file attachment (returns base64-encoded data)
 async fn download_attachment(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -8417,7 +8998,12 @@ async fn download_attachment(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
-    let (data, content_type, filename) = file_storage.download_file(attachment_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let (data, content_type, filename) = file_storage
+        .download_file_tx(&mut tx, attachment_id)
+        .await?;
+    drop(tx);
 
     // Encode data as base64
     let encoded_data = base64::engine::general_purpose::STANDARD.encode(&data);
@@ -8432,6 +9018,7 @@ async fn download_attachment(
 /// Delete an attachment
 async fn delete_attachment(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -8440,7 +9027,12 @@ async fn delete_attachment(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
-    file_storage.delete(attachment_id).await?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    file_storage.delete_tx(&mut tx, attachment_id).await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -8969,8 +9561,6 @@ async fn swap_backup(
 
     // If strategy is "wipe", purge existing data first
     if strategy == "wipe" && !dry_run {
-        use matric_core::TemplateRepository;
-
         // Purge all notes (which cascades to tags, embeddings, links)
         let list_req = ListNotesRequest {
             limit: Some(100000),
@@ -8988,10 +9578,21 @@ async fn swap_backup(
         }
 
         // Purge templates
-        let templates: Vec<matric_core::NoteTemplate> =
-            state.db.templates.list().await.unwrap_or_default();
+        let templates: Vec<matric_core::NoteTemplate> = {
+            let ctx = state.db.for_schema("public")?;
+            let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+            ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+                .await
+        }
+        .unwrap_or_default();
         for tmpl in templates {
-            let _ = state.db.templates.delete(tmpl.id).await;
+            let _ = {
+                let ctx = state.db.for_schema("public")?;
+                let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                let id = tmpl.id;
+                ctx.execute(move |tx| Box::pin(async move { templates.delete_tx(tx, id).await }))
+                    .await
+            };
         }
     }
 
@@ -9265,7 +9866,6 @@ async fn knowledge_shard_import_internal(
 
     // Import templates
     if should_import("templates") {
-        use matric_core::TemplateRepository;
         if let Some(data) = files.get("templates.json") {
             if let Ok(templates) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
                 for tmpl in templates {
@@ -9300,7 +9900,16 @@ async fn knowledge_shard_import_internal(
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok()),
                             };
-                            match state.db.templates.create(req).await {
+                            let res = {
+                                let ctx = state.db.for_schema("public")?;
+                                let templates =
+                                    matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                                ctx.execute(move |tx| {
+                                    Box::pin(async move { templates.create_tx(tx, req).await })
+                                })
+                                .await
+                            };
+                            match res {
                                 Ok(_) => imported.templates += 1,
                                 Err(_) => skipped.templates += 1,
                             }
@@ -10924,8 +11533,6 @@ struct HardwareRecommendations {
 
 /// Get detailed memory/storage info for hardware planning.
 async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::TemplateRepository;
-
     // Get summary counts
     let notes_req = ListNotesRequest {
         limit: Some(1),
@@ -10937,8 +11544,13 @@ async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse,
     let link_count = state.db.links.count().await.unwrap_or(0);
     let collections = state.db.collections.list(None).await.unwrap_or_default();
     let tags = state.db.tags.list().await.unwrap_or_default();
-    let templates: Vec<matric_core::NoteTemplate> =
-        state.db.templates.list().await.unwrap_or_default();
+    let templates: Vec<matric_core::NoteTemplate> = {
+        let ctx = state.db.for_schema("public")?;
+        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
+            .await
+    }
+    .unwrap_or_default();
 
     // Get embedding set info
     let embedding_sets = state.db.embedding_sets.list().await.unwrap_or_default();
@@ -12575,6 +13187,10 @@ mod tests {
                 "/api/v1/notes/:id/memory-provenance",
                 get(get_memory_provenance_handler),
             )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                archive_routing_middleware,
+            ))
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -13057,7 +13673,9 @@ mod tests {
         // Add device info to the provenance record
         let device_id: Uuid = sqlx::query_scalar(
             "INSERT INTO prov_agent_device (device_make, device_model)
-             VALUES ('Apple', 'iPhone 15 Pro') RETURNING id",
+             VALUES ('Apple', 'iPhone 15 Pro')
+             ON CONFLICT (device_make, device_model, owner_id) DO UPDATE SET device_make = EXCLUDED.device_make
+             RETURNING id",
         )
         .fetch_one(&pool)
         .await

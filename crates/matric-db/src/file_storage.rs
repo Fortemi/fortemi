@@ -27,7 +27,7 @@ use matric_core::{
     Attachment, AttachmentBlob, AttachmentStatus, AttachmentSummary, Error, ExtractionStrategy,
     Result,
 };
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::path::PathBuf;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -567,6 +567,237 @@ impl PgFileStorageRepository {
         .await?;
 
         Ok(result.rows_affected() as i32)
+    }
+}
+
+/// Transaction-aware variants for archive-scoped operations.
+impl PgFileStorageRepository {
+    /// Transaction-aware variant of list_by_note.
+    pub async fn list_by_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<AttachmentSummary>> {
+        let rows = sqlx::query(
+            r#"SELECT a.id, a.note_id, a.filename, ab.content_type, ab.size_bytes,
+                      a.status::TEXT, dt.name as document_type_name,
+                      ddt.name as detected_document_type_name, a.detection_confidence,
+                      a.has_preview, a.is_canonical_content, a.created_at
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               LEFT JOIN document_type dt ON a.document_type_id = dt.id
+               LEFT JOIN document_type ddt ON a.detected_document_type_id = ddt.id
+               WHERE a.note_id = $1
+               ORDER BY a.display_order, a.created_at"#,
+        )
+        .bind(note_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let mut summaries = Vec::with_capacity(rows.len());
+        for row in rows {
+            summaries.push(AttachmentSummary {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                filename: row.get("filename"),
+                content_type: row.get("content_type"),
+                size_bytes: row.get("size_bytes"),
+                status: parse_attachment_status(row.get("status")),
+                document_type_name: row.get("document_type_name"),
+                detected_document_type_name: row.get("detected_document_type_name"),
+                detection_confidence: row.get("detection_confidence"),
+                has_preview: row.get("has_preview"),
+                is_canonical_content: row.get("is_canonical_content"),
+                created_at: row.get("created_at"),
+            });
+        }
+
+        Ok(summaries)
+    }
+
+    /// Transaction-aware variant of store_file.
+    pub async fn store_file_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        filename: &str,
+        content_type: &str,
+        data: &[u8],
+    ) -> Result<Attachment> {
+        let content_hash = compute_content_hash(data);
+        let size_bytes = data.len() as i64;
+
+        // Check for existing blob with same hash
+        let existing_blob: Option<AttachmentBlob> = sqlx::query(
+            r#"SELECT id, content_hash, content_type, size_bytes,
+                      storage_backend, storage_path, reference_count, created_at
+               FROM attachment_blob WHERE content_hash = $1"#,
+        )
+        .bind(&content_hash)
+        .fetch_optional(&mut **tx)
+        .await?
+        .map(|row| attachment_blob_from_row(&row))
+        .transpose()?;
+
+        let blob_id = if let Some(blob) = existing_blob {
+            // Reuse existing blob (deduplication)
+            blob.id
+        } else {
+            // Create new blob - always use filesystem storage
+            let blob_id = Uuid::now_v7();
+            let path = generate_storage_path(&blob_id);
+            self.backend.write(&path, data).await?;
+
+            sqlx::query(
+                r#"INSERT INTO attachment_blob
+                   (id, content_hash, content_type, size_bytes, storage_backend, storage_path)
+                   VALUES ($1, $2, $3, $4, 'filesystem', $5)"#,
+            )
+            .bind(blob_id)
+            .bind(&content_hash)
+            .bind(content_type)
+            .bind(size_bytes)
+            .bind(&path)
+            .execute(&mut **tx)
+            .await?;
+
+            blob_id
+        };
+
+        // Create attachment record
+        let attachment_id = Uuid::now_v7();
+        let row = sqlx::query(
+            r#"INSERT INTO attachment
+               (id, note_id, blob_id, filename, original_filename, status)
+               VALUES ($1, $2, $3, $4, $4, 'uploaded')
+               RETURNING id, note_id, blob_id, filename, original_filename,
+                         document_type_id, status::TEXT, extraction_strategy::TEXT,
+                         extracted_text, extracted_metadata,
+                         has_preview, is_canonical_content,
+                         detected_document_type_id, detection_confidence, detection_method,
+                         created_at, updated_at"#,
+        )
+        .bind(attachment_id)
+        .bind(note_id)
+        .bind(blob_id)
+        .bind(filename)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        attachment_from_row(&row)
+    }
+
+    /// Transaction-aware variant of get.
+    pub async fn get_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+    ) -> Result<Attachment> {
+        let row = sqlx::query(
+            r#"SELECT id, note_id, blob_id, filename, original_filename,
+                      document_type_id, status::TEXT, extraction_strategy::TEXT,
+                      extracted_text, extracted_metadata,
+                      has_preview, is_canonical_content,
+                      detected_document_type_id, detection_confidence, detection_method,
+                      created_at, updated_at
+               FROM attachment
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| Error::NotFound("Attachment not found".into()))?;
+
+        attachment_from_row(&row)
+    }
+
+    /// Transaction-aware variant of download_file.
+    pub async fn download_file_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+    ) -> Result<(Vec<u8>, String, String)> {
+        let row = sqlx::query(
+            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data, a.filename
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               WHERE a.id = $1"#,
+        )
+        .bind(attachment_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| Error::NotFound("Attachment not found".into()))?;
+
+        let storage_backend: String = row.get("storage_backend");
+        let content_type: String = row.get("content_type");
+        let filename: String = row.get("filename");
+
+        let data = if storage_backend == "database" {
+            row.get::<Option<Vec<u8>>, _>("data")
+                .ok_or_else(|| Error::NotFound("Blob data missing".into()))?
+        } else {
+            let path: String = row
+                .get::<Option<String>, _>("storage_path")
+                .ok_or_else(|| Error::NotFound("Storage path missing".into()))?;
+            self.backend.read(&path).await?
+        };
+
+        Ok((data, content_type, filename))
+    }
+
+    /// Transaction-aware variant of delete.
+    pub async fn delete_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM attachment WHERE id = $1")
+            .bind(attachment_id)
+            .execute(&mut **tx)
+            .await?;
+        Ok(())
+    }
+
+    /// Transaction-aware variant of set_extraction_strategy.
+    pub async fn set_extraction_strategy_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        strategy: ExtractionStrategy,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET extraction_strategy = $2, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(strategy.to_string())
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Transaction-aware variant of set_document_type.
+    pub async fn set_document_type_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        document_type_id: Uuid,
+        extraction_strategy: Option<ExtractionStrategy>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET document_type_id = $2, extraction_strategy = $3, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(document_type_id)
+        .bind(extraction_strategy.map(|s| s.to_string()))
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
     }
 }
 

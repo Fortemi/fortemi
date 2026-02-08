@@ -39,7 +39,7 @@ use matric_core::{
 
 /// Standard SELECT columns for skos_concept with proper type casting.
 /// Use this to avoid type mismatch errors with enum arrays.
-const CONCEPT_COLUMNS: &str = r#"
+pub(crate) const CONCEPT_COLUMNS: &str = r#"
     c.id, c.primary_scheme_id, c.uri, c.notation,
     c.facet_type::text AS facet_type, c.facet_source, c.facet_domain, c.facet_scope,
     c.status::text AS status, c.promoted_at, c.deprecated_at, c.deprecation_reason,
@@ -2389,7 +2389,7 @@ impl SkosGovernanceRepository for PgSkosRepository {
 
 impl PgSkosRepository {
     /// Convert a database row to a SkosConcept.
-    fn row_to_concept(&self, row: &sqlx::postgres::PgRow) -> SkosConcept {
+    pub(crate) fn row_to_concept(&self, row: &sqlx::postgres::PgRow) -> SkosConcept {
         let antipatterns_str: Vec<String> = row.try_get("antipatterns").unwrap_or_default();
         let antipatterns: Vec<TagAntipattern> = antipatterns_str
             .into_iter()

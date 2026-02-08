@@ -6,7 +6,7 @@
 //! - **Activities**: AI processing operations (provenance_activity)
 //! - **Relations**: Derivation chains between source notes and revisions
 
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
@@ -294,6 +294,187 @@ impl PgProvenanceRepository {
         )
         .bind(source_note_id)
         .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows.into_iter().map(|r| r.get("note_id")).collect())
+    }
+}
+
+/// Transaction-aware variants for provenance operations.
+impl PgProvenanceRepository {
+    /// Get the full provenance chain for a note's current revision within an existing transaction.
+    pub async fn get_chain_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Option<ProvenanceChain>> {
+        // Get the current revision ID
+        let revision_row = sqlx::query(
+            r#"
+            SELECT id FROM note_revision
+            WHERE note_id = $1
+            ORDER BY created_at_utc DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(note_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let revision_id = match revision_row {
+            Some(row) => row.get::<Uuid, _>("id"),
+            None => return Ok(None),
+        };
+
+        // Get edges for revision (inline from get_edges_for_revision)
+        let edge_rows = sqlx::query(
+            r#"
+            SELECT id, revision_id, source_note_id, source_url, relation, created_at_utc
+            FROM provenance_edge
+            WHERE revision_id = $1
+            ORDER BY created_at_utc
+            "#,
+        )
+        .bind(revision_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let edges = edge_rows
+            .into_iter()
+            .map(|row| ProvenanceEdge {
+                id: row.get("id"),
+                revision_id: row.get("revision_id"),
+                source_note_id: row.get("source_note_id"),
+                source_url: row.get("source_url"),
+                relation: row.get("relation"),
+                created_at_utc: row.get("created_at_utc"),
+            })
+            .collect();
+
+        // Get the latest activity for this revision
+        let activity_row = sqlx::query(
+            r#"
+            SELECT id, note_id, revision_id, activity_type, model_name,
+                   started_at, ended_at, metadata
+            FROM provenance_activity
+            WHERE note_id = $1 AND revision_id = $2
+            ORDER BY started_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(note_id)
+        .bind(revision_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let activity = activity_row.map(|row| ProvenanceActivity {
+            id: row.get("id"),
+            note_id: row.get("note_id"),
+            revision_id: row.get("revision_id"),
+            activity_type: row.get("activity_type"),
+            model_name: row.get("model_name"),
+            started_at: row.get("started_at"),
+            ended_at: row.get("ended_at"),
+            metadata: row.get("metadata"),
+        });
+
+        Ok(Some(ProvenanceChain {
+            note_id,
+            revision_id,
+            activity,
+            edges,
+        }))
+    }
+
+    /// Get activities for a note within an existing transaction.
+    pub async fn get_activities_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<ProvenanceActivity>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, note_id, revision_id, activity_type, model_name,
+                   started_at, ended_at, metadata
+            FROM provenance_activity
+            WHERE note_id = $1
+            ORDER BY started_at DESC
+            "#,
+        )
+        .bind(note_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| ProvenanceActivity {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                revision_id: row.get("revision_id"),
+                activity_type: row.get("activity_type"),
+                model_name: row.get("model_name"),
+                started_at: row.get("started_at"),
+                ended_at: row.get("ended_at"),
+                metadata: row.get("metadata"),
+            })
+            .collect())
+    }
+
+    /// Get provenance edges for all revisions of a note within an existing transaction.
+    pub async fn get_edges_for_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Vec<ProvenanceEdge>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT pe.id, pe.revision_id, pe.source_note_id, pe.source_url,
+                   pe.relation, pe.created_at_utc
+            FROM provenance_edge pe
+            JOIN note_revision nr ON nr.id = pe.revision_id
+            WHERE nr.note_id = $1
+            ORDER BY pe.created_at_utc
+            "#,
+        )
+        .bind(note_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| ProvenanceEdge {
+                id: row.get("id"),
+                revision_id: row.get("revision_id"),
+                source_note_id: row.get("source_note_id"),
+                source_url: row.get("source_url"),
+                relation: row.get("relation"),
+                created_at_utc: row.get("created_at_utc"),
+            })
+            .collect())
+    }
+
+    /// Get notes that cite/derive from a specific source note within an existing transaction.
+    pub async fn get_derived_notes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        source_note_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT nr.note_id
+            FROM provenance_edge pe
+            JOIN note_revision nr ON nr.id = pe.revision_id
+            WHERE pe.source_note_id = $1
+            "#,
+        )
+        .bind(source_note_id)
+        .fetch_all(&mut **tx)
         .await
         .map_err(Error::Database)?;
 

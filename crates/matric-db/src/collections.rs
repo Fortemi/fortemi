@@ -417,4 +417,95 @@ impl PgCollectionRepository {
             .map_err(Error::Database)?;
         Ok(())
     }
+
+    /// Get notes for a collection within an existing transaction.
+    pub async fn get_notes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<NoteSummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                n.id, n.created_at_utc, n.updated_at_utc, n.starred, n.archived,
+                n.title, n.metadata,
+                no.content as original_content,
+                nrc.content as revised_content,
+                COALESCE(
+                    (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                    ''
+                ) as tags
+            FROM note n
+            JOIN note_original no ON no.note_id = n.id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id
+            WHERE n.collection_id = $1 AND n.deleted_at IS NULL
+            ORDER BY n.created_at_utc DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let original_content: String = row.get("original_content");
+                let revised_content: Option<String> = row.get("revised_content");
+                let content = revised_content.as_ref().unwrap_or(&original_content);
+
+                let stored_title: Option<String> = row.get("title");
+                let title = stored_title.unwrap_or_else(|| {
+                    content
+                        .lines()
+                        .next()
+                        .map(|l| l.trim_start_matches('#').trim())
+                        .unwrap_or("Untitled")
+                        .to_string()
+                });
+
+                let snippet = content
+                    .lines()
+                    .skip(1)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(200)
+                    .collect();
+
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+
+                NoteSummary {
+                    id: row.get("id"),
+                    title,
+                    snippet,
+                    embedding_status: None,
+                    created_at_utc: row.get("created_at_utc"),
+                    updated_at_utc: row.get("updated_at_utc"),
+                    starred: row.get::<Option<bool>, _>("starred").unwrap_or(false),
+                    archived: row.get::<Option<bool>, _>("archived").unwrap_or(false),
+                    tags,
+                    has_revision: match &revised_content {
+                        Some(revised) => revised != &original_content,
+                        None => false,
+                    },
+                    metadata: row
+                        .get::<Option<serde_json::Value>, _>("metadata")
+                        .unwrap_or_else(|| serde_json::json!({})),
+                    document_type_id: None, // Not fetched in collection notes query
+                    document_type_name: None,
+                }
+            })
+            .collect())
+    }
 }

@@ -152,6 +152,31 @@ impl SchemaContext {
         self.execute(f).await
     }
 
+    /// Begin a transaction with the schema search_path already set.
+    ///
+    /// Returns a transaction that the caller can use directly with `_tx` methods
+    /// on repository references that can't be moved into closures (e.g., file_storage).
+    ///
+    /// The caller is responsible for committing or rolling back the transaction.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let ctx = db.for_schema(&archive_ctx.schema)?;
+    /// let mut tx = ctx.begin_tx().await?;
+    /// let result = file_storage.list_by_note_tx(&mut tx, note_id).await?;
+    /// tx.commit().await.map_err(Error::Database)?;
+    /// ```
+    pub async fn begin_tx(&self) -> Result<Transaction<'_, Postgres>> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let set_search_path = format!("SET LOCAL search_path TO {}, public", self.schema);
+        sqlx::query(&set_search_path)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        Ok(tx)
+    }
+
     /// Get a reference to the underlying connection pool.
     ///
     /// Use this when you need direct pool access for operations that don't
