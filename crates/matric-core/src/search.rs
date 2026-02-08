@@ -83,6 +83,11 @@ pub struct StrictTagFilter {
     /// Whether to include notes with no tags (default: true).
     #[serde(default = "default_true")]
     pub include_untagged: bool,
+
+    /// When true, the filter is unsatisfiable (e.g. any_tags requested but none
+    /// resolved). Search should return empty results immediately.
+    #[serde(default, skip_serializing)]
+    pub match_none: bool,
 }
 
 fn default_true() -> bool {
@@ -102,6 +107,7 @@ impl Default for StrictTagFilter {
             excluded_string_tags: Vec::new(),
             min_tag_count: None,
             include_untagged: true,
+            match_none: false,
         }
     }
 }

@@ -134,6 +134,64 @@ describe("Phase 10: Templates", () => {
     assert.strictEqual(retrieved.slug, created.slug, "Slug should match");
   });
 
+  test("TEMPLATE-005b: get_template extracts variables", async () => {
+    const testId = MCPTestClient.uniqueId().slice(0, 8);
+    const name = `test-vars-${testId}`;
+    const content = `# {{title}}
+
+Author: {{author}}
+Date: {{date}}
+
+## Content
+{{body}}
+
+Tags: {{tags}} and {{tags}} again
+Footer: {{footer}}`;
+
+    const created = await client.callTool("create_template", {
+      name,
+      content,
+    });
+    cleanup.templateIds.push(created.id);
+
+    const retrieved = await client.callTool("get_template", {
+      id: created.id,
+    });
+
+    assert.ok(retrieved, "Template should be retrieved");
+    assert.ok(retrieved.variables, "Template should have variables array");
+    assert.ok(Array.isArray(retrieved.variables), "Variables should be an array");
+
+    // Should extract all unique variables
+    const expectedVars = ["title", "author", "date", "body", "tags", "footer"];
+    assert.deepStrictEqual(
+      retrieved.variables.sort(),
+      expectedVars.sort(),
+      "Should extract all unique variables from template content"
+    );
+  });
+
+  test("TEMPLATE-005c: get_template with no variables", async () => {
+    const testId = MCPTestClient.uniqueId().slice(0, 8);
+    const name = `test-novars-${testId}`;
+    const content = "# Static Template\n\nNo variables here at all.";
+
+    const created = await client.callTool("create_template", {
+      name,
+      content,
+    });
+    cleanup.templateIds.push(created.id);
+
+    const retrieved = await client.callTool("get_template", {
+      id: created.id,
+    });
+
+    assert.ok(retrieved, "Template should be retrieved");
+    assert.ok(retrieved.variables, "Template should have variables array");
+    assert.ok(Array.isArray(retrieved.variables), "Variables should be an array");
+    assert.strictEqual(retrieved.variables.length, 0, "Variables array should be empty for static template");
+  });
+
   test("TEMPLATE-006: apply_template creates note", async () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
     const templateName = `test-apply-${testId}`;

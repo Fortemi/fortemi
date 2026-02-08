@@ -332,9 +332,22 @@ function createMcpServer() {
           });
           break;
 
-        case "get_template":
+        case "get_template": {
           result = await apiRequest("GET", `/api/v1/templates/${args.id}`);
+          // Extract {{variables}} from template content
+          const variables = [];
+          if (result.content) {
+            const regex = /\{\{(\w+)\}\}/g;
+            let match;
+            while ((match = regex.exec(result.content)) !== null) {
+              if (!variables.includes(match[1])) {
+                variables.push(match[1]);
+              }
+            }
+          }
+          result.variables = variables;
           break;
+        }
 
         case "delete_template":
           await apiRequest("DELETE", `/api/v1/templates/${args.id}`);

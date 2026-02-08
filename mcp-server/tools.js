@@ -864,9 +864,10 @@ Set default_tags and collection_id to automatically apply them to notes created 
     description: `Get a note template with its content, variables, and defaults.
 
 Returns the full template including content with {{variable}} placeholders, default tags, default collection, and format.
+The MCP server automatically extracts variable names from {{variable}} patterns in the content.
 Use list_templates to browse available templates, then this tool for the full content before instantiating.
 
-RETURNS: id, name, description, content, format, default_tags, collection_id, created_at, updated_at`,
+RETURNS: id, name, description, content, format, default_tags, collection_id, variables (extracted array), created_at, updated_at`,
     inputSchema: {
       type: "object",
       properties: {

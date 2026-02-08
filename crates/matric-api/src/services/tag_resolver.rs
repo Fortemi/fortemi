@@ -228,9 +228,20 @@ impl TagResolver {
                     if self.simple_tag_exists(notation).await? {
                         filter.any_string_tags.push(notation.clone());
                     }
-                    // Silently skip if not found in either system
+                    // Skip if not found — but we track below whether nothing resolved
                 }
             }
+        }
+
+        // If user requested any_tags but NONE resolved, the filter is unsatisfiable:
+        // "give me notes with at least one of these tags" when none of them exist
+        // means no notes can match. Without this check, the filter becomes empty
+        // and falls back to returning ALL results (issue #182/#184).
+        if !input.any_tags.is_empty()
+            && filter.any_concepts.is_empty()
+            && filter.any_string_tags.is_empty()
+        {
+            filter.match_none = true;
         }
 
         // Resolve excluded tags: try SKOS concept first, fall back to simple tag

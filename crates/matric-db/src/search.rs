@@ -119,6 +119,12 @@ impl PgFtsSearch {
             return self.search(query, limit, exclude_archived).await;
         };
 
+        // If filter is unsatisfiable (e.g. any_tags requested but none resolved),
+        // return empty results immediately instead of falling back to unfiltered search
+        if filter.match_none {
+            return Ok(Vec::new());
+        }
+
         // If filter is empty, fall back to regular search
         if filter.is_empty() {
             return self.search(query, limit, exclude_archived).await;

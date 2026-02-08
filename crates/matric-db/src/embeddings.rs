@@ -258,6 +258,11 @@ impl PgEmbeddingRepository {
     ) -> Result<Vec<SearchHit>> {
         use crate::strict_filter::StrictFilterQueryBuilder;
 
+        // If filter is unsatisfiable, return empty results immediately
+        if strict_filter.match_none {
+            return Ok(Vec::new());
+        }
+
         // If filter is empty, fall back to regular search
         if strict_filter.is_empty() {
             return self.find_similar(query_vec, limit, exclude_archived).await;
