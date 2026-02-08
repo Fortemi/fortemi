@@ -807,15 +807,45 @@ impl ArchiveRepository for PgArchiveRepository {
         // Create the new archive with empty tables
         let new_archive = self.create_archive_schema(new_name, description).await?;
 
-        // Discover per-memory tables in the source schema
-        let tables: Vec<String> = sqlx::query_scalar(
+        // Order tables by FK dependency (parents first) so inserts respect referential integrity
+        // without needing superuser privileges to disable triggers.
+        let ordered_tables: Vec<String> = sqlx::query_scalar(
             r#"
-            SELECT c.relname::text
-            FROM pg_class c
-            JOIN pg_namespace n ON c.relnamespace = n.oid
-            WHERE n.nspname = $1
-                AND c.relkind = 'r'
-            ORDER BY c.relname
+            WITH RECURSIVE
+            fk_deps AS (
+                SELECT DISTINCT
+                    c.relname::text AS child,
+                    pc.relname::text AS parent
+                FROM pg_constraint con
+                JOIN pg_class c ON con.conrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                JOIN pg_class pc ON con.confrelid = pc.oid
+                JOIN pg_namespace pn ON pc.relnamespace = pn.oid
+                WHERE n.nspname = $1 AND pn.nspname = $1
+                  AND con.contype = 'f'
+                  AND c.oid != con.confrelid
+            ),
+            levels AS (
+                -- Level 0: tables with no FK dependencies within this schema
+                SELECT t.relname::text AS table_name, 0 AS lvl
+                FROM pg_class t
+                JOIN pg_namespace n ON t.relnamespace = n.oid
+                WHERE n.nspname = $1 AND t.relkind = 'r'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM fk_deps d WHERE d.child = t.relname::text
+                  )
+
+                UNION ALL
+
+                -- Level N+1: tables that reference a table at level N
+                SELECT d.child, l.lvl + 1
+                FROM fk_deps d
+                JOIN levels l ON l.table_name = d.parent
+            )
+            SELECT table_name
+            FROM levels
+            GROUP BY table_name
+            ORDER BY MAX(lvl), table_name
             "#,
         )
         .bind(&source.schema_name)
@@ -823,17 +853,10 @@ impl ArchiveRepository for PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Copy data in a single transaction with FK checks disabled
+        // Copy data in a single transaction
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
-        // Disable FK checks for bulk copy (session_replication_role = 'replica'
-        // tells PostgreSQL to skip trigger-based FK enforcement)
-        sqlx::query("SET LOCAL session_replication_role = 'replica'")
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-
-        for table in &tables {
+        for table in &ordered_tables {
             // Get non-generated columns to avoid "cannot insert into generated column" errors
             let columns: Vec<String> = sqlx::query_scalar(
                 r#"
@@ -868,12 +891,6 @@ impl ArchiveRepository for PgArchiveRepository {
             .await
             .map_err(Error::Database)?;
         }
-
-        // Re-enable FK checks
-        sqlx::query("SET LOCAL session_replication_role = 'origin'")
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
 
         tx.commit().await.map_err(Error::Database)?;
 
