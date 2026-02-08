@@ -664,6 +664,14 @@ impl PgFileStorageRepository {
             blob_id
         };
 
+        // Increment blob reference count (fixes #197 - phantom write)
+        sqlx::query(
+            "UPDATE attachment_blob SET reference_count = reference_count + 1 WHERE id = $1",
+        )
+        .bind(blob_id)
+        .execute(&mut **tx)
+        .await?;
+
         // Create attachment record
         let attachment_id = Uuid::now_v7();
         let row = sqlx::query(

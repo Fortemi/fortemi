@@ -4606,6 +4606,13 @@ async fn create_template(
 ) -> Result<impl IntoResponse, ApiError> {
     use matric_core::CreateTemplateRequest;
 
+    // Validate template name (fixes #204)
+    if body.name.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Template name is required".to_string(),
+        ));
+    }
+
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
     let req = CreateTemplateRequest {
@@ -5277,7 +5284,7 @@ async fn get_note_version(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct RestoreVersionRequest {
     /// Whether to restore tags from the version snapshot (default: false)
     #[serde(default)]
@@ -5289,8 +5296,9 @@ async fn restore_note_version(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, version)): Path<(Uuid, i32)>,
-    Json(request): Json<RestoreVersionRequest>,
+    body: Option<Json<RestoreVersionRequest>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let request = body.map(|j| j.0).unwrap_or_default();
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::VersioningRepository::new(state.db.pool.clone());
     let restore_tags = request.restore_tags;
@@ -5336,8 +5344,10 @@ async fn delete_note_version(
 #[derive(Debug, Deserialize)]
 struct DiffVersionsQuery {
     /// Version to diff from
+    #[serde(alias = "from_version")]
     from: i32,
     /// Version to diff to
+    #[serde(alias = "to_version")]
     to: i32,
 }
 
