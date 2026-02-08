@@ -15,8 +15,18 @@ NC='\033[0m' # No Color
 # Track if any checks fail
 FAILED=0
 
-# Check 1: cargo fmt
-echo -e "\n${YELLOW}[1/2] Checking code formatting...${NC}"
+# Check 1: MCP tool schema validation (fast — catches broken schemas before deploy)
+echo -e "\n${YELLOW}[1/3] Validating MCP tool schemas...${NC}"
+if node mcp-server/validate-schemas.cjs > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ MCP tool schemas valid (draft 2020-12)${NC}"
+else
+    echo -e "${RED}✗ MCP tool schema validation failed${NC}"
+    echo -e "${YELLOW}Run 'node mcp-server/validate-schemas.cjs' for details${NC}"
+    FAILED=1
+fi
+
+# Check 2: cargo fmt
+echo -e "\n${YELLOW}[2/3] Checking code formatting...${NC}"
 if cargo fmt --check --all; then
     echo -e "${GREEN}✓ Code formatting is correct${NC}"
 else
@@ -25,8 +35,8 @@ else
     FAILED=1
 fi
 
-# Check 2: cargo clippy
-echo -e "\n${YELLOW}[2/2] Running clippy lints...${NC}"
+# Check 3: cargo clippy
+echo -e "\n${YELLOW}[3/3] Running clippy lints...${NC}"
 if cargo clippy --all-targets --all-features -- -D warnings; then
     echo -e "${GREEN}✓ No clippy warnings${NC}"
 else

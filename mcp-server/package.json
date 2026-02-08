@@ -12,6 +12,7 @@
     "start:http": "MCP_TRANSPORT=http node index.js",
     "test": "node --test tests/*.test.js",
     "test:schema": "node --test tests/schema-validation.test.js",
+    "validate:schemas": "node validate-schemas.cjs",
     "test:annotations": "node --test tests/annotations.test.js",
     "test:errors": "node --test tests/error-responses.test.js",
     "test:connectivity": "node test-mcp-connectivity.js",

@@ -19,22 +19,28 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load the tools array from index.js
-const indexPath = path.join(__dirname, "..", "index.js");
-const indexContent = fs.readFileSync(indexPath, "utf8");
+// Load the tools array from tools.js
+const toolsPath = path.join(__dirname, "..", "tools.js");
+const toolsContent = fs.readFileSync(toolsPath, "utf8");
 
-// Extract tools array by finding the const tools = [ ... ]; declaration
-const toolsMatch = indexContent.match(/const tools = \[([\s\S]*?)\n\];/);
-if (!toolsMatch) {
-  throw new Error("Could not extract tools array from index.js");
+// Extract tools array — supports 'export default [' and 'const tools = ['
+let marker = "export default [";
+let markerIdx = toolsContent.indexOf(marker);
+if (markerIdx === -1) {
+  marker = "const tools = [";
+  markerIdx = toolsContent.indexOf(marker);
+}
+if (markerIdx === -1) {
+  throw new Error("Could not find tools array in tools.js");
 }
 
-// Parse the tools array safely
+// Extract the array content between [ and ];
+const arrayStart = toolsContent.indexOf("[", markerIdx);
+const bracketContent = toolsContent.substring(arrayStart);
+
 let tools;
 try {
-  // Create a minimal evaluation context
-  const toolsCode = `(function() { return [${toolsMatch[1]}]; })()`;
-  tools = eval(toolsCode);
+  tools = eval(`(function() { return ${bracketContent.replace(/;\s*$/, "")} })()`);
 } catch (error) {
   throw new Error(`Failed to parse tools array: ${error.message}`);
 }
@@ -89,24 +95,55 @@ const destructiveToolExample = {
 // ============================================================================
 
 /**
- * Validate JSON Schema structure recursively
+ * Validate JSON Schema structure recursively.
+ *
+ * Enforces JSON Schema draft 2020-12 rules required by the Claude API:
+ *   - No type arrays (use anyOf instead)
+ *   - No boolean exclusiveMinimum/Maximum (use numeric values)
+ *   - No $ref (not supported)
  */
 function validateJsonSchema(schema, path = "schema") {
   const errors = [];
 
-  // Root must be object with type
+  // Root must be object
   if (!schema || typeof schema !== "object") {
     errors.push(`${path}: Schema must be an object`);
     return errors;
   }
 
-  if (!schema.type) {
-    errors.push(`${path}: Missing 'type' field`);
+  // --- Draft 2020-12 specific checks (Claude API rejects these) ---
+
+  // type arrays are draft-04/07 syntax for nullable; use anyOf instead
+  if (Array.isArray(schema.type)) {
+    errors.push(`${path}: type is array ${JSON.stringify(schema.type)} — use anyOf: [{type: "string"}, {type: "null"}] instead (draft 2020-12)`);
+  }
+
+  // boolean exclusiveMinimum/Maximum is draft-04; must be a number in 2020-12
+  if (schema.exclusiveMinimum === true || schema.exclusiveMinimum === false) {
+    errors.push(`${path}: exclusiveMinimum is boolean — must be a number (e.g. exclusiveMinimum: 0) (draft 2020-12)`);
+  }
+  if (schema.exclusiveMaximum === true || schema.exclusiveMaximum === false) {
+    errors.push(`${path}: exclusiveMaximum is boolean — must be a number (draft 2020-12)`);
+  }
+
+  // $ref not supported by Claude API tool schemas
+  if (schema["$ref"]) {
+    errors.push(`${path}: $ref is not supported in Claude API tool schemas`);
+  }
+
+  // --- Standard structure checks ---
+
+  // A property must have type OR a composition keyword (anyOf/oneOf/allOf)
+  const hasType = !!schema.type;
+  const hasComposition = schema.anyOf || schema.oneOf || schema.allOf;
+  if (!hasType && !hasComposition && path !== "schema") {
+    // Only flag if this is a leaf schema (not the root which always has type: "object")
+    errors.push(`${path}: Missing 'type' field (or anyOf/oneOf/allOf)`);
   }
 
   // Validate type values
   const validTypes = ["object", "array", "string", "number", "integer", "boolean", "null"];
-  if (schema.type && !validTypes.includes(schema.type)) {
+  if (schema.type && typeof schema.type === "string" && !validTypes.includes(schema.type)) {
     errors.push(`${path}: Invalid type '${schema.type}'. Must be one of: ${validTypes.join(", ")}`);
   }
 
@@ -120,16 +157,8 @@ function validateJsonSchema(schema, path = "schema") {
           errors.push(`${path}.properties.${propName}: Must be an object`);
           continue;
         }
-        if (!propSchema.type) {
-          errors.push(`${path}.properties.${propName}: Missing 'type' field`);
-        }
-        // Recursive validation for nested schemas
-        if (propSchema.type === "object" && propSchema.properties) {
-          errors.push(...validateJsonSchema(propSchema, `${path}.properties.${propName}`));
-        }
-        if (propSchema.type === "array" && propSchema.items) {
-          errors.push(...validateJsonSchema(propSchema.items, `${path}.properties.${propName}.items`));
-        }
+        // Recurse into all property schemas
+        errors.push(...validateJsonSchema(propSchema, `${path}.properties.${propName}`));
       }
     }
   }
@@ -139,7 +168,6 @@ function validateJsonSchema(schema, path = "schema") {
     if (!Array.isArray(schema.required)) {
       errors.push(`${path}.required: Must be an array`);
     } else if (schema.properties) {
-      // Check that all required fields exist in properties
       for (const requiredField of schema.required) {
         if (!schema.properties[requiredField]) {
           errors.push(`${path}.required: Field '${requiredField}' not found in properties`);
@@ -148,11 +176,11 @@ function validateJsonSchema(schema, path = "schema") {
     }
   }
 
-  // Validate array items if present
-  if (schema.type === "array" && schema.items) {
-    if (typeof schema.items !== "object") {
-      errors.push(`${path}.items: Must be an object`);
-    } else {
+  // Validate items (arrays)
+  if (schema.items) {
+    if (Array.isArray(schema.items)) {
+      errors.push(`${path}.items: tuple form (array) not allowed — use prefixItems in draft 2020-12`);
+    } else if (typeof schema.items === "object") {
       errors.push(...validateJsonSchema(schema.items, `${path}.items`));
     }
   }
@@ -160,6 +188,20 @@ function validateJsonSchema(schema, path = "schema") {
   // Validate enum if present
   if (schema.enum && !Array.isArray(schema.enum)) {
     errors.push(`${path}.enum: Must be an array`);
+  }
+
+  // Recurse into composition keywords
+  for (const kw of ["anyOf", "oneOf", "allOf"]) {
+    if (Array.isArray(schema[kw])) {
+      schema[kw].forEach((s, i) => {
+        errors.push(...validateJsonSchema(s, `${path}.${kw}[${i}]`));
+      });
+    }
+  }
+
+  // Recurse into additionalProperties if object
+  if (schema.additionalProperties && typeof schema.additionalProperties === "object" && schema.additionalProperties !== true) {
+    errors.push(...validateJsonSchema(schema.additionalProperties, `${path}.additionalProperties`));
   }
 
   return errors;
@@ -348,14 +390,16 @@ describe("Tool InputSchema Validation", () => {
     );
   });
 
-  test("all property schemas have type field", () => {
+  test("all property schemas have type or composition keyword", () => {
     const missingTypes = [];
 
     for (const tool of tools) {
       if (!tool.inputSchema.properties) continue;
 
       for (const [propName, propSchema] of Object.entries(tool.inputSchema.properties)) {
-        if (!propSchema.type) {
+        const hasType = !!propSchema.type;
+        const hasComposition = propSchema.anyOf || propSchema.oneOf || propSchema.allOf;
+        if (!hasType && !hasComposition) {
           missingTypes.push({
             tool: tool.name,
             property: propName
@@ -367,7 +411,7 @@ describe("Tool InputSchema Validation", () => {
     assert.equal(
       missingTypes.length,
       0,
-      `${missingTypes.length} properties missing type:\n${JSON.stringify(missingTypes, null, 2)}`
+      `${missingTypes.length} properties missing type or anyOf/oneOf/allOf:\n${JSON.stringify(missingTypes, null, 2)}`
     );
   });
 
@@ -423,6 +467,117 @@ describe("Tool InputSchema Validation", () => {
       missingItems.length,
       0,
       `${missingItems.length} array properties missing items schema:\n${JSON.stringify(missingItems, null, 2)}`
+    );
+  });
+});
+
+// ============================================================================
+// DRAFT 2020-12 COMPLIANCE (Claude API rejects non-compliant schemas)
+// ============================================================================
+
+describe("JSON Schema Draft 2020-12 Compliance", () => {
+  test("no type arrays (draft-04 nullable syntax)", () => {
+    const violations = [];
+
+    function checkTypeArrays(schema, path, toolName) {
+      if (!schema || typeof schema !== "object") return;
+      if (Array.isArray(schema.type)) {
+        violations.push({ tool: toolName, path, value: schema.type });
+      }
+      if (schema.properties) {
+        for (const [k, v] of Object.entries(schema.properties)) {
+          checkTypeArrays(v, `${path}.${k}`, toolName);
+        }
+      }
+      if (schema.items && typeof schema.items === "object") {
+        checkTypeArrays(schema.items, `${path}.items`, toolName);
+      }
+      for (const kw of ["anyOf", "oneOf", "allOf"]) {
+        if (Array.isArray(schema[kw])) {
+          schema[kw].forEach((s, i) => checkTypeArrays(s, `${path}.${kw}[${i}]`, toolName));
+        }
+      }
+    }
+
+    for (const tool of tools) {
+      checkTypeArrays(tool.inputSchema, "inputSchema", tool.name);
+    }
+
+    assert.equal(
+      violations.length,
+      0,
+      `${violations.length} type array violations (use anyOf instead):\n${JSON.stringify(violations, null, 2)}`
+    );
+  });
+
+  test("no boolean exclusiveMinimum/Maximum (draft-04 syntax)", () => {
+    const violations = [];
+
+    function checkBooleanBounds(schema, path, toolName) {
+      if (!schema || typeof schema !== "object") return;
+      if (schema.exclusiveMinimum === true || schema.exclusiveMinimum === false) {
+        violations.push({ tool: toolName, path, field: "exclusiveMinimum", value: schema.exclusiveMinimum });
+      }
+      if (schema.exclusiveMaximum === true || schema.exclusiveMaximum === false) {
+        violations.push({ tool: toolName, path, field: "exclusiveMaximum", value: schema.exclusiveMaximum });
+      }
+      if (schema.properties) {
+        for (const [k, v] of Object.entries(schema.properties)) {
+          checkBooleanBounds(v, `${path}.${k}`, toolName);
+        }
+      }
+      if (schema.items && typeof schema.items === "object") {
+        checkBooleanBounds(schema.items, `${path}.items`, toolName);
+      }
+      for (const kw of ["anyOf", "oneOf", "allOf"]) {
+        if (Array.isArray(schema[kw])) {
+          schema[kw].forEach((s, i) => checkBooleanBounds(s, `${path}.${kw}[${i}]`, toolName));
+        }
+      }
+    }
+
+    for (const tool of tools) {
+      checkBooleanBounds(tool.inputSchema, "inputSchema", tool.name);
+    }
+
+    assert.equal(
+      violations.length,
+      0,
+      `${violations.length} boolean bound violations (use numeric values):\n${JSON.stringify(violations, null, 2)}`
+    );
+  });
+
+  test("no $ref usage (unsupported by Claude API)", () => {
+    const violations = [];
+
+    function checkRefs(schema, path, toolName) {
+      if (!schema || typeof schema !== "object") return;
+      if (schema["$ref"]) {
+        violations.push({ tool: toolName, path, ref: schema["$ref"] });
+      }
+      if (schema.properties) {
+        for (const [k, v] of Object.entries(schema.properties)) {
+          checkRefs(v, `${path}.${k}`, toolName);
+        }
+      }
+      if (schema.items && typeof schema.items === "object") {
+        checkRefs(schema.items, `${path}.items`, toolName);
+      }
+      for (const kw of ["anyOf", "oneOf", "allOf"]) {
+        if (Array.isArray(schema[kw])) {
+          schema[kw].forEach((s, i) => checkRefs(s, `${path}.${kw}[${i}]`, toolName));
+        }
+      }
+    }
+
+    for (const tool of tools) {
+      checkRefs(tool.inputSchema, "inputSchema", tool.name);
+    }
+
+    assert.equal(
+      violations.length,
+      0,
+      `${violations.length} $ref violations:\n${JSON.stringify(violations, null, 2)}`
     );
   });
 });
