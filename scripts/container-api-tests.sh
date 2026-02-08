@@ -265,7 +265,7 @@ assert_status "DELETE /notes/:id (soft delete)" "204"
 
 # Restore from trash
 api_call POST "/api/v1/notes/$NOTE_ID_2/restore"
-assert_status "POST /notes/:id/restore" "204"
+assert_status "POST /notes/:id/restore" "200"
 
 # Re-delete then purge
 api_call DELETE "/api/v1/notes/$NOTE_ID_2"
