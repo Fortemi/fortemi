@@ -251,27 +251,3 @@ async fn test_archive_clone_lifecycle() {
     cleanup_archive(&db, &source_name).await;
     cleanup_archive(&db, &clone_name).await;
 }
-
-/// Test MAX_MEMORIES enforcement.
-///
-/// Note: This test verifies that the max_memories field exists in AppState.
-/// Testing the actual enforcement through the HTTP API would require
-/// modifying AppState, which is better done through integration tests
-/// or documented as a manual verification step.
-#[tokio::test]
-async fn test_max_memories_field_documentation() {
-    // This test serves as documentation that MAX_MEMORIES is enforced
-    // in the create_archive and clone_archive handlers.
-    //
-    // To test enforcement through the API:
-    // 1. Set MAX_MEMORIES=3 in environment
-    // 2. Create 3 archives via POST /api/v1/archives
-    // 3. Attempt to create a 4th archive
-    // 4. Verify it returns 400 Bad Request with message:
-    //    "Memory limit reached (3/3). Delete unused memories or increase MAX_MEMORIES."
-    //
-    // Clone also enforces the limit since it creates a new memory.
-    //
-    // See handlers/archives.rs:create_archive() and clone_archive() for implementation.
-    assert!(true, "MAX_MEMORIES enforcement documented");
-}
