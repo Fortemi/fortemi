@@ -9769,6 +9769,76 @@ BEGIN
                 || '(' || r.args || ') CASCADE';
     END LOOP;
 END $$;
+
+-- Drop all text search configurations (e.g. matric_english from migrations)
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT cfgname
+        FROM pg_ts_config c
+        JOIN pg_namespace n ON n.oid = c.cfgnamespace
+        WHERE n.nspname = 'public'
+    ) LOOP
+        EXECUTE 'DROP TEXT SEARCH CONFIGURATION IF EXISTS public.' || quote_ident(r.cfgname) || ' CASCADE';
+    END LOOP;
+END $$;
+
+-- Drop all text search dictionaries (referenced by configs above)
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT dictname
+        FROM pg_ts_dict d
+        JOIN pg_namespace n ON n.oid = d.dictnamespace
+        WHERE n.nspname = 'public'
+    ) LOOP
+        EXECUTE 'DROP TEXT SEARCH DICTIONARY IF EXISTS public.' || quote_ident(r.dictname) || ' CASCADE';
+    END LOOP;
+END $$;
+
+-- Drop all views and materialized views
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT c.relname, c.relkind
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind IN ('v', 'm')
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.objid = c.oid AND d.deptype = 'e'
+          )
+    ) LOOP
+        IF r.relkind = 'v' THEN
+            EXECUTE 'DROP VIEW IF EXISTS public.' || quote_ident(r.relname) || ' CASCADE';
+        ELSE
+            EXECUTE 'DROP MATERIALIZED VIEW IF EXISTS public.' || quote_ident(r.relname) || ' CASCADE';
+        END IF;
+    END LOOP;
+END $$;
+
+-- Drop all standalone sequences (table-owned ones already dropped via CASCADE)
+DO $$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT c.relname
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'S'
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.objid = c.oid AND d.deptype IN ('e', 'a', 'i')
+          )
+    ) LOOP
+        EXECUTE 'DROP SEQUENCE IF EXISTS public.' || quote_ident(r.relname) || ' CASCADE';
+    END LOOP;
+END $$;
 "#;
                 let _ = stdin.write_all(drop_script.as_bytes());
                 let _ = stdin.write_all(sql_content.as_bytes());
