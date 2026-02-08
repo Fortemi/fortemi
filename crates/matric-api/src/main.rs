@@ -9692,10 +9692,13 @@ async fn database_backup_restore(
             .map_err(|e| ApiError::BadRequest(format!("Cannot read backup: {}", e)))?
     };
 
-    // Run psql to restore (drop and recreate)
-    // Use spawn_blocking to avoid deadlocking the tokio runtime — psql can produce
-    // enough stdout/stderr output to fill the pipe buffer, and wait_with_output()
-    // is a blocking call that must drain pipes on a dedicated thread.
+    // Run psql to restore (drop and recreate).
+    // IMPORTANT: stdin writing and stdout/stderr reading MUST happen concurrently.
+    // The DROP script produces NOTICE messages for every dropped object, and the
+    // dump SQL produces output for every CREATE/COPY. If stdout/stderr fills the
+    // 64KB pipe buffer while we're still writing to stdin, both sides deadlock.
+    // Solution: write stdin in a separate thread while wait_with_output() drains
+    // stdout/stderr on the main thread.
     let output = tokio::task::spawn_blocking(move || {
         let mut child = std::process::Command::new("psql")
             .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
@@ -9705,13 +9708,16 @@ async fn database_backup_restore(
             .stderr(std::process::Stdio::piped())
             .spawn()?;
 
-        use std::io::Write;
-        if let Some(mut stdin) = child.stdin.take() {
-            // First drop all user tables and types for a clean restore.
-            // Extension-owned tables (e.g. spatial_ref_sys from PostGIS) must be
-            // excluded — they cannot be dropped without dropping the extension itself,
-            // and the dump will skip them via CREATE EXTENSION IF NOT EXISTS.
-            let drop_script = r#"
+        // Write to stdin in a separate thread to avoid pipe deadlock.
+        let stdin = child.stdin.take();
+        let writer = std::thread::spawn(move || {
+            use std::io::Write;
+            if let Some(mut stdin) = stdin {
+                // First drop all user tables and types for a clean restore.
+                // Extension-owned tables (e.g. spatial_ref_sys from PostGIS) must be
+                // excluded — they cannot be dropped without dropping the extension itself,
+                // and the dump will skip them via CREATE EXTENSION IF NOT EXISTS.
+                let drop_script = r#"
 -- Drop all user tables (exclude extension-owned like spatial_ref_sys)
 DO $$ DECLARE
     r RECORD;
@@ -9764,11 +9770,16 @@ BEGIN
     END LOOP;
 END $$;
 "#;
-            let _ = stdin.write_all(drop_script.as_bytes());
-            let _ = stdin.write_all(sql_content.as_bytes());
-        }
+                let _ = stdin.write_all(drop_script.as_bytes());
+                let _ = stdin.write_all(sql_content.as_bytes());
+            }
+            // stdin drops here, sending EOF to psql
+        });
 
-        child.wait_with_output()
+        // wait_with_output drains stdout+stderr concurrently, then waits for exit
+        let output = child.wait_with_output();
+        let _ = writer.join();
+        output
     })
     .await
     .map_err(|e| ApiError::BadRequest(format!("psql task panicked: {}", e)))?
@@ -9813,20 +9824,25 @@ CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING
 "#;
         let post_sql = post_restore_sql.to_string();
         let reindex_result = tokio::task::spawn_blocking(move || {
-            std::process::Command::new("psql")
+            let mut child = std::process::Command::new("psql")
                 .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
                 .env("PGPASSWORD", "matric")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
-                .spawn()
-                .and_then(|mut child| {
-                    if let Some(mut stdin) = child.stdin.take() {
-                        use std::io::Write;
-                        let _ = stdin.write_all(post_sql.as_bytes());
-                    }
-                    child.wait_with_output()
-                })
+                .spawn()?;
+
+            let stdin = child.stdin.take();
+            let writer = std::thread::spawn(move || {
+                use std::io::Write;
+                if let Some(mut stdin) = stdin {
+                    let _ = stdin.write_all(post_sql.as_bytes());
+                }
+            });
+
+            let output = child.wait_with_output();
+            let _ = writer.join();
+            output
         })
         .await
         .unwrap_or_else(|e| Err(std::io::Error::other(format!("task panicked: {}", e))));
