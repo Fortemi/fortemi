@@ -384,6 +384,7 @@ Best practices:
             properties: {
               content: { type: "string", description: "Note content in markdown format" },
               tags: { type: "array", items: { type: "string" }, description: "Optional hierarchical tags (e.g., 'topic/subtopic', max 5 levels)" },
+              metadata: { type: "object", description: "Optional JSON metadata for the note (arbitrary key-value pairs)" },
               revision_mode: {
                 type: "string",
                 enum: ["full", "light", "none"],

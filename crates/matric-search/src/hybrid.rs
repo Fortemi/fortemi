@@ -518,9 +518,9 @@ impl HybridSearch for HybridSearchEngine {
             return Ok(Vec::new());
         }
 
-        // Fuse results using RRF
+        // Fuse results using RRF (over-fetch to account for deduplication reducing count)
         let fusion_start = Instant::now();
-        let mut results = rrf_fuse(ranked_lists, limit as usize);
+        let mut results = rrf_fuse(ranked_lists, (limit as usize) * 3);
         debug!(
             fusion_method = "rrf",
             result_count = results.len(),
@@ -533,8 +533,9 @@ impl HybridSearch for HybridSearchEngine {
             results.retain(|hit| hit.score >= config.min_score);
         }
 
-        // Apply deduplication
-        let deduplicated = deduplicate_search_results(results, &config.deduplication);
+        // Apply deduplication, then enforce requested limit (fixes #183)
+        let mut deduplicated = deduplicate_search_results(results, &config.deduplication);
+        deduplicated.truncate(limit as usize);
 
         info!(
             fts_hits = fts_count,
@@ -619,14 +620,15 @@ impl HybridSearch for HybridSearchEngine {
             return Ok(Vec::new());
         }
 
-        let mut results = rrf_fuse(ranked_lists, limit as usize);
+        let mut results = rrf_fuse(ranked_lists, (limit as usize) * 3);
 
         if config.min_score > 0.0 {
             results.retain(|hit| hit.score >= config.min_score);
         }
 
-        // Apply deduplication
-        let deduplicated = deduplicate_search_results(results, &config.deduplication);
+        // Apply deduplication, then enforce requested limit (fixes #183)
+        let mut deduplicated = deduplicate_search_results(results, &config.deduplication);
+        deduplicated.truncate(limit as usize);
 
         info!(
             result_count = deduplicated.len(),

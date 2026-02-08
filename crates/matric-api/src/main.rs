@@ -2851,6 +2851,19 @@ async fn create_note(
         None
     };
 
+    // Validate tag depth before processing (fixes #193)
+    if let Some(ref tags) = tags_for_skos {
+        for tag in tags {
+            let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+            if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
+                return Err(ApiError::BadRequest(format!(
+                    "Tag '{}' exceeds maximum depth of {} levels",
+                    tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+                )));
+            }
+        }
+    }
+
     // Resolve tags via SKOS and create parent hierarchy (fixes #301)
     if let Some(tags) = tags_for_skos {
         let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
@@ -2933,6 +2946,9 @@ async fn create_note(
 struct BulkCreateNoteItem {
     content: String,
     tags: Option<Vec<String>>,
+    /// Optional JSON metadata for the note
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
     /// AI revision mode: "full" (default), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
@@ -2970,8 +2986,18 @@ async fn bulk_create_notes(
                 i
             )));
         }
-        // Rust String is always valid UTF-8, but this documents the expectation
-        // and ensures any future changes maintain UTF-8 correctness
+        // Validate tag depth (fixes #193)
+        if let Some(ref tags) = note.tags {
+            for tag in tags {
+                let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+                if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
+                    return Err(ApiError::BadRequest(format!(
+                        "Note at index {}: tag '{}' exceeds maximum depth of {} levels",
+                        i, tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+                    )));
+                }
+            }
+        }
     }
 
     // Convert to CreateNoteRequest
@@ -2984,7 +3010,7 @@ async fn bulk_create_notes(
             source: "api_bulk".to_string(),
             collection_id: None,
             tags: item.tags.clone(),
-            metadata: None,
+            metadata: item.metadata.clone(),
             document_type_id: None,
         })
         .collect();
@@ -3279,7 +3305,7 @@ async fn restore_note(
     )
     .await;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(serde_json::json!({ "restored": true, "id": id })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -3416,6 +3442,16 @@ async fn set_note_tags(
     Path(id): Path<Uuid>,
     Json(body): Json<SetTagsBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Validate tag depth (fixes #193)
+    for tag in &body.tags {
+        let depth = tag.split('/').map(|s| s.trim()).filter(|s| !s.is_empty()).count();
+        if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
+            return Err(ApiError::BadRequest(format!(
+                "Tag '{}' exceeds maximum depth of {} levels",
+                tag, matric_core::tags::MAX_TAG_PATH_DEPTH
+            )));
+        }
+    }
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| {
@@ -5597,7 +5633,7 @@ async fn federated_search(
             r#"
             SELECT
                 n.id AS note_id,
-                ts_rank_cd(n.search_vector, websearch_to_tsquery('english', $1)) AS score,
+                ts_rank_cd(nrc.tsv, websearch_to_tsquery('english', $1)) AS score,
                 ts_headline('english', n.content, websearch_to_tsquery('english', $1),
                     'MaxFragments=1,MaxWords=30,MinWords=10') AS snippet,
                 n.title,
@@ -5606,10 +5642,11 @@ async fn federated_search(
                     '{}'
                 ) AS tags
             FROM note n
+            JOIN note_revised_current nrc ON nrc.note_id = n.id
             LEFT JOIN note_tag nt ON nt.note_id = n.id
             WHERE n.soft_deleted = false
-                AND n.search_vector @@ websearch_to_tsquery('english', $1)
-            GROUP BY n.id, n.title, n.content, n.search_vector
+                AND nrc.tsv @@ websearch_to_tsquery('english', $1)
+            GROUP BY n.id, n.title, n.content, nrc.tsv
             ORDER BY score DESC
             LIMIT $2
             "#,
