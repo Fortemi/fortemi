@@ -9693,19 +9693,22 @@ async fn database_backup_restore(
     };
 
     // Run psql to restore (drop and recreate)
-    let mut child = std::process::Command::new("psql")
-        .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
-        .env("PGPASSWORD", "matric")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| ApiError::BadRequest(format!("Cannot start psql: {}", e)))?;
+    // Use spawn_blocking to avoid deadlocking the tokio runtime — psql can produce
+    // enough stdout/stderr output to fill the pipe buffer, and wait_with_output()
+    // is a blocking call that must drain pipes on a dedicated thread.
+    let output = tokio::task::spawn_blocking(move || {
+        let mut child = std::process::Command::new("psql")
+            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
+            .env("PGPASSWORD", "matric")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
 
-    use std::io::Write;
-    if let Some(mut stdin) = child.stdin.take() {
-        // First drop all tables in a transaction-safe way
-        let drop_script = r#"
+        use std::io::Write;
+        if let Some(mut stdin) = child.stdin.take() {
+            // First drop all tables in a transaction-safe way
+            let drop_script = r#"
 DO $$ DECLARE
     r RECORD;
 BEGIN
@@ -9714,13 +9717,15 @@ BEGIN
     END LOOP;
 END $$;
 "#;
-        let _ = stdin.write_all(drop_script.as_bytes());
-        let _ = stdin.write_all(sql_content.as_bytes());
-    }
+            let _ = stdin.write_all(drop_script.as_bytes());
+            let _ = stdin.write_all(sql_content.as_bytes());
+        }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
+        child.wait_with_output()
+    })
+    .await
+    .map_err(|e| ApiError::BadRequest(format!("psql task panicked: {}", e)))?
+    .map_err(|e| ApiError::BadRequest(format!("psql failed: {}", e)))?;
 
     let reconnect_delay_ms = 2000; // 2 seconds for DB to stabilize
 
@@ -9759,20 +9764,25 @@ ANALYZE embedding;
 -- Verify GIN indexes exist on tsvector columns (no-op if present)
 CREATE INDEX IF NOT EXISTS idx_revised_current_tsv ON note_revised_current USING GIN(tsv);
 "#;
-        let reindex_result = std::process::Command::new("psql")
-            .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
-            .env("PGPASSWORD", "matric")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(mut stdin) = child.stdin.take() {
-                    use std::io::Write;
-                    let _ = stdin.write_all(post_restore_sql.as_bytes());
-                }
-                child.wait_with_output()
-            });
+        let post_sql = post_restore_sql.to_string();
+        let reindex_result = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("psql")
+                .args(["-U", "matric", "-h", "localhost", "-d", "matric"])
+                .env("PGPASSWORD", "matric")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        use std::io::Write;
+                        let _ = stdin.write_all(post_sql.as_bytes());
+                    }
+                    child.wait_with_output()
+                })
+        })
+        .await
+        .unwrap_or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, format!("task panicked: {}", e))));
         match &reindex_result {
             Ok(o) if !o.status.success() => {
                 let stderr = String::from_utf8_lossy(&o.stderr);
