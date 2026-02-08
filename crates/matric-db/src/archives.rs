@@ -748,7 +748,7 @@ impl ArchiveRepository for PgArchiveRepository {
 
         // Count notes in the archive schema
         let note_count: i64 = sqlx::query_scalar(&format!(
-            "SELECT COUNT(*) FROM {}.note WHERE soft_deleted = false",
+            "SELECT COUNT(*) FROM {}.note WHERE deleted_at IS NULL",
             archive.schema_name
         ))
         .fetch_one(&self.pool)
@@ -834,9 +834,35 @@ impl ArchiveRepository for PgArchiveRepository {
             .map_err(Error::Database)?;
 
         for table in &tables {
+            // Get non-generated columns to avoid "cannot insert into generated column" errors
+            let columns: Vec<String> = sqlx::query_scalar(
+                r#"
+                SELECT a.attname::text
+                FROM pg_attribute a
+                JOIN pg_class c ON a.attrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE n.nspname = $1
+                    AND c.relname = $2
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                    AND a.attgenerated = ''
+                ORDER BY a.attnum
+                "#,
+            )
+            .bind(&source.schema_name)
+            .bind(table)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            if columns.is_empty() {
+                continue;
+            }
+
+            let col_list = columns.join(", ");
             sqlx::query(&format!(
-                "INSERT INTO {}.{} SELECT * FROM {}.{}",
-                new_archive.schema_name, table, source.schema_name, table
+                "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}",
+                new_archive.schema_name, table, col_list, col_list, source.schema_name, table
             ))
             .execute(&mut *tx)
             .await
