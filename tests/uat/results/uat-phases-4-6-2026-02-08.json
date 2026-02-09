@@ -1,0 +1,126 @@
+{
+  "tests": [
+    {
+      "test_id": "TAG-001",
+      "status": "PASS",
+      "message": "list_tags returned 30 tags (expected >= 6)",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "TAG-002",
+      "status": "PASS",
+      "message": "New tag 'uat/new-tag' added successfully",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "TAG-003",
+      "status": "PASS",
+      "message": "Tag hierarchy verified, uat/new-tag has count 1",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "TAG-004",
+      "status": "PASS",
+      "message": "Tag removed successfully",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "TAG-005",
+      "status": "PASS",
+      "message": "5-level tag depth accepted, note: 019c3e3f-3e2a-73b3-b76c-b2a6bb78dff0",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "TAG-006",
+      "status": "FAIL",
+      "message": "6-level tag accepted (should error or truncate)",
+      "phase": "TAG"
+    },
+    {
+      "test_id": "COL-001",
+      "status": "PASS",
+      "message": "list_collections returned 3 collections (expected >= 3)",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-002",
+      "status": "FAIL",
+      "message": "Note collection_id is null (expected 019c3e37-22a0-7ec2-ae9a-68cbf8dc1fd2)",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-003",
+      "status": "PASS",
+      "message": "Neural Networks note found in collection",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-004",
+      "status": "FAIL",
+      "message": "Collection created but parent_id mismatch: null",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-005",
+      "status": "BLOCKED",
+      "message": "No subcollection ID from COL-004",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-006",
+      "status": "BLOCKED",
+      "message": "No subcollection ID from COL-004",
+      "phase": "COL"
+    },
+    {
+      "test_id": "COL-007",
+      "status": "PASS",
+      "message": "Duplicate collection name rejected",
+      "phase": "COL"
+    },
+    {
+      "test_id": "LINK-001",
+      "status": "BLOCKED",
+      "message": "get_note_links is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    },
+    {
+      "test_id": "LINK-002",
+      "status": "BLOCKED",
+      "message": "get_note_backlinks is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    },
+    {
+      "test_id": "LINK-003",
+      "status": "BLOCKED",
+      "message": "explore_graph is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    },
+    {
+      "test_id": "LINK-004",
+      "status": "BLOCKED",
+      "message": "explore_graph depth 2 is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    },
+    {
+      "test_id": "LINK-005",
+      "status": "BLOCKED",
+      "message": "Link scores verification is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    },
+    {
+      "test_id": "LINK-006",
+      "status": "BLOCKED",
+      "message": "get_note_provenance is MCP-only, MCP server not initialized",
+      "phase": "LINK"
+    }
+  ],
+  "summary": {
+    "phase_4": 0,
+    "phase_5": 0,
+    "phase_6": 0,
+    "pass": 8,
+    "fail": 3,
+    "blocked": 8
+  }
+}

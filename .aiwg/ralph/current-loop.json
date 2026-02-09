@@ -1,24 +1,12 @@
 {
-  "active": false,
-  "task": "Execute COMPLETE Matric Memory MCP UAT test suite (25 phases, 530 tests) strictly via MCP tools",
-  "completion": "All 25 phases executed, all tests have PASS/FAIL/BLOCKED result, Gitea issues filed for failures, final report at tests/uat/results/uat-report-2026-02-07.md",
-  "maxIterations": 50,
+  "active": true,
+  "task": "Full UAT regression pass against v2026.2.8 - all prior issues resolved, fresh validation",
+  "completion": "All 25 phases executed, all tests have PASS/FAIL/BLOCKED result, Gitea issues filed for ALL deficiencies, final report at tests/uat/results/uat-report-2026-02-08-v2.md",
+  "maxIterations": 60,
   "currentIteration": 1,
-  "startTime": "2026-02-07T12:00:00Z",
+  "startTime": "2026-02-08T18:30:00Z",
   "timeoutMinutes": 300,
-  "status": "COMPLETED",
-  "phases_completed": ["0","1","2","2b","2c","3","3b","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21"],
-  "phases_remaining": [],
-  "summary": {
-    "total_tests": 530,
-    "passed": 425,
-    "failed": 30,
-    "blocked": 75,
-    "pass_rate_executed": "93.4%",
-    "pass_rate_total": "80.2%",
-    "issues_filed": ["#131","#132","#133","#134","#135","#136","#137","#138","#139","#140","#141","#142","#143","#144","#148"],
-    "issues_closed_dupes": ["#145","#146","#147"],
-    "report": "tests/uat/results/uat-report-2026-02-07.md",
-    "notes": "MCP server crashed during Phase 13 SKOS testing, restarted and resumed. Phases 14, 3b, 7 (remaining), 21 completed after restart."
-  }
+  "status": "IN_PROGRESS",
+  "phases_completed": [],
+  "phases_remaining": ["0","1","2","2b","2c","3","3b","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21"]
 }
