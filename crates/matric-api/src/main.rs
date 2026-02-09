@@ -965,8 +965,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/notes/:id/attachments/upload",
-            post(upload_attachment_multipart)
-                .layer(DefaultBodyLimit::max(max_upload_size)),
+            post(upload_attachment_multipart).layer(DefaultBodyLimit::max(max_upload_size)),
         )
         .route(
             "/api/v1/attachments/:attachment_id",
@@ -9225,7 +9224,8 @@ async fn upload_attachment(
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
-    let validation = matric_core::validate_file(&body.filename, &data, state.max_upload_size as u64);
+    let validation =
+        matric_core::validate_file(&body.filename, &data, state.max_upload_size as u64);
     if !validation.allowed {
         return Err(ApiError::BadRequest(
             validation

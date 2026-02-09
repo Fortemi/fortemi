@@ -422,13 +422,22 @@ mod tests {
         // Exactly at limit — should be allowed
         let data_at_limit = vec![b'A'; MAX_UPLOAD_SIZE_BYTES];
         let result = validate_file("big.txt", &data_at_limit, limit);
-        assert!(result.allowed, "File exactly at MAX_UPLOAD_SIZE_BYTES should be allowed");
+        assert!(
+            result.allowed,
+            "File exactly at MAX_UPLOAD_SIZE_BYTES should be allowed"
+        );
 
         // One byte over — should be blocked
         let data_over_limit = vec![b'A'; MAX_UPLOAD_SIZE_BYTES + 1];
         let result = validate_file("toobig.txt", &data_over_limit, limit);
-        assert!(!result.allowed, "File one byte over MAX_UPLOAD_SIZE_BYTES should be blocked");
-        assert!(result.block_reason.unwrap().contains("exceeds maximum size"));
+        assert!(
+            !result.allowed,
+            "File one byte over MAX_UPLOAD_SIZE_BYTES should be blocked"
+        );
+        assert!(result
+            .block_reason
+            .unwrap()
+            .contains("exceeds maximum size"));
     }
 
     #[test]
@@ -438,7 +447,10 @@ mod tests {
 
         let data_at = vec![b'A'; custom_limit as usize];
         let result = validate_file("file.txt", &data_at, custom_limit);
-        assert!(result.allowed, "File exactly at custom limit should be allowed");
+        assert!(
+            result.allowed,
+            "File exactly at custom limit should be allowed"
+        );
 
         let data_over = vec![b'A'; custom_limit as usize + 1];
         let result = validate_file("file.txt", &data_over, custom_limit);
