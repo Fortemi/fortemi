@@ -13,9 +13,9 @@ use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
-    CreateFileProvenanceRequest, CreateNamedLocationRequest, CreateProvDeviceRequest,
-    CreateProvLocationRequest, Error, FileProvenanceRecord, MemoryDevice, MemoryLocation,
-    MemoryLocationResult, MemoryProvenance, MemoryTimeResult, Result,
+    CreateFileProvenanceRequest, CreateNamedLocationRequest, CreateNoteProvenanceRequest,
+    CreateProvDeviceRequest, CreateProvLocationRequest, Error, MemoryDevice, MemoryLocation,
+    MemoryLocationResult, MemoryProvenance, MemoryTimeResult, ProvenanceRecord, Result,
 };
 
 /// PostgreSQL memory search repository.
@@ -54,25 +54,26 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id, filename, content_type,
                    distance_m, capture_time_start, capture_time_end, location_name, event_type
             FROM (
-                -- File provenance matches
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    a.filename,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    COALESCE(a.filename, pn.title) as filename,
                     ab.content_type,
                     ST_Distance(
                         pl.point,
                         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
                     ) as distance_m,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
                     nl.name as location_name,
-                    fp.event_type
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                JOIN attachment_blob ab ON a.blob_id = ab.id
-                JOIN prov_location pl ON fp.location_id = pl.id
+                    p.event_type
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN attachment_blob ab ON a.blob_id = ab.id
+                LEFT JOIN note pn ON p.note_id = pn.id
+                JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
                 WHERE ST_DWithin(
                     pl.point,
@@ -105,6 +106,7 @@ impl PgMemorySearchRepository {
                 WHERE n.metadata->>'latitude' IS NOT NULL
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -161,20 +163,20 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id,
                    capture_time_start, capture_time_end, event_type, location_name
             FROM (
-                -- File provenance matches
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
-                    fp.event_type,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
+                    p.event_type,
                     nl.name as location_name
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                LEFT JOIN prov_location pl ON fp.location_id = pl.id
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-                WHERE fp.capture_time && tstzrange($1, $2)
+                WHERE p.capture_time && tstzrange($1, $2)
 
                 UNION ALL
 
@@ -190,10 +192,14 @@ impl PgMemorySearchRepository {
                 FROM note n
                 JOIN note_original no ON n.id = no.note_id
                 WHERE n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND no.user_created_at >= $1
                   AND no.user_created_at <= $2
             ) combined
-            ORDER BY capture_time_start
+            ORDER BY
+                CASE WHEN provenance_id IS NOT NULL THEN 0 ELSE 1 END,
+                capture_time_start
             LIMIT 100
             "#,
         )
@@ -242,32 +248,33 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id, filename, content_type,
                    distance_m, capture_time_start, capture_time_end, location_name, event_type
             FROM (
-                -- File provenance matches
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    a.filename,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    COALESCE(a.filename, pn.title) as filename,
                     ab.content_type,
                     ST_Distance(
                         pl.point,
                         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
                     ) as distance_m,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
                     nl.name as location_name,
-                    fp.event_type
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                JOIN attachment_blob ab ON a.blob_id = ab.id
-                JOIN prov_location pl ON fp.location_id = pl.id
+                    p.event_type
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN attachment_blob ab ON a.blob_id = ab.id
+                LEFT JOIN note pn ON p.note_id = pn.id
+                JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
                 WHERE ST_DWithin(
                     pl.point,
                     ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                     $3
                 )
-                AND fp.capture_time && tstzrange($4, $5)
+                AND p.capture_time && tstzrange($4, $5)
 
                 UNION ALL
 
@@ -294,6 +301,7 @@ impl PgMemorySearchRepository {
                 WHERE n.metadata->>'latitude' IS NOT NULL
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -335,10 +343,10 @@ impl PgMemorySearchRepository {
             .collect())
     }
 
-    /// Get the complete provenance chain for a note's file attachments.
+    /// Get the complete provenance chain for a note.
     ///
     /// Returns detailed provenance information including location, device,
-    /// and temporal context for all file attachments linked to the note.
+    /// and temporal context for all file attachments and the note itself.
     ///
     /// # Arguments
     ///
@@ -346,31 +354,32 @@ impl PgMemorySearchRepository {
     ///
     /// # Returns
     ///
-    /// `Some(MemoryProvenance)` if the note has file provenance, `None` otherwise.
+    /// `Some(MemoryProvenance)` if the note has provenance, `None` otherwise.
     pub async fn get_memory_provenance(&self, note_id: Uuid) -> Result<Option<MemoryProvenance>> {
-        // Get all file provenance records for attachments of this note
+        // Get all provenance records (file-level and note-level) for this note
         let rows = sqlx::query(
             r#"
             SELECT
-                fp.id,
-                fp.attachment_id,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                fp.capture_timezone,
-                fp.capture_duration_seconds,
-                fp.time_source,
-                fp.time_confidence,
-                fp.event_type,
-                fp.event_title,
-                fp.event_description,
-                fp.user_corrected,
-                fp.created_at,
-                fp.location_id,
-                fp.device_id
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            WHERE a.note_id = $1
-            ORDER BY fp.created_at DESC
+                p.id,
+                p.attachment_id,
+                p.note_id,
+                lower(p.capture_time) as capture_time_start,
+                upper(p.capture_time) as capture_time_end,
+                p.capture_timezone,
+                p.capture_duration_seconds,
+                p.time_source,
+                p.time_confidence,
+                p.event_type,
+                p.event_title,
+                p.event_description,
+                p.user_corrected,
+                p.created_at,
+                p.location_id,
+                p.device_id
+            FROM provenance p
+            LEFT JOIN attachment a ON p.attachment_id = a.id
+            WHERE (a.note_id = $1 OR p.note_id = $1)
+            ORDER BY p.created_at DESC
             "#,
         )
         .bind(note_id)
@@ -383,10 +392,13 @@ impl PgMemorySearchRepository {
         }
 
         let mut files = Vec::new();
+        let mut note_prov = None;
 
         for row in rows {
             let location_id: Option<Uuid> = row.get("location_id");
             let device_id: Option<Uuid> = row.get("device_id");
+            let attachment_id: Option<Uuid> = row.get::<Option<Uuid>, _>("attachment_id");
+            let prov_note_id: Option<Uuid> = row.get::<Option<Uuid>, _>("note_id");
 
             // Fetch location if present
             let location = if let Some(loc_id) = location_id {
@@ -402,9 +414,10 @@ impl PgMemorySearchRepository {
                 None
             };
 
-            files.push(FileProvenanceRecord {
+            let record = ProvenanceRecord {
                 id: row.get("id"),
-                attachment_id: row.get("attachment_id"),
+                attachment_id,
+                note_id: prov_note_id,
                 capture_time_start: row.get("capture_time_start"),
                 capture_time_end: row.get("capture_time_end"),
                 capture_timezone: row.get("capture_timezone"),
@@ -418,10 +431,21 @@ impl PgMemorySearchRepository {
                 event_description: row.get("event_description"),
                 user_corrected: row.get("user_corrected"),
                 created_at: row.get("created_at"),
-            });
+            };
+
+            // Separate file-level and note-level provenance
+            if attachment_id.is_some() {
+                files.push(record);
+            } else if prov_note_id.is_some() {
+                note_prov = Some(record);
+            }
         }
 
-        Ok(Some(MemoryProvenance { note_id, files }))
+        Ok(Some(MemoryProvenance {
+            note_id,
+            files,
+            note: note_prov,
+        }))
     }
 
     /// Internal helper to fetch location details.
@@ -537,24 +561,26 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id, filename, content_type,
                    distance_m, capture_time_start, capture_time_end, location_name, event_type
             FROM (
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    a.filename,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    COALESCE(a.filename, pn.title) as filename,
                     ab.content_type,
                     ST_Distance(
                         pl.point,
                         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
                     ) as distance_m,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
                     nl.name as location_name,
-                    fp.event_type
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                JOIN attachment_blob ab ON a.blob_id = ab.id
-                JOIN prov_location pl ON fp.location_id = pl.id
+                    p.event_type
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN attachment_blob ab ON a.blob_id = ab.id
+                LEFT JOIN note pn ON p.note_id = pn.id
+                JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
                 WHERE ST_DWithin(
                     pl.point,
@@ -564,6 +590,7 @@ impl PgMemorySearchRepository {
 
                 UNION ALL
 
+                -- Note metadata matches (latitude/longitude in JSONB)
                 SELECT
                     NULL::uuid as provenance_id,
                     NULL::uuid as attachment_id,
@@ -586,6 +613,7 @@ impl PgMemorySearchRepository {
                 WHERE n.metadata->>'latitude' IS NOT NULL
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -635,22 +663,24 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id,
                    capture_time_start, capture_time_end, event_type, location_name
             FROM (
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
-                    fp.event_type,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
+                    p.event_type,
                     nl.name as location_name
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                LEFT JOIN prov_location pl ON fp.location_id = pl.id
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-                WHERE fp.capture_time && tstzrange($1, $2)
+                WHERE p.capture_time && tstzrange($1, $2)
 
                 UNION ALL
 
+                -- Note metadata matches (user_created_at in time range)
                 SELECT
                     NULL::uuid as provenance_id,
                     NULL::uuid as attachment_id,
@@ -662,10 +692,14 @@ impl PgMemorySearchRepository {
                 FROM note n
                 JOIN note_original no ON n.id = no.note_id
                 WHERE n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND no.user_created_at >= $1
                   AND no.user_created_at <= $2
             ) combined
-            ORDER BY capture_time_start
+            ORDER BY
+                CASE WHEN provenance_id IS NOT NULL THEN 0 ELSE 1 END,
+                capture_time_start
             LIMIT 100
             "#,
         )
@@ -704,34 +738,37 @@ impl PgMemorySearchRepository {
             SELECT provenance_id, attachment_id, note_id, filename, content_type,
                    distance_m, capture_time_start, capture_time_end, location_name, event_type
             FROM (
+                -- Provenance matches (file and note)
                 SELECT
-                    fp.id as provenance_id,
-                    fp.attachment_id,
-                    a.note_id,
-                    a.filename,
+                    p.id as provenance_id,
+                    p.attachment_id,
+                    COALESCE(p.note_id, a.note_id) as note_id,
+                    COALESCE(a.filename, pn.title) as filename,
                     ab.content_type,
                     ST_Distance(
                         pl.point,
                         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
                     ) as distance_m,
-                    lower(fp.capture_time) as capture_time_start,
-                    upper(fp.capture_time) as capture_time_end,
+                    lower(p.capture_time) as capture_time_start,
+                    upper(p.capture_time) as capture_time_end,
                     nl.name as location_name,
-                    fp.event_type
-                FROM file_provenance fp
-                JOIN attachment a ON fp.attachment_id = a.id
-                JOIN attachment_blob ab ON a.blob_id = ab.id
-                JOIN prov_location pl ON fp.location_id = pl.id
+                    p.event_type
+                FROM provenance p
+                LEFT JOIN attachment a ON p.attachment_id = a.id
+                LEFT JOIN attachment_blob ab ON a.blob_id = ab.id
+                LEFT JOIN note pn ON p.note_id = pn.id
+                JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
                 WHERE ST_DWithin(
                     pl.point,
                     ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                     $3
                 )
-                AND fp.capture_time && tstzrange($4, $5)
+                AND p.capture_time && tstzrange($4, $5)
 
                 UNION ALL
 
+                -- Note metadata matches (lat/lng + time)
                 SELECT
                     NULL::uuid as provenance_id,
                     NULL::uuid as attachment_id,
@@ -754,6 +791,7 @@ impl PgMemorySearchRepository {
                 WHERE n.metadata->>'latitude' IS NOT NULL
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -801,29 +839,30 @@ impl PgMemorySearchRepository {
         tx: &mut Transaction<'_, Postgres>,
         note_id: Uuid,
     ) -> Result<Option<MemoryProvenance>> {
-        // Get all file provenance records for attachments of this note
+        // Get all provenance records (file-level and note-level) for this note
         let rows = sqlx::query(
             r#"
             SELECT
-                fp.id,
-                fp.attachment_id,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                fp.capture_timezone,
-                fp.capture_duration_seconds,
-                fp.time_source,
-                fp.time_confidence,
-                fp.event_type,
-                fp.event_title,
-                fp.event_description,
-                fp.user_corrected,
-                fp.created_at,
-                fp.location_id,
-                fp.device_id
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            WHERE a.note_id = $1
-            ORDER BY fp.created_at DESC
+                p.id,
+                p.attachment_id,
+                p.note_id,
+                lower(p.capture_time) as capture_time_start,
+                upper(p.capture_time) as capture_time_end,
+                p.capture_timezone,
+                p.capture_duration_seconds,
+                p.time_source,
+                p.time_confidence,
+                p.event_type,
+                p.event_title,
+                p.event_description,
+                p.user_corrected,
+                p.created_at,
+                p.location_id,
+                p.device_id
+            FROM provenance p
+            LEFT JOIN attachment a ON p.attachment_id = a.id
+            WHERE (a.note_id = $1 OR p.note_id = $1)
+            ORDER BY p.created_at DESC
             "#,
         )
         .bind(note_id)
@@ -836,10 +875,13 @@ impl PgMemorySearchRepository {
         }
 
         let mut files = Vec::new();
+        let mut note_prov = None;
 
         for row in rows {
             let location_id: Option<Uuid> = row.get("location_id");
             let device_id: Option<Uuid> = row.get("device_id");
+            let attachment_id: Option<Uuid> = row.get::<Option<Uuid>, _>("attachment_id");
+            let prov_note_id: Option<Uuid> = row.get::<Option<Uuid>, _>("note_id");
 
             // Inline location query to use transaction
             let location = if let Some(loc_id) = location_id {
@@ -936,9 +978,10 @@ impl PgMemorySearchRepository {
                 None
             };
 
-            files.push(FileProvenanceRecord {
+            let record = ProvenanceRecord {
                 id: row.get("id"),
-                attachment_id: row.get("attachment_id"),
+                attachment_id,
+                note_id: prov_note_id,
                 capture_time_start: row.get("capture_time_start"),
                 capture_time_end: row.get("capture_time_end"),
                 capture_timezone: row.get("capture_timezone"),
@@ -952,10 +995,21 @@ impl PgMemorySearchRepository {
                 event_description: row.get("event_description"),
                 user_corrected: row.get("user_corrected"),
                 created_at: row.get("created_at"),
-            });
+            };
+
+            // Separate file-level and note-level provenance
+            if attachment_id.is_some() {
+                files.push(record);
+            } else if prov_note_id.is_some() {
+                note_prov = Some(record);
+            }
         }
 
-        Ok(Some(MemoryProvenance { note_id, files }))
+        Ok(Some(MemoryProvenance {
+            note_id,
+            files,
+            note: note_prov,
+        }))
     }
 }
 
@@ -1309,7 +1363,7 @@ impl PgMemorySearchRepository {
     pub async fn create_file_provenance(&self, req: &CreateFileProvenanceRequest) -> Result<Uuid> {
         let row = sqlx::query(
             r#"
-            INSERT INTO file_provenance (
+            INSERT INTO provenance (
                 attachment_id, capture_time, capture_timezone, capture_duration_seconds,
                 time_source, time_confidence, location_id, device_id, event_type,
                 event_title, event_description, raw_metadata
@@ -1353,7 +1407,7 @@ impl PgMemorySearchRepository {
     ) -> Result<Uuid> {
         let row = sqlx::query(
             r#"
-            INSERT INTO file_provenance (
+            INSERT INTO provenance (
                 attachment_id, capture_time, capture_timezone, capture_duration_seconds,
                 time_source, time_confidence, location_id, device_id, event_type,
                 event_title, event_description, raw_metadata
@@ -1387,6 +1441,294 @@ impl PgMemorySearchRepository {
         .map_err(Error::Database)?;
 
         Ok(row.get("id"))
+    }
+
+    /// Create a note provenance record linking a note to spatial-temporal context.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - Note provenance creation request
+    ///
+    /// # Returns
+    ///
+    /// The UUID of the created note provenance record.
+    pub async fn create_note_provenance(&self, req: &CreateNoteProvenanceRequest) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO provenance (
+                note_id, capture_time, capture_timezone,
+                time_source, time_confidence, location_id, device_id, event_type,
+                event_title, event_description
+            )
+            VALUES (
+                $1,
+                CASE WHEN $2::timestamptz IS NOT NULL
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    ELSE NULL
+                END,
+                $4, $5, COALESCE($6, 'unknown'), $7, $8, $9, $10, $11
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.note_id)
+        .bind(req.capture_time_start)
+        .bind(req.capture_time_end)
+        .bind(&req.capture_timezone)
+        .bind(&req.time_source)
+        .bind(&req.time_confidence)
+        .bind(req.location_id)
+        .bind(req.device_id)
+        .bind(&req.event_type)
+        .bind(&req.event_title)
+        .bind(&req.event_description)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Transaction-aware variant of create_note_provenance.
+    pub async fn create_note_provenance_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: &CreateNoteProvenanceRequest,
+    ) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO provenance (
+                note_id, capture_time, capture_timezone,
+                time_source, time_confidence, location_id, device_id, event_type,
+                event_title, event_description
+            )
+            VALUES (
+                $1,
+                CASE WHEN $2::timestamptz IS NOT NULL
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    ELSE NULL
+                END,
+                $4, $5, COALESCE($6, 'unknown'), $7, $8, $9, $10, $11
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.note_id)
+        .bind(req.capture_time_start)
+        .bind(req.capture_time_end)
+        .bind(&req.capture_timezone)
+        .bind(&req.time_source)
+        .bind(&req.time_confidence)
+        .bind(req.location_id)
+        .bind(req.device_id)
+        .bind(&req.event_type)
+        .bind(&req.event_title)
+        .bind(&req.event_description)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Get note-level provenance for a specific note.
+    ///
+    /// # Arguments
+    ///
+    /// * `note_id` - The note ID to retrieve provenance for
+    ///
+    /// # Returns
+    ///
+    /// `Some(ProvenanceRecord)` if the note has note-level provenance, `None` otherwise.
+    pub async fn get_note_provenance(&self, note_id: Uuid) -> Result<Option<ProvenanceRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                p.id,
+                p.note_id,
+                lower(p.capture_time) as capture_time_start,
+                upper(p.capture_time) as capture_time_end,
+                p.capture_timezone,
+                p.capture_duration_seconds,
+                p.time_source,
+                p.time_confidence,
+                p.event_type,
+                p.event_title,
+                p.event_description,
+                p.user_corrected,
+                p.created_at,
+                p.location_id,
+                p.device_id
+            FROM provenance p
+            WHERE p.note_id = $1
+            "#,
+        )
+        .bind(note_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                let location_id: Option<Uuid> = row.get("location_id");
+                let device_id: Option<Uuid> = row.get("device_id");
+                let location = if let Some(loc_id) = location_id {
+                    self.get_location(loc_id).await?
+                } else {
+                    None
+                };
+                let device = if let Some(dev_id) = device_id {
+                    self.get_device(dev_id).await?
+                } else {
+                    None
+                };
+                Ok(Some(ProvenanceRecord {
+                    id: row.get("id"),
+                    attachment_id: None,
+                    note_id: row.get("note_id"),
+                    capture_time_start: row.get("capture_time_start"),
+                    capture_time_end: row.get("capture_time_end"),
+                    capture_timezone: row.get("capture_timezone"),
+                    capture_duration_seconds: row.get("capture_duration_seconds"),
+                    time_source: row.get("time_source"),
+                    time_confidence: row.get("time_confidence"),
+                    location,
+                    device,
+                    event_type: row.get("event_type"),
+                    event_title: row.get("event_title"),
+                    event_description: row.get("event_description"),
+                    user_corrected: row.get("user_corrected"),
+                    created_at: row.get("created_at"),
+                }))
+            }
+        }
+    }
+
+    /// Transaction-aware variant of get_note_provenance.
+    pub async fn get_note_provenance_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Option<ProvenanceRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                p.id,
+                p.note_id,
+                lower(p.capture_time) as capture_time_start,
+                upper(p.capture_time) as capture_time_end,
+                p.capture_timezone,
+                p.capture_duration_seconds,
+                p.time_source,
+                p.time_confidence,
+                p.event_type,
+                p.event_title,
+                p.event_description,
+                p.user_corrected,
+                p.created_at,
+                p.location_id,
+                p.device_id
+            FROM provenance p
+            WHERE p.note_id = $1
+            "#,
+        )
+        .bind(note_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                let location_id: Option<Uuid> = row.get("location_id");
+                let device_id: Option<Uuid> = row.get("device_id");
+                let location = if let Some(loc_id) = location_id {
+                    let loc_row = sqlx::query(
+                        r#"SELECT id, ST_Y(point::geometry) as latitude, ST_X(point::geometry) as longitude,
+                           horizontal_accuracy_m, altitude_m, vertical_accuracy_m, heading_degrees,
+                           speed_mps, named_location_id, source, confidence
+                           FROM prov_location WHERE id = $1"#,
+                    )
+                    .bind(loc_id)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(Error::Database)?;
+                    if let Some(loc_row) = loc_row {
+                        let named_location_id: Option<Uuid> = loc_row.get("named_location_id");
+                        let named_location_name = if let Some(nl_id) = named_location_id {
+                            let nl_row = sqlx::query("SELECT name FROM named_location WHERE id = $1")
+                                .bind(nl_id)
+                                .fetch_optional(&mut **tx)
+                                .await
+                                .map_err(Error::Database)?;
+                            nl_row.map(|r| r.get("name"))
+                        } else {
+                            None
+                        };
+                        Some(MemoryLocation {
+                            id: loc_row.get("id"),
+                            latitude: loc_row.get("latitude"),
+                            longitude: loc_row.get("longitude"),
+                            horizontal_accuracy_m: loc_row.get("horizontal_accuracy_m"),
+                            altitude_m: loc_row.get("altitude_m"),
+                            vertical_accuracy_m: loc_row.get("vertical_accuracy_m"),
+                            heading_degrees: loc_row.get("heading_degrees"),
+                            speed_mps: loc_row.get("speed_mps"),
+                            named_location_id,
+                            named_location_name,
+                            source: loc_row.get("source"),
+                            confidence: loc_row.get("confidence"),
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let device = if let Some(dev_id) = device_id {
+                    let dev_row = sqlx::query(
+                        r#"SELECT id, device_make, device_model, device_os, device_os_version,
+                           software, software_version, device_name
+                           FROM prov_agent_device WHERE id = $1"#,
+                    )
+                    .bind(dev_id)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(Error::Database)?;
+                    dev_row.map(|r| MemoryDevice {
+                        id: r.get("id"),
+                        device_make: r.get("device_make"),
+                        device_model: r.get("device_model"),
+                        device_os: r.get("device_os"),
+                        device_os_version: r.get("device_os_version"),
+                        software: r.get("software"),
+                        software_version: r.get("software_version"),
+                        device_name: r.get("device_name"),
+                    })
+                } else {
+                    None
+                };
+                Ok(Some(ProvenanceRecord {
+                    id: row.get("id"),
+                    attachment_id: None,
+                    note_id: row.get("note_id"),
+                    capture_time_start: row.get("capture_time_start"),
+                    capture_time_end: row.get("capture_time_end"),
+                    capture_timezone: row.get("capture_timezone"),
+                    capture_duration_seconds: row.get("capture_duration_seconds"),
+                    time_source: row.get("time_source"),
+                    time_confidence: row.get("time_confidence"),
+                    location,
+                    device,
+                    event_type: row.get("event_type"),
+                    event_title: row.get("event_title"),
+                    event_description: row.get("event_description"),
+                    user_corrected: row.get("user_corrected"),
+                    created_at: row.get("created_at"),
+                }))
+            }
+        }
     }
 }
 

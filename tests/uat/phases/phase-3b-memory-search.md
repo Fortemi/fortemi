@@ -4,7 +4,7 @@
 **Duration**: ~15 minutes
 **Prerequisites**: Phase 1 seed data exists, PostGIS extension enabled, W3C PROV schema migrated, test data generated. If upstream attachment uploads failed, still attempt each test and record failures.
 **Critical**: Yes (100% pass required)
-**Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`, `create_note`, `upload_attachment`
+**Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`, `create_note_provenance`, `create_note`, `upload_attachment`
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
@@ -30,16 +30,18 @@
 **Steps**:
 1. Check PostGIS: `SELECT PostGIS_Version()`
 2. Check prov_location table: `SELECT COUNT(*) FROM prov_location`
-3. Check file_provenance table: `SELECT COUNT(*) FROM file_provenance`
+3. Check provenance table: `SELECT COUNT(*) FROM provenance`
 
 **Expected Results**:
 - PostGIS version returned (e.g., "3.4.0")
 - Both tables exist and are queryable
 - No SQL errors
+- Note: table was renamed from `file_provenance` to `provenance` in migration 20260209300000
 
 **Verification**:
 - PostGIS extension installed
 - Migration 20260204100000 (W3C PROV schema) applied
+- Migration 20260209300000 (note-level provenance) applied
 
 ---
 
@@ -524,6 +526,123 @@
 
 ---
 
+## Note-Level Provenance
+
+### UAT-3B-021: Create Note Provenance
+
+**MCP Tool**: `create_note`, `create_provenance_location`, `create_note_provenance`
+
+**Description**: Create spatial-temporal provenance directly on a note (no attachment)
+
+**Prerequisites**: None
+
+**Setup**:
+1. Create test note: `create_note({ content: "# Meeting at Paris Office", tags: ["uat/note-provenance"], revision_mode: "none" })`
+2. Create location: `create_provenance_location({ latitude: 48.8566, longitude: 2.3522, source: "gps", confidence: "high" })`
+
+**Steps**:
+1. Create note provenance: `create_note_provenance({ note_id: <note-id>, location_id: <loc-id>, capture_time_start: "<now>", capture_timezone: "Europe/Paris", time_source: "manual", time_confidence: "exact", event_type: "created", event_title: "Paris office meeting" })`
+
+**Expected Results**:
+- Returns `{ id: <provenance-uuid> }` with status 201
+- Provenance record created in `provenance` table with `note_id` set and `attachment_id` NULL
+
+**Verification**:
+- Note provenance creation works via MCP
+
+**Store**: `note_prov_note_id`, `note_prov_id`
+
+---
+
+### UAT-3B-022: Get Memory Provenance with Note Provenance
+
+**MCP Tool**: `get_memory_provenance`
+
+**Description**: Verify `get_memory_provenance` returns note-level provenance in the `note` field
+
+**Prerequisites**: UAT-3B-021 completed
+
+**Steps**:
+1. Get provenance: `get_memory_provenance({ note_id: <note_prov_note_id> })`
+
+**Expected Results**:
+- Returns `MemoryProvenance` object
+- `files` array is empty (no attachments)
+- `note` field is populated with:
+  - `note_id` matches
+  - `event_type` is "created"
+  - `event_title` is "Paris office meeting"
+  - `time_source` is "manual"
+  - `time_confidence` is "exact"
+
+**Verification**:
+- Note provenance included in get_memory_provenance response
+
+---
+
+### UAT-3B-023: Note Provenance Uniqueness
+
+**MCP Tool**: `create_note_provenance`
+
+**Description**: Verify only one provenance record per note (unique index)
+
+**Prerequisites**: UAT-3B-021 completed (note already has provenance)
+
+**Steps**:
+1. Attempt second provenance: `create_note_provenance({ note_id: <note_prov_note_id>, event_type: "modified" })`
+
+**Expected Results**:
+- Returns error (409 Conflict or 500 with unique violation)
+- Original provenance record unchanged
+
+**Verification**:
+- Unique index `idx_provenance_note_id` enforced
+
+---
+
+### UAT-3B-024: Note Provenance in Search Results
+
+**MCP Tool**: `search_memories_by_location`
+
+**Description**: Verify note-level provenance appears in spatial search results
+
+**Prerequisites**: UAT-3B-021 completed (note has location provenance)
+
+**Steps**:
+1. Search near Paris: `search_memories_by_location({ lat: 48.8566, lon: 2.3522, radius: 1000 })`
+
+**Expected Results**:
+- Results include the note from UAT-3B-021
+- Result has `note_id` set (from provenance `note_id`)
+- `attachment_id` is null for this result
+- `event_type` is "created"
+
+**Verification**:
+- Note provenance participates in spatial searches
+
+---
+
+### UAT-3B-025: Note Provenance in Time Search
+
+**MCP Tool**: `search_memories_by_time`
+
+**Description**: Verify note-level provenance appears in temporal search results
+
+**Prerequisites**: UAT-3B-021 completed
+
+**Steps**:
+1. Search recent time range: `search_memories_by_time({ start: <1-hour-ago>, end: <now> })`
+
+**Expected Results**:
+- Results include the note from UAT-3B-021
+- `note_id` is set
+- `event_type` is "created"
+
+**Verification**:
+- Note provenance participates in temporal searches
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -549,6 +668,11 @@
 | UAT-3B-018 | Search Negative Radius | `search_memories_by_location` | |
 | UAT-3B-019 | Search Invalid Time Range | `search_memories_by_time` | |
 | UAT-3B-020 | Search Empty Database | `search_memories_by_location`, `search_memories_by_time` | |
+| UAT-3B-021 | Create Note Provenance | `create_note`, `create_provenance_location`, `create_note_provenance` | |
+| UAT-3B-022 | Get Provenance with Note | `get_memory_provenance` | |
+| UAT-3B-023 | Note Provenance Uniqueness | `create_note_provenance` | |
+| UAT-3B-024 | Note Provenance in Spatial Search | `search_memories_by_location` | |
+| UAT-3B-025 | Note Provenance in Time Search | `search_memories_by_time` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

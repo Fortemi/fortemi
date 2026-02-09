@@ -308,6 +308,22 @@ function createMcpServer() {
           });
           break;
 
+        case "create_note_provenance":
+          result = await apiRequest("POST", "/api/v1/provenance/notes", {
+            note_id: args.note_id,
+            capture_time_start: args.capture_time_start,
+            capture_time_end: args.capture_time_end,
+            capture_timezone: args.capture_timezone,
+            time_source: args.time_source,
+            time_confidence: args.time_confidence,
+            location_id: args.location_id,
+            device_id: args.device_id,
+            event_type: args.event_type,
+            event_title: args.event_title,
+            event_description: args.event_description,
+          });
+          break;
+
         case "list_tags":
           result = await apiRequest("GET", "/api/v1/tags");
           break;
@@ -3470,7 +3486,7 @@ create_provenance_device({
 // Deduplicates on make+model — same device returns same ID
 \`\`\`
 
-### Step 4: Create file provenance
+### Step 4a: Create file provenance (for attachments)
 
 \`\`\`
 create_file_provenance({
@@ -3486,11 +3502,30 @@ create_file_provenance({
 // Returns: { id: "provenance-uuid" }
 \`\`\`
 
+### Step 4b: Create note provenance (for notes without attachments)
+
+\`\`\`
+create_note_provenance({
+  note_id: "note-uuid",
+  capture_time_start: "2026-01-15T14:30:00Z",
+  capture_timezone: "Europe/Paris",
+  time_source: "manual", time_confidence: "exact",
+  location_id: "location-uuid",    // from step 1
+  device_id: "device-uuid",        // from step 3
+  event_type: "created",
+  event_title: "Meeting notes at Eiffel Tower"
+})
+// Returns: { id: "provenance-uuid" }
+\`\`\`
+
+Use \`create_note_provenance\` when a note itself has spatial-temporal context
+(e.g., meeting notes, travel journal, field observations) without needing a file attachment.
+
 ### Retrieval
 
 \`\`\`
 get_memory_provenance({ id: "note-uuid" })
-// Returns full provenance chain for all attachments on a note
+// Returns full provenance chain: file provenance + note provenance
 \`\`\`
 
 ## Dedicated Backlinks
@@ -3510,8 +3545,8 @@ This is a focused view of incoming links only. For bidirectional links, use \`ge
 
 ## Provenance + Backlinks Workflow
 
-1. Upload attachment: \`upload_attachment\`
-2. Create provenance: location → device → \`create_file_provenance\`
+1. Upload attachment: \`upload_attachment\` (or create note without attachment)
+2. Create provenance: location → device → \`create_file_provenance\` or \`create_note_provenance\`
 3. Search by context: \`search_memories_by_location\`, \`search_memories_by_time\`
 4. Check provenance: \`get_memory_provenance\` — where/when was this captured?
 5. Check backlinks: \`get_note_backlinks\` — what references this content?`,

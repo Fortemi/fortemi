@@ -1,18 +1,19 @@
-//! Provenance creation HTTP handlers (Issue #261).
+//! Provenance creation HTTP handlers (Issue #261, #262).
 //!
 //! Provides REST API endpoints for creating provenance records:
 //! - Location records (prov_location)
 //! - Named locations
 //! - Device records (prov_agent_device)
 //! - File provenance linking attachments to spatial-temporal context
+//! - Note provenance linking notes to spatial-temporal context (#262)
 
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde_json::json;
 
 use crate::{ApiError, AppState, ArchiveContext};
 use matric_core::{
-    CreateFileProvenanceRequest, CreateNamedLocationRequest, CreateProvDeviceRequest,
-    CreateProvLocationRequest,
+    CreateFileProvenanceRequest, CreateNamedLocationRequest, CreateNoteProvenanceRequest,
+    CreateProvDeviceRequest, CreateProvLocationRequest,
 };
 
 /// Create a provenance location record.
@@ -94,6 +95,24 @@ pub async fn create_file_provenance(
     let id = ctx
         .query(move |tx| {
             Box::pin(async move { memory_search.create_file_provenance_tx(tx, &req).await })
+        })
+        .await?;
+    Ok((StatusCode::CREATED, Json(json!({ "id": id }))))
+}
+
+/// Create a note provenance record linking a note to spatial-temporal context.
+///
+/// POST /api/v1/provenance/notes
+pub async fn create_note_provenance(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(req): Json<CreateNoteProvenanceRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let memory_search = matric_db::PgMemorySearchRepository::new(state.db.pool.clone());
+    let id = ctx
+        .query(move |tx| {
+            Box::pin(async move { memory_search.create_note_provenance_tx(tx, &req).await })
         })
         .await?;
     Ok((StatusCode::CREATED, Json(json!({ "id": id }))))

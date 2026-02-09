@@ -124,6 +124,7 @@ These tools work by orchestrating multiple REST operations in a single call.
 | `POST /api/v1/provenance/named-locations` | `create_named_location` |
 | `POST /api/v1/provenance/devices` | `create_provenance_device` |
 | `POST /api/v1/provenance/files` | `create_file_provenance` |
+| `POST /api/v1/provenance/notes` | `create_note_provenance` |
 
 ### Health & Analytics
 

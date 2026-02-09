@@ -335,6 +335,52 @@ memory search (search_memories_by_location, search_memories_by_time).
     annotations: { destructiveHint: false },
   },
   {
+    name: "create_note_provenance",
+    description: `Create a note provenance record linking a note directly to spatial-temporal context.
+
+Unlike create_file_provenance (which requires an attachment), this tool attaches
+location/time/device context directly to a note. Use this when a note itself has
+spatial-temporal meaning without needing a file attachment.
+
+**Examples:**
+- Meeting notes taken at a specific location
+- Travel journal entries with GPS coordinates
+- Field observations with time and place context
+
+**Workflow:**
+1. Create a location with create_provenance_location (if spatial context known)
+2. Optionally register a device with create_provenance_device
+3. Create note provenance linking the note to location + device + time
+
+**Parameters:**
+- note_id: The note UUID (required)
+- location_id: UUID from create_provenance_location (optional)
+- device_id: UUID from create_provenance_device (optional)
+- capture_time_start/end: When the note content was created (ISO 8601)
+- event_type: created, modified, accessed, shared
+- event_title: Human-readable event description
+
+**Returns:** { id: "uuid" } — the provenance record ID.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", format: "uuid", description: "Note UUID to attach provenance to" },
+        capture_time_start: { type: "string", format: "date-time", description: "Event start time (ISO 8601)" },
+        capture_time_end: { type: "string", format: "date-time", description: "Event end time (ISO 8601)" },
+        capture_timezone: { type: "string", description: "Timezone (e.g., America/New_York)" },
+        time_source: { type: "string", enum: ["gps", "network", "manual", "file_metadata"], description: "How time was determined" },
+        time_confidence: { type: "string", enum: ["exact", "approximate", "estimated"], description: "Time accuracy level" },
+        location_id: { type: "string", format: "uuid", description: "Location UUID from create_provenance_location" },
+        device_id: { type: "string", format: "uuid", description: "Device UUID from create_provenance_device" },
+        event_type: { type: "string", enum: ["created", "modified", "accessed", "shared"], description: "Type of note event" },
+        event_title: { type: "string", description: "Human-readable event title" },
+        event_description: { type: "string", description: "Detailed event description" },
+      },
+      required: ["note_id"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
     name: "list_tags",
     description: `List all tags (SKOS concepts) in the knowledge base with usage counts.
 

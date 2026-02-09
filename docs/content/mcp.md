@@ -59,13 +59,13 @@ For advanced credential management, security considerations, and manual configur
 
 ## Overview
 
-The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **167 tools** organized into these categories:
+The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **168 tools** organized into these categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
 | Notes | 13 | Create, read, update, delete, restore, purge notes |
 | Search | 2 | Hybrid semantic + full-text + strict filtering |
-| Memory Search | 8 | Spatial/temporal memory search, provenance queries, and provenance creation |
+| Memory Search | 9 | Spatial/temporal memory search, provenance queries, and provenance creation |
 | Collections | 8 | Hierarchical folder organization with graph exploration |
 | Templates | 6 | Reusable note structures |
 | Document Types | 6 | Content type detection and management |
@@ -188,7 +188,7 @@ These tools modify system state and may require elevated permissions:
 
 **Provenance Creation:**
 - `create_provenance_location`, `create_named_location`
-- `create_provenance_device`, `create_file_provenance`
+- `create_provenance_device`, `create_file_provenance`, `create_note_provenance`
 
 **SKOS Concepts:**
 - `create_concept_scheme`, `delete_concept_scheme`
@@ -983,7 +983,8 @@ Common error responses:
 | `search_memories_by_location` | Find memories near geographic coordinates (PostGIS spatial) |
 | `search_memories_by_time` | Find memories within a time range (temporal) |
 | `search_memories_combined` | Find memories by location AND time |
-| `get_memory_provenance` | Get file provenance chain for a note's attachments |
+| `get_memory_provenance` | Get provenance chain for a note (files + note-level) |
+| `create_note_provenance` | Create note-level spatial-temporal provenance |
 
 ### Collections
 

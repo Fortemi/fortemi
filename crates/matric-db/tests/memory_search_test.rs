@@ -122,8 +122,8 @@ async fn create_test_location(
 
 /// Helper to cleanup test data
 async fn cleanup_test_data(pool: &PgPool, note_id: Uuid, attachment_id: Uuid) {
-    // Delete file provenance first (references attachment)
-    let _ = sqlx::query("DELETE FROM file_provenance WHERE attachment_id = $1")
+    // Delete provenance first (references attachment)
+    let _ = sqlx::query("DELETE FROM provenance WHERE attachment_id = $1")
         .bind(attachment_id)
         .execute(pool)
         .await;
@@ -186,7 +186,7 @@ async fn test_search_by_location() {
     let now = Utc::now();
     sqlx::query(
         r#"
-        INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
+        INSERT INTO provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
         VALUES ($1, $2, tstzrange($3, $3, '[]'), 'photo', 'high')
         "#,
     )
@@ -248,7 +248,7 @@ async fn test_search_by_timerange() {
     let yesterday = Utc::now() - Duration::days(1);
     sqlx::query(
         r#"
-        INSERT INTO file_provenance (attachment_id, capture_time, event_type, time_confidence)
+        INSERT INTO provenance (attachment_id, capture_time, event_type, time_confidence)
         VALUES ($1, tstzrange($2, $2, '[]'), 'photo', 'high')
         "#,
     )
@@ -316,7 +316,7 @@ async fn test_search_by_location_and_time() {
     let yesterday = Utc::now() - Duration::days(1);
     sqlx::query(
         r#"
-        INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
+        INSERT INTO provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
         VALUES ($1, $2, tstzrange($3, $3, '[]'), 'photo', 'high')
         "#,
     )
@@ -413,7 +413,7 @@ async fn test_get_memory_provenance() {
     let yesterday = Utc::now() - Duration::days(1);
     sqlx::query(
         r#"
-        INSERT INTO file_provenance (
+        INSERT INTO provenance (
             attachment_id, location_id, device_id, capture_time,
             event_type, event_title, time_source, time_confidence
         )
@@ -441,7 +441,7 @@ async fn test_get_memory_provenance() {
     assert_eq!(prov.files.len(), 1);
 
     let file_prov = &prov.files[0];
-    assert_eq!(file_prov.attachment_id, attachment_id);
+    assert_eq!(file_prov.attachment_id, Some(attachment_id));
     assert_eq!(file_prov.event_type, Some("photo".to_string()));
     assert_eq!(
         file_prov.event_title,
@@ -487,7 +487,7 @@ async fn test_search_ordering_by_distance() {
         // Note: tstzrange(NOW(), NOW(), '[]') creates a single-point range with inclusive bounds
         sqlx::query(
             r#"
-            INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
+            INSERT INTO provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
             VALUES ($1, $2, tstzrange(NOW(), NOW(), '[]'), 'photo', 'high')
             "#,
         )

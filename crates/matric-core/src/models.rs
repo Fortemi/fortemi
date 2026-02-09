@@ -4452,11 +4452,14 @@ pub struct MemoryDevice {
     pub device_name: Option<String>,
 }
 
-/// File provenance with full context.
+/// Provenance record with full context (supports both file and note targets).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileProvenanceRecord {
+pub struct ProvenanceRecord {
     pub id: Uuid,
-    pub attachment_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_id: Option<Uuid>,
     pub capture_time_start: Option<DateTime<Utc>>,
     pub capture_time_end: Option<DateTime<Utc>>,
     pub capture_timezone: Option<String>,
@@ -4472,11 +4475,16 @@ pub struct FileProvenanceRecord {
     pub created_at: DateTime<Utc>,
 }
 
+/// Backward-compatible alias.
+pub type FileProvenanceRecord = ProvenanceRecord;
+
 /// Complete provenance chain for a note's memories.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryProvenance {
     pub note_id: Uuid,
-    pub files: Vec<FileProvenanceRecord>,
+    pub files: Vec<ProvenanceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<ProvenanceRecord>,
 }
 
 // =============================================================================
@@ -4549,6 +4557,22 @@ pub struct CreateFileProvenanceRequest {
     pub event_title: Option<String>,
     pub event_description: Option<String>,
     pub raw_metadata: Option<serde_json::Value>,
+}
+
+/// Request to create a note provenance record linking a note to spatial-temporal context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNoteProvenanceRequest {
+    pub note_id: Uuid,
+    pub capture_time_start: Option<DateTime<Utc>>,
+    pub capture_time_end: Option<DateTime<Utc>>,
+    pub capture_timezone: Option<String>,
+    pub time_source: Option<String>, // gps, network, manual, file_metadata
+    pub time_confidence: Option<String>, // exact, approximate, estimated
+    pub location_id: Option<Uuid>,
+    pub device_id: Option<Uuid>,
+    pub event_type: Option<String>, // created, modified, accessed, shared
+    pub event_title: Option<String>,
+    pub event_description: Option<String>,
 }
 
 // =============================================================================

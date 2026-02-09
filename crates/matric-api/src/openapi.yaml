@@ -1474,6 +1474,62 @@ paths:
                     type: string
                     format: uuid
 
+  /api/v1/provenance/notes:
+    post:
+      summary: Create note provenance
+      description: Link a note directly to spatial-temporal capture context (location, device, time, event). Unlike file provenance which targets attachments, note provenance associates context with the note itself — useful for journal entries, meeting notes, or observations where no file attachment exists.
+      operationId: createNoteProvenance
+      tags: [Memory Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note_id]
+              properties:
+                note_id:
+                  type: string
+                  format: uuid
+                capture_time_start:
+                  type: string
+                  format: date-time
+                capture_time_end:
+                  type: string
+                  format: date-time
+                capture_timezone:
+                  type: string
+                time_source:
+                  type: string
+                  enum: [exif, file_mtime, user_manual, ai_estimated, gps, network, manual, file_metadata]
+                time_confidence:
+                  type: string
+                  enum: [high, medium, low, unknown, exact, approximate, estimated]
+                location_id:
+                  type: string
+                  format: uuid
+                device_id:
+                  type: string
+                  format: uuid
+                event_type:
+                  type: string
+                  enum: [photo, video, audio, scan, screenshot, recording, unknown, created, modified, accessed, shared]
+                event_title:
+                  type: string
+                event_description:
+                  type: string
+      responses:
+        '201':
+          description: Note provenance created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+
   /api/v1/notes/{id}/move:
     post:
       summary: Move note to collection

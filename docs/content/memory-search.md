@@ -1,14 +1,14 @@
 # Memory Search API
 
-This guide explains how to search for memories based on temporal and spatial context using file provenance data.
+This guide explains how to search for memories based on temporal and spatial context using provenance data.
 
 ## Overview
 
-Memory search enables temporal-spatial queries on file attachments (photos, videos, documents) based on when and where they were captured. Unlike semantic search which finds content based on meaning, memory search finds content based on **context**:
+Memory search enables temporal-spatial queries on notes and file attachments (photos, videos, documents) based on when and where they were captured or created. Unlike semantic search which finds content based on meaning, memory search finds content based on **context**:
 
-- **When** was this file created? (temporal search)
-- **Where** was this file captured? (spatial search)
-- **What device** captured it? (device provenance)
+- **When** was this created? (temporal search)
+- **Where** was this captured or written? (spatial search)
+- **What device** was used? (device provenance)
 - **What event** was it part of? (event metadata)
 
 Memory search is built on the [W3C PROV](https://www.w3.org/TR/prov-dm/) temporal-spatial extension and uses PostGIS for efficient geographic queries.
@@ -17,11 +17,13 @@ Memory search is built on the [W3C PROV](https://www.w3.org/TR/prov-dm/) tempora
 
 | Concept | Description |
 |---------|-------------|
-| **File Provenance** | Complete context for an attachment (location, time, device, event) |
-| **Capture Time** | When the file was created (not uploaded), from EXIF or file metadata |
+| **Provenance** | Unified spatial-temporal context for notes or attachments (location, time, device, event) |
+| **File Provenance** | Provenance targeting an attachment (via `attachment_id`) |
+| **Note Provenance** | Provenance targeting a note directly (via `note_id`) — for journal entries, observations, meeting notes without file attachments |
+| **Capture Time** | When the content was created (not uploaded), from EXIF, file metadata, or manual entry |
 | **Location** | Geographic coordinates (latitude/longitude) with accuracy information |
 | **Device** | Information about the device that captured the content |
-| **Event** | Semantic context (e.g., "photo", "video", "meeting recording") |
+| **Event** | Semantic context (e.g., "photo", "video", "created", "meeting recording") |
 
 ## Use Cases
 
@@ -188,9 +190,59 @@ curl "http://localhost:3000/api/v1/memories/search?lat=48.8584&lon=2.2945&radius
   -H "Authorization: Bearer your_token"
 ```
 
+### Create Note Provenance
+
+Link a note directly to its spatial-temporal capture context. Unlike file provenance which targets attachments, note provenance associates context with the note itself — useful for journal entries, meeting notes, or observations where no file attachment exists.
+
+```http
+POST /api/v1/provenance/notes
+```
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `note_id` | uuid | Yes | Target note ID |
+| `capture_time_start` | datetime | No | When the note content was created |
+| `capture_time_end` | datetime | No | End of time range (for duration events) |
+| `capture_timezone` | string | No | Original timezone (e.g., "Europe/Paris") |
+| `time_source` | string | No | `manual`, `gps`, `network`, `file_metadata`, `exif`, `file_mtime`, `user_manual`, `ai_estimated` |
+| `time_confidence` | string | No | `exact`, `approximate`, `estimated`, `high`, `medium`, `low`, `unknown` |
+| `location_id` | uuid | No | Reference to a prov_location record |
+| `device_id` | uuid | No | Reference to a prov_device record |
+| `event_type` | string | No | `created`, `modified`, `accessed`, `shared`, `photo`, `video`, `audio`, `scan`, `screenshot`, `recording`, `unknown` |
+| `event_title` | string | No | User-assigned or AI-generated event title |
+| `event_description` | string | No | Detailed event description |
+
+**Response (201):**
+
+```json
+{ "id": "provenance_uuid" }
+```
+
+**Example:**
+
+```bash
+# Associate a journal entry with a location and time
+curl -X POST "http://localhost:3000/api/v1/provenance/notes" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "note_id": "550e8400-e29b-41d4-a716-446655440000",
+    "capture_time_start": "2026-01-15T14:30:00Z",
+    "capture_timezone": "Europe/Paris",
+    "time_source": "manual",
+    "time_confidence": "exact",
+    "location_id": "location_uuid",
+    "event_type": "created",
+    "event_title": "Paris cafe observation"
+  }'
+```
+
+**Constraint:** Each note can have at most one provenance record (enforced by unique index).
+
 ### Get Memory Provenance
 
-Retrieve complete provenance chain for a note's file attachments.
+Retrieve complete provenance chain for a note — includes both file-level provenance (from attachments) and note-level provenance (direct).
 
 ```http
 GET /api/v1/notes/{note_id}/memory-provenance
@@ -247,11 +299,21 @@ GET /api/v1/notes/{note_id}/memory-provenance
       "user_corrected": false,
       "created_at": "2026-01-15T14:35:00Z"
     }
-  ]
+  ],
+  "note": {
+    "id": "provenance_uuid",
+    "note_id": "uuid",
+    "capture_time_start": "2026-01-15T14:30:00Z",
+    "capture_timezone": "Europe/Paris",
+    "time_source": "manual",
+    "time_confidence": "exact",
+    "event_type": "created",
+    "event_title": "Paris cafe observation"
+  }
 }
 ```
 
-**Returns:** `null` if the note has no file attachments with provenance data.
+**Returns:** `files` array may be empty; `note` field is `null` if no note-level provenance exists.
 
 **Example:**
 
@@ -298,14 +360,14 @@ curl "http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/me
 | `capture_time_end` | datetime | End of capture time (for video/audio duration) |
 | `capture_timezone` | string | Original timezone (e.g., "Europe/Paris", "America/New_York") |
 | `capture_duration_seconds` | float | Duration in seconds (for video/audio) |
-| `time_source` | string | `exif` (EXIF metadata), `file_mtime` (file modification time), `user_manual`, `ai_estimated` |
-| `time_confidence` | string | `high` (EXIF with GPS sync), `medium` (file mtime), `low` (estimated), `unknown` |
+| `time_source` | string | `exif`, `file_mtime`, `user_manual`, `ai_estimated` (file), `gps`, `network`, `manual`, `file_metadata` (note) |
+| `time_confidence` | string | `high`, `medium`, `low`, `unknown` (file), `exact`, `approximate`, `estimated` (note) |
 
 ### Event Metadata
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `event_type` | string | `photo`, `video`, `audio`, `scan`, `screenshot`, `recording`, `unknown` |
+| `event_type` | string | `photo`, `video`, `audio`, `scan`, `screenshot`, `recording`, `unknown` (file), `created`, `modified`, `accessed`, `shared` (note) |
 | `event_title` | string | User-assigned or AI-generated event title |
 | `event_description` | string | Detailed event description |
 | `user_corrected` | boolean | Whether user manually corrected provenance data |
@@ -585,7 +647,7 @@ Memory search is **available in v2026.2.0**. All components are fully implemente
 - PostGIS spatial indexes with GiST indexing
 - Repository layer with spatial/temporal queries
 - REST API endpoints (documented above)
-- MCP tools (search_memories_by_location, search_memories_by_time, search_memories_combined, get_memory_provenance, create_provenance_location, create_named_location, create_provenance_device, create_file_provenance)
+- MCP tools (search_memories_by_location, search_memories_by_time, search_memories_combined, get_memory_provenance, create_provenance_location, create_named_location, create_provenance_device, create_file_provenance, create_note_provenance)
 - Complete test coverage
 
 **Database Access:**

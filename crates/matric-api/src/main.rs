@@ -179,7 +179,8 @@ use handlers::{
     },
     pke::{pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients, pke_verify},
     provenance::{
-        create_file_provenance, create_named_location, create_prov_device, create_prov_location,
+        create_file_provenance, create_named_location, create_note_provenance,
+        create_prov_device, create_prov_location,
     },
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
@@ -838,6 +839,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/provenance/devices", post(create_prov_device))
         .route("/api/v1/provenance/files", post(create_file_provenance))
+        .route("/api/v1/provenance/notes", post(create_note_provenance))
         // Temporal queries
         .route("/api/v1/notes/timeline", get(get_notes_timeline))
         .route("/api/v1/notes/activity", get(get_notes_activity))
@@ -13636,6 +13638,7 @@ mod tests {
             )
             .route("/api/v1/provenance/devices", post(create_prov_device))
             .route("/api/v1/provenance/files", post(create_file_provenance))
+            .route("/api/v1/provenance/notes", post(create_note_provenance))
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 archive_routing_middleware,
@@ -13728,9 +13731,9 @@ mod tests {
         .await
         .expect("insert location");
 
-        // Create file provenance
+        // Create provenance
         sqlx::query(
-            "INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
+            "INSERT INTO provenance (attachment_id, location_id, capture_time, event_type, time_confidence)
              VALUES ($1, $2, tstzrange($3, $3, '[]'), 'photo', 'high')",
         )
         .bind(attachment_id)
@@ -13738,14 +13741,14 @@ mod tests {
         .bind(capture_time)
         .execute(pool)
         .await
-        .expect("insert file_provenance");
+        .expect("insert provenance");
 
         (note_id, attachment_id)
     }
 
     /// Helper: clean up spatial test data.
     async fn cleanup_spatial_provenance(pool: &sqlx::PgPool, note_id: Uuid, attachment_id: Uuid) {
-        let _ = sqlx::query("DELETE FROM file_provenance WHERE attachment_id = $1")
+        let _ = sqlx::query("DELETE FROM provenance WHERE attachment_id = $1")
             .bind(attachment_id)
             .execute(pool)
             .await;
@@ -14131,7 +14134,7 @@ mod tests {
         .expect("insert device");
 
         sqlx::query(
-            "UPDATE file_provenance SET device_id = $1, event_title = 'Eiffel Tower Visit'
+            "UPDATE provenance SET device_id = $1, event_title = 'Eiffel Tower Visit'
              WHERE attachment_id = $2",
         )
         .bind(device_id)
