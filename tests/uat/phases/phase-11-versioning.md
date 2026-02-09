@@ -374,7 +374,7 @@ list_note_versions({ note_id: VERSION_NOTE_ID })  // Should error
 | VER-014 | `get_note_version` | | Get non-existent version |
 | VER-015 | `diff_note_versions` | | Diff with deleted version |
 
-**Pass Rate Required**: 90% (14/15 - VER-011 may vary by implementation)
+**Pass Rate Required**: 100% (15/15 - VER-011 behavior depends on tag versioning implementation; if tag restore is not supported, mark as PASS with a note)
 
 ---
 

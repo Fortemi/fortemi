@@ -54,12 +54,17 @@
 > **Important**: The curl command returned by MCP uses `localhost:3000` (internal).
 > Replace with `https://memory.integrolabs.net` for external access.
 
-> **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
-> ```bash
-> cd tests/uat/data/scripts && ./generate-test-data.sh
-> ```
-> Key files: `images/jpeg-with-exif.jpg` (EXIF/GPS), `provenance/paris-eiffel-tower.jpg` (GPS coords),
-> `documents/code-python.py` (code), `edge-cases/binary-wrong-ext.jpg` (safety validation)
+> **Test Data**: This phase uses files from two locations:
+> - `tests/uat/data/` - Generated test data (images, code, edge cases). Generate with:
+>   ```bash
+>   cd tests/uat/data/scripts && ./generate-test-data.sh
+>   ```
+> - `/mnt/global/test-media/` - Real CC-licensed media files (video, audio, PDFs)
+>
+> Key files: `tests/uat/data/images/jpeg-with-exif.jpg` (EXIF/GPS), `tests/uat/data/documents/code-python.py` (code),
+> `tests/uat/data/edge-cases/binary-wrong-ext.jpg` (safety validation),
+> `/mnt/global/test-media/video/01-big-buck-bunny.mp4` (real video),
+> `/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf` (real PDF)
 
 ---
 
@@ -168,18 +173,14 @@
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- Video test data does not exist in the test data package. Generate a minimal video file before running:
-  ```bash
-  mkdir -p tests/uat/data/video
-  dd if=/dev/urandom of=tests/uat/data/video/test-video.mp4 bs=1024 count=64
-  ```
+- Real video test file: `/mnt/global/test-media/video/01-big-buck-bunny.mp4` (~3.1MB, CC-licensed)
 
 **Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4" })`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "01-big-buck-bunny.mp4", content_type: "video/mp4" })`
 2. Execute curl with actual file:
    ```bash
    curl -s -X POST \
-     -F "file=@tests/uat/data/video/test-video.mp4;type=video/mp4" \
+     -F "file=@/mnt/global/test-media/video/01-big-buck-bunny.mp4;type=video/mp4" \
      -H "Authorization: Bearer <token>" \
      "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
    ```
@@ -192,35 +193,31 @@
 
 ---
 
-### UAT-2B-005: Upload 3D Model File
+### UAT-2B-005: Upload Large PDF Document
 
 **MCP Tool**: `upload_attachment`
 
-**Description**: Upload a 3D model file (GLB/GLTF) and verify storage
+**Description**: Upload a large PDF file and verify storage
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- 3D model test data does not exist in the test data package. Generate a minimal GLB file before running:
-  ```bash
-  mkdir -p tests/uat/data/models
-  dd if=/dev/urandom of=tests/uat/data/models/test-model.glb bs=1024 count=32
-  ```
+- Real PDF test file: `/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf` (CC-licensed research paper)
 
 **Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary" })`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "arxiv-attention-paper.pdf", content_type: "application/pdf" })`
 2. Execute curl with actual file:
    ```bash
    curl -s -X POST \
-     -F "file=@tests/uat/data/models/test-model.glb;type=model/gltf-binary" \
+     -F "file=@/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf;type=application/pdf" \
      -H "Authorization: Bearer <token>" \
      "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
    ```
 
 **Expected Results**:
-- Returns attachment record with `content_type: "model/gltf-binary"`
+- Returns attachment record with `content_type: "application/pdf"`
 - Status is "uploaded"
 
-**Store**: `attachment_3d_id`
+**Store**: `attachment_largepdf_id`
 
 ---
 
@@ -301,17 +298,18 @@
      -H "Authorization: Bearer <token>" \
      "https://memory.integrolabs.net/api/v1/notes/{dedup_note_id}/attachments/upload"
    ```
-5. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
+5. List attachments on dedup note: `list_attachments({ note_id: dedup_note_id })`
+6. Get attachment metadata: `get_attachment({ id: <dedup_attachment_id> })`
 
 **Expected Results**:
 - New attachment record created with different attachment ID
-- Same `blob_id` reused (deduplication)
-- Only one blob record exists with this content hash
-- Blob `reference_count` is 2
+- Same `blob_id` reused (deduplication) - visible in attachment metadata
+- `size_bytes` matches original upload
 
 **Verification**:
-- Two distinct attachment records point to same blob
-- Storage space not duplicated
+- `list_attachments` on both notes shows attachments with same `content_hash` or `blob_id`
+- Both attachments are independently accessible via `get_attachment`
+- Storage space not duplicated (same blob referenced twice)
 
 **Store**: `attachment_duplicate_id`
 
@@ -495,7 +493,7 @@
 **Description**: List all attachments for a note with multiple files
 
 **Prerequisites**:
-- `attachment_test_note_id` with 5 attachments (UAT-2B-001 to UAT-2B-005)
+- `attachment_test_note_id` with 5 attachments (UAT-2B-001 through UAT-2B-005: image, PDF, audio, video, large PDF)
 
 **Steps**:
 1. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
@@ -673,7 +671,7 @@
 | UAT-2B-002 | Upload PDF Document | `upload_attachment` | |
 | UAT-2B-003 | Upload Audio File | `upload_attachment` | |
 | UAT-2B-004 | Upload Video File | `upload_attachment` | |
-| UAT-2B-005 | Upload 3D Model File | `upload_attachment` | |
+| UAT-2B-005 | Upload Large PDF Document | `upload_attachment` | |
 | UAT-2B-006 | Download File Integrity | `download_attachment` | |
 | UAT-2B-007 | Download Non-Existent | `download_attachment` | |
 | UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` | |

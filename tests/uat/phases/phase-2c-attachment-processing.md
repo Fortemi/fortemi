@@ -972,7 +972,7 @@
    ```
 5. Search for content from the uploaded file:
    ```javascript
-   search_notes({ query: "transformer architecture attention mechanisms", tags: ["uat/proc-e2e"] })
+   search_notes({ query: "transformer architecture attention mechanisms", required_tags: ["uat/proc-e2e"] })
    ```
 
 **Expected Results**:

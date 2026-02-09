@@ -8,7 +8,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 ## CRITICAL: Suite Completion Requirements
 
-> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **23 phases (0-21, plus sub-phases)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
+> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **25 phases (0-21, plus sub-phases)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
 
 **Common Error**: AI agents sometimes stop at phase 9 (Edge Cases) or misinterpret phase names. The suite is NOT complete until:
 - Phase 19 (Feature Chains) completes all 48 end-to-end tests
@@ -24,34 +24,34 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
 | 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 3 | **Yes** |
-| 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 15 | **Yes** |
+| 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 11 | **Yes** |
 | 2 | [CRUD Operations](phase-2-crud.md) | ~10 min | 17 | **Yes** |
 | 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
 | 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
-| 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 14 | **Yes** |
+| 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 18 | **Yes** |
 | 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
-| 4 | [Tag System](phase-4-tags.md) | ~5 min | 3 | **Yes** |
-| 5 | [Collections](phase-5-collections.md) | ~3 min | 3 | **Yes** |
-| 6 | [Semantic Links](phase-6-links.md) | ~5 min | 11 | **Yes** |
-| 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 15 | **Yes** |
-| 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | **Yes** |
-| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 3 | **Yes** |
-| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | **Yes** |
-| 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | **Yes** |
-| 12 | [Archives](phase-12-archives.md) | ~8 min | 18 | **Yes** |
-| 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 27 | **Yes** |
-| 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | **Yes** |
-| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | **Yes** |
-| 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | **Yes** |
+| 4 | [Tag System](phase-4-tags.md) | ~5 min | 11 | No |
+| 5 | [Collections](phase-5-collections.md) | ~3 min | 10 | No |
+| 6 | [Semantic Links](phase-6-links.md) | ~5 min | 13 | No |
+| 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 20 | No |
+| 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | No |
+| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 15 | No |
+| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | No |
+| 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | No |
+| 12 | [Archives](phase-12-archives.md) | ~8 min | 18 | No |
+| 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 40 | No |
+| 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | No |
+| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | No |
+| 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | No |
 | 17 | [Authentication & Access Control](phase-17-oauth-auth.md) | ~12 min | 17 | **Yes** |
-| 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | **Yes** |
+| 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | No |
 | 19 | [Feature Chains (E2E)](phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
-| 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | **Yes** |
-| 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 8 | **Yes** |
+| 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
+| 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total Tests**: ~450+
+**Total Tests**: 447
 **Total Estimated Duration**: 220-260 minutes (full suite)
-**Total Phases**: 23 (numbered 0-21, plus 2b, 2c, and 3b sub-phases)
+**Total Phases**: 25 (numbered 0-21, plus sub-phases 2b, 2c, and 3b)
 
 ---
 
@@ -59,10 +59,10 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 | Category | Tools | UAT Tests | Coverage |
 |----------|-------|-----------|----------|
-| Note CRUD | 12 | 38 | 100% |
-| Search | 4 | 17 | 100% |
-| Tags | 2 | 6 | 100% |
-| Collections | 8 | 8 | 100% |
+| Note CRUD | 12 | 39 | 100% |
+| Search | 4 | 39 | 100% |
+| Tags | 2 | 11 | 100% |
+| Collections | 8 | 10 | 100% |
 | Templates | 6 | 15 | 100% |
 | Embedding Sets | 15 | 20 | 100% |
 | Versioning | 5 | 15 | 100% |
@@ -77,7 +77,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
 | Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
-| **TOTAL** | **148+** | **400+** | **100%** |
+| **TOTAL** | **148+** | **447** | **100%** |
 
 ---
 
@@ -162,6 +162,14 @@ The primary test data for UAT lives in `tests/uat/data/` with 44+ files organize
 | `data/audio/` | 3 | Speech samples (English, Spanish, Chinese) |
 | `data/edge-cases/` | 6 | Empty, 100KB, binary mismatch, unicode filename, malformed |
 
+**Supplementary Test Media** (`/mnt/global/test-media/`):
+
+| Directory | Files | Purpose |
+|-----------|-------|---------|
+| `video/` | 17 | Real CC-licensed MP4 videos (3-11MB each) |
+| `audio/` | 10 | Real CC-licensed MP3 audio (radio dramas, speeches, lectures) |
+| `documents/` | 22 | Real CC-licensed PDFs (tax forms, papers, invoices, letters) |
+
 **Setup**: Generate test data before running UAT:
 ```bash
 cd tests/uat/data/scripts
@@ -226,7 +234,7 @@ Agents MUST:
 4. Execute tests sequentially within each phase
 5. Record results in the phase summary table
 6. Proceed to next phase only if prerequisites met
-7. **Execute ALL 23 phases (0-21, including sub-phases)** - do not stop early
+7. **Execute ALL 25 phases (0-21, including sub-phases)** - do not stop early
 8. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
 
 ### Negative Test Isolation Protocol
@@ -249,7 +257,7 @@ Before declaring UAT complete, verify:
 - [ ] Phase 19 (Feature Chains) executed with 48 tests
 - [ ] Phase 20 (Data Export) tested backup functionality
 - [ ] Phase 21 (Final Cleanup) removed all UAT test data
-- [ ] Final report includes all 23 phases
+- [ ] Final report includes all 25 phases
 
 ---
 

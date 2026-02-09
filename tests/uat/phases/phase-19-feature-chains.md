@@ -4,7 +4,7 @@
 **Duration**: ~45 minutes
 **Prerequisites**: All previous UAT phases completed, test data available
 **Critical**: Yes (100% pass required)
-**Tools Tested**: `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `explore_graph`, `export_skos_turtle`, `knowledge_shard`, `pke_encrypt`, `pke_decrypt`, `share_note_encrypted`, `read_shared_note`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `create_embedding_set`, `refresh_embedding_set`, `create_keyset`, `delete_collection`, `list_concept_schemes`, `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all`
+**Tools Tested**: `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `explore_graph`, `export_skos_turtle`, `knowledge_shard`, `pke_encrypt`, `pke_decrypt`, `pke_get_address`, `pke_create_keyset`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `create_embedding_set`, `refresh_embedding_set`, `delete_collection`, `list_concept_schemes`, `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all`
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
@@ -148,7 +148,7 @@ get_embedding_set({ set_id: "default" })
 search_notes({
   query: "Python data processing pipeline",
   limit: 5,
-  tag_filter: ["uat/chain1"]
+  required_tags: ["uat/chain1"]
 })
 // Expected: returns python_note_id in results (proves embedding exists)
 ```
@@ -180,7 +180,7 @@ search_notes({
 search_notes({
   query: "data processing with transformation pipeline",
   limit: 10,
-  tag_filter: ["code"]
+  required_tags: ["code"]
 })
 // Expected: returns results array with similarity scores
 
@@ -806,7 +806,7 @@ move_note_to_collection({
 // 1. Search for Python concept (strict mode)
 search_notes({
   query: "programming",
-  tag_filter: ["test-uat-taxonomy:python"],
+  required_tags: ["test-uat-taxonomy:python"],
   limit: 10
 })
 // Expected: returns ONLY notes tagged with test-uat-taxonomy:python
@@ -823,7 +823,7 @@ search_notes({
 // Search for Rust tag separately
 search_notes({
   query: "programming",
-  tag_filter: ["test-uat-taxonomy:rust"],
+  required_tags: ["test-uat-taxonomy:rust"],
   limit: 10
 })
 // Should return only rust_guide_note_id
@@ -1016,7 +1016,7 @@ create_note({
 search_notes({
   query: "run",
   limit: 10,
-  tag_filter: ["uat/chain4"]
+  required_tags: ["uat/chain4"]
 })
 // Expected: returns results including en_note_id
 ```
@@ -1032,7 +1032,7 @@ search_notes({
 search_notes({
   query: "run",
   limit: 10,
-  tag_filter: ["english"]
+  required_tags: ["english"]
 })
 // Should return en_note_id with good score
 ```
@@ -1058,7 +1058,7 @@ search_notes({
 search_notes({
   query: "laufen",
   limit: 10,
-  tag_filter: ["uat/chain4"]
+  required_tags: ["uat/chain4"]
 })
 // Expected: returns results including de_note_id
 ```
@@ -1090,7 +1090,7 @@ search_notes({
 search_notes({
   query: "北京",
   limit: 10,
-  tag_filter: ["uat/chain4"]
+  required_tags: ["uat/chain4"]
 })
 // Expected: returns results including zh_note_id
 ```
@@ -1106,7 +1106,7 @@ search_notes({
 search_notes({
   query: "北京",
   limit: 10,
-  tag_filter: ["chinese"]
+  required_tags: ["chinese"]
 })
 // Should return zh_note_id
 ```
@@ -1133,7 +1133,7 @@ search_notes({
 search_notes({
   query: "🎉",
   limit: 10,
-  tag_filter: ["uat/chain4"]
+  required_tags: ["uat/chain4"]
 })
 // Expected: returns results including emoji_note_id
 ```
@@ -1165,7 +1165,7 @@ search_notes({
 search_notes({
   query: "running exercise fitness",
   limit: 10,
-  tag_filter: ["uat/chain4"]
+  required_tags: ["uat/chain4"]
 })
 // Expected: returns both en_note_id and de_note_id
 ```
@@ -1208,7 +1208,7 @@ search_notes({
 
 ### CHAIN-026: Generate PKE Keyset
 
-**MCP Tool**: `create_keyset`
+**MCP Tool**: `pke_create_keyset`
 
 **Description**: Generate public/private keypair for encryption
 
@@ -1218,7 +1218,7 @@ search_notes({
 **Steps**:
 ```javascript
 // 1. Generate new keyset
-create_keyset({
+pke_create_keyset({
   name: "UAT Chain 5 Keys",
   description: "Test keyset for encryption chain"
 })
@@ -1307,38 +1307,34 @@ get_note({ note_id: "{sensitive_note_id}" })
 
 ---
 
-### CHAIN-029: Generate Share Address
+### CHAIN-029: Get PKE Address for Sharing
 
-**MCP Tool**: `share_note_encrypted`
+**MCP Tool**: `pke_get_address`
 
-**Description**: Create shareable address for encrypted note
+**Description**: Retrieve the PKE address for the keyset (used to share the public key with recipients)
 
 **Prerequisites**:
-- `sensitive_note_id` (encrypted)
+- `keyset_id` from CHAIN-026
 
 **Steps**:
 ```javascript
-// 1. Share encrypted note
-share_note_encrypted({
-  note_id: "{sensitive_note_id}",
-  keyset_id: "{keyset_id}",
-  expires_in_hours: 24,
-  max_views: 5
+// 1. Get PKE address for keyset
+pke_get_address({
+  keyset_id: "{keyset_id}"
 })
-// Expected: returns share_token, share_url
+// Expected: returns address (public key identifier for sharing)
 ```
 
 **Expected Results**:
-- Share address created: `mm://note/{share_token}`
-- Expiration set (24 hours from now)
-- View limit: 5
-- Share token is URL-safe base64
+- Address returned (base64-encoded public key identifier)
+- Address can be shared with recipients for multi-party encryption
+- Address format is consistent and URL-safe
 
-**Store**: `share_token`
+**Store**: `pke_address`
 
 **Pass Criteria**:
-- Share address generated
-- Expiration and view limits set
+- PKE address retrieved successfully
+- Address is non-empty and well-formed
 
 ---
 
@@ -1373,34 +1369,31 @@ pke_decrypt({
 
 ---
 
-### CHAIN-031: Verify Content Integrity
+### CHAIN-031: Verify Content Integrity After Decrypt
 
-**MCP Tool**: `read_shared_note`
+**MCP Tool**: `get_note`
 
-**Description**: Verify decrypted content matches original
+**Description**: Verify the note content is restored to plaintext after decryption
 
 **Prerequisites**:
-- Decrypted content from CHAIN-030
+- `sensitive_note_id` decrypted in CHAIN-030
 
 **Steps**:
 ```javascript
-// 1. Read shared encrypted note
-read_shared_note({
-  share_token: "{share_token}",
-  keyset_id: "{keyset_id}"
-})
-// Expected: returns decrypted content
+// 1. Get the note after decryption
+get_note({ id: "{sensitive_note_id}" })
+// Expected: returns note with original plaintext content
 
 // 2. Compare with original
 // Original: "# API Key Storage\n\nAPI_KEY=sk_test_1234567890abcdef\nSECRET=super_secret_password"
-// Decrypted should match exactly
+// Content should match exactly (no longer starts with "MMPKE01")
 ```
 
 **Expected Results**:
-- Shared note readable with correct keyset
+- Note content is plaintext (not ciphertext)
 - Content matches original exactly
-- No data loss or corruption
-- Content integrity preserved through encryption cycle
+- No data loss or corruption through encrypt/decrypt cycle
+- Content integrity preserved
 
 **Pass Criteria**:
 - Decrypted content identical to original
@@ -1410,7 +1403,7 @@ read_shared_note({
 
 **Chain 5 Summary**:
 - Total steps: 6
-- Features exercised: PKE keyset generation, note encryption, share address, decryption, content verification
+- Features exercised: PKE keyset generation, note encryption, PKE address sharing, decryption, content integrity verification
 - Success criteria: Encryption cycle preserves data integrity
 
 ---
@@ -2217,7 +2210,7 @@ list_concept_schemes({})
 | Chain 2 | Geo-Temporal Memory | 6 | `create_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
 | Chain 3 | Knowledge Organization | 7 | `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `search_notes`, `explore_graph`, `export_skos_turtle`, `knowledge_shard` | |
 | Chain 4 | Multilingual Search | 6 | `create_note`, `search_notes` | |
-| Chain 5 | Encryption & Sharing | 6 | `create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `share_note_encrypted`, `pke_decrypt`, `read_shared_note` | |
+| Chain 5 | Encryption & Sharing | 6 | `pke_create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `pke_get_address`, `pke_decrypt` | |
 | Chain 6 | Backup & Recovery | 5 | `create_note`, `get_note_links`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `get_note` | |
 | Chain 7 | Embedding Set Focus | 6 | `create_embedding_set`, `create_note`, `get_embedding_set`, `search_notes`, `refresh_embedding_set` | |
 | Chain 8 | Full Observability | 5 | `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all` | |

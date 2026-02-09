@@ -230,7 +230,7 @@ search_notes({ query: "kunstliche intelligenz", limit: 5 })
 search_notes({ query: "test", limit: 5 })
 
 // Same query with tag filter (different cache key)
-search_notes({ query: "test", tags: ["uat/cache-test"], limit: 5 })
+search_notes({ query: "test", required_tags: ["uat/cache-test"], limit: 5 })
 ```
 
 **Pass Criteria**: Tag-filtered results are a subset of (or different from) unfiltered results

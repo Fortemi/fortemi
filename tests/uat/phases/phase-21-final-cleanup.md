@@ -321,7 +321,7 @@ console.log("System health: " + (systemInfo.health?.status || "OK"))
 
 ## Final UAT Summary
 
-After completing **ALL 22 phases (0-21)**, compile the final report:
+After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, compile the final report:
 
 ```markdown
 # Matric-Memory UAT Final Report
@@ -334,33 +334,34 @@ After completing **ALL 22 phases (0-21)**, compile the final report:
 
 ## Results by Phase
 
-| Phase | Description | Passed | Failed | Pass Rate |
-|-------|-------------|--------|--------|-----------|
-| 0 | Pre-flight | X/3 | X | XX% |
-| 1 | Seed Data | X/15 | X | XX% |
-| 2 | CRUD | X/17 | X | XX% |
-| 2b | File Attachments | X/21 | X | XX% |
-| 3 | Search | X/14 | X | XX% |
-| 3b | Memory Search | X/21 | X | XX% |
-| 4 | Tags | X/3 | X | XX% |
-| 5 | Collections | X/3 | X | XX% |
-| 6 | Semantic Links | X/11 | X | XX% |
-| 7 | Embeddings | X/15 | X | XX% |
-| 8 | Document Types | X/16 | X | XX% |
-| 9 | Edge Cases | X/3 | X | XX% |
-| 10 | Templates | X/15 | X | XX% |
-| 11 | Versioning | X/15 | X | XX% |
-| 12 | Archives | X/18 | X | XX% |
-| 13 | SKOS Taxonomy | X/27 | X | XX% |
-| 14 | PKE Encryption | X/20 | X | XX% |
-| 15 | Jobs & Queue | X/22 | X | XX% |
-| 16 | Observability | X/12 | X | XX% |
-| 17 | OAuth & Auth | X/22 | X | XX% |
-| 18 | Caching | X/15 | X | XX% |
-| 19 | Feature Chains | X/48 | X | XX% |
-| 20 | Data Export | X/19 | X | XX% |
-| 21 | Final Cleanup | X/10 | X | XX% |
-| **TOTAL** | | **X/420+** | | **XX%** |
+| Phase | Description | Passed | Failed | Blocked | Pass Rate |
+|-------|-------------|--------|--------|---------|-----------|
+| 0 | Pre-flight | X/3 | X | X | XX% |
+| 1 | Seed Data | X/11 | X | X | XX% |
+| 2 | CRUD | X/17 | X | X | XX% |
+| 2b | File Attachments | X/21 | X | X | XX% |
+| 2c | Attachment Processing | X/31 | X | X | XX% |
+| 3 | Search | X/18 | X | X | XX% |
+| 3b | Memory Search | X/21 | X | X | XX% |
+| 4 | Tags | X/11 | X | X | XX% |
+| 5 | Collections | X/10 | X | X | XX% |
+| 6 | Semantic Links | X/13 | X | X | XX% |
+| 7 | Embeddings | X/20 | X | X | XX% |
+| 8 | Document Types | X/16 | X | X | XX% |
+| 9 | Edge Cases | X/15 | X | X | XX% |
+| 10 | Templates | X/15 | X | X | XX% |
+| 11 | Versioning | X/15 | X | X | XX% |
+| 12 | Archives | X/18 | X | X | XX% |
+| 13 | SKOS Taxonomy | X/40 | X | X | XX% |
+| 14 | PKE Encryption | X/20 | X | X | XX% |
+| 15 | Jobs & Queue | X/22 | X | X | XX% |
+| 16 | Observability | X/12 | X | X | XX% |
+| 17 | OAuth & Auth | X/17 | X | X | XX% |
+| 18 | Caching | X/15 | X | X | XX% |
+| 19 | Feature Chains | X/48 | X | X | XX% |
+| 20 | Data Export | X/19 | X | X | XX% |
+| 21 | Final Cleanup | X/10 | X | X | XX% |
+| **TOTAL** | | **X/447** | | | **XX%** |
 
 ## Critical Phase Status
 - Phases 0-3, 2b, 3b (Foundation): [ ] ALL PASS / [ ] FAIL
@@ -387,7 +388,7 @@ After completing **ALL 22 phases (0-21)**, compile the final report:
 
 ## Checklist Before Closing UAT
 
-- [ ] All 22 phases (0-21) executed
+- [ ] All 25 phases (0-21, including 2b, 2c, 3b) executed
 - [ ] Phase 19 (Feature Chains) completed 48 E2E tests
 - [ ] Phase 20 (Data Export) validated backup/export
 - [ ] Phase 21 (Final Cleanup) removed ALL test data

@@ -45,27 +45,27 @@ If an MCP tool call returns an unexpected error or the tool doesn't exist:
 
 UAT is split into individual phase documents for agentic consumption.
 
-> **CRITICAL**: This UAT suite contains **23 phases (0-21, plus sub-phases 2b, 2c, 3b)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
+> **CRITICAL**: This UAT suite contains **25 phases (0-21, plus sub-phases 2b, 2c, 3b)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
 
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
 | 0 | [phases/phase-0-preflight.md](phases/phase-0-preflight.md) | ~2 min | 3 | Yes |
-| 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 15 | Yes |
+| 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 11 | Yes |
 | 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 17 | **Yes** |
 | 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
 | 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
-| 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 14 | **Yes** |
+| 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 18 | **Yes** |
 | 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
-| 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 3 | No |
-| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 3 | No |
-| 6 | [phases/phase-6-links.md](phases/phase-6-links.md) | ~5 min | 11 | No |
-| 7 | [phases/phase-7-embeddings.md](phases/phase-7-embeddings.md) | ~5 min | 15 | No |
+| 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 11 | No |
+| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 10 | No |
+| 6 | [phases/phase-6-links.md](phases/phase-6-links.md) | ~5 min | 13 | No |
+| 7 | [phases/phase-7-embeddings.md](phases/phase-7-embeddings.md) | ~5 min | 20 | No |
 | 8 | [phases/phase-8-document-types.md](phases/phase-8-document-types.md) | ~5 min | 16 | No |
-| 9 | [phases/phase-9-edge-cases.md](phases/phase-9-edge-cases.md) | ~5 min | 3 | No |
+| 9 | [phases/phase-9-edge-cases.md](phases/phase-9-edge-cases.md) | ~5 min | 15 | No |
 | 10 | [phases/phase-10-templates.md](phases/phase-10-templates.md) | ~8 min | 15 | No |
 | 11 | [phases/phase-11-versioning.md](phases/phase-11-versioning.md) | ~7 min | 15 | No |
 | 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 18 | No |
-| 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 27 | No |
+| 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 40 | No |
 | 14 | [phases/phase-14-pke.md](phases/phase-14-pke.md) | ~8 min | 20 | No |
 | 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 22 | No |
 | 16 | [phases/phase-16-observability.md](phases/phase-16-observability.md) | ~10 min | 12 | No |
@@ -73,9 +73,9 @@ UAT is split into individual phase documents for agentic consumption.
 | 18 | [phases/phase-18-caching-performance.md](phases/phase-18-caching-performance.md) | ~10 min | 15 | No |
 | 19 | [phases/phase-19-feature-chains.md](phases/phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
-| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 8 | **Yes** |
+| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total**: 450+ tests across 23 phases (including 2b, 2c, and 3b)
+**Total**: 447 tests across 25 phases (including 2b, 2c, and 3b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -143,34 +143,34 @@ uat_run:
 
 ## Results by Phase
 
-| Phase | Tests | Passed | Failed | Pass Rate |
-|-------|-------|--------|--------|-----------|
-| 0: Pre-flight | 3 | X | X | X% |
-| 1: Seed Data | 15 | X | X | X% |
-| 2: CRUD | 17 | X | X | X% |
-| 2b: Attachments | 21 | X | X | X% |
-| 2c: Attachment Processing | 31 | X | X | X% |
-| 3: Search | 14 | X | X | X% |
-| 3b: Memory Search | 21 | X | X | X% |
-| 4: Tags | 3 | X | X | X% |
-| 5: Collections | 3 | X | X | X% |
-| 6: Links | 11 | X | X | X% |
-| 7: Embeddings | 15 | X | X | X% |
-| 8: Document Types | 16 | X | X | X% |
-| 9: Edge Cases | 3 | X | X | X% |
-| 10: Templates | 15 | X | X | X% |
-| 11: Versioning | 15 | X | X | X% |
-| 12: Archives | 18 | X | X | X% |
-| 13: SKOS | 27 | X | X | X% |
-| 14: PKE | 20 | X | X | X% |
-| 15: Jobs | 22 | X | X | X% |
-| 16: Observability | 12 | X | X | X% |
-| 17: OAuth/Auth | 17 | X | X | X% |
-| 18: Caching | 15 | X | X | X% |
-| 19: Feature Chains | 48 | X | X | X% |
-| 20: Data Export | 19 | X | X | X% |
-| 21: Final Cleanup | 8 | X | X | X% |
-| **TOTAL** | **~450** | **X** | **X** | **X%** |
+| Phase | Tests | Passed | Failed | Blocked | Pass Rate |
+|-------|-------|--------|--------|---------|-----------|
+| 0: Pre-flight | 3 | X | X | X | X% |
+| 1: Seed Data | 11 | X | X | X | X% |
+| 2: CRUD | 17 | X | X | X | X% |
+| 2b: Attachments | 21 | X | X | X | X% |
+| 2c: Attachment Processing | 31 | X | X | X | X% |
+| 3: Search | 18 | X | X | X | X% |
+| 3b: Memory Search | 21 | X | X | X | X% |
+| 4: Tags | 11 | X | X | X | X% |
+| 5: Collections | 10 | X | X | X | X% |
+| 6: Links | 13 | X | X | X | X% |
+| 7: Embeddings | 20 | X | X | X | X% |
+| 8: Document Types | 16 | X | X | X | X% |
+| 9: Edge Cases | 15 | X | X | X | X% |
+| 10: Templates | 15 | X | X | X | X% |
+| 11: Versioning | 15 | X | X | X | X% |
+| 12: Archives | 18 | X | X | X | X% |
+| 13: SKOS | 40 | X | X | X | X% |
+| 14: PKE | 20 | X | X | X | X% |
+| 15: Jobs | 22 | X | X | X | X% |
+| 16: Observability | 12 | X | X | X | X% |
+| 17: OAuth/Auth | 17 | X | X | X | X% |
+| 18: Caching | 15 | X | X | X | X% |
+| 19: Feature Chains | 48 | X | X | X | X% |
+| 20: Data Export | 19 | X | X | X | X% |
+| 21: Final Cleanup | 10 | X | X | X | X% |
+| **TOTAL** | **447** | **X** | **X** | **X** | **X%** |
 
 ## Failed Tests
 

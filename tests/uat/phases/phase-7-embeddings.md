@@ -101,7 +101,7 @@ remove_set_member({
 search_notes({
   query: "neural",
   mode: "hybrid",
-  set: "uat-test-set",
+  embedding_set: "uat-test-set",
   limit: 10
 })
 ```
