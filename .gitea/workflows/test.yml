@@ -32,8 +32,6 @@ env:
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: "-Cinstrument-coverage"
   LLVM_PROFILE_FILE: "target/coverage/profile-%p-%m.profraw"
-  # Bump to invalidate stale build caches (e.g. after repo rename)
-  CACHE_VERSION: v2
 
 jobs:
   # Build testdb image once for all jobs
@@ -68,24 +66,7 @@ jobs:
         run: |
           docker build -f build/Dockerfile.testdb -t matric-testdb:local .
 
-      - name: Cache cargo registry
-        uses: https://github.com/actions/cache@v3
-        with:
-          path: ~/.cargo/registry/cache
-          key: ${{ env.CACHE_VERSION }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-cargo-registry-
-
-      - name: Cache cargo build
-        uses: https://github.com/actions/cache@v3
-        with:
-          path: |
-            target/debug/build
-            target/debug/deps
-            target/debug/.fingerprint
-          key: ${{ env.CACHE_VERSION }}-cargo-build-fast-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-cargo-build-fast-
+      # No cache actions needed — self-hosted runner persists target/ on disk
 
       - name: Setup PostgreSQL
         run: |
@@ -136,12 +117,6 @@ jobs:
           cargo test --lib --workspace
           cargo test --doc --workspace
 
-      - name: Clean profraw files before cache save
-        if: always()
-        run: |
-          find target -name '*.profraw' -delete 2>/dev/null || true
-          rm -rf target/coverage 2>/dev/null || true
-
       - name: Teardown PostgreSQL
         if: always()
         run: |
@@ -165,16 +140,7 @@ jobs:
         run: |
           docker build -f build/Dockerfile.testdb -t matric-testdb:local .
 
-      - name: Cache cargo build
-        uses: https://github.com/actions/cache@v3
-        with:
-          path: |
-            target/debug/build
-            target/debug/deps
-            target/debug/.fingerprint
-          key: ${{ env.CACHE_VERSION }}-cargo-build-integration-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ env.CACHE_VERSION }}-cargo-build-integration-
+      # No cache actions needed — self-hosted runner persists target/ on disk
 
       - name: Setup PostgreSQL
         run: |
@@ -239,12 +205,6 @@ jobs:
           # (matric-jobs tests already run above with serial execution)
           cargo test --workspace --tests --exclude matric-jobs
         timeout-minutes: 30
-
-      - name: Clean profraw files before cache save
-        if: always()
-        run: |
-          find target -name '*.profraw' -delete 2>/dev/null || true
-          rm -rf target/coverage 2>/dev/null || true
 
       - name: Teardown PostgreSQL
         if: always()
