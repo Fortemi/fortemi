@@ -3349,6 +3349,10 @@ async fn delete_note(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { notes.soft_delete_tx(tx, id).await }))
         .await?;
+
+    // Invalidate search cache so deleted notes don't appear in results (#247)
+    state.search_cache.invalidate_all().await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3392,6 +3396,9 @@ async fn purge_note(
         job_type: format!("{:?}", JobType::PurgeNote),
         note_id: Some(id),
     });
+
+    // Invalidate search cache (#247)
+    state.search_cache.invalidate_all().await;
 
     Ok(Json(serde_json::json!({
         "status": "queued",
@@ -3464,6 +3471,9 @@ async fn restore_note(
         schema_for_jobs,
     )
     .await;
+
+    // Invalidate search cache so restored note appears in results (#247)
+    state.search_cache.invalidate_all().await;
 
     Ok(Json(serde_json::json!({ "restored": true, "id": id })))
 }
