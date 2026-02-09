@@ -160,7 +160,7 @@ search_notes({ query: "deep learning transformers", mode: "hybrid", limit: 10 })
 **MCP Tool**: `search_notes`
 
 ```javascript
-search_notes({ query: "neural", mode: "fts", tags: ["uat/ml"], limit: 10 })
+search_notes({ query: "neural", mode: "fts", required_tags: ["uat/ml"], limit: 10 })
 ```
 
 **Pass Criteria**: All results have `uat/ml` tag

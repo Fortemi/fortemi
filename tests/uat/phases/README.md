@@ -118,6 +118,17 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 5. **Phase 20** (Data Export) tests backup/export functionality
 6. **Phase 21** (Final Cleanup) MUST run LAST - uses MCP tools to remove all test data
 
+### Phase 2b Attachment Gate
+
+If Phase 2b reveals that the attachment subsystem is non-functional (e.g., uploads return 200 but data is not persisted):
+
+- **Skip Phase 2c** (Attachment Processing) — all 31 tests depend on working uploads
+- **Skip Phase 3b** (Memory Search) — spatial/temporal search depends on EXIF extraction
+- **Mark skipped tests as BLOCKED** with root-cause issue reference
+- **Continue to Phase 3** (Search) and proceed normally
+- **In Phase 19**, mark Chain 2 (Geo-Temporal Memory) as BLOCKED
+- **Report executable pass rate** separately in the final report
+
 ### Partial Execution (Time-Constrained)
 
 If running a subset, always include:
@@ -130,6 +141,7 @@ If running a subset, always include:
 ## Success Criteria
 
 - **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
+- **Conditional Pass**: If blocked tests exist due to a single root cause, report executable pass rate separately
 - **Overall**: 100% pass rate for release approval
 - **Test data**: Must be generated before execution (see Test Data section)
 

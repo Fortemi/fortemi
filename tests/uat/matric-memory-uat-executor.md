@@ -45,7 +45,7 @@ If an MCP tool call returns an unexpected error or the tool doesn't exist:
 
 UAT is split into individual phase documents for agentic consumption.
 
-> **CRITICAL**: This UAT suite contains **22 phases (0-21)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
+> **CRITICAL**: This UAT suite contains **23 phases (0-21, plus sub-phases 2b, 2c, 3b)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
 
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
@@ -53,6 +53,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 15 | Yes |
 | 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 17 | **Yes** |
 | 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
+| 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 14 | **Yes** |
 | 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
 | 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 3 | No |
@@ -68,13 +69,13 @@ UAT is split into individual phase documents for agentic consumption.
 | 14 | [phases/phase-14-pke.md](phases/phase-14-pke.md) | ~8 min | 20 | No |
 | 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 22 | No |
 | 16 | [phases/phase-16-observability.md](phases/phase-16-observability.md) | ~10 min | 12 | No |
-| 17 | [phases/phase-17-oauth-auth.md](phases/phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
+| 17 | [phases/phase-17-oauth-auth.md](phases/phase-17-oauth-auth.md) | ~12 min | 17 | **Yes** |
 | 18 | [phases/phase-18-caching-performance.md](phases/phase-18-caching-performance.md) | ~10 min | 15 | No |
 | 19 | [phases/phase-19-feature-chains.md](phases/phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
-| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
+| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 8 | **Yes** |
 
-**Total**: 420+ tests across 22 phases (including 2b and 3b)
+**Total**: 450+ tests across 23 phases (including 2b, 2c, and 3b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -87,6 +88,19 @@ See [phases/README.md](phases/README.md) for execution order and success criteri
 1. Ensure MCP connection is active: `list_notes(limit=1)` should work
 2. Note the starting state: `memory_info()` for baseline counts
 3. Create a results tracking structure
+
+### Phase 2b Attachment Gate
+
+If Phase 2b reveals that the attachment subsystem is non-functional (e.g., uploads return 200 but data is not persisted), apply the following fast-track rules:
+
+- **Skip Phase 2c** (Attachment Processing) entirely — all 31 tests depend on working uploads
+- **Skip Phase 3b** (Memory Search) — spatial/temporal search depends on attachment EXIF extraction
+- **Mark skipped tests as BLOCKED** with a reference to the root-cause issue
+- **Continue to Phase 3** (Search) and proceed normally through remaining phases
+- **In Phase 19** (Feature Chains), mark Chain 2 (Geo-Temporal Memory) as BLOCKED
+- **Report executable pass rate** separately from overall pass rate in the final report
+
+This gate prevents ~52+ tests from cascading to failure due to a single subsystem bug.
 
 ### Negative Test Isolation
 
@@ -135,6 +149,7 @@ uat_run:
 | 1: Seed Data | 15 | X | X | X% |
 | 2: CRUD | 17 | X | X | X% |
 | 2b: Attachments | 21 | X | X | X% |
+| 2c: Attachment Processing | 31 | X | X | X% |
 | 3: Search | 14 | X | X | X% |
 | 3b: Memory Search | 21 | X | X | X% |
 | 4: Tags | 3 | X | X | X% |
@@ -150,12 +165,12 @@ uat_run:
 | 14: PKE | 20 | X | X | X% |
 | 15: Jobs | 22 | X | X | X% |
 | 16: Observability | 12 | X | X | X% |
-| 17: OAuth/Auth | 22 | X | X | X% |
+| 17: OAuth/Auth | 17 | X | X | X% |
 | 18: Caching | 15 | X | X | X% |
 | 19: Feature Chains | 48 | X | X | X% |
 | 20: Data Export | 19 | X | X | X% |
-| 21: Final Cleanup | 10 | X | X | X% |
-| **TOTAL** | **~420** | **X** | **X** | **X%** |
+| 21: Final Cleanup | 8 | X | X | X% |
+| **TOTAL** | **~450** | **X** | **X** | **X%** |
 
 ## Failed Tests
 
@@ -177,9 +192,9 @@ uat_run:
 
 ## Success Criteria
 
-- **Critical Phases (0, 1, 2, 2b, 3, 3b, 17, 19, 21)**: 100% pass required
-- **Standard Phases (4-16, 18, 20)**: 90% pass acceptable
-- **Overall**: 95% pass for release approval
+- **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
+- **Overall**: 100% pass rate for release approval
+- **Conditional Pass**: If blocked tests exist due to a single root cause (e.g., attachment subsystem), report executable pass rate separately
 
 ## MCP Tool Coverage
 
@@ -187,19 +202,23 @@ uat_run:
 
 | Category | Tools | Covered |
 |----------|-------|---------|
-| Note Operations | 12 | 100% |
+| Note CRUD | 12 | 100% |
 | Search | 4 | 100% |
 | Memory Search | 4 | 100% |
+| Tags | 2 | 100% |
 | Collections | 8 | 100% |
 | Templates | 6 | 100% |
-| Embedding Sets | 10 | 100% |
+| Embedding Sets | 15 | 100% |
 | Versioning | 5 | 100% |
-| Graph/Links | 4 | 100% |
-| Jobs | 4 | 100% |
-| SKOS | 22 | 100% |
+| Graph/Links | 7 | 100% |
+| Jobs | 7 | 100% |
+| SKOS | 33 | 100% |
 | Archives | 7 | 100% |
 | Document Types | 6 | 100% |
-| Backup | 17 | 100% |
+| Backup/Export | 17 | 100% |
 | PKE | 13 | 100% |
-| Documentation | 1 | 100% |
-| **Total** | **~124** | **100%** |
+| Observability | 7 | 100% |
+| Auth & Access Control | 8 MCP + 4 infra | 100% |
+| Caching & Performance | 5 | 100% |
+| Attachment Processing | 5 | 100% |
+| **Total** | **148+** | **100%** |

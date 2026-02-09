@@ -30,7 +30,7 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 
 ---
 
-### UAT-21-001: Upload Python Code File
+### CHAIN-001: Upload Python Code File
 
 **MCP Tools**: `upload_attachment`, `create_note`
 
@@ -38,7 +38,7 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 
 **Prerequisites**:
 - MCP server running
-- Test file exists: `/home/roctinam/dev/fortemi/tests/uat/data/documents/code-python.py`
+- Test file exists: `tests/uat/data/documents/code-python.py`
 
 **Steps**:
 ```javascript
@@ -52,7 +52,7 @@ create_note({
 // 2. Upload Python file as attachment
 upload_attachment({
   note_id: "{python_note_id}",
-  file_path: "/home/roctinam/dev/fortemi/tests/uat/data/documents/code-python.py",
+  file_path: "tests/uat/data/documents/code-python.py",
   content_type: "text/x-python"
 })
 // Expected: returns attachment_id, content_type: "text/x-python"
@@ -80,14 +80,14 @@ get_note({ note_id: "{note_id}" })
 
 ---
 
-### UAT-21-002: Detect Document Type
+### CHAIN-002: Detect Document Type
 
 **MCP Tools**: `detect_document_type`, `list_document_types`
 
 **Description**: Verify document type detection for Python code
 
 **Prerequisites**:
-- `python_note_id` from UAT-21-001
+- `python_note_id` from CHAIN-001
 
 **Steps**:
 ```javascript
@@ -122,7 +122,7 @@ list_document_types({})
 
 ---
 
-### UAT-21-003: Verify Automatic Embedding
+### CHAIN-003: Verify Automatic Embedding
 
 **MCP Tools**: `list_embedding_sets`, `get_embedding_set`, `search_notes`
 
@@ -165,7 +165,7 @@ search_notes({
 
 ---
 
-### UAT-21-004: Semantic Search for Code
+### CHAIN-004: Semantic Search for Code
 
 **MCP Tools**: `search_notes`, `get_note`
 
@@ -208,7 +208,7 @@ get_note({ note_id: "{python_note_id}" })
 
 ---
 
-### UAT-21-005: Compare Versions (List All Revisions)
+### CHAIN-005: Compare Versions (List All Revisions)
 
 **MCP Tools**: `list_note_versions`, `restore_note_version`, `diff_note_versions`
 
@@ -259,7 +259,7 @@ list_note_versions({ note_id: "{python_note_id}" })
 
 ---
 
-### UAT-21-006: Export as Markdown with Frontmatter
+### CHAIN-006: Export as Markdown with Frontmatter
 
 **MCP Tool**: `export_note`
 
@@ -315,7 +315,7 @@ export_note({
 
 ---
 
-### UAT-21-007: Create Memory with Location
+### CHAIN-007: Create Memory with Location
 
 **MCP Tool**: `create_note`
 
@@ -356,14 +356,14 @@ create_note({
 
 ---
 
-### UAT-21-008: Verify Provenance Record Created
+### CHAIN-008: Verify Provenance Record Created
 
 **MCP Tool**: `get_memory_provenance`
 
 **Description**: Verify W3C PROV provenance created automatically
 
 **Prerequisites**:
-- `paris_note_id` from UAT-21-007
+- `paris_note_id` from CHAIN-007
 
 **Steps**:
 ```javascript
@@ -386,7 +386,7 @@ get_memory_provenance({
 
 ---
 
-### UAT-21-009: Search by Location (1km radius)
+### CHAIN-009: Search by Location (1km radius)
 
 **MCP Tool**: `search_memories_by_location`
 
@@ -432,7 +432,7 @@ search_memories_by_location({
 
 ---
 
-### UAT-21-010: Search by Time Range
+### CHAIN-010: Search by Time Range
 
 **MCP Tool**: `search_memories_by_time`
 
@@ -464,7 +464,7 @@ search_memories_by_time({
 
 ---
 
-### UAT-21-011: Combined Spatial-Temporal Search
+### CHAIN-011: Combined Spatial-Temporal Search
 
 **MCP Tool**: `search_memories_combined`
 
@@ -499,7 +499,7 @@ search_memories_combined({
 
 ---
 
-### UAT-21-012: Retrieve Full Provenance Chain
+### CHAIN-012: Retrieve Full Provenance Chain
 
 **MCP Tool**: `get_memory_provenance`
 
@@ -548,7 +548,7 @@ get_memory_provenance({
 
 ---
 
-### UAT-21-013: Create SKOS Concept Scheme
+### CHAIN-013: Create SKOS Concept Scheme
 
 **MCP Tool**: `create_concept_scheme`
 
@@ -581,14 +581,14 @@ create_concept_scheme({
 
 ---
 
-### UAT-21-014: Create Hierarchical Concepts
+### CHAIN-014: Create Hierarchical Concepts
 
 **MCP Tools**: `create_concept`, `add_broader`, `get_narrower`
 
 **Description**: Create broader/narrower concept relationships
 
 **Prerequisites**:
-- `scheme_id` from UAT-21-013
+- `scheme_id` from CHAIN-013
 
 **Steps**:
 ```javascript
@@ -683,7 +683,7 @@ get_narrower({
 
 ---
 
-### UAT-21-015: Create Collection Hierarchy
+### CHAIN-015: Create Collection Hierarchy
 
 **MCP Tool**: `create_collection`
 
@@ -723,7 +723,7 @@ create_collection({
 
 ---
 
-### UAT-21-016: Create Tagged Notes in Collections
+### CHAIN-016: Create Tagged Notes in Collections
 
 **MCP Tools**: `create_note`, `tag_note_concept`, `move_note_to_collection`
 
@@ -792,14 +792,14 @@ move_note_to_collection({
 
 ---
 
-### UAT-21-017: Search with Strict Tag Filtering
+### CHAIN-017: Search with Strict Tag Filtering
 
 **MCP Tool**: `search_notes`
 
 **Description**: Search notes using strict SKOS tag filtering
 
 **Prerequisites**:
-- Tagged notes from UAT-21-016
+- Tagged notes from CHAIN-016
 
 **Steps**:
 ```javascript
@@ -835,7 +835,7 @@ search_notes({
 
 ---
 
-### UAT-21-018: Explore Knowledge Graph
+### CHAIN-018: Explore Knowledge Graph
 
 **MCP Tool**: `explore_graph`
 
@@ -884,7 +884,7 @@ explore_graph({
 
 ---
 
-### UAT-21-019: Export Knowledge Shard
+### CHAIN-019: Export Knowledge Shard
 
 **MCP Tools**: `export_skos_turtle`, `knowledge_shard`
 
@@ -948,7 +948,7 @@ knowledge_shard({
 
 ---
 
-### UAT-21-020: Create Multilingual Notes
+### CHAIN-020: Create Multilingual Notes
 
 **MCP Tool**: `create_note`
 
@@ -1001,14 +1001,14 @@ create_note({
 
 ---
 
-### UAT-21-021: Test English Stemming
+### CHAIN-021: Test English Stemming
 
 **MCP Tool**: `search_notes`
 
 **Description**: Search with stemming for English content
 
 **Prerequisites**:
-- `en_note_id` from UAT-21-020
+- `en_note_id` from CHAIN-020
 
 **Steps**:
 ```javascript
@@ -1043,14 +1043,14 @@ search_notes({
 
 ---
 
-### UAT-21-022: Test German Stemming
+### CHAIN-022: Test German Stemming
 
 **MCP Tool**: `search_notes`
 
 **Description**: Search with German stemming
 
 **Prerequisites**:
-- `de_note_id` from UAT-21-020
+- `de_note_id` from CHAIN-020
 
 **Steps**:
 ```javascript
@@ -1074,14 +1074,14 @@ search_notes({
 
 ---
 
-### UAT-21-023: Test CJK Bigram Matching
+### CHAIN-023: Test CJK Bigram Matching
 
 **MCP Tool**: `search_notes`
 
 **Description**: Search Chinese text with bigram indexing
 
 **Prerequisites**:
-- `zh_note_id` from UAT-21-020
+- `zh_note_id` from CHAIN-020
 - FTS_BIGRAM_CJK=true enabled
 
 **Steps**:
@@ -1117,14 +1117,14 @@ search_notes({
 
 ---
 
-### UAT-21-024: Test Emoji Trigram Matching
+### CHAIN-024: Test Emoji Trigram Matching
 
 **MCP Tool**: `search_notes`
 
 **Description**: Search for emoji using trigram indexing
 
 **Prerequisites**:
-- `emoji_note_id` from UAT-21-020
+- `emoji_note_id` from CHAIN-020
 - FTS_TRIGRAM_FALLBACK=true enabled
 
 **Steps**:
@@ -1149,14 +1149,14 @@ search_notes({
 
 ---
 
-### UAT-21-025: Cross-Language Semantic Discovery
+### CHAIN-025: Cross-Language Semantic Discovery
 
 **MCP Tool**: `search_notes`
 
 **Description**: Use semantic search to find related notes across languages
 
 **Prerequisites**:
-- All multilingual notes from UAT-21-020
+- All multilingual notes from CHAIN-020
 - Notes embedded in default set
 
 **Steps**:
@@ -1206,7 +1206,7 @@ search_notes({
 
 ---
 
-### UAT-21-026: Generate PKE Keyset
+### CHAIN-026: Generate PKE Keyset
 
 **MCP Tool**: `create_keyset`
 
@@ -1239,7 +1239,7 @@ create_keyset({
 
 ---
 
-### UAT-21-027: Create Sensitive Note
+### CHAIN-027: Create Sensitive Note
 
 **MCP Tool**: `create_note`
 
@@ -1269,7 +1269,7 @@ create_note({
 
 ---
 
-### UAT-21-028: Encrypt Note with PKE
+### CHAIN-028: Encrypt Note with PKE
 
 **MCP Tools**: `pke_encrypt`, `get_note`
 
@@ -1307,7 +1307,7 @@ get_note({ note_id: "{sensitive_note_id}" })
 
 ---
 
-### UAT-21-029: Generate Share Address
+### CHAIN-029: Generate Share Address
 
 **MCP Tool**: `share_note_encrypted`
 
@@ -1342,7 +1342,7 @@ share_note_encrypted({
 
 ---
 
-### UAT-21-030: Decrypt Note
+### CHAIN-030: Decrypt Note
 
 **MCP Tool**: `pke_decrypt`
 
@@ -1373,14 +1373,14 @@ pke_decrypt({
 
 ---
 
-### UAT-21-031: Verify Content Integrity
+### CHAIN-031: Verify Content Integrity
 
 **MCP Tool**: `read_shared_note`
 
 **Description**: Verify decrypted content matches original
 
 **Prerequisites**:
-- Decrypted content from UAT-21-030
+- Decrypted content from CHAIN-030
 
 **Steps**:
 ```javascript
@@ -1423,7 +1423,7 @@ read_shared_note({
 
 ---
 
-### UAT-21-032: Create Test Data for Backup
+### CHAIN-032: Create Test Data for Backup
 
 **MCP Tools**: `create_note`, `get_note_links`
 
@@ -1472,14 +1472,14 @@ get_note_links({ note_id: "{backup_note1_id}" })
 
 ---
 
-### UAT-21-033: Create Database Snapshot
+### CHAIN-033: Create Database Snapshot
 
 **MCP Tools**: `database_snapshot`, `backup_status`
 
 **Description**: Take database backup snapshot
 
 **Prerequisites**:
-- Test data from UAT-21-032
+- Test data from CHAIN-032
 
 **Steps**:
 ```javascript
@@ -1514,7 +1514,7 @@ backup_status({})
 
 ---
 
-### UAT-21-034: Delete Test Data
+### CHAIN-034: Delete Test Data
 
 **MCP Tools**: `delete_note`, `list_notes`
 
@@ -1560,15 +1560,15 @@ list_notes({ tags: ["uat/chain6"] })
 
 ---
 
-### UAT-21-035: Restore from Snapshot
+### CHAIN-035: Restore from Snapshot
 
 **MCP Tools**: `database_restore`, `backup_status`
 
 **Description**: Restore database from backup snapshot
 
 **Prerequisites**:
-- `snapshot_id` from UAT-21-033
-- Notes deleted in UAT-21-034
+- `snapshot_id` from CHAIN-033
+- Notes deleted in CHAIN-034
 
 **Steps**:
 ```javascript
@@ -1603,14 +1603,14 @@ backup_status({})
 
 ---
 
-### UAT-21-036: Verify Data Recovery
+### CHAIN-036: Verify Data Recovery
 
 **MCP Tools**: `list_notes`, `get_note`, `get_note_links`
 
 **Description**: Verify all deleted notes and links are restored
 
 **Prerequisites**:
-- Restore completed in UAT-21-035
+- Restore completed in CHAIN-035
 
 **Steps**:
 ```javascript
@@ -1673,7 +1673,7 @@ get_note_links({ note_id: "{backup_note1_id}" })
 
 ---
 
-### UAT-21-037: Create Focused Embedding Set
+### CHAIN-037: Create Focused Embedding Set
 
 **MCP Tool**: `create_embedding_set`
 
@@ -1718,14 +1718,14 @@ create_embedding_set({
 
 ---
 
-### UAT-21-038: Create Matching and Non-Matching Notes
+### CHAIN-038: Create Matching and Non-Matching Notes
 
 **MCP Tool**: `create_note`
 
 **Description**: Create notes that match and don't match set criteria
 
 **Prerequisites**:
-- `python_set_id` from UAT-21-037
+- `python_set_id` from CHAIN-037
 
 **Steps**:
 ```javascript
@@ -1762,14 +1762,14 @@ create_note({
 
 ---
 
-### UAT-21-039: Verify Auto-Population
+### CHAIN-039: Verify Auto-Population
 
 **MCP Tools**: `get_embedding_set`, `search_notes`
 
 **Description**: Verify only matching notes added to embedding set
 
 **Prerequisites**:
-- Notes from UAT-21-038
+- Notes from CHAIN-038
 - Wait 5 seconds for auto-embed
 
 **Steps**:
@@ -1807,7 +1807,7 @@ get_embedding_set({ set_id: "{python_set_id}" })
 
 ---
 
-### UAT-21-040: Focused Search Within Set
+### CHAIN-040: Focused Search Within Set
 
 **MCP Tool**: `search_notes`
 
@@ -1850,7 +1850,7 @@ search_notes({
 
 ---
 
-### UAT-21-041: Update Model Configuration
+### CHAIN-041: Update Model Configuration
 
 **MCP Tool**: `refresh_embedding_set`
 
@@ -1879,18 +1879,18 @@ refresh_embedding_set({
 
 ---
 
-### UAT-21-042: Re-Embed and Compare Results
+### CHAIN-042: Re-Embed and Compare Results
 
 **MCP Tools**: `search_notes`, `get_embedding_set`
 
 **Description**: Trigger re-embedding and compare search results
 
 **Prerequisites**:
-- Updated model config from UAT-21-041
+- Updated model config from CHAIN-041
 
 **Steps**:
 ```javascript
-// 1. Wait for re-embedding (job from UAT-21-041)
+// 1. Wait for re-embedding (job from CHAIN-041)
 // Poll or wait ~10 seconds
 
 // 2. Search again with new embeddings
@@ -1901,7 +1901,7 @@ search_notes({
 })
 // Expected: returns results with new embeddings (128-dim)
 
-// 3. Compare similarity scores with original search (UAT-21-040)
+// 3. Compare similarity scores with original search (CHAIN-040)
 // Scores may differ slightly due to dimension change
 ```
 
@@ -1940,7 +1940,7 @@ get_embedding_set({ set_id: "{python_set_id}" })
 
 ---
 
-### UAT-21-043: Get Knowledge Health Score
+### CHAIN-043: Get Knowledge Health Score
 
 **MCP Tool**: `get_knowledge_health`
 
@@ -1980,7 +1980,7 @@ get_knowledge_health({})
 
 ---
 
-### UAT-21-044: Identify Orphan Tags
+### CHAIN-044: Identify Orphan Tags
 
 **MCP Tool**: `get_orphan_tags`
 
@@ -2012,7 +2012,7 @@ get_orphan_tags({})
 
 ---
 
-### UAT-21-045: Identify Stale and Unlinked Notes
+### CHAIN-045: Identify Stale and Unlinked Notes
 
 **MCP Tools**: `get_stale_notes`, `get_unlinked_notes`
 
@@ -2048,7 +2048,7 @@ get_unlinked_notes({})
 
 ---
 
-### UAT-21-046: Export Knowledge Health Report
+### CHAIN-046: Export Knowledge Health Report
 
 **MCP Tools**: `health_check`, `get_knowledge_health`
 
@@ -2086,14 +2086,14 @@ get_knowledge_health({})
 
 ---
 
-### UAT-21-047: Remediate Identified Issues
+### CHAIN-047: Remediate Identified Issues
 
 **MCP Tools**: `reembed_all`, `get_knowledge_health`
 
 **Description**: Clean up orphan tags and re-embed stale notes
 
 **Prerequisites**:
-- Issue lists from UAT-21-044 and UAT-21-045
+- Issue lists from CHAIN-044 and CHAIN-045
 
 **Steps**:
 ```javascript
@@ -2135,7 +2135,7 @@ get_knowledge_health({})
 
 ## Cleanup
 
-### UAT-21-048: Delete All Chain Test Data
+### CHAIN-048: Delete All Chain Test Data
 
 **MCP Tools**: `list_notes`, `delete_note`, `delete_collection`, `list_concept_schemes`
 

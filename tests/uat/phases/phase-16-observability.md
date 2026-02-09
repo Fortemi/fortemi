@@ -24,29 +24,23 @@ This phase tests knowledge health monitoring, timeline/activity views, and obser
 get_knowledge_health()
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "health_score": 85,
+  "health_score": <integer 0-100>,
   "metrics": {
-    "total_notes": 150,
-    "orphan_tags": 3,
-    "stale_notes": 12,
-    "unlinked_notes": 25,
-    "missing_embeddings": 5,
-    "broken_links": 0
+    "total_notes": <integer >= 0>,
+    "orphan_tags": <integer >= 0>,
+    "stale_notes": <integer >= 0>,
+    "unlinked_notes": <integer >= 0>,
+    "missing_embeddings": <integer >= 0>,
+    "broken_links": <integer >= 0>
   },
-  "recommendations": [
-    {
-      "type": "cleanup",
-      "severity": "low",
-      "message": "3 tags have no associated notes"
-    }
-  ]
+  "recommendations": [<array of objects with type, severity, message fields>]
 }
 ```
 
-**Pass Criteria**: Returns health score and metrics
+**Pass Criteria**: Returns object with `health_score` (integer 0-100), `metrics` object containing all six keys as non-negative integers, and `recommendations` array
 
 ---
 
@@ -58,21 +52,15 @@ get_knowledge_health()
 get_orphan_tags()
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "orphan_tags": [
-    {
-      "tag": "old/unused",
-      "created_at": "<timestamp>",
-      "last_used": "<timestamp>"
-    }
-  ],
-  "total": 3
+  "orphan_tags": [<array of objects, each with tag (string), created_at (timestamp), last_used (timestamp)>],
+  "total": <integer >= 0>
 }
 ```
 
-**Pass Criteria**: Returns tags with no associated notes
+**Pass Criteria**: Returns object with `orphan_tags` array (each entry has `tag` string, `created_at` timestamp, `last_used` timestamp) and `total` integer >= 0
 
 ---
 
@@ -87,23 +75,15 @@ get_stale_notes({
 })
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "stale_notes": [
-    {
-      "id": "<uuid>",
-      "title": "Old Note",
-      "last_modified": "<timestamp>",
-      "days_stale": 95,
-      "tags": ["archive"]
-    }
-  ],
-  "total": 12
+  "stale_notes": [<array of objects, each with id (UUID), title (string), last_modified (timestamp), days_stale (integer >= days param), tags (string array)>],
+  "total": <integer >= 0>
 }
 ```
 
-**Pass Criteria**: Returns notes not modified in specified days
+**Pass Criteria**: Returns object with `stale_notes` array (each entry has valid UUID `id`, non-empty `title`, `last_modified` timestamp, `days_stale` integer >= 90, `tags` array) and `total` integer >= 0
 
 ---
 
@@ -117,22 +97,15 @@ get_unlinked_notes({
 })
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "unlinked_notes": [
-    {
-      "id": "<uuid>",
-      "title": "Isolated Note",
-      "created_at": "<timestamp>",
-      "tags": ["standalone"]
-    }
-  ],
-  "total": 25
+  "unlinked_notes": [<array of objects, each with id (UUID), title (string), created_at (timestamp), tags (string array)>],
+  "total": <integer >= 0>
 }
 ```
 
-**Pass Criteria**: Returns notes with no semantic links
+**Pass Criteria**: Returns object with `unlinked_notes` array (each entry has valid UUID `id`, non-empty `title`, `created_at` timestamp, `tags` array) and `total` integer >= 0
 
 ---
 
@@ -147,27 +120,14 @@ get_tag_cooccurrence({
 })
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "cooccurrences": [
-    {
-      "tag_a": "machine-learning",
-      "tag_b": "python",
-      "count": 15,
-      "correlation": 0.72
-    },
-    {
-      "tag_a": "api",
-      "tag_b": "rest",
-      "count": 8,
-      "correlation": 0.65
-    }
-  ]
+  "cooccurrences": [<array of objects, each with tag_a (string), tag_b (string), count (integer >= min_count), correlation (float 0.0-1.0)>]
 }
 ```
 
-**Pass Criteria**: Returns tag pairs that frequently appear together
+**Pass Criteria**: Returns object with `cooccurrences` array where each entry has `tag_a` (non-empty string), `tag_b` (non-empty string, different from tag_a), `count` (integer >= `min_count` parameter), and `correlation` (number between 0.0 and 1.0)
 
 ---
 
@@ -185,33 +145,20 @@ get_notes_timeline({
 })
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "timeline": [
-    {
-      "date": "2026-01-15",
-      "created": 5,
-      "modified": 12,
-      "deleted": 0
-    },
-    {
-      "date": "2026-01-16",
-      "created": 3,
-      "modified": 8,
-      "deleted": 1
-    }
-  ],
+  "timeline": [<array of objects, each with date (ISO 8601 date), created (integer >= 0), modified (integer >= 0), deleted (integer >= 0)>],
   "summary": {
-    "total_created": 150,
-    "total_modified": 320,
-    "total_deleted": 5,
-    "most_active_day": "2026-01-20"
+    "total_created": <integer >= 0>,
+    "total_modified": <integer >= 0>,
+    "total_deleted": <integer >= 0>,
+    "most_active_day": <ISO 8601 date string or null>
   }
 }
 ```
 
-**Pass Criteria**: Returns chronological activity data
+**Pass Criteria**: Returns object with `timeline` array (each entry has `date` as ISO 8601 date string, `created`/`modified`/`deleted` as non-negative integers) and `summary` object with totals and `most_active_day`
 
 ---
 
@@ -241,29 +188,14 @@ get_notes_activity({
 })
 ```
 
-**Expected Response**:
-```json
+**Expected Response Structure**:
+```
 {
-  "recent_activity": [
-    {
-      "note_id": "<uuid>",
-      "title": "Recent Note",
-      "action": "created",
-      "timestamp": "<timestamp>",
-      "user": "api"
-    },
-    {
-      "note_id": "<uuid>",
-      "title": "Updated Note",
-      "action": "modified",
-      "timestamp": "<timestamp>",
-      "user": "api"
-    }
-  ]
+  "recent_activity": [<array of objects, each with note_id (UUID), title (string), action (enum), timestamp (ISO 8601), user (string)>]
 }
 ```
 
-**Pass Criteria**: Returns recent note activity feed
+**Pass Criteria**: Returns object with `recent_activity` array where each entry has valid UUID `note_id`, non-empty `title`, `action` (one of "created", "updated", "deleted", "restored", "tagged", "linked"), `timestamp` (ISO 8601), and `user` (non-empty string)
 
 ---
 
@@ -358,7 +290,7 @@ get_knowledge_health()
 | OBS-011 | Stale Note Workflow | `get_stale_notes` | |
 | OBS-012 | Health After Operations | `get_knowledge_health` | |
 
-**Pass Rate Required**: 90% (11/12)
+**Pass Rate Required**: 100% (12/12)
 
 ---
 

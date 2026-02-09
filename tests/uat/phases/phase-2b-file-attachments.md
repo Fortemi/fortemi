@@ -109,14 +109,14 @@
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- PDF file available (test-document.pdf)
+- PDF file available: `tests/uat/data/documents/pdf-single-page.pdf`
 
 **Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-document.pdf", content_type: "application/pdf" })`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "pdf-single-page.pdf", content_type: "application/pdf" })`
 2. Execute curl with actual file:
    ```bash
    curl -s -X POST \
-     -F "file=@tests/uat/data/documents/test-document.pdf;type=application/pdf" \
+     -F "file=@tests/uat/data/documents/pdf-single-page.pdf;type=application/pdf" \
      -H "Authorization: Bearer <token>" \
      "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
    ```
@@ -140,14 +140,14 @@
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- Audio file available (test-audio.mp3)
+- Audio file available: `tests/uat/data/audio/english-speech-5s.mp3`
 
 **Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-audio.mp3", content_type: "audio/mpeg" })`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "english-speech-5s.mp3", content_type: "audio/mpeg" })`
 2. Execute curl with actual file:
    ```bash
    curl -s -X POST \
-     -F "file=@tests/uat/data/audio/test-audio.mp3;type=audio/mpeg" \
+     -F "file=@tests/uat/data/audio/english-speech-5s.mp3;type=audio/mpeg" \
      -H "Authorization: Bearer <token>" \
      "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
    ```
@@ -168,7 +168,11 @@
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- Video file available (test-video.mp4, preferably small <50MB)
+- Video test data does not exist in the test data package. Generate a minimal video file before running:
+  ```bash
+  mkdir -p tests/uat/data/video
+  dd if=/dev/urandom of=tests/uat/data/video/test-video.mp4 bs=1024 count=64
+  ```
 
 **Steps**:
 1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4" })`
@@ -196,7 +200,11 @@
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- 3D model file available (test-model.glb)
+- 3D model test data does not exist in the test data package. Generate a minimal GLB file before running:
+  ```bash
+  mkdir -p tests/uat/data/models
+  dd if=/dev/urandom of=tests/uat/data/models/test-model.glb bs=1024 count=32
+  ```
 
 **Steps**:
 1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary" })`
