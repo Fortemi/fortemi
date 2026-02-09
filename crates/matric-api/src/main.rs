@@ -9178,8 +9178,6 @@ struct UploadAttachmentBody {
     document_type_id: Option<Uuid>,
 }
 
-
-
 /// List all attachments for a note
 async fn list_attachments(
     State(state): State<AppState>,
@@ -9426,9 +9424,7 @@ async fn download_attachment(
             axum::http::header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
                 .parse::<axum::http::HeaderValue>()
-                .unwrap_or_else(|_| {
-                    axum::http::HeaderValue::from_static("attachment")
-                }),
+                .unwrap_or_else(|_| axum::http::HeaderValue::from_static("attachment")),
         ),
     ];
 
