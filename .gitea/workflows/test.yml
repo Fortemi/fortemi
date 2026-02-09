@@ -79,7 +79,10 @@ jobs:
       - name: Cache cargo build
         uses: https://github.com/actions/cache@v3
         with:
-          path: target
+          path: |
+            target/debug/build
+            target/debug/deps
+            target/debug/.fingerprint
           key: ${{ env.CACHE_VERSION }}-cargo-build-fast-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ env.CACHE_VERSION }}-cargo-build-fast-
@@ -133,6 +136,12 @@ jobs:
           cargo test --lib --workspace
           cargo test --doc --workspace
 
+      - name: Clean profraw files before cache save
+        if: always()
+        run: |
+          find target -name '*.profraw' -delete 2>/dev/null || true
+          rm -rf target/coverage 2>/dev/null || true
+
       - name: Teardown PostgreSQL
         if: always()
         run: |
@@ -159,7 +168,10 @@ jobs:
       - name: Cache cargo build
         uses: https://github.com/actions/cache@v3
         with:
-          path: target
+          path: |
+            target/debug/build
+            target/debug/deps
+            target/debug/.fingerprint
           key: ${{ env.CACHE_VERSION }}-cargo-build-integration-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ env.CACHE_VERSION }}-cargo-build-integration-
@@ -227,6 +239,12 @@ jobs:
           # (matric-jobs tests already run above with serial execution)
           cargo test --workspace --tests --exclude matric-jobs
         timeout-minutes: 30
+
+      - name: Clean profraw files before cache save
+        if: always()
+        run: |
+          find target -name '*.profraw' -delete 2>/dev/null || true
+          rm -rf target/coverage 2>/dev/null || true
 
       - name: Teardown PostgreSQL
         if: always()
