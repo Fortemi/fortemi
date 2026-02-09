@@ -2141,8 +2141,10 @@ fn parse_relative_time(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 
 #[derive(Debug, Deserialize)]
 struct TimelineQuery {
-    /// Time period to group by: "day", "week", "month" (default: "day")
+    /// Time period to group by: "hour", "day", "week", "month" (default: "day")
     period: Option<String>,
+    /// Alias for period (MCP tools send "granularity")
+    granularity: Option<String>,
     /// How many periods to look back (default: 30)
     periods: Option<i64>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month)
@@ -2163,7 +2165,11 @@ async fn get_notes_timeline(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let period = query.period.as_deref().unwrap_or("day");
+    let period = query
+        .granularity
+        .as_deref()
+        .or(query.period.as_deref())
+        .unwrap_or("day");
     let periods_back = query
         .periods
         .unwrap_or(matric_core::defaults::TREND_PERIODS);
@@ -2175,6 +2181,7 @@ async fn get_notes_timeline(
         .and_then(|s| parse_relative_time(s))
         .unwrap_or_else(|| {
             let duration = match period {
+                "hour" => chrono::Duration::hours(periods_back),
                 "week" => chrono::Duration::weeks(periods_back),
                 "month" => chrono::Duration::days(periods_back * 30),
                 _ => chrono::Duration::days(periods_back), // default: day
@@ -2208,6 +2215,10 @@ async fn get_notes_timeline(
 
     for note in &response.notes {
         let bucket_key = match period {
+            "hour" => {
+                // Hour: timestamp / seconds_per_hour
+                note.created_at_utc.timestamp() / 3600
+            }
             "week" => {
                 // Get start of week (Monday)
                 let days_since_monday = note.created_at_utc.weekday().num_days_from_monday() as i64;
@@ -2233,6 +2244,12 @@ async fn get_notes_timeline(
         .into_iter()
         .map(|(key, note_ids)| {
             let (period_start, period_end) = match period {
+                "hour" => {
+                    let start = chrono::DateTime::from_timestamp(key * 3600, 0)
+                        .unwrap_or_else(chrono::Utc::now);
+                    let end = start + chrono::Duration::hours(1);
+                    (start, end)
+                }
                 "week" => {
                     let start = chrono::DateTime::from_timestamp(key * 7 * 86400, 0)
                         .unwrap_or_else(chrono::Utc::now);
@@ -5867,18 +5884,27 @@ async fn federated_search(
 
     // Resolve which schemas to search
     let schemas: Vec<(String, String)> = if body.memories.len() == 1 && body.memories[0] == "all" {
-        // Search all memories plus public
-        let mut schemas = vec![("public".to_string(), "public".to_string())];
+        // Search all memories plus public — deduplicate by schema_name
+        let mut seen = std::collections::HashSet::new();
+        let mut schemas = Vec::new();
+        // Always include public first
+        seen.insert("public".to_string());
+        schemas.push(("public".to_string(), "public".to_string()));
         let archives = state.db.archives.list_archive_schemas().await?;
         for a in archives {
-            schemas.push((a.name, a.schema_name));
+            if seen.insert(a.schema_name.clone()) {
+                schemas.push((a.name, a.schema_name));
+            }
         }
         schemas
     } else {
+        let mut seen = std::collections::HashSet::new();
         let mut schemas = Vec::new();
         for name in &body.memories {
             if name == "public" {
-                schemas.push(("public".to_string(), "public".to_string()));
+                if seen.insert("public".to_string()) {
+                    schemas.push(("public".to_string(), "public".to_string()));
+                }
             } else {
                 let archive = state
                     .db
@@ -5886,7 +5912,9 @@ async fn federated_search(
                     .get_archive_by_name(name)
                     .await?
                     .ok_or_else(|| ApiError::NotFound(format!("Memory not found: {}", name)))?;
-                schemas.push((archive.name, archive.schema_name));
+                if seen.insert(archive.schema_name.clone()) {
+                    schemas.push((archive.name, archive.schema_name));
+                }
             }
         }
         schemas
@@ -5966,6 +5994,8 @@ async fn federated_search(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Truncate to requested limit (limit was per-memory, apply globally too)
+    all_results.truncate(limit as usize);
     let total = all_results.len();
 
     Ok(Json(FederatedSearchResponse {

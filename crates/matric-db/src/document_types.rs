@@ -398,6 +398,13 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
             WHERE is_active = TRUE AND $1 = ANY(file_extensions)
+            ORDER BY
+                -- Prefer generic types (no filename_patterns) over specific types
+                (CASE WHEN filename_patterns IS NULL OR array_length(filename_patterns, 1) IS NULL THEN 0 ELSE 1 END),
+                -- Among generic types, prefer fewer extensions (more specific to this extension)
+                array_length(file_extensions, 1),
+                name
+            LIMIT 1
             "#,
         )
         .bind(extension)
@@ -508,6 +515,12 @@ impl PgDocumentTypeRepository {
                    created_at, updated_at, created_by, agentic_config
             FROM document_type
             WHERE is_active = TRUE AND $1 = ANY(mime_types)
+            ORDER BY
+                -- Prefer generic types (no filename_patterns) over specific types
+                (CASE WHEN filename_patterns IS NULL OR array_length(filename_patterns, 1) IS NULL THEN 0 ELSE 1 END),
+                -- Among generic types, prefer fewer MIME types (more specific to this MIME)
+                array_length(mime_types, 1),
+                name
             LIMIT 1
             "#,
         )

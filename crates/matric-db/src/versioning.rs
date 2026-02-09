@@ -301,20 +301,23 @@ impl VersioningRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Mark the history entry as a restore
+        // Mark the most recent history entry as a restore
         sqlx::query(
             r#"
             UPDATE note_original_history
             SET created_by = 'restore'
-            WHERE note_id = $1
-            ORDER BY version_number DESC
-            LIMIT 1
+            WHERE id = (
+                SELECT id FROM note_original_history
+                WHERE note_id = $1
+                ORDER BY version_number DESC
+                LIMIT 1
+            )
             "#,
         )
         .bind(note_id)
         .execute(&self.pool)
         .await
-        .ok(); // Ignore errors for this update
+        .map_err(Error::Database)?;
 
         // Get the new version number
         let new_version: (i32,) =
@@ -705,20 +708,23 @@ impl VersioningRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Mark the history entry as a restore
+        // Mark the most recent history entry as a restore
         sqlx::query(
             r#"
             UPDATE note_original_history
             SET created_by = 'restore'
-            WHERE note_id = $1
-            ORDER BY version_number DESC
-            LIMIT 1
+            WHERE id = (
+                SELECT id FROM note_original_history
+                WHERE note_id = $1
+                ORDER BY version_number DESC
+                LIMIT 1
+            )
             "#,
         )
         .bind(note_id)
         .execute(&mut **tx)
         .await
-        .ok(); // Ignore errors for this update
+        .map_err(Error::Database)?;
 
         // Get the new version number
         let new_version: (i32,) =
