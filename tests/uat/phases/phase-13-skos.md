@@ -4,7 +4,7 @@
 **Tools Tested**: `list_concept_schemes`, `create_concept_scheme`, `get_concept_scheme`, `delete_concept_scheme`, `create_concept`, `get_concept`, `get_concept_full`, `update_concept`, `delete_concept`, `search_concepts`, `autocomplete_concepts`, `get_broader`, `add_broader`, `get_narrower`, `add_narrower`, `get_related`, `add_related`, `remove_broader`, `remove_narrower`, `remove_related`, `tag_note_concept`, `get_note_concepts`, `untag_note_concept`, `get_top_concepts`, `get_governance_stats`, `list_skos_collections`, `create_skos_collection`, `get_skos_collection`, `update_skos_collection`, `delete_skos_collection`, `add_skos_collection_member`, `remove_skos_collection_member`, `export_skos_turtle`
 **Dependencies**: Phase 0 (preflight), Phase 1 (seed data)
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

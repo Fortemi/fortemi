@@ -6,7 +6,7 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `search_notes`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 > **Test Data**: For extended multilingual search testing, use content from `tests/uat/data/multilingual/`
 > (13 languages). For emoji search, use `tests/uat/data/multilingual/emoji-heavy.txt`.

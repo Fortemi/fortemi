@@ -6,7 +6,7 @@
 **Prerequisites**: All phases 0-19 completed
 **Tools Tested**: `backup_status`, `backup_now`, `export_all_notes`, `export_note`, `knowledge_shard`, `knowledge_shard_import`, `list_backups`, `get_backup_info`, `get_backup_metadata`, `update_backup_metadata`, `database_snapshot`, `backup_download`, `knowledge_archive_download`, `knowledge_archive_upload`, `database_restore`, `backup_import`, `memory_info`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

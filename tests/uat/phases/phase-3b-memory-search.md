@@ -6,7 +6,7 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_note`, `upload_attachment`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 > **Test Data**: GPS-tagged images for provenance testing in `tests/uat/data/provenance/`:
 > `paris-eiffel-tower.jpg` (48.8584N, 2.2945E), `newyork-statue-liberty.jpg` (40.6892N, 74.0445W),

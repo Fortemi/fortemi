@@ -5,7 +5,7 @@
 **Prerequisites**: Phase 1 seed data exists
 **Tools Tested**: `list_embedding_sets`, `get_embedding_set`, `create_embedding_set`, `add_set_members`, `list_set_members`, `remove_set_member`, `search_notes`, `refresh_embedding_set`, `update_embedding_set`, `delete_embedding_set`, `reembed_all`, `list_embedding_configs`, `get_default_embedding_config`, `get_embedding_config`, `create_embedding_config`, `update_embedding_config`, `delete_embedding_config`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

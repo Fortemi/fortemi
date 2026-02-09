@@ -4,7 +4,7 @@
 **Tools Tested**: `list_note_versions`, `get_note_version`, `diff_note_versions`, `restore_note_version`, `delete_note_version`
 **Dependencies**: Phase 2 (CRUD - need notes with history)
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

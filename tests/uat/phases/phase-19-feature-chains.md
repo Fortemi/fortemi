@@ -6,7 +6,7 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `explore_graph`, `export_skos_turtle`, `knowledge_shard`, `pke_encrypt`, `pke_decrypt`, `share_note_encrypted`, `read_shared_note`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `create_embedding_set`, `refresh_embedding_set`, `create_keyset`, `delete_collection`, `list_concept_schemes`, `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

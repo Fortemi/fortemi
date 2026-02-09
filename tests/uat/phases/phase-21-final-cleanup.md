@@ -7,7 +7,7 @@
 **Critical**: Yes - ensures clean state for next test run
 **Tools Tested**: `list_notes`, `delete_note`, `purge_notes`, `purge_note`, `list_collections`, `delete_collection`, `list_embedding_sets`, `delete_embedding_set`, `list_concept_schemes`, `delete_concept`, `delete_concept_scheme`, `search_concepts`, `list_templates`, `delete_template`, `list_archives`, `delete_archive`, `memory_info`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

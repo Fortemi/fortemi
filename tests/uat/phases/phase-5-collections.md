@@ -5,7 +5,7 @@
 **Prerequisites**: Phase 1 seed data exists
 **Tools Tested**: `create_collection`, `list_collections`, `get_collection`, `move_note_to_collection`, `get_collection_notes`, `get_note`, `delete_collection`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

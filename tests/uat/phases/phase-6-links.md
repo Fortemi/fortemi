@@ -5,7 +5,7 @@
 **Prerequisites**: Phase 1 seed data with embeddings generated
 **Tools Tested**: `get_note_links`, `explore_graph`, `get_full_document`, `get_chunk_chain`, `search_with_dedup`, `get_note_backlinks`, `get_note_provenance`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 

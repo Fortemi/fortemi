@@ -8,6 +8,39 @@ This guide provides step-by-step instructions for executing the comprehensive UA
 **Estimated Time**: 45-60 minutes
 **Required**: MCP connection to matric-memory server
 
+---
+
+## MCP-First Testing Policy
+
+> **MANDATORY**: All UAT tests MUST be executed via MCP tool calls. This is non-negotiable.
+
+This UAT suite tests Matric Memory **as an agent uses it** — through MCP tool invocations, not direct HTTP API calls. The purpose of UAT is to validate the MCP interface that agents rely on in production.
+
+### Rules
+
+1. **Every test that can be expressed as an MCP tool call MUST use MCP tools.** Each phase document specifies the exact MCP tool name and parameters.
+2. **If an MCP tool fails or doesn't exist for an operation, FILE A BUG ISSUE.** Do NOT fall back to curl or direct API calls. The failure IS the finding — document it and move on.
+3. **Never use curl, fetch, or direct HTTP calls** for operations available as MCP tools. Doing so defeats the purpose of this UAT.
+
+### Approved Exceptions (only two)
+
+| Exception | Reason | Phases |
+|-----------|--------|--------|
+| **File upload/download** | Binary data must not pass through MCP protocol or LLM context window. The `upload_attachment` and `download_attachment` MCP tools return curl commands that the agent executes. | 2b, 2c |
+| **OAuth infrastructure tests** | OAuth client registration, token issuance, and introspection are infrastructure-level operations that agents never perform directly. | 17 (Part B only) |
+
+### When MCP Fails
+
+If an MCP tool call returns an unexpected error or the tool doesn't exist:
+
+1. **Record the failure** with full error details (tool name, parameters, error response)
+2. **File a Gitea issue** tagged `bug` and `mcp` with reproduction steps
+3. **Mark the test as FAILED** in the phase summary
+4. **Continue to the next test** — do not attempt to work around it with API calls
+5. **Note in the final report** which tests need MCP fixes
+
+---
+
 ## Phase-Based Execution
 
 UAT is split into individual phase documents for agentic consumption.

@@ -6,7 +6,7 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `create_note`, `upload_attachment`, `get_attachment`, `list_attachments`, `get_document_type`, `detect_document_type`, `list_jobs`, `get_job`, `search_notes`
 
-> **MCP-First Requirement**: Every test in this phase MUST initiate via MCP tool calls. For uploads, the `upload_attachment` MCP tool returns a curl command that must then be executed to transfer the file. For metadata operations (`get_attachment`, `list_attachments`, `detect_document_type`, etc.), use MCP tools directly.
+> **MCP-First Requirement**: Every test in this phase MUST initiate via MCP tool calls. For uploads, the `upload_attachment` MCP tool returns a curl command that must then be executed to transfer the file — this is the only approved use of curl. For metadata operations (`get_attachment`, `list_attachments`, `detect_document_type`, etc.), use MCP tools directly. If an MCP tool fails, **file a bug issue** — do not fall back to the API.
 
 > **Two-Step Upload Pattern**: The `upload_attachment` MCP tool returns `{ upload_url, curl_command, max_size: "50MB" }`. The agent must then execute the returned curl command with the actual file. Binary data NEVER passes through MCP — multipart form upload supports up to 50MB. Replace localhost:3000 in returned curl commands with https://memory.integrolabs.net.
 

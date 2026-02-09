@@ -2,7 +2,7 @@
 
 This directory contains phase-based UAT test procedures for Matric Memory, designed for efficient agentic execution via MCP tools.
 
-> **MCP-First Testing Principle**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. Direct API calls (curl/fetch) are only acceptable for infrastructure-level operations that agents never perform directly (e.g., OAuth client registration, token issuance). Falling back to HTTP API for operations available as MCP tools is unacceptable.
+> **MCP-First Testing Policy (MANDATORY)**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. **If an MCP tool fails or is missing, FILE A BUG ISSUE — do NOT fall back to curl or direct API calls.** The failure IS the finding. Direct API calls are only acceptable for: (1) file upload/download where binary data must not pass through MCP, and (2) OAuth infrastructure tests in Phase 17 Part B. All other operations MUST use MCP tools, no exceptions.
 
 ---
 
@@ -208,12 +208,14 @@ Each phase document is self-contained with:
 ### Agent Execution Rules
 
 Agents MUST:
-1. **Use MCP tools for all tests** - never fall back to direct HTTP API calls for operations available as MCP tools
-2. Execute tests sequentially within each phase
-3. Record results in the phase summary table
-4. Proceed to next phase only if prerequisites met
-5. **Execute ALL 23 phases (0-21, including sub-phases)** - do not stop early
-6. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
+1. **Use MCP tools for ALL tests** — never fall back to curl or direct HTTP API calls for operations available as MCP tools
+2. **If an MCP tool fails, file a bug issue** — do NOT work around it by calling the API directly. The MCP failure is a UAT finding, not a reason to bypass MCP.
+3. **Only use curl for file upload/download** (binary data) and OAuth infrastructure (Phase 17 Part B) — these are the ONLY approved exceptions
+4. Execute tests sequentially within each phase
+5. Record results in the phase summary table
+6. Proceed to next phase only if prerequisites met
+7. **Execute ALL 23 phases (0-21, including sub-phases)** - do not stop early
+8. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
 
 ### Negative Test Isolation Protocol
 

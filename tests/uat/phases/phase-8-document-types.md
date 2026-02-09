@@ -5,7 +5,7 @@
 **Prerequisites**: None (uses system data)
 **Tools Tested**: `list_document_types`, `get_document_type`, `detect_document_type`, `create_document_type`, `update_document_type`, `delete_document_type`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
 ---
 
