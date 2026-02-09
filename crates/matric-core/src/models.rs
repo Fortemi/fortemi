@@ -1060,9 +1060,12 @@ impl std::str::FromStr for ExtractionStrategy {
             "vision" => Ok(Self::Vision),
             "audio_transcribe" | "audiotranscribe" => Ok(Self::AudioTranscribe),
             "video_multimodal" | "videomultimodal" => Ok(Self::VideoMultimodal),
-            "code_ast" | "codeast" => Ok(Self::CodeAst),
-            "office_convert" | "officeconvert" => Ok(Self::OfficeConvert),
-            "structured_extract" | "structuredextract" => Ok(Self::StructuredExtract),
+            "code_ast" | "codeast" | "code_analysis" => Ok(Self::CodeAst),
+            "office_convert" | "officeconvert" | "pandoc" => Ok(Self::OfficeConvert),
+            "structured_extract" | "structuredextract" | "structured_data" => {
+                Ok(Self::StructuredExtract)
+            }
+            "none" => Ok(Self::TextNative),
             _ => Err(format!("Invalid extraction strategy: {}", s)),
         }
     }

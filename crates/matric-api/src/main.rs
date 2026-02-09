@@ -9238,23 +9238,17 @@ async fn upload_attachment(
         .extension()
         .and_then(|e| e.to_str());
     let strategy = ExtractionStrategy::from_mime_and_extension(&body.content_type, ext);
-    if file_storage
+    file_storage
         .set_extraction_strategy_tx(&mut tx, attachment.id, strategy)
-        .await
-        .is_ok()
-    {
-        attachment.extraction_strategy = Some(strategy);
-    }
+        .await?;
+    attachment.extraction_strategy = Some(strategy);
 
     // Allow user to explicitly set document_type_id at upload (optional override)
     if let Some(doc_type_id) = body.document_type_id {
-        if file_storage
+        file_storage
             .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
-            .await
-            .is_ok()
-        {
-            attachment.document_type_id = Some(doc_type_id);
-        }
+            .await?;
+        attachment.document_type_id = Some(doc_type_id);
     }
     // Document type classification happens asynchronously after extraction (Phase 2)
 
@@ -9340,27 +9334,21 @@ async fn upload_attachment_multipart(
         .store_file_tx(&mut tx, id, &filename, &content_type, &data)
         .await?;
 
-    // Set extraction strategy
+    // Set extraction strategy (propagate errors — swallowing SQL errors aborts the PG transaction)
     let ext = std::path::Path::new(&filename)
         .extension()
         .and_then(|e| e.to_str());
     let strategy = ExtractionStrategy::from_mime_and_extension(&content_type, ext);
-    if file_storage
+    file_storage
         .set_extraction_strategy_tx(&mut tx, attachment.id, strategy)
-        .await
-        .is_ok()
-    {
-        attachment.extraction_strategy = Some(strategy);
-    }
+        .await?;
+    attachment.extraction_strategy = Some(strategy);
 
     if let Some(doc_type_id) = document_type_id {
-        if file_storage
+        file_storage
             .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
-            .await
-            .is_ok()
-        {
-            attachment.document_type_id = Some(doc_type_id);
-        }
+            .await?;
+        attachment.document_type_id = Some(doc_type_id);
     }
 
     tx.commit()

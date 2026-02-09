@@ -462,7 +462,9 @@ impl PgDocumentTypeRepository {
         let mut best_score: usize = 0;
 
         for (idx, row) in rows.iter().enumerate() {
-            let patterns: Vec<String> = row.get("magic_patterns");
+            let patterns: Vec<String> = row
+                .get::<Option<Vec<String>>, _>("magic_patterns")
+                .unwrap_or_default();
             let score = patterns
                 .iter()
                 .filter(|p| text.contains(p.as_str()))
@@ -552,17 +554,27 @@ impl PgDocumentTypeRepository {
             display_name: row.get("display_name"),
             category: Self::parse_category(row.get("category")),
             description: row.get("description"),
-            file_extensions: row.get("file_extensions"),
-            mime_types: row.get("mime_types"),
-            magic_patterns: row.get("magic_patterns"),
-            filename_patterns: row.get("filename_patterns"),
+            file_extensions: row
+                .get::<Option<Vec<String>>, _>("file_extensions")
+                .unwrap_or_default(),
+            mime_types: row
+                .get::<Option<Vec<String>>, _>("mime_types")
+                .unwrap_or_default(),
+            magic_patterns: row
+                .get::<Option<Vec<String>>, _>("magic_patterns")
+                .unwrap_or_default(),
+            filename_patterns: row
+                .get::<Option<Vec<String>>, _>("filename_patterns")
+                .unwrap_or_default(),
             chunking_strategy: Self::parse_chunking_strategy(row.get("chunking_strategy")),
             chunk_size_default: row.get("chunk_size_default"),
             chunk_overlap_default: row.get("chunk_overlap_default"),
             preserve_boundaries: row.get("preserve_boundaries"),
             chunking_config: row.get("chunking_config"),
             recommended_config_id: row.get("recommended_config_id"),
-            content_types: row.get("content_types"),
+            content_types: row
+                .get::<Option<Vec<String>>, _>("content_types")
+                .unwrap_or_default(),
             tree_sitter_language: row.get("tree_sitter_language"),
             extraction_strategy: Self::parse_extraction_strategy(
                 row.get::<Option<&str>, _>("extraction_strategy"),
