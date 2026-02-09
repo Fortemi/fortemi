@@ -303,15 +303,6 @@ jobs:
           cargo llvm-cov report --summary-only > target/coverage/summary.txt || true
           cat target/coverage/summary.txt || echo "Coverage summary not available"
 
-      - name: Upload coverage artifact
-        uses: https://github.com/actions/upload-artifact@v3
-        with:
-          name: coverage-report
-          path: |
-            target/coverage/lcov.info
-            target/coverage/summary.txt
-          retention-days: 30
-
       - name: Coverage summary in PR comment
         if: github.event_name == 'pull_request'
         run: |
