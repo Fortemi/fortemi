@@ -4307,11 +4307,13 @@ pub struct StructuredMediaMetadata {
 /// Result from spatial memory search (find_memories_near).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryLocationResult {
-    pub provenance_id: Uuid,
-    pub attachment_id: Uuid,
+    /// Provenance ID (None for note-metadata matches without file provenance).
+    pub provenance_id: Option<Uuid>,
+    /// Attachment ID (None for note-metadata matches without file provenance).
+    pub attachment_id: Option<Uuid>,
     pub note_id: Uuid,
-    pub filename: String,
-    pub content_type: String,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
     pub distance_m: f64,
     pub capture_time_start: Option<DateTime<Utc>>,
     pub capture_time_end: Option<DateTime<Utc>>,
@@ -4322,8 +4324,10 @@ pub struct MemoryLocationResult {
 /// Result from temporal memory search (find_memories_in_timerange).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryTimeResult {
-    pub provenance_id: Uuid,
-    pub attachment_id: Uuid,
+    /// Provenance ID (None for note-metadata matches without file provenance).
+    pub provenance_id: Option<Uuid>,
+    /// Attachment ID (None for note-metadata matches without file provenance).
+    pub attachment_id: Option<Uuid>,
     pub note_id: Uuid,
     pub capture_time_start: Option<DateTime<Utc>>,
     pub capture_time_end: Option<DateTime<Utc>>,

@@ -50,30 +50,69 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryLocationResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                a.filename,
-                ab.content_type,
-                ST_Distance(
+            SELECT provenance_id, attachment_id, note_id, filename, content_type,
+                   distance_m, capture_time_start, capture_time_end, location_name, event_type
+            FROM (
+                -- File provenance matches
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    a.filename,
+                    ab.content_type,
+                    ST_Distance(
+                        pl.point,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    nl.name as location_name,
+                    fp.event_type
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                JOIN attachment_blob ab ON a.blob_id = ab.id
+                JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE ST_DWithin(
                     pl.point,
-                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
-                ) as distance_m,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                nl.name as location_name,
-                fp.event_type
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            JOIN attachment_blob ab ON a.blob_id = ab.id
-            JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE ST_DWithin(
-                pl.point,
-                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-                $3
-            )
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                    $3
+                )
+
+                UNION ALL
+
+                -- Note metadata matches (latitude/longitude in JSONB)
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    n.title as filename,
+                    NULL::text as content_type,
+                    ST_Distance(
+                        ST_SetSRID(ST_MakePoint(
+                            (n.metadata->>'longitude')::float8,
+                            (n.metadata->>'latitude')::float8
+                        ), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    n.metadata->>'location_name' as location_name,
+                    NULL::text as event_type
+                FROM note n
+                LEFT JOIN note_original no ON n.id = no.note_id
+                WHERE n.metadata->>'latitude' IS NOT NULL
+                  AND n.metadata->>'longitude' IS NOT NULL
+                  AND n.deleted_at IS NULL
+                  AND ST_DWithin(
+                      ST_SetSRID(ST_MakePoint(
+                          (n.metadata->>'longitude')::float8,
+                          (n.metadata->>'latitude')::float8
+                      ), 4326)::geography,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                      $3
+                  )
+            ) combined
             ORDER BY distance_m
             LIMIT 100
             "#,
@@ -118,20 +157,42 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryTimeResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                fp.event_type,
-                nl.name as location_name
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            LEFT JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE fp.capture_time && tstzrange($1, $2)
-            ORDER BY lower(fp.capture_time)
+            SELECT provenance_id, attachment_id, note_id,
+                   capture_time_start, capture_time_end, event_type, location_name
+            FROM (
+                -- File provenance matches
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    fp.event_type,
+                    nl.name as location_name
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                LEFT JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE fp.capture_time && tstzrange($1, $2)
+
+                UNION ALL
+
+                -- Note metadata matches (user_created_at in time range)
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    NULL::text as event_type,
+                    n.metadata->>'location_name' as location_name
+                FROM note n
+                JOIN note_original no ON n.id = no.note_id
+                WHERE n.deleted_at IS NULL
+                  AND no.user_created_at >= $1
+                  AND no.user_created_at <= $2
+            ) combined
+            ORDER BY capture_time_start
             LIMIT 100
             "#,
         )
@@ -177,31 +238,72 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryLocationResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                a.filename,
-                ab.content_type,
-                ST_Distance(
+            SELECT provenance_id, attachment_id, note_id, filename, content_type,
+                   distance_m, capture_time_start, capture_time_end, location_name, event_type
+            FROM (
+                -- File provenance matches
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    a.filename,
+                    ab.content_type,
+                    ST_Distance(
+                        pl.point,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    nl.name as location_name,
+                    fp.event_type
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                JOIN attachment_blob ab ON a.blob_id = ab.id
+                JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE ST_DWithin(
                     pl.point,
-                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
-                ) as distance_m,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                nl.name as location_name,
-                fp.event_type
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            JOIN attachment_blob ab ON a.blob_id = ab.id
-            JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE ST_DWithin(
-                pl.point,
-                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-                $3
-            )
-            AND fp.capture_time && tstzrange($4, $5)
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                    $3
+                )
+                AND fp.capture_time && tstzrange($4, $5)
+
+                UNION ALL
+
+                -- Note metadata matches (lat/lng + time)
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    n.title as filename,
+                    NULL::text as content_type,
+                    ST_Distance(
+                        ST_SetSRID(ST_MakePoint(
+                            (n.metadata->>'longitude')::float8,
+                            (n.metadata->>'latitude')::float8
+                        ), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    n.metadata->>'location_name' as location_name,
+                    NULL::text as event_type
+                FROM note n
+                LEFT JOIN note_original no ON n.id = no.note_id
+                WHERE n.metadata->>'latitude' IS NOT NULL
+                  AND n.metadata->>'longitude' IS NOT NULL
+                  AND n.deleted_at IS NULL
+                  AND ST_DWithin(
+                      ST_SetSRID(ST_MakePoint(
+                          (n.metadata->>'longitude')::float8,
+                          (n.metadata->>'latitude')::float8
+                      ), 4326)::geography,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                      $3
+                  )
+                  AND no.user_created_at >= $4
+                  AND no.user_created_at <= $5
+            ) combined
             ORDER BY distance_m
             LIMIT 100
             "#,
@@ -431,30 +533,67 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryLocationResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                a.filename,
-                ab.content_type,
-                ST_Distance(
+            SELECT provenance_id, attachment_id, note_id, filename, content_type,
+                   distance_m, capture_time_start, capture_time_end, location_name, event_type
+            FROM (
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    a.filename,
+                    ab.content_type,
+                    ST_Distance(
+                        pl.point,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    nl.name as location_name,
+                    fp.event_type
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                JOIN attachment_blob ab ON a.blob_id = ab.id
+                JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE ST_DWithin(
                     pl.point,
-                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
-                ) as distance_m,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                nl.name as location_name,
-                fp.event_type
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            JOIN attachment_blob ab ON a.blob_id = ab.id
-            JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE ST_DWithin(
-                pl.point,
-                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-                $3
-            )
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                    $3
+                )
+
+                UNION ALL
+
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    n.title as filename,
+                    NULL::text as content_type,
+                    ST_Distance(
+                        ST_SetSRID(ST_MakePoint(
+                            (n.metadata->>'longitude')::float8,
+                            (n.metadata->>'latitude')::float8
+                        ), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    n.metadata->>'location_name' as location_name,
+                    NULL::text as event_type
+                FROM note n
+                LEFT JOIN note_original no ON n.id = no.note_id
+                WHERE n.metadata->>'latitude' IS NOT NULL
+                  AND n.metadata->>'longitude' IS NOT NULL
+                  AND n.deleted_at IS NULL
+                  AND ST_DWithin(
+                      ST_SetSRID(ST_MakePoint(
+                          (n.metadata->>'longitude')::float8,
+                          (n.metadata->>'latitude')::float8
+                      ), 4326)::geography,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                      $3
+                  )
+            ) combined
             ORDER BY distance_m
             LIMIT 100
             "#,
@@ -492,20 +631,40 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryTimeResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                fp.event_type,
-                nl.name as location_name
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            LEFT JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE fp.capture_time && tstzrange($1, $2)
-            ORDER BY lower(fp.capture_time)
+            SELECT provenance_id, attachment_id, note_id,
+                   capture_time_start, capture_time_end, event_type, location_name
+            FROM (
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    fp.event_type,
+                    nl.name as location_name
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                LEFT JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE fp.capture_time && tstzrange($1, $2)
+
+                UNION ALL
+
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    NULL::text as event_type,
+                    n.metadata->>'location_name' as location_name
+                FROM note n
+                JOIN note_original no ON n.id = no.note_id
+                WHERE n.deleted_at IS NULL
+                  AND no.user_created_at >= $1
+                  AND no.user_created_at <= $2
+            ) combined
+            ORDER BY capture_time_start
             LIMIT 100
             "#,
         )
@@ -541,31 +700,70 @@ impl PgMemorySearchRepository {
     ) -> Result<Vec<MemoryLocationResult>> {
         let rows = sqlx::query(
             r#"
-            SELECT
-                fp.id as provenance_id,
-                fp.attachment_id,
-                a.note_id,
-                a.filename,
-                ab.content_type,
-                ST_Distance(
+            SELECT provenance_id, attachment_id, note_id, filename, content_type,
+                   distance_m, capture_time_start, capture_time_end, location_name, event_type
+            FROM (
+                SELECT
+                    fp.id as provenance_id,
+                    fp.attachment_id,
+                    a.note_id,
+                    a.filename,
+                    ab.content_type,
+                    ST_Distance(
+                        pl.point,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    lower(fp.capture_time) as capture_time_start,
+                    upper(fp.capture_time) as capture_time_end,
+                    nl.name as location_name,
+                    fp.event_type
+                FROM file_provenance fp
+                JOIN attachment a ON fp.attachment_id = a.id
+                JOIN attachment_blob ab ON a.blob_id = ab.id
+                JOIN prov_location pl ON fp.location_id = pl.id
+                LEFT JOIN named_location nl ON pl.named_location_id = nl.id
+                WHERE ST_DWithin(
                     pl.point,
-                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
-                ) as distance_m,
-                lower(fp.capture_time) as capture_time_start,
-                upper(fp.capture_time) as capture_time_end,
-                nl.name as location_name,
-                fp.event_type
-            FROM file_provenance fp
-            JOIN attachment a ON fp.attachment_id = a.id
-            JOIN attachment_blob ab ON a.blob_id = ab.id
-            JOIN prov_location pl ON fp.location_id = pl.id
-            LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-            WHERE ST_DWithin(
-                pl.point,
-                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-                $3
-            )
-            AND fp.capture_time && tstzrange($4, $5)
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                    $3
+                )
+                AND fp.capture_time && tstzrange($4, $5)
+
+                UNION ALL
+
+                SELECT
+                    NULL::uuid as provenance_id,
+                    NULL::uuid as attachment_id,
+                    n.id as note_id,
+                    n.title as filename,
+                    NULL::text as content_type,
+                    ST_Distance(
+                        ST_SetSRID(ST_MakePoint(
+                            (n.metadata->>'longitude')::float8,
+                            (n.metadata->>'latitude')::float8
+                        ), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                    ) as distance_m,
+                    no.user_created_at as capture_time_start,
+                    no.user_created_at as capture_time_end,
+                    n.metadata->>'location_name' as location_name,
+                    NULL::text as event_type
+                FROM note n
+                LEFT JOIN note_original no ON n.id = no.note_id
+                WHERE n.metadata->>'latitude' IS NOT NULL
+                  AND n.metadata->>'longitude' IS NOT NULL
+                  AND n.deleted_at IS NULL
+                  AND ST_DWithin(
+                      ST_SetSRID(ST_MakePoint(
+                          (n.metadata->>'longitude')::float8,
+                          (n.metadata->>'latitude')::float8
+                      ), 4326)::geography,
+                      ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                      $3
+                  )
+                  AND no.user_created_at >= $4
+                  AND no.user_created_at <= $5
+            ) combined
             ORDER BY distance_m
             LIMIT 100
             "#,

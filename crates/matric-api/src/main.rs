@@ -9092,13 +9092,13 @@ async fn knowledge_shard_import(
     // regenerated from the notes.
 
     if should_import("embedding_sets") && files.contains_key("embedding_sets.json") {
-        errors.push(
+        warnings.push(
             "Embedding set import not yet implemented - sets will be regenerated".to_string(),
         );
     }
 
     if should_import("embeddings") && files.contains_key("embeddings.jsonl") {
-        errors.push(
+        warnings.push(
             "Direct embedding import not yet implemented - embeddings will be regenerated"
                 .to_string(),
         );
