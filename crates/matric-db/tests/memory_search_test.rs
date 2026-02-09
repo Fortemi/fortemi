@@ -221,7 +221,9 @@ async fn test_search_by_location() {
         .expect("Failed to search by location");
 
     assert!(
-        !results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        !results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Attachment_id {} should NOT be found in NYC (it's at Eiffel Tower)",
         attachment_id
     );
@@ -267,7 +269,9 @@ async fn test_search_by_timerange() {
 
     // Verify our attachment is in the results (database may have data from other runs)
     assert!(
-        results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Expected attachment_id {} not found in results",
         attachment_id
     );
@@ -282,7 +286,9 @@ async fn test_search_by_timerange() {
         .expect("Failed to search by timerange");
 
     assert!(
-        !results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        !results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Attachment_id {} should NOT be found in this time range",
         attachment_id
     );
@@ -332,7 +338,9 @@ async fn test_search_by_location_and_time() {
 
     // Verify our attachment is in the results
     assert!(
-        results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Expected attachment_id {} not found in location+time search results",
         attachment_id
     );
@@ -347,7 +355,9 @@ async fn test_search_by_location_and_time() {
         .expect("Failed to search by location and time");
 
     assert!(
-        !results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        !results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Attachment_id {} should NOT be found with wrong time range",
         attachment_id
     );
@@ -362,7 +372,9 @@ async fn test_search_by_location_and_time() {
         .expect("Failed to search by location and time");
 
     assert!(
-        !results.iter().any(|r| r.attachment_id == Some(attachment_id)),
+        !results
+            .iter()
+            .any(|r| r.attachment_id == Some(attachment_id)),
         "Attachment_id {} should NOT be found with wrong location (NYC vs Paris)",
         attachment_id
     );
