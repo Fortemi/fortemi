@@ -64,7 +64,7 @@
 > Key files: `tests/uat/data/images/jpeg-with-exif.jpg` (EXIF/GPS), `tests/uat/data/documents/code-python.py` (code),
 > `tests/uat/data/edge-cases/binary-wrong-ext.jpg` (safety validation),
 > `/mnt/global/test-media/video/01-big-buck-bunny.mp4` (real video),
-> `/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf` (real PDF)
+> `/mnt/global/test-media/3d-models/07-duck.glb` (real 3D model)
 
 ---
 
@@ -193,15 +193,43 @@
 
 ---
 
-### UAT-2B-005: Upload Large PDF Document
+### UAT-2B-005: Upload 3D Model (GLB)
 
 **MCP Tool**: `upload_attachment`
 
-**Description**: Upload a large PDF file and verify storage
+**Description**: Upload a GLB (glTF Binary) 3D model file and verify storage
 
 **Prerequisites**:
 - Test note exists from UAT-2B-001
-- Real PDF test file: `/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf` (CC-licensed research paper)
+- Real GLB test file: `/mnt/global/test-media/3d-models/07-duck.glb` (~118KB, CC-licensed Khronos sample model)
+
+**Steps**:
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "07-duck.glb", content_type: "model/gltf-binary" })`
+2. Execute curl with actual file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@/mnt/global/test-media/3d-models/07-duck.glb;type=model/gltf-binary" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
+
+**Expected Results**:
+- Returns attachment record with `content_type: "model/gltf-binary"`
+- Status is "uploaded"
+
+**Store**: `attachment_glb_id`
+
+---
+
+### UAT-2B-006: Upload Large PDF Document
+
+**MCP Tool**: `upload_attachment`
+
+**Description**: Upload a large PDF file and verify storage handles non-trivial document sizes
+
+**Prerequisites**:
+- Test note exists from UAT-2B-001
+- Real PDF test file: `/mnt/global/test-media/documents/11-arxiv-attention-paper.pdf` (CC-licensed research paper, ~1.3MB)
 
 **Steps**:
 1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "arxiv-attention-paper.pdf", content_type: "application/pdf" })`
@@ -216,6 +244,7 @@
 **Expected Results**:
 - Returns attachment record with `content_type: "application/pdf"`
 - Status is "uploaded"
+- `size_bytes` reflects actual file size
 
 **Store**: `attachment_largepdf_id`
 
@@ -223,7 +252,7 @@
 
 ## File Download and Integrity
 
-### UAT-2B-006: Download File and Verify Integrity
+### UAT-2B-007: Download File and Verify Integrity
 
 **MCP Tool**: `download_attachment`
 
@@ -253,7 +282,7 @@
 
 ---
 
-### UAT-2B-007: Download Non-Existent Attachment
+### UAT-2B-008: Download Non-Existent Attachment
 
 **Isolation**: Required — negative test expects error response
 
@@ -277,7 +306,7 @@
 
 ## Content Deduplication
 
-### UAT-2B-008: Upload Duplicate File
+### UAT-2B-009: Upload Duplicate File
 
 **MCP Tool**: `create_note`, `upload_attachment`
 
@@ -317,7 +346,7 @@
 
 ## EXIF Metadata Extraction
 
-### UAT-2B-009: EXIF GPS Extraction
+### UAT-2B-010: EXIF GPS Extraction
 
 **MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
@@ -348,7 +377,7 @@
 
 ---
 
-### UAT-2B-010: EXIF Camera Metadata
+### UAT-2B-011: EXIF Camera Metadata
 
 **MCP Tool**: `upload_attachment`, `get_attachment`
 
@@ -373,7 +402,7 @@
 
 ---
 
-### UAT-2B-011: EXIF Timestamp Extraction
+### UAT-2B-012: EXIF Timestamp Extraction
 
 **MCP Tool**: `upload_attachment`, `get_attachment`
 
@@ -397,7 +426,7 @@
 
 ## File Safety Validation
 
-### UAT-2B-012: Block Executable Extension
+### UAT-2B-013: Block Executable Extension
 
 **Isolation**: Required — negative test expects error response
 
@@ -428,7 +457,7 @@
 
 ---
 
-### UAT-2B-013: Block Script Extension
+### UAT-2B-014: Block Script Extension
 
 **Isolation**: Required — negative test expects error response
 
@@ -455,7 +484,7 @@
 
 ---
 
-### UAT-2B-014: Magic Bytes Validation
+### UAT-2B-015: Magic Bytes Validation
 
 **MCP Tool**: `upload_attachment`
 
@@ -486,30 +515,30 @@
 
 ## Attachment Listing and Filtering
 
-### UAT-2B-015: List All Attachments for Note
+### UAT-2B-016: List All Attachments for Note
 
 **MCP Tool**: `list_attachments`
 
 **Description**: List all attachments for a note with multiple files
 
 **Prerequisites**:
-- `attachment_test_note_id` with 5 attachments (UAT-2B-001 through UAT-2B-005: image, PDF, audio, video, large PDF)
+- `attachment_test_note_id` with 6 attachments (UAT-2B-001 through UAT-2B-006: image, PDF, audio, video, GLB 3D model, large PDF)
 
 **Steps**:
 1. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
 
 **Expected Results**:
-- Returns array of 5 `AttachmentSummary` objects
+- Returns array of 6 `AttachmentSummary` objects
 - Each contains: `id`, `note_id`, `filename`, `content_type`, `size_bytes`, `status`, `created_at`
 - Results ordered by `display_order`, then `created_at`
 
 **Verification**:
-- All 5 uploaded files present
+- All 6 uploaded files present
 - Metadata matches upload records
 
 ---
 
-### UAT-2B-016: List Attachments for Note with No Attachments
+### UAT-2B-017: List Attachments for Note with No Attachments
 
 **MCP Tool**: `create_note`, `list_attachments`
 
@@ -530,7 +559,7 @@
 
 ## Attachment Deletion
 
-### UAT-2B-017: Delete Attachment
+### UAT-2B-018: Delete Attachment
 
 **MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment`
 
@@ -547,7 +576,7 @@
 
 **Expected Results**:
 - Delete succeeds (no error)
-- List returns 4 attachments (audio removed)
+- List returns 5 attachments (audio removed)
 - Download returns 404 error
 
 **Verification**:
@@ -556,14 +585,14 @@
 
 ---
 
-### UAT-2B-018: Delete Attachment with Shared Blob
+### UAT-2B-019: Delete Attachment with Shared Blob
 
 **MCP Tool**: `delete_attachment`, `download_attachment`
 
 **Description**: Delete attachment that shares blob with another attachment (deduplication)
 
 **Prerequisites**:
-- `attachment_duplicate_id` from UAT-2B-008 (shares blob with `attachment_image_id`)
+- `attachment_duplicate_id` from UAT-2B-009 (shares blob with `attachment_image_id`)
 
 **Steps**:
 1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
@@ -585,7 +614,7 @@
 
 ## Error Handling
 
-### UAT-2B-019: Upload Oversized File
+### UAT-2B-020: Upload Oversized File
 
 **Isolation**: Required — negative test expects error response
 
@@ -618,7 +647,7 @@
 
 ---
 
-### UAT-2B-020: Upload with Invalid Content Type
+### UAT-2B-021: Upload with Invalid Content Type
 
 **Isolation**: Recommended — dual-path test may return error
 
@@ -639,7 +668,7 @@
 
 ---
 
-### UAT-2B-021: Upload to Non-Existent Note
+### UAT-2B-022: Upload to Non-Existent Note
 
 **Isolation**: Required — negative test expects error response
 
@@ -671,23 +700,24 @@
 | UAT-2B-002 | Upload PDF Document | `upload_attachment` | |
 | UAT-2B-003 | Upload Audio File | `upload_attachment` | |
 | UAT-2B-004 | Upload Video File | `upload_attachment` | |
-| UAT-2B-005 | Upload Large PDF Document | `upload_attachment` | |
-| UAT-2B-006 | Download File Integrity | `download_attachment` | |
-| UAT-2B-007 | Download Non-Existent | `download_attachment` | |
-| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` | |
-| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
-| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment`, `get_attachment` | |
-| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment`, `get_attachment` | |
-| UAT-2B-012 | Block Executable Extension | `upload_attachment` | |
-| UAT-2B-013 | Block Script Extension | `upload_attachment` | |
-| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` | |
-| UAT-2B-015 | List All Attachments | `list_attachments` | |
-| UAT-2B-016 | List Empty Attachments | `create_note`, `list_attachments` | |
-| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
-| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
-| UAT-2B-019 | Upload Oversized File | `upload_attachment` | |
-| UAT-2B-020 | Invalid Content Type | `upload_attachment` | |
-| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` | |
+| UAT-2B-005 | Upload 3D Model (GLB) | `upload_attachment` | |
+| UAT-2B-006 | Upload Large PDF Document | `upload_attachment` | |
+| UAT-2B-007 | Download File Integrity | `download_attachment` | |
+| UAT-2B-008 | Download Non-Existent | `download_attachment` | |
+| UAT-2B-009 | Upload Duplicate File | `create_note`, `upload_attachment` | |
+| UAT-2B-010 | EXIF GPS Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| UAT-2B-011 | EXIF Camera Metadata | `upload_attachment`, `get_attachment` | |
+| UAT-2B-012 | EXIF Timestamp Extraction | `upload_attachment`, `get_attachment` | |
+| UAT-2B-013 | Block Executable Extension | `upload_attachment` | |
+| UAT-2B-014 | Block Script Extension | `upload_attachment` | |
+| UAT-2B-015 | Magic Bytes Validation | `upload_attachment` | |
+| UAT-2B-016 | List All Attachments | `list_attachments` | |
+| UAT-2B-017 | List Empty Attachments | `create_note`, `list_attachments` | |
+| UAT-2B-018 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
+| UAT-2B-019 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
+| UAT-2B-020 | Upload Oversized File | `upload_attachment` | |
+| UAT-2B-021 | Invalid Content Type | `upload_attachment` | |
+| UAT-2B-022 | Upload to Non-Existent Note | `upload_attachment` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

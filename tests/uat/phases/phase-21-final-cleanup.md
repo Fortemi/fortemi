@@ -339,7 +339,7 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 | 0 | Pre-flight | X/3 | X | X | XX% |
 | 1 | Seed Data | X/11 | X | X | XX% |
 | 2 | CRUD | X/17 | X | X | XX% |
-| 2b | File Attachments | X/21 | X | X | XX% |
+| 2b | File Attachments | X/22 | X | X | XX% |
 | 2c | Attachment Processing | X/31 | X | X | XX% |
 | 3 | Search | X/18 | X | X | XX% |
 | 3b | Memory Search | X/21 | X | X | XX% |
@@ -361,7 +361,7 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 | 19 | Feature Chains | X/48 | X | X | XX% |
 | 20 | Data Export | X/19 | X | X | XX% |
 | 21 | Final Cleanup | X/10 | X | X | XX% |
-| **TOTAL** | | **X/447** | | | **XX%** |
+| **TOTAL** | | **X/448** | | | **XX%** |
 
 ## Critical Phase Status
 - Phases 0-3, 2b, 3b (Foundation): [ ] ALL PASS / [ ] FAIL

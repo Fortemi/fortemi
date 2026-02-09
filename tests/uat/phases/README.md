@@ -26,7 +26,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 3 | **Yes** |
 | 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 11 | **Yes** |
 | 2 | [CRUD Operations](phase-2-crud.md) | ~10 min | 17 | **Yes** |
-| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
+| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
 | 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 18 | **Yes** |
 | 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
@@ -49,7 +49,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total Tests**: 447
+**Total Tests**: 448
 **Total Estimated Duration**: 220-260 minutes (full suite)
 **Total Phases**: 25 (numbered 0-21, plus sub-phases 2b, 2c, and 3b)
 
@@ -77,7 +77,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
 | Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
-| **TOTAL** | **148+** | **447** | **100%** |
+| **TOTAL** | **148+** | **448** | **100%** |
 
 ---
 
@@ -166,9 +166,10 @@ The primary test data for UAT lives in `tests/uat/data/` with 44+ files organize
 
 | Directory | Files | Purpose |
 |-----------|-------|---------|
-| `video/` | 17 | Real CC-licensed MP4 videos (3-11MB each) |
+| `video/` | 17 MP4 + 2 WebM + 1 OGV | Real CC-licensed videos (3-11MB clips + 4 full-length) |
 | `audio/` | 10 | Real CC-licensed MP3 audio (radio dramas, speeches, lectures) |
 | `documents/` | 22 | Real CC-licensed PDFs (tax forms, papers, invoices, letters) |
+| `3d-models/` | 10 | Real CC-licensed GLB 3D models (Khronos samples, 1.7KB-12MB) |
 
 **Setup**: Generate test data before running UAT:
 ```bash

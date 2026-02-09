@@ -52,7 +52,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 0 | [phases/phase-0-preflight.md](phases/phase-0-preflight.md) | ~2 min | 3 | Yes |
 | 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 11 | Yes |
 | 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 17 | **Yes** |
-| 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 21 | **Yes** |
+| 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
 | 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 18 | **Yes** |
 | 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
@@ -75,7 +75,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total**: 447 tests across 25 phases (including 2b, 2c, and 3b)
+**Total**: 448 tests across 25 phases (including 2b, 2c, and 3b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -148,7 +148,7 @@ uat_run:
 | 0: Pre-flight | 3 | X | X | X | X% |
 | 1: Seed Data | 11 | X | X | X | X% |
 | 2: CRUD | 17 | X | X | X | X% |
-| 2b: Attachments | 21 | X | X | X | X% |
+| 2b: Attachments | 22 | X | X | X | X% |
 | 2c: Attachment Processing | 31 | X | X | X | X% |
 | 3: Search | 18 | X | X | X | X% |
 | 3b: Memory Search | 21 | X | X | X | X% |
@@ -170,7 +170,7 @@ uat_run:
 | 19: Feature Chains | 48 | X | X | X | X% |
 | 20: Data Export | 19 | X | X | X | X% |
 | 21: Final Cleanup | 10 | X | X | X | X% |
-| **TOTAL** | **447** | **X** | **X** | **X** | **X%** |
+| **TOTAL** | **448** | **X** | **X** | **X** | **X%** |
 
 ## Failed Tests
 
