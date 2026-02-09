@@ -9225,19 +9225,22 @@ async fn upload_attachment(
         ));
     }
 
+    // Detect actual content type from magic bytes (fixes #253)
+    let content_type = matric_core::detect_content_type(&body.filename, &data, &body.content_type);
+
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
 
     // Store the file
     let mut attachment = file_storage
-        .store_file_tx(&mut tx, id, &body.filename, &body.content_type, &data)
+        .store_file_tx(&mut tx, id, &body.filename, &content_type, &data)
         .await?;
 
     // Phase 1: Determine extraction strategy from MIME type (pure function, no DB)
     let ext = std::path::Path::new(&body.filename)
         .extension()
         .and_then(|e| e.to_str());
-    let strategy = ExtractionStrategy::from_mime_and_extension(&body.content_type, ext);
+    let strategy = ExtractionStrategy::from_mime_and_extension(&content_type, ext);
     file_storage
         .set_extraction_strategy_tx(&mut tx, attachment.id, strategy)
         .await?;
@@ -9325,6 +9328,9 @@ async fn upload_attachment_multipart(
                 .unwrap_or_else(|| "File blocked by safety policy".to_string()),
         ));
     }
+
+    // Detect actual content type from magic bytes (fixes #253)
+    let content_type = matric_core::detect_content_type(&filename, &data, &content_type);
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;

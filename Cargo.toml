@@ -61,6 +61,7 @@ similar = "2"
 regex = "1"
 rand = "0.8"
 base64 = "0.22"
+infer = "0.16"
 dotenvy = "0.15"
 blake3 = "1.5"
 

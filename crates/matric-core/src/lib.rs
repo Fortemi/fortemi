@@ -32,7 +32,7 @@ pub use error::{Error, Result};
 pub use events::{EventBus, ServerEvent};
 pub use exif::{DeviceInfo, ExifMetadata, GpsCoordinates};
 pub use fair::{DublinCoreExport, FairScore, JsonLdContext, JsonLdExport};
-pub use file_safety::{sanitize_filename, validate_file, ValidationResult};
+pub use file_safety::{detect_content_type, sanitize_filename, validate_file, ValidationResult};
 pub use hardware::{ContextBudget, HardwareConfig};
 pub use models::*;
 pub use search::*;

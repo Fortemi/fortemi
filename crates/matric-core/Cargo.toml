@@ -47,5 +47,8 @@ once_cell = "1.19"
 # EXIF metadata extraction
 kamadak-exif = "0.5"
 
+# Magic byte MIME detection
+infer.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
