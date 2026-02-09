@@ -1875,16 +1875,48 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          if (!args.data) {
-            throw new Error("'data' parameter is required. Provide base64-encoded file content.");
+          const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments/upload`;
+          const filename = args.filename || "FILE_PATH";
+          const curlParts = [`curl -X POST`];
+          curlParts.push(`-F "file=@${filename}"`);
+          if (args.document_type_id) {
+            curlParts.push(`-F "document_type_id=${args.document_type_id}"`);
           }
-          const uploadBody = {
-            filename: args.filename,
-            content_type: args.content_type,
-            data: args.data,
+          if (args.content_type) {
+            curlParts.push(`-F "file=@${filename};type=${args.content_type}"`);
+            // Replace the first -F with the typed version
+            curlParts.splice(1, 1);
+          }
+
+          // Add auth header if available
+          const sessionToken = tokenStorage.getStore()?.token;
+          const authToken = sessionToken || API_KEY;
+          if (authToken) {
+            curlParts.push(`-H "Authorization: Bearer ${authToken}"`);
+          }
+
+          // Add memory header if set
+          const sid = tokenStorage.getStore()?.sessionId;
+          const activeMem = sid ? sessionMemories.get(sid) : null;
+          if (activeMem) {
+            curlParts.push(`-H "X-Fortemi-Memory: ${activeMem}"`);
+          }
+
+          curlParts.push(`"${uploadUrl}"`);
+
+          result = {
+            upload_url: uploadUrl,
+            method: "POST",
+            content_type: "multipart/form-data",
+            max_size: "50MB",
+            curl_command: curlParts.join(" \\\n  "),
+            instructions: "Execute the curl command to upload the file. Replace the filename with the actual file path. " +
+              "The API accepts multipart/form-data — no base64 encoding needed. " +
+              "The response will contain the attachment metadata (id, filename, status, etc.).",
           };
-          if (args.document_type_id) uploadBody.document_type_id = args.document_type_id;
-          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
+          if (args.filename) {
+            result.filename_hint = args.filename;
+          }
           break;
         }
 

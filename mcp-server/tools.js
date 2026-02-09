@@ -3938,22 +3938,29 @@ Existing embeddings using this config are not affected but won't be regenerated 
   // ============================================================================
   {
     name: "upload_attachment",
-    description: `Upload a file attachment to a note.
+    description: `Get the upload URL and curl command for attaching a file to a note.
 
-Provide base64-encoded file content in the 'data' parameter. Files are stored with content-hash deduplication.
-Extraction strategy is auto-determined from MIME type. Document type can be set explicitly or is classified asynchronously after extraction.`,
+Returns the multipart upload endpoint URL and a ready-to-use curl command.
+The agent should execute the curl command to upload the file directly to the API.
+
+Workflow:
+1. Call this tool with note_id and the filename you want to upload
+2. Execute the returned curl_command (replace FILE_PATH with actual path)
+3. The API accepts multipart/form-data — no base64 encoding needed
+4. Files up to 50MB are supported with content-hash deduplication
+
+Binary data never passes through the MCP protocol or LLM context window.`,
     inputSchema: {
       type: "object",
       properties: {
         note_id: { type: "string", format: "uuid", description: "Note UUID to attach the file to" },
-        filename: { type: "string", description: "Filename for the attachment (e.g., 'photo.jpg')" },
-        content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
-        data: { type: "string", description: "Base64-encoded file content" },
+        filename: { type: "string", description: "Filename hint for the curl command (e.g., 'photo.jpg')" },
+        content_type: { type: "string", description: "MIME type hint (e.g., 'image/jpeg'). If omitted, auto-detected from file extension." },
         document_type_id: { type: "string", format: "uuid", description: "Optional: explicit document type UUID override (skips auto-classification)" },
       },
-      required: ["note_id", "filename", "content_type", "data"],
+      required: ["note_id"],
     },
-    annotations: { destructiveHint: false },
+    annotations: { readOnlyHint: true },
   },
   {
     name: "list_attachments",

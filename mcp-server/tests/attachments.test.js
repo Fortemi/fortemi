@@ -22,16 +22,33 @@ describe("Phase 2b: File Attachments", () => {
   });
 
   /**
-   * Helper function to upload a file via MCP upload_attachment tool
+   * Helper: get upload URL from MCP, then POST multipart directly to API.
+   *
+   * This mirrors the real agent workflow:
+   * 1. MCP tool returns the upload URL + curl command
+   * 2. Agent executes the upload directly against the API
    */
   async function uploadFile(noteId, filename, content, contentType) {
-    const result = await client.callTool("upload_attachment", {
+    // Step 1: Get upload URL from MCP tool
+    const info = await client.callTool("upload_attachment", {
       note_id: noteId,
       filename,
       content_type: contentType,
-      data: Buffer.from(content).toString("base64"),
     });
+    assert.ok(info.upload_url, "Should return upload URL");
+    assert.ok(info.curl_command, "Should return curl command");
 
+    // Step 2: Upload directly to the API via multipart/form-data
+    const blob = new Blob([content], { type: contentType });
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+
+    const response = await fetch(info.upload_url, {
+      method: "POST",
+      body: formData,
+    });
+    assert.ok(response.ok, `Upload should succeed (got ${response.status})`);
+    const result = await response.json();
     assert.ok(result.id, "Should return attachment ID");
     return result;
   }
@@ -46,7 +63,7 @@ describe("Phase 2b: File Attachments", () => {
     assert.ok(note.id, "Should return note ID");
     cleanup.noteIds.push(note.id);
 
-    // Upload a text file attachment via HTTP API
+    // Upload a text file via MCP URL + direct API POST
     const file = await uploadFile(
       note.id,
       "test-document.txt",

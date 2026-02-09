@@ -9148,13 +9148,7 @@ struct UploadAttachmentBody {
     document_type_id: Option<Uuid>,
 }
 
-/// Response for file download with base64-encoded content
-#[derive(Debug, Serialize)]
-struct DownloadAttachmentResponse {
-    data: String,
-    content_type: String,
-    filename: String,
-}
+
 
 /// List all attachments for a note
 async fn list_attachments(
@@ -9367,7 +9361,9 @@ async fn get_attachment(
     Ok(Json(attachment))
 }
 
-/// Download a file attachment (returns base64-encoded data)
+/// Download a file attachment (returns raw binary with proper content headers).
+///
+/// Clients can use `curl -o filename URL` to download directly.
 async fn download_attachment(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -9386,14 +9382,27 @@ async fn download_attachment(
         .await?;
     drop(tx);
 
-    // Encode data as base64
-    let encoded_data = base64::engine::general_purpose::STANDARD.encode(&data);
+    // Return raw binary with proper Content-Type and Content-Disposition headers
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            content_type
+                .parse::<axum::http::HeaderValue>()
+                .unwrap_or_else(|_| {
+                    axum::http::HeaderValue::from_static("application/octet-stream")
+                }),
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
+                .parse::<axum::http::HeaderValue>()
+                .unwrap_or_else(|_| {
+                    axum::http::HeaderValue::from_static("attachment")
+                }),
+        ),
+    ];
 
-    Ok(Json(DownloadAttachmentResponse {
-        data: encoded_data,
-        content_type,
-        filename,
-    }))
+    Ok((headers, data))
 }
 
 /// Delete an attachment
