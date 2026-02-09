@@ -992,28 +992,34 @@ impl ExtractionStrategy {
     pub fn from_mime_and_extension(mime: &str, extension: Option<&str>) -> Self {
         let base = Self::from_mime_type(mime);
 
-        // Refine with extension when MIME is generic
+        // Refine with extension when MIME is generic.
+        //
+        // IMPORTANT: When detect_content_type() returns application/octet-stream,
+        // it may be because magic bytes contradicted a binary claim (e.g. random
+        // garbage named "photo.jpg" claiming image/jpeg). In that case the extension
+        // is equally untrustworthy, so we only promote to *cheap* strategies here.
+        // Expensive strategies (Vision, AudioTranscribe, VideoMultimodal) are NOT
+        // assigned from extension alone — they require magic byte confirmation via
+        // detect_content_type() returning the actual media MIME type.
         if mime == "application/octet-stream" {
             if let Some(ext) = extension {
                 return match ext.to_lowercase().as_str() {
+                    // Cheap text-based extraction — safe even for misidentified files
                     "pdf" => Self::PdfText,
-                    "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "svg" => {
-                        Self::Vision
-                    }
-                    "mid" | "midi" => Self::StructuredExtract,
-                    "mp3" | "wav" | "ogg" | "flac" | "aac" | "m4a" | "wma" => Self::AudioTranscribe,
-                    "mp4" | "avi" | "mov" | "mkv" | "webm" | "wmv" => Self::VideoMultimodal,
-                    "glb" | "gltf" | "obj" | "stl" | "step" | "iges" => Self::Vision,
                     "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp"
                     | "rtf" => Self::OfficeConvert,
                     "eml" | "mbox" => Self::OfficeConvert,
                     "json" | "xml" | "yaml" | "yml" | "csv" | "toml" => Self::StructuredExtract,
-                    "ics" | "bib" | "geojson" | "ndjson" | "parquet" | "avro" => {
+                    "ics" | "bib" | "geojson" | "ndjson" | "parquet" | "avro" | "mid" | "midi" => {
                         Self::StructuredExtract
                     }
                     "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "h" | "rb"
                     | "swift" | "kt" | "scala" | "zig" | "hs" => Self::CodeAst,
                     "txt" | "md" | "markdown" | "rst" | "org" | "adoc" => Self::TextNative,
+                    // Media extensions (jpg, mp3, mp4, etc.) are NOT promoted here.
+                    // If magic bytes matched, detect_content_type() would have returned
+                    // the actual media MIME type and we'd never reach this branch.
+                    // Reaching here means the data doesn't match the extension claim.
                     _ => Self::TextNative,
                 };
             }
@@ -2861,6 +2867,83 @@ mod tests {
             JobType::BuildSetIndex.default_priority()
                 > JobType::CreateEmbeddingSet.default_priority()
         );
+    }
+
+    // =========================================================================
+    // Extraction Strategy Regression Tests (#253)
+    // =========================================================================
+
+    #[test]
+    fn test_strategy_real_jpeg_gets_vision() {
+        // Real image/jpeg from magic bytes → Vision strategy
+        let strategy = ExtractionStrategy::from_mime_and_extension("image/jpeg", Some("jpg"));
+        assert_eq!(strategy, ExtractionStrategy::Vision);
+    }
+
+    #[test]
+    fn test_strategy_real_png_gets_vision() {
+        let strategy = ExtractionStrategy::from_mime_and_extension("image/png", Some("png"));
+        assert_eq!(strategy, ExtractionStrategy::Vision);
+    }
+
+    #[test]
+    fn test_strategy_fake_jpeg_no_vision() {
+        // detect_content_type() returned octet-stream (magic bytes didn't match)
+        // Extension .jpg should NOT promote to Vision — data is untrustworthy
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("jpg"));
+        assert_ne!(
+            strategy,
+            ExtractionStrategy::Vision,
+            "Random binary with .jpg extension should not get Vision strategy"
+        );
+        assert_eq!(strategy, ExtractionStrategy::TextNative);
+    }
+
+    #[test]
+    fn test_strategy_fake_mp3_no_audio() {
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("mp3"));
+        assert_ne!(
+            strategy,
+            ExtractionStrategy::AudioTranscribe,
+            "Random binary with .mp3 extension should not get AudioTranscribe"
+        );
+        assert_eq!(strategy, ExtractionStrategy::TextNative);
+    }
+
+    #[test]
+    fn test_strategy_fake_mp4_no_video() {
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("mp4"));
+        assert_ne!(
+            strategy,
+            ExtractionStrategy::VideoMultimodal,
+            "Random binary with .mp4 extension should not get VideoMultimodal"
+        );
+        assert_eq!(strategy, ExtractionStrategy::TextNative);
+    }
+
+    #[test]
+    fn test_strategy_octet_stream_pdf_still_works() {
+        // PDF is cheap text extraction, safe to assign from extension
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("pdf"));
+        assert_eq!(strategy, ExtractionStrategy::PdfText);
+    }
+
+    #[test]
+    fn test_strategy_octet_stream_docx_still_works() {
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("docx"));
+        assert_eq!(strategy, ExtractionStrategy::OfficeConvert);
+    }
+
+    #[test]
+    fn test_strategy_octet_stream_code_still_works() {
+        let strategy =
+            ExtractionStrategy::from_mime_and_extension("application/octet-stream", Some("py"));
+        assert_eq!(strategy, ExtractionStrategy::CodeAst);
     }
 
     // =========================================================================
