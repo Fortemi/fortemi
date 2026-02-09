@@ -84,6 +84,12 @@ async fn test_archive_lifecycle() {
         .expect("Archive not found");
     assert!(default_archive.is_default);
 
+    // Reset default back to "public" before cleanup (can't drop default archive)
+    db.archives
+        .set_default_archive("public")
+        .await
+        .expect("Failed to reset default");
+
     // Cleanup
     cleanup_archive(&db, &archive_name).await;
 
