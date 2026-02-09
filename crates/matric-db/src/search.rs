@@ -291,7 +291,7 @@ impl PgFtsSearch {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
                     sql.push_str(&format!(
-                        " AND n.created_at >= ${}::timestamptz",
+                        " AND n.created_at_utc >= ${}::timestamptz",
                         params.len()
                     ));
                 }
@@ -299,7 +299,7 @@ impl PgFtsSearch {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
                     sql.push_str(&format!(
-                        " AND n.created_at <= ${}::timestamptz",
+                        " AND n.created_at_utc <= ${}::timestamptz",
                         params.len()
                     ));
                 }
@@ -307,7 +307,7 @@ impl PgFtsSearch {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
                     sql.push_str(&format!(
-                        " AND n.updated_at >= ${}::timestamptz",
+                        " AND n.updated_at_utc >= ${}::timestamptz",
                         params.len()
                     ));
                 }
@@ -315,7 +315,7 @@ impl PgFtsSearch {
                 if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
                     params.push(ts.to_string());
                     sql.push_str(&format!(
-                        " AND n.updated_at <= ${}::timestamptz",
+                        " AND n.updated_at_utc <= ${}::timestamptz",
                         params.len()
                     ));
                 }

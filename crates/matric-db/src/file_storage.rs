@@ -396,10 +396,16 @@ impl PgFileStorageRepository {
     /// for potential reuse by other attachments. Orphaned blobs (reference_count = 0) can be
     /// cleaned up separately by a garbage collection process.
     pub async fn delete(&self, attachment_id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM attachment WHERE id = $1")
+        let result = sqlx::query("DELETE FROM attachment WHERE id = $1")
             .bind(attachment_id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(Error::NotFound(format!(
+                "Attachment {} not found",
+                attachment_id
+            )));
+        }
         Ok(())
     }
 
@@ -759,10 +765,16 @@ impl PgFileStorageRepository {
         tx: &mut Transaction<'_, Postgres>,
         attachment_id: Uuid,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM attachment WHERE id = $1")
+        let result = sqlx::query("DELETE FROM attachment WHERE id = $1")
             .bind(attachment_id)
             .execute(&mut **tx)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(Error::NotFound(format!(
+                "Attachment {} not found",
+                attachment_id
+            )));
+        }
         Ok(())
     }
 

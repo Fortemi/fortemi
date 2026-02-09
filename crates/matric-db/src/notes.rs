@@ -68,6 +68,7 @@ impl PgNoteRepository {
 /// Build the filter clause based on the filter type.
 fn build_filter_clause(filter: &str) -> &'static str {
     match filter {
+        "active" => "AND n.archived = false AND n.deleted_at IS NULL",
         "starred" => "AND n.starred = true AND n.archived = false AND n.deleted_at IS NULL",
         "archived" => "AND n.archived = true AND n.deleted_at IS NULL",
         "recent" => {
@@ -706,7 +707,7 @@ impl PgNoteRepository {
         let note_row = sqlx::query(
             "SELECT id, collection_id, format, source, created_at_utc, updated_at_utc,
                     starred, archived, last_accessed_at, title, metadata, chunk_metadata, document_type_id
-             FROM note WHERE id = $1",
+             FROM note WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(&mut **tx)
@@ -726,7 +727,7 @@ impl PgNoteRepository {
 
         // Fetch current revision
         let revised_row = sqlx::query(
-            "SELECT nrc.content, nrc.last_revision_id, nrc.ai_metadata, nr.model
+            "SELECT nrc.content, nrc.last_revision_id, nrc.ai_metadata, nr.model, COALESCE(nr.generation_count, 1) AS generation_count
              FROM note_revised_current nrc
              LEFT JOIN note_revision nr ON nr.id = nrc.last_revision_id
              WHERE nrc.note_id = $1",
@@ -808,7 +809,7 @@ impl PgNoteRepository {
                 ai_generated_at: None,
                 user_last_edited_at: None,
                 is_user_edited: false,
-                generation_count: 1,
+                generation_count: revised_row.get("generation_count"),
                 model: revised_row.get("model"),
             },
             tags,
