@@ -138,8 +138,49 @@ pub fn detect_content_type(filename: &str, data: &[u8], claimed: &str) -> String
         }
     }
 
-    // 3. Final fallback: use the claimed type
+    // 3. Mismatch guard: if the claimed type is a binary format that *should*
+    //    have recognizable magic bytes (image/*, audio/*, video/*, application/pdf,
+    //    application/zip, etc.) but infer::get() returned None, the data doesn't
+    //    match the claim. Downgrade to application/octet-stream to prevent wasted
+    //    processing (e.g. sending random garbage to a vision model). Text-like
+    //    claimed types (text/*, application/json, etc.) are passed through since
+    //    they legitimately lack magic bytes.
+    if claimed_is_binary(claimed) {
+        return "application/octet-stream".to_string();
+    }
+
+    // 4. Final fallback: trust the claimed type (text-like formats)
     claimed.to_string()
+}
+
+/// Returns true if the claimed MIME type is a binary format that should have
+/// recognizable magic bytes. When infer::get() returns None for such types,
+/// the data doesn't match the claim and should be downgraded.
+fn claimed_is_binary(claimed: &str) -> bool {
+    // Binary media types always have magic bytes
+    if claimed.starts_with("image/")
+        || claimed.starts_with("audio/")
+        || claimed.starts_with("video/")
+    {
+        return true;
+    }
+    // Specific binary application types with known magic bytes
+    matches!(
+        claimed,
+        "application/pdf"
+            | "application/zip"
+            | "application/gzip"
+            | "application/x-tar"
+            | "application/x-7z-compressed"
+            | "application/x-rar-compressed"
+            | "application/wasm"
+            | "application/x-executable"
+            | "application/x-mach-binary"
+            | "application/x-sharedlib"
+            | "application/vnd.ms-fontobject"
+            | "font/woff"
+            | "font/woff2"
+    )
 }
 
 /// Map common text/code extensions to MIME types (formats without magic bytes).
@@ -268,6 +309,43 @@ mod tests {
     fn test_detect_falls_back_to_claimed_for_unknown() {
         let result = detect_content_type("data.xyz", b"random bytes", "application/custom");
         assert_eq!(result, "application/custom");
+    }
+
+    #[test]
+    fn test_detect_downgrades_fake_jpeg() {
+        // Random binary garbage with .jpg extension claiming image/jpeg
+        // infer::get() returns None → mismatch guard downgrades to octet-stream
+        let garbage = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33];
+        let result = detect_content_type("photo.jpg", &garbage, "image/jpeg");
+        assert_eq!(result, "application/octet-stream");
+    }
+
+    #[test]
+    fn test_detect_downgrades_fake_png() {
+        let garbage = b"this is not a png file at all";
+        let result = detect_content_type("image.png", garbage, "image/png");
+        assert_eq!(result, "application/octet-stream");
+    }
+
+    #[test]
+    fn test_detect_downgrades_fake_pdf() {
+        let garbage = b"not a pdf";
+        let result = detect_content_type("doc.pdf", garbage, "application/pdf");
+        assert_eq!(result, "application/octet-stream");
+    }
+
+    #[test]
+    fn test_detect_downgrades_fake_audio() {
+        let garbage = b"random noise data";
+        let result = detect_content_type("song.mp3", garbage, "audio/mpeg");
+        assert_eq!(result, "application/octet-stream");
+    }
+
+    #[test]
+    fn test_detect_passes_through_text_claimed() {
+        // text/* claims without magic bytes should pass through
+        let result = detect_content_type("data.xyz", b"some text", "text/plain");
+        assert_eq!(result, "text/plain");
     }
 
     #[test]
