@@ -10975,6 +10975,15 @@ async fn memory_scoped_restore(
 
     let schema_name = archive.schema_name.clone();
 
+    // Guard: never DROP SCHEMA CASCADE on the public/default archive
+    if archive.is_default || schema_name == "public" {
+        return Err(ApiError::BadRequest(
+            "Cannot restore over the default archive using memory-scoped restore. \
+             Use the standard restore endpoint (without 'memory' parameter) instead."
+                .to_string(),
+        ));
+    }
+
     // Decompress if needed
     let sql_content = if filename.ends_with(".sql.gz") {
         use flate2::read::GzDecoder;

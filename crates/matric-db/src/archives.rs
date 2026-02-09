@@ -614,6 +614,13 @@ impl ArchiveRepository for PgArchiveRepository {
             .await?
             .ok_or_else(|| Error::NotFound(format!("Archive not found: {}", name)))?;
 
+        // Defense-in-depth: NEVER drop the default archive or public schema
+        if archive.is_default || archive.schema_name == "public" {
+            return Err(Error::InvalidInput(
+                "Cannot drop the default archive or public schema".to_string(),
+            ));
+        }
+
         // Drop the PostgreSQL schema (CASCADE will drop all tables)
         sqlx::query(&format!(
             "DROP SCHEMA IF EXISTS {} CASCADE",
