@@ -127,6 +127,30 @@ describe("Phase 2b: File Attachments", () => {
     assert.ok(attachment._api_urls, "Should include API URLs for download");
   });
 
+  test("ATT-005: Upload response reflects configured max size", async () => {
+    // Create a note for the upload
+    const note = await client.callTool("create_note", {
+      content: `# Upload Limit Test ${MCPTestClient.uniqueId()}`,
+      tags: [MCPTestClient.testTag("attachments")],
+      revision_mode: "none",
+    });
+    cleanup.noteIds.push(note.id);
+
+    // Call upload_attachment — the response should include max_size
+    const info = await client.callTool("upload_attachment", {
+      note_id: note.id,
+      filename: "limit-test.txt",
+      content_type: "text/plain",
+    });
+    assert.ok(info.max_size, "Response should include max_size field");
+    // Default is 50MB; custom values end with "MB"
+    assert.match(info.max_size, /^\d+MB$/, `max_size should be NMB format, got: ${info.max_size}`);
+
+    const sizeMB = parseInt(info.max_size, 10);
+    assert.ok(sizeMB > 0, "max_size should be a positive number");
+    assert.ok(sizeMB <= 1024, "max_size should be reasonable (<=1GB)");
+  });
+
   test("ATT-004: Delete file attachment", async () => {
     const note = await client.callTool("create_note", {
       content: `# Delete File Test ${MCPTestClient.uniqueId()}`,

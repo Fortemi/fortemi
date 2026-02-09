@@ -413,4 +413,35 @@ mod tests {
         let result = validate_file("archive.zip", zip_header, 100_000_000);
         assert!(result.allowed);
     }
+
+    #[test]
+    fn test_upload_size_boundary_at_default_limit() {
+        use crate::defaults::MAX_UPLOAD_SIZE_BYTES;
+        let limit = MAX_UPLOAD_SIZE_BYTES as u64;
+
+        // Exactly at limit — should be allowed
+        let data_at_limit = vec![b'A'; MAX_UPLOAD_SIZE_BYTES];
+        let result = validate_file("big.txt", &data_at_limit, limit);
+        assert!(result.allowed, "File exactly at MAX_UPLOAD_SIZE_BYTES should be allowed");
+
+        // One byte over — should be blocked
+        let data_over_limit = vec![b'A'; MAX_UPLOAD_SIZE_BYTES + 1];
+        let result = validate_file("toobig.txt", &data_over_limit, limit);
+        assert!(!result.allowed, "File one byte over MAX_UPLOAD_SIZE_BYTES should be blocked");
+        assert!(result.block_reason.unwrap().contains("exceeds maximum size"));
+    }
+
+    #[test]
+    fn test_upload_size_boundary_custom_limit() {
+        // Simulate a custom limit (e.g. operator sets MATRIC_MAX_UPLOAD_SIZE_BYTES=10MB)
+        let custom_limit: u64 = 10 * 1024 * 1024;
+
+        let data_at = vec![b'A'; custom_limit as usize];
+        let result = validate_file("file.txt", &data_at, custom_limit);
+        assert!(result.allowed, "File exactly at custom limit should be allowed");
+
+        let data_over = vec![b'A'; custom_limit as usize + 1];
+        let result = validate_file("file.txt", &data_over, custom_limit);
+        assert!(!result.allowed, "File over custom limit should be blocked");
+    }
 }

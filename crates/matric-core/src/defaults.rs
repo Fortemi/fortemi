@@ -243,6 +243,14 @@ pub const TAG_NAME_MAX_LENGTH: usize = 100;
 // FILE SAFETY
 // =============================================================================
 
+/// Maximum file upload size in bytes (50 MB).
+/// Configurable via `MATRIC_MAX_UPLOAD_SIZE_BYTES` env var.
+/// This limit is enforced at three layers:
+/// 1. Axum `DefaultBodyLimit` on the multipart upload route
+/// 2. `validate_file()` size check in both upload handlers
+/// 3. Advertised to agents via MCP `upload_attachment` response
+pub const MAX_UPLOAD_SIZE_BYTES: usize = 50 * 1024 * 1024;
+
 /// Maximum filename length (ext4/NTFS compatible).
 pub const FILENAME_MAX_LENGTH: usize = 255;
 

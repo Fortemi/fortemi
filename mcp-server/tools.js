@@ -3947,7 +3947,7 @@ Workflow:
 1. Call this tool with note_id and the filename you want to upload
 2. Execute the returned curl_command (replace FILE_PATH with actual path)
 3. The API accepts multipart/form-data — no base64 encoding needed
-4. Files up to 50MB are supported with content-hash deduplication
+4. Files up to the configured max upload size (default 50MB) are supported with content-hash deduplication
 
 Binary data never passes through the MCP protocol or LLM context window.`,
     inputSchema: {

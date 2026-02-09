@@ -14,7 +14,7 @@ use query_types::FlexibleDateTime;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Extension, Path, Query, State,
+        DefaultBodyLimit, Extension, Path, Query, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{
@@ -216,6 +216,8 @@ struct AppState {
     oauth_mcp_token_lifetime: chrono::Duration,
     /// Maximum number of memories (archives) allowed.
     max_memories: i64,
+    /// Maximum file upload size in bytes (for attachment validation).
+    max_upload_size: usize,
 }
 
 /// OpenAPI documentation (utoipa metadata, used for Swagger UI configuration).
@@ -757,6 +759,10 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(matric_core::defaults::MAX_MEMORIES),
+        max_upload_size: std::env::var("MATRIC_MAX_UPLOAD_SIZE_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(matric_core::defaults::MAX_UPLOAD_SIZE_BYTES),
     };
 
     // Read max body size from env var with fallback
@@ -764,6 +770,8 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(matric_core::defaults::MAX_BODY_SIZE_BYTES);
+
+    let max_upload_size = state.max_upload_size;
 
     // Build router
     let app = Router::new()
@@ -957,7 +965,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/notes/:id/attachments/upload",
-            post(upload_attachment_multipart),
+            post(upload_attachment_multipart)
+                .layer(DefaultBodyLimit::max(max_upload_size)),
         )
         .route(
             "/api/v1/attachments/:attachment_id",
@@ -9216,7 +9225,7 @@ async fn upload_attachment(
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
-    let validation = matric_core::validate_file(&body.filename, &data, 50 * 1024 * 1024);
+    let validation = matric_core::validate_file(&body.filename, &data, state.max_upload_size as u64);
     if !validation.allowed {
         return Err(ApiError::BadRequest(
             validation
@@ -9320,7 +9329,7 @@ async fn upload_attachment_multipart(
         .ok_or_else(|| ApiError::BadRequest("Missing file data in multipart form".to_string()))?;
 
     // Validate file safety — block executables and dangerous file types (fixes #241)
-    let validation = matric_core::validate_file(&filename, &data, 50 * 1024 * 1024);
+    let validation = matric_core::validate_file(&filename, &data, state.max_upload_size as u64);
     if !validation.allowed {
         return Err(ApiError::BadRequest(
             validation
@@ -12592,6 +12601,7 @@ mod tests {
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
+            max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
         };
 
         let router = Router::new()
@@ -13309,6 +13319,7 @@ mod tests {
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
+            max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
         };
 
         let router = Router::new()
@@ -13598,6 +13609,7 @@ mod tests {
                 matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
             ),
             max_memories: matric_core::defaults::MAX_MEMORIES,
+            max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
         };
 
         let router = Router::new()

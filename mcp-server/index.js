@@ -30,6 +30,7 @@ const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
+const MAX_UPLOAD_SIZE = parseInt(process.env.MATRIC_MAX_UPLOAD_SIZE_BYTES || String(DEFAULTS.MAX_UPLOAD_SIZE_BYTES), 10);
 
 // AsyncLocalStorage for per-request token context
 const tokenStorage = new AsyncLocalStorage();
@@ -1908,7 +1909,7 @@ function createMcpServer() {
             upload_url: uploadUrl,
             method: "POST",
             content_type: "multipart/form-data",
-            max_size: "50MB",
+            max_size: `${Math.round(MAX_UPLOAD_SIZE / (1024 * 1024))}MB`,
             curl_command: curlParts.join(" \\\n  "),
             instructions: "Execute the curl command to upload the file. Replace the filename with the actual file path. " +
               "The API accepts multipart/form-data — no base64 encoding needed. " +
