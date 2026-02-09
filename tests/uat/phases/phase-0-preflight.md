@@ -79,6 +79,38 @@
 
 ---
 
+### PF-004: Test Data Availability
+
+**MCP Tool**: N/A (filesystem check)
+
+**Description**: Verify that UAT test data has been generated and required files exist before proceeding with testing.
+
+**Steps**:
+```bash
+# Verify test data directory exists and contains expected files
+ls tests/uat/data/images/jpeg-with-exif.jpg
+ls tests/uat/data/documents/code-python.py
+ls tests/uat/data/multilingual/english.txt
+ls tests/uat/data/provenance/paris-eiffel-tower.jpg
+ls tests/uat/data/edge-cases/empty.txt
+ls tests/uat/data/audio/english-speech-5s.mp3
+
+# Count total files (expect 50+)
+find tests/uat/data/ -type f -not -path '*/scripts/*' | wc -l
+```
+
+**Pass Criteria**:
+- All 6 key files exist
+- Total data file count >= 44
+- If files missing, run: `cd tests/uat/data/scripts && ./generate-test-data.sh`
+
+**Failure Actions**:
+- Run the generation script: `cd tests/uat/data/scripts && ./generate-test-data.sh`
+- Verify Python dependencies: `pip install Pillow piexif faker`
+- Check that ImageMagick and exiftool are installed
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -86,6 +118,7 @@
 | PF-001 | System Health Check | `memory_info` | |
 | PF-002 | Backup System Status | `backup_status` | |
 | PF-003 | Embedding Pipeline Status | `list_embedding_sets` | |
+| PF-004 | Test Data Availability | N/A (filesystem) | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

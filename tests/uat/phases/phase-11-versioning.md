@@ -334,9 +334,7 @@ diff_note_versions({
 })
 ```
 
-**Expected**: Error or empty diff
-
-**Pass Criteria**: No crash, defined error behavior
+**Pass Criteria**: Returns **404 Not Found** (version doesn't exist)
 
 ---
 

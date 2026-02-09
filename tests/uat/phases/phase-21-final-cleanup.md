@@ -186,6 +186,8 @@ for (const set of uatSets) {
 console.log(`Deleted ${uatSets.length} UAT embedding sets`)
 ```
 
+> **MCP Gap**: No `delete_keyset` MCP tool exists. PKE keysets created during testing persist but do not affect other functionality. Manual cleanup via API if needed: `DELETE /api/v1/pke/keysets/{keyset_id}`.
+
 **Pass Criteria**: All UAT embedding sets removed
 
 ---
@@ -336,32 +338,32 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 
 | Phase | Description | Passed | Failed | Pass Rate |
 |-------|-------------|--------|--------|-----------|
-| 0 | Pre-flight | X/3 | X | XX% |
+| 0 | Pre-flight | X/4 | X | XX% |
 | 1 | Seed Data | X/11 | X | XX% |
 | 2 | CRUD | X/17 | X | XX% |
-| 2b | File Attachments | X/22 | X | XX% |
-| 2c | Attachment Processing | X/31 | X | XX% |
+| 2b | File Attachments | X/24 | X | XX% |
+| 2c | Attachment Processing | X/32 | X | XX% |
 | 3 | Search | X/18 | X | XX% |
-| 3b | Memory Search | X/26 | X | XX% |
+| 3b | Memory Search | X/27 | X | XX% |
 | 4 | Tags | X/11 | X | XX% |
-| 5 | Collections | X/10 | X | XX% |
+| 5 | Collections | X/11 | X | XX% |
 | 6 | Semantic Links | X/13 | X | XX% |
 | 7 | Embeddings | X/20 | X | XX% |
 | 8 | Document Types | X/16 | X | XX% |
-| 9 | Edge Cases | X/15 | X | XX% |
-| 10 | Templates | X/15 | X | XX% |
+| 9 | Edge Cases | X/16 | X | XX% |
+| 10 | Templates | X/16 | X | XX% |
 | 11 | Versioning | X/15 | X | XX% |
-| 12 | Archives | X/19 | X | XX% |
+| 12 | Archives | X/20 | X | XX% |
 | 13 | SKOS Taxonomy | X/40 | X | XX% |
 | 14 | PKE Encryption | X/20 | X | XX% |
-| 15 | Jobs & Queue | X/22 | X | XX% |
+| 15 | Jobs & Queue | X/24 | X | XX% |
 | 16 | Observability | X/12 | X | XX% |
 | 17 | OAuth & Auth | X/17 | X | XX% |
 | 18 | Caching | X/15 | X | XX% |
-| 19 | Feature Chains | X/48 | X | XX% |
+| 19 | Feature Chains | X/56 | X | XX% |
 | 20 | Data Export | X/19 | X | XX% |
 | 21 | Final Cleanup | X/10 | X | XX% |
-| **TOTAL** | | **X/465** | **X** | **XX%** |
+| **TOTAL** | | **X/484** | **X** | **XX%** |
 
 ## Gitea Issues Filed
 | Issue # | Test ID | Title | Severity |

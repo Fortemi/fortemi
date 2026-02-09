@@ -11,7 +11,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 > **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **25 phases (0-21, plus sub-phases)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
 
 **Common Error**: AI agents sometimes stop at phase 9 (Edge Cases) or misinterpret phase names. The suite is NOT complete until:
-- Phase 19 (Feature Chains) completes all 48 end-to-end tests
+- Phase 19 (Feature Chains) completes all 56 end-to-end tests
 - Phase 20 (Data Export) validates backup functionality
 - Phase 21 (Final Cleanup) removes ALL test data using MCP tools
 
@@ -23,33 +23,33 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
-| 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 3 | **Yes** |
+| 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 4 | **Yes** |
 | 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 11 | **Yes** |
 | 2 | [CRUD Operations](phase-2-crud.md) | ~10 min | 17 | **Yes** |
-| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
-| 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
+| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 24 | **Yes** |
+| 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 32 | **Yes** |
 | 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 18 | **Yes** |
-| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 26 | **Yes** |
+| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 27 | **Yes** |
 | 4 | [Tag System](phase-4-tags.md) | ~5 min | 11 | No |
-| 5 | [Collections](phase-5-collections.md) | ~3 min | 10 | No |
+| 5 | [Collections](phase-5-collections.md) | ~3 min | 11 | No |
 | 6 | [Semantic Links](phase-6-links.md) | ~5 min | 13 | No |
 | 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 20 | No |
 | 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | No |
-| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 15 | No |
-| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | No |
+| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 16 | No |
+| 10 | [Templates](phase-10-templates.md) | ~8 min | 16 | No |
 | 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [Archives](phase-12-archives.md) | ~8 min | 19 | No |
+| 12 | [Archives](phase-12-archives.md) | ~8 min | 20 | No |
 | 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 40 | No |
 | 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | No |
-| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | No |
+| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 24 | No |
 | 16 | [Observability](phase-16-observability.md) | ~10 min | 12 | No |
 | 17 | [Authentication & Access Control](phase-17-oauth-auth.md) | ~12 min | 17 | **Yes** |
 | 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | No |
-| 19 | [Feature Chains (E2E)](phase-19-feature-chains.md) | ~30 min | 48 | **Yes** |
+| 19 | [Feature Chains (E2E)](phase-19-feature-chains.md) | ~30 min | 56 | **Yes** |
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total Tests**: 465
+**Total Tests**: 484
 **Total Estimated Duration**: 220-260 minutes (full suite)
 **Total Phases**: 25 (numbered 0-21, plus sub-phases 2b, 2c, and 3b)
 
@@ -64,22 +64,22 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Memory Search | 5 | 27 | 100% |
 | Provenance Creation | 5 | 26 | 100% |
 | Tags | 2 | 11 | 100% |
-| Collections | 8 | 10 | 100% |
-| Templates | 6 | 15 | 100% |
+| Collections | 8 | 11 | 100% |
+| Templates | 6 | 16 | 100% |
 | Embedding Sets | 15 | 20 | 100% |
 | Versioning | 5 | 15 | 100% |
 | Graph/Links | 7 | 13 | 100% |
-| Jobs | 7 | 22 | 100% |
+| Jobs | 7 | 24 | 100% |
 | SKOS | 33 | 40 | 100% |
-| Archives | 7 | 19 | 100% |
+| Archives | 7 | 20 | 100% |
 | Document Types | 6 | 16 | 100% |
 | Backup/Export | 17 | 19 | 100% |
 | PKE | 13 | 20 | 100% |
 | Observability | 7 | 12 | 100% |
 | Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
-| Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
-| **TOTAL** | **158+** | **465** | **100%** |
+| Attachment Processing | 5 (upload, list, get, detect, delete) | 32 | 100% |
+| **TOTAL** | **158+** | **484** | **100%** |
 
 ---
 
@@ -251,7 +251,7 @@ Tests marked with `**Isolation**: Required` expect an error response from the MC
 ### Anti-Termination Checklist
 
 Before declaring UAT complete, verify:
-- [ ] Phase 19 (Feature Chains) executed with 48 tests
+- [ ] Phase 19 (Feature Chains) executed with 56 tests
 - [ ] Phase 20 (Data Export) tested backup functionality
 - [ ] Phase 21 (Final Cleanup) removed all UAT test data
 - [ ] Final report includes all 25 phases
@@ -260,6 +260,7 @@ Before declaring UAT complete, verify:
 
 ## Version History
 
+- **2026.2.13**: Split 10 dual-path tests into separate a/b variants (+10 tests), added 8 negative tests to Phase 19 feature chains, added error codes to all isolation markers, documented MCP tool gaps, added PF-004 preflight check. Updated total: 465→484 across 25 phases. Gitea issues #267-#274.
 - **2026.2.12**: Reconciled Phase 3B test count (21→26) after note-level provenance tests added (UAT-3B-021 through 025). Added `search_memories_federated` test to Phase 12 (ARCH-019). Added Provenance Creation and Memory Search categories to MCP Tool Coverage table. Updated total: 459→465.
 - **2026.2.11**: Removed provenance SQL exception — Phase 3B now uses MCP tools (`create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`) for all provenance test data setup (#261). Updated Phase 19 Chain 2 note. Reduced approved exceptions from 3 to 2.
 - **2026.2.10**: Reconciled test counts (448→459 across 25 phases). Added provenance SQL setup as third approved MCP-first exception (Phase 3B, tracked in #261). Fixed CHAIN-005 version parameter inconsistency (version_id:0 → version:1, matching Phase 11 spec). Restructured Phase 19 Chain 2 to use actual provenance path (GPS-tagged photo → EXIF extraction) instead of unsupported inline metadata.location.

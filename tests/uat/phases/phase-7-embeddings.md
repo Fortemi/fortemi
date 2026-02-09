@@ -359,7 +359,7 @@ const defaultConfig = get_default_embedding_config()
 delete_embedding_config({ id: defaultConfig.id })
 ```
 
-**Pass Criteria**: Error - cannot delete default config
+**Pass Criteria**: Returns **400 Bad Request** — cannot delete the default embedding config
 
 ---
 

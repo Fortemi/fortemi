@@ -335,9 +335,7 @@ create_job({
 })
 ```
 
-**Expected**: Error - note not found
-
-**Pass Criteria**: Graceful error handling
+**Pass Criteria**: Returns **404 Not Found** — note does not exist
 
 ---
 
@@ -354,28 +352,59 @@ create_job({
 })
 ```
 
-**Expected**: Error - invalid job type
+**Pass Criteria**: Returns **500 Internal Server Error** (PostgreSQL enum constraint violation). Note: Known deficiency — API should validate job types before DB insertion and return 400.
 
 ---
 
-#### JOB-018: Create Duplicate Job
+#### JOB-018a: Create Duplicate Job — Allow Duplicates
 
 **MCP Tool**: `create_job`
 
 ```javascript
-// Create same job type for same note
+// Create same job type for same note — duplicates allowed via queue()
 create_job({
   note_id: job_test_note_id,
   job_type: "embedding"
 })
 ```
 
-**Expected**:
-- Either succeeds (duplicate allowed)
-- Or returns existing job
-- Or errors (no duplicates)
+**Pass Criteria**: New job created with unique job_id. Both jobs exist in queue.
 
-**Pass Criteria**: Defined behavior
+---
+
+#### JOB-018b: Create Duplicate Job — Deduplicate
+
+**MCP Tool**: `create_job`
+
+```javascript
+// Create same job type for same note — deduplicated via queue_deduplicated()
+create_job({
+  note_id: job_test_note_id,
+  job_type: "embedding",
+  deduplicate: true
+})
+```
+
+**Pass Criteria**: Returns existing job_id if duplicate exists. No new job created.
+
+---
+
+#### JOB-018c: Create Duplicate Job — Reject
+
+**Isolation**: Required — negative test expects error response
+
+**MCP Tool**: `create_job`
+
+```javascript
+create_job({
+  note_id: job_test_note_id,
+  job_type: "embedding"
+})
+```
+
+**Pass Criteria**: Returns **409 Conflict** — job already exists for this note and type.
+
+**Expected: XFAIL** — API allows duplicates via `queue()` and deduplicates via `queue_deduplicated()`.
 
 ---
 
@@ -509,7 +538,9 @@ list_jobs({ note_id: job_test_note_id })  // Should be empty
 | JOB-015 | Failed jobs info | `list_jobs` | |
 | JOB-016 | Non-existent note error | `create_job` | |
 | JOB-017 | Invalid job type error | `create_job` | |
-| JOB-018 | Duplicate job handling | `create_job` | |
+| JOB-018a | Duplicate job allow | `create_job` | |
+| JOB-018b | Duplicate job dedup | `create_job` | |
+| JOB-018c | Duplicate job reject (XFAIL) | `create_job` | |
 | JOB-019 | Get job by ID | `get_job` | |
 | JOB-020 | Get pending jobs count | `get_pending_jobs_count` | |
 | JOB-021 | Reprocess note | `reprocess_note` | |
@@ -525,7 +556,7 @@ list_jobs({ note_id: job_test_note_id })  // Should be empty
 |------|-------|
 | `get_queue_stats` | JOB-001, JOB-009 |
 | `list_jobs` | JOB-002, JOB-003, JOB-004, JOB-005, JOB-011, JOB-014, JOB-015 |
-| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018 |
+| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018a, JOB-018b, JOB-018c |
 | `reembed_all` | JOB-012, JOB-013 |
 | `get_job` | JOB-019 |
 | `get_pending_jobs_count` | JOB-020 |

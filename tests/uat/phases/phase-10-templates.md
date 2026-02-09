@@ -333,7 +333,7 @@ instantiate_template({
 
 ---
 
-### TMPL-012: Instantiate Template - Missing Variables
+### TMPL-012a: Instantiate Template - Missing Variables — Leave Placeholders
 
 **MCP Tool**: `instantiate_template`
 
@@ -348,11 +348,29 @@ instantiate_template({
 })
 ```
 
-**Expected**:
-- Note created with unsubstituted placeholders OR
-- Error indicating missing required variables
+**Pass Criteria**: Note created. Content contains unsubstituted `{{variable}}` placeholders for missing variables. Provided variables substituted correctly.
 
-**Pass Criteria**: Defined behavior (either approach is valid)
+---
+
+### TMPL-012b: Instantiate Template - Missing Variables — Reject
+
+**Isolation**: Required — negative test expects error response
+
+**MCP Tool**: `instantiate_template`
+
+```javascript
+instantiate_template({
+  id: meeting_template_id,
+  variables: {
+    meeting_type: "Standup"
+  },
+  revision_mode: "none"
+})
+```
+
+**Pass Criteria**: Returns **400 Bad Request** — missing required variables: date, attendees, duration, agenda.
+
+**Expected: XFAIL** — API currently leaves placeholders unsubstituted rather than rejecting.
 
 ---
 
@@ -445,7 +463,8 @@ delete_template({ id: project_template_id })
 | TMPL-009 | `instantiate_template` | | Basic instantiation |
 | TMPL-010 | `instantiate_template` | | Instantiation with extra tags |
 | TMPL-011 | `instantiate_template` | | Instantiation to collection |
-| TMPL-012 | `instantiate_template` | | Missing variables handling |
+| TMPL-012a | `instantiate_template` | | Missing vars leave placeholders |
+| TMPL-012b | `instantiate_template` | | Missing vars reject (XFAIL) |
 | TMPL-013 | `instantiate_template` | | Instantiation with AI revision |
 | TMPL-014 | `delete_template` | | Delete template |
 | TMPL-015 | `get_note` | | Notes survive template deletion |

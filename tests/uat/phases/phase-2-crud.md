@@ -106,7 +106,7 @@ get_note({ id: "<crud_test_note_id>" })
 get_note({ id: "00000000-0000-0000-0000-000000000000" })
 ```
 
-**Pass Criteria**: Returns error (not crash)
+**Pass Criteria**: Returns **404 Not Found** error (not crash or 500)
 
 ---
 

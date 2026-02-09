@@ -198,7 +198,7 @@ memory_info()
 get_note({ id: "nonexistent-uuid-value" })
 ```
 
-**Pass Criteria**: Returns "not found" error (not auth error) - confirms authenticated session works
+**Pass Criteria**: Returns **404 Not Found** (not an auth error — resource genuinely doesn't exist, confirming authenticated session works)
 
 ---
 

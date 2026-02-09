@@ -306,49 +306,6 @@ mv temp.pdf documents/pdf-single-page.pdf
 
 ---
 
-### pdf-multi-page.pdf
-
-**Category**: Multi-page PDF with table of contents
-
-**Specifications**:
-- Format: PDF 1.6
-- Size: ~150KB
-- Pages: 5
-- Content: Structured document with sections, headings, and TOC
-- Bookmarks: Present
-- Fonts: Embedded
-
-**Structure**:
-- Page 1: Title page
-- Page 2: Table of Contents
-- Page 3-5: Sections with headings
-
-**Expected Extraction**:
-```json
-{
-  "document_type": "pdf",
-  "chunking_strategy": "per_section",
-  "page_count": 5,
-  "chunks": [
-    {"section": "title", "page": 1, "content": "..."},
-    {"section": "toc", "page": 2, "content": "..."},
-    {"section": "section_1", "page": 3, "content": "..."},
-    {"section": "section_2", "page": 4, "content": "..."},
-    {"section": "section_3", "page": 5, "content": "..."}
-  ]
-}
-```
-
-**Test Scenarios**:
-- Multi-page PDF handling
-- Section-based chunking
-- TOC extraction
-- Page-aware chunking
-
-**Generation**: Use LaTeX or LibreOffice to create structured document
-
----
-
 ### code-python.py
 
 **Category**: Python source code
@@ -963,6 +920,66 @@ with open('documents/csv-data.csv', 'w', newline='') as f:
 
 ---
 
+### config.txt
+
+**Category**: Plain text configuration
+
+**Specifications**:
+- Format: Plain text
+- Size: ~500 bytes
+- Content: Simple key=value configuration
+
+**Test Scenarios**:
+- Plain text type detection
+- Config file handling
+
+---
+
+### readme.txt
+
+**Category**: Plain text README
+
+**Specifications**:
+- Format: Plain text
+- Size: ~1KB
+- Content: Project readme in plain text format
+
+**Test Scenarios**:
+- Document type detection (DOC-005, DOC-011)
+- Text processing
+
+---
+
+### test.txt
+
+**Category**: Plain text test document
+
+**Specifications**:
+- Format: Plain text
+- Size: ~500 bytes
+- Content: Simple test content
+
+**Test Scenarios**:
+- Basic text handling
+- Document type detection (DOC-006)
+
+---
+
+### test-document.pdf
+
+**Category**: Additional PDF test document
+
+**Specifications**:
+- Format: PDF
+- Size: ~50KB
+- Content: Generated test PDF for supplementary testing
+
+**Test Scenarios**:
+- PDF type detection
+- Alternate PDF handling
+
+---
+
 ## Audio
 
 ### english-speech-5s.mp3
@@ -1500,6 +1517,36 @@ curl http://localhost:3000/api/v1/notes/{note_id} | jq '.note.document_type_name
 
 ---
 
+### malware.exe
+
+**Category**: Suspicious file extension edge case
+
+**Specifications**:
+- Format: Executable file extension
+- Size: ~100 bytes
+- Content: Harmless placeholder (not actual malware)
+
+**Test Scenarios**:
+- Dangerous file extension handling
+- Upload security filtering
+
+---
+
+### script.sh
+
+**Category**: Script file upload edge case
+
+**Specifications**:
+- Format: Shell script
+- Size: ~200 bytes
+- Content: Simple bash script
+
+**Test Scenarios**:
+- Script upload handling
+- Executable file type detection
+
+---
+
 ## Provenance
 
 ### paris-eiffel-tower.jpg
@@ -1633,11 +1680,11 @@ HAVING COUNT(*) > 1;
 | Category | Count | Total Size |
 |----------|-------|------------|
 | Images | 7 | ~2.5 MB |
-| Documents | 10 | ~200 KB |
+| Documents | 14 | ~200 KB |
 | Audio | 3 | ~300 KB |
 | Multilingual | 13 | ~50 KB |
-| Edge Cases | 6 | ~120 KB |
+| Edge Cases | 8 | ~120 KB |
 | Provenance | 7 | ~3 MB |
-| **Total** | **46** | **~6.2 MB** |
+| **Total** | **52** | **~6.2 MB** |
 
 All test files combined should be under 10 MB to keep the repository lean.

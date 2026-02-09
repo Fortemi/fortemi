@@ -16,7 +16,7 @@
 
 ## Input Validation
 
-### EDGE-001: Empty Content
+### EDGE-001a: Empty Content — Accept
 
 **MCP Tool**: `create_note`
 
@@ -27,11 +27,26 @@ create_note({
 })
 ```
 
-**Pass Criteria**: Either:
-- Returns error with clear message, OR
-- Creates note with empty content (depending on design)
+**Pass Criteria**: Creates note with empty content. Returns note_id. No crash or 500 error.
 
-**Not Acceptable**: Crash or 500 error
+---
+
+### EDGE-001b: Empty Content — Reject
+
+**Isolation**: Required — negative test expects error response
+
+**MCP Tool**: `create_note`
+
+```javascript
+create_note({
+  content: "",
+  tags: ["uat/edge"]
+})
+```
+
+**Pass Criteria**: Returns **400 Bad Request** — content cannot be empty.
+
+**Expected: XFAIL** — API currently accepts empty content.
 
 ---
 
@@ -92,7 +107,7 @@ create_note({
 })
 ```
 
-**Pass Criteria**: Clear validation error
+**Pass Criteria**: Returns **400 Bad Request** validation error
 
 ---
 
@@ -265,7 +280,7 @@ get_note({ id: "invalid" })
 list_notes({ limit: 5 })
 ```
 
-**Pass Criteria**: System recovers, normal operations work
+**Pass Criteria**: First call returns **400 Bad Request**, second call returns **200 OK** — system recovers gracefully
 
 ---
 
@@ -273,7 +288,8 @@ list_notes({ limit: 5 })
 
 | Test ID | Name | MCP Tool(s) | Status |
 |---------|------|-------------|--------|
-| EDGE-001 | Empty Content | `create_note` | |
+| EDGE-001a | Empty Content Accept | `create_note` | |
+| EDGE-001b | Empty Content Reject (XFAIL) | `create_note` | |
 | EDGE-002 | Very Long Content | `create_note` | |
 | EDGE-003 | Invalid UUID | `get_note` | |
 | EDGE-004 | Non-existent UUID | `get_note` | |

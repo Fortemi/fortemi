@@ -39,14 +39,12 @@ list_document_types({ category: "code" })
 
 **MCP Tool**: `list_document_types`
 
-> **Note**: The `is_system` filter is not currently supported by the API or MCP tool.
-> The `list_document_types` tool only supports filtering by `category`.
-> System types can be identified by checking the `is_system` field in individual type responses.
-
 ```javascript
 // Workaround: list all and inspect is_system field on each type
 list_document_types({ detail: true })
 ```
+
+> **MCP Gap**: `list_document_types` does not support `is_system` filter parameter. Workaround: List all types with `detail: true` and inspect the `is_system` field on each returned type.
 
 **Pass Criteria**: Returns types with `is_system` field present on each type object
 
@@ -202,7 +200,7 @@ update_document_type({
 })
 ```
 
-**Pass Criteria**: Returns error (system types are immutable)
+**Pass Criteria**: Returns **400 Bad Request** — system document types are immutable
 
 ---
 
@@ -228,7 +226,7 @@ delete_document_type({ name: "uat-custom-type" })
 delete_document_type({ name: "rust" })
 ```
 
-**Pass Criteria**: Returns error (system types cannot be deleted)
+**Pass Criteria**: Returns **400 Bad Request** — system document types cannot be deleted
 
 ---
 

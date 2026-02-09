@@ -228,13 +228,11 @@
 
 ---
 
-### PROC-007: Override with Invalid Type
-
-**Isolation**: Recommended — dual-path test may error or fallback
+### PROC-007a: Override with Invalid Type — Fallback to Auto-Detection
 
 **MCP Tool**: `create_note`, `upload_attachment`
 
-**Description**: Upload a file with an invalid (non-existent) `document_type_id` and verify graceful error handling
+**Description**: Upload file with non-existent `document_type_id`. Verify API falls back to auto-detection.
 
 **Prerequisites**: None
 
@@ -245,16 +243,32 @@
    ```
 2. Upload with fake type ID (two-step process):
    ```javascript
-   // Step 1: Get upload URL with invalid document_type_id
    upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
-   // Step 2: Execute the returned curl command with actual file (if step 1 succeeds)
-   // curl -s -X POST -F "file=@tests/uat/data/documents/test.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
+   // Execute the returned curl command
    ```
 
-**Expected Results**:
-- Either: Returns error with clear message about invalid document type
-- Or: Falls back to auto-detection (accepts upload, ignores invalid override)
-- No crash or panic
+**Pass Criteria**: Upload succeeds. Invalid document_type_id ignored. Document type auto-detected from content/extension. No crash.
+
+---
+
+### PROC-007b: Override with Invalid Type — Reject
+
+**Isolation**: Required — negative test expects error response
+
+**MCP Tool**: `upload_attachment`
+
+**Description**: Upload file with non-existent `document_type_id`. Verify API rejects.
+
+**Prerequisites**: Note from PROC-007a
+
+**Steps**:
+```javascript
+upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
+```
+
+**Pass Criteria**: Returns **400 Bad Request** — document_type_id does not exist.
+
+**Expected: XFAIL** — API currently falls back to auto-detection rather than rejecting.
 
 ---
 
@@ -1081,7 +1095,8 @@
 | PROC-004 | Auto-detect JSON Config | `upload_attachment`, `get_attachment` | |
 | PROC-005 | Auto-detect from MIME Only | `create_note`, `upload_attachment`, `get_attachment` | |
 | PROC-006 | Override with Valid Type | `get_document_type`, `create_note`, `upload_attachment` | |
-| PROC-007 | Override with Invalid Type | `create_note`, `upload_attachment` | |
+| PROC-007a | Invalid Type Override Fallback | `create_note`, `upload_attachment` | |
+| PROC-007b | Invalid Type Override Reject (XFAIL) | `upload_attachment` | |
 | PROC-008 | No Override Uses Detection | `upload_attachment`, `get_attachment` | |
 | PROC-009 | Override MIME-based Detection | `get_document_type`, `create_note`, `upload_attachment`, `get_attachment` | |
 | PROC-010 | Text File -> TextNative | `upload_attachment`, `get_attachment` | |

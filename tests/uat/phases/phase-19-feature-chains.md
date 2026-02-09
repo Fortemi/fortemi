@@ -311,8 +311,28 @@ export_note({
 
 ---
 
+### CHAIN-006b: Chain 1 Error — Search Non-Existent Embedding Set
+
+**Isolation**: Required
+
+**MCP Tool**: `search_notes`
+
+**Description**: Attempt to search within an embedding set that doesn't exist.
+
+```javascript
+search_notes({
+  query: "python code",
+  embedding_set_id: "00000000-0000-0000-0000-000000000000",
+  limit: 10
+})
+```
+
+**Pass Criteria**: Returns **404 Not Found** — embedding set does not exist. No results returned.
+
+---
+
 **Chain 1 Summary**:
-- Total steps: 6
+- Total steps: 7
 - Features exercised: File upload, document type detection, embedding, semantic search, versioning, export
 - Success criteria: All steps pass with expected results
 
@@ -549,8 +569,28 @@ get_memory_provenance({
 
 ---
 
+### CHAIN-012b: Chain 2 Error — Spatial Search with Impossible Coordinates
+
+**Isolation**: Required
+
+**MCP Tool**: `search_memories_by_location`
+
+**Description**: Search with coordinates outside valid range (latitude > 90).
+
+```javascript
+search_memories_by_location({
+  latitude: 999.0,
+  longitude: 999.0,
+  radius_km: 10
+})
+```
+
+**Pass Criteria**: Returns **400 Bad Request** — invalid coordinates. Alternatively, returns empty results array gracefully.
+
+---
+
 **Chain 2 Summary**:
-- Total steps: 6
+- Total steps: 7
 - Features exercised: GPS-tagged photo upload, EXIF extraction, automatic provenance creation, spatial search, temporal search, combined search, provenance chain
 - Success criteria: Geo-temporal search functional via EXIF-derived provenance
 - **Dependency**: Requires attachment uploads to work (#252 must be fixed)
@@ -950,8 +990,27 @@ knowledge_shard({
 
 ---
 
+### CHAIN-019b: Chain 3 Error — Tag Concept to Non-Existent Note
+
+**Isolation**: Required
+
+**MCP Tool**: `tag_note_concept`
+
+**Description**: Attempt to tag a SKOS concept to a note that doesn't exist.
+
+```javascript
+tag_note_concept({
+  note_id: "00000000-0000-0000-0000-000000000000",
+  concept_id: "{python_concept_id}"
+})
+```
+
+**Pass Criteria**: Returns **404 Not Found** — note does not exist. No orphaned concept-tag created.
+
+---
+
 **Chain 3 Summary**:
-- Total steps: 7
+- Total steps: 8
 - Features exercised: SKOS taxonomy, concept hierarchy, collections, tagging, strict filtering, graph exploration, knowledge shard export
 - Success criteria: Knowledge graph navigable and exportable
 
@@ -1208,8 +1267,27 @@ search_notes({
 
 ---
 
+### CHAIN-025b: Chain 4 Error — Search with Empty Query
+
+**Isolation**: Required
+
+**MCP Tool**: `search_notes`
+
+**Description**: Attempt a search with an empty query string.
+
+```javascript
+search_notes({
+  query: "",
+  limit: 10
+})
+```
+
+**Pass Criteria**: Returns **400 Bad Request** — query string cannot be empty. Alternatively, returns empty results array gracefully.
+
+---
+
 **Chain 4 Summary**:
-- Total steps: 6
+- Total steps: 7
 - Features exercised: Multilingual FTS, stemming (EN/DE), CJK bigram, emoji trigram, semantic cross-language search
 - Success criteria: All language-specific searches work correctly
 
@@ -1418,8 +1496,28 @@ get_note({ id: "{sensitive_note_id}" })
 
 ---
 
+### CHAIN-031b: Chain 5 Error — Encrypt with Non-Existent Keyset
+
+**Isolation**: Required
+
+**MCP Tool**: `pke_encrypt`
+
+**Description**: Attempt to encrypt a note using a keyset that doesn't exist.
+
+```javascript
+pke_encrypt({
+  note_id: "{sensitive_note_id}",
+  keyset_id: "nonexistent-keyset-id",
+  recipients: ["addr_00000000"]
+})
+```
+
+**Pass Criteria**: Returns **404 Not Found** — keyset does not exist. Note content unchanged.
+
+---
+
 **Chain 5 Summary**:
-- Total steps: 6
+- Total steps: 7
 - Features exercised: PKE keyset generation, note encryption, PKE address sharing, decryption, content integrity verification
 - Success criteria: Encryption cycle preserves data integrity
 
@@ -1431,7 +1529,7 @@ get_note({ id: "{sensitive_note_id}" })
 
 **Duration**: ~4 minutes
 
-> **Caution**: CHAIN-035 uses `database_restore` with `restore_mode: "full"`, which reverts the **entire database** to the snapshot state. Data created by Chains 1-5 after the snapshot was taken will be lost. This is by design for testing restore functionality, but means Chains 7-8 may need to recreate any prerequisite data. If running chains independently, execute Chain 6 last or verify that subsequent chains do not depend on data from Chains 1-5.
+> **DATA DESTRUCTION WARNING**: Chain 6 performs a **full database restore** (CHAIN-035) that **wipes ALL data** created by Chains 1-5 after the snapshot point. This is intentional for testing restore functionality. Chains 7-8 must recreate any prerequisite data independently. If running chains in isolation, execute Chain 6 last.
 
 ---
 
@@ -1574,6 +1672,8 @@ list_notes({ tags: ["uat/chain6"] })
 
 ### CHAIN-035: Restore from Snapshot
 
+> **DATA DESTRUCTION**: This test performs `restore_mode: "full"` which **erases all data** created after the snapshot. All notes, tags, collections, embeddings, SKOS concepts, and PKE data from Chains 1-5 will be permanently lost. Chains 7-8 recreate their own prerequisite data.
+
 **MCP Tools**: `database_restore`, `backup_status`
 
 **Description**: Restore database from backup snapshot
@@ -1670,8 +1770,27 @@ get_note_links({ note_id: "{backup_note1_id}" })
 
 ---
 
+### CHAIN-036b: Chain 6 Error — Restore Non-Existent Snapshot
+
+**Isolation**: Required
+
+**MCP Tool**: `database_restore`
+
+**Description**: Attempt to restore from a snapshot ID that doesn't exist.
+
+```javascript
+database_restore({
+  snapshot_id: "nonexistent-snapshot-id-00000",
+  restore_mode: "full"
+})
+```
+
+**Pass Criteria**: Returns **404 Not Found** — snapshot does not exist. Database state unchanged.
+
+---
+
 **Chain 6 Summary**:
-- Total steps: 5
+- Total steps: 6
 - Features exercised: Backup snapshot, data deletion, restore, data integrity verification
 - Success criteria: Complete data recovery from backup
 
@@ -1800,6 +1919,8 @@ search_notes({
 })
 // Expected: returns only py_dataclass_note_id
 ```
+
+> **MCP Gap**: No `list_notes_in_embedding_set` tool exists. Workaround: Use `search_notes` with the embedding set slug as filter. Filed for tracking.
 
 **Expected Results**:
 - Set contains only matching notes
@@ -1937,8 +2058,28 @@ get_embedding_set({ set_id: "{python_set_id}" })
 
 ---
 
+### CHAIN-042b: Chain 7 Error — Create Embedding Set with Invalid Config
+
+**Isolation**: Required
+
+**MCP Tool**: `create_embedding_set`
+
+**Description**: Attempt to create an embedding set referencing a non-existent embedding config.
+
+```javascript
+create_embedding_set({
+  slug: "uat-error-test-set",
+  name: "Error Test Set",
+  embedding_config_id: "00000000-0000-0000-0000-000000000000"
+})
+```
+
+**Pass Criteria**: Returns **400 Bad Request** or **404 Not Found** — embedding config does not exist. No orphaned embedding set created.
+
+---
+
 **Chain 7 Summary**:
-- Total steps: 6
+- Total steps: 7
 - Features exercised: Embedding set creation, inclusion criteria, auto-population, focused search, model config update, re-embedding
 - Success criteria: Embedding sets provide guaranteed data isolation
 
@@ -2138,8 +2279,26 @@ get_knowledge_health({})
 
 ---
 
+### CHAIN-047b: Chain 8 Error — Reembed Non-Existent Embedding Set
+
+**Isolation**: Required
+
+**MCP Tool**: `refresh_embedding_set`
+
+**Description**: Attempt to refresh an embedding set that doesn't exist.
+
+```javascript
+refresh_embedding_set({
+  set_id: "00000000-0000-0000-0000-000000000000"
+})
+```
+
+**Pass Criteria**: Returns **404 Not Found** — embedding set does not exist. No side effects.
+
+---
+
 **Chain 8 Summary**:
-- Total steps: 5
+- Total steps: 6
 - Features exercised: Health monitoring, issue detection, health reporting, remediation
 - Success criteria: Observability provides actionable insights
 
@@ -2225,19 +2384,19 @@ list_concept_schemes({})
 
 | Chain | Name | Steps | MCP Tool(s) | Status |
 |-------|------|-------|-------------|--------|
-| Chain 1 | Document Lifecycle | 6 | `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note` | |
-| Chain 2 | Geo-Temporal Memory | 6 | `create_note`, `upload_attachment`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
-| Chain 3 | Knowledge Organization | 7 | `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `search_notes`, `explore_graph`, `export_skos_turtle`, `knowledge_shard` | |
-| Chain 4 | Multilingual Search | 6 | `create_note`, `search_notes` | |
-| Chain 5 | Encryption & Sharing | 6 | `pke_create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `pke_get_address`, `pke_decrypt` | |
-| Chain 6 | Backup & Recovery | 5 | `create_note`, `get_note_links`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `get_note` | |
-| Chain 7 | Embedding Set Focus | 6 | `create_embedding_set`, `create_note`, `get_embedding_set`, `search_notes`, `refresh_embedding_set` | |
-| Chain 8 | Full Observability | 5 | `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all` | |
+| Chain 1 | Document Lifecycle | 7 | `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note` | |
+| Chain 2 | Geo-Temporal Memory | 7 | `create_note`, `upload_attachment`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
+| Chain 3 | Knowledge Organization | 8 | `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `search_notes`, `explore_graph`, `export_skos_turtle`, `knowledge_shard` | |
+| Chain 4 | Multilingual Search | 7 | `create_note`, `search_notes` | |
+| Chain 5 | Encryption & Sharing | 7 | `pke_create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `pke_get_address`, `pke_decrypt` | |
+| Chain 6 | Backup & Recovery | 6 | `create_note`, `get_note_links`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `get_note` | |
+| Chain 7 | Embedding Set Focus | 7 | `create_embedding_set`, `create_note`, `get_embedding_set`, `search_notes`, `refresh_embedding_set` | |
+| Chain 8 | Full Observability | 6 | `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all` | |
 | Cleanup | Delete Test Data | 1 | `list_notes`, `delete_note`, `delete_collection`, `list_concept_schemes` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 
-**Total Steps**: 48
+**Total Steps**: 56
 **Total Duration**: ~45 minutes
 **Features Integrated**: 25+ features across 8 workflows
 

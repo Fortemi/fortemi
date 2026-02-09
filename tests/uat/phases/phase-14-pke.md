@@ -266,9 +266,7 @@ pke_decrypt({
 })
 ```
 
-**Expected**: Error - not a recipient
-
-**Pass Criteria**: Graceful error handling
+**Pass Criteria**: Returns **403 Forbidden** — decryption failed (not a valid recipient)
 
 ---
 
