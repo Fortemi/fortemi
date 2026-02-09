@@ -6,35 +6,53 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `create_note`, `upload_attachment`, `list_attachments`, `get_attachment`, `download_attachment`, `delete_attachment`
 
-> **Attachment Workflow Architecture**: The attachment system uses a hybrid HTTP+MCP approach optimized for binary file transfer:
+> **Attachment Workflow Architecture**: The attachment system uses a two-step MCP+HTTP approach optimized for binary file transfer:
 >
-> **For Remote MCP Deployments** (the common case):
-> - **Upload**: Use HTTP API with base64-encoded JSON body
-> - **Manage**: Use MCP tools (`list_attachments`, `get_attachment`, `delete_attachment`) for metadata
-> - **Download**: Use HTTP API to retrieve binary data
+> **Upload Flow** (all deployments):
+> 1. Call MCP `upload_attachment` with `note_id` and `filename` — returns a curl command with auth token
+> 2. Execute the curl command with the actual file path — multipart/form-data upload directly to API
+> 3. API returns attachment metadata (id, filename, status, etc.)
 >
-> **For Co-located MCP Deployments** (MCP server on same machine):
-> - **Upload**: Use MCP `upload_attachment` tool with `file_path` parameter
-> - **Manage**: Same MCP tools
-> - **Download**: Use MCP `download_attachment` tool with `output_dir` parameter
+> **Download Flow** (all deployments):
+> 1. Call MCP `download_attachment` with attachment `id` — returns a curl command with download URL
+> 2. Execute the curl command to save the file to disk
+>
+> **Metadata Operations** (MCP tools directly):
+> - `list_attachments` — list attachments for a note
+> - `get_attachment` — get full attachment metadata
+> - `delete_attachment` — delete an attachment
 >
 > **Why This Architecture**:
-> - Binary data transfer via HTTP API avoids passing large base64 payloads through MCP protocol
-> - MCP tools excel at metadata operations (list, get details, delete)
-> - Co-located deployments can use filesystem-based I/O for efficiency
+> - Binary data never passes through the MCP protocol or LLM context window
+> - Multipart/form-data supports files up to 50MB with content-hash deduplication
+> - MCP tool provides the auth token so agents don't need to manage credentials
+> - No base64 encoding needed — direct binary upload
 
-> **HTTP Upload Pattern** (for remote deployments):
+> **Upload Pattern**:
 > ```bash
-> # 1. Encode file and upload via HTTP API
-> python3 -c "import base64,json; data=base64.b64encode(open('FILE_PATH','rb').read()).decode(); print(json.dumps({'filename':'NAME','content_type':'MIME','data':data}))" > /tmp/upload.json
-> curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/upload.json \
->   https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments
+> # 1. Get upload URL and curl command from MCP
+> upload_attachment({ note_id: "<note-uuid>", filename: "photo.jpg", content_type: "image/jpeg" })
+> # Returns: { upload_url, curl_command, max_size: "50MB" }
+>
+> # 2. Execute the curl command (replacing filename with actual path)
+> curl -X POST \
+>   -F "file=@/path/to/photo.jpg;type=image/jpeg" \
+>   -H "Authorization: Bearer <token>" \
+>   "https://memory.integrolabs.net/api/v1/notes/<note-id>/attachments/upload"
 > ```
 >
-> **HTTP Download Pattern**:
+> **Download Pattern**:
 > ```bash
-> curl -s -o OUTPUT_FILE https://memory.integrolabs.net/api/v1/attachments/{attachment_id}/download
+> # 1. Get download URL from MCP
+> download_attachment({ id: "<attachment-uuid>" })
+> # Returns: { download_url, curl_command }
+>
+> # 2. Execute the curl command
+> curl -s -o photo.jpg "<download-url>"
 > ```
+>
+> **Important**: The curl command returned by MCP uses `localhost:3000` (internal).
+> Replace with `https://memory.integrolabs.net` for external access.
 
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
@@ -49,7 +67,7 @@
 
 ### UAT-2B-001: Upload Image File
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a JPEG image and verify attachment record creation
 
@@ -60,12 +78,13 @@
 **Steps**:
 1. Create a test note: `create_note({ content: "# Photo Test", tags: ["uat/attachments"], revision_mode: "none" })`
 2. Store the returned note ID as `attachment_test_note_id`
-3. **Co-located Upload** (MCP): `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })`
-4. **Remote Upload** (HTTP API):
+3. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+4. Execute the returned curl command with actual file path:
    ```bash
-   python3 -c "import base64,json; data=base64.b64encode(open('tests/uat/data/images/jpeg-with-exif.jpg','rb').read()).decode(); print(json.dumps({'filename':'jpeg-with-exif.jpg','content_type':'image/jpeg','data':data}))" > /tmp/upload.json
-   curl -s -X POST -H 'Content-Type: application/json' -d @/tmp/upload.json \
-     https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments
+   curl -s -X POST \
+     -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
    ```
 
 **Expected Results**:
@@ -84,7 +103,7 @@
 
 ### UAT-2B-002: Upload PDF Document
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a PDF file and verify storage
 
@@ -93,8 +112,14 @@
 - PDF file available (test-document.pdf)
 
 **Steps**:
-1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/documents/test-document.pdf", content_type: "application/pdf" })`
-2. **Remote**: Use HTTP upload pattern with PDF file
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-document.pdf", content_type: "application/pdf" })`
+2. Execute curl with actual file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/documents/test-document.pdf;type=application/pdf" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns attachment record with `content_type: "application/pdf"`
@@ -109,7 +134,7 @@
 
 ### UAT-2B-003: Upload Audio File
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload an audio file (MP3) and verify storage
 
@@ -118,8 +143,14 @@
 - Audio file available (test-audio.mp3)
 
 **Steps**:
-1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/audio/test-audio.mp3", content_type: "audio/mpeg" })`
-2. **Remote**: Use HTTP upload pattern
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-audio.mp3", content_type: "audio/mpeg" })`
+2. Execute curl with actual file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/audio/test-audio.mp3;type=audio/mpeg" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns attachment record with `content_type: "audio/mpeg"`
@@ -131,7 +162,7 @@
 
 ### UAT-2B-004: Upload Video File
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a video file (MP4) and verify storage
 
@@ -140,8 +171,14 @@
 - Video file available (test-video.mp4, preferably small <50MB)
 
 **Steps**:
-1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/video/test-video.mp4", content_type: "video/mp4" })`
-2. **Remote**: Use HTTP upload pattern
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-video.mp4", content_type: "video/mp4" })`
+2. Execute curl with actual file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/video/test-video.mp4;type=video/mp4" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns attachment record with `content_type: "video/mp4"`
@@ -153,7 +190,7 @@
 
 ### UAT-2B-005: Upload 3D Model File
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Upload a 3D model file (GLB/GLTF) and verify storage
 
@@ -162,8 +199,14 @@
 - 3D model file available (test-model.glb)
 
 **Steps**:
-1. **Co-located**: `upload_attachment({ note_id: attachment_test_note_id, file_path: "tests/uat/data/models/test-model.glb", content_type: "model/gltf-binary" })`
-2. **Remote**: Use HTTP upload pattern
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test-model.glb", content_type: "model/gltf-binary" })`
+2. Execute curl with actual file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/models/test-model.glb;type=model/gltf-binary" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns attachment record with `content_type: "model/gltf-binary"`
@@ -177,7 +220,7 @@
 
 ### UAT-2B-006: Download File and Verify Integrity
 
-**MCP Tool**: `download_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `download_attachment`
 
 **Description**: Download uploaded image and verify content matches
 
@@ -185,18 +228,18 @@
 - `attachment_image_id` from UAT-2B-001
 
 **Steps**:
-1. **Co-located**: `download_attachment({ id: attachment_image_id, output_dir: "/tmp/uat" })`
-2. **Remote**:
+1. Get download command: `download_attachment({ id: attachment_image_id })`
+2. Execute curl to save file:
    ```bash
-   curl -s -o /tmp/uat/jpeg-with-exif.jpg https://memory.integrolabs.net/api/v1/attachments/{attachment_image_id}/download
+   curl -s -o /tmp/uat/jpeg-with-exif.jpg "https://memory.integrolabs.net/api/v1/attachments/{attachment_image_id}/download"
    ```
 3. Compute BLAKE3 hash of saved file
 4. Compare with original file hash: `tests/uat/data/images/jpeg-with-exif.jpg`
 
 **Expected Results**:
-- MCP returns `{ saved_to: "/tmp/uat/jpeg-with-exif.jpg", filename: "jpeg-with-exif.jpg", size_bytes: <size>, content_type: "image/jpeg" }`
+- MCP returns `{ download_url: "...", curl_command: "..." }`
 - HTTP returns binary data with `Content-Type: image/jpeg` and `Content-Disposition` headers
-- `saved_to` path exists on disk
+- Downloaded file exists on disk
 - File size matches original
 
 **Verification**:
@@ -209,21 +252,21 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `download_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `download_attachment`
 
 **Description**: Attempt to download non-existent attachment and verify error handling
 
 **Prerequisites**: None
 
 **Steps**:
-1. **Co-located**: `download_attachment({ id: "00000000-0000-0000-0000-000000000000", output_dir: "/tmp/uat" })`
-2. **Remote**: `curl -s -o /tmp/uat/test.bin https://memory.integrolabs.net/api/v1/attachments/00000000-0000-0000-0000-000000000000/download`
+1. Get download command: `download_attachment({ id: "00000000-0000-0000-0000-000000000000" })`
+2. Execute curl: `curl -s -o /tmp/uat/test.bin "https://memory.integrolabs.net/api/v1/attachments/00000000-0000-0000-0000-000000000000/download"`
 
 **Expected Results**:
 - Returns error with status 404
 - Error message: "Attachment not found"
 - No crash or panic
-- No file written to output_dir
+- No file written to output location
 
 ---
 
@@ -231,7 +274,7 @@
 
 ### UAT-2B-008: Upload Duplicate File
 
-**MCP Tool**: `create_note`, `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `create_note`, `upload_attachment`
 
 **Description**: Upload same file twice and verify deduplication
 
@@ -242,8 +285,14 @@
 **Steps**:
 1. Create new note: `create_note({ content: "# Duplicate Test", tags: ["uat/dedup"], revision_mode: "none" })`
 2. Store note ID as `dedup_note_id`
-3. **Co-located**: `upload_attachment({ note_id: dedup_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg", filename: "duplicate-photo.jpg" })`
-4. **Remote**: Use HTTP upload pattern with same file
+3. Get upload command: `upload_attachment({ note_id: dedup_note_id, filename: "duplicate-photo.jpg", content_type: "image/jpeg" })`
+4. Execute curl with same file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{dedup_note_id}/attachments/upload"
+   ```
 5. Query attachment_blob table: `SELECT COUNT(*), content_hash FROM attachment_blob WHERE content_hash = '<hash>' GROUP BY content_hash`
 
 **Expected Results**:
@@ -264,7 +313,7 @@
 
 ### UAT-2B-009: EXIF GPS Extraction
 
-**MCP Tool**: `create_note`, `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
+**MCP Tool**: `create_note`, `upload_attachment`, `get_attachment`
 
 **Description**: Upload photo with GPS EXIF data and verify extraction
 
@@ -274,9 +323,10 @@
 
 **Steps**:
 1. Create note: `create_note({ content: "# EXIF Test", tags: ["uat/exif"], revision_mode: "none" })`
-2. Upload JPEG with GPS (use MCP or HTTP as appropriate)
-3. Wait 2 seconds for EXIF extraction job
-4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
+2. Get upload command: `upload_attachment({ note_id: <note-id>, filename: "jpeg-with-exif.jpg", content_type: "image/jpeg" })`
+3. Execute curl with JPEG file
+4. Wait 2 seconds for EXIF extraction job
+5. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - Attachment `extracted_metadata` contains GPS coordinates
@@ -294,7 +344,7 @@
 
 ### UAT-2B-010: EXIF Camera Metadata
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
+**MCP Tool**: `upload_attachment`, `get_attachment`
 
 **Description**: Verify camera make/model extraction from EXIF
 
@@ -302,9 +352,10 @@
 - JPEG with camera EXIF data (Make, Model)
 
 **Steps**:
-1. Upload JPEG with camera EXIF (use MCP or HTTP as appropriate)
-2. Wait 2 seconds for EXIF extraction
-3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
+1. Get upload command: `upload_attachment({ note_id: <note-id>, filename: "camera-photo.jpg", content_type: "image/jpeg" })`
+2. Execute curl with JPEG file
+3. Wait 2 seconds for EXIF extraction
+4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - `extracted_metadata.camera.make` present (e.g., "Apple", "Canon")
@@ -318,7 +369,7 @@
 
 ### UAT-2B-011: EXIF Timestamp Extraction
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote), `get_attachment`
+**MCP Tool**: `upload_attachment`, `get_attachment`
 
 **Description**: Verify date/time extraction from EXIF
 
@@ -326,9 +377,10 @@
 - JPEG with DateTimeOriginal EXIF tag
 
 **Steps**:
-1. Upload JPEG (use MCP or HTTP as appropriate)
-2. Wait 2 seconds for EXIF extraction
-3. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
+1. Get upload command: `upload_attachment({ note_id: <note-id>, filename: "timestamped-photo.jpg", content_type: "image/jpeg" })`
+2. Execute curl with JPEG file
+3. Wait 2 seconds for EXIF extraction
+4. Get attachment: `get_attachment({ attachment_id: <attachment_id> })`
 
 **Expected Results**:
 - `extracted_metadata.datetime_original` present
@@ -343,14 +395,21 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to upload executable and verify rejection
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/malware.exe`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "malware.exe", content_type: "application/x-msdownload" })`
+2. Execute curl with executable file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/edge-cases/malware.exe;type=application/x-msdownload" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns error with status 400
@@ -367,14 +426,21 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Verify rejection of script files
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt to upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/script.sh`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "script.sh", content_type: "application/x-sh" })`
+2. Execute curl with script file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/edge-cases/script.sh;type=application/x-sh" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - Returns error with status 400
@@ -385,7 +451,7 @@
 
 ### UAT-2B-014: Magic Bytes Validation
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Verify MIME type matches file content (magic bytes)
 
@@ -393,7 +459,14 @@
 - File with mismatched extension and magic bytes (e.g., PNG magic bytes with .jpg extension)
 
 **Steps**:
-1. Attempt upload (use MCP or HTTP as appropriate): `tests/uat/data/edge-cases/binary-wrong-ext.jpg`
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "binary-wrong-ext.jpg", content_type: "image/jpeg" })`
+2. Execute curl with mismatched file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@tests/uat/data/edge-cases/binary-wrong-ext.jpg;type=image/jpeg" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
 - System detects mismatch (implementation-dependent)
@@ -453,7 +526,7 @@
 
 ### UAT-2B-017: Delete Attachment
 
-**MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `delete_attachment`, `list_attachments`, `download_attachment`
 
 **Description**: Delete an attachment and verify removal
 
@@ -463,7 +536,8 @@
 **Steps**:
 1. Delete attachment: `delete_attachment({ attachment_id: attachment_audio_id })`
 2. List attachments: `list_attachments({ note_id: attachment_test_note_id })`
-3. Attempt to download (use MCP or HTTP as appropriate)
+3. Attempt to download: `download_attachment({ id: attachment_audio_id })`
+4. Execute curl (if command returned)
 
 **Expected Results**:
 - Delete succeeds (no error)
@@ -478,7 +552,7 @@
 
 ### UAT-2B-018: Delete Attachment with Shared Blob
 
-**MCP Tool**: `delete_attachment`, `download_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `delete_attachment`, `download_attachment`
 
 **Description**: Delete attachment that shares blob with another attachment (deduplication)
 
@@ -489,7 +563,8 @@
 1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
 2. Delete duplicate: `delete_attachment({ attachment_id: attachment_duplicate_id })`
 3. Query blob reference count after
-4. Download original (use MCP or HTTP as appropriate)
+4. Download original: `download_attachment({ id: attachment_image_id })`
+5. Execute curl to verify file still accessible
 
 **Expected Results**:
 - Delete succeeds
@@ -508,21 +583,28 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to upload file exceeding size limit
 
 **Prerequisites**:
-- File >2GB (or server-configured limit)
-- Note: For testing, either use `/dev/urandom` via `dd` to generate a large file, or configure a lower limit for testing
+- File >50MB (server-configured limit)
+- Note: For testing, use `dd` to generate a large file
 
 **Steps**:
-1. Generate large file: `dd if=/dev/zero of=/tmp/huge-file.bin bs=1M count=2100` (2.1GB)
-2. Attempt upload (use MCP or HTTP as appropriate)
+1. Generate large file: `dd if=/dev/zero of=/tmp/huge-file.bin bs=1M count=55` (55MB)
+2. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "huge-file.bin", content_type: "application/octet-stream" })`
+3. Execute curl with oversized file:
+   ```bash
+   curl -s -X POST \
+     -F "file=@/tmp/huge-file.bin;type=application/octet-stream" \
+     -H "Authorization: Bearer <token>" \
+     "https://memory.integrolabs.net/api/v1/notes/{attachment_test_note_id}/attachments/upload"
+   ```
 
 **Expected Results**:
-- Returns error with status 413 (Payload Too Large)
-- Error message: "File size exceeds maximum allowed"
+- Returns error with status 400 or 413
+- Error message indicates file size exceeds maximum allowed (50MB)
 - No file stored
 
 **Verification**:
@@ -534,14 +616,15 @@
 
 **Isolation**: Recommended — dual-path test may return error
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Attempt upload with malformed MIME type
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload with content_type: "invalid/invalid/invalid"
+1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test.txt", content_type: "invalid/invalid/invalid" })`
+2. Execute curl with invalid content type (if command returned)
 
 **Expected Results**:
 - Either: Server accepts and sanitizes OR returns 400 error
@@ -554,14 +637,15 @@
 
 **Isolation**: Required — negative test expects error response
 
-**MCP Tool**: `upload_attachment` (co-located) OR HTTP API (remote)
+**MCP Tool**: `upload_attachment`
 
 **Description**: Attempt to attach file to non-existent note
 
 **Prerequisites**: None
 
 **Steps**:
-1. Attempt upload with note_id: "00000000-0000-0000-0000-000000000000"
+1. Get upload command: `upload_attachment({ note_id: "00000000-0000-0000-0000-000000000000", filename: "test.txt", content_type: "text/plain" })`
+2. Execute curl with any file (if command returned)
 
 **Expected Results**:
 - Returns error with status 404
@@ -577,27 +661,27 @@
 
 | Test ID | Name | Tools | Status |
 |---------|------|-------|--------|
-| UAT-2B-001 | Upload Image File | `create_note`, `upload_attachment` (MCP) OR HTTP API, `list_attachments` | |
-| UAT-2B-002 | Upload PDF Document | `upload_attachment` (MCP) OR HTTP API, `list_attachments` | |
-| UAT-2B-003 | Upload Audio File | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-004 | Upload Video File | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-005 | Upload 3D Model File | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-006 | Download File Integrity | `download_attachment` (MCP) OR HTTP API | |
-| UAT-2B-007 | Download Non-Existent | `download_attachment` (MCP) OR HTTP API | |
-| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
-| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
-| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment` (MCP) OR HTTP API, `get_attachment` | |
-| UAT-2B-012 | Block Executable Extension | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-013 | Block Script Extension | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-001 | Upload Image File | `create_note`, `upload_attachment` | |
+| UAT-2B-002 | Upload PDF Document | `upload_attachment` | |
+| UAT-2B-003 | Upload Audio File | `upload_attachment` | |
+| UAT-2B-004 | Upload Video File | `upload_attachment` | |
+| UAT-2B-005 | Upload 3D Model File | `upload_attachment` | |
+| UAT-2B-006 | Download File Integrity | `download_attachment` | |
+| UAT-2B-007 | Download Non-Existent | `download_attachment` | |
+| UAT-2B-008 | Upload Duplicate File | `create_note`, `upload_attachment` | |
+| UAT-2B-009 | EXIF GPS Extraction | `create_note`, `upload_attachment`, `get_attachment` | |
+| UAT-2B-010 | EXIF Camera Metadata | `upload_attachment`, `get_attachment` | |
+| UAT-2B-011 | EXIF Timestamp Extraction | `upload_attachment`, `get_attachment` | |
+| UAT-2B-012 | Block Executable Extension | `upload_attachment` | |
+| UAT-2B-013 | Block Script Extension | `upload_attachment` | |
+| UAT-2B-014 | Magic Bytes Validation | `upload_attachment` | |
 | UAT-2B-015 | List All Attachments | `list_attachments` | |
 | UAT-2B-016 | List Empty Attachments | `create_note`, `list_attachments` | |
-| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` (MCP) OR HTTP API | |
-| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` (MCP) OR HTTP API | |
-| UAT-2B-019 | Upload Oversized File | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-020 | Invalid Content Type | `upload_attachment` (MCP) OR HTTP API | |
-| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` (MCP) OR HTTP API | |
+| UAT-2B-017 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
+| UAT-2B-018 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
+| UAT-2B-019 | Upload Oversized File | `upload_attachment` | |
+| UAT-2B-020 | Invalid Content Type | `upload_attachment` | |
+| UAT-2B-021 | Upload to Non-Existent Note | `upload_attachment` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 
@@ -607,21 +691,23 @@
 
 ## Tools and Architecture
 
-This phase exercises the hybrid attachment system:
+This phase exercises the two-step attachment system:
 
-**MCP Tools** (for metadata operations):
+**MCP Tools** (metadata operations):
 - `list_attachments` - List attachments for a note
 - `get_attachment` - Get attachment metadata
 - `delete_attachment` - Delete attachments
 
-**MCP Tools** (co-located file I/O):
-- `upload_attachment` - Upload files from MCP server filesystem (reads from `file_path`)
-- `download_attachment` - Download files to MCP server filesystem (saves to `output_dir`)
+**Two-Step Upload/Download Flow**:
+- `upload_attachment({ note_id, filename, content_type, document_type_id? })` - Returns `{ upload_url, curl_command, max_size: "50MB" }`
+- Execute curl with `-F "file=@<path>;type=<mime>"` to upload binary file (multipart/form-data)
+- `download_attachment({ id })` - Returns `{ download_url, curl_command }`
+- Execute curl to download binary file
 
-**HTTP API** (remote binary transfer):
-- `POST /api/v1/notes/{id}/attachments` - Upload with base64-encoded JSON body
-- `GET /api/v1/attachments/{id}/download` - Download binary data with Content-Type/Content-Disposition headers
-
-> **Architecture Note**: Binary file operations use filesystem paths (MCP co-located) or HTTP API (remote deployments). Binary data never passes through the MCP protocol for remote deployments, ensuring efficient large file handling.
+> **Architecture Note**: Binary file operations use a two-step process:
+> 1. MCP tool provides authenticated curl command
+> 2. Direct HTTP multipart upload/download handles binary data
+>
+> Binary data NEVER passes through the MCP protocol, enabling efficient large file handling up to 50MB. The MCP tool manages authentication tokens so agents don't need credential management.
 
 All tools are verified for correct behavior, error handling, and edge cases.

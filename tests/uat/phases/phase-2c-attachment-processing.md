@@ -6,9 +6,9 @@
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `create_note`, `upload_attachment`, `get_attachment`, `list_attachments`, `get_document_type`, `detect_document_type`, `list_jobs`, `get_job`, `search_notes`
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. The MCP tool name and exact parameters are specified for each test.
+> **MCP-First Requirement**: Every test in this phase MUST initiate via MCP tool calls. For uploads, the `upload_attachment` MCP tool returns a curl command that must then be executed to transfer the file. For metadata operations (`get_attachment`, `list_attachments`, `detect_document_type`, etc.), use MCP tools directly.
 
-> **File-Based I/O**: The `upload_attachment` tool reads files directly from disk via `file_path` — binary data never passes through the LLM context window. No base64 encoding is needed.
+> **Two-Step Upload Pattern**: The `upload_attachment` MCP tool returns `{ upload_url, curl_command, max_size: "50MB" }`. The agent must then execute the returned curl command with the actual file. Binary data NEVER passes through MCP — multipart form upload supports up to 50MB. Replace localhost:3000 in returned curl commands with https://memory.integrolabs.net.
 
 > **Test Data**: This phase uses files from `tests/uat/data/`. Generate with:
 > ```bash
@@ -43,9 +43,12 @@
    create_note({ content: "# Python Code Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
 2. Store the returned note ID as `proc_note_id`
-3. Upload Python file:
+3. Upload Python file (two-step process):
    ```javascript
-   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: proc_note_id, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 4. Get the attachment details:
    ```javascript
@@ -76,9 +79,12 @@
 - `proc_note_id` from PROC-001
 
 **Steps**:
-1. Upload PDF:
+1. Upload PDF (two-step process):
    ```javascript
-   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/pdf-single-page.pdf", content_type: "application/pdf" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: proc_note_id, filename: "pdf-single-page.pdf", content_type: "application/pdf" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/pdf-single-page.pdf;type=application/pdf" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 2. Get attachment:
    ```javascript
@@ -107,9 +113,12 @@
    ```javascript
    create_note({ content: "# Markdown Detection Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-2. Upload Markdown:
+2. Upload Markdown (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/markdown-formatted.md", content_type: "text/markdown" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "markdown-formatted.md", content_type: "text/markdown" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/markdown-formatted.md;type=text/markdown" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Get attachment details
 
@@ -132,9 +141,12 @@
 - `proc_note_id` from PROC-001
 
 **Steps**:
-1. Upload JSON:
+1. Upload JSON (two-step process):
    ```javascript
-   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/json-config.json", content_type: "application/json" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: proc_note_id, filename: "json-config.json", content_type: "application/json" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/json-config.json;type=application/json" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 2. Get attachment details
 
@@ -160,9 +172,12 @@
    ```javascript
    create_note({ content: "# MIME Detection Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-2. Upload with generic filename but specific MIME:
+2. Upload with generic filename but specific MIME (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", filename: "data.bin", content_type: "image/jpeg" })
+   // Step 1: Get upload URL and curl command with generic filename
+   upload_attachment({ note_id: <note_id>, filename: "data.bin", content_type: "image/jpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Get attachment details
 
@@ -196,9 +211,12 @@
    ```javascript
    create_note({ content: "# Override Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-4. Upload `.txt` file with override:
+4. Upload `.txt` file with override (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/readme.txt", content_type: "text/plain", document_type_id: markdown_type_id })
+   // Step 1: Get upload URL with document_type_id override
+   upload_attachment({ note_id: <note_id>, filename: "readme.txt", content_type: "text/plain", document_type_id: markdown_type_id })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/readme.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 5. Get attachment details
 
@@ -225,9 +243,12 @@
    ```javascript
    create_note({ content: "# Invalid Override Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-2. Upload with fake type ID:
+2. Upload with fake type ID (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
+   // Step 1: Get upload URL with invalid document_type_id
+   upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
+   // Step 2: Execute the returned curl command with actual file (if step 1 succeeds)
+   // curl -s -X POST -F "file=@tests/uat/data/documents/test.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 
 **Expected Results**:
@@ -248,9 +269,12 @@
 - `proc_note_id` from PROC-001
 
 **Steps**:
-1. Upload Rust file without `document_type_id`:
+1. Upload Rust file without `document_type_id` (two-step process):
    ```javascript
-   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/code-rust.rs", content_type: "text/x-rust" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: proc_note_id, filename: "code-rust.rs", content_type: "text/x-rust" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-rust.rs;type=text/x-rust" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 2. Get attachment details
 
@@ -281,9 +305,12 @@
    ```javascript
    create_note({ content: "# YAML Override Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-3. Upload `.txt` file with YAML override:
+3. Upload `.txt` file with YAML override (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/config.txt", content_type: "text/plain", document_type_id: yaml_type_id })
+   // Step 1: Get upload URL with document_type_id override
+   upload_attachment({ note_id: <note_id>, filename: "config.txt", content_type: "text/plain", document_type_id: yaml_type_id })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/config.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 4. Get attachment details
 
@@ -305,9 +332,12 @@
 - `proc_note_id` from PROC-001
 
 **Steps**:
-1. Upload `.txt`:
+1. Upload `.txt` (two-step process):
    ```javascript
-   upload_attachment({ note_id: proc_note_id, file_path: "tests/uat/data/documents/readme.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: proc_note_id, filename: "readme.txt", content_type: "text/plain" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/readme.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 2. Get attachment details
 
@@ -356,9 +386,12 @@
    ```javascript
    create_note({ content: "# Image Strategy Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-2. Upload JPEG:
+2. Upload JPEG (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Get attachment details
 
@@ -386,9 +419,12 @@
    ```javascript
    create_note({ content: "# Audio Strategy Test", tags: ["uat/proc-pipeline"], revision_mode: "none" })
    ```
-2. Upload MP3:
+2. Upload MP3 (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/audio/english-speech-5s.mp3", content_type: "audio/mpeg" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "english-speech-5s.mp3", content_type: "audio/mpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/audio/english-speech-5s.mp3;type=audio/mpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Get attachment details
 
@@ -446,17 +482,26 @@
    create_note({ content: "# Multi-File Note", tags: ["uat/proc-multifile"], revision_mode: "none" })
    ```
 2. Store as `multifile_note_id`
-3. Upload Python file:
+3. Upload Python file (two-step process):
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: multifile_note_id, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
-4. Upload Markdown file:
+4. Upload Markdown file (two-step process):
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/documents/markdown-formatted.md", content_type: "text/markdown" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: multifile_note_id, filename: "markdown-formatted.md", content_type: "text/markdown" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/markdown-formatted.md;type=text/markdown" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
-5. Upload JPEG:
+5. Upload JPEG (two-step process):
    ```javascript
-   upload_attachment({ note_id: multifile_note_id, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: multifile_note_id, filename: "jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 6. List attachments:
    ```javascript
@@ -510,7 +555,7 @@
    ```javascript
    create_note({ content: "# Max Attachments Test", tags: ["uat/proc-multifile"], revision_mode: "none" })
    ```
-2. Upload 10 different files (mix of types: .txt, .py, .rs, .js, .ts, .md, .json, .yaml, .csv, .jpg)
+2. Upload 10 different files (mix of types: .txt, .py, .rs, .js, .ts, .md, .json, .yaml, .csv, .jpg) using two-step process for each
 3. List attachments:
    ```javascript
    list_attachments({ note_id: <note_id> })
@@ -541,7 +586,7 @@
    create_note({ content: "# Note B", tags: ["uat/proc-isolation"], revision_mode: "none" })
    create_note({ content: "# Note C", tags: ["uat/proc-isolation"], revision_mode: "none" })
    ```
-2. Upload 2 files to each note (different types per note):
+2. Upload 2 files to each note using two-step process (different types per note):
    - Note A: `.py` + `.jpg`
    - Note B: `.md` + `.json`
    - Note C: `.rs` + `.csv`
@@ -570,10 +615,19 @@
    create_note({ content: "# Dedup Note 1", tags: ["uat/proc-dedup"], revision_mode: "none" })
    create_note({ content: "# Dedup Note 2", tags: ["uat/proc-dedup"], revision_mode: "none" })
    ```
-2. Upload same Python file to both notes:
+2. Upload same Python file to both notes (two-step process for each):
    ```javascript
-   upload_attachment({ note_id: note_1_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
-   upload_attachment({ note_id: note_2_id, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   // For note 1:
+   // Step 1: Get upload URL
+   upload_attachment({ note_id: note_1_id, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute curl with file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_1_id}/attachments/upload"
+
+   // For note 2:
+   // Step 1: Get upload URL
+   upload_attachment({ note_id: note_2_id, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute curl with file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_2_id}/attachments/upload"
    ```
 3. Get both attachment details
 
@@ -602,9 +656,12 @@
    ```javascript
    create_note({ content: "# Text Extraction Test", tags: ["uat/proc-extraction"], revision_mode: "none" })
    ```
-2. Upload text file:
+2. Upload text file (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/multilingual/english.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "english.txt", content_type: "text/plain" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/multilingual/english.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 3 seconds for extraction job to process
 4. Get attachment details:
@@ -635,9 +692,12 @@
    ```javascript
    create_note({ content: "# JSON Extraction Test", tags: ["uat/proc-extraction"], revision_mode: "none" })
    ```
-2. Upload JSON:
+2. Upload JSON (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/json-config.json", content_type: "application/json" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "json-config.json", content_type: "application/json" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/json-config.json;type=application/json" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -663,9 +723,12 @@
    ```javascript
    create_note({ content: "# CSV Extraction Test", tags: ["uat/proc-extraction"], revision_mode: "none" })
    ```
-2. Upload CSV:
+2. Upload CSV (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/csv-data.csv", content_type: "text/csv" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "csv-data.csv", content_type: "text/csv" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/csv-data.csv;type=text/csv" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -691,9 +754,12 @@
    ```javascript
    create_note({ content: "# Code Extraction Test", tags: ["uat/proc-extraction"], revision_mode: "none" })
    ```
-2. Upload Python code:
+2. Upload Python code (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 3 seconds for extraction
 4. Get attachment details
@@ -720,9 +786,12 @@
    ```javascript
    create_note({ content: "# Empty File Test", tags: ["uat/proc-extraction"], revision_mode: "none" })
    ```
-2. Upload empty file:
+2. Upload empty file (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/edge-cases/empty.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "empty.txt", content_type: "text/plain" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/edge-cases/empty.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 2 seconds
 4. Get attachment details
@@ -752,9 +821,12 @@
    ```javascript
    create_note({ content: "# Job Queue Test", tags: ["uat/proc-jobs"], revision_mode: "none" })
    ```
-2. Upload a text file:
+2. Upload a text file (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/test.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Immediately query jobs:
    ```javascript
@@ -810,10 +882,13 @@
 - Working job worker (processing jobs)
 
 **Steps**:
-1. Create note and upload file:
+1. Create note and upload file (two-step process):
    ```javascript
    create_note({ content: "# Job Lifecycle Test", tags: ["uat/proc-jobs"], revision_mode: "none" })
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/test.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL
+   upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain" })
+   // Step 2: Execute curl
+   // curl -s -X POST -F "file=@tests/uat/data/documents/test.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 2. Immediately check jobs for `pending` status
 3. Wait 2-5 seconds and check again
@@ -841,9 +916,12 @@
    ```javascript
    create_note({ content: "# Failed Extraction Test", tags: ["uat/proc-jobs"], revision_mode: "none" })
    ```
-2. Upload binary-wrong-ext.jpg:
+2. Upload binary-wrong-ext.jpg (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/edge-cases/binary-wrong-ext.jpg", content_type: "image/jpeg" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "binary-wrong-ext.jpg", content_type: "image/jpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/edge-cases/binary-wrong-ext.jpg;type=image/jpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 5-10 seconds for processing attempt
 4. Check job status:
@@ -880,9 +958,12 @@
    ```javascript
    create_note({ content: "# E2E Text Pipeline", tags: ["uat/proc-e2e"], revision_mode: "none" })
    ```
-2. Upload English text file:
+2. Upload English text file (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/multilingual/english.txt", content_type: "text/plain" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "english.txt", content_type: "text/plain" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/multilingual/english.txt;type=text/plain" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 5 seconds for processing
 4. Get attachment to verify extraction:
@@ -916,9 +997,12 @@
    ```javascript
    create_note({ content: "# E2E Code Pipeline", tags: ["uat/proc-e2e"], revision_mode: "none" })
    ```
-2. Upload Rust code:
+2. Upload Rust code (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-rust.rs", content_type: "text/x-rust" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "code-rust.rs", content_type: "text/x-rust" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-rust.rs;type=text/x-rust" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 3. Wait 5 seconds for processing
 4. Get attachment:
@@ -948,17 +1032,26 @@
    ```javascript
    create_note({ content: "# E2E Multi-File Pipeline", tags: ["uat/proc-e2e"], revision_mode: "none" })
    ```
-2. Upload PDF:
+2. Upload PDF (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/pdf-single-page.pdf", content_type: "application/pdf" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "pdf-single-page.pdf", content_type: "application/pdf" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/pdf-single-page.pdf;type=application/pdf" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
-3. Upload Python code:
+3. Upload Python code (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/documents/code-python.py", content_type: "text/x-python" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "code-python.py", content_type: "text/x-python" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
-4. Upload JPEG:
+4. Upload JPEG (two-step process):
    ```javascript
-   upload_attachment({ note_id: <note_id>, file_path: "tests/uat/data/images/jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 1: Get upload URL and curl command
+   upload_attachment({ note_id: <note_id>, filename: "jpeg-with-exif.jpg", content_type: "image/jpeg" })
+   // Step 2: Execute the returned curl command with actual file
+   // curl -s -X POST -F "file=@tests/uat/data/images/jpeg-with-exif.jpg;type=image/jpeg" -H "Authorization: Bearer <token>" "https://memory.integrolabs.net/api/v1/notes/{note_id}/attachments/upload"
    ```
 5. Wait 10 seconds for all extractions
 6. List attachments:
