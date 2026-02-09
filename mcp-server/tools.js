@@ -189,6 +189,152 @@ Use this to find content from specific events at known locations and times.`,
     },
   },
   {
+    name: "create_provenance_location",
+    description: `Create a provenance location record with GPS coordinates.
+
+Records a geographic location that can be linked to file attachments via file provenance.
+Use this to establish spatial context for captured content.
+
+**Parameters:**
+- latitude/longitude: GPS coordinates (required)
+- source: How location was obtained (gps_exif, device_api, user_manual, geocoded, ai_estimated)
+- confidence: Location accuracy level (high, medium, low, unknown)
+- altitude_m: Altitude in meters (optional)
+- horizontal_accuracy_m: GPS accuracy in meters (optional)
+
+**Returns:** { id: "uuid" } — use this ID when creating file provenance records.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        latitude: { type: "number", minimum: -90, maximum: 90, description: "Latitude in decimal degrees" },
+        longitude: { type: "number", minimum: -180, maximum: 180, description: "Longitude in decimal degrees" },
+        altitude_m: { type: "number", description: "Altitude in meters" },
+        horizontal_accuracy_m: { type: "number", description: "Horizontal accuracy in meters" },
+        vertical_accuracy_m: { type: "number", description: "Vertical accuracy in meters" },
+        heading_degrees: { type: "number", minimum: 0, maximum: 360, description: "Compass heading in degrees" },
+        speed_mps: { type: "number", minimum: 0, description: "Speed in meters per second" },
+        named_location_id: { type: "string", format: "uuid", description: "Link to a named location" },
+        source: { type: "string", enum: ["gps_exif", "device_api", "user_manual", "geocoded", "ai_estimated"], description: "How location was obtained" },
+        confidence: { type: "string", enum: ["high", "medium", "low", "unknown"], description: "Location accuracy level" },
+      },
+      required: ["latitude", "longitude", "source", "confidence"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
+    name: "create_named_location",
+    description: `Create a named location (landmark, address, place).
+
+Registers a semantic place name that can be linked to provenance location records.
+Named locations provide human-readable context for geographic coordinates.
+
+**Parameters:**
+- name: Display name for the location (required)
+- location_type: Category — home, work, poi, city, region, country (required)
+- latitude/longitude: GPS coordinates (required)
+- address fields: Optional address components
+- radius_m: Location boundary radius in meters
+
+**Returns:** Created location record with ID.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Location display name" },
+        location_type: { type: "string", enum: ["home", "work", "poi", "city", "region", "country"], description: "Location category" },
+        latitude: { type: "number", minimum: -90, maximum: 90, description: "Latitude" },
+        longitude: { type: "number", minimum: -180, maximum: 180, description: "Longitude" },
+        radius_m: { type: "number", minimum: 0, description: "Boundary radius in meters" },
+        address_line: { type: "string", description: "Street address" },
+        locality: { type: "string", description: "City/town" },
+        admin_area: { type: "string", description: "State/province" },
+        country: { type: "string", description: "Country name" },
+        country_code: { type: "string", description: "ISO country code" },
+        postal_code: { type: "string", description: "Postal/ZIP code" },
+        timezone: { type: "string", description: "IANA timezone" },
+        altitude_m: { type: "number", description: "Altitude in meters" },
+        is_private: { type: "boolean", description: "Whether location is private" },
+        metadata: { type: "object", description: "Additional metadata" },
+      },
+      required: ["name", "location_type", "latitude", "longitude"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
+    name: "create_provenance_device",
+    description: `Register a capture device for provenance tracking.
+
+Records device information (camera, phone, scanner) that can be linked to file provenance.
+Devices are automatically deduplicated by make + model.
+
+**Parameters:**
+- device_make: Manufacturer (required, e.g., "Apple", "Samsung", "Canon")
+- device_model: Model name (required, e.g., "iPhone 15 Pro", "Galaxy S24")
+- device_os/software: Optional OS and software details
+- has_gps/has_accelerometer: Sensor capabilities
+
+**Returns:** Device record with ID (returns existing device if make+model already registered).`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        device_make: { type: "string", description: "Device manufacturer" },
+        device_model: { type: "string", description: "Device model name" },
+        device_os: { type: "string", description: "Operating system" },
+        device_os_version: { type: "string", description: "OS version" },
+        software: { type: "string", description: "Capture software name" },
+        software_version: { type: "string", description: "Software version" },
+        has_gps: { type: "boolean", description: "Device has GPS" },
+        has_accelerometer: { type: "boolean", description: "Device has accelerometer" },
+        sensor_metadata: { type: "object", description: "Additional sensor details" },
+        device_name: { type: "string", description: "User-friendly device name" },
+      },
+      required: ["device_make", "device_model"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
+    name: "create_file_provenance",
+    description: `Create a file provenance record linking an attachment to spatial-temporal context.
+
+Establishes the W3C PROV chain for a file attachment — when it was captured,
+where it was captured, and what device was used. This enables temporal-spatial
+memory search (search_memories_by_location, search_memories_by_time).
+
+**Workflow:**
+1. Create a location with create_provenance_location (if spatial context known)
+2. Register a device with create_provenance_device (if device known)
+3. Create file provenance linking the attachment to location + device + time
+
+**Parameters:**
+- attachment_id: The file attachment UUID (required)
+- location_id: UUID from create_provenance_location (optional)
+- device_id: UUID from create_provenance_device (optional)
+- capture_time_start/end: When the file was captured (ISO 8601)
+- event_type: photo, video, audio, scan, screenshot, recording
+- event_title: Human-readable event description
+
+**Returns:** { id: "uuid" } — the provenance record ID.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachment_id: { type: "string", format: "uuid", description: "Attachment UUID to link provenance to" },
+        capture_time_start: { type: "string", format: "date-time", description: "Capture start time (ISO 8601)" },
+        capture_time_end: { type: "string", format: "date-time", description: "Capture end time (ISO 8601)" },
+        capture_timezone: { type: "string", description: "Capture timezone (e.g., America/New_York)" },
+        capture_duration_seconds: { type: "number", minimum: 0, description: "Duration in seconds" },
+        time_source: { type: "string", enum: ["exif", "file_mtime", "user_manual", "ai_estimated"], description: "How capture time was determined" },
+        time_confidence: { type: "string", enum: ["high", "medium", "low", "unknown"], description: "Time accuracy level" },
+        location_id: { type: "string", format: "uuid", description: "Location UUID from create_provenance_location" },
+        device_id: { type: "string", format: "uuid", description: "Device UUID from create_provenance_device" },
+        event_type: { type: "string", enum: ["photo", "video", "audio", "scan", "screenshot", "recording"], description: "Type of capture event" },
+        event_title: { type: "string", description: "Human-readable event title" },
+        event_description: { type: "string", description: "Detailed event description" },
+        raw_metadata: { type: "object", description: "Raw EXIF/XMP/IPTC metadata" },
+      },
+      required: ["attachment_id"],
+    },
+    annotations: { destructiveHint: false },
+  },
+  {
     name: "list_tags",
     description: `List all tags (SKOS concepts) in the knowledge base with usage counts.
 

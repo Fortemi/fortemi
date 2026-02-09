@@ -80,7 +80,7 @@ The server exposes:
 | `/.well-known/oauth-authorization-server` | GET | OAuth2 authorization server metadata |
 | `/.well-known/oauth-protected-resource` | GET | OAuth2 protected resource metadata (RFC 9728) |
 
-## Available Tools (155 Total)
+## Available Tools (167 Total)
 
 ### Core Note Operations
 
@@ -115,6 +115,10 @@ The server exposes:
 | `search_memories_by_time` | Find memories within a time range |
 | `search_memories_combined` | Find memories by location AND time |
 | `get_memory_provenance` | Get file provenance chain for a note |
+| `create_provenance_location` | Create a GPS location record |
+| `create_named_location` | Create a semantic place name |
+| `create_provenance_device` | Register a capture device |
+| `create_file_provenance` | Link attachment to location+device+time |
 
 ### Collections (Folders)
 

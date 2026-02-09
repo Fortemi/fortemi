@@ -6,6 +6,7 @@ pub mod archives;
 pub mod document_types;
 pub mod jobs;
 pub mod pke;
+pub mod provenance;
 
 // Re-export job handlers for backwards compatibility
 pub use jobs::{

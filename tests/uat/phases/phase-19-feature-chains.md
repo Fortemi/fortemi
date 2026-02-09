@@ -324,7 +324,7 @@ export_note({
 
 **Duration**: ~5 minutes
 
-> **Note**: This chain uses the actual provenance creation path: upload a GPS-tagged JPEG → EXIF extraction job automatically creates provenance records (location, capture time). The `create_note` API does NOT support inline `metadata.location` — provenance is always derived from attachment EXIF data or created via SQL (see Phase 3b approved exception and [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)).
+> **Note**: This chain uses the actual provenance creation path: upload a GPS-tagged JPEG → EXIF extraction job automatically creates provenance records (location, capture time). Provenance can also be created explicitly via MCP tools: `create_provenance_location`, `create_provenance_device`, `create_file_provenance` ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). The `create_note` API does NOT support inline `metadata.location`.
 
 ---
 

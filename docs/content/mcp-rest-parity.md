@@ -116,6 +116,15 @@ These tools work by orchestrating multiple REST operations in a single call.
 | `POST /api/v1/archives/:name/clone` | `clone_memory` |
 | `POST /api/v1/archives/:name/default` | `set_default_archive` |
 
+### Provenance Creation
+
+| REST Endpoint | MCP Tool |
+|---|---|
+| `POST /api/v1/provenance/locations` | `create_provenance_location` |
+| `POST /api/v1/provenance/named-locations` | `create_named_location` |
+| `POST /api/v1/provenance/devices` | `create_provenance_device` |
+| `POST /api/v1/provenance/files` | `create_file_provenance` |
+
 ### Health & Analytics
 
 | REST Endpoint | MCP Tool |

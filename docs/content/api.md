@@ -610,6 +610,130 @@ curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/mem
   -H "Authorization: Bearer mm_key_xxx"
 ```
 
+### Create Provenance Location
+
+```http
+POST /api/v1/provenance/locations
+Content-Type: application/json
+
+{
+  "latitude": 48.8584,
+  "longitude": 2.2945,
+  "source": "gps_exif",
+  "confidence": "high",
+  "altitude_m": 35.0,
+  "horizontal_accuracy_m": 10.0,
+  "vertical_accuracy_m": 5.0,
+  "heading_degrees": 180.0,
+  "speed_mps": 0.0,
+  "named_location_id": null
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "location-uuid"
+}
+```
+
+**Source values:** `gps_exif`, `device_api`, `user_manual`, `geocoded`, `ai_estimated`, `unknown`
+**Confidence values:** `high`, `medium`, `low`, `unknown`
+
+### Create Named Location
+
+```http
+POST /api/v1/provenance/named-locations
+Content-Type: application/json
+
+{
+  "name": "Eiffel Tower",
+  "location_type": "poi",
+  "latitude": 48.8584,
+  "longitude": 2.2945,
+  "radius_m": 100.0,
+  "address_line": "Champ de Mars, 5 Avenue Anatole France",
+  "locality": "Paris",
+  "country": "France",
+  "country_code": "FR",
+  "timezone": "Europe/Paris"
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "named-location-uuid",
+  "slug": "eiffel-tower"
+}
+```
+
+**Location types:** `home`, `work`, `poi`, `city`, `region`, `country`
+
+### Create Provenance Device
+
+```http
+POST /api/v1/provenance/devices
+Content-Type: application/json
+
+{
+  "device_make": "Apple",
+  "device_model": "iPhone 15 Pro",
+  "device_os": "iOS",
+  "device_os_version": "17.2",
+  "software": "Camera",
+  "software_version": "17.2",
+  "has_gps": true,
+  "has_accelerometer": true,
+  "device_name": "My iPhone"
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "device-uuid",
+  "device_make": "Apple",
+  "device_model": "iPhone 15 Pro"
+}
+```
+
+Devices are deduplicated on `(device_make, device_model)`. Registering the same make+model returns the existing device ID.
+
+### Create File Provenance
+
+```http
+POST /api/v1/provenance/files
+Content-Type: application/json
+
+{
+  "attachment_id": "attachment-uuid",
+  "capture_time_start": "2026-01-15T14:30:00Z",
+  "capture_time_end": "2026-01-15T14:30:00Z",
+  "capture_timezone": "Europe/Paris",
+  "time_source": "exif",
+  "time_confidence": "high",
+  "location_id": "location-uuid",
+  "device_id": "device-uuid",
+  "event_type": "photo",
+  "event_title": "Sunset at Eiffel Tower",
+  "event_description": "Sunset view from Trocadéro"
+}
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "provenance-uuid"
+}
+```
+
+Links an attachment to its spatial-temporal capture context. Use location and device IDs from the creation endpoints above.
+
 ## Full Document Reconstruction
 
 ### Get Full Document

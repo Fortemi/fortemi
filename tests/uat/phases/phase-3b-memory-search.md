@@ -4,11 +4,11 @@
 **Duration**: ~15 minutes
 **Prerequisites**: Phase 1 seed data exists, PostGIS extension enabled, W3C PROV schema migrated, test data generated. If upstream attachment uploads failed, still attempt each test and record failures.
 **Critical**: Yes (100% pass required)
-**Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_note`, `upload_attachment`
+**Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`, `create_note`, `upload_attachment`
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
 
-> **Approved Exception — Provenance Setup**: This phase requires raw SQL INSERT statements to create provenance test data (`prov_location`, `file_provenance`, `named_location`, `prov_agent_device`). No MCP tools exist for provenance record creation yet (tracked in [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). SQL setup steps are an approved exception. All **verification** and **search** operations MUST still use MCP tools.
+> **Provenance Creation via MCP**: This phase uses `create_provenance_location`, `create_named_location`, `create_provenance_device`, and `create_file_provenance` MCP tools for provenance test data setup (implemented in [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). No raw SQL is needed.
 
 > **Test Data**: GPS-tagged images for provenance testing in `tests/uat/data/provenance/`:
 > `paris-eiffel-tower.jpg` (48.8584N, 2.2945E), `newyork-statue-liberty.jpg` (40.6892N, 74.0445W),
@@ -58,8 +58,8 @@
 **Setup**:
 1. Create test note: `create_note({ content: "# Paris Trip", tags: ["uat/memory-search"], revision_mode: "none" })`
 2. Upload photo: `upload_attachment({ note_id: <note-id>, file_path: "tests/uat/data/provenance/paris-eiffel-tower.jpg", content_type: "image/jpeg" })`
-3. Create location: `INSERT INTO prov_location (point, source, confidence) VALUES (ST_SetSRID(ST_MakePoint(2.2945, 48.8584), 4326)::geography, 'exif', 'high')`
-4. Create provenance: `INSERT INTO file_provenance (attachment_id, location_id, capture_time, event_type) VALUES (<attachment-id>, <location-id>, tstzrange(NOW(), NOW()), 'photo')`
+3. Create location: `create_provenance_location({ latitude: 48.8584, longitude: 2.2945, source: "gps_exif", confidence: "high" })`
+4. Create provenance: `create_file_provenance({ attachment_id: <attachment-id>, location_id: <location-id>, capture_time_start: "<now>", event_type: "photo" })`
 
 **Steps**:
 1. Search within 1km radius: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 1000 })`
@@ -109,10 +109,10 @@
 **Prerequisites**: Multiple attachments with different locations
 
 **Setup**:
-1. Create 3 attachments at different Paris locations:
-   - Eiffel Tower (48.8584, 2.2945)
-   - Louvre (48.8606, 2.3376)
-   - Notre-Dame (48.8530, 2.3499)
+1. Create 3 notes with attachments and provenance at different Paris locations using MCP tools:
+   - Eiffel Tower: `create_provenance_location({ latitude: 48.8584, longitude: 2.2945, source: "gps_exif", confidence: "high" })` then `create_file_provenance({ attachment_id: <id>, location_id: <loc-id>, event_type: "photo" })`
+   - Louvre: `create_provenance_location({ latitude: 48.8606, longitude: 2.3376, source: "gps_exif", confidence: "high" })` then `create_file_provenance({ attachment_id: <id>, location_id: <loc-id>, event_type: "photo" })`
+   - Notre-Dame: `create_provenance_location({ latitude: 48.8530, longitude: 2.3499, source: "gps_exif", confidence: "high" })` then `create_file_provenance({ attachment_id: <id>, location_id: <loc-id>, event_type: "photo" })`
 
 **Steps**:
 1. Search from Eiffel Tower with 10km radius: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 10000 })`
@@ -162,8 +162,9 @@
 - Attachment with provenance linked to named_location
 
 **Setup**:
-1. Create named location: `INSERT INTO named_location (name, location_type, coordinates) VALUES ('Eiffel Tower', 'landmark', ST_SetSRID(ST_MakePoint(2.2945, 48.8584), 4326)::geography)`
-2. Link provenance to named location via prov_location
+1. Create named location: `create_named_location({ name: "Eiffel Tower", location_type: "poi", latitude: 48.8584, longitude: 2.2945, locality: "Paris", country: "France" })`
+2. Create location linked to named location: `create_provenance_location({ latitude: 48.8584, longitude: 2.2945, source: "gps_exif", confidence: "high", named_location_id: <named-loc-id> })`
+3. Create file provenance linking to the location
 
 **Steps**:
 1. Search near Eiffel Tower: `search_memories_by_location({ lat: 48.8584, lon: 2.2945, radius: 500 })`
@@ -189,7 +190,7 @@
 - Attachment with provenance record including capture_time
 
 **Setup**:
-1. Create attachment with capture time yesterday: `INSERT INTO file_provenance (attachment_id, capture_time, event_type) VALUES (<id>, tstzrange(NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day'), 'photo')`
+1. Create note with attachment, then create provenance with capture time yesterday: `create_file_provenance({ attachment_id: <id>, capture_time_start: "<yesterday>", event_type: "photo" })`
 
 **Steps**:
 1. Search last 2 days: `search_memories_by_time({ start: <now-2days>, end: <now> })`
@@ -236,10 +237,10 @@
 **Prerequisites**: Multiple attachments with different capture times
 
 **Setup**:
-1. Create 3 attachments with capture times:
-   - 3 days ago
-   - 2 days ago
-   - 1 day ago
+1. Create 3 notes with attachments, each with different capture times via `create_file_provenance`:
+   - `create_file_provenance({ attachment_id: <id1>, capture_time_start: "<3-days-ago>", event_type: "photo" })`
+   - `create_file_provenance({ attachment_id: <id2>, capture_time_start: "<2-days-ago>", event_type: "photo" })`
+   - `create_file_provenance({ attachment_id: <id3>, capture_time_start: "<1-day-ago>", event_type: "photo" })`
 
 **Steps**:
 1. Search last 5 days: `search_memories_by_time({ start: <5-days-ago>, end: <now> })`
@@ -263,7 +264,7 @@
 **Prerequisites**: Attachment with time range (not instant)
 
 **Setup**:
-1. Create provenance with time range: `tstzrange('2025-01-01 10:00:00+00', '2025-01-01 14:00:00+00')` (4-hour event)
+1. Create provenance with time range (4-hour event): `create_file_provenance({ attachment_id: <id>, capture_time_start: "2025-01-01T10:00:00Z", capture_time_end: "2025-01-01T14:00:00Z", event_type: "recording" })`
 
 **Steps**:
 1. Search partially overlapping: `search_memories_by_time({ start: '2025-01-01 12:00:00+00', end: '2025-01-01 16:00:00+00' })`
@@ -289,7 +290,7 @@
 - Attachment with location AND capture time
 
 **Setup**:
-1. Create attachment at Eiffel Tower captured yesterday
+1. Create note with attachment, location at Eiffel Tower, and provenance with capture time yesterday (reuse data from prior tests or create fresh)
 
 **Steps**:
 1. Search near Eiffel Tower in last 2 days: `search_memories_combined({ lat: 48.8584, lon: 2.2945, radius: 1000, start: <2-days-ago>, end: <now> })`
@@ -350,8 +351,9 @@
 
 **Setup**:
 1. Create note with attachment
-2. Create device: `INSERT INTO prov_agent_device (device_make, device_model) VALUES ('Apple', 'iPhone 15 Pro')`
-3. Create full provenance record linking attachment, location, device, and time
+2. Create device: `create_provenance_device({ device_make: "Apple", device_model: "iPhone 15 Pro", device_os: "iOS", device_os_version: "17.2", software: "Camera", has_gps: true })`
+3. Create location: `create_provenance_location({ latitude: 48.8584, longitude: 2.2945, source: "gps_exif", confidence: "high" })`
+4. Create full provenance: `create_file_provenance({ attachment_id: <id>, location_id: <loc-id>, device_id: <dev-id>, capture_time_start: "<yesterday>", capture_timezone: "Europe/Paris", time_source: "exif", time_confidence: "high", event_type: "photo", event_title: "Eiffel Tower Visit" })`
 
 **Steps**:
 1. Get provenance: `get_memory_provenance({ note_id: <note-id> })`
@@ -552,7 +554,8 @@
 
 **Notes**:
 - This phase requires PostGIS extension and W3C PROV schema (migration 20260204100000)
-- Some tests require manual creation of test data with GPS coordinates
+- Provenance test data is created via MCP tools (`create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`) — no raw SQL needed
 - Search results are limited to 100 by default
 - Distance calculations use PostGIS ST_Distance with geography type (meters)
 - Time ranges use PostgreSQL tstzrange with overlap operator (&&)
+- Device registration deduplicates on (make, model) — same device returns same ID

@@ -22,13 +22,14 @@ This UAT suite tests Matric Memory **as an agent uses it** — through MCP tool 
 2. **If an MCP tool fails or doesn't exist for an operation, FILE A BUG ISSUE.** Do NOT fall back to curl or direct API calls. The failure IS the finding — document it and move on.
 3. **Never use curl, fetch, or direct HTTP calls** for operations available as MCP tools. Doing so defeats the purpose of this UAT.
 
-### Approved Exceptions (three)
+### Approved Exceptions (two)
 
 | Exception | Reason | Phases |
 |-----------|--------|--------|
 | **File upload/download** | Binary data must not pass through MCP protocol or LLM context window. The `upload_attachment` and `download_attachment` MCP tools return curl commands that the agent executes. | 2b, 2c |
 | **OAuth infrastructure tests** | OAuth client registration, token issuance, and introspection are infrastructure-level operations that agents never perform directly. | 17 (Part B only) |
-| **Provenance test data setup** | No MCP tools exist for creating provenance records (`prov_location`, `file_provenance`, `named_location`). Raw SQL is required for test setup until provenance creation MCP tools are added (see [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). | 3b |
+
+> **Note**: Provenance test data setup (previously an exception) is now fully supported via MCP tools: `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance` ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)).
 
 ### When MCP Fails
 

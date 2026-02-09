@@ -13,8 +13,9 @@ use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
-    Error, FileProvenanceRecord, MemoryDevice, MemoryLocation, MemoryLocationResult,
-    MemoryProvenance, MemoryTimeResult, Result,
+    CreateFileProvenanceRequest, CreateNamedLocationRequest, CreateProvDeviceRequest,
+    CreateProvLocationRequest, Error, FileProvenanceRecord, MemoryDevice, MemoryLocation,
+    MemoryLocationResult, MemoryProvenance, MemoryTimeResult, Result,
 };
 
 /// PostgreSQL memory search repository.
@@ -955,6 +956,437 @@ impl PgMemorySearchRepository {
         }
 
         Ok(Some(MemoryProvenance { note_id, files }))
+    }
+}
+
+/// Provenance record creation methods.
+impl PgMemorySearchRepository {
+    /// Create a provenance location record.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - Location creation request with coordinates and metadata
+    ///
+    /// # Returns
+    ///
+    /// The UUID of the created location record.
+    pub async fn create_prov_location(&self, req: &CreateProvLocationRequest) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO prov_location (
+                point, horizontal_accuracy_m, altitude_m, vertical_accuracy_m,
+                heading_degrees, speed_mps, named_location_id, source, confidence
+            )
+            VALUES (
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                $3, $4, $5, $6, $7, $8, $9, $10
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.latitude)
+        .bind(req.longitude)
+        .bind(req.horizontal_accuracy_m)
+        .bind(req.altitude_m)
+        .bind(req.vertical_accuracy_m)
+        .bind(req.heading_degrees)
+        .bind(req.speed_mps)
+        .bind(req.named_location_id)
+        .bind(&req.source)
+        .bind(&req.confidence)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Transaction-aware variant of create_prov_location.
+    pub async fn create_prov_location_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: &CreateProvLocationRequest,
+    ) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO prov_location (
+                point, horizontal_accuracy_m, altitude_m, vertical_accuracy_m,
+                heading_degrees, speed_mps, named_location_id, source, confidence
+            )
+            VALUES (
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                $3, $4, $5, $6, $7, $8, $9, $10
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.latitude)
+        .bind(req.longitude)
+        .bind(req.horizontal_accuracy_m)
+        .bind(req.altitude_m)
+        .bind(req.vertical_accuracy_m)
+        .bind(req.heading_degrees)
+        .bind(req.speed_mps)
+        .bind(req.named_location_id)
+        .bind(&req.source)
+        .bind(&req.confidence)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Create a named location record (landmark, address, etc.).
+    ///
+    /// Automatically generates a slug from the name.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - Named location creation request
+    ///
+    /// # Returns
+    ///
+    /// JSON representation of the created named location.
+    pub async fn create_named_location(
+        &self,
+        req: &CreateNamedLocationRequest,
+    ) -> Result<serde_json::Value> {
+        // Generate slug from name
+        let slug = req
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO named_location (
+                name, slug, location_type, point, radius_m, address_line,
+                locality, admin_area, country, country_code, postal_code,
+                timezone, altitude_m, is_private, metadata
+            )
+            VALUES (
+                $1, $2, $3, ST_SetSRID(ST_MakePoint($5, $4), 4326)::geography,
+                $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+            )
+            RETURNING
+                id, name, slug, display_name, location_type,
+                ST_Y(point::geometry) as latitude,
+                ST_X(point::geometry) as longitude,
+                created_at
+            "#,
+        )
+        .bind(&req.name)
+        .bind(&slug)
+        .bind(&req.location_type)
+        .bind(req.latitude)
+        .bind(req.longitude)
+        .bind(req.radius_m)
+        .bind(&req.address_line)
+        .bind(&req.locality)
+        .bind(&req.admin_area)
+        .bind(&req.country)
+        .bind(&req.country_code)
+        .bind(&req.postal_code)
+        .bind(&req.timezone)
+        .bind(req.altitude_m)
+        .bind(req.is_private)
+        .bind(&req.metadata)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(serde_json::json!({
+            "id": row.get::<Uuid, _>("id"),
+            "name": row.get::<String, _>("name"),
+            "slug": row.get::<String, _>("slug"),
+            "display_name": row.get::<Option<String>, _>("display_name"),
+            "location_type": row.get::<String, _>("location_type"),
+            "latitude": row.get::<f64, _>("latitude"),
+            "longitude": row.get::<f64, _>("longitude"),
+            "created_at": row.get::<DateTime<Utc>, _>("created_at"),
+        }))
+    }
+
+    /// Transaction-aware variant of create_named_location.
+    pub async fn create_named_location_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: &CreateNamedLocationRequest,
+    ) -> Result<serde_json::Value> {
+        // Generate slug from name
+        let slug = req
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO named_location (
+                name, slug, location_type, point, radius_m, address_line,
+                locality, admin_area, country, country_code, postal_code,
+                timezone, altitude_m, is_private, metadata
+            )
+            VALUES (
+                $1, $2, $3, ST_SetSRID(ST_MakePoint($5, $4), 4326)::geography,
+                $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+            )
+            RETURNING
+                id, name, slug, display_name, location_type,
+                ST_Y(point::geometry) as latitude,
+                ST_X(point::geometry) as longitude,
+                created_at
+            "#,
+        )
+        .bind(&req.name)
+        .bind(&slug)
+        .bind(&req.location_type)
+        .bind(req.latitude)
+        .bind(req.longitude)
+        .bind(req.radius_m)
+        .bind(&req.address_line)
+        .bind(&req.locality)
+        .bind(&req.admin_area)
+        .bind(&req.country)
+        .bind(&req.country_code)
+        .bind(&req.postal_code)
+        .bind(&req.timezone)
+        .bind(req.altitude_m)
+        .bind(req.is_private)
+        .bind(&req.metadata)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(serde_json::json!({
+            "id": row.get::<Uuid, _>("id"),
+            "name": row.get::<String, _>("name"),
+            "slug": row.get::<String, _>("slug"),
+            "display_name": row.get::<Option<String>, _>("display_name"),
+            "location_type": row.get::<String, _>("location_type"),
+            "latitude": row.get::<f64, _>("latitude"),
+            "longitude": row.get::<f64, _>("longitude"),
+            "created_at": row.get::<DateTime<Utc>, _>("created_at"),
+        }))
+    }
+
+    /// Create a provenance agent device record.
+    ///
+    /// Uses ON CONFLICT to deduplicate devices by (device_make, device_model, owner_id).
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - Device creation request
+    ///
+    /// # Returns
+    ///
+    /// The created or existing device record.
+    pub async fn create_prov_agent_device(
+        &self,
+        req: &CreateProvDeviceRequest,
+    ) -> Result<MemoryDevice> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO prov_agent_device (
+                device_make, device_model, device_os, device_os_version,
+                software, software_version, has_gps, has_accelerometer,
+                sensor_metadata, device_name
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (device_make, device_model, owner_id)
+            DO UPDATE SET device_make = EXCLUDED.device_make
+            RETURNING
+                id, device_make, device_model, device_os, device_os_version,
+                software, software_version, device_name
+            "#,
+        )
+        .bind(&req.device_make)
+        .bind(&req.device_model)
+        .bind(&req.device_os)
+        .bind(&req.device_os_version)
+        .bind(&req.software)
+        .bind(&req.software_version)
+        .bind(req.has_gps)
+        .bind(req.has_accelerometer)
+        .bind(&req.sensor_metadata)
+        .bind(&req.device_name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(MemoryDevice {
+            id: row.get("id"),
+            device_make: row.get("device_make"),
+            device_model: row.get("device_model"),
+            device_os: row.get("device_os"),
+            device_os_version: row.get("device_os_version"),
+            software: row.get("software"),
+            software_version: row.get("software_version"),
+            device_name: row.get("device_name"),
+        })
+    }
+
+    /// Transaction-aware variant of create_prov_agent_device.
+    pub async fn create_prov_agent_device_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: &CreateProvDeviceRequest,
+    ) -> Result<MemoryDevice> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO prov_agent_device (
+                device_make, device_model, device_os, device_os_version,
+                software, software_version, has_gps, has_accelerometer,
+                sensor_metadata, device_name
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (device_make, device_model, owner_id)
+            DO UPDATE SET device_make = EXCLUDED.device_make
+            RETURNING
+                id, device_make, device_model, device_os, device_os_version,
+                software, software_version, device_name
+            "#,
+        )
+        .bind(&req.device_make)
+        .bind(&req.device_model)
+        .bind(&req.device_os)
+        .bind(&req.device_os_version)
+        .bind(&req.software)
+        .bind(&req.software_version)
+        .bind(req.has_gps)
+        .bind(req.has_accelerometer)
+        .bind(&req.sensor_metadata)
+        .bind(&req.device_name)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(MemoryDevice {
+            id: row.get("id"),
+            device_make: row.get("device_make"),
+            device_model: row.get("device_model"),
+            device_os: row.get("device_os"),
+            device_os_version: row.get("device_os_version"),
+            software: row.get("software"),
+            software_version: row.get("software_version"),
+            device_name: row.get("device_name"),
+        })
+    }
+
+    /// Create a file provenance record linking an attachment to spatial-temporal context.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - File provenance creation request
+    ///
+    /// # Returns
+    ///
+    /// The UUID of the created file provenance record.
+    pub async fn create_file_provenance(&self, req: &CreateFileProvenanceRequest) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO file_provenance (
+                attachment_id, capture_time, capture_timezone, capture_duration_seconds,
+                time_source, time_confidence, location_id, device_id, event_type,
+                event_title, event_description, raw_metadata
+            )
+            VALUES (
+                $1,
+                CASE WHEN $2::timestamptz IS NOT NULL
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    ELSE NULL
+                END,
+                $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.attachment_id)
+        .bind(req.capture_time_start)
+        .bind(req.capture_time_end)
+        .bind(&req.capture_timezone)
+        .bind(req.capture_duration_seconds)
+        .bind(&req.time_source)
+        .bind(&req.time_confidence)
+        .bind(req.location_id)
+        .bind(req.device_id)
+        .bind(&req.event_type)
+        .bind(&req.event_title)
+        .bind(&req.event_description)
+        .bind(&req.raw_metadata)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
+    }
+
+    /// Transaction-aware variant of create_file_provenance.
+    pub async fn create_file_provenance_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        req: &CreateFileProvenanceRequest,
+    ) -> Result<Uuid> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO file_provenance (
+                attachment_id, capture_time, capture_timezone, capture_duration_seconds,
+                time_source, time_confidence, location_id, device_id, event_type,
+                event_title, event_description, raw_metadata
+            )
+            VALUES (
+                $1,
+                CASE WHEN $2::timestamptz IS NOT NULL
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    ELSE NULL
+                END,
+                $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(req.attachment_id)
+        .bind(req.capture_time_start)
+        .bind(req.capture_time_end)
+        .bind(&req.capture_timezone)
+        .bind(req.capture_duration_seconds)
+        .bind(&req.time_source)
+        .bind(&req.time_confidence)
+        .bind(req.location_id)
+        .bind(req.device_id)
+        .bind(&req.event_type)
+        .bind(&req.event_title)
+        .bind(&req.event_description)
+        .bind(&req.raw_metadata)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.get("id"))
     }
 }
 

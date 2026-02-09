@@ -224,7 +224,7 @@ Each phase document is self-contained with:
 Agents MUST:
 1. **Use MCP tools for ALL tests** — never fall back to curl or direct HTTP API calls for operations available as MCP tools
 2. **If an MCP tool fails, file a bug issue** — do NOT work around it by calling the API directly. The MCP failure is a UAT finding, not a reason to bypass MCP.
-3. **Only use curl/SQL for**: file upload/download (binary data), OAuth infrastructure (Phase 17 Part B), and provenance test data setup (Phase 3B SQL) — these are the ONLY approved exceptions
+3. **Only use curl/SQL for**: file upload/download (binary data) and OAuth infrastructure (Phase 17 Part B) — these are the ONLY approved exceptions. Provenance data is now created via MCP tools.
 4. Execute tests sequentially within each phase
 5. Record results in the phase summary table
 6. **Always proceed to the next phase** — never skip phases or tests due to upstream failures. If a prerequisite test failed, still attempt the dependent test and record what happens.
@@ -258,6 +258,7 @@ Before declaring UAT complete, verify:
 
 ## Version History
 
+- **2026.2.11**: Removed provenance SQL exception — Phase 3B now uses MCP tools (`create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`) for all provenance test data setup (#261). Updated Phase 19 Chain 2 note. Reduced approved exceptions from 3 to 2.
 - **2026.2.10**: Reconciled test counts (448→459 across 25 phases). Added provenance SQL setup as third approved MCP-first exception (Phase 3B, tracked in #261). Fixed CHAIN-005 version parameter inconsistency (version_id:0 → version:1, matching Phase 11 spec). Restructured Phase 19 Chain 2 to use actual provenance path (GPS-tagged photo → EXIF extraction) instead of unsupported inline metadata.location.
 - **2026.2.9**: Removed all skip/gate/BLOCKED logic — every test must execute, failures get filed as issues. Fixed test specs: CHAIN-001 upload pattern, VER-011 escape hatch, OBS-007 pass criteria, UAT-2B-019 raw SQL. Removed "Conditional Pass" from report template. Added Gitea issue tracking to report template.
 - **2026.2.7**: Enforced MCP-first testing philosophy across entire UAT suite. Rewrote Phase 17 (OAuth) from curl-only to MCP-first with 13 agent-perspective tests + 4 infrastructure tests. Rewrote Phase 18 (Caching) from curl-only to 100% MCP tool calls. Added MCP-first principle statement to README. Eliminated API fallbacks for all operations available as MCP tools.

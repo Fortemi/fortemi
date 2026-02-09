@@ -4480,6 +4480,78 @@ pub struct MemoryProvenance {
 }
 
 // =============================================================================
+// PROVENANCE REQUEST TYPES
+// =============================================================================
+
+/// Request to create a provenance location record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProvLocationRequest {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude_m: Option<f32>,
+    pub horizontal_accuracy_m: Option<f32>,
+    pub vertical_accuracy_m: Option<f32>,
+    pub heading_degrees: Option<f32>,
+    pub speed_mps: Option<f32>,
+    pub named_location_id: Option<Uuid>,
+    pub source: String, // gps_exif, device_api, user_manual, geocoded, ai_estimated
+    pub confidence: String, // high, medium, low, unknown
+}
+
+/// Request to create a named location (landmark, address).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNamedLocationRequest {
+    pub name: String,
+    pub location_type: String, // home, work, poi, city, region, country
+    pub latitude: f64,
+    pub longitude: f64,
+    pub radius_m: Option<f64>,
+    pub address_line: Option<String>,
+    pub locality: Option<String>,
+    pub admin_area: Option<String>,
+    pub country: Option<String>,
+    pub country_code: Option<String>,
+    pub postal_code: Option<String>,
+    pub timezone: Option<String>,
+    pub altitude_m: Option<f32>,
+    pub is_private: Option<bool>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Request to create a provenance device record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateProvDeviceRequest {
+    pub device_make: String,
+    pub device_model: String,
+    pub device_os: Option<String>,
+    pub device_os_version: Option<String>,
+    pub software: Option<String>,
+    pub software_version: Option<String>,
+    pub has_gps: Option<bool>,
+    pub has_accelerometer: Option<bool>,
+    pub sensor_metadata: Option<serde_json::Value>,
+    pub device_name: Option<String>,
+}
+
+/// Request to create a file provenance record linking an attachment to spatial-temporal context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateFileProvenanceRequest {
+    pub attachment_id: Uuid,
+    pub capture_time_start: Option<DateTime<Utc>>,
+    pub capture_time_end: Option<DateTime<Utc>>,
+    pub capture_timezone: Option<String>,
+    pub capture_duration_seconds: Option<f32>,
+    pub time_source: Option<String>, // exif, file_mtime, user_manual, ai_estimated
+    pub time_confidence: Option<String>, // high, medium, low, unknown
+    pub location_id: Option<Uuid>,
+    pub device_id: Option<Uuid>,
+    pub event_type: Option<String>, // photo, video, audio, scan, screenshot, recording
+    pub event_title: Option<String>,
+    pub event_description: Option<String>,
+    pub raw_metadata: Option<serde_json::Value>,
+}
+
+// =============================================================================
 // WEBHOOK TYPES (Issue #44)
 // =============================================================================
 

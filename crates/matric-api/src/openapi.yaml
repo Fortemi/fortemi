@@ -1242,6 +1242,238 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/v1/provenance/locations:
+    post:
+      summary: Create a provenance location
+      description: Record GPS coordinates for file provenance. Returns the location ID for use in create_file_provenance.
+      operationId: createProvenanceLocation
+      tags: [Memory Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude, source, confidence]
+              properties:
+                latitude:
+                  type: number
+                  format: double
+                  description: Latitude in decimal degrees (-90 to 90)
+                longitude:
+                  type: number
+                  format: double
+                  description: Longitude in decimal degrees (-180 to 180)
+                altitude_m:
+                  type: number
+                  format: float
+                horizontal_accuracy_m:
+                  type: number
+                  format: float
+                vertical_accuracy_m:
+                  type: number
+                  format: float
+                heading_degrees:
+                  type: number
+                  format: float
+                speed_mps:
+                  type: number
+                  format: float
+                named_location_id:
+                  type: string
+                  format: uuid
+                source:
+                  type: string
+                  enum: [gps_exif, device_api, user_manual, geocoded, ai_estimated, unknown]
+                confidence:
+                  type: string
+                  enum: [high, medium, low, unknown]
+      responses:
+        '201':
+          description: Location created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+
+  /api/v1/provenance/named-locations:
+    post:
+      summary: Create a named location
+      description: Create a semantic place name (e.g., "Home", "Eiffel Tower") with geographic coordinates.
+      operationId: createNamedLocation
+      tags: [Memory Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, location_type, latitude, longitude]
+              properties:
+                name:
+                  type: string
+                location_type:
+                  type: string
+                  enum: [home, work, poi, city, region, country]
+                latitude:
+                  type: number
+                  format: double
+                longitude:
+                  type: number
+                  format: double
+                radius_m:
+                  type: number
+                  format: double
+                address_line:
+                  type: string
+                locality:
+                  type: string
+                admin_area:
+                  type: string
+                country:
+                  type: string
+                country_code:
+                  type: string
+                postal_code:
+                  type: string
+                timezone:
+                  type: string
+                altitude_m:
+                  type: number
+                  format: float
+                is_private:
+                  type: boolean
+                metadata:
+                  type: object
+      responses:
+        '201':
+          description: Named location created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  slug:
+                    type: string
+
+  /api/v1/provenance/devices:
+    post:
+      summary: Register a capture device
+      description: Register a device that captured content. Deduplicates on (device_make, device_model) — re-registering the same device returns the existing ID.
+      operationId: createProvenanceDevice
+      tags: [Memory Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_make, device_model]
+              properties:
+                device_make:
+                  type: string
+                device_model:
+                  type: string
+                device_os:
+                  type: string
+                device_os_version:
+                  type: string
+                software:
+                  type: string
+                software_version:
+                  type: string
+                has_gps:
+                  type: boolean
+                has_accelerometer:
+                  type: boolean
+                sensor_metadata:
+                  type: object
+                device_name:
+                  type: string
+      responses:
+        '201':
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  device_make:
+                    type: string
+                  device_model:
+                    type: string
+
+  /api/v1/provenance/files:
+    post:
+      summary: Create file provenance
+      description: Link an attachment to its spatial-temporal capture context (location, device, time, event).
+      operationId: createFileProvenance
+      tags: [Memory Search]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attachment_id]
+              properties:
+                attachment_id:
+                  type: string
+                  format: uuid
+                capture_time_start:
+                  type: string
+                  format: date-time
+                capture_time_end:
+                  type: string
+                  format: date-time
+                capture_timezone:
+                  type: string
+                capture_duration_seconds:
+                  type: number
+                  format: float
+                time_source:
+                  type: string
+                  enum: [exif, file_mtime, user_manual, ai_estimated]
+                time_confidence:
+                  type: string
+                  enum: [high, medium, low, unknown]
+                location_id:
+                  type: string
+                  format: uuid
+                device_id:
+                  type: string
+                  format: uuid
+                event_type:
+                  type: string
+                  enum: [photo, video, audio, scan, screenshot, recording, unknown]
+                event_title:
+                  type: string
+                event_description:
+                  type: string
+                raw_metadata:
+                  type: object
+      responses:
+        '201':
+          description: File provenance created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+
   /api/v1/notes/{id}/move:
     post:
       summary: Move note to collection

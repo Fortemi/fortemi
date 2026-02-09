@@ -59,13 +59,13 @@ For advanced credential management, security considerations, and manual configur
 
 ## Overview
 
-The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **163 tools** organized into these categories:
+The MCP server enables AI assistants (Claude, etc.) to interact with your knowledge base through a standardized protocol. It provides **167 tools** organized into these categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
 | Notes | 13 | Create, read, update, delete, restore, purge notes |
 | Search | 2 | Hybrid semantic + full-text + strict filtering |
-| Memory Search | 4 | Spatial/temporal memory search and provenance |
+| Memory Search | 8 | Spatial/temporal memory search, provenance queries, and provenance creation |
 | Collections | 8 | Hierarchical folder organization with graph exploration |
 | Templates | 6 | Reusable note structures |
 | Document Types | 6 | Content type detection and management |
@@ -185,6 +185,10 @@ These tools modify system state and may require elevated permissions:
 
 **File Attachments:**
 - `upload_attachment`, `delete_attachment`
+
+**Provenance Creation:**
+- `create_provenance_location`, `create_named_location`
+- `create_provenance_device`, `create_file_provenance`
 
 **SKOS Concepts:**
 - `create_concept_scheme`, `delete_concept_scheme`

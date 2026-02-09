@@ -178,6 +178,9 @@ use handlers::{
         list_document_types, update_document_type,
     },
     pke::{pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients, pke_verify},
+    provenance::{
+        create_file_provenance, create_named_location, create_prov_device, create_prov_location,
+    },
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
 };
@@ -827,6 +830,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/:id/memory-provenance",
             get(get_memory_provenance_handler),
         )
+        // Provenance creation (Issue #261)
+        .route("/api/v1/provenance/locations", post(create_prov_location))
+        .route(
+            "/api/v1/provenance/named-locations",
+            post(create_named_location),
+        )
+        .route("/api/v1/provenance/devices", post(create_prov_device))
+        .route("/api/v1/provenance/files", post(create_file_provenance))
         // Temporal queries
         .route("/api/v1/notes/timeline", get(get_notes_timeline))
         .route("/api/v1/notes/activity", get(get_notes_activity))
@@ -13618,6 +13629,13 @@ mod tests {
                 "/api/v1/notes/:id/memory-provenance",
                 get(get_memory_provenance_handler),
             )
+            .route("/api/v1/provenance/locations", post(create_prov_location))
+            .route(
+                "/api/v1/provenance/named-locations",
+                post(create_named_location),
+            )
+            .route("/api/v1/provenance/devices", post(create_prov_device))
+            .route("/api/v1/provenance/files", post(create_file_provenance))
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 archive_routing_middleware,

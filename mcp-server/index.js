@@ -240,6 +240,74 @@ function createMcpServer() {
           break;
         }
 
+        case "create_provenance_location":
+          result = await apiRequest("POST", "/api/v1/provenance/locations", {
+            latitude: args.latitude,
+            longitude: args.longitude,
+            altitude_m: args.altitude_m,
+            horizontal_accuracy_m: args.horizontal_accuracy_m,
+            vertical_accuracy_m: args.vertical_accuracy_m,
+            heading_degrees: args.heading_degrees,
+            speed_mps: args.speed_mps,
+            named_location_id: args.named_location_id,
+            source: args.source,
+            confidence: args.confidence,
+          });
+          break;
+
+        case "create_named_location":
+          result = await apiRequest("POST", "/api/v1/provenance/named-locations", {
+            name: args.name,
+            location_type: args.location_type,
+            latitude: args.latitude,
+            longitude: args.longitude,
+            radius_m: args.radius_m,
+            address_line: args.address_line,
+            locality: args.locality,
+            admin_area: args.admin_area,
+            country: args.country,
+            country_code: args.country_code,
+            postal_code: args.postal_code,
+            timezone: args.timezone,
+            altitude_m: args.altitude_m,
+            is_private: args.is_private,
+            metadata: args.metadata,
+          });
+          break;
+
+        case "create_provenance_device":
+          result = await apiRequest("POST", "/api/v1/provenance/devices", {
+            device_make: args.device_make,
+            device_model: args.device_model,
+            device_os: args.device_os,
+            device_os_version: args.device_os_version,
+            software: args.software,
+            software_version: args.software_version,
+            has_gps: args.has_gps,
+            has_accelerometer: args.has_accelerometer,
+            sensor_metadata: args.sensor_metadata,
+            device_name: args.device_name,
+          });
+          break;
+
+        case "create_file_provenance":
+          result = await apiRequest("POST", "/api/v1/provenance/files", {
+            attachment_id: args.attachment_id,
+            capture_time_start: args.capture_time_start,
+            capture_time_end: args.capture_time_end,
+            capture_timezone: args.capture_timezone,
+            capture_duration_seconds: args.capture_duration_seconds,
+            time_source: args.time_source,
+            time_confidence: args.time_confidence,
+            location_id: args.location_id,
+            device_id: args.device_id,
+            event_type: args.event_type,
+            event_title: args.event_title,
+            event_description: args.event_description,
+            raw_metadata: args.raw_metadata,
+          });
+          break;
+
         case "list_tags":
           result = await apiRequest("GET", "/api/v1/tags");
           break;
@@ -3330,9 +3398,9 @@ reembed_all({ confirm: true })
 3. Monitor \`get_queue_stats\` for system health
 4. Reprocess notes after infrastructure changes (model updates, etc.)`,
 
-  provenance: `# Note Provenance & Backlinks
+  provenance: `# Provenance & Backlinks
 
-Track content origins and discover reverse connections in the knowledge graph.
+Track content origins, create spatial-temporal context for files, and discover reverse connections.
 
 ## Note Provenance (W3C PROV)
 
@@ -3358,6 +3426,73 @@ Provenance tracks:
 - **Revision**: AI enhancement history
 - **Version lineage**: Connection between versions
 
+## File Provenance Creation
+
+Create spatial-temporal context for file attachments. This links files to where, when, and how they were captured.
+
+### Step 1: Create a location (optional)
+
+\`\`\`
+create_provenance_location({
+  latitude: 48.8584, longitude: 2.2945,
+  source: "gps_exif", confidence: "high",
+  altitude_m: 35.0, horizontal_accuracy_m: 10.0
+})
+// Returns: { id: "location-uuid" }
+\`\`\`
+
+Sources: gps_exif, device_api, user_manual, geocoded, ai_estimated, unknown
+Confidence: high (GPS ±10m), medium (WiFi ±100m), low (IP ±1km+), unknown
+
+### Step 2: Create a named location (optional)
+
+\`\`\`
+create_named_location({
+  name: "Eiffel Tower", location_type: "poi",
+  latitude: 48.8584, longitude: 2.2945,
+  locality: "Paris", country: "France", country_code: "FR",
+  timezone: "Europe/Paris"
+})
+// Returns: { id: "named-location-uuid", slug: "eiffel-tower" }
+\`\`\`
+
+Location types: home, work, poi, city, region, country
+
+### Step 3: Register a device (optional)
+
+\`\`\`
+create_provenance_device({
+  device_make: "Apple", device_model: "iPhone 15 Pro",
+  device_os: "iOS", device_os_version: "17.2",
+  software: "Camera", has_gps: true
+})
+// Returns: { id: "device-uuid" }
+// Deduplicates on make+model — same device returns same ID
+\`\`\`
+
+### Step 4: Create file provenance
+
+\`\`\`
+create_file_provenance({
+  attachment_id: "attachment-uuid",
+  capture_time_start: "2026-01-15T14:30:00Z",
+  capture_timezone: "Europe/Paris",
+  time_source: "exif", time_confidence: "high",
+  location_id: "location-uuid",    // from step 1
+  device_id: "device-uuid",        // from step 3
+  event_type: "photo",
+  event_title: "Sunset at Eiffel Tower"
+})
+// Returns: { id: "provenance-uuid" }
+\`\`\`
+
+### Retrieval
+
+\`\`\`
+get_memory_provenance({ id: "note-uuid" })
+// Returns full provenance chain for all attachments on a note
+\`\`\`
+
 ## Dedicated Backlinks
 
 \`\`\`
@@ -3375,9 +3510,11 @@ This is a focused view of incoming links only. For bidirectional links, use \`ge
 
 ## Provenance + Backlinks Workflow
 
-1. Check provenance: Where did this content come from?
-2. Check backlinks: What references this content?
-3. Use together for complete content lineage and impact analysis`,
+1. Upload attachment: \`upload_attachment\`
+2. Create provenance: location → device → \`create_file_provenance\`
+3. Search by context: \`search_memories_by_location\`, \`search_memories_by_time\`
+4. Check provenance: \`get_memory_provenance\` — where/when was this captured?
+5. Check backlinks: \`get_note_backlinks\` — what references this content?`,
 
   skos_collections: `# SKOS Collections
 

@@ -515,7 +515,7 @@ Named locations provide semantic place names for geographic coordinates. The sys
 
 **Creating Named Locations:**
 
-Named locations can be created via the API (future feature) or populated from reverse geocoding services.
+Named locations can be created via `POST /api/v1/provenance/named-locations` or the `create_named_location` MCP tool. They can also be populated from reverse geocoding services.
 
 **Location Types:**
 - `home` - User's home address
@@ -585,7 +585,7 @@ Memory search is **available in v2026.2.0**. All components are fully implemente
 - PostGIS spatial indexes with GiST indexing
 - Repository layer with spatial/temporal queries
 - REST API endpoints (documented above)
-- MCP tools (search_memories_by_location, search_memories_by_time, search_memories_combined, get_provenance_chain)
+- MCP tools (search_memories_by_location, search_memories_by_time, search_memories_combined, get_memory_provenance, create_provenance_location, create_named_location, create_provenance_device, create_file_provenance)
 - Complete test coverage
 
 **Database Access:**
