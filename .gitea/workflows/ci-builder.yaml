@@ -423,7 +423,8 @@ jobs:
           }
 
           # Build API-only image (for Kubernetes/external DB deployments)
-          docker build \
+          # --no-cache: self-hosted runner Docker cache can produce stale images
+          docker build --no-cache \
             --build-arg VERSION=dev-${SHORT_SHA} \
             --build-arg GIT_SHA=${GITHUB_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
@@ -437,7 +438,7 @@ jobs:
           push_with_retry ${IMAGE}:main
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
-          docker build \
+          docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=dev-${SHORT_SHA} \
             -t ${IMAGE}:bundle .
@@ -492,7 +493,7 @@ jobs:
           echo "Building release images for version: ${VERSION}"
 
           # Build API-only image (for Kubernetes/external DB deployments)
-          docker build \
+          docker build --no-cache \
             --build-arg VERSION=${VERSION} \
             --build-arg GIT_SHA=${GITHUB_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
@@ -504,7 +505,7 @@ jobs:
           push_with_retry ${IMAGE}:latest
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
-          docker build \
+          docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
             -t ${IMAGE}:bundle-${VERSION} .
@@ -612,7 +613,7 @@ jobs:
           echo "Building release images for GitHub: ${VERSION}"
 
           # Build API-only image (for Kubernetes/external DB deployments)
-          docker build \
+          docker build --no-cache \
             --build-arg VERSION=${VERSION} \
             --build-arg GIT_SHA=${GITHUB_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
@@ -624,7 +625,7 @@ jobs:
           push_with_retry ${IMAGE}:latest
 
           # Build bundle image (all-in-one with embedded PostgreSQL)
-          docker build \
+          docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
             -t ${IMAGE}:bundle-${VERSION} .
