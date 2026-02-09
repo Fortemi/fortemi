@@ -3905,20 +3905,21 @@ mod tests {
             ExtractionStrategy::from_mime_and_extension(octet, Some("pdf")),
             ExtractionStrategy::PdfText
         );
-        // Images
+        // Images — octet-stream with image extension should NOT promote to Vision
+        // (magic bytes didn't match, so data doesn't match the claimed extension)
         for ext in ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "svg"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
-                ExtractionStrategy::Vision,
+                ExtractionStrategy::TextNative,
                 "Failed for .{}",
                 ext
             );
         }
-        // 3D models
+        // 3D models — same: no promotion without magic byte confirmation
         for ext in ["glb", "gltf", "obj", "stl", "step", "iges"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
-                ExtractionStrategy::Vision,
+                ExtractionStrategy::TextNative,
                 "Failed for .{}",
                 ext
             );
@@ -3932,20 +3933,20 @@ mod tests {
                 ext
             );
         }
-        // Audio
+        // Audio — no promotion without magic byte confirmation
         for ext in ["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
-                ExtractionStrategy::AudioTranscribe,
+                ExtractionStrategy::TextNative,
                 "Failed for .{}",
                 ext
             );
         }
-        // Video
+        // Video — no promotion without magic byte confirmation
         for ext in ["mp4", "avi", "mov", "mkv", "webm", "wmv"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
-                ExtractionStrategy::VideoMultimodal,
+                ExtractionStrategy::TextNative,
                 "Failed for .{}",
                 ext
             );
