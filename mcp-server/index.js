@@ -1168,33 +1168,13 @@ function createMcpServer() {
         }
 
         case "pke_encrypt": {
-          // API mode (preferred): base64 plaintext + base64 recipient keys
-          // File mode (fallback): filesystem paths
-          let plainB64, recipientKeysB64, origFilename;
-          if (args.plaintext && args.recipient_keys) {
-            plainB64 = args.plaintext;
-            recipientKeysB64 = args.recipient_keys;
-            origFilename = args.original_filename || null;
-          } else if (args.input_path && args.output_path && args.recipients) {
-            const plainBytes = fs.readFileSync(args.input_path);
-            plainB64 = plainBytes.toString("base64");
-            recipientKeysB64 = args.recipients.map(r => readPublicKeyAsBase64(r));
-            origFilename = path.basename(args.input_path);
-          } else {
-            throw new Error("Provide either (plaintext + recipient_keys) for API mode or (input_path + output_path + recipients) for file mode");
-          }
           const apiResult = await apiRequest("POST", "/api/v1/pke/encrypt", {
-            plaintext: plainB64,
-            recipients: recipientKeysB64,
-            original_filename: origFilename,
+            plaintext: args.plaintext,
+            recipients: args.recipient_keys,
+            original_filename: args.original_filename || null,
           });
-          // Write to disk only in file mode
-          if (args.output_path) {
-            fs.writeFileSync(args.output_path, Buffer.from(apiResult.ciphertext, "base64"));
-          }
           result = {
-            ciphertext: args.output_path ? undefined : apiResult.ciphertext,
-            output_path: args.output_path || null,
+            ciphertext: apiResult.ciphertext,
             recipients: apiResult.recipients,
             size_bytes: Buffer.from(apiResult.ciphertext, "base64").length,
           };
@@ -1202,45 +1182,21 @@ function createMcpServer() {
         }
 
         case "pke_decrypt": {
-          // API mode (preferred): base64 ciphertext + base64 encrypted_private_key
-          // File mode (fallback): filesystem paths
-          let cipherB64, privKeyB64;
-          if (args.ciphertext && args.encrypted_private_key) {
-            cipherB64 = args.ciphertext;
-            privKeyB64 = args.encrypted_private_key;
-          } else if (args.input_path && args.private_key_path) {
-            cipherB64 = fs.readFileSync(args.input_path).toString("base64");
-            privKeyB64 = fs.readFileSync(args.private_key_path).toString("base64");
-          } else {
-            throw new Error("Provide either (ciphertext + encrypted_private_key) for API mode or (input_path + private_key_path) for file mode");
-          }
           const apiResult = await apiRequest("POST", "/api/v1/pke/decrypt", {
-            ciphertext: cipherB64,
-            encrypted_private_key: privKeyB64,
+            ciphertext: args.ciphertext,
+            encrypted_private_key: args.encrypted_private_key,
             passphrase: args.passphrase,
           });
-          // Write to disk only in file mode
-          if (args.output_path) {
-            fs.writeFileSync(args.output_path, Buffer.from(apiResult.plaintext, "base64"));
-          }
           result = {
-            plaintext: args.output_path ? undefined : apiResult.plaintext,
-            output_path: args.output_path || null,
+            plaintext: apiResult.plaintext,
             original_filename: apiResult.original_filename,
           };
           break;
         }
 
         case "pke_list_recipients": {
-          // Accept base64 directly (preferred) or read from filesystem (fallback)
-          const encB64 = args.ciphertext
-            ? args.ciphertext
-            : args.input_path
-              ? fs.readFileSync(args.input_path).toString("base64")
-              : null;
-          if (!encB64) throw new Error("Provide either ciphertext (base64) or input_path");
           const apiResult = await apiRequest("POST", "/api/v1/pke/recipients", {
-            ciphertext: encB64,
+            ciphertext: args.ciphertext,
           });
           result = { recipients: apiResult.recipients };
           break;
@@ -1919,27 +1875,16 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          if (args.data) {
-            // Direct upload: POST base64 data to the API
-            const uploadBody = {
-              filename: args.filename,
-              content_type: args.content_type,
-              data: args.data,
-            };
-            if (args.document_type_id) uploadBody.document_type_id = args.document_type_id;
-            result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
-          } else {
-            // Template mode: return endpoint info for manual upload
-            const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments`;
-            const bodyTemplate = { filename: args.filename, content_type: args.content_type };
-            if (args.document_type_id) bodyTemplate.document_type_id = args.document_type_id;
-            result = {
-              upload_url: uploadUrl,
-              method: "POST",
-              body_template: { ...bodyTemplate, data: "<base64-encoded-file-content>" },
-              instructions: "Provide 'data' parameter with base64-encoded file content for direct upload, or use the upload_url with an HTTP client.",
-            };
+          if (!args.data) {
+            throw new Error("'data' parameter is required. Provide base64-encoded file content.");
           }
+          const uploadBody = {
+            filename: args.filename,
+            content_type: args.content_type,
+            data: args.data,
+          };
+          if (args.document_type_id) uploadBody.document_type_id = args.document_type_id;
+          result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/attachments`, uploadBody);
           break;
         }
 

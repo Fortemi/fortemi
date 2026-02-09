@@ -22,39 +22,17 @@ describe("Phase 2b: File Attachments", () => {
   });
 
   /**
-   * Helper function to upload a file via HTTP API after getting upload hints from MCP
+   * Helper function to upload a file via MCP upload_attachment tool
    */
   async function uploadFile(noteId, filename, content, contentType) {
-    // Get upload URL and instructions from MCP
-    const uploadHints = await client.callTool("upload_attachment", {
+    const result = await client.callTool("upload_attachment", {
       note_id: noteId,
       filename,
       content_type: contentType,
+      data: Buffer.from(content).toString("base64"),
     });
 
-    assert.ok(uploadHints.upload_url, "Should return upload_url");
-    assert.ok(uploadHints.method === "POST", "Should use POST method");
-
-    // Perform actual upload via HTTP API
-    const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:3000";
-    const response = await fetch(`${apiBaseUrl}/api/v1/notes/${noteId}/attachments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        filename,
-        content_type: contentType,
-        data: Buffer.from(content).toString("base64"),
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Upload failed: ${response.status} ${text}`);
-    }
-
-    const result = await response.json();
+    assert.ok(result.id, "Should return attachment ID");
     return result;
   }
 

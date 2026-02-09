@@ -2492,42 +2492,26 @@ preferred for MCP workflows since no filesystem access is needed.`,
 Provides multi-recipient support, forward secrecy (ephemeral keys), and authenticated
 encryption (AES-256-GCM).
 
-**API mode (preferred for MCP):** Pass plaintext and recipient_keys as base64 strings.
-Returns base64 ciphertext directly — no filesystem access needed.
-
-**File mode (local CLI):** Pass input_path, output_path, and recipients (file paths).
-Reads/writes files on disk.`,
+Pass plaintext and recipient_keys as base64 strings.
+Returns base64 ciphertext directly.`,
     inputSchema: {
       type: "object",
       properties: {
         plaintext: {
           type: "string",
-          description: "Base64-encoded plaintext to encrypt (preferred — no filesystem needed)"
+          description: "Base64-encoded plaintext to encrypt"
         },
         recipient_keys: {
           type: "array",
           items: { type: "string" },
-          description: "Base64-encoded recipient public keys (use with plaintext)"
+          description: "Base64-encoded recipient public keys"
         },
         original_filename: {
           type: "string",
-          description: "Original filename to embed in encrypted header (optional, for API mode)"
-        },
-        input_path: {
-          type: "string",
-          description: "Path to the file to encrypt (fallback for local CLI workflows)"
-        },
-        output_path: {
-          type: "string",
-          description: "Path for the encrypted output file (required with input_path)"
-        },
-        recipients: {
-          type: "array",
-          items: { type: "string" },
-          description: "Paths to recipient public key files (fallback for local CLI workflows)"
+          description: "Original filename to embed in encrypted header (optional)"
         },
       },
-      required: [],
+      required: ["plaintext", "recipient_keys"],
     },
     annotations: {
       destructiveHint: false,
@@ -2537,40 +2521,25 @@ Reads/writes files on disk.`,
     name: "pke_decrypt",
     description: `Decrypt data using your private key.
 
-**API mode (preferred for MCP):** Pass ciphertext and encrypted_private_key as base64
-strings plus the passphrase. Returns base64 plaintext — no filesystem access needed.
-
-**File mode (local CLI):** Pass input_path, output_path, and private_key_path.
-Reads/writes files on disk.`,
+Pass ciphertext and encrypted_private_key as base64 strings plus the passphrase.
+Returns base64 plaintext directly.`,
     inputSchema: {
       type: "object",
       properties: {
         ciphertext: {
           type: "string",
-          description: "Base64-encoded ciphertext (preferred — no filesystem needed)"
+          description: "Base64-encoded ciphertext to decrypt"
         },
         encrypted_private_key: {
           type: "string",
-          description: "Base64-encoded encrypted private key (use with ciphertext)"
-        },
-        input_path: {
-          type: "string",
-          description: "Path to the encrypted file (fallback for local CLI workflows)"
-        },
-        output_path: {
-          type: "string",
-          description: "Path for the decrypted output (required with input_path)"
-        },
-        private_key_path: {
-          type: "string",
-          description: "Path to your encrypted private key file (fallback for local CLI workflows)"
+          description: "Base64-encoded encrypted private key"
         },
         passphrase: {
           type: "string",
           description: "Passphrase for the private key"
         },
       },
-      required: ["passphrase"],
+      required: ["ciphertext", "encrypted_private_key", "passphrase"],
     },
     annotations: {
       destructiveHint: false,
@@ -2581,23 +2550,16 @@ Reads/writes files on disk.`,
     description: `List the recipient addresses that can decrypt encrypted data.
 
 Reads the MMPKE01 header and returns the mm:... addresses of all recipients
-without decrypting. Useful for determining if you can decrypt or who it was intended for.
-
-Provide EITHER ciphertext (base64) OR input_path (filesystem). Base64 is preferred
-for MCP workflows.`,
+without decrypting. Useful for determining if you can decrypt or who it was intended for.`,
     inputSchema: {
       type: "object",
       properties: {
         ciphertext: {
           type: "string",
-          description: "Base64-encoded ciphertext (preferred — no filesystem needed)"
-        },
-        input_path: {
-          type: "string",
-          description: "Path to the encrypted file (fallback for local CLI workflows)"
+          description: "Base64-encoded ciphertext"
         },
       },
-      required: [],
+      required: ["ciphertext"],
     },
     annotations: {
       readOnlyHint: true,
@@ -3976,27 +3938,20 @@ Existing embeddings using this config are not affected but won't be regenerated 
   // ============================================================================
   {
     name: "upload_attachment",
-    description: `Upload a file attachment to a note via the HTTP API.
+    description: `Upload a file attachment to a note.
 
-Returns the API endpoint URL and a ready-to-use curl command for uploading.
-The agent should execute the curl command (or equivalent HTTP request) to transfer the file.
-
-Workflow:
-1. Call this tool with note_id, filename, and content_type
-2. Execute the returned curl command with your file's base64 data
-3. Use list_attachments or get_attachment to verify and manage the upload
-
-Files are stored with content-hash deduplication. Extraction strategy is auto-determined from MIME type.
-Document type (semantic classification) can be set explicitly or is classified asynchronously after extraction.`,
+Provide base64-encoded file content in the 'data' parameter. Files are stored with content-hash deduplication.
+Extraction strategy is auto-determined from MIME type. Document type can be set explicitly or is classified asynchronously after extraction.`,
     inputSchema: {
       type: "object",
       properties: {
         note_id: { type: "string", format: "uuid", description: "Note UUID to attach the file to" },
         filename: { type: "string", description: "Filename for the attachment (e.g., 'photo.jpg')" },
         content_type: { type: "string", description: "MIME type (e.g., 'image/jpeg', 'application/pdf')" },
+        data: { type: "string", description: "Base64-encoded file content" },
         document_type_id: { type: "string", format: "uuid", description: "Optional: explicit document type UUID override (skips auto-classification)" },
       },
-      required: ["note_id", "filename", "content_type"],
+      required: ["note_id", "filename", "content_type", "data"],
     },
     annotations: { destructiveHint: false },
   },
