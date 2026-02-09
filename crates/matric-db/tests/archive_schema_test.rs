@@ -181,6 +181,12 @@ async fn test_default_archive_uniqueness() {
     assert!(!archive1.is_default, "First archive should not be default");
     assert!(archive2.is_default, "Second archive should be default");
 
+    // Reset default before cleanup (can't drop default archive)
+    db.archives
+        .set_default_archive("public")
+        .await
+        .expect("Failed to reset default");
+
     // Cleanup
     db.archives
         .drop_archive_schema(&archive1_name)
