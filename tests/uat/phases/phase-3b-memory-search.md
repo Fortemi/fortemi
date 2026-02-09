@@ -21,29 +21,24 @@
 
 ### UAT-3B-000: Verify PostGIS and PROV Schema
 
-**MCP Tool**: N/A (SQL verification only)
+**MCP Tool**: `health_check`, `search_memories_by_location`
 
-**Description**: Ensure PostGIS extension and W3C PROV temporal-spatial schema are available
+**Description**: Verify PostGIS extension and W3C PROV temporal-spatial schema are available via MCP tools
 
-**Prerequisites**: Database connection
+**Prerequisites**: MCP connection active
 
 **Steps**:
-1. Check PostGIS: `SELECT PostGIS_Version()`
-2. Check prov_location table: `SELECT COUNT(*) FROM prov_location`
-3. Check provenance table: `SELECT COUNT(*) FROM provenance`
+1. System health: `health_check()`
+2. Spatial query smoke test: `search_memories_by_location({ lat: 0.0, lon: 0.0, radius: 1 })`
 
 **Expected Results**:
-- PostGIS version returned (e.g., "3.4.0")
-- Both tables exist and are queryable
-- No SQL errors
-- Note: table was renamed from `file_provenance` to `provenance` in migration 20260209300000
+- `health_check` returns status without database errors (PostGIS must be loaded for the API to start)
+- `search_memories_by_location` returns empty array `[]` (not an error), confirming PostGIS spatial queries and the `prov_location`/`provenance` tables are functional
+- No 500 errors or "relation does not exist" failures
 
 **Verification**:
-- PostGIS extension installed
-- Migration 20260204100000 (W3C PROV schema) applied
-- Migration 20260209300000 (note-level provenance) applied
-
----
+- PostGIS extension installed (implicit: spatial query succeeds)
+- W3C PROV schema migrated (implicit: provenance tables queried without error)
 
 ## Search by Location
 
@@ -647,7 +642,7 @@
 
 | Test ID | Name | MCP Tool(s) | Status |
 |---------|------|-------------|--------|
-| UAT-3B-000 | Verify PostGIS Schema | N/A (SQL only) | |
+| UAT-3B-000 | Verify PostGIS Schema | `health_check`, `search_memories_by_location` | |
 | UAT-3B-001 | Search Near Location Basic | `create_note`, `upload_attachment`, `search_memories_by_location` | |
 | UAT-3B-002 | Search No Spatial Results | `search_memories_by_location` | |
 | UAT-3B-003 | Search Large Radius | `search_memories_by_location` | |

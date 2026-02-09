@@ -424,9 +424,9 @@ get_memory_provenance({
 ```javascript
 // 1. Search within 1km of Eiffel Tower
 search_memories_by_location({
-  latitude: 48.8584,
-  longitude: 2.2945,
-  radius_meters: 1000,
+  lat: 48.8584,
+  lon: 2.2945,
+  radius: 1000,
   limit: 10
 })
 // Expected: returns results array with paris_note_id
@@ -460,8 +460,8 @@ search_memories_by_location({
 // The exact date depends on the EXIF data in paris-eiffel-tower.jpg
 // Use a wide range to ensure we capture it
 search_memories_by_time({
-  start_time: "2020-01-01T00:00:00Z",
-  end_time: "2026-12-31T23:59:59Z",
+  start: "2020-01-01T00:00:00Z",
+  end: "2026-12-31T23:59:59Z",
   limit: 10
 })
 // Expected: returns results array with paris_note_id
@@ -492,11 +492,11 @@ search_memories_by_time({
 ```javascript
 // 1. Combined search
 search_memories_combined({
-  latitude: 48.8584,
-  longitude: 2.2945,
-  radius_meters: 5000,
-  start_time: "2020-01-01T00:00:00Z",
-  end_time: "2026-12-31T23:59:59Z",
+  lat: 48.8584,
+  lon: 2.2945,
+  radius: 5000,
+  start: "2020-01-01T00:00:00Z",
+  end: "2026-12-31T23:59:59Z",
   limit: 10
 })
 // Expected: returns results matching both location AND time criteria
@@ -1430,6 +1430,8 @@ get_note({ id: "{sensitive_note_id}" })
 **Scenario**: Create data → Database snapshot → Delete data → Restore snapshot → Verify recovery
 
 **Duration**: ~4 minutes
+
+> **Caution**: CHAIN-035 uses `database_restore` with `restore_mode: "full"`, which reverts the **entire database** to the snapshot state. Data created by Chains 1-5 after the snapshot was taken will be lost. This is by design for testing restore functionality, but means Chains 7-8 may need to recreate any prerequisite data. If running chains independently, execute Chain 6 last or verify that subsequent chains do not depend on data from Chains 1-5.
 
 ---
 
