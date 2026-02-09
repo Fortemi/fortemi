@@ -2,7 +2,7 @@
 
 **Purpose**: Verify complete workflows that combine multiple system capabilities in realistic user scenarios
 **Duration**: ~45 minutes
-**Prerequisites**: All previous UAT phases completed, test data available
+**Prerequisites**: All previous UAT phases executed (not necessarily all passed), test data available. Attempt every chain regardless of prior phase failures — record what fails and file issues.
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `explore_graph`, `export_skos_turtle`, `knowledge_shard`, `pke_encrypt`, `pke_decrypt`, `pke_get_address`, `pke_create_keyset`, `database_snapshot`, `backup_status`, `delete_note`, `list_notes`, `database_restore`, `create_embedding_set`, `refresh_embedding_set`, `delete_collection`, `list_concept_schemes`, `get_knowledge_health`, `get_orphan_tags`, `get_stale_notes`, `get_unlinked_notes`, `health_check`, `reembed_all`
 
@@ -32,9 +32,9 @@ This phase tests end-to-end workflows that chain together 3+ features. Each chai
 
 ### CHAIN-001: Upload Python Code File
 
-**MCP Tools**: `upload_attachment`, `create_note`
+**MCP Tools**: `create_note`, `upload_attachment`
 
-**Description**: Upload a Python source file from test data
+**Description**: Create a note and upload a Python source file as attachment using two-step upload flow
 
 **Prerequisites**:
 - MCP server running
@@ -49,34 +49,42 @@ create_note({
 })
 // Expected: returns note_id
 
-// 2. Upload Python file as attachment
+// 2. Get upload command (two-step upload — see Phase 2b)
 upload_attachment({
   note_id: "{python_note_id}",
-  file_path: "tests/uat/data/documents/code-python.py",
+  filename: "code-python.py",
   content_type: "text/x-python"
 })
-// Expected: returns attachment_id, content_type: "text/x-python"
+// Expected: returns { upload_url, curl_command, max_size: "50MB" }
+
+// 3. Execute the returned curl command with actual file path
+// Replace localhost:3000 with https://memory.integrolabs.net
+// curl -s -X POST \
+//   -F "file=@tests/uat/data/documents/code-python.py;type=text/x-python" \
+//   -H "Authorization: Bearer <token>" \
+//   "https://memory.integrolabs.net/api/v1/notes/{python_note_id}/attachments/upload"
+// Expected: returns attachment metadata with content_type: "text/x-python"
 ```
 
 **Expected Results**:
 - Note created with unique note_id (UUIDv7)
 - Tags include "python" and "code"
-- Content contains Python code from file
+- Attachment uploaded and persisted
+- Attachment metadata includes correct content_type
 
 **Verification**:
 ```javascript
 // Get note details
 get_note({ note_id: "{note_id}" })
 // Verify tags include "python"
-// Verify content matches uploaded file
 ```
 
 **Store**: `python_note_id`
 
 **Pass Criteria**:
-- Note created successfully from file content
+- Note created successfully
+- Attachment uploaded and persisted via two-step flow
 - Tags applied correctly
-- Content preserved
 
 ---
 
@@ -210,7 +218,7 @@ get_note({ note_id: "{python_note_id}" })
 
 ### CHAIN-005: Compare Versions (List All Revisions)
 
-**MCP Tools**: `list_note_versions`, `restore_note_version`, `diff_note_versions`
+**MCP Tools**: `list_note_versions`, `get_note_version`, `diff_note_versions`
 
 **Description**: List note versions using versioning system
 
@@ -222,28 +230,31 @@ get_note({ note_id: "{python_note_id}" })
 // 1. List all revisions
 list_note_versions({ note_id: "{python_note_id}" })
 // Expected: returns array of version objects with timestamps
+// Note: versions are 1-indexed (first version is 1, not 0)
 
-// 2. Get specific version
-restore_note_version({
+// 2. Get specific version (version 1 = original)
+get_note_version({
   note_id: "{python_note_id}",
-  version_id: 0
+  version: 1,
+  track: "original"
 })
 // Expected: returns original content
 
-// 3. Diff between versions
+// 3. Diff between versions (if 2+ versions exist)
 diff_note_versions({
   note_id: "{python_note_id}",
-  from_version: 0,
-  to_version: 1
+  from_version: 1,
+  to_version: 2
 })
 // Expected: returns diff showing changes
+// Note: if only 1 version exists, this will error — that's OK, pass based on list result
 ```
 
 **Expected Results**:
 - Version list shows 1+ versions
-- Each version has unique version_id
-- Diff shows additions/deletions between versions
-- Original content preserved in version 0
+- Each version has `version` number (1-indexed)
+- Diff shows additions/deletions between versions (if 2+ exist)
+- Original content preserved in version 1
 
 **Verification**:
 ```javascript
@@ -254,8 +265,8 @@ list_note_versions({ note_id: "{python_note_id}" })
 
 **Pass Criteria**:
 - Version history complete and accessible
-- Diff accurately shows changes
-- Original content retrievable
+- Original content retrievable via `get_note_version`
+- Diff accurately shows changes (if multiple versions exist)
 
 ---
 
@@ -309,50 +320,63 @@ export_note({
 
 ## Chain 2: Geo-Temporal Memory
 
-**Scenario**: Create memory with location → Create memory with time → Search by location → Search by time → Provenance chain
+**Scenario**: Upload GPS-tagged photo → EXIF extraction creates provenance → Search by location → Search by time → Provenance chain
 
 **Duration**: ~5 minutes
 
+> **Note**: This chain uses the actual provenance creation path: upload a GPS-tagged JPEG → EXIF extraction job automatically creates provenance records (location, capture time). The `create_note` API does NOT support inline `metadata.location` — provenance is always derived from attachment EXIF data or created via SQL (see Phase 3b approved exception and [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)).
+
 ---
 
-### CHAIN-007: Create Memory with Location
+### CHAIN-007: Create Memory with GPS-Tagged Photo
 
-**MCP Tool**: `create_note`
+**MCP Tools**: `create_note`, `upload_attachment`
 
-**Description**: Create note with geographic coordinates
+**Description**: Create note and upload GPS-tagged photo to trigger EXIF extraction and automatic provenance creation
 
 **Prerequisites**:
 - MCP server running
 - PostGIS extension enabled
+- Test file: `tests/uat/data/provenance/paris-eiffel-tower.jpg` (GPS: 48.8584°N, 2.2945°E)
 
 **Steps**:
 ```javascript
-// 1. Create note with location metadata
+// 1. Create note for the memory
 create_note({
   content: "# Paris Trip\n\nVisited the Eiffel Tower on a beautiful summer day.",
   tags: ["uat/chain2", "paris", "travel"],
-  metadata: {
-    location: {
-      latitude: 48.8584,
-      longitude: 2.2945,
-      altitude: 35.0
-    },
-    capture_time: "2024-07-14T12:00:00Z"
-  }
+  revision_mode: "none"
 })
-// Expected: returns note_id, location stored in PostGIS
+// Expected: returns note_id
+
+// 2. Upload GPS-tagged photo (two-step upload)
+upload_attachment({
+  note_id: "{paris_note_id}",
+  filename: "paris-eiffel-tower.jpg",
+  content_type: "image/jpeg"
+})
+// Expected: returns { upload_url, curl_command, max_size: "50MB" }
+
+// 3. Execute the returned curl command with actual file
+// curl -s -X POST \
+//   -F "file=@tests/uat/data/provenance/paris-eiffel-tower.jpg;type=image/jpeg" \
+//   -H "Authorization: Bearer <token>" \
+//   "https://memory.integrolabs.net/api/v1/notes/{paris_note_id}/attachments/upload"
+
+// 4. Wait 3-5 seconds for EXIF extraction job to process
 ```
 
 **Expected Results**:
 - Note created with note_id
-- Location coordinates stored
-- Capture time recorded
+- Attachment uploaded successfully
+- EXIF extraction job triggered automatically
+- GPS coordinates extracted from JPEG EXIF data
 
-**Store**: `paris_note_id`
+**Store**: `paris_note_id`, `paris_attachment_id`
 
 **Pass Criteria**:
-- Note created with geographic data
-- Location metadata accessible
+- Note and attachment created
+- EXIF extraction job queued/completed
 
 ---
 
@@ -360,10 +384,11 @@ create_note({
 
 **MCP Tool**: `get_memory_provenance`
 
-**Description**: Verify W3C PROV provenance created automatically
+**Description**: Verify W3C PROV provenance created automatically from EXIF data
 
 **Prerequisites**:
 - `paris_note_id` from CHAIN-007
+- Wait 3-5 seconds for EXIF extraction
 
 **Steps**:
 ```javascript
@@ -376,12 +401,12 @@ get_memory_provenance({
 
 **Expected Results**:
 - Provenance record exists
-- Location: POINT(2.2945 48.8584)
-- Capture time: 2024-07-14T12:00:00Z
+- Location extracted from EXIF GPS: approximately POINT(2.2945 48.8584)
+- Capture time extracted from EXIF DateTimeOriginal
 - Event type included
 
 **Pass Criteria**:
-- Provenance chain created automatically
+- Provenance chain created automatically from EXIF data
 - Spatial and temporal data preserved
 
 ---
@@ -393,7 +418,7 @@ get_memory_provenance({
 **Description**: Search for memories near Eiffel Tower
 
 **Prerequisites**:
-- `paris_note_id` with location
+- `paris_note_id` with provenance from CHAIN-008
 
 **Steps**:
 ```javascript
@@ -413,18 +438,6 @@ search_memories_by_location({
 - Results ordered by distance
 - Location-based filtering works
 
-**Verification**:
-```javascript
-// Verify our note in results
-search_memories_by_location({
-  latitude: 48.8584,
-  longitude: 2.2945,
-  radius_meters: 1000,
-  limit: 10
-})
-// Check that paris_note_id appears
-```
-
 **Pass Criteria**:
 - Spatial search finds note
 - Distance calculated correctly
@@ -436,17 +449,19 @@ search_memories_by_location({
 
 **MCP Tool**: `search_memories_by_time`
 
-**Description**: Search for memories in July 2024
+**Description**: Search for memories captured within the EXIF timestamp range
 
 **Prerequisites**:
-- `paris_note_id` captured on 2024-07-14
+- `paris_note_id` with capture time from EXIF
 
 **Steps**:
 ```javascript
-// 1. Search within July 2024
+// 1. Search for memories from the EXIF capture date
+// The exact date depends on the EXIF data in paris-eiffel-tower.jpg
+// Use a wide range to ensure we capture it
 search_memories_by_time({
-  start_time: "2024-07-01T00:00:00Z",
-  end_time: "2024-07-31T23:59:59Z",
+  start_time: "2020-01-01T00:00:00Z",
+  end_time: "2026-12-31T23:59:59Z",
   limit: 10
 })
 // Expected: returns results array with paris_note_id
@@ -468,10 +483,10 @@ search_memories_by_time({
 
 **MCP Tool**: `search_memories_combined`
 
-**Description**: Search for memories near Eiffel Tower in July 2024
+**Description**: Search for memories near Eiffel Tower within the EXIF time range
 
 **Prerequisites**:
-- `paris_note_id` with location and time
+- `paris_note_id` with location and time from provenance
 
 **Steps**:
 ```javascript
@@ -480,8 +495,8 @@ search_memories_combined({
   latitude: 48.8584,
   longitude: 2.2945,
   radius_meters: 5000,
-  start_time: "2024-07-01T00:00:00Z",
-  end_time: "2024-07-31T23:59:59Z",
+  start_time: "2020-01-01T00:00:00Z",
+  end_time: "2026-12-31T23:59:59Z",
   limit: 10
 })
 // Expected: returns results matching both location AND time criteria
@@ -521,8 +536,9 @@ get_memory_provenance({
 - Provenance graph includes:
   - Entity (note)
   - Activity (memory capture)
-  - Location (Eiffel Tower coordinates)
-  - Time (capture timestamp)
+  - Location (Eiffel Tower coordinates from EXIF)
+  - Time (capture timestamp from EXIF)
+  - Device (camera make/model from EXIF, if available)
 - W3C PROV relationships present
 - Graph structure valid
 
@@ -535,8 +551,9 @@ get_memory_provenance({
 
 **Chain 2 Summary**:
 - Total steps: 6
-- Features exercised: Location metadata, provenance tracking, spatial search, temporal search, combined search, provenance chain
-- Success criteria: Geo-temporal search functional
+- Features exercised: GPS-tagged photo upload, EXIF extraction, automatic provenance creation, spatial search, temporal search, combined search, provenance chain
+- Success criteria: Geo-temporal search functional via EXIF-derived provenance
+- **Dependency**: Requires attachment uploads to work (#252 must be fixed)
 
 ---
 
@@ -2207,7 +2224,7 @@ list_concept_schemes({})
 | Chain | Name | Steps | MCP Tool(s) | Status |
 |-------|------|-------|-------------|--------|
 | Chain 1 | Document Lifecycle | 6 | `upload_attachment`, `create_note`, `get_note`, `detect_document_type`, `list_document_types`, `list_embedding_sets`, `get_embedding_set`, `search_notes`, `list_note_versions`, `restore_note_version`, `diff_note_versions`, `export_note` | |
-| Chain 2 | Geo-Temporal Memory | 6 | `create_note`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
+| Chain 2 | Geo-Temporal Memory | 6 | `create_note`, `upload_attachment`, `get_memory_provenance`, `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined` | |
 | Chain 3 | Knowledge Organization | 7 | `create_concept_scheme`, `create_concept`, `add_broader`, `get_narrower`, `create_collection`, `tag_note_concept`, `move_note_to_collection`, `search_notes`, `explore_graph`, `export_skos_turtle`, `knowledge_shard` | |
 | Chain 4 | Multilingual Search | 6 | `create_note`, `search_notes` | |
 | Chain 5 | Encryption & Sharing | 6 | `pke_create_keyset`, `create_note`, `pke_encrypt`, `get_note`, `pke_get_address`, `pke_decrypt` | |

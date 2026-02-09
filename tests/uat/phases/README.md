@@ -2,7 +2,7 @@
 
 This directory contains phase-based UAT test procedures for Matric Memory, designed for efficient agentic execution via MCP tools.
 
-> **MCP-First Testing Policy (MANDATORY)**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. **If an MCP tool fails or is missing, FILE A BUG ISSUE — do NOT fall back to curl or direct API calls.** The failure IS the finding. Direct API calls are only acceptable for: (1) file upload/download where binary data must not pass through MCP, and (2) OAuth infrastructure tests in Phase 17 Part B. All other operations MUST use MCP tools, no exceptions.
+> **MCP-First Testing Policy (MANDATORY)**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. **If an MCP tool fails or is missing, FILE A BUG ISSUE — do NOT fall back to curl or direct API calls.** The failure IS the finding. Direct API calls are only acceptable for: (1) file upload/download where binary data must not pass through MCP, (2) OAuth infrastructure tests in Phase 17 Part B, and (3) provenance test data setup in Phase 3B via raw SQL ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). All other operations MUST use MCP tools.
 
 ---
 
@@ -49,7 +49,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total Tests**: 448
+**Total Tests**: 459
 **Total Estimated Duration**: 220-260 minutes (full suite)
 **Total Phases**: 25 (numbered 0-21, plus sub-phases 2b, 2c, and 3b)
 
@@ -77,7 +77,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
 | Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
-| **TOTAL** | **148+** | **448** | **100%** |
+| **TOTAL** | **148+** | **459** | **100%** |
 
 ---
 
@@ -118,16 +118,9 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 5. **Phase 20** (Data Export) tests backup/export functionality
 6. **Phase 21** (Final Cleanup) MUST run LAST - uses MCP tools to remove all test data
 
-### Phase 2b Attachment Gate
+### No Test Skipping
 
-If Phase 2b reveals that the attachment subsystem is non-functional (e.g., uploads return 200 but data is not persisted):
-
-- **Skip Phase 2c** (Attachment Processing) — all 31 tests depend on working uploads
-- **Skip Phase 3b** (Memory Search) — spatial/temporal search depends on EXIF extraction
-- **Mark skipped tests as BLOCKED** with root-cause issue reference
-- **Continue to Phase 3** (Search) and proceed normally
-- **In Phase 19**, mark Chain 2 (Geo-Temporal Memory) as BLOCKED
-- **Report executable pass rate** separately in the final report
+Every test must be executed regardless of upstream failures. If Phase 2b attachment uploads fail, still execute Phase 2c and Phase 3b — the cascading failures reveal the true blast radius and each failure should be recorded and filed as a Gitea issue. Do not mark tests as BLOCKED or skip them.
 
 ### Partial Execution (Time-Constrained)
 
@@ -141,8 +134,8 @@ If running a subset, always include:
 ## Success Criteria
 
 - **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
-- **Conditional Pass**: If blocked tests exist due to a single root cause, report executable pass rate separately
 - **Overall**: 100% pass rate for release approval
+- **No skipping**: Every test must be executed. Failures are recorded and filed as issues — the dev team resolves them. Do not mark tests as BLOCKED or skip them due to upstream failures.
 - **Test data**: Must be generated before execution (see Test Data section)
 
 ---
@@ -231,12 +224,13 @@ Each phase document is self-contained with:
 Agents MUST:
 1. **Use MCP tools for ALL tests** — never fall back to curl or direct HTTP API calls for operations available as MCP tools
 2. **If an MCP tool fails, file a bug issue** — do NOT work around it by calling the API directly. The MCP failure is a UAT finding, not a reason to bypass MCP.
-3. **Only use curl for file upload/download** (binary data) and OAuth infrastructure (Phase 17 Part B) — these are the ONLY approved exceptions
+3. **Only use curl/SQL for**: file upload/download (binary data), OAuth infrastructure (Phase 17 Part B), and provenance test data setup (Phase 3B SQL) — these are the ONLY approved exceptions
 4. Execute tests sequentially within each phase
 5. Record results in the phase summary table
-6. Proceed to next phase only if prerequisites met
+6. **Always proceed to the next phase** — never skip phases or tests due to upstream failures. If a prerequisite test failed, still attempt the dependent test and record what happens.
 7. **Execute ALL 25 phases (0-21, including sub-phases)** - do not stop early
 8. **Phase 21 (Final Cleanup) is MANDATORY** and runs LAST
+9. **File a Gitea issue for every failure** — tag with `bug` and `mcp`, include reproduction steps. The dev team resolves failures; the executor's job is to run tests and report results.
 
 ### Negative Test Isolation Protocol
 
@@ -264,6 +258,8 @@ Before declaring UAT complete, verify:
 
 ## Version History
 
+- **2026.2.10**: Reconciled test counts (448→459 across 25 phases). Added provenance SQL setup as third approved MCP-first exception (Phase 3B, tracked in #261). Fixed CHAIN-005 version parameter inconsistency (version_id:0 → version:1, matching Phase 11 spec). Restructured Phase 19 Chain 2 to use actual provenance path (GPS-tagged photo → EXIF extraction) instead of unsupported inline metadata.location.
+- **2026.2.9**: Removed all skip/gate/BLOCKED logic — every test must execute, failures get filed as issues. Fixed test specs: CHAIN-001 upload pattern, VER-011 escape hatch, OBS-007 pass criteria, UAT-2B-019 raw SQL. Removed "Conditional Pass" from report template. Added Gitea issue tracking to report template.
 - **2026.2.7**: Enforced MCP-first testing philosophy across entire UAT suite. Rewrote Phase 17 (OAuth) from curl-only to MCP-first with 13 agent-perspective tests + 4 infrastructure tests. Rewrote Phase 18 (Caching) from curl-only to 100% MCP tool calls. Added MCP-first principle statement to README. Eliminated API fallbacks for all operations available as MCP tools.
 - **2026.2.6**: Added Phase 2C (Attachment Processing Pipeline) with 31 tests covering document type auto-detection on upload, extraction strategy assignment, user-supplied overrides, multi-file notes, content extraction, job queue integration, and end-to-end pipeline verification
 - **2026.2.5**: Reordered phases - moved Data Export (20) and Final Cleanup (21) to END of suite to prevent agentic early termination; renumbered Templates→Jobs from 10-15, Observability→Feature Chains from 16-19

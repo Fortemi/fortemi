@@ -22,12 +22,13 @@ This UAT suite tests Matric Memory **as an agent uses it** — through MCP tool 
 2. **If an MCP tool fails or doesn't exist for an operation, FILE A BUG ISSUE.** Do NOT fall back to curl or direct API calls. The failure IS the finding — document it and move on.
 3. **Never use curl, fetch, or direct HTTP calls** for operations available as MCP tools. Doing so defeats the purpose of this UAT.
 
-### Approved Exceptions (only two)
+### Approved Exceptions (three)
 
 | Exception | Reason | Phases |
 |-----------|--------|--------|
 | **File upload/download** | Binary data must not pass through MCP protocol or LLM context window. The `upload_attachment` and `download_attachment` MCP tools return curl commands that the agent executes. | 2b, 2c |
 | **OAuth infrastructure tests** | OAuth client registration, token issuance, and introspection are infrastructure-level operations that agents never perform directly. | 17 (Part B only) |
+| **Provenance test data setup** | No MCP tools exist for creating provenance records (`prov_location`, `file_provenance`, `named_location`). Raw SQL is required for test setup until provenance creation MCP tools are added (see [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). | 3b |
 
 ### When MCP Fails
 
@@ -75,7 +76,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total**: 448 tests across 25 phases (including 2b, 2c, and 3b)
+**Total**: 459 tests across 25 phases (including 2b, 2c, and 3b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -88,19 +89,6 @@ See [phases/README.md](phases/README.md) for execution order and success criteri
 1. Ensure MCP connection is active: `list_notes(limit=1)` should work
 2. Note the starting state: `memory_info()` for baseline counts
 3. Create a results tracking structure
-
-### Phase 2b Attachment Gate
-
-If Phase 2b reveals that the attachment subsystem is non-functional (e.g., uploads return 200 but data is not persisted), apply the following fast-track rules:
-
-- **Skip Phase 2c** (Attachment Processing) entirely — all 31 tests depend on working uploads
-- **Skip Phase 3b** (Memory Search) — spatial/temporal search depends on attachment EXIF extraction
-- **Mark skipped tests as BLOCKED** with a reference to the root-cause issue
-- **Continue to Phase 3** (Search) and proceed normally through remaining phases
-- **In Phase 19** (Feature Chains), mark Chain 2 (Geo-Temporal Memory) as BLOCKED
-- **Report executable pass rate** separately from overall pass rate in the final report
-
-This gate prevents ~52+ tests from cascading to failure due to a single subsystem bug.
 
 ### Negative Test Isolation
 
@@ -122,10 +110,11 @@ uat_run:
   completed_at: "<timestamp>"
   executor: "<agent_id>"
   results:
-    phase_0: { passed: 0, failed: 0, skipped: 0 }
-    phase_1: { passed: 0, failed: 0, skipped: 0 }
+    phase_0: { passed: 0, failed: 0 }
+    phase_1: { passed: 0, failed: 0 }
     # ... etc through phase_21
   failures: []
+  issues_filed: []
   notes: []
 ```
 
@@ -139,38 +128,44 @@ uat_run:
 ## Summary
 - **Date**: YYYY-MM-DD
 - **Duration**: X minutes
-- **Overall Result**: PASS/FAIL
+- **Overall Result**: PASS / FAIL
 
 ## Results by Phase
 
-| Phase | Tests | Passed | Failed | Blocked | Pass Rate |
-|-------|-------|--------|--------|---------|-----------|
-| 0: Pre-flight | 3 | X | X | X | X% |
-| 1: Seed Data | 11 | X | X | X | X% |
-| 2: CRUD | 17 | X | X | X | X% |
-| 2b: Attachments | 22 | X | X | X | X% |
-| 2c: Attachment Processing | 31 | X | X | X | X% |
-| 3: Search | 18 | X | X | X | X% |
-| 3b: Memory Search | 21 | X | X | X | X% |
-| 4: Tags | 11 | X | X | X | X% |
-| 5: Collections | 10 | X | X | X | X% |
-| 6: Links | 13 | X | X | X | X% |
-| 7: Embeddings | 20 | X | X | X | X% |
-| 8: Document Types | 16 | X | X | X | X% |
-| 9: Edge Cases | 15 | X | X | X | X% |
-| 10: Templates | 15 | X | X | X | X% |
-| 11: Versioning | 15 | X | X | X | X% |
-| 12: Archives | 18 | X | X | X | X% |
-| 13: SKOS | 40 | X | X | X | X% |
-| 14: PKE | 20 | X | X | X | X% |
-| 15: Jobs | 22 | X | X | X | X% |
-| 16: Observability | 12 | X | X | X | X% |
-| 17: OAuth/Auth | 17 | X | X | X | X% |
-| 18: Caching | 15 | X | X | X | X% |
-| 19: Feature Chains | 48 | X | X | X | X% |
-| 20: Data Export | 19 | X | X | X | X% |
-| 21: Final Cleanup | 10 | X | X | X | X% |
-| **TOTAL** | **448** | **X** | **X** | **X** | **X%** |
+| Phase | Tests | Passed | Failed | Pass Rate |
+|-------|-------|--------|--------|-----------|
+| 0: Pre-flight | 3 | X | X | X% |
+| 1: Seed Data | 11 | X | X | X% |
+| 2: CRUD | 17 | X | X | X% |
+| 2b: Attachments | 22 | X | X | X% |
+| 2c: Attachment Processing | 31 | X | X | X% |
+| 3: Search | 18 | X | X | X% |
+| 3b: Memory Search | 21 | X | X | X% |
+| 4: Tags | 11 | X | X | X% |
+| 5: Collections | 10 | X | X | X% |
+| 6: Links | 13 | X | X | X% |
+| 7: Embeddings | 20 | X | X | X% |
+| 8: Document Types | 16 | X | X | X% |
+| 9: Edge Cases | 15 | X | X | X% |
+| 10: Templates | 15 | X | X | X% |
+| 11: Versioning | 15 | X | X | X% |
+| 12: Archives | 18 | X | X | X% |
+| 13: SKOS | 40 | X | X | X% |
+| 14: PKE | 20 | X | X | X% |
+| 15: Jobs | 22 | X | X | X% |
+| 16: Observability | 12 | X | X | X% |
+| 17: OAuth/Auth | 17 | X | X | X% |
+| 18: Caching | 15 | X | X | X% |
+| 19: Feature Chains | 48 | X | X | X% |
+| 20: Data Export | 19 | X | X | X% |
+| 21: Final Cleanup | 10 | X | X | X% |
+| **TOTAL** | **459** | **X** | **X** | **X%** |
+
+## Gitea Issues Filed
+
+| Issue # | Test ID | Title | Severity |
+|---------|---------|-------|----------|
+| #NNN | TEST-ID | Description | Critical/High/Medium/Low |
 
 ## Failed Tests
 
@@ -178,6 +173,7 @@ uat_run:
 - **Expected**: ...
 - **Actual**: ...
 - **Error**: ...
+- **Gitea Issue**: #NNN
 
 ## Observations
 
@@ -194,7 +190,7 @@ uat_run:
 
 - **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
 - **Overall**: 100% pass rate for release approval
-- **Conditional Pass**: If blocked tests exist due to a single root cause (e.g., attachment subsystem), report executable pass rate separately
+- **No skipping**: Every test must be executed. If a test fails, record the failure and file a Gitea issue. Do not skip tests due to upstream failures — cascading failures reveal the true blast radius of bugs.
 
 ## MCP Tool Coverage
 

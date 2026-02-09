@@ -587,28 +587,30 @@
 
 ### UAT-2B-019: Delete Attachment with Shared Blob
 
-**MCP Tool**: `delete_attachment`, `download_attachment`
+**MCP Tool**: `delete_attachment`, `download_attachment`, `get_attachment`
 
-**Description**: Delete attachment that shares blob with another attachment (deduplication)
+**Description**: Delete attachment that shares blob with another attachment (deduplication), verify original still accessible
 
 **Prerequisites**:
 - `attachment_duplicate_id` from UAT-2B-009 (shares blob with `attachment_image_id`)
 
 **Steps**:
-1. Query blob reference count before: `SELECT reference_count FROM attachment_blob WHERE id = '<blob-id>'`
+1. Verify both attachments exist before deletion:
+   - `get_attachment({ id: attachment_duplicate_id })` — should return metadata
+   - `get_attachment({ id: attachment_image_id })` — should return metadata
 2. Delete duplicate: `delete_attachment({ attachment_id: attachment_duplicate_id })`
-3. Query blob reference count after
+3. Verify original still accessible: `get_attachment({ id: attachment_image_id })` — should return metadata
 4. Download original: `download_attachment({ id: attachment_image_id })`
-5. Execute curl to verify file still accessible
+5. Execute curl to verify file still downloadable
 
 **Expected Results**:
 - Delete succeeds
-- Blob `reference_count` decremented from 2 to 1
-- Blob NOT deleted (still referenced)
-- Original attachment download still works
+- Original attachment metadata still accessible via `get_attachment`
+- Original attachment download still works (file not corrupted by sibling deletion)
+- Blob NOT deleted (still referenced by original)
 
 **Verification**:
-- Deduplication reference counting works correctly
+- Deduplication preserves shared blob when one reference is deleted
 
 ---
 
@@ -714,7 +716,7 @@
 | UAT-2B-016 | List All Attachments | `list_attachments` | |
 | UAT-2B-017 | List Empty Attachments | `create_note`, `list_attachments` | |
 | UAT-2B-018 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
-| UAT-2B-019 | Delete Shared Blob | `delete_attachment`, `download_attachment` | |
+| UAT-2B-019 | Delete Shared Blob | `delete_attachment`, `download_attachment`, `get_attachment` | |
 | UAT-2B-020 | Upload Oversized File | `upload_attachment` | |
 | UAT-2B-021 | Invalid Content Type | `upload_attachment` | |
 | UAT-2B-022 | Upload to Non-Existent Note | `upload_attachment` | |

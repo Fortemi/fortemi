@@ -2,7 +2,7 @@
 
 **Purpose**: Verify document type auto-detection on upload, extraction strategy assignment, user-supplied overrides, multi-file notes, content extraction, and job queue integration for the attachment processing pipeline
 **Duration**: ~20 minutes
-**Prerequisites**: Phase 2B file attachments completed, test data generated
+**Prerequisites**: Phase 2B executed (tests use attachment IDs from Phase 2B where available; if uploads failed in 2B, attempt each test anyway and record failures), test data generated
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `create_note`, `upload_attachment`, `get_attachment`, `list_attachments`, `get_document_type`, `detect_document_type`, `list_jobs`, `get_job`, `search_notes`
 

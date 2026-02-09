@@ -258,9 +258,7 @@ restore_note_version({
 })
 ```
 
-**Expected**: Tags restored to v2 state (if tracked)
-
-**Note**: Tag versioning may not be implemented - verify behavior
+**Expected**: Tags restored to v2 state (only `uat/versioning`, no `uat/new-tag`)
 
 ---
 
@@ -374,7 +372,7 @@ list_note_versions({ note_id: VERSION_NOTE_ID })  // Should error
 | VER-014 | `get_note_version` | | Get non-existent version |
 | VER-015 | `diff_note_versions` | | Diff with deleted version |
 
-**Pass Rate Required**: 100% (15/15 - VER-011 behavior depends on tag versioning implementation; if tag restore is not supported, mark as PASS with a note)
+**Pass Rate Required**: 100% (15/15)
 
 ---
 

@@ -2,11 +2,13 @@
 
 **Purpose**: Verify temporal-spatial memory search capabilities for file provenance queries
 **Duration**: ~15 minutes
-**Prerequisites**: Phase 1 seed data exists, PostGIS extension enabled, W3C PROV schema migrated, test data generated
+**Prerequisites**: Phase 1 seed data exists, PostGIS extension enabled, W3C PROV schema migrated, test data generated. If upstream attachment uploads failed, still attempt each test and record failures.
 **Critical**: Yes (100% pass required)
 **Tools Tested**: `search_memories_by_location`, `search_memories_by_time`, `search_memories_combined`, `get_memory_provenance`, `create_note`, `upload_attachment`
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
+
+> **Approved Exception — Provenance Setup**: This phase requires raw SQL INSERT statements to create provenance test data (`prov_location`, `file_provenance`, `named_location`, `prov_agent_device`). No MCP tools exist for provenance record creation yet (tracked in [#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). SQL setup steps are an approved exception. All **verification** and **search** operations MUST still use MCP tools.
 
 > **Test Data**: GPS-tagged images for provenance testing in `tests/uat/data/provenance/`:
 > `paris-eiffel-tower.jpg` (48.8584N, 2.2945E), `newyork-statue-liberty.jpg` (40.6892N, 74.0445W),

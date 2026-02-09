@@ -174,7 +174,15 @@ get_notes_timeline({
 })
 ```
 
-**Pass Criteria**: Returns weekly aggregated data
+**Expected Response Structure**:
+```
+{
+  "timeline": [<array of objects with period: "week", date as ISO 8601 week start>],
+  "summary": { ... }
+}
+```
+
+**Pass Criteria**: Timeline entries have `period: "week"` (not "day"), dates correspond to week boundaries (Mondays), and the number of entries is approximately `(date range in days) / 7` rather than one entry per day
 
 ---
 
