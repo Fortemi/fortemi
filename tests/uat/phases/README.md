@@ -2,7 +2,7 @@
 
 This directory contains phase-based UAT test procedures for Matric Memory, designed for efficient agentic execution via MCP tools.
 
-> **MCP-First Testing Policy (MANDATORY)**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. **If an MCP tool fails or is missing, FILE A BUG ISSUE — do NOT fall back to curl or direct API calls.** The failure IS the finding. Direct API calls are only acceptable for: (1) file upload/download where binary data must not pass through MCP, (2) OAuth infrastructure tests in Phase 17 Part B, and (3) provenance test data setup in Phase 3B via raw SQL ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)). All other operations MUST use MCP tools.
+> **MCP-First Testing Policy (MANDATORY)**: This UAT suite tests Matric Memory as an agent uses it in a real session — through MCP tool invocations, not direct HTTP API calls. Every test that can be expressed as an MCP tool call MUST use MCP tools. **If an MCP tool fails or is missing, FILE A BUG ISSUE — do NOT fall back to curl or direct API calls.** The failure IS the finding. Direct API calls are only acceptable for: (1) file upload/download where binary data must not pass through MCP, and (2) OAuth infrastructure tests in Phase 17 Part B. All other operations MUST use MCP tools.
 
 ---
 
@@ -29,7 +29,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
 | 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 18 | **Yes** |
-| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
+| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 26 | **Yes** |
 | 4 | [Tag System](phase-4-tags.md) | ~5 min | 11 | No |
 | 5 | [Collections](phase-5-collections.md) | ~3 min | 10 | No |
 | 6 | [Semantic Links](phase-6-links.md) | ~5 min | 13 | No |
@@ -38,7 +38,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 15 | No |
 | 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | No |
 | 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [Archives](phase-12-archives.md) | ~8 min | 18 | No |
+| 12 | [Archives](phase-12-archives.md) | ~8 min | 19 | No |
 | 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 40 | No |
 | 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | No |
 | 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 22 | No |
@@ -49,7 +49,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total Tests**: 459
+**Total Tests**: 465
 **Total Estimated Duration**: 220-260 minutes (full suite)
 **Total Phases**: 25 (numbered 0-21, plus sub-phases 2b, 2c, and 3b)
 
@@ -61,6 +61,8 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 |----------|-------|-----------|----------|
 | Note CRUD | 12 | 39 | 100% |
 | Search | 4 | 39 | 100% |
+| Memory Search | 5 | 27 | 100% |
+| Provenance Creation | 5 | 26 | 100% |
 | Tags | 2 | 11 | 100% |
 | Collections | 8 | 10 | 100% |
 | Templates | 6 | 15 | 100% |
@@ -69,7 +71,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Graph/Links | 7 | 13 | 100% |
 | Jobs | 7 | 22 | 100% |
 | SKOS | 33 | 40 | 100% |
-| Archives | 7 | 18 | 100% |
+| Archives | 7 | 19 | 100% |
 | Document Types | 6 | 16 | 100% |
 | Backup/Export | 17 | 19 | 100% |
 | PKE | 13 | 20 | 100% |
@@ -77,7 +79,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | Auth & Access Control | 8 MCP tools + 4 infra | 17 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
 | Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
-| **TOTAL** | **148+** | **459** | **100%** |
+| **TOTAL** | **158+** | **465** | **100%** |
 
 ---
 
@@ -258,6 +260,7 @@ Before declaring UAT complete, verify:
 
 ## Version History
 
+- **2026.2.12**: Reconciled Phase 3B test count (21→26) after note-level provenance tests added (UAT-3B-021 through 025). Added `search_memories_federated` test to Phase 12 (ARCH-019). Added Provenance Creation and Memory Search categories to MCP Tool Coverage table. Updated total: 459→465.
 - **2026.2.11**: Removed provenance SQL exception — Phase 3B now uses MCP tools (`create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`) for all provenance test data setup (#261). Updated Phase 19 Chain 2 note. Reduced approved exceptions from 3 to 2.
 - **2026.2.10**: Reconciled test counts (448→459 across 25 phases). Added provenance SQL setup as third approved MCP-first exception (Phase 3B, tracked in #261). Fixed CHAIN-005 version parameter inconsistency (version_id:0 → version:1, matching Phase 11 spec). Restructured Phase 19 Chain 2 to use actual provenance path (GPS-tagged photo → EXIF extraction) instead of unsupported inline metadata.location.
 - **2026.2.9**: Removed all skip/gate/BLOCKED logic — every test must execute, failures get filed as issues. Fixed test specs: CHAIN-001 upload pattern, VER-011 escape hatch, OBS-007 pass criteria, UAT-2B-019 raw SQL. Removed "Conditional Pass" from report template. Added Gitea issue tracking to report template.

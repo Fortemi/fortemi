@@ -29,7 +29,7 @@ This UAT suite tests Matric Memory **as an agent uses it** — through MCP tool 
 | **File upload/download** | Binary data must not pass through MCP protocol or LLM context window. The `upload_attachment` and `download_attachment` MCP tools return curl commands that the agent executes. | 2b, 2c |
 | **OAuth infrastructure tests** | OAuth client registration, token issuance, and introspection are infrastructure-level operations that agents never perform directly. | 17 (Part B only) |
 
-> **Note**: Provenance test data setup (previously an exception) is now fully supported via MCP tools: `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance` ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261)).
+> **Note**: Provenance test data setup (previously an exception) is now fully supported via MCP tools: `create_provenance_location`, `create_named_location`, `create_provenance_device`, `create_file_provenance`, `create_note_provenance` ([#261](https://git.integrolabs.net/Fortemi/fortemi/issues/261), [#262](https://git.integrolabs.net/Fortemi/fortemi/issues/262)).
 
 ### When MCP Fails
 
@@ -57,7 +57,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
 | 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 18 | **Yes** |
-| 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 21 | **Yes** |
+| 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 26 | **Yes** |
 | 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 11 | No |
 | 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 10 | No |
 | 6 | [phases/phase-6-links.md](phases/phase-6-links.md) | ~5 min | 13 | No |
@@ -66,7 +66,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 9 | [phases/phase-9-edge-cases.md](phases/phase-9-edge-cases.md) | ~5 min | 15 | No |
 | 10 | [phases/phase-10-templates.md](phases/phase-10-templates.md) | ~8 min | 15 | No |
 | 11 | [phases/phase-11-versioning.md](phases/phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 18 | No |
+| 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 19 | No |
 | 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 40 | No |
 | 14 | [phases/phase-14-pke.md](phases/phase-14-pke.md) | ~8 min | 20 | No |
 | 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 22 | No |
@@ -77,7 +77,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
 | 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
 
-**Total**: 459 tests across 25 phases (including 2b, 2c, and 3b)
+**Total**: 465 tests across 25 phases (including 2b, 2c, and 3b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -141,7 +141,7 @@ uat_run:
 | 2b: Attachments | 22 | X | X | X% |
 | 2c: Attachment Processing | 31 | X | X | X% |
 | 3: Search | 18 | X | X | X% |
-| 3b: Memory Search | 21 | X | X | X% |
+| 3b: Memory Search | 26 | X | X | X% |
 | 4: Tags | 11 | X | X | X% |
 | 5: Collections | 10 | X | X | X% |
 | 6: Links | 13 | X | X | X% |
@@ -150,7 +150,7 @@ uat_run:
 | 9: Edge Cases | 15 | X | X | X% |
 | 10: Templates | 15 | X | X | X% |
 | 11: Versioning | 15 | X | X | X% |
-| 12: Archives | 18 | X | X | X% |
+| 12: Archives | 19 | X | X | X% |
 | 13: SKOS | 40 | X | X | X% |
 | 14: PKE | 20 | X | X | X% |
 | 15: Jobs | 22 | X | X | X% |
@@ -160,7 +160,7 @@ uat_run:
 | 19: Feature Chains | 48 | X | X | X% |
 | 20: Data Export | 19 | X | X | X% |
 | 21: Final Cleanup | 10 | X | X | X% |
-| **TOTAL** | **459** | **X** | **X** | **X%** |
+| **TOTAL** | **465** | **X** | **X** | **X%** |
 
 ## Gitea Issues Filed
 
@@ -201,7 +201,8 @@ uat_run:
 |----------|-------|---------|
 | Note CRUD | 12 | 100% |
 | Search | 4 | 100% |
-| Memory Search | 4 | 100% |
+| Memory Search | 5 | 100% |
+| Provenance Creation | 5 | 100% |
 | Tags | 2 | 100% |
 | Collections | 8 | 100% |
 | Templates | 6 | 100% |
@@ -218,4 +219,4 @@ uat_run:
 | Auth & Access Control | 8 MCP + 4 infra | 100% |
 | Caching & Performance | 5 | 100% |
 | Attachment Processing | 5 | 100% |
-| **Total** | **148+** | **100%** |
+| **Total** | **158+** | **100%** |

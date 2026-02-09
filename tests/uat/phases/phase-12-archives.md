@@ -1,7 +1,7 @@
 # UAT Phase 12: Archives
 
 **Duration**: ~8 minutes
-**Tools Tested**: `list_archives`, `create_archive`, `get_archive`, `update_archive`, `delete_archive`, `set_default_archive`, `get_archive_stats`
+**Tools Tested**: `list_archives`, `create_archive`, `get_archive`, `update_archive`, `delete_archive`, `set_default_archive`, `get_archive_stats`, `search_memories_federated`
 **Dependencies**: Phase 0 (preflight)
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
@@ -268,6 +268,50 @@ list_notes({ tags: ["uat/archives"] })
 
 ---
 
+### ARCH-019: Federated Search Across Archives
+
+**MCP Tool**: `search_memories_federated`
+
+**Description**: Search across multiple memories/archives simultaneously using full-text search
+
+**Prerequisites**:
+- Default archive has notes from seed data (Phase 1)
+- "uat-test-archive" exists with note from ARCH-010
+- Must execute in this position (before archive deletion in ARCH-015)
+
+**Steps**:
+```javascript
+// 1. Ensure default is active (restored in ARCH-012)
+// Search across both default and test archive
+search_memories_federated({
+  q: "test",
+  memories: ["default", "uat-test-archive"],
+  limit: 5
+})
+// Expected: returns results from both memories, each annotated with source memory name
+
+// 2. Search all memories using wildcard
+search_memories_federated({
+  q: "note",
+  memories: ["all"],
+  limit: 10
+})
+// Expected: returns results from all available memories
+```
+
+**Expected Results**:
+- Results array contains hits from multiple memory sources
+- Each result includes `memory` field indicating source archive
+- Results merged and sorted by relevance score
+- "uat-test-archive" results include the note created in ARCH-010
+
+**Pass Criteria**:
+- Cross-archive search returns results from both default and test archive
+- Source memory annotation present on each result
+- `memories: ["all"]` wildcard works
+
+---
+
 ### ARCH-014: Create Duplicate Archive Name
 
 **Isolation**: Required — negative test expects error response
@@ -389,8 +433,9 @@ list_archives()  // Should only show default (and any pre-existing)
 | ARCH-016 | `delete_archive` | | Delete empty archive |
 | ARCH-017 | `get_archive` | | Verify archive deleted |
 | ARCH-018 | `delete_archive` | | Cannot delete default |
+| ARCH-019 | `search_memories_federated` | | Federated cross-archive search |
 
-**Pass Rate Required**: 100% (18/18)
+**Pass Rate Required**: 100% (19/19)
 
 ---
 
@@ -405,5 +450,6 @@ list_archives()  // Should only show default (and any pre-existing)
 | `delete_archive` | ARCH-015, ARCH-016, ARCH-018 |
 | `set_default_archive` | ARCH-008, ARCH-012 |
 | `get_archive_stats` | ARCH-006, ARCH-011 |
+| `search_memories_federated` | ARCH-019 |
 
-**Coverage**: 7/7 archive tools (100%)
+**Coverage**: 8/8 archive & multi-memory tools (100%)
