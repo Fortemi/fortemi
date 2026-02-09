@@ -1657,11 +1657,12 @@ impl PgMemorySearchRepository {
                     if let Some(loc_row) = loc_row {
                         let named_location_id: Option<Uuid> = loc_row.get("named_location_id");
                         let named_location_name = if let Some(nl_id) = named_location_id {
-                            let nl_row = sqlx::query("SELECT name FROM named_location WHERE id = $1")
-                                .bind(nl_id)
-                                .fetch_optional(&mut **tx)
-                                .await
-                                .map_err(Error::Database)?;
+                            let nl_row =
+                                sqlx::query("SELECT name FROM named_location WHERE id = $1")
+                                    .bind(nl_id)
+                                    .fetch_optional(&mut **tx)
+                                    .await
+                                    .map_err(Error::Database)?;
                             nl_row.map(|r| r.get("name"))
                         } else {
                             None

@@ -179,8 +179,8 @@ use handlers::{
     },
     pke::{pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients, pke_verify},
     provenance::{
-        create_file_provenance, create_named_location, create_note_provenance,
-        create_prov_device, create_prov_location,
+        create_file_provenance, create_named_location, create_note_provenance, create_prov_device,
+        create_prov_location,
     },
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
