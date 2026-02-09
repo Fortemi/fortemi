@@ -1723,7 +1723,7 @@ function createMcpServer() {
 
         case "get_stale_notes": {
           const params = new URLSearchParams();
-          if (args.days) params.set("days", args.days);
+          if (args.days) params.set("stale_days", args.days);
           if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
           result = await apiRequest("GET", `/api/v1/health/stale-notes?${params}`);
           break;
