@@ -136,6 +136,49 @@ async fn queue_extraction_job(
     }
 }
 
+/// Queue an EXIF extraction job for image attachments.
+///
+/// This should be called after storing image attachments. The handler extracts
+/// EXIF metadata (camera info, GPS coordinates, datetime) and creates provenance
+/// records (location, device, file).
+async fn queue_exif_extraction_job(
+    db: &Database,
+    note_id: Uuid,
+    attachment_id: Uuid,
+    content_type: &str,
+    event_bus: &EventBus,
+    schema: Option<&str>,
+) {
+    // Only queue for image content types
+    if !content_type.starts_with("image/") {
+        return;
+    }
+
+    let mut payload = serde_json::json!({
+        "attachment_id": attachment_id.to_string(),
+    });
+    if let Some(s) = schema {
+        payload["schema"] = serde_json::json!(s);
+    }
+
+    if let Ok(Some(job_id)) = db
+        .jobs
+        .queue_deduplicated(
+            Some(note_id),
+            JobType::ExifExtraction,
+            JobType::ExifExtraction.default_priority(),
+            Some(payload),
+        )
+        .await
+    {
+        event_bus.emit(ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", JobType::ExifExtraction),
+            note_id: Some(note_id),
+        });
+    }
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -9336,6 +9379,17 @@ async fn upload_attachment(
     )
     .await;
 
+    // Queue EXIF extraction for image uploads (extracts camera info, GPS, datetime → provenance)
+    queue_exif_extraction_job(
+        &state.db,
+        id,
+        attachment.id,
+        &content_type,
+        &state.event_bus,
+        Some(&archive_ctx.schema),
+    )
+    .await;
+
     Ok(Json(attachment))
 }
 
@@ -9445,6 +9499,17 @@ async fn upload_attachment_multipart(
         attachment.id,
         strategy,
         &filename,
+        &content_type,
+        &state.event_bus,
+        Some(&archive_ctx.schema),
+    )
+    .await;
+
+    // Queue EXIF extraction for image uploads (extracts camera info, GPS, datetime → provenance)
+    queue_exif_extraction_job(
+        &state.db,
+        id,
+        attachment.id,
         &content_type,
         &state.event_bus,
         Some(&archive_ctx.schema),
