@@ -4,19 +4,22 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 use tracing::{error, info};
+use uuid::Uuid;
 
 use matric_core::{ExtractionStrategy, JobType};
+use matric_db::Database;
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
 
 pub struct ExtractionHandler {
+    db: Database,
     registry: Arc<ExtractionRegistry>,
 }
 
 impl ExtractionHandler {
-    pub fn new(registry: Arc<ExtractionRegistry>) -> Self {
-        Self { registry }
+    pub fn new(db: Database, registry: Arc<ExtractionRegistry>) -> Self {
+        Self { db, registry }
     }
 }
 
@@ -52,12 +55,36 @@ impl JobHandler for ExtractionHandler {
             .unwrap_or("application/octet-stream");
         let config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
-        // Get data from payload
-        let data = if let Some(data_str) = payload.get("data").and_then(|v| v.as_str()) {
+        // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
+        let data = if let Some(attachment_id_str) =
+            payload.get("attachment_id").and_then(|v| v.as_str())
+        {
+            let attachment_id: Uuid = match attachment_id_str.parse() {
+                Ok(id) => id,
+                Err(e) => {
+                    return JobResult::Failed(format!("Invalid attachment_id UUID: {}", e))
+                }
+            };
+
+            let file_storage = match self.db.file_storage.as_ref() {
+                Some(fs) => fs,
+                None => return JobResult::Failed("File storage not configured".into()),
+            };
+
+            match file_storage.download_file(attachment_id).await {
+                Ok((file_data, _content_type, _filename)) => file_data,
+                Err(e) => {
+                    return JobResult::Failed(format!(
+                        "Failed to download attachment {}: {}",
+                        attachment_id, e
+                    ))
+                }
+            }
+        } else if let Some(data_str) = payload.get("data").and_then(|v| v.as_str()) {
             data_str.as_bytes().to_vec()
         } else {
             return JobResult::Failed(
-                "No data provided in payload (expected 'data' field with string content)".into(),
+                "No data provided (expected 'attachment_id' or 'data' field)".into(),
             );
         };
 
@@ -117,6 +144,13 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
+    fn test_db() -> Database {
+        let pool =
+            sqlx::Pool::<sqlx::Postgres>::connect_lazy("postgres://test:test@localhost/test")
+                .expect("lazy pool");
+        Database::new(pool)
+    }
+
     fn create_test_job(payload: Option<serde_json::Value>) -> Job {
         Job {
             id: Uuid::new_v4(),
@@ -137,17 +171,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_extraction_handler_job_type() {
+    #[tokio::test]
+    async fn test_extraction_handler_job_type() {
         let registry = Arc::new(ExtractionRegistry::new());
-        let handler = ExtractionHandler::new(registry);
+        let handler = ExtractionHandler::new(test_db(), registry);
         assert_eq!(handler.job_type(), JobType::Extraction);
     }
 
-    #[test]
-    fn test_extraction_handler_can_handle() {
+    #[tokio::test]
+    async fn test_extraction_handler_can_handle() {
         let registry = Arc::new(ExtractionRegistry::new());
-        let handler = ExtractionHandler::new(registry);
+        let handler = ExtractionHandler::new(test_db(), registry);
         assert!(handler.can_handle(JobType::Extraction));
         assert!(!handler.can_handle(JobType::Embedding));
         assert!(!handler.can_handle(JobType::Linking));
@@ -156,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn test_extraction_handler_missing_payload() {
         let registry = Arc::new(ExtractionRegistry::new());
-        let handler = ExtractionHandler::new(registry);
+        let handler = ExtractionHandler::new(test_db(), registry);
 
         let job = create_test_job(None);
         let ctx = JobContext::new(job);
@@ -173,7 +207,7 @@ mod tests {
     #[tokio::test]
     async fn test_extraction_handler_invalid_strategy() {
         let registry = Arc::new(ExtractionRegistry::new());
-        let handler = ExtractionHandler::new(registry);
+        let handler = ExtractionHandler::new(test_db(), registry);
 
         let payload = json!({
             "strategy": "invalid_strategy_name",
@@ -197,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_extraction_handler_missing_adapter() {
         let registry = Arc::new(ExtractionRegistry::new());
-        let handler = ExtractionHandler::new(registry);
+        let handler = ExtractionHandler::new(test_db(), registry);
 
         let payload = json!({
             "strategy": "text_native",
@@ -222,7 +256,7 @@ mod tests {
     async fn test_extraction_handler_missing_data() {
         let mut registry = ExtractionRegistry::new();
         registry.register(Arc::new(TextNativeAdapter));
-        let handler = ExtractionHandler::new(Arc::new(registry));
+        let handler = ExtractionHandler::new(test_db(), Arc::new(registry));
 
         let payload = json!({
             "strategy": "text_native",
@@ -247,7 +281,7 @@ mod tests {
     async fn test_extraction_handler_success() {
         let mut registry = ExtractionRegistry::new();
         registry.register(Arc::new(TextNativeAdapter));
-        let handler = ExtractionHandler::new(Arc::new(registry));
+        let handler = ExtractionHandler::new(test_db(), Arc::new(registry));
 
         let payload = json!({
             "strategy": "text_native",
@@ -277,7 +311,7 @@ mod tests {
 
         let mut registry = ExtractionRegistry::new();
         registry.register(Arc::new(TextNativeAdapter));
-        let handler = ExtractionHandler::new(Arc::new(registry));
+        let handler = ExtractionHandler::new(test_db(), Arc::new(registry));
 
         let payload = json!({
             "strategy": "text_native",
@@ -313,7 +347,7 @@ mod tests {
     async fn test_extraction_handler_default_values() {
         let mut registry = ExtractionRegistry::new();
         registry.register(Arc::new(TextNativeAdapter));
-        let handler = ExtractionHandler::new(Arc::new(registry));
+        let handler = ExtractionHandler::new(test_db(), Arc::new(registry));
 
         // Minimal payload with defaults
         let payload = json!({

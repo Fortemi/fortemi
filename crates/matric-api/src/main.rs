@@ -93,6 +93,49 @@ impl MakeRequestId for MakeRequestUuidV7 {
 /// - `None` (default): Use the public schema (backward compatible)
 /// - `Some("archive_name")`: Use the specified archive schema for parallel memory isolation
 ///
+/// Queue an extraction job for a newly uploaded attachment.
+///
+/// This should be called after storing the attachment and committing the transaction.
+/// The extraction handler will fetch the file data from storage using the attachment_id.
+#[allow(clippy::too_many_arguments)]
+async fn queue_extraction_job(
+    db: &Database,
+    note_id: Uuid,
+    attachment_id: Uuid,
+    strategy: ExtractionStrategy,
+    filename: &str,
+    content_type: &str,
+    event_bus: &EventBus,
+    schema: Option<&str>,
+) {
+    let mut payload = serde_json::json!({
+        "strategy": strategy.to_string(),
+        "attachment_id": attachment_id.to_string(),
+        "filename": filename,
+        "mime_type": content_type,
+    });
+    if let Some(s) = schema {
+        payload["schema"] = serde_json::json!(s);
+    }
+
+    if let Ok(Some(job_id)) = db
+        .jobs
+        .queue_deduplicated(
+            Some(note_id),
+            JobType::Extraction,
+            JobType::Extraction.default_priority(),
+            Some(payload),
+        )
+        .await
+    {
+        event_bus.emit(ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", JobType::Extraction),
+            note_id: Some(note_id),
+        });
+    }
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -163,8 +206,8 @@ async fn queue_nlp_pipeline(
 use matric_api::services::TagResolver;
 use matric_inference::OllamaBackend;
 use matric_jobs::{
-    ExtractionRegistry, JobWorker, PdfTextAdapter, StructuredExtractAdapter, TextNativeAdapter,
-    WorkerConfig, WorkerEvent,
+    ExtractionHandler, ExtractionRegistry, JobWorker, PdfTextAdapter, StructuredExtractAdapter,
+    TextNativeAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -662,6 +705,11 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(ReEmbedAllHandler::new(db.clone()))
             .await;
+        if let Some(registry) = worker.extraction_registry() {
+            worker
+                .register_handler(ExtractionHandler::new(db.clone(), registry.clone()))
+                .await;
+        }
 
         let handle = worker.start();
         info!("Job worker started");
@@ -3215,18 +3263,8 @@ async fn bulk_create_notes(
             _ => RevisionMode::Full,
         };
 
-        // If mode is "none", copy original to revised
-        if revision_mode == RevisionMode::None {
-            let _ = state
-                .db
-                .notes
-                .update_revised(
-                    *note_id,
-                    &requests[i].content,
-                    Some("Original preserved (no AI revision)"),
-                )
-                .await;
-        }
+        // Note: insert_bulk_tx already populates note_revised_current with
+        // original content, so no update_revised call needed for any mode.
 
         queue_nlp_pipeline(
             &state.db,
@@ -9281,6 +9319,19 @@ async fn upload_attachment(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
+    // Queue background extraction job for the uploaded attachment
+    queue_extraction_job(
+        &state.db,
+        id,
+        attachment.id,
+        strategy,
+        &body.filename,
+        &content_type,
+        &state.event_bus,
+        Some(&archive_ctx.schema),
+    )
+    .await;
+
     Ok(Json(attachment))
 }
 
@@ -9382,6 +9433,19 @@ async fn upload_attachment_multipart(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    // Queue background extraction job for the uploaded attachment
+    queue_extraction_job(
+        &state.db,
+        id,
+        attachment.id,
+        strategy,
+        &filename,
+        &content_type,
+        &state.event_bus,
+        Some(&archive_ctx.schema),
+    )
+    .await;
 
     Ok(Json(attachment))
 }

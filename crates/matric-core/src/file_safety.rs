@@ -227,6 +227,35 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "gitignore" | "dockerignore" => Some("text/plain"),
         "dockerfile" => Some("text/plain"),
         "makefile" => Some("text/plain"),
+        // Audio (extension fallback when magic bytes are absent/unrecognized)
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "ogg" | "oga" => Some("audio/ogg"),
+        "flac" => Some("audio/flac"),
+        "aac" => Some("audio/aac"),
+        "m4a" => Some("audio/mp4"),
+        "wma" => Some("audio/x-ms-wma"),
+        "opus" => Some("audio/opus"),
+        "aiff" | "aif" => Some("audio/aiff"),
+        // Video
+        "mp4" | "m4v" => Some("video/mp4"),
+        "avi" => Some("video/x-msvideo"),
+        "mov" => Some("video/quicktime"),
+        "mkv" => Some("video/x-matroska"),
+        "webm" => Some("video/webm"),
+        "wmv" => Some("video/x-ms-wmv"),
+        "flv" => Some("video/x-flv"),
+        // Image
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        "tiff" | "tif" => Some("image/tiff"),
+        "heic" | "heif" => Some("image/heif"),
+        "avif" => Some("image/avif"),
         _ => None,
     }
 }
@@ -312,19 +341,20 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_downgrades_fake_jpeg() {
-        // Random binary garbage with .jpg extension claiming image/jpeg
-        // infer::get() returns None → mismatch guard downgrades to octet-stream
+    fn test_detect_trusts_extension_for_media_jpeg() {
+        // When magic bytes fail but extension is a known media format,
+        // mime_from_extension returns the correct MIME so the file gets
+        // the right extraction strategy (e.g. Vision for JPEG).
         let garbage = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33];
         let result = detect_content_type("photo.jpg", &garbage, "image/jpeg");
-        assert_eq!(result, "application/octet-stream");
+        assert_eq!(result, "image/jpeg");
     }
 
     #[test]
-    fn test_detect_downgrades_fake_png() {
+    fn test_detect_trusts_extension_for_media_png() {
         let garbage = b"this is not a png file at all";
         let result = detect_content_type("image.png", garbage, "image/png");
-        assert_eq!(result, "application/octet-stream");
+        assert_eq!(result, "image/png");
     }
 
     #[test]
@@ -335,10 +365,12 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_downgrades_fake_audio() {
+    fn test_detect_trusts_extension_for_media_audio() {
+        // Audio files should get audio MIME from extension even when
+        // magic bytes aren't recognized, so they get AudioTranscribe strategy.
         let garbage = b"random noise data";
         let result = detect_content_type("song.mp3", garbage, "audio/mpeg");
-        assert_eq!(result, "application/octet-stream");
+        assert_eq!(result, "audio/mpeg");
     }
 
     #[test]

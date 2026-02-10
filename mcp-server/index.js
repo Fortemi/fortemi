@@ -165,11 +165,15 @@ function createMcpServer() {
           });
           break;
 
-        case "bulk_create_notes":
-          result = await apiRequest("POST", "/api/v1/notes/bulk", {
+        case "bulk_create_notes": {
+          const bulkResult = await apiRequest("POST", "/api/v1/notes/bulk", {
             notes: args.notes,
           });
+          // API returns { ids: [...], count: N } — transform to array of { id }
+          // for consistency with create_note which returns { id }
+          result = (bulkResult.ids || []).map((id) => ({ id }));
           break;
+        }
 
         case "update_note": {
           const body = {};

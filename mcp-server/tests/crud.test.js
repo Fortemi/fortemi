@@ -210,18 +210,14 @@ It has multiple paragraphs and markdown formatting.`;
       { content: "Bulk note 3", tags: [testTag] },
     ];
 
-    const result = await client.callTool("bulk_create_notes", { notes });
+    const created = await client.callTool("bulk_create_notes", { notes });
 
-    assert.ok(result, "Should return a result");
-    const created = result.notes || result.created || result;
-    assert.ok(Array.isArray(created), "Should return an array");
+    assert.ok(Array.isArray(created), "Should return an array of { id } objects");
     assert.strictEqual(created.length, 3, "Should create 3 notes");
 
-    // Track for cleanup
     for (const note of created) {
-      if (note.id) {
-        cleanup.noteIds.push(note.id);
-      }
+      assert.ok(note.id, "Each note should have an id");
+      cleanup.noteIds.push(note.id);
     }
 
     console.log(`  ✓ Bulk created ${created.length} notes`);
