@@ -584,6 +584,23 @@ function createMcpServer() {
                 model: embeddingModel,
                 dimension: embeddingDimension,
               },
+              extraction: {
+                vision: {
+                  enabled: !!process.env.OLLAMA_VISION_MODEL,
+                  model: process.env.OLLAMA_VISION_MODEL || null,
+                  provider: "Ollama",
+                },
+                audio: {
+                  enabled: !!process.env.WHISPER_BASE_URL,
+                  provider: process.env.WHISPER_BASE_URL ? "Whisper" : null,
+                },
+                ocr: {
+                  enabled: process.env.OCR_ENABLED === "true" || process.env.OCR_ENABLED === "1",
+                },
+                text_native: { enabled: true },
+                code_ast: { enabled: true },
+                structured_extract: { enabled: true },
+              },
             },
             stats: {
               total_notes: memoryInfo.summary?.total_notes || memoryInfo.total_notes || 0,
@@ -1707,6 +1724,16 @@ function createMcpServer() {
           break;
         }
 
+        // Vision
+        case "describe_image": {
+          result = await apiRequest("POST", "/api/v1/vision/describe", {
+            image_data: args.image_data,
+            mime_type: args.mime_type,
+            prompt: args.prompt,
+          });
+          break;
+        }
+
         // Archive Management
         case "list_archives":
           result = await apiRequest("GET", "/api/v1/archives");
@@ -2204,6 +2231,12 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
    - Tag co-occurrence analysis
    - Timeline and activity feed
    - Background job monitoring
+
+7. **Vision** (optional)
+   - Ad-hoc image description via \`describe_image\`
+   - Automatic image extraction in background jobs
+   - Supports qwen3-vl, llava, and other Ollama vision models
+   - See \`get_documentation({ topic: "vision" })\` for setup
 
 ## Quick Start
 
@@ -3766,6 +3799,125 @@ Good feature request:
 - Repository: https://github.com/Fortemi/fortemi
 - File new issue: https://github.com/Fortemi/fortemi/issues/new
 - Browse existing: https://github.com/Fortemi/fortemi/issues`,
+
+  vision: `# Vision: Image Description & Extraction
+
+Matric Memory includes an optional vision pipeline that uses multimodal LLMs to describe and analyze images.
+
+## Architecture
+
+The vision system has two modes of operation:
+
+1. **Extraction Pipeline** (automatic): When a note has image attachments, the background job worker runs the vision adapter to generate descriptions during the extraction phase. These descriptions are stored with the note metadata and indexed for search.
+
+2. **Ad-hoc Description** (\`describe_image\` tool): Send any base64-encoded image for on-demand analysis without creating a note or attachment. Useful for previewing, inline analysis, and quick image understanding.
+
+## Environment Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| \`OLLAMA_VISION_MODEL\` | Yes (to enable) | *(none)* | Vision model name (e.g., \`qwen3-vl\`, \`llava\`, \`llava-llama3\`) |
+| \`OLLAMA_URL\` | No | \`http://localhost:11434\` | Ollama API endpoint |
+
+If \`OLLAMA_VISION_MODEL\` is not set, vision features are disabled gracefully — the extraction pipeline skips image description and the \`describe_image\` tool returns a 503 error.
+
+## Supported Models
+
+Any Ollama-compatible vision model works. Recommended options:
+
+| Model | Size | Quality | Speed | Best For |
+|-------|------|---------|-------|----------|
+| \`qwen3-vl\` | ~4GB | Excellent | Medium | General-purpose, best quality |
+| \`llava\` | ~4GB | Good | Fast | Quick descriptions |
+| \`llava-llama3\` | ~5GB | Very Good | Medium | Detailed analysis |
+| \`moondream\` | ~1.7GB | Acceptable | Very Fast | Low-resource environments |
+
+Install a model:
+\`\`\`bash
+ollama pull qwen3-vl
+\`\`\`
+
+## Using describe_image
+
+The \`describe_image\` MCP tool accepts:
+
+- **image_data** (required): Base64-encoded image bytes
+- **mime_type** (optional): MIME type, defaults to \`image/png\`. Supported: \`image/png\`, \`image/jpeg\`, \`image/gif\`, \`image/webp\`
+- **prompt** (optional): Custom prompt for the vision model. If omitted, uses the default description prompt
+
+**Example — Describe a photo:**
+\`\`\`json
+{
+  "image_data": "<base64 string>",
+  "mime_type": "image/jpeg"
+}
+\`\`\`
+
+**Example — Custom analysis prompt:**
+\`\`\`json
+{
+  "image_data": "<base64 string>",
+  "prompt": "List all text visible in this image, including signs, labels, and watermarks."
+}
+\`\`\`
+
+**Response:**
+\`\`\`json
+{
+  "description": "A landscape photograph showing...",
+  "model": "qwen3-vl",
+  "image_size": 245760
+}
+\`\`\`
+
+## Extraction Pipeline
+
+When vision is enabled and a note has image attachments:
+
+1. Note is created or updated with an image attachment
+2. Background job worker picks up the extraction task
+3. Vision adapter sends the image to Ollama with a description prompt
+4. Generated description is stored as extraction metadata
+5. Description text is indexed for full-text and semantic search
+
+This means images become searchable by their visual content — search for "sunset over mountains" and find notes with matching photos.
+
+## Checking Vision Status
+
+Use \`get_system_info\` to verify vision is configured:
+
+\`\`\`json
+{
+  "extraction": {
+    "vision": { "available": true, "model": "qwen3-vl" }
+  }
+}
+\`\`\`
+
+If vision shows \`"available": false\`, check that:
+1. \`OLLAMA_VISION_MODEL\` is set in the environment
+2. Ollama is running and accessible at \`OLLAMA_URL\`
+3. The specified model is pulled (\`ollama list\`)
+
+## Troubleshooting
+
+**"Vision model not configured" (503)**
+- Set \`OLLAMA_VISION_MODEL\` environment variable and restart the API
+
+**"Vision model error" (500)**
+- Check Ollama is running: \`curl http://localhost:11434/api/tags\`
+- Verify model exists: \`ollama list\`
+- Check Ollama logs for OOM or GPU errors
+
+**Slow descriptions**
+- Vision models are compute-intensive; GPU acceleration helps significantly
+- Smaller models (\`moondream\`) are faster but less detailed
+- The default timeout is 120 seconds per image
+
+**Large images**
+- Images are sent as base64 to Ollama — very large images may hit memory limits
+- Consider resizing images client-side before sending via \`describe_image\`
+- The extraction pipeline handles standard attachment sizes well`,
 };
 
 // Combine all documentation for "all" topic

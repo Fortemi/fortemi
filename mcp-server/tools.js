@@ -2605,6 +2605,7 @@ Available topics:
 - "observability" - Knowledge health, stale notes, orphan tags, timeline, activity
 - "provenance" - W3C PROV provenance chains and dedicated backlinks
 - "embedding_configs" - Embedding model configuration and MRL support
+- "vision" - Vision model for image description and extraction
 
 **Reference:**
 - "workflows" - Usage patterns and advanced workflow examples
@@ -2622,7 +2623,7 @@ USE THIS TOOL when you need:
       properties: {
         topic: {
           type: "string",
-          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "workflows", "troubleshooting", "contributing", "all"],
+          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "vision", "workflows", "troubleshooting", "contributing", "all"],
           description: "Documentation topic to retrieve",
           default: "overview"
         },
@@ -3321,7 +3322,56 @@ Combined detection (most accurate):
     },
   },
 
+  // ============================================================================
+  // VISION - Image description using vision LLMs
+  // Requires OLLAMA_VISION_MODEL to be configured
+  // ============================================================================
+  {
+    name: "describe_image",
+    description: `Describe an image using the configured vision model (e.g., qwen3-vl, llava).
 
+Accepts base64-encoded image data and returns an AI-generated description.
+Requires OLLAMA_VISION_MODEL to be configured on the server.
+
+**Use cases:**
+- Describe uploaded images before storing
+- Extract text from screenshots or diagrams
+- Generate alt-text for accessibility
+- Analyze image content for tagging
+
+**Custom prompts:**
+You can provide a custom prompt to focus the description:
+- "List all text visible in this image"
+- "Describe the architecture diagram"
+- "What programming language is shown in this screenshot?"
+
+**Supported formats:** PNG, JPEG, GIF, WebP
+
+**Example:**
+{ "image_data": "<base64>", "mime_type": "image/png" }
+→ { description: "A flowchart showing...", model: "qwen3-vl", image_size: 45230 }`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        image_data: {
+          type: "string",
+          description: "Base64-encoded image data",
+        },
+        mime_type: {
+          type: "string",
+          description: "Image MIME type (default: image/png). Supported: image/png, image/jpeg, image/gif, image/webp",
+        },
+        prompt: {
+          type: "string",
+          description: "Custom prompt for the vision model. If omitted, uses default description prompt.",
+        },
+      },
+      required: ["image_data"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
 
   // ============================================================================
   // ARCHIVE MANAGEMENT
