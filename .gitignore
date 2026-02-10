@@ -37,3 +37,6 @@ node_modules/
 
 # CI/CD runner credentials
 .runner
+
+# Claude Code local config
+.claude/
