@@ -728,10 +728,10 @@ NOTE: For normal operations, prefer create_note/update_note which handle the ful
         note_id: { type: "string", description: "UUID of the note to process" },
         job_type: {
           type: "string",
-          enum: ["ai_revision", "embedding", "linking", "context_update", "title_generation"],
-          description: "Single processing step to run"
+          description: "Single processing step to run. Valid types: ai_revision, embedding, linking, context_update, title_generation, concept_tagging, re_embed_all"
         },
         priority: { type: "number", description: "Job priority (higher = sooner)" },
+        deduplicate: { type: "boolean", description: "When true, skip if a pending job with the same note_id+job_type already exists. Returns status 'already_pending' instead of creating a duplicate." },
       },
       required: ["job_type"],
     },
@@ -1934,6 +1934,32 @@ RETURNS: id, title, description, namespace_uri, created_at, updated_at, concept_
     },
     annotations: {
       readOnlyHint: true,
+    },
+  },
+  {
+    name: "update_concept_scheme",
+    description: `Update an existing concept scheme's metadata.
+
+Modify the title, description, or other metadata of a concept scheme.
+System schemes may have restrictions on which fields can be modified.
+
+RETURNS: Updated concept scheme object.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "UUID of the concept scheme to update" },
+        title: { type: "string", description: "New human-readable title" },
+        description: { type: "string", description: "New description/purpose" },
+        creator: { type: "string", description: "Creator attribution" },
+        publisher: { type: "string", description: "Publisher attribution" },
+        rights: { type: "string", description: "Rights/license information" },
+        version: { type: "string", description: "Version string" },
+        is_active: { type: "boolean", description: "Whether the scheme is active" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
   {

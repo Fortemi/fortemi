@@ -5800,7 +5800,7 @@ struct MemorySearchQuery {
 async fn search_memories(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Query(mut query): Query<MemorySearchQuery>,
+    Query(query): Query<MemorySearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let has_location = query.lat.is_some() && query.lon.is_some();
     let has_time = query.start.is_some() && query.end.is_some();
@@ -5835,14 +5835,17 @@ async fn search_memories(
             )));
         }
     }
-    // Auto-swap inverted time ranges so the query returns empty results
-    // instead of erroring (issue #293)
+    // Return empty results for inverted time ranges (issue #296)
     if has_time {
-        let start_dt = query.start.unwrap().0;
-        let end_dt = query.end.unwrap().0;
+        let start_dt = query.start.as_ref().unwrap().0;
+        let end_dt = query.end.as_ref().unwrap().0;
         if end_dt < start_dt {
-            query.start = Some(FlexibleDateTime(end_dt));
-            query.end = Some(FlexibleDateTime(start_dt));
+            let mode = if has_location { "combined" } else { "time" };
+            return Ok(Json(serde_json::json!({
+                "mode": mode,
+                "results": [],
+                "count": 0
+            })));
         }
     }
 
@@ -7073,6 +7076,9 @@ struct CreateJobBody {
     job_type: String,
     priority: Option<i32>,
     payload: Option<serde_json::Value>,
+    /// When true, skip if a pending job with the same note_id+job_type already exists.
+    #[serde(default)]
+    deduplicate: bool,
 }
 
 #[utoipa::path(post, path = "/api/v1/jobs", tag = "Jobs",
@@ -7108,26 +7114,60 @@ async fn create_job(
     }
 
     let priority = body.priority.unwrap_or_else(|| job_type.default_priority());
-    let job_id = state
-        .db
-        .jobs
-        .queue(body.note_id, job_type, priority, body.payload)
-        .await?;
 
-    state.event_bus.emit(ServerEvent::JobQueued {
-        job_id,
-        job_type: format!("{:?}", job_type),
-        note_id: body.note_id,
-    });
+    if body.deduplicate {
+        // Deduplicated queuing: skip if same note_id+job_type already pending
+        let maybe_id = state
+            .db
+            .jobs
+            .queue_deduplicated(body.note_id, job_type, priority, body.payload)
+            .await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "id": job_id,
-            "status": "queued",
-            "message": format!("{:?} job queued", job_type),
-        })),
-    ))
+        match maybe_id {
+            Some(job_id) => {
+                state.event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", job_type),
+                    note_id: body.note_id,
+                });
+                Ok((
+                    StatusCode::CREATED,
+                    Json(serde_json::json!({
+                        "id": job_id,
+                        "status": "queued"
+                    })),
+                ))
+            }
+            None => Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "id": null,
+                    "status": "already_pending"
+                })),
+            )),
+        }
+    } else {
+        let job_id = state
+            .db
+            .jobs
+            .queue(body.note_id, job_type, priority, body.payload)
+            .await?;
+
+        state.event_bus.emit(ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", job_type),
+            note_id: body.note_id,
+        });
+
+        Ok((
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "id": job_id,
+                "status": "queued",
+                "message": format!("{:?} job queued", job_type),
+            })),
+        ))
+    }
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs/{id}", tag = "Jobs",

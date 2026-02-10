@@ -478,6 +478,7 @@ function createMcpServer() {
             note_id: args.note_id,
             job_type: args.job_type,
             priority: args.priority,
+            deduplicate: args.deduplicate || false,
           });
           break;
 
@@ -991,6 +992,19 @@ function createMcpServer() {
         case "get_concept_scheme":
           result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.id}`);
           break;
+
+        case "update_concept_scheme": {
+          const schemeUpdate = {};
+          if (args.title !== undefined) schemeUpdate.title = args.title;
+          if (args.description !== undefined) schemeUpdate.description = args.description;
+          if (args.creator !== undefined) schemeUpdate.creator = args.creator;
+          if (args.publisher !== undefined) schemeUpdate.publisher = args.publisher;
+          if (args.rights !== undefined) schemeUpdate.rights = args.rights;
+          if (args.version !== undefined) schemeUpdate.version = args.version;
+          if (args.is_active !== undefined) schemeUpdate.is_active = args.is_active;
+          result = await apiRequest("PATCH", `/api/v1/concepts/schemes/${args.id}`, schemeUpdate);
+          break;
+        }
 
         case "delete_concept_scheme":
           await apiRequest("DELETE", `/api/v1/concepts/schemes/${args.id}${args.force ? "?force=true" : ""}`);

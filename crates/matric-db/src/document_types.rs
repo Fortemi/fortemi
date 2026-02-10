@@ -333,21 +333,9 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 3. When both filename and content are provided, try content patterns BEFORE
-        //    generic extension match (issue #124). Content patterns like "openapi: 3.1.0"
-        //    produce more specific types than generic ".yaml" extension match.
-        if let (Some(text), Some(_)) = (content, filename) {
-            if let Some(result) = self.detect_by_content(text).await? {
-                // Content pattern matched — boost confidence since we also have a filename
-                return Ok(Some(DetectDocumentTypeResult {
-                    confidence: matric_core::defaults::DETECT_CONFIDENCE_EXTENSION, // Boosted from 0.7→0.9
-                    detection_method: "combined".to_string(),
-                    ..result
-                }));
-            }
-        }
-
-        // 4. Try extension match (generic — e.g. .yaml, .json)
+        // 3. Try extension match — file extensions are authoritative for specific
+        //    types like .py, .rs, .go (issue #287: content patterns can misidentify
+        //    code files, e.g. AsciiDoc patterns matching Python assignment operators).
         if let Some(fname) = filename {
             if let Some(ext) = std::path::Path::new(fname)
                 .extension()
@@ -364,12 +352,10 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             }
         }
 
-        // 5. Try content pattern match alone (no filename provided)
+        // 4. Try content pattern match (when extension didn't match or no filename)
         if let Some(text) = content {
-            if filename.is_none() {
-                if let Some(result) = self.detect_by_content(text).await? {
-                    return Ok(Some(result));
-                }
+            if let Some(result) = self.detect_by_content(text).await? {
+                return Ok(Some(result));
             }
         }
 
