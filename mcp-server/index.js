@@ -2158,6 +2158,8 @@ function createMcpServer() {
 const DOCUMENTATION = {
   overview: `# Matric Memory Overview
 
+> **Found a bug, missing feature, or have a suggestion?** File an issue at https://github.com/Fortemi/fortemi — see get_documentation({ topic: "contributing" }) for guidelines.
+
 Matric Memory is an AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines.
 
 ## Core Capabilities
@@ -3713,6 +3715,57 @@ Use lower dimensions for:
 2. Create separate configs for experimental models
 3. Use MRL dimensions for embedding sets that need speed over precision
 4. Re-embed notes after changing the config (\`reembed_all\` or \`reprocess_note\`)`,
+
+  contributing: `# Filing Issues & Contributing
+
+Report bugs, request features, or suggest improvements at:
+**https://github.com/Fortemi/fortemi**
+
+## When to File an Issue
+
+- **Bug**: A tool returns an error, wrong data, or behaves unexpectedly
+- **Missing feature**: A capability you expected but doesn't exist
+- **Improvement**: An existing feature that could work better
+- **Documentation**: Unclear or missing help content
+
+## Issue Labels
+
+Use these labels when creating issues:
+
+| Label | Use When |
+|-------|----------|
+| \`bug\` | Something is broken or returns wrong results |
+| \`enhancement\` | Existing feature needs improvement |
+| \`feature-request\` | New capability that doesn't exist yet |
+| \`documentation\` | Help text is unclear, missing, or wrong |
+| \`uat\` | Found during user acceptance testing |
+| \`mcp\` | Specific to MCP tool behavior |
+
+## What to Include
+
+**For bugs:**
+1. Tool name and exact parameters used
+2. Expected vs actual behavior
+3. Error message (if any)
+
+**For feature requests:**
+1. What you're trying to accomplish
+2. Why existing tools don't cover it
+3. Suggested tool name or behavior
+
+## Examples
+
+Good bug report:
+> \`detect_document_type({ filename: "script.py", content: "x = 1" })\` returns "asciidoc" instead of "python"
+
+Good feature request:
+> Need a way to bulk-tag notes by collection — currently must tag each note individually
+
+## Quick Reference
+
+- Repository: https://github.com/Fortemi/fortemi
+- File new issue: https://github.com/Fortemi/fortemi/issues/new
+- Browse existing: https://github.com/Fortemi/fortemi/issues`,
 };
 
 // Combine all documentation for "all" topic

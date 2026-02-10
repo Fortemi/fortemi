@@ -2609,6 +2609,7 @@ Available topics:
 **Reference:**
 - "workflows" - Usage patterns and advanced workflow examples
 - "troubleshooting" - Common issues, permission reference, debugging tips
+- "contributing" - How to file bugs, request features, and report issues
 - "all" - Complete documentation (large response)
 
 USE THIS TOOL when you need:
@@ -2621,7 +2622,7 @@ USE THIS TOOL when you need:
       properties: {
         topic: {
           type: "string",
-          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "workflows", "troubleshooting", "all"],
+          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "workflows", "troubleshooting", "contributing", "all"],
           description: "Documentation topic to retrieve",
           default: "overview"
         },
