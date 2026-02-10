@@ -438,7 +438,7 @@ impl PgFileStorageRepository {
     ) -> Result<()> {
         sqlx::query(
             r#"UPDATE attachment
-               SET status = $2, processing_error = $3, updated_at = NOW()
+               SET status = $2::attachment_status, processing_error = $3, updated_at = NOW()
                WHERE id = $1"#,
         )
         .bind(attachment_id)
