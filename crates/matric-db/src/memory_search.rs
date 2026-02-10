@@ -1371,7 +1371,7 @@ impl PgMemorySearchRepository {
             VALUES (
                 $1,
                 CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
                     ELSE NULL
                 END,
                 $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
@@ -1415,7 +1415,7 @@ impl PgMemorySearchRepository {
             VALUES (
                 $1,
                 CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
                     ELSE NULL
                 END,
                 $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
@@ -1463,7 +1463,7 @@ impl PgMemorySearchRepository {
             VALUES (
                 $1,
                 CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
                     ELSE NULL
                 END,
                 $4, $5, COALESCE($6, 'unknown'), $7, $8, $9, $10, $11
@@ -1505,7 +1505,7 @@ impl PgMemorySearchRepository {
             VALUES (
                 $1,
                 CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[)')
+                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
                     ELSE NULL
                 END,
                 $4, $5, COALESCE($6, 'unknown'), $7, $8, $9, $10, $11
