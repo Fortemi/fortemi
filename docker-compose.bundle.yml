@@ -1,11 +1,15 @@
 # docker-compose.bundle.yml - All-in-one Fortemi deployment
 #
-# Usage (production - pull from registry):
+# Usage (development/UAT - pulls from internal Gitea registry):
 #   docker compose -f docker-compose.bundle.yml pull
 #   docker compose -f docker-compose.bundle.yml up -d --no-build
 #
 # Usage (development - build locally):
 #   docker compose -f docker-compose.bundle.yml up -d --build
+#
+# Usage (external/end-user - pull from GHCR):
+#   FORTEMI_REGISTRY=ghcr.io FORTEMI_TAG=bundle-latest \
+#     docker compose -f docker-compose.bundle.yml up -d
 #
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
@@ -30,7 +34,7 @@ services:
       retries: 3
 
   matric:
-    image: ghcr.io/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
+    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_TAG:-bundle-main}
     build:
       context: .
       dockerfile: Dockerfile.bundle
