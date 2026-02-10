@@ -4545,6 +4545,7 @@ pub struct CreateProvDeviceRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateFileProvenanceRequest {
     pub attachment_id: Uuid,
+    pub note_id: Option<Uuid>,
     pub capture_time_start: Option<DateTime<Utc>>,
     pub capture_time_end: Option<DateTime<Utc>>,
     pub capture_timezone: Option<String>,

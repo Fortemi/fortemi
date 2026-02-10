@@ -297,6 +297,7 @@ function createMcpServer() {
         case "create_file_provenance":
           result = await apiRequest("POST", "/api/v1/provenance/files", {
             attachment_id: args.attachment_id,
+            note_id: args.note_id,
             capture_time_start: args.capture_time_start,
             capture_time_end: args.capture_time_end,
             capture_timezone: args.capture_timezone,

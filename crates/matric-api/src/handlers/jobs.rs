@@ -1871,6 +1871,7 @@ impl JobHandler for ExifExtractionHandler {
 
         let prov_req = CreateFileProvenanceRequest {
             attachment_id,
+            note_id: Some(note_id),
             capture_time_start: capture_time,
             capture_time_end: capture_time,
             capture_timezone: None,

@@ -1430,6 +1430,10 @@ paths:
                 attachment_id:
                   type: string
                   format: uuid
+                note_id:
+                  type: string
+                  format: uuid
+                  description: Optional note ID to directly associate this file provenance with a note.
                 capture_time_start:
                   type: string
                   format: date-time

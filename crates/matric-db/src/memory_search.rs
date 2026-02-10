@@ -1364,22 +1364,23 @@ impl PgMemorySearchRepository {
         let row = sqlx::query(
             r#"
             INSERT INTO provenance (
-                attachment_id, capture_time, capture_timezone, capture_duration_seconds,
+                attachment_id, note_id, capture_time, capture_timezone, capture_duration_seconds,
                 time_source, time_confidence, location_id, device_id, event_type,
                 event_title, event_description, raw_metadata
             )
             VALUES (
-                $1,
-                CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
+                $1, $2,
+                CASE WHEN $3::timestamptz IS NOT NULL
+                    THEN tstzrange($3::timestamptz, $4::timestamptz, '[]')
                     ELSE NULL
                 END,
-                $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
+                $5, $6, $7, COALESCE($8, 'unknown'), $9, $10, $11, $12, $13, $14
             )
             RETURNING id
             "#,
         )
         .bind(req.attachment_id)
+        .bind(req.note_id)
         .bind(req.capture_time_start)
         .bind(req.capture_time_end)
         .bind(&req.capture_timezone)
@@ -1408,22 +1409,23 @@ impl PgMemorySearchRepository {
         let row = sqlx::query(
             r#"
             INSERT INTO provenance (
-                attachment_id, capture_time, capture_timezone, capture_duration_seconds,
+                attachment_id, note_id, capture_time, capture_timezone, capture_duration_seconds,
                 time_source, time_confidence, location_id, device_id, event_type,
                 event_title, event_description, raw_metadata
             )
             VALUES (
-                $1,
-                CASE WHEN $2::timestamptz IS NOT NULL
-                    THEN tstzrange($2::timestamptz, $3::timestamptz, '[]')
+                $1, $2,
+                CASE WHEN $3::timestamptz IS NOT NULL
+                    THEN tstzrange($3::timestamptz, $4::timestamptz, '[]')
                     ELSE NULL
                 END,
-                $4, $5, $6, COALESCE($7, 'unknown'), $8, $9, $10, $11, $12, $13
+                $5, $6, $7, COALESCE($8, 'unknown'), $9, $10, $11, $12, $13, $14
             )
             RETURNING id
             "#,
         )
         .bind(req.attachment_id)
+        .bind(req.note_id)
         .bind(req.capture_time_start)
         .bind(req.capture_time_end)
         .bind(&req.capture_timezone)

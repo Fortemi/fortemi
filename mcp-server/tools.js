@@ -317,6 +317,7 @@ memory search (search_memories_by_location, search_memories_by_time).
       type: "object",
       properties: {
         attachment_id: { type: "string", format: "uuid", description: "Attachment UUID to link provenance to" },
+        note_id: { type: "string", format: "uuid", description: "Optional note UUID to directly associate provenance with a note" },
         capture_time_start: { type: "string", format: "date-time", description: "Capture start time (ISO 8601)" },
         capture_time_end: { type: "string", format: "date-time", description: "Capture end time (ISO 8601)" },
         capture_timezone: { type: "string", description: "Capture timezone (e.g., America/New_York)" },
