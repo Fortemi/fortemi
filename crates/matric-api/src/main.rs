@@ -43,10 +43,10 @@ use uuid::Uuid;
 use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, EventBus, ExtractionAdapter, ExtractionStrategy,
-    JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository, OAuthError,
-    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
-    UpdateNoteStatusRequest,
+    CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository, EventBus, ExtractionAdapter,
+    ExtractionStrategy, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
+    OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
+    TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
@@ -273,8 +273,8 @@ async fn queue_nlp_pipeline(
 use matric_api::services::TagResolver;
 use matric_inference::OllamaBackend;
 use matric_jobs::{
-    ExtractionHandler, ExtractionRegistry, JobWorker, PdfTextAdapter, StructuredExtractAdapter,
-    TextNativeAdapter, WorkerConfig, WorkerEvent,
+    CodeAstAdapter, ExtractionHandler, ExtractionRegistry, JobWorker, PdfTextAdapter,
+    StructuredExtractAdapter, TextNativeAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -788,6 +788,10 @@ async fn main() -> anyhow::Result<()> {
         // Always available: structured extract (no external deps)
         extraction_registry.register(Arc::new(StructuredExtractAdapter));
         info!("Extraction adapter registered: StructuredExtract (always available)");
+
+        // Always available: code AST extraction for programming languages (no external deps)
+        extraction_registry.register(Arc::new(CodeAstAdapter));
+        info!("Extraction adapter registered: CodeAst (always available)");
 
         // Conditional: PdfText requires `pdftotext` binary in PATH
         if PdfTextAdapter.health_check().await.unwrap_or(false) {
@@ -5796,7 +5800,7 @@ struct MemorySearchQuery {
 async fn search_memories(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Query(query): Query<MemorySearchQuery>,
+    Query(mut query): Query<MemorySearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let has_location = query.lat.is_some() && query.lon.is_some();
     let has_time = query.start.is_some() && query.end.is_some();
@@ -5831,14 +5835,14 @@ async fn search_memories(
             )));
         }
     }
-    // Validate time range ordering
+    // Auto-swap inverted time ranges so the query returns empty results
+    // instead of erroring (issue #293)
     if has_time {
         let start_dt = query.start.unwrap().0;
         let end_dt = query.end.unwrap().0;
         if end_dt < start_dt {
-            return Err(ApiError::BadRequest(
-                "End time must be >= start time".to_string(),
-            ));
+            query.start = Some(FlexibleDateTime(end_dt));
+            query.end = Some(FlexibleDateTime(start_dt));
         }
     }
 
@@ -10001,11 +10005,16 @@ async fn upload_attachment(
     attachment.extraction_strategy = Some(strategy);
 
     // Allow user to explicitly set document_type_id at upload (optional override)
+    // Validate the ID exists; silently skip if invalid (falls back to auto-detect)
     if let Some(doc_type_id) = body.document_type_id {
-        file_storage
-            .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
-            .await?;
-        attachment.document_type_id = Some(doc_type_id);
+        if state.db.document_types.get(doc_type_id).await?.is_some() {
+            file_storage
+                .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
+                .await?;
+            attachment.document_type_id = Some(doc_type_id);
+        } else {
+            warn!("Invalid document_type_id {doc_type_id} ignored, falling back to auto-detect");
+        }
     }
     // Document type classification happens asynchronously after extraction (Phase 2)
 
@@ -10131,11 +10140,16 @@ async fn upload_attachment_multipart(
         .await?;
     attachment.extraction_strategy = Some(strategy);
 
+    // Validate the document_type_id exists; silently skip if invalid (falls back to auto-detect)
     if let Some(doc_type_id) = document_type_id {
-        file_storage
-            .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
-            .await?;
-        attachment.document_type_id = Some(doc_type_id);
+        if state.db.document_types.get(doc_type_id).await?.is_some() {
+            file_storage
+                .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
+                .await?;
+            attachment.document_type_id = Some(doc_type_id);
+        } else {
+            warn!("Invalid document_type_id {doc_type_id} ignored, falling back to auto-detect");
+        }
     }
 
     tx.commit()

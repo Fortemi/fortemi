@@ -17,18 +17,15 @@ pub const MAGIC_SIGNATURES: &[(&str, &[u8])] = &[
     ("Mach-O Fat", &[0xCA, 0xFE, 0xBA, 0xBE]),  // Universal binary (also Java)
     ("Java Class", &[0xCA, 0xFE, 0xBA, 0xBE]),  // Java class file
     ("WebAssembly", &[0x00, 0x61, 0x73, 0x6D]), // WASM
-    ("Shell script", &[0x23, 0x21]),            // #! shebang
-    ("PowerShell BOM", &[0xEF, 0xBB, 0xBF]),    // UTF-8 BOM (check content)
 ];
 
 /// Blocked file extensions (case-insensitive)
 static BLOCKED_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     [
         // Windows executables
-        "exe", "dll", "scr", "pif", "com", "msi", "msp", "mst", // Unix executables
-        "so", "dylib", "out", // Scripts
-        "sh", "bash", "zsh", "csh", "ksh", "fish", "bat", "cmd", "ps1", "psm1", "psd1", "vbs",
-        "vbe", "js", "jse", "wsf", "wsh", // Java/JVM
+        "exe", "dll", "scr", "pif", "com", "msi", "msp", "mst",
+        // Unix executables (compiled binaries only — text scripts are allowed)
+        "so", "dylib", "out", // Java/JVM
         "jar", "war", "ear", "class", // Packages
         "deb", "rpm", "apk", "app", "dmg", "pkg", // Office macros
         "xlsm", "xlsb", "xltm", "docm", "dotm", "pptm", "potm", "ppam",
@@ -88,21 +85,6 @@ pub fn validate_file(filename: &str, data: &[u8], max_size_bytes: u64) -> Valida
     // Check magic bytes
     for (name, magic) in MAGIC_SIGNATURES {
         if data.len() >= magic.len() && &data[..magic.len()] == *magic {
-            // Special case: shebang needs more validation
-            if *name == "Shell script" {
-                // Only block if it's actually a script shebang
-                if data.len() > 2 {
-                    let start = String::from_utf8_lossy(&data[..std::cmp::min(64, data.len())]);
-                    if start.starts_with("#!/") || start.starts_with("#! /") {
-                        return ValidationResult::blocked(
-                            "Executable scripts are not allowed",
-                            "shell_script",
-                        );
-                    }
-                }
-                continue;
-            }
-
             // Special case: CA FE BA BE could be Java or Mach-O Fat
             if magic == &[0xCA, 0xFE, 0xBA, 0xBE] {
                 return ValidationResult::blocked(
@@ -414,10 +396,16 @@ mod tests {
     }
 
     #[test]
-    fn test_blocks_extension() {
+    fn test_allows_script_extensions() {
+        // Scripts/text files are allowed — only compiled binaries are blocked
         let result = validate_file("script.sh", b"echo hello", 100_000_000);
-        assert!(!result.allowed);
-        assert!(result.block_reason.unwrap().contains(".sh"));
+        assert!(result.allowed);
+        let result = validate_file("app.js", b"console.log('hi')", 100_000_000);
+        assert!(result.allowed);
+        let result = validate_file("run.bat", b"@echo off", 100_000_000);
+        assert!(result.allowed);
+        let result = validate_file("script.ps1", b"Write-Host hi", 100_000_000);
+        assert!(result.allowed);
     }
 
     #[test]
@@ -437,10 +425,16 @@ mod tests {
     }
 
     #[test]
-    fn test_blocks_shebang() {
+    fn test_allows_shebang_scripts() {
+        // Shebang scripts are text files and should be allowed
         let result = validate_file("script.txt", b"#!/bin/bash\necho hello", 100_000_000);
-        assert!(!result.allowed);
-        assert!(result.block_reason.unwrap().contains("script"));
+        assert!(result.allowed);
+        let result = validate_file(
+            "run.py",
+            b"#!/usr/bin/env python3\nprint('hi')",
+            100_000_000,
+        );
+        assert!(result.allowed);
     }
 
     #[test]

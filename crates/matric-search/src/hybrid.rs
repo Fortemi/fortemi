@@ -436,6 +436,111 @@ impl HybridSearchEngine {
         Ok(results)
     }
 
+    /// Post-filter FTS results by query-level filters (tag, collection, temporal).
+    ///
+    /// Used when non-English FTS strategies (trigram, bigram, CJK) are selected
+    /// for search_filtered — these strategies don't have SQL-level filter variants,
+    /// so we get unfiltered FTS results and filter them here.
+    async fn post_filter_by_query_filters(
+        &self,
+        results: Vec<SearchHit>,
+        filters: &str,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
+        if results.is_empty() || filters.trim().is_empty() {
+            return Ok(results);
+        }
+
+        let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
+
+        let archive_clause = if exclude_archived {
+            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "AND n.deleted_at IS NULL"
+        };
+
+        let mut sql = format!(
+            "SELECT n.id FROM note n WHERE n.id = ANY($1::uuid[]) {}",
+            archive_clause
+        );
+        let mut params: Vec<String> = Vec::new();
+
+        for token in filters.split_whitespace() {
+            if let Some(tag) = token.strip_prefix("tag:") {
+                params.push(tag.to_string());
+                let exact_idx = params.len() + 1; // +1 because $1 is note_ids
+                params.push(matric_db::escape_like(tag));
+                let like_idx = params.len() + 1;
+                sql.push_str(&format!(
+                    " AND n.id IN (SELECT note_id FROM note_tag WHERE LOWER(tag_name) = LOWER(${exact_idx}::text) OR LOWER(tag_name) LIKE LOWER(${like_idx}::text) || '/%' ESCAPE '\\\\')",
+                ));
+            } else if let Some(collection) = token.strip_prefix("collection:") {
+                if uuid::Uuid::parse_str(collection).is_ok() {
+                    params.push(collection.to_string());
+                    sql.push_str(&format!(
+                        " AND n.collection_id = ${}::uuid",
+                        params.len() + 1
+                    ));
+                }
+            } else if let Some(ts) = token.strip_prefix("created_after:") {
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(
+                        " AND n.created_at_utc >= ${}::timestamptz",
+                        params.len() + 1
+                    ));
+                }
+            } else if let Some(ts) = token.strip_prefix("created_before:") {
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(
+                        " AND n.created_at_utc <= ${}::timestamptz",
+                        params.len() + 1
+                    ));
+                }
+            } else if let Some(ts) = token.strip_prefix("updated_after:") {
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(
+                        " AND n.updated_at_utc >= ${}::timestamptz",
+                        params.len() + 1
+                    ));
+                }
+            } else if let Some(ts) = token.strip_prefix("updated_before:") {
+                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
+                    params.push(ts.to_string());
+                    sql.push_str(&format!(
+                        " AND n.updated_at_utc <= ${}::timestamptz",
+                        params.len() + 1
+                    ));
+                }
+            }
+        }
+
+        // If no filter conditions were added, return unfiltered results
+        if params.is_empty() {
+            return Ok(results);
+        }
+
+        let mut q = sqlx::query_scalar::<_, Uuid>(&sql);
+        q = q.bind(&note_ids);
+        for param in &params {
+            q = q.bind(param);
+        }
+
+        let matching_ids: std::collections::HashSet<Uuid> = q
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(matric_core::Error::Database)?
+            .into_iter()
+            .collect();
+
+        Ok(results
+            .into_iter()
+            .filter(|hit| matching_ids.contains(&hit.note_id))
+            .collect())
+    }
+
     /// Post-filter a set of note IDs by strict tag filter (fixes #235, #236).
     ///
     /// Used for non-English FTS strategies and the search_filtered path where
@@ -630,13 +735,24 @@ impl HybridSearch for HybridSearchEngine {
         let start = Instant::now();
         let mut ranked_lists = Vec::new();
 
-        // FTS search with filters
+        // FTS search with filters — strategy-aware (fixes #295/#288 emoji search)
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
-            let mut fts_results = self
-                .db
-                .search
-                .search_filtered(query, filters, limit * 2, config.exclude_archived)
-                .await?;
+            let (strategy, _script) = Self::select_strategy(query, config);
+            let mut fts_results = if strategy == SearchStrategy::FtsEnglish {
+                // English FTS can efficiently combine with SQL-level filters
+                self.db
+                    .search
+                    .search_filtered(query, filters, limit * 2, config.exclude_archived)
+                    .await?
+            } else {
+                // Non-English strategies (trigram, bigram, CJK): use strategy-aware
+                // FTS then post-filter by query-level filters
+                let unfiltered = self
+                    .fts_search_with_strategy(query, strategy, limit * 4, config)
+                    .await?;
+                self.post_filter_by_query_filters(unfiltered, filters, config.exclude_archived)
+                    .await?
+            };
 
             // Apply strict_filter post-filtering (fixes #235 — search_filtered path)
             if let Some(ref strict_filter) = config.strict_filter {
@@ -898,6 +1014,12 @@ impl SearchRequest {
         }
         if let Some(ts) = &self.created_before {
             filter_parts.push(format!("created_before:{}", ts.to_rfc3339()));
+        }
+        if let Some(ts) = &self.updated_after {
+            filter_parts.push(format!("updated_after:{}", ts.to_rfc3339()));
+        }
+        if let Some(ts) = &self.updated_before {
+            filter_parts.push(format!("updated_before:{}", ts.to_rfc3339()));
         }
 
         if !filter_parts.is_empty() {
