@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use matric_core::{ExtractionStrategy, JobType};
+use matric_core::{AttachmentStatus, ExtractionStrategy, JobType};
 use matric_db::Database;
 
 use crate::extraction::ExtractionRegistry;
@@ -55,26 +55,31 @@ impl JobHandler for ExtractionHandler {
             .unwrap_or("application/octet-stream");
         let config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
-        // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
-        let data = if let Some(attachment_id_str) =
+        // Parse optional attachment_id (used later for persisting results)
+        let attachment_id: Option<Uuid> = if let Some(id_str) =
             payload.get("attachment_id").and_then(|v| v.as_str())
         {
-            let attachment_id: Uuid = match attachment_id_str.parse() {
-                Ok(id) => id,
+            match id_str.parse() {
+                Ok(id) => Some(id),
                 Err(e) => return JobResult::Failed(format!("Invalid attachment_id UUID: {}", e)),
-            };
+            }
+        } else {
+            None
+        };
 
+        // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
+        let data = if let Some(att_id) = attachment_id {
             let file_storage = match self.db.file_storage.as_ref() {
                 Some(fs) => fs,
                 None => return JobResult::Failed("File storage not configured".into()),
             };
 
-            match file_storage.download_file(attachment_id).await {
+            match file_storage.download_file(att_id).await {
                 Ok((file_data, _content_type, _filename)) => file_data,
                 Err(e) => {
                     return JobResult::Failed(format!(
                         "Failed to download attachment {}: {}",
-                        attachment_id, e
+                        att_id, e
                     ))
                 }
             }
@@ -106,6 +111,39 @@ impl JobHandler for ExtractionHandler {
         {
             Ok(result) => {
                 ctx.report_progress(80, Some("Extraction complete"));
+
+                // Persist extraction results to the attachment record
+                if let Some(att_id) = attachment_id {
+                    if let Some(file_storage) = self.db.file_storage.as_ref() {
+                        if let Err(e) = file_storage
+                            .update_extracted_content(
+                                att_id,
+                                result.extracted_text.as_deref(),
+                                Some(result.metadata.clone()),
+                            )
+                            .await
+                        {
+                            error!(
+                                attachment_id = %att_id,
+                                error = %e,
+                                "Failed to persist extracted content"
+                            );
+                        }
+
+                        if let Err(e) = file_storage
+                            .update_status(att_id, AttachmentStatus::Completed, None)
+                            .await
+                        {
+                            error!(
+                                attachment_id = %att_id,
+                                error = %e,
+                                "Failed to update attachment status"
+                            );
+                        }
+                    }
+                }
+
+                ctx.report_progress(90, Some("Results persisted"));
 
                 let result_json = json!({
                     "strategy": strategy.to_string(),

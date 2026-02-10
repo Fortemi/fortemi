@@ -226,7 +226,8 @@ use handlers::{
         create_prov_location,
     },
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
-    LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
+    ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -710,6 +711,9 @@ async fn main() -> anyhow::Result<()> {
                 .register_handler(ExtractionHandler::new(db.clone(), registry.clone()))
                 .await;
         }
+        worker
+            .register_handler(ExifExtractionHandler::new(db.clone()))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");

@@ -9,11 +9,14 @@ use async_trait::async_trait;
 use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
-    DocumentTypeRepository, EmbeddingBackend, EmbeddingRepository, GenerationBackend,
-    JobRepository, JobType, LinkRepository, NoteRepository, ProvRelation, RevisionMode, SearchHit,
+    AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
+    CreateProvLocationRequest, DocumentTypeRepository, EmbeddingBackend, EmbeddingRepository,
+    GenerationBackend, JobRepository, JobType, LinkRepository, NoteRepository, ProvRelation,
+    RevisionMode, SearchHit,
 };
 use matric_db::{Chunker, ChunkerConfig, Database, SemanticChunker};
 use matric_inference::OllamaBackend;
+use matric_jobs::adapters::exif::extract_exif_metadata;
 use matric_jobs::{JobContext, JobHandler, JobResult};
 
 /// Maximum number of related notes to retrieve for AI context.
@@ -1607,15 +1610,14 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
 
 /// Handler for EXIF metadata extraction jobs.
 ///
-/// Note: This is a placeholder handler that will be fully implemented
-/// once the file attachment infrastructure (#430) is in place.
-#[allow(dead_code)]
+/// Extracts EXIF metadata (GPS, camera, datetime) from image attachments and
+/// creates provenance records (location, device, file provenance) to populate
+/// the spatial-temporal search pipeline.
 pub struct ExifExtractionHandler {
     db: Database,
 }
 
 impl ExifExtractionHandler {
-    #[allow(dead_code)]
     pub fn new(db: Database) -> Self {
         Self { db }
     }
@@ -1638,31 +1640,320 @@ impl JobHandler for ExifExtractionHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
+        ctx.report_progress(5, Some("Resolving attachments..."));
+
+        // Get the file storage backend
+        let file_storage = match self.db.file_storage.as_ref() {
+            Some(fs) => fs,
+            None => return JobResult::Failed("File storage not configured".into()),
+        };
+
+        // Get attachment_id from payload, or list attachments for the note
+        let attachment_id: uuid::Uuid = if let Some(id_str) = ctx
             .payload()
-            .and_then(|p| p.get("schema"))
+            .and_then(|p| p.get("attachment_id"))
             .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        {
+            match id_str.parse() {
+                Ok(id) => id,
+                Err(e) => return JobResult::Failed(format!("Invalid attachment_id: {}", e)),
+            }
+        } else {
+            // No explicit attachment_id — find image attachments for this note
+            let attachments = match file_storage.list_by_note(note_id).await {
+                Ok(a) => a,
+                Err(e) => return JobResult::Failed(format!("Failed to list attachments: {}", e)),
+            };
+            match attachments.into_iter().find(|a| {
+                a.content_type.starts_with("image/")
+                    && !matches!(
+                        a.status,
+                        AttachmentStatus::Failed | AttachmentStatus::Quarantined
+                    )
+            }) {
+                Some(a) => a.id,
+                None => {
+                    info!(note_id = %note_id, "No image attachments found for EXIF extraction");
+                    return JobResult::Success(Some(serde_json::json!({
+                        "status": "skipped",
+                        "reason": "No image attachments found"
+                    })));
+                }
+            }
+        };
 
-        ctx.report_progress(10, Some("Fetching attachment information..."));
+        ctx.report_progress(10, Some("Downloading attachment data..."));
 
-        // For now, log that EXIF extraction is not yet implemented
-        // This is a placeholder handler that will be enhanced once
-        // the file attachment infrastructure is in place
+        // Update status to Processing
+        if let Err(e) = file_storage
+            .update_status(attachment_id, AttachmentStatus::Processing, None)
+            .await
+        {
+            warn!(attachment_id = %attachment_id, error = %e, "Failed to update attachment status to Processing");
+        }
 
+        // Download the attachment bytes
+        let (data, content_type, filename) = match file_storage.download_file(attachment_id).await {
+            Ok(result) => result,
+            Err(e) => {
+                let _ = file_storage
+                    .update_status(
+                        attachment_id,
+                        AttachmentStatus::Failed,
+                        Some(&e.to_string()),
+                    )
+                    .await;
+                return JobResult::Failed(format!(
+                    "Failed to download attachment {}: {}",
+                    attachment_id, e
+                ));
+            }
+        };
+
+        if !content_type.starts_with("image/") {
+            info!(
+                attachment_id = %attachment_id,
+                content_type = %content_type,
+                "Attachment is not an image, skipping EXIF extraction"
+            );
+            return JobResult::Success(Some(serde_json::json!({
+                "status": "skipped",
+                "reason": format!("Not an image: {}", content_type)
+            })));
+        }
+
+        ctx.report_progress(30, Some("Extracting EXIF metadata..."));
+
+        // Extract EXIF data from the image bytes
+        let exif_data = match extract_exif_metadata(&data) {
+            Some(data) => data,
+            None => {
+                info!(
+                    attachment_id = %attachment_id,
+                    filename = %filename,
+                    "No EXIF data found in image"
+                );
+                // Still mark as completed — no EXIF is a valid outcome
+                if let Err(e) = file_storage
+                    .update_status(attachment_id, AttachmentStatus::Completed, None)
+                    .await
+                {
+                    warn!(error = %e, "Failed to update attachment status to Completed");
+                }
+                return JobResult::Success(Some(serde_json::json!({
+                    "status": "completed",
+                    "exif_found": false,
+                    "filename": filename
+                })));
+            }
+        };
+
+        ctx.report_progress(50, Some("Creating provenance records..."));
+
+        let exif = match exif_data.get("exif") {
+            Some(e) => e,
+            None => {
+                return JobResult::Success(Some(serde_json::json!({
+                    "status": "completed",
+                    "exif_found": false,
+                    "filename": filename
+                })));
+            }
+        };
+
+        let mut location_id: Option<uuid::Uuid> = None;
+        let mut device_id: Option<uuid::Uuid> = None;
+        let mut capture_time: Option<chrono::DateTime<chrono::Utc>> = None;
+
+        // Create provenance location from GPS data
+        if let Some(gps) = exif.get("gps") {
+            if let (Some(lat), Some(lon)) = (
+                gps.get("latitude").and_then(|v| v.as_f64()),
+                gps.get("longitude").and_then(|v| v.as_f64()),
+            ) {
+                let altitude = gps
+                    .get("altitude")
+                    .and_then(|v| v.as_f64())
+                    .map(|a| a as f32);
+                let req = CreateProvLocationRequest {
+                    latitude: lat,
+                    longitude: lon,
+                    altitude_m: altitude,
+                    horizontal_accuracy_m: None,
+                    vertical_accuracy_m: None,
+                    heading_degrees: None,
+                    speed_mps: None,
+                    named_location_id: None,
+                    source: "gps_exif".to_string(),
+                    confidence: "high".to_string(),
+                };
+                match self.db.memory_search.create_prov_location(&req).await {
+                    Ok(id) => {
+                        info!(location_id = %id, lat, lon, "Created provenance location from EXIF GPS");
+                        location_id = Some(id);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to create provenance location from EXIF GPS");
+                    }
+                }
+            }
+        }
+
+        ctx.report_progress(60, Some("Recording device information..."));
+
+        // Create provenance device from camera data
+        if let Some(camera) = exif.get("camera") {
+            let make = camera
+                .get("make")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let model = camera
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let software = camera.get("software").and_then(|v| v.as_str());
+
+            let req = CreateProvDeviceRequest {
+                device_make: make.to_string(),
+                device_model: model.to_string(),
+                device_os: None,
+                device_os_version: None,
+                software: software.map(|s| s.to_string()),
+                software_version: None,
+                has_gps: Some(location_id.is_some()),
+                has_accelerometer: None,
+                sensor_metadata: Some(serde_json::json!({
+                    "lens": exif.get("lens"),
+                    "settings": exif.get("settings"),
+                })),
+                device_name: None,
+            };
+            match self.db.memory_search.create_prov_agent_device(&req).await {
+                Ok(device) => {
+                    info!(device_id = %device.id, make, model, "Created/updated provenance device from EXIF");
+                    device_id = Some(device.id);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to create provenance device from EXIF");
+                }
+            }
+        }
+
+        ctx.report_progress(70, Some("Processing capture time..."));
+
+        // Parse EXIF datetime
+        if let Some(datetime) = exif.get("datetime") {
+            let dt_str = datetime
+                .get("original")
+                .or_else(|| datetime.get("digitized"))
+                .and_then(|v| v.as_str());
+
+            if let Some(dt_str) = dt_str {
+                // EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
+                if let Ok(naive) =
+                    chrono::NaiveDateTime::parse_from_str(dt_str, "%Y:%m:%d %H:%M:%S")
+                {
+                    capture_time = Some(naive.and_utc());
+                } else {
+                    debug!(dt_str, "Could not parse EXIF datetime");
+                }
+            }
+        }
+
+        ctx.report_progress(80, Some("Creating file provenance record..."));
+
+        // Create the file provenance record linking everything together
+        let event_type = if content_type.contains("video") {
+            "video"
+        } else {
+            "photo"
+        };
+
+        let prov_req = CreateFileProvenanceRequest {
+            attachment_id,
+            capture_time_start: capture_time,
+            capture_time_end: capture_time,
+            capture_timezone: None,
+            capture_duration_seconds: None,
+            time_source: if capture_time.is_some() {
+                Some("exif".to_string())
+            } else {
+                None
+            },
+            time_confidence: if capture_time.is_some() {
+                Some("high".to_string())
+            } else {
+                None
+            },
+            location_id,
+            device_id,
+            event_type: Some(event_type.to_string()),
+            event_title: Some(filename.clone()),
+            event_description: None,
+            raw_metadata: Some(exif.clone()),
+        };
+
+        let provenance_id = match self
+            .db
+            .memory_search
+            .create_file_provenance(&prov_req)
+            .await
+        {
+            Ok(id) => {
+                info!(provenance_id = %id, "Created file provenance record from EXIF");
+                Some(id)
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to create file provenance record");
+                None
+            }
+        };
+
+        ctx.report_progress(90, Some("Updating attachment metadata..."));
+
+        // Persist extracted EXIF metadata on the attachment
+        if let Err(e) = file_storage
+            .update_extracted_content(attachment_id, None, Some(exif_data.clone()))
+            .await
+        {
+            warn!(error = %e, "Failed to update attachment extracted metadata");
+        }
+
+        // Mark attachment as completed
+        if let Err(e) = file_storage
+            .update_status(attachment_id, AttachmentStatus::Completed, None)
+            .await
+        {
+            warn!(error = %e, "Failed to update attachment status to Completed");
+        }
+
+        let duration_ms = start.elapsed().as_millis() as u64;
         info!(
             note_id = %note_id,
-            duration_ms = start.elapsed().as_millis() as u64,
-            "EXIF extraction placeholder executed"
+            attachment_id = %attachment_id,
+            filename = %filename,
+            has_gps = location_id.is_some(),
+            has_device = device_id.is_some(),
+            has_capture_time = capture_time.is_some(),
+            provenance_id = ?provenance_id,
+            duration_ms,
+            "EXIF extraction completed"
         );
 
-        ctx.report_progress(100, Some("EXIF extraction placeholder complete"));
+        ctx.report_progress(100, Some("EXIF extraction complete"));
 
         JobResult::Success(Some(serde_json::json!({
-            "status": "placeholder",
-            "message": "EXIF extraction not yet implemented - requires file attachment infrastructure"
+            "status": "completed",
+            "exif_found": true,
+            "filename": filename,
+            "attachment_id": attachment_id.to_string(),
+            "location_id": location_id.map(|id| id.to_string()),
+            "device_id": device_id.map(|id| id.to_string()),
+            "provenance_id": provenance_id.map(|id| id.to_string()),
+            "has_gps": location_id.is_some(),
+            "has_device": device_id.is_some(),
+            "has_capture_time": capture_time.is_some(),
+            "duration_ms": duration_ms,
         })))
     }
 }

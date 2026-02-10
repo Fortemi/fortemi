@@ -11,5 +11,6 @@ pub mod provenance;
 // Re-export job handlers for backwards compatibility
 pub use jobs::{
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
-    LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler, TitleGenerationHandler,
+    ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    TitleGenerationHandler,
 };
