@@ -118,7 +118,7 @@ async fn queue_extraction_job(
         payload["schema"] = serde_json::json!(s);
     }
 
-    if let Ok(Some(job_id)) = db
+    match db
         .jobs
         .queue_deduplicated(
             Some(note_id),
@@ -128,11 +128,17 @@ async fn queue_extraction_job(
         )
         .await
     {
-        event_bus.emit(ServerEvent::JobQueued {
-            job_id,
-            job_type: format!("{:?}", JobType::Extraction),
-            note_id: Some(note_id),
-        });
+        Ok(Some(job_id)) => {
+            event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::Extraction),
+                note_id: Some(note_id),
+            });
+        }
+        Ok(None) => {} // Deduplicated — job already pending
+        Err(e) => {
+            error!(%note_id, %attachment_id, error = %e, "Failed to queue extraction job");
+        }
     }
 }
 
@@ -161,7 +167,7 @@ async fn queue_exif_extraction_job(
         payload["schema"] = serde_json::json!(s);
     }
 
-    if let Ok(Some(job_id)) = db
+    match db
         .jobs
         .queue_deduplicated(
             Some(note_id),
@@ -171,11 +177,17 @@ async fn queue_exif_extraction_job(
         )
         .await
     {
-        event_bus.emit(ServerEvent::JobQueued {
-            job_id,
-            job_type: format!("{:?}", JobType::ExifExtraction),
-            note_id: Some(note_id),
-        });
+        Ok(Some(job_id)) => {
+            event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::ExifExtraction),
+                note_id: Some(note_id),
+            });
+        }
+        Ok(None) => {} // Deduplicated — job already pending
+        Err(e) => {
+            error!(%note_id, %attachment_id, error = %e, "Failed to queue EXIF extraction job");
+        }
     }
 }
 
@@ -200,7 +212,7 @@ async fn queue_nlp_pipeline(
         if let Some(s) = schema {
             payload["schema"] = serde_json::json!(s);
         }
-        if let Ok(Some(job_id)) = db
+        match db
             .jobs
             .queue_deduplicated(
                 Some(note_id),
@@ -210,11 +222,17 @@ async fn queue_nlp_pipeline(
             )
             .await
         {
-            event_bus.emit(ServerEvent::JobQueued {
-                job_id,
-                job_type: format!("{:?}", JobType::AiRevision),
-                note_id: Some(note_id),
-            });
+            Ok(Some(job_id)) => {
+                event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::AiRevision),
+                    note_id: Some(note_id),
+                });
+            }
+            Ok(None) => {} // Deduplicated
+            Err(e) => {
+                error!(%note_id, error = %e, "Failed to queue AI revision job");
+            }
         }
     }
 
@@ -228,7 +246,7 @@ async fn queue_nlp_pipeline(
         // Create payload with schema if provided
         let payload = schema.map(|s| serde_json::json!({ "schema": s }));
 
-        if let Ok(Some(job_id)) = db
+        match db
             .jobs
             .queue_deduplicated(
                 Some(note_id),
@@ -238,11 +256,17 @@ async fn queue_nlp_pipeline(
             )
             .await
         {
-            event_bus.emit(ServerEvent::JobQueued {
-                job_id,
-                job_type: format!("{:?}", job_type),
-                note_id: Some(note_id),
-            });
+            Ok(Some(job_id)) => {
+                event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", job_type),
+                    note_id: Some(note_id),
+                });
+            }
+            Ok(None) => {} // Deduplicated
+            Err(e) => {
+                error!(%note_id, job_type = ?job_type, error = %e, "Failed to queue NLP pipeline job");
+            }
         }
     }
 }
