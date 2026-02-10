@@ -41,7 +41,7 @@ use uuid::Uuid;
 ///
 /// assert!(!filter.is_empty());
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct StrictTagFilter {
     /// Required concepts (AND logic) - must have ALL.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -207,7 +207,7 @@ impl StrictTagFilter {
 ///   "include_untagged": false
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct StrictTagFilterInput {
     /// Required tag notations (AND logic).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

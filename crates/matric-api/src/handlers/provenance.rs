@@ -19,6 +19,9 @@ use matric_core::{
 /// Create a provenance location record.
 ///
 /// POST /api/v1/provenance/locations
+#[utoipa::path(post, path = "/api/v1/provenance/locations", tag = "Provenance",
+    request_body = CreateProvLocationRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_prov_location(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -37,6 +40,9 @@ pub async fn create_prov_location(
 /// Create a named location.
 ///
 /// POST /api/v1/provenance/named-locations
+#[utoipa::path(post, path = "/api/v1/provenance/named-locations", tag = "Provenance",
+    request_body = CreateNamedLocationRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_named_location(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -55,6 +61,9 @@ pub async fn create_named_location(
 /// Create a provenance device record.
 ///
 /// POST /api/v1/provenance/devices
+#[utoipa::path(post, path = "/api/v1/provenance/devices", tag = "Provenance",
+    request_body = CreateProvDeviceRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_prov_device(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -85,6 +94,9 @@ pub async fn create_prov_device(
 /// Create a file provenance record linking an attachment to spatial-temporal context.
 ///
 /// POST /api/v1/provenance/files
+#[utoipa::path(post, path = "/api/v1/provenance/files", tag = "Provenance",
+    request_body = CreateFileProvenanceRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_file_provenance(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -103,6 +115,9 @@ pub async fn create_file_provenance(
 /// Create a note provenance record linking a note to spatial-temporal context.
 ///
 /// POST /api/v1/provenance/notes
+#[utoipa::path(post, path = "/api/v1/provenance/notes", tag = "Provenance",
+    request_body = CreateNoteProvenanceRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_note_provenance(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,

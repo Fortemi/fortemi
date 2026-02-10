@@ -21,7 +21,7 @@ use uuid::Uuid;
 /// Dublin Core metadata export following ISO 15836.
 ///
 /// All 15 core Dublin Core elements mapped from matric-memory note fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DublinCoreExport {
     /// DC.identifier - Globally unique persistent identifier (URN:UUID format)
     pub identifier: String,
@@ -134,7 +134,7 @@ impl DublinCoreExport {
 // =============================================================================
 
 /// JSON-LD context for linked data export.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JsonLdContext {
     /// Dublin Core namespace
     pub dc: String,
@@ -158,7 +158,7 @@ impl Default for JsonLdContext {
 }
 
 /// JSON-LD metadata export with linked data context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct JsonLdExport {
     /// JSON-LD context declaring namespaces
     #[serde(rename = "@context")]
@@ -209,7 +209,7 @@ impl JsonLdExport {
 // =============================================================================
 
 /// FAIR compliance assessment for a note's metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FairScore {
     /// Findable score (0.0-1.0)
     pub findable: f32,

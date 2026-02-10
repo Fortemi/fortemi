@@ -53,6 +53,8 @@ pub struct DetectDocumentTypeRequest {
 /// # Returns
 /// - 200 OK with array of document type summaries
 /// - 500 Internal Server Error if database query fails
+#[utoipa::path(get, path = "/api/v1/document-types", tag = "DocumentTypes",
+    responses((status = 200, description = "Success")))]
 pub async fn list_document_types(
     State(state): State<AppState>,
     Query(query): Query<ListDocumentTypesQuery>,
@@ -74,6 +76,9 @@ pub async fn list_document_types(
 /// - 200 OK with full document type details
 /// - 404 Not Found if document type doesn't exist
 /// - 500 Internal Server Error if database query fails
+#[utoipa::path(get, path = "/api/v1/document-types/{name}", tag = "DocumentTypes",
+    params(("name" = String, Path, description = "Document type name")),
+    responses((status = 200, description = "Success")))]
 pub async fn get_document_type(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -97,6 +102,8 @@ pub async fn get_document_type(
 /// - 400 Bad Request if validation fails
 /// - 409 Conflict if document type name already exists
 /// - 500 Internal Server Error if database insert fails
+#[utoipa::path(post, path = "/api/v1/document-types", tag = "DocumentTypes",
+    responses((status = 201, description = "Created")))]
 pub async fn create_document_type(
     State(state): State<AppState>,
     Json(req): Json<matric_core::CreateDocumentTypeRequest>,
@@ -119,6 +126,9 @@ pub async fn create_document_type(
 /// - 403 Forbidden if attempting to update system document type
 /// - 404 Not Found if document type doesn't exist
 /// - 500 Internal Server Error if database update fails
+#[utoipa::path(patch, path = "/api/v1/document-types/{name}", tag = "DocumentTypes",
+    params(("name" = String, Path, description = "Document type name")),
+    responses((status = 204, description = "No Content")))]
 pub async fn update_document_type(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -141,6 +151,9 @@ pub async fn update_document_type(
 /// - 403 Forbidden if attempting to delete system document type
 /// - 404 Not Found if document type doesn't exist
 /// - 500 Internal Server Error if database delete fails
+#[utoipa::path(delete, path = "/api/v1/document-types/{name}", tag = "DocumentTypes",
+    params(("name" = String, Path, description = "Document type name")),
+    responses((status = 204, description = "No Content")))]
 pub async fn delete_document_type(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -162,6 +175,9 @@ pub async fn delete_document_type(
 /// - 200 OK with detection result (null if no match found)
 /// - 400 Bad Request if both filename and content are missing
 /// - 500 Internal Server Error if detection fails
+#[utoipa::path(post, path = "/api/v1/document-types/detect", tag = "DocumentTypes",
+    request_body = DetectDocumentTypeRequest,
+    responses((status = 200, description = "Success")))]
 pub async fn detect_document_type(
     State(state): State<AppState>,
     Json(req): Json<DetectDocumentTypeRequest>,

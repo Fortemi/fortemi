@@ -34,7 +34,7 @@ use uuid::Uuid;
 ///
 /// These represent the core hierarchical and associative relationships
 /// defined in the SKOS specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SkosSemanticRelation {
     /// `skos:broader` - The subject concept has a more general meaning.
@@ -77,7 +77,7 @@ impl std::str::FromStr for SkosSemanticRelation {
 ///
 /// Used to establish equivalence or similarity between concepts
 /// in different vocabularies or knowledge organization systems.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SkosMappingRelation {
     /// `skos:exactMatch` - High confidence equivalence.
@@ -129,7 +129,7 @@ impl std::str::FromStr for SkosMappingRelation {
 ///
 /// Each concept can have multiple labels of different types
 /// to support various use cases (display, search, aliases).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum SkosLabelType {
@@ -174,7 +174,7 @@ impl std::str::FromStr for SkosLabelType {
 ///
 /// Used to provide various kinds of documentation for concepts,
 /// supporting different documentation purposes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum SkosNoteType {
@@ -236,7 +236,7 @@ impl std::str::FromStr for SkosNoteType {
 ///
 /// Provides a fundamental framework for classifying any subject
 /// into five basic categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PmestFacet {
     /// Personality: The most specific/distinguishing characteristic.
@@ -288,7 +288,7 @@ impl std::str::FromStr for PmestFacet {
 }
 
 /// Tag/concept status for workflow management.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum TagStatus {
@@ -337,7 +337,7 @@ impl std::str::FromStr for TagStatus {
 ///
 /// These flags identify structural or usage issues that may
 /// indicate problems with the taxonomy design.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TagAntipattern {
     /// Orphan: No hierarchical connections (isolated concept).
@@ -406,7 +406,7 @@ impl std::str::FromStr for TagAntipattern {
 ///
 /// Concept schemes group related concepts into a coherent vocabulary.
 /// Examples: "Topics", "Domains", "Project Tags", "Imported Vocabulary".
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptScheme {
     pub id: Uuid,
 
@@ -464,7 +464,7 @@ fn default_version() -> String {
 }
 
 /// Summary view of a concept scheme for listings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptSchemeSummary {
     pub id: Uuid,
     pub notation: String,
@@ -478,7 +478,7 @@ pub struct SkosConceptSchemeSummary {
 }
 
 /// Request to create a new concept scheme.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateConceptSchemeRequest {
     pub notation: String,
     pub title: String,
@@ -497,7 +497,7 @@ pub struct CreateConceptSchemeRequest {
 }
 
 /// Request to update a concept scheme.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateConceptSchemeRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -523,7 +523,7 @@ pub struct UpdateConceptSchemeRequest {
 ///
 /// Represents a single concept in the knowledge organization system,
 /// with full support for SKOS properties and PMEST facets.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConcept {
     pub id: Uuid,
 
@@ -622,7 +622,7 @@ pub struct SkosConcept {
 }
 
 /// Concept with its preferred label for display.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptWithLabel {
     #[serde(flatten)]
     pub concept: SkosConcept,
@@ -645,7 +645,7 @@ pub struct SkosConceptWithLabel {
 }
 
 /// Full concept with all labels, notes, and relations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptFull {
     #[serde(flatten)]
     pub concept: SkosConcept,
@@ -673,7 +673,7 @@ pub struct SkosConceptFull {
 }
 
 /// Summary view of a concept for listings and relations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptSummary {
     pub id: Uuid,
     pub notation: Option<String>,
@@ -686,7 +686,7 @@ pub struct SkosConceptSummary {
 }
 
 /// Concept in hierarchy view with path information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptHierarchy {
     pub id: Uuid,
     pub notation: Option<String>,
@@ -697,7 +697,7 @@ pub struct SkosConceptHierarchy {
 }
 
 /// Request to create a new concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateConceptRequest {
     /// Scheme to create the concept in.
     pub scheme_id: Uuid,
@@ -749,7 +749,7 @@ fn default_language() -> String {
 }
 
 /// Request to update a concept.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateConceptRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notation: Option<String>,
@@ -774,7 +774,7 @@ pub struct UpdateConceptRequest {
 // =============================================================================
 
 /// A lexical label for a concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptLabel {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -785,7 +785,7 @@ pub struct SkosConceptLabel {
 }
 
 /// Request to add a label to a concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddLabelRequest {
     pub concept_id: Uuid,
     #[serde(default)]
@@ -800,7 +800,7 @@ pub struct AddLabelRequest {
 // =============================================================================
 
 /// A documentation note for a concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptNote {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -816,7 +816,7 @@ pub struct SkosConceptNote {
 }
 
 /// Request to add a note to a concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddNoteRequest {
     pub concept_id: Uuid,
     #[serde(default)]
@@ -835,7 +835,7 @@ pub struct AddNoteRequest {
 // =============================================================================
 
 /// A semantic relation between two concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosSemanticRelationEdge {
     pub id: Uuid,
     pub subject_id: Uuid,
@@ -851,7 +851,7 @@ pub struct SkosSemanticRelationEdge {
 }
 
 /// Request to create a semantic relation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateSemanticRelationRequest {
     pub subject_id: Uuid,
     pub object_id: Uuid,
@@ -865,7 +865,7 @@ pub struct CreateSemanticRelationRequest {
 }
 
 /// A mapping relation to an external vocabulary.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosMappingRelationEdge {
     pub id: Uuid,
     pub concept_id: Uuid,
@@ -886,7 +886,7 @@ pub struct SkosMappingRelationEdge {
 }
 
 /// Request to create a mapping relation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateMappingRelationRequest {
     pub concept_id: Uuid,
     pub target_uri: String,
@@ -904,7 +904,7 @@ pub struct CreateMappingRelationRequest {
 // =============================================================================
 
 /// A note-to-concept tagging relationship with provenance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteSkosConceptTag {
     pub note_id: Uuid,
     pub concept_id: Uuid,
@@ -919,7 +919,7 @@ pub struct NoteSkosConceptTag {
 }
 
 /// Request to tag a note with a concept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TagNoteRequest {
     pub note_id: Uuid,
     pub concept_id: Uuid,
@@ -944,7 +944,7 @@ fn default_relevance() -> f32 {
 }
 
 /// Batch tag request for tagging a note with multiple concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BatchTagNoteRequest {
     pub note_id: Uuid,
     pub concept_ids: Vec<Uuid>,
@@ -961,7 +961,7 @@ pub struct BatchTagNoteRequest {
 // =============================================================================
 
 /// Audit log entry for taxonomy changes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosAuditLogEntry {
     pub id: Uuid,
     pub entity_type: String,
@@ -975,7 +975,7 @@ pub struct SkosAuditLogEntry {
 }
 
 /// Record of merged concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosConceptMerge {
     pub id: Uuid,
     pub source_ids: Vec<Uuid>,
@@ -988,7 +988,7 @@ pub struct SkosConceptMerge {
 }
 
 /// Request to merge concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MergeConceptsRequest {
     /// Concepts to merge (will be deprecated).
     pub source_ids: Vec<Uuid>,
@@ -1005,7 +1005,7 @@ pub struct MergeConceptsRequest {
 // =============================================================================
 
 /// Governance statistics for a concept scheme.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosGovernanceStats {
     pub scheme_id: Uuid,
     pub scheme_notation: String,
@@ -1026,7 +1026,7 @@ pub struct SkosGovernanceStats {
 // =============================================================================
 
 /// Request to search/filter concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchConceptsRequest {
     /// Text query (searches labels).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1091,7 +1091,7 @@ impl Default for SearchConceptsRequest {
 }
 
 /// Response for concept search.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchConceptsResponse {
     pub concepts: Vec<SkosConceptWithLabel>,
     pub total: i64,
@@ -1159,7 +1159,7 @@ pub const MAX_TAG_PATH_DEPTH: usize = 5;
 /// assert_eq!(hier.leaf_label(), "rust");
 /// assert_eq!(hier.parent_path(), Some(vec!["programming".to_string()]));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TagInput {
     /// The hierarchical path components (e.g., ["programming", "rust"]).
     pub path: Vec<String>,
@@ -1370,7 +1370,7 @@ impl From<String> for TagInput {
 /// facet_type: personality
 /// facet_domain: computer-science
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosTagSpec {
     /// Preferred label (required).
     pub pref_label: String,
@@ -1485,7 +1485,7 @@ impl SkosTagSpec {
 }
 
 /// Resolved tag with its SKOS concept ID.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ResolvedTag {
     /// The parsed input.
     pub input: TagInput,
@@ -1509,7 +1509,7 @@ pub struct ResolvedTag {
 ///
 /// Reference: W3C SKOS Reference Section 9 — "SKOS collections are labeled
 /// and/or ordered groups of SKOS concepts"
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollection {
     pub id: Uuid,
     pub uri: Option<String>,
@@ -1522,7 +1522,7 @@ pub struct SkosCollection {
 }
 
 /// A SKOS Collection with its member concepts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollectionWithMembers {
     #[serde(flatten)]
     pub collection: SkosCollection,
@@ -1530,7 +1530,7 @@ pub struct SkosCollectionWithMembers {
 }
 
 /// A member entry in a SKOS Collection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkosCollectionMember {
     pub concept_id: Uuid,
     pub pref_label: Option<String>,
@@ -1539,7 +1539,7 @@ pub struct SkosCollectionMember {
 }
 
 /// Request to create a SKOS Collection.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateSkosCollectionRequest {
     pub pref_label: String,
     pub definition: Option<String>,
@@ -1550,7 +1550,7 @@ pub struct CreateSkosCollectionRequest {
 }
 
 /// Request to update a SKOS Collection.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct UpdateSkosCollectionRequest {
     pub pref_label: Option<String>,
     pub definition: Option<String>,
@@ -1558,7 +1558,7 @@ pub struct UpdateSkosCollectionRequest {
 }
 
 /// Request to update member ordering in a SKOS Collection.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct UpdateCollectionMembersRequest {
     /// Ordered list of concept IDs (replaces current member list)
     pub concept_ids: Vec<Uuid>,

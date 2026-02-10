@@ -14,7 +14,7 @@ use uuid::Uuid;
 // =============================================================================
 
 /// A memory result with temporal and spatial context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryHit {
     /// Provenance record ID
     pub provenance_id: Uuid,
@@ -39,21 +39,21 @@ pub struct MemoryHit {
 }
 
 /// Memory search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemorySearchResponse {
     pub memories: Vec<MemoryHit>,
     pub total: usize,
 }
 
 /// Timeline grouping response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineResponse {
     pub groups: Vec<TimelineGroup>,
     pub total: usize,
 }
 
 /// A group of memories within a time period.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineGroup {
     /// Group period (e.g., "2024-01", "2024-W23", "2024-01-15")
     pub period: String,
@@ -72,7 +72,7 @@ pub struct TimelineGroup {
 // =============================================================================
 
 /// Cross-archive search request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchRequest {
     /// Search query
     pub query: String,
@@ -95,7 +95,7 @@ fn default_limit() -> i64 {
 }
 
 /// Cross-archive search result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResult {
     /// Archive name (schema)
     pub archive_name: String,
@@ -113,7 +113,7 @@ pub struct CrossArchiveSearchResult {
 }
 
 /// Cross-archive search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResponse {
     pub results: Vec<CrossArchiveSearchResult>,
     pub archives_searched: Vec<String>,
@@ -125,7 +125,7 @@ pub struct CrossArchiveSearchResponse {
 // =============================================================================
 
 /// Attachment search request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchRequest {
     /// Filter by note ID
     pub note_id: Option<Uuid>,
@@ -150,7 +150,7 @@ pub struct AttachmentSearchRequest {
 }
 
 /// Attachment search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchResponse {
     pub attachments: Vec<MemoryHit>,
     pub total: usize,

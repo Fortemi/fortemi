@@ -80,7 +80,7 @@ tracing-appender = "0.2"
 dotenvy = "0.15"
 
 # OpenAPI
-utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid", "yaml"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
 [dev-dependencies]

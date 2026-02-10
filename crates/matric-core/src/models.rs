@@ -14,7 +14,7 @@ use uuid::Uuid;
 // =============================================================================
 
 /// Metadata for a note (without content).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteMeta {
     pub id: Uuid,
     pub collection_id: Option<Uuid>,
@@ -35,7 +35,7 @@ pub struct NoteMeta {
 }
 
 /// Original immutable content of a note.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteOriginal {
     pub content: String,
     pub hash: String,
@@ -44,7 +44,7 @@ pub struct NoteOriginal {
 }
 
 /// Current revised/working version of a note.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteRevised {
     pub content: String,
     pub last_revision_id: Option<Uuid>,
@@ -57,7 +57,7 @@ pub struct NoteRevised {
 }
 
 /// Complete note with all components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteFull {
     pub note: NoteMeta,
     pub original: NoteOriginal,
@@ -67,7 +67,7 @@ pub struct NoteFull {
 }
 
 /// A revision version entry from note_revision table (AI-enhanced content track).
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RevisionVersion {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -84,7 +84,7 @@ pub struct RevisionVersion {
 }
 
 /// Summary view of a note for listing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteSummary {
     pub id: Uuid,
     pub title: String,
@@ -112,7 +112,7 @@ pub struct NoteSummary {
 // =============================================================================
 
 /// Link between notes or to external URLs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Link {
     pub id: Uuid,
     pub from_note_id: Uuid,
@@ -130,7 +130,7 @@ pub struct Link {
 // =============================================================================
 
 /// A search result hit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchHit {
     pub note_id: Uuid,
     pub score: f32,
@@ -147,7 +147,7 @@ pub struct SearchHit {
 }
 
 /// Search results response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchResponse {
     pub notes: Vec<SearchHit>,
     /// Whether semantic search was available for this query
@@ -159,13 +159,13 @@ pub struct SearchResponse {
 }
 
 /// Semantic search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SemanticResponse {
     pub similar: Vec<SearchHit>,
 }
 
 /// Search mode for queries.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
     /// Full-text search only
@@ -178,7 +178,7 @@ pub enum SearchMode {
 }
 
 /// Status of embeddings for a note.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingStatus {
     /// Embeddings are generated and ready
@@ -220,7 +220,7 @@ pub struct Embedding {
 }
 
 /// Configuration for embedding generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingConfig {
     /// Maximum characters per chunk
     pub chunk_size: usize,
@@ -248,7 +248,7 @@ impl Default for EmbeddingConfig {
 // =============================================================================
 
 /// Type of embedding set: filter (shares embeddings) vs full (own embeddings).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingSetType {
     /// Filter set: Uses shared embeddings from default, filters by membership.
@@ -281,7 +281,7 @@ impl std::str::FromStr for EmbeddingSetType {
 }
 
 /// Membership mode for embedding sets.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingSetMode {
     /// Automatically include notes matching criteria
@@ -316,7 +316,7 @@ impl std::str::FromStr for EmbeddingSetMode {
 }
 
 /// Index build status for embedding sets.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingIndexStatus {
     /// No documents or embeddings in the set
@@ -363,7 +363,7 @@ impl std::str::FromStr for EmbeddingIndexStatus {
 }
 
 /// Criteria for automatic embedding set membership.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetCriteria {
     /// Include all notes (default set behavior)
     #[serde(default)]
@@ -399,7 +399,7 @@ fn default_true() -> bool {
 }
 
 /// Rules for automatic embedding generation in Full sets.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AutoEmbedRules {
     /// Trigger embedding on note creation
     #[serde(default)]
@@ -439,7 +439,7 @@ fn default_batch_size() -> usize {
 }
 
 /// Agent-provided metadata for embedding set discovery.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetAgentMetadata {
     /// Agent that created this set
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -463,7 +463,7 @@ pub struct EmbeddingSetAgentMetadata {
 }
 
 /// Database-stored embedding configuration profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingConfigProfile {
     pub id: Uuid,
     pub name: String,
@@ -531,7 +531,7 @@ impl EmbeddingConfigProfile {
 }
 
 /// An embedding set groups documents for focused semantic search.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSet {
     pub id: Uuid,
     pub name: String,
@@ -592,7 +592,7 @@ pub struct EmbeddingSet {
 }
 
 /// Summary view of embedding sets for listing/discovery.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetSummary {
     pub id: Uuid,
     pub name: String,
@@ -620,7 +620,7 @@ pub struct EmbeddingSetSummary {
 }
 
 /// Request to create a new embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateEmbeddingSetRequest {
     pub name: String,
     #[serde(default)]
@@ -650,7 +650,7 @@ pub struct CreateEmbeddingSetRequest {
 }
 
 /// Request to update an embedding set.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateEmbeddingSetRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -675,7 +675,7 @@ pub struct UpdateEmbeddingSetRequest {
 }
 
 /// Embedding set membership record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetMember {
     pub embedding_set_id: Uuid,
     pub note_id: Uuid,
@@ -686,7 +686,7 @@ pub struct EmbeddingSetMember {
 }
 
 /// Request to add members to an embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddMembersRequest {
     pub note_ids: Vec<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -698,7 +698,7 @@ pub struct AddMembersRequest {
 // =============================================================================
 
 /// Category of document type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DocumentCategory {
     Prose,
@@ -782,7 +782,7 @@ impl std::str::FromStr for DocumentCategory {
 }
 
 /// Chunking strategy for document processing.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ChunkingStrategy {
     /// Split on paragraph/section boundaries (prose)
@@ -839,7 +839,7 @@ impl std::str::FromStr for ChunkingStrategy {
 /// Provides structured prompts, required sections, context requirements,
 /// and agent hints to guide AI agents in generating high-quality content
 /// for specific document types.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, utoipa::ToSchema)]
 pub struct AgenticConfig {
     /// Generation prompt to guide AI document creation
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -873,7 +873,9 @@ pub struct AgenticConfig {
 /// Extraction strategy for processing file attachments (Issue #436).
 ///
 /// Determines how content is extracted from attached files for indexing and search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionStrategy {
     /// Direct text extraction (plaintext, markdown) - no processing needed
@@ -1078,7 +1080,7 @@ impl std::str::FromStr for ExtractionStrategy {
 }
 
 /// A document type configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DocumentType {
     pub id: Uuid,
     pub name: String,
@@ -1144,7 +1146,7 @@ pub struct DocumentType {
 }
 
 /// Summary view of document types for listing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DocumentTypeSummary {
     pub id: Uuid,
     pub name: String,
@@ -1166,7 +1168,7 @@ pub struct DocumentTypeSummary {
 }
 
 /// Request to create a document type.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateDocumentTypeRequest {
     pub name: String,
     #[serde(default)]
@@ -1220,7 +1222,7 @@ fn default_chunk_overlap() -> i32 {
 }
 
 /// Request to update a document type.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDocumentTypeRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
@@ -1266,7 +1268,7 @@ pub struct UpdateDocumentTypeRequest {
 }
 
 /// Result from document type detection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DetectDocumentTypeResult {
     pub document_type: DocumentTypeSummary,
     pub confidence: f32,
@@ -1278,7 +1280,7 @@ pub struct DetectDocumentTypeResult {
 // =============================================================================
 
 /// Attachment blob for content-addressable storage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentBlob {
     pub id: Uuid,
     pub content_hash: String,
@@ -1291,7 +1293,7 @@ pub struct AttachmentBlob {
 }
 
 /// File attachment metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Attachment {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1313,7 +1315,7 @@ pub struct Attachment {
 }
 
 /// Processing status for attachments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentStatus {
     #[default]
@@ -1354,7 +1356,7 @@ impl std::str::FromStr for AttachmentStatus {
 }
 
 /// Summary for API responses.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSummary {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1374,7 +1376,7 @@ pub struct AttachmentSummary {
 // =============================================================================
 
 /// Entity types for named entity recognition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EntityType {
     Person,
@@ -1428,7 +1430,7 @@ impl std::str::FromStr for EntityType {
 }
 
 /// An extracted named entity from a note.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NoteEntity {
     pub id: Uuid,
     pub note_id: Uuid,
@@ -1446,7 +1448,7 @@ pub struct NoteEntity {
 }
 
 /// Entity statistics for IDF weighting.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EntityStats {
     pub entity_text: String,
     pub doc_frequency: i32,
@@ -1471,7 +1473,7 @@ pub struct NoteGraphEmbedding {
 // =============================================================================
 
 /// Status of a fine-tuning dataset generation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FineTuningStatus {
     #[default]
@@ -1482,7 +1484,7 @@ pub enum FineTuningStatus {
 }
 
 /// Configuration for fine-tuning dataset generation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FineTuningConfig {
     /// Number of queries to generate per document
     #[serde(default = "default_queries_per_doc")]
@@ -1517,7 +1519,7 @@ fn default_validation_split() -> f32 {
 }
 
 /// A fine-tuning dataset configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FineTuningDataset {
     pub id: Uuid,
     pub name: String,
@@ -1538,7 +1540,7 @@ pub struct FineTuningDataset {
 }
 
 /// A query-document sample for fine-tuning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct FineTuningSample {
     pub id: Uuid,
     pub dataset_id: Uuid,
@@ -1553,7 +1555,7 @@ pub struct FineTuningSample {
 }
 
 /// Request to create a fine-tuning dataset.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateFineTuningDatasetRequest {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1571,7 +1573,7 @@ pub struct CreateFineTuningDatasetRequest {
 // =============================================================================
 
 /// Configuration for two-stage coarse-to-fine retrieval.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TwoStageSearchConfig {
     /// Dimension for coarse stage (must be MRL-compatible)
     #[serde(default = "default_coarse_dim")]
@@ -1617,7 +1619,7 @@ pub struct CoarseEmbedding {
 }
 
 /// Tri-modal fusion weights for search.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TriModalWeights {
     /// Weight for semantic (dense vector) search
     #[serde(default = "default_semantic_weight")]
@@ -1660,7 +1662,7 @@ impl Default for TriModalWeights {
 ///
 /// Provides metrics on staleness, orphaned data, and missing embeddings
 /// to guide maintenance operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetHealth {
     pub set_id: Uuid,
     /// Total documents in the set.
@@ -1682,7 +1684,7 @@ pub struct EmbeddingSetHealth {
 }
 
 /// Result of a garbage collection operation on an embedding set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GarbageCollectionResult {
     pub set_id: Uuid,
     /// Number of orphaned memberships removed.
@@ -2072,7 +2074,7 @@ pub struct OAuthClient {
 }
 
 /// OAuth2 client registration request (RFC 7591).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ClientRegistrationRequest {
     pub client_name: String,
     #[serde(default)]
@@ -2332,7 +2334,7 @@ pub struct ApiKey {
 }
 
 /// API key creation request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub description: Option<String>,
@@ -2452,7 +2454,7 @@ pub struct NoteTemplate {
 // =============================================================================
 
 /// A memory result with temporal and spatial context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryHit {
     /// Provenance record ID
     pub provenance_id: Uuid,
@@ -2483,21 +2485,21 @@ pub struct MemoryHit {
 }
 
 /// Memory search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemorySearchResponse {
     pub memories: Vec<MemoryHit>,
     pub total: usize,
 }
 
 /// Timeline grouping response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineResponse {
     pub groups: Vec<TimelineGroup>,
     pub total: usize,
 }
 
 /// A group of memories within a time period.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TimelineGroup {
     /// Group period (e.g., "2024-01", "2024-W23", "2024-01-15")
     pub period: String,
@@ -2516,7 +2518,7 @@ pub struct TimelineGroup {
 // =============================================================================
 
 /// Cross-archive search request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchRequest {
     /// Search query
     pub query: String,
@@ -2539,7 +2541,7 @@ fn default_ca_limit() -> i64 {
 }
 
 /// Cross-archive search result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResult {
     /// Archive name (schema)
     pub archive_name: String,
@@ -2559,7 +2561,7 @@ pub struct CrossArchiveSearchResult {
 }
 
 /// Cross-archive search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CrossArchiveSearchResponse {
     pub results: Vec<CrossArchiveSearchResult>,
     pub archives_searched: Vec<String>,
@@ -2571,7 +2573,7 @@ pub struct CrossArchiveSearchResponse {
 // =============================================================================
 
 /// Attachment search request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchRequest {
     /// Filter by note ID
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2606,7 +2608,7 @@ pub struct AttachmentSearchRequest {
 }
 
 /// Attachment search response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentSearchResponse {
     pub attachments: Vec<MemoryHit>,
     pub total: usize,
@@ -4610,7 +4612,7 @@ pub struct WebhookDelivery {
 }
 
 /// Request to create a new webhook.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct CreateWebhookRequest {
     pub url: String,
     pub secret: Option<String>,

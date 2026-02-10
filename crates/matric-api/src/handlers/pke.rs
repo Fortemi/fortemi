@@ -87,6 +87,9 @@ pub struct PkeVerifyResponse {
 /// Generate a new PKE keypair.
 ///
 /// POST /api/v1/pke/keygen
+#[utoipa::path(post, path = "/api/v1/pke/keygen", tag = "PKE",
+    request_body = PkeKeygenRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn pke_keygen(
     Json(req): Json<PkeKeygenRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
@@ -125,6 +128,9 @@ pub async fn pke_keygen(
 /// Compute the address for a public key.
 ///
 /// POST /api/v1/pke/address
+#[utoipa::path(post, path = "/api/v1/pke/address", tag = "PKE",
+    request_body = PkeAddressRequest,
+    responses((status = 200, description = "Success")))]
 pub async fn pke_address(
     Json(req): Json<PkeAddressRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
@@ -162,6 +168,9 @@ pub async fn pke_address(
 /// Encrypt data for multiple recipients.
 ///
 /// POST /api/v1/pke/encrypt
+#[utoipa::path(post, path = "/api/v1/pke/encrypt", tag = "PKE",
+    request_body = PkeEncryptRequest,
+    responses((status = 200, description = "Success")))]
 pub async fn pke_encrypt(
     Json(req): Json<PkeEncryptRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
@@ -249,6 +258,9 @@ pub async fn pke_encrypt(
 /// Decrypt data with a private key.
 ///
 /// POST /api/v1/pke/decrypt
+#[utoipa::path(post, path = "/api/v1/pke/decrypt", tag = "PKE",
+    request_body = PkeDecryptRequest,
+    responses((status = 200, description = "Success")))]
 pub async fn pke_decrypt(
     Json(req): Json<PkeDecryptRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
@@ -305,6 +317,9 @@ pub async fn pke_decrypt(
 /// Get the list of recipients for encrypted data.
 ///
 /// POST /api/v1/pke/recipients
+#[utoipa::path(post, path = "/api/v1/pke/recipients", tag = "PKE",
+    request_body = PkeRecipientsRequest,
+    responses((status = 200, description = "Success")))]
 pub async fn pke_recipients(
     Json(req): Json<PkeRecipientsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
@@ -336,6 +351,9 @@ pub async fn pke_recipients(
 /// Verify and parse a PKE address.
 ///
 /// GET /api/v1/pke/verify/:address
+#[utoipa::path(get, path = "/api/v1/pke/verify/{address}", tag = "PKE",
+    params(("address" = String, Path, description = "PKE address to verify")),
+    responses((status = 200, description = "Success")))]
 pub async fn pke_verify(Path(address): Path<String>) -> Json<PkeVerifyResponse> {
     match Address::parse(&address) {
         Ok(addr) => Json(PkeVerifyResponse {

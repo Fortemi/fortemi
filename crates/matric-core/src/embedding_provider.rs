@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 /// Embedding provider for generating embeddings.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingProvider {
     /// Local Ollama instance (default)
@@ -55,7 +55,7 @@ fn default_chunk_overlap() -> i32 {
 }
 
 /// Request to create a new embedding config.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateEmbeddingConfigRequest {
     pub name: String,
     pub description: Option<String>,
@@ -84,7 +84,7 @@ pub struct CreateEmbeddingConfigRequest {
 }
 
 /// Request to update an existing embedding config.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateEmbeddingConfigRequest {
     pub name: Option<String>,
     pub description: Option<String>,

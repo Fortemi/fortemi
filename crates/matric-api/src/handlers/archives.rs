@@ -70,6 +70,8 @@ pub struct ArchiveStatsResponse {
 /// # Returns
 /// - 200 OK with array of archive information
 /// - 500 Internal Server Error if database query fails
+#[utoipa::path(get, path = "/api/v1/archives", tag = "Archives",
+    responses((status = 200, description = "Success")))]
 pub async fn list_archives(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ArchiveInfo>>, ApiError> {
@@ -86,6 +88,9 @@ pub async fn list_archives(
 /// - 200 OK with archive information
 /// - 404 Not Found if archive doesn't exist
 /// - 500 Internal Server Error if database query fails
+#[utoipa::path(get, path = "/api/v1/archives/{name}", tag = "Archives",
+    params(("name" = String, Path, description = "Archive name")),
+    responses((status = 200, description = "Success")))]
 pub async fn get_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -115,6 +120,9 @@ pub async fn get_archive(
 /// - 400 Bad Request if validation fails
 /// - 409 Conflict if archive name already exists
 /// - 500 Internal Server Error if schema creation fails
+#[utoipa::path(post, path = "/api/v1/archives", tag = "Archives",
+    request_body = CreateArchiveRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn create_archive(
     State(state): State<AppState>,
     Json(req): Json<CreateArchiveRequest>,
@@ -182,6 +190,10 @@ pub async fn create_archive(
 /// - 400 Bad Request if validation fails
 /// - 404 Not Found if archive doesn't exist
 /// - 500 Internal Server Error if database update fails
+#[utoipa::path(patch, path = "/api/v1/archives/{name}", tag = "Archives",
+    params(("name" = String, Path, description = "Archive name")),
+    request_body = UpdateArchiveRequest,
+    responses((status = 204, description = "No Content")))]
 pub async fn update_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -207,6 +219,9 @@ pub async fn update_archive(
 /// - 204 No Content on success
 /// - 404 Not Found if archive doesn't exist
 /// - 500 Internal Server Error if schema deletion fails
+#[utoipa::path(delete, path = "/api/v1/archives/{name}", tag = "Archives",
+    params(("name" = String, Path, description = "Archive name")),
+    responses((status = 204, description = "No Content")))]
 pub async fn delete_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -242,6 +257,9 @@ pub async fn delete_archive(
 /// - 204 No Content on success
 /// - 404 Not Found if archive doesn't exist
 /// - 500 Internal Server Error if database update fails
+#[utoipa::path(post, path = "/api/v1/archives/{name}/set-default", tag = "Archives",
+    params(("name" = String, Path, description = "Archive name")),
+    responses((status = 204, description = "No Content")))]
 pub async fn set_default_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -266,6 +284,9 @@ pub async fn set_default_archive(
 /// - 200 OK with statistics object
 /// - 404 Not Found if archive doesn't exist
 /// - 500 Internal Server Error if stats calculation fails
+#[utoipa::path(get, path = "/api/v1/archives/{name}/stats", tag = "Archives",
+    params(("name" = String, Path, description = "Archive name")),
+    responses((status = 200, description = "Success")))]
 pub async fn get_archive_stats(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -308,6 +329,10 @@ pub async fn get_archive_stats(
 /// - 400 Bad Request if validation fails or target name already exists
 /// - 404 Not Found if source archive doesn't exist
 /// - 500 Internal Server Error if cloning fails
+#[utoipa::path(post, path = "/api/v1/archives/{name}/clone", tag = "Archives",
+    params(("name" = String, Path, description = "Source archive name")),
+    request_body = CloneArchiveRequest,
+    responses((status = 201, description = "Created")))]
 pub async fn clone_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
