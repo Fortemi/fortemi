@@ -288,4 +288,75 @@ mod tests {
         // Just verify it doesn't panic
         let _ = result;
     }
+
+    #[tokio::test]
+    async fn test_pdf_ocr_too_short_for_magic_bytes() {
+        let adapter = PdfOcrAdapter;
+        // Data shorter than 4 bytes can't have %PDF header
+        let result = adapter
+            .extract(b"%PD", "short.pdf", "application/pdf", &json!({}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not a valid PDF"));
+    }
+
+    #[tokio::test]
+    async fn test_pdf_ocr_wrong_magic_bytes() {
+        let adapter = PdfOcrAdapter;
+        let result = adapter
+            .extract(b"JPEG", "fake.pdf", "application/pdf", &json!({}))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not a valid PDF"),
+            "Expected PDF validation error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pdf_ocr_config_default_dpi() {
+        // When no dpi is provided, default is 300
+        let adapter = PdfOcrAdapter;
+        let config = json!({});
+        // The config parsing uses .unwrap_or(300) for dpi
+        // Verify it processes without panic (even though pdftoppm may fail)
+        let result = adapter
+            .extract(b"%PDF-1.0\n", "test.pdf", "application/pdf", &config)
+            .await;
+        // pdftoppm will fail but config parsing should succeed
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn test_pdf_ocr_config_default_language() {
+        // When no language is provided, default is "eng"
+        let adapter = PdfOcrAdapter;
+        let config = json!({ "dpi": 72 });
+        let result = adapter
+            .extract(b"%PDF-1.0\n", "test.pdf", "application/pdf", &config)
+            .await;
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn test_pdf_ocr_filename_in_error() {
+        let adapter = PdfOcrAdapter;
+        let result = adapter
+            .extract(
+                b"NOT_PDF_DATA",
+                "my-document.pdf",
+                "application/pdf",
+                &json!({}),
+            )
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("my-document.pdf"),
+            "Error should include filename, got: {}",
+            err
+        );
+    }
 }

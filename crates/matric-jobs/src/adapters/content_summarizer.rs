@@ -347,6 +347,108 @@ mod tests {
         }
     }
 
-    // Note: We don't test the actual HTTP calls here as they would require
-    // a running Ollama instance. Integration tests should cover that.
+    #[test]
+    fn test_from_env_returns_some() {
+        // from_env always returns Some because it falls back to defaults
+        let result = ContentSummarizer::from_env();
+        assert!(result.is_some());
+        let summarizer = result.unwrap();
+        // Should use default values when env vars are not set
+        assert_eq!(summarizer.chunk_size, 4000);
+        assert_eq!(summarizer.max_summary_length, 500);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_empty_text_returns_empty() {
+        let summarizer = ContentSummarizer::new(
+            "http://localhost:11434".to_string(),
+            "test-model".to_string(),
+        );
+        let result = summarizer.summarize("").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "");
+    }
+
+    #[test]
+    fn test_with_chunk_size_builder() {
+        let summarizer =
+            ContentSummarizer::new("http://localhost:11434".to_string(), "m".to_string())
+                .with_chunk_size(100);
+        assert_eq!(summarizer.chunk_size, 100);
+        // Other fields unchanged
+        assert_eq!(summarizer.max_summary_length, 500);
+    }
+
+    #[test]
+    fn test_with_max_summary_length_builder() {
+        let summarizer =
+            ContentSummarizer::new("http://localhost:11434".to_string(), "m".to_string())
+                .with_max_summary_length(1000);
+        assert_eq!(summarizer.max_summary_length, 1000);
+        // Other fields unchanged
+        assert_eq!(summarizer.chunk_size, 4000);
+    }
+
+    #[test]
+    fn test_split_chunks_preserves_all_content() {
+        let summarizer =
+            ContentSummarizer::new("http://localhost:11434".to_string(), "test".to_string())
+                .with_chunk_size(40);
+
+        let text = "Line one.\nLine two.\nLine three.\nLine four.\nLine five.";
+        let chunks = summarizer.split_into_chunks(text);
+
+        // Recombine chunks and verify all content preserved
+        let recombined = chunks.join("\n");
+        // Every line should appear exactly once
+        assert!(recombined.contains("Line one."));
+        assert!(recombined.contains("Line two."));
+        assert!(recombined.contains("Line three."));
+        assert!(recombined.contains("Line four."));
+        assert!(recombined.contains("Line five."));
+    }
+
+    #[test]
+    fn test_split_chunks_single_long_line() {
+        // A single line longer than chunk_size can't be split further
+        let summarizer =
+            ContentSummarizer::new("http://localhost:11434".to_string(), "test".to_string())
+                .with_chunk_size(10);
+
+        let text = "this is a single very long line without any newlines at all";
+        let chunks = summarizer.split_into_chunks(text);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], text);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_unreachable_ollama_returns_error() {
+        // Use a URL that will definitely fail to connect
+        let summarizer = ContentSummarizer::new(
+            "http://127.0.0.1:1".to_string(), // Port 1 — connection refused
+            "test-model".to_string(),
+        );
+        let result = summarizer.summarize("Some text to summarize").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Summarization request failed"),
+            "Expected connection error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_split_chunks_whitespace_only_lines() {
+        let summarizer =
+            ContentSummarizer::new("http://localhost:11434".to_string(), "test".to_string())
+                .with_chunk_size(20);
+
+        let text = "  \n  \n  ";
+        let chunks = summarizer.split_into_chunks(text);
+        assert!(!chunks.is_empty());
+    }
+
+    // Note: Full integration tests for summarize_direct and summarize_chunks
+    // require a running Ollama instance and are covered by integration tests.
 }

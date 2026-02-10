@@ -1804,7 +1804,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "infer",
- "kamadak-exif 0.5.5",
+ "kamadak-exif 0.6.1",
  "once_cell",
  "pgvector",
  "reqwest",

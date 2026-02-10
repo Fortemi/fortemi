@@ -130,11 +130,13 @@ pub struct DeviceInfo {
 /// }
 /// ```
 pub fn extract_exif(data: &[u8]) -> Result<ExifMetadata> {
-    let reader = exif::Reader::new();
+    let mut reader = exif::Reader::new();
+    reader.continue_on_error(true);
     let mut cursor = Cursor::new(data);
 
     let exif = reader
         .read_from_container(&mut cursor)
+        .or_else(|e| e.distill_partial_result(|_| {}))
         .map_err(|e| Error::InvalidInput(format!("Failed to read EXIF data: {}", e)))?;
 
     let mut metadata = ExifMetadata {

@@ -281,4 +281,75 @@ mod tests {
             text
         );
     }
+
+    #[test]
+    fn test_pandoc_input_format_case_insensitive() {
+        // Extension matching lowercases the input
+        assert_eq!(pandoc_input_format("DOC.DOCX"), Some("docx"));
+        assert_eq!(pandoc_input_format("file.LaTeX"), Some("latex"));
+        assert_eq!(pandoc_input_format("page.HTM"), Some("html"));
+    }
+
+    #[test]
+    fn test_pandoc_input_format_additional_types() {
+        assert_eq!(pandoc_input_format("doc.rst"), Some("rst"));
+        assert_eq!(pandoc_input_format("doc.org"), Some("org"));
+        assert_eq!(pandoc_input_format("doc.mediawiki"), Some("mediawiki"));
+        assert_eq!(pandoc_input_format("doc.textile"), Some("textile"));
+        assert_eq!(pandoc_input_format("doc.latex"), Some("latex"));
+    }
+
+    #[test]
+    fn test_pandoc_format_from_mime_additional_types() {
+        assert_eq!(
+            pandoc_format_from_mime(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ),
+            Some("pptx")
+        );
+        assert_eq!(
+            pandoc_format_from_mime("application/vnd.oasis.opendocument.text"),
+            Some("odt")
+        );
+        assert_eq!(
+            pandoc_format_from_mime("application/x-latex"),
+            Some("latex")
+        );
+        assert_eq!(pandoc_format_from_mime("text/x-tex"), Some("latex"));
+        assert_eq!(
+            pandoc_format_from_mime("application/epub+zip"),
+            Some("epub")
+        );
+        assert_eq!(pandoc_format_from_mime("text/html"), Some("html"));
+    }
+
+    #[test]
+    fn test_pandoc_format_from_mime_eml_returns_none() {
+        // eml is handled separately, so MIME detection returns None
+        assert_eq!(pandoc_format_from_mime("message/rfc822"), None);
+    }
+
+    #[tokio::test]
+    async fn test_office_convert_unsupported_format_metadata() {
+        let adapter = OfficeConvertAdapter;
+        let result = adapter
+            .extract(
+                b"hello world\nsecond line",
+                "file.unknown",
+                "application/x-unknown",
+                &json!({}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let extraction = result.unwrap();
+        assert_eq!(extraction.metadata["fallback"], true);
+        assert_eq!(extraction.metadata["reason"], "unsupported_format");
+        assert_eq!(extraction.metadata["char_count"], 23);
+        assert_eq!(extraction.metadata["line_count"], 2);
+    }
+
+    #[test]
+    fn test_pandoc_input_format_no_extension() {
+        assert_eq!(pandoc_input_format("Makefile"), None);
+    }
 }

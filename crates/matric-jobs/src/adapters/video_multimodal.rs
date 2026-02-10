@@ -367,6 +367,97 @@ mod tests {
     use super::*;
     use matric_inference::transcription::TranscriptionSegment;
 
+    // ── Mock backends ──────────────────────────────────────────────────
+
+    struct MockVision;
+    #[async_trait]
+    impl VisionBackend for MockVision {
+        async fn describe_image(
+            &self,
+            _image_data: &[u8],
+            _mime_type: &str,
+            _prompt: Option<&str>,
+        ) -> Result<String> {
+            Ok("Mock description".to_string())
+        }
+        async fn health_check(&self) -> Result<bool> {
+            Ok(true)
+        }
+        fn model_name(&self) -> &str {
+            "mock-vision"
+        }
+    }
+
+    struct MockTranscription;
+    #[async_trait]
+    impl TranscriptionBackend for MockTranscription {
+        async fn transcribe(
+            &self,
+            _audio_data: &[u8],
+            _mime_type: &str,
+            _language: Option<&str>,
+        ) -> Result<matric_inference::transcription::TranscriptionResult> {
+            Ok(matric_inference::transcription::TranscriptionResult {
+                full_text: "Mock transcript".to_string(),
+                segments: vec![TranscriptionSegment {
+                    start_secs: 0.0,
+                    end_secs: 1.0,
+                    text: "Mock segment".to_string(),
+                }],
+                language: Some("en".to_string()),
+                duration_secs: Some(1.0),
+            })
+        }
+        async fn health_check(&self) -> Result<bool> {
+            Ok(true)
+        }
+        fn model_name(&self) -> &str {
+            "mock-whisper"
+        }
+    }
+
+    #[allow(dead_code)]
+    struct UnhealthyVision;
+    #[async_trait]
+    impl VisionBackend for UnhealthyVision {
+        async fn describe_image(
+            &self,
+            _image_data: &[u8],
+            _mime_type: &str,
+            _prompt: Option<&str>,
+        ) -> Result<String> {
+            Err(matric_core::Error::Inference("unhealthy".to_string()))
+        }
+        async fn health_check(&self) -> Result<bool> {
+            Ok(false)
+        }
+        fn model_name(&self) -> &str {
+            "unhealthy-vision"
+        }
+    }
+
+    #[allow(dead_code)]
+    struct UnhealthyTranscription;
+    #[async_trait]
+    impl TranscriptionBackend for UnhealthyTranscription {
+        async fn transcribe(
+            &self,
+            _audio_data: &[u8],
+            _mime_type: &str,
+            _language: Option<&str>,
+        ) -> Result<matric_inference::transcription::TranscriptionResult> {
+            Err(matric_core::Error::Inference("unhealthy".to_string()))
+        }
+        async fn health_check(&self) -> Result<bool> {
+            Ok(false)
+        }
+        fn model_name(&self) -> &str {
+            "unhealthy-whisper"
+        }
+    }
+
+    // ── Basic property tests ───────────────────────────────────────────
+
     #[test]
     fn test_video_multimodal_strategy() {
         let adapter = VideoMultimodalAdapter::new(None, None);
@@ -385,8 +476,9 @@ mod tests {
         let result = adapter.health_check().await;
         assert!(result.is_ok());
         // Result depends on whether ffmpeg is installed
-        // In most CI environments, ffmpeg won't be available, so this will be false
     }
+
+    // ── Constructor tests ──────────────────────────────────────────────
 
     #[test]
     fn test_video_multimodal_construct_with_none() {
@@ -397,54 +489,6 @@ mod tests {
 
     #[test]
     fn test_video_multimodal_construct_with_backends() {
-        // Create mock backends
-        struct MockVision;
-        #[async_trait]
-        impl VisionBackend for MockVision {
-            async fn describe_image(
-                &self,
-                _image_data: &[u8],
-                _mime_type: &str,
-                _prompt: Option<&str>,
-            ) -> Result<String> {
-                Ok("Mock description".to_string())
-            }
-            async fn health_check(&self) -> Result<bool> {
-                Ok(true)
-            }
-            fn model_name(&self) -> &str {
-                "mock-vision"
-            }
-        }
-
-        struct MockTranscription;
-        #[async_trait]
-        impl TranscriptionBackend for MockTranscription {
-            async fn transcribe(
-                &self,
-                _audio_data: &[u8],
-                _mime_type: &str,
-                _language: Option<&str>,
-            ) -> Result<matric_inference::transcription::TranscriptionResult> {
-                Ok(matric_inference::transcription::TranscriptionResult {
-                    full_text: "Mock transcript".to_string(),
-                    segments: vec![TranscriptionSegment {
-                        start_secs: 0.0,
-                        end_secs: 1.0,
-                        text: "Mock segment".to_string(),
-                    }],
-                    language: Some("en".to_string()),
-                    duration_secs: Some(1.0),
-                })
-            }
-            async fn health_check(&self) -> Result<bool> {
-                Ok(true)
-            }
-            fn model_name(&self) -> &str {
-                "mock-whisper"
-            }
-        }
-
         let vision = Arc::new(MockVision) as Arc<dyn VisionBackend>;
         let transcription = Arc::new(MockTranscription) as Arc<dyn TranscriptionBackend>;
         let adapter = VideoMultimodalAdapter::new(Some(vision), Some(transcription));
@@ -452,6 +496,26 @@ mod tests {
         assert!(adapter.vision.is_some());
         assert!(adapter.transcription.is_some());
     }
+
+    #[test]
+    fn test_video_multimodal_construct_vision_only() {
+        let vision = Arc::new(MockVision) as Arc<dyn VisionBackend>;
+        let adapter = VideoMultimodalAdapter::new(Some(vision), None);
+
+        assert!(adapter.vision.is_some());
+        assert!(adapter.transcription.is_none());
+    }
+
+    #[test]
+    fn test_video_multimodal_construct_transcription_only() {
+        let transcription = Arc::new(MockTranscription) as Arc<dyn TranscriptionBackend>;
+        let adapter = VideoMultimodalAdapter::new(None, Some(transcription));
+
+        assert!(adapter.vision.is_none());
+        assert!(adapter.transcription.is_some());
+    }
+
+    // ── Extract error paths ────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_video_multimodal_empty_input() {
@@ -461,5 +525,101 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    #[tokio::test]
+    async fn test_video_multimodal_no_backends_returns_empty_result() {
+        // With no backends, extraction should succeed but produce no text
+        // (ffmpeg will fail on fake data, but it handles errors gracefully)
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "fake.mp4",
+                "video/mp4",
+                &json!({}),
+            )
+            .await;
+
+        // Either an error (ffmpeg not installed) or an empty result is acceptable
+        if let Ok(extraction) = result {
+            // No text should be extracted without backends
+            let metadata = &extraction.metadata;
+            assert_eq!(metadata["frame_count"], 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_video_multimodal_config_extract_audio_false() {
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "extract_audio": false,
+            "extract_keyframes": false,
+        });
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+
+        // With both extraction disabled, should still succeed
+        if let Ok(extraction) = result {
+            assert_eq!(extraction.metadata["frame_count"], 0);
+            assert_eq!(extraction.metadata["has_audio"], false);
+            assert_eq!(extraction.metadata["has_video"], false);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_video_multimodal_config_keyframe_interval() {
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "keyframe_interval": 5,
+        });
+        // Verify config is parsed without panic
+        let _ = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_video_multimodal_metadata_structure() {
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "extract_audio": false,
+            "extract_keyframes": false,
+        });
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+
+        if let Ok(extraction) = result {
+            let md = &extraction.metadata;
+            // Verify all expected metadata keys are present
+            assert!(md.get("frame_count").is_some(), "Missing frame_count");
+            assert!(md.get("has_audio").is_some(), "Missing has_audio");
+            assert!(md.get("has_video").is_some(), "Missing has_video");
+            assert!(
+                md.get("keyframe_descriptions").is_some(),
+                "Missing keyframe_descriptions"
+            );
+            assert!(
+                md.get("transcript_segments").is_some(),
+                "Missing transcript_segments"
+            );
+        }
     }
 }
