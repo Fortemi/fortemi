@@ -47,7 +47,8 @@ impl OllamaVisionBackend {
         if model.is_empty() {
             return None;
         }
-        let base_url = std::env::var("OLLAMA_URL")
+        let base_url = std::env::var("OLLAMA_BASE")
+            .or_else(|_| std::env::var("OLLAMA_URL"))
             .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string());
         Some(Self::new(base_url, model))
     }
