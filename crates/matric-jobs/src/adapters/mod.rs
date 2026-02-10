@@ -3,6 +3,7 @@
 pub mod audio_transcribe;
 pub mod code_ast;
 pub mod content_summarizer;
+pub mod exif;
 pub mod office_convert;
 pub mod pdf_ocr;
 pub mod pdf_text;

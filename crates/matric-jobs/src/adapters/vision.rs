@@ -7,6 +7,8 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 use matric_inference::vision::VisionBackend;
 use serde_json::Value as JsonValue;
 
+use super::exif::extract_exif_metadata;
+
 /// Adapter for extracting descriptions from images using vision models.
 ///
 /// Uses a pluggable `VisionBackend` (e.g., Ollama with LLaVA, qwen3-vl) to
@@ -76,6 +78,13 @@ impl ExtractionAdapter for VisionAdapter {
         if let Some(dimensions) = detect_image_dimensions(data, mime_type) {
             metadata["width"] = serde_json::json!(dimensions.0);
             metadata["height"] = serde_json::json!(dimensions.1);
+        }
+
+        // Extract EXIF metadata (camera info, GPS, settings, etc.)
+        if let Some(exif_data) = extract_exif_metadata(data) {
+            if let Some(exif_obj) = exif_data.get("exif") {
+                metadata["exif"] = exif_obj.clone();
+            }
         }
 
         Ok(ExtractionResult {

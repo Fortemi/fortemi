@@ -1642,6 +1642,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kamadak-exif"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1130d80c7374efad55a117d715a3af9368f0fa7a2c54573afc15a188cd984837"
+dependencies = [
+ "mutate_once",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1755,7 +1764,7 @@ dependencies = [
  "governor",
  "hex",
  "hmac",
- "kamadak-exif",
+ "kamadak-exif 0.5.5",
  "lru",
  "matric-core",
  "matric-crypto",
@@ -1795,7 +1804,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "infer",
- "kamadak-exif",
+ "kamadak-exif 0.5.5",
  "once_cell",
  "pgvector",
  "reqwest",
@@ -1894,6 +1903,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "kamadak-exif 0.6.1",
  "matric-core",
  "matric-db",
  "matric-inference",
