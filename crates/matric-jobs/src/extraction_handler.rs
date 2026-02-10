@@ -61,9 +61,7 @@ impl JobHandler for ExtractionHandler {
         {
             let attachment_id: Uuid = match attachment_id_str.parse() {
                 Ok(id) => id,
-                Err(e) => {
-                    return JobResult::Failed(format!("Invalid attachment_id UUID: {}", e))
-                }
+                Err(e) => return JobResult::Failed(format!("Invalid attachment_id UUID: {}", e)),
             };
 
             let file_storage = match self.db.file_storage.as_ref() {

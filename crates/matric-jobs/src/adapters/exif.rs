@@ -279,7 +279,11 @@ mod tests {
         assert!(result.is_some());
         let decimal = result.unwrap();
         // 40 + 26/60 + 46/3600 = 40.44611...
-        assert!((decimal - 40.44611).abs() < 0.001, "Expected ~40.446, got {}", decimal);
+        assert!(
+            (decimal - 40.44611).abs() < 0.001,
+            "Expected ~40.446, got {}",
+            decimal
+        );
     }
 
     #[test]
