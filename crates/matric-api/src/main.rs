@@ -15028,26 +15028,55 @@ mod tests {
     #[test]
     fn openapi_spec_is_valid() {
         let spec = ApiDoc::openapi();
-        let yaml = spec.to_yaml().expect("OpenAPI YAML generation must not fail");
+        let yaml = spec
+            .to_yaml()
+            .expect("OpenAPI YAML generation must not fail");
 
         // Verify basic structure
         assert!(yaml.contains("openapi: 3.0"), "Must be OpenAPI 3.0.x");
-        assert!(yaml.contains("title: Matric Memory API"), "Title must match");
-        assert!(yaml.contains("version: '2026.2.0'") || yaml.contains("version: 2026.2.0"), "Version must match");
+        assert!(
+            yaml.contains("title: Matric Memory API"),
+            "Title must match"
+        );
+        assert!(
+            yaml.contains("version: '2026.2.0'") || yaml.contains("version: 2026.2.0"),
+            "Version must match"
+        );
 
         // Verify key endpoint groups are present
         assert!(yaml.contains("/api/v1/notes"), "Notes endpoints missing");
         assert!(yaml.contains("/api/v1/search"), "Search endpoints missing");
         assert!(yaml.contains("/api/v1/concepts"), "SKOS endpoints missing");
-        assert!(yaml.contains("/api/v1/collections"), "Collections endpoints missing");
-        assert!(yaml.contains("/api/v1/templates"), "Templates endpoints missing");
-        assert!(yaml.contains("/api/v1/embedding-sets"), "Embedding sets endpoints missing");
+        assert!(
+            yaml.contains("/api/v1/collections"),
+            "Collections endpoints missing"
+        );
+        assert!(
+            yaml.contains("/api/v1/templates"),
+            "Templates endpoints missing"
+        );
+        assert!(
+            yaml.contains("/api/v1/embedding-sets"),
+            "Embedding sets endpoints missing"
+        );
         assert!(yaml.contains("/api/v1/jobs"), "Jobs endpoints missing");
         assert!(yaml.contains("/api/v1/pke"), "PKE endpoints missing");
-        assert!(yaml.contains("/api/v1/provenance"), "Provenance endpoints missing");
-        assert!(yaml.contains("/api/v1/archives"), "Archives endpoints missing");
-        assert!(yaml.contains("/api/v1/document-types"), "DocumentTypes endpoints missing");
-        assert!(yaml.contains("/api/v1/attachments"), "Attachments endpoints missing");
+        assert!(
+            yaml.contains("/api/v1/provenance"),
+            "Provenance endpoints missing"
+        );
+        assert!(
+            yaml.contains("/api/v1/archives"),
+            "Archives endpoints missing"
+        );
+        assert!(
+            yaml.contains("/api/v1/document-types"),
+            "DocumentTypes endpoints missing"
+        );
+        assert!(
+            yaml.contains("/api/v1/attachments"),
+            "Attachments endpoints missing"
+        );
 
         // Verify tags are present
         assert!(yaml.contains("name: Notes"), "Notes tag missing");
