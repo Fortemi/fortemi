@@ -189,19 +189,37 @@ memory_info()
 
 #### CACHE-008: Different Embedding Sets Return Different Results
 
-**MCP Tool**: `search_notes`
+**MCP Tools**: `create_embedding_set`, `search_notes`, `delete_embedding_set`
+
+**Setup**: Create a test embedding set for this test
+
+```javascript
+// Create embedding set for cache isolation testing
+create_embedding_set({
+  slug: "uat-cache-test-set",
+  name: "UAT Cache Test Set",
+  description: "Embedding set for cache isolation testing"
+})
+```
+
+**Test**:
 
 ```javascript
 // Search with default embedding set
 search_notes({ query: "neural networks", limit: 5 })
 
-// Search with specific embedding set (if available)
-search_notes({ query: "neural networks", embedding_set: "alternative-set", limit: 5 })
+// Search with specific embedding set
+search_notes({ query: "neural networks", embedding_set: "uat-cache-test-set", limit: 5 })
 ```
 
-**Pass Criteria**: Different embedding sets may return different result sets (separate caching)
+**Pass Criteria**: Both searches complete successfully; different embedding sets use separate cache entries
 
-**Note**: Requires alternative embedding set to exist; skip if only default set available
+**Cleanup**:
+
+```javascript
+// Remove test embedding set
+delete_embedding_set({ slug: "uat-cache-test-set" })
+```
 
 ---
 
@@ -350,7 +368,7 @@ search_notes({ query: "tags:uat/cache-test OR tags:uat/stampede", limit: 100 })
 | CACHE-005 | Invalidation on Update | `search_notes`, `update_note` | |
 | CACHE-006 | Invalidation on Delete | `search_notes`, `delete_note` | |
 | CACHE-007 | System Health via MCP | `memory_info` | |
-| CACHE-008 | Embedding Set Isolation | `search_notes` | |
+| CACHE-008 | Embedding Set Isolation | `create_embedding_set`, `search_notes`, `delete_embedding_set` | |
 | CACHE-009 | Multilingual Query Isolation | `search_notes` | |
 | CACHE-010 | Tag Filter Cache Keys | `search_notes` | |
 | CACHE-011 | Sequential Search Burst | `search_notes` | |
@@ -359,7 +377,7 @@ search_notes({ query: "tags:uat/cache-test OR tags:uat/stampede", limit: 100 })
 | CACHE-014 | FTS Search Consistency | `search_notes` | |
 | CACHE-015 | Semantic Search Consistency | `search_notes` | |
 
-**Pass Rate Required**: 90% (14/15)
+**Pass Rate Required**: 100% (15/15)
 
 ---
 
