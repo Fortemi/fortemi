@@ -819,7 +819,10 @@ async fn main() -> anyhow::Result<()> {
         // Reuses the shared vision_backend created above.
         if let Some(ref backend) = vision_backend {
             let adapter = VisionAdapter::new(Arc::clone(backend));
-            info!("Extraction adapter registered: Vision (model: {})", backend.model_name());
+            info!(
+                "Extraction adapter registered: Vision (model: {})",
+                backend.model_name()
+            );
             extraction_registry.register(Arc::new(adapter));
         }
 
