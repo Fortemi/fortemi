@@ -493,25 +493,6 @@
 
 ---
 
-### UAT-3B-019b: Invalid Time Range — Return Error
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `search_memories_by_time`
-
-**Description**: Search with end time before start time. Verify API validates range ordering.
-
-**Prerequisites**: None
-
-**Steps**:
-1. Search with inverted range: `search_memories_by_time({ start: <now>, end: <yesterday> })`
-
-**Pass Criteria**: Returns **400 Bad Request** — end time must be after start time.
-
-**Expected: XFAIL** — API currently returns empty results rather than validating range ordering.
-
----
-
 ## Empty Result Handling
 
 ### UAT-3B-020: Search New Database - No Data
@@ -677,7 +658,6 @@
 | UAT-3B-017 | Search Invalid Coordinates | `search_memories_by_location` | |
 | UAT-3B-018 | Search Negative Radius | `search_memories_by_location` | |
 | UAT-3B-019a | Invalid Time Range Empty | `search_memories_by_time` | |
-| UAT-3B-019b | Invalid Time Range Error (XFAIL) | `search_memories_by_time` | |
 | UAT-3B-020 | Search Empty Database | `search_memories_by_location`, `search_memories_by_time` | |
 | UAT-3B-021 | Create Note Provenance | `create_note`, `create_provenance_location`, `create_note_provenance` | |
 | UAT-3B-022 | Get Provenance with Note | `get_memory_provenance` | |

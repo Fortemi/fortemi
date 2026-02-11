@@ -135,6 +135,13 @@ Create `.env` file with required settings for OAuth/MCP:
 ISSUER_URL=https://your-domain.com
 MCP_CLIENT_ID=mm_xxxxx      # Register via POST /oauth/register
 MCP_CLIENT_SECRET=xxxxx
+
+# Vision model for image description (optional, requires Ollama with vision-capable model)
+# OLLAMA_VISION_MODEL=qwen3-vl:8b
+
+# Audio transcription backend (optional, requires Whisper-compatible API)
+# WHISPER_BASE_URL=http://localhost:8080
+# WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
 ```
 
 **First-time MCP setup:** Register an OAuth client for token introspection:
@@ -274,6 +281,10 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Document Type Registry** with 131 pre-configured types
 - **Smart chunking** per document type (code uses syntactic, prose uses semantic)
 - **Auto-detection** from filename patterns and magic content
+- **Vision (image description)** via Ollama vision LLM (qwen3-vl, llava)
+- **Audio transcription** via Whisper-compatible backend (attachment pipeline + ad-hoc API)
+- **Video multimodal extraction** via attachment pipeline (keyframe extraction, scene detection, transcription alignment)
+- **3D model understanding** via attachment pipeline (Blender multi-view rendering + vision description)
 
 ### Multi-Memory Architecture
 

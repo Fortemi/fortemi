@@ -11,6 +11,10 @@
 #   FORTEMI_REGISTRY=ghcr.io FORTEMI_TAG=bundle-latest \
 #     docker compose -f docker-compose.bundle.yml up -d
 #
+# With GPU audio transcription (requires NVIDIA GPU + Container Toolkit):
+#   docker compose -f docker-compose.bundle.yml --profile whisper up -d
+#   # Set in .env: WHISPER_BASE_URL=http://whisper:8000
+#
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
 #   docker compose -f docker-compose.bundle.yml up -d
@@ -32,6 +36,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  # Whisper speech-to-text server (GPU-accelerated, OpenAI-compatible API)
+  # Activate with: docker compose --profile whisper up -d
+  # Then set WHISPER_BASE_URL=http://whisper:8000 in .env
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    profiles:
+      - whisper
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      - WHISPER__INFERENCE_DEVICE=auto
+      - WHISPER__COMPUTE_TYPE=float16
+      # Pre-download model on startup (avoids first-request delay)
+      - PRELOAD_MODELS=["${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   matric:
     image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_TAG:-bundle-main}
@@ -116,6 +149,8 @@ services:
 
       # ── Optional Extraction Services ───────────────────────────────────
       - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}
+      # Default points to bundled whisper service; start with: --profile whisper
+      # For remote: set WHISPER_BASE_URL=https://your-whisper-server.com in .env
       - WHISPER_BASE_URL=${WHISPER_BASE_URL:-}
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
       - OCR_ENABLED=${OCR_ENABLED:-false}
@@ -154,4 +189,6 @@ volumes:
   matric-backups:
     driver: local
   matric-redis:
+    driver: local
+  whisper-models:
     driver: local

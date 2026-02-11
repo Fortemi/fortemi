@@ -317,8 +317,6 @@ purge_all_notes({ confirm: true })
 - `list_notes` returns empty result
 - Operation requires explicit `confirm: true` parameter
 
-**Expected: SKIP** — Only execute if CLEAN-002/003 left orphaned UAT data
-
 ---
 
 ## Phase Summary
@@ -345,7 +343,7 @@ purge_all_notes({ confirm: true })
 
 ## Final UAT Summary
 
-After completing **ALL 26 phases (0-21, including sub-phases 2b, 2c, 3b, 12b)**, compile the final report:
+After completing **ALL 30 phases (0-21, including sub-phases 2b, 2c, 2d, 2e, 2f, 2g, 3b, 12b)**, compile the final report:
 
 ```markdown
 # Matric-Memory UAT Final Report
@@ -363,30 +361,34 @@ After completing **ALL 26 phases (0-21, including sub-phases 2b, 2c, 3b, 12b)**,
 | 0 | Pre-flight | X/4 | X | XX% |
 | 1 | Seed Data | X/11 | X | XX% |
 | 2 | CRUD | X/18 | X | XX% |
-| 2b | File Attachments | X/24 | X | XX% |
-| 2c | Attachment Processing | X/32 | X | XX% |
+| 2b | File Attachments | X/22 | X | XX% |
+| 2c | Attachment Processing | X/31 | X | XX% |
+| 2d | Vision (Image Description) | X/8 | X | XX% |
+| 2e | Audio Transcription | X/8 | X | XX% |
+| 2f | Video Processing | X/10 | X | XX% |
+| 2g | 3D Model Processing | X/10 | X | XX% |
 | 3 | Search | X/18 | X | XX% |
-| 3b | Memory Search | X/27 | X | XX% |
+| 3b | Memory Search | X/26 | X | XX% |
 | 4 | Tags | X/11 | X | XX% |
-| 5 | Collections | X/12 | X | XX% |
+| 5 | Collections | X/11 | X | XX% |
 | 6 | Semantic Links | X/13 | X | XX% |
 | 7 | Embeddings | X/20 | X | XX% |
 | 8 | Document Types | X/16 | X | XX% |
-| 9 | Edge Cases | X/16 | X | XX% |
-| 10 | Templates | X/16 | X | XX% |
+| 9 | Edge Cases | X/15 | X | XX% |
+| 10 | Templates | X/15 | X | XX% |
 | 11 | Versioning | X/15 | X | XX% |
-| 12 | Archives | X/20 | X | XX% |
+| 12 | Archives | X/19 | X | XX% |
 | 12b | Multi-Memory | X/19 | X | XX% |
 | 13 | SKOS Taxonomy | X/41 | X | XX% |
 | 14 | PKE Encryption | X/20 | X | XX% |
-| 15 | Jobs & Queue | X/24 | X | XX% |
+| 15 | Jobs & Queue | X/23 | X | XX% |
 | 16 | Observability | X/14 | X | XX% |
 | 17 | OAuth & Auth | X/22 | X | XX% |
 | 18 | Caching | X/15 | X | XX% |
 | 19 | Feature Chains | X/56 | X | XX% |
 | 20 | Data Export | X/24 | X | XX% |
 | 21 | Final Cleanup | X/11 | X | XX% |
-| **TOTAL** | | **X/518** | **X** | **XX%** |
+| **TOTAL** | | **X/545** | **X** | **XX%** |
 
 ## Gitea Issues Filed
 | Issue # | Test ID | Title | Severity |
@@ -408,7 +410,7 @@ After completing **ALL 26 phases (0-21, including sub-phases 2b, 2c, 3b, 12b)**,
 
 ## Checklist Before Closing UAT
 
-- [ ] All 26 phases (0-21, including 2b, 2c, 3b, 12b) executed
+- [ ] All 30 phases (0-21, including 2b, 2c, 2d, 2e, 2f, 2g, 3b, 12b) executed
 - [ ] Phase 19 (Feature Chains) completed 48 E2E tests
 - [ ] Phase 20 (Data Export) validated backup/export
 - [ ] Phase 21 (Final Cleanup) removed ALL test data

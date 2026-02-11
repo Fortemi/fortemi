@@ -54,27 +54,27 @@ UAT is split into individual phase documents for agentic consumption.
 | 0 | [phases/phase-0-preflight.md](phases/phase-0-preflight.md) | ~2 min | 4 | Yes |
 | 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 11 | Yes |
 | 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 18 | **Yes** |
-| 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 24 | **Yes** |
-| 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 32 | **Yes** |
+| 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
+| 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 2d | [phases/phase-2d-vision.md](phases/phase-2d-vision.md) | ~5 min | 8 | No |
 | 2e | [phases/phase-2e-audio.md](phases/phase-2e-audio.md) | ~5 min | 8 | No |
 | 2f | [phases/phase-2f-video.md](phases/phase-2f-video.md) | ~10 min | 10 | No |
 | 2g | [phases/phase-2g-3d-model.md](phases/phase-2g-3d-model.md) | ~10 min | 10 | No |
 | 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 18 | **Yes** |
-| 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 27 | **Yes** |
+| 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 26 | **Yes** |
 | 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 11 | No |
-| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 12 | No |
+| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 11 | No |
 | 6 | [phases/phase-6-links.md](phases/phase-6-links.md) | ~5 min | 13 | No |
 | 7 | [phases/phase-7-embeddings.md](phases/phase-7-embeddings.md) | ~5 min | 20 | No |
 | 8 | [phases/phase-8-document-types.md](phases/phase-8-document-types.md) | ~5 min | 16 | No |
-| 9 | [phases/phase-9-edge-cases.md](phases/phase-9-edge-cases.md) | ~5 min | 16 | No |
-| 10 | [phases/phase-10-templates.md](phases/phase-10-templates.md) | ~8 min | 16 | No |
+| 9 | [phases/phase-9-edge-cases.md](phases/phase-9-edge-cases.md) | ~5 min | 15 | No |
+| 10 | [phases/phase-10-templates.md](phases/phase-10-templates.md) | ~8 min | 15 | No |
 | 11 | [phases/phase-11-versioning.md](phases/phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 20 | No |
+| 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 19 | No |
 | 12b | [phases/phase-12b-multi-memory.md](phases/phase-12b-multi-memory.md) | ~10 min | 19 | No |
 | 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 41 | No |
 | 14 | [phases/phase-14-pke.md](phases/phase-14-pke.md) | ~8 min | 20 | No |
-| 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 24 | No |
+| 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 23 | No |
 | 16 | [phases/phase-16-observability.md](phases/phase-16-observability.md) | ~10 min | 14 | No |
 | 17 | [phases/phase-17-oauth-auth.md](phases/phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
 | 18 | [phases/phase-18-caching-performance.md](phases/phase-18-caching-performance.md) | ~10 min | 15 | No |
@@ -82,7 +82,7 @@ UAT is split into individual phase documents for agentic consumption.
 | 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 24 | No |
 | 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 11 | **Yes** |
 
-**Total**: 554 tests across 30 phases (including 2b, 2c, 2d, 2e, 2f, 2g, 3b, and 12b)
+**Total**: 545 tests across 30 phases (including 2b, 2c, 2d, 2e, 2f, 2g, 3b, and 12b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -143,23 +143,23 @@ uat_run:
 | 0: Pre-flight | 4 | X | X | X% |
 | 1: Seed Data | 11 | X | X | X% |
 | 2: CRUD | 18 | X | X | X% |
-| 2b: Attachments | 24 | X | X | X% |
-| 2c: Attachment Processing | 32 | X | X | X% |
+| 2b: Attachments | 22 | X | X | X% |
+| 2c: Attachment Processing | 31 | X | X | X% |
 | 3: Search | 18 | X | X | X% |
-| 3b: Memory Search | 27 | X | X | X% |
+| 3b: Memory Search | 26 | X | X | X% |
 | 4: Tags | 11 | X | X | X% |
-| 5: Collections | 12 | X | X | X% |
+| 5: Collections | 11 | X | X | X% |
 | 6: Links | 13 | X | X | X% |
 | 7: Embeddings | 20 | X | X | X% |
 | 8: Document Types | 16 | X | X | X% |
-| 9: Edge Cases | 16 | X | X | X% |
-| 10: Templates | 16 | X | X | X% |
+| 9: Edge Cases | 15 | X | X | X% |
+| 10: Templates | 15 | X | X | X% |
 | 11: Versioning | 15 | X | X | X% |
-| 12: Archives | 20 | X | X | X% |
+| 12: Archives | 19 | X | X | X% |
 | 12b: Multi-Memory | 19 | X | X | X% |
 | 13: SKOS | 41 | X | X | X% |
 | 14: PKE | 20 | X | X | X% |
-| 15: Jobs | 24 | X | X | X% |
+| 15: Jobs | 23 | X | X | X% |
 | 16: Observability | 14 | X | X | X% |
 | 17: OAuth/Auth | 22 | X | X | X% |
 | 18: Caching | 15 | X | X | X% |
@@ -170,7 +170,7 @@ uat_run:
 | 2e: Audio | 8 | X | X | X% |
 | 2f: Video | 10 | X | X | X% |
 | 2g: 3D Models | 10 | X | X | X% |
-| **TOTAL** | **554** | **X** | **X** | **X%** |
+| **TOTAL** | **545** | **X** | **X** | **X%** |
 
 ## Gitea Issues Filed
 

@@ -83,13 +83,15 @@ It has multiple paragraphs and markdown formatting.`;
     const result = await client.callTool("get_note", { id: created.id });
 
     assert.ok(result, "Should return a result");
-    assert.strictEqual(result.id, created.id, "ID should match");
-    assert.ok(result.content, "Should have content");
-    assert.ok(result.content.includes(originalContent), "Content should match original");
+    assert.ok(result.note, "Should have note object");
+    assert.strictEqual(result.note.id, created.id, "ID should match");
+    assert.ok(result.original || result.revised, "Should have content");
+    const content = result.original?.content || result.revised?.content;
+    assert.ok(content.includes(originalContent), "Content should match original");
     assert.ok(Array.isArray(result.tags), "Tags should be an array");
     assert.ok(result.tags.includes(testTag), "Should include original tag");
-    assert.ok(result.created_at, "Should have created_at timestamp");
-    assert.ok(result.updated_at, "Should have updated_at timestamp");
+    assert.ok(result.note.created_at_utc, "Should have created_at timestamp");
+    assert.ok(result.note.updated_at_utc, "Should have updated_at timestamp");
 
     console.log(`  ✓ Retrieved note with ${result.tags.length} tags`);
   });
@@ -113,11 +115,13 @@ It has multiple paragraphs and markdown formatting.`;
     });
 
     assert.ok(updated, "Update should return a result");
+    assert.strictEqual(updated.success, true, "Update should return success: true");
 
-    // Verify the update
+    // Verify the update by retrieving the note
     const retrieved = await client.callTool("get_note", { id: created.id });
+    const content = retrieved.original?.content || retrieved.revised?.content;
     assert.ok(
-      retrieved.content.includes(updatedContent),
+      content.includes(updatedContent),
       "Content should be updated"
     );
 
@@ -137,6 +141,7 @@ It has multiple paragraphs and markdown formatting.`;
     const result = await client.callTool("delete_note", { id: created.id });
 
     assert.ok(result, "Delete should return a result");
+    assert.strictEqual(result.success, true, "Delete should return success: true");
 
     // Verify note is deleted (should return error or marked as deleted)
     try {
@@ -158,9 +163,9 @@ It has multiple paragraphs and markdown formatting.`;
     const result = await client.callTool("list_notes", {});
 
     assert.ok(result, "Should return a result");
-    assert.ok(Array.isArray(result.notes) || Array.isArray(result), "Should return an array");
-
     const notes = result.notes || result;
+    assert.ok(Array.isArray(notes), "Should return notes as an array");
+
     console.log(`  ✓ Listed ${notes.length} notes`);
   });
 
@@ -180,7 +185,7 @@ It has multiple paragraphs and markdown formatting.`;
     });
     cleanup.noteIds.push(note2.id);
 
-    // List with tag filter
+    // List with tag filter (tags parameter is an array)
     const result = await client.callTool("list_notes", {
       tags: [testTag],
     });
@@ -189,7 +194,7 @@ It has multiple paragraphs and markdown formatting.`;
     assert.ok(Array.isArray(notes), "Should return an array");
 
     // Should contain at least our 2 notes
-    const foundIds = notes.map(n => n.id);
+    const foundIds = notes.map(n => n.note?.id || n.id);
     assert.ok(
       foundIds.includes(note1.id),
       "Should include first note"
@@ -210,7 +215,8 @@ It has multiple paragraphs and markdown formatting.`;
       { content: "Bulk note 3", tags: [testTag] },
     ];
 
-    const created = await client.callTool("bulk_create_notes", { notes });
+    const bulkResult = await client.callTool("bulk_create_notes", { notes });
+    const created = Array.isArray(bulkResult) ? bulkResult : (bulkResult.notes || bulkResult.ids || []);
 
     assert.ok(Array.isArray(created), "Should return an array of { id } objects");
     assert.strictEqual(created.length, 3, "Should create 3 notes");
@@ -287,17 +293,18 @@ Math: ∑ ∫ √ ∞`;
     cleanup.noteIds.push(created.id);
 
     const retrieved = await client.callTool("get_note", { id: created.id });
+    const content = retrieved.original?.content || retrieved.revised?.content;
 
     assert.ok(
-      retrieved.content.includes("你好世界"),
+      content.includes("你好世界"),
       "Should preserve Unicode"
     );
     assert.ok(
-      retrieved.content.includes("🌍"),
+      content.includes("🌍"),
       "Should preserve emoji"
     );
     assert.ok(
-      retrieved.content.includes("**bold**"),
+      content.includes("**bold**"),
       "Should preserve markdown"
     );
 

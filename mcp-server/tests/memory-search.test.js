@@ -18,7 +18,6 @@
 
 import { strict as assert } from "node:assert";
 import { test, describe } from "node:test";
-import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
@@ -29,23 +28,11 @@ const __dirname = path.dirname(__filename);
 // EXTRACT TOOLS FROM INDEX.JS
 // ============================================================================
 
-const indexPath = path.join(__dirname, "..", "index.js");
-const indexContent = fs.readFileSync(indexPath, "utf8");
+const toolsPath = path.join(__dirname, "..", "tools.js");
 
-// Extract tools array by finding the const tools = [ ... ]; declaration
-const toolsMatch = indexContent.match(/const tools = \[([\s\S]*?)\n\];/);
-if (!toolsMatch) {
-  throw new Error("Could not extract tools array from index.js");
-}
-
-// Parse the tools array safely
-let tools;
-try {
-  const toolsCode = `(function() { return [${toolsMatch[1]}]; })()`;
-  tools = eval(toolsCode);
-} catch (error) {
-  throw new Error(`Failed to parse tools array: ${error.message}`);
-}
+// Import tools as ES module
+const toolsModule = await import(toolsPath);
+const tools = toolsModule.default;
 
 console.log(`Loaded ${tools.length} tools for memory search validation\n`);
 

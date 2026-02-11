@@ -48,7 +48,7 @@ export class MCPTestClient {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
 
-    const resp = await fetch(`${this.baseUrl}/mcp`, {
+    const resp = await fetch(`${this.baseUrl}/`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),

@@ -1,185 +1,155 @@
 import { strict as assert } from "node:assert";
 import { test, describe, before, after } from "node:test";
 import { MCPTestClient } from "./helpers/mcp-client.js";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-describe("Vision: Image Description", () => {
+describe("Vision: Image Description (curl-command pattern)", () => {
   let client;
-  let visionAvailable = false;
 
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
-
-    // Check if vision backend is configured
-    const info = await client.callTool("get_system_info", {});
-    visionAvailable =
-      info.extraction &&
-      info.extraction.vision &&
-      info.extraction.vision.available === true;
-
-    if (!visionAvailable) {
-      console.log(
-        "SKIP: Vision backend not available (OLLAMA_VISION_MODEL not set)"
-      );
-    }
   });
 
   after(async () => {
     await client.close();
   });
 
-  test("VIS-001: Describe a JPEG image", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    const imagePath = join(
-      __dirname,
-      "../tests/uat/data/images/object-scene.jpg"
-    );
-    const imageData = readFileSync(imagePath).toString("base64");
-
+  test("VIS-001: describe_image returns curl command with file_path", async () => {
     const result = await client.callTool("describe_image", {
-      image_data: imageData,
-      mime_type: "image/jpeg",
+      file_path: "/tmp/test-photo.jpg",
     });
 
-    assert.ok(result.description, "Should return a description");
+    assert.ok(result.curl_command, "Should return a curl_command");
+    assert.ok(result.upload_url, "Should return an upload_url");
+    assert.ok(result.instructions, "Should return instructions");
     assert.ok(
-      result.description.length > 10,
-      "Description should be non-trivial"
+      result.curl_command.includes("/tmp/test-photo.jpg"),
+      "curl_command should include the file path"
     );
-    assert.ok(result.model, "Should return the model name");
-    assert.ok(result.image_size > 0, "Should return image size in bytes");
+    assert.ok(
+      result.curl_command.includes("/api/v1/vision/describe"),
+      "curl_command should target the vision describe endpoint"
+    );
+    assert.ok(
+      result.curl_command.includes("-F"),
+      "curl_command should use multipart form flag"
+    );
   });
 
-  test("VIS-002: Describe a PNG image", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    const imagePath = join(
-      __dirname,
-      "../tests/uat/data/images/png-transparent.png"
-    );
-    const imageData = readFileSync(imagePath).toString("base64");
-
+  test("VIS-002: describe_image with mime_type", async () => {
     const result = await client.callTool("describe_image", {
-      image_data: imageData,
+      file_path: "/tmp/photo.png",
       mime_type: "image/png",
     });
 
-    assert.ok(result.description, "Should return a description");
-    assert.ok(result.model, "Should return the model name");
-  });
-
-  test("VIS-003: Custom prompt for image analysis", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    const imagePath = join(
-      __dirname,
-      "../tests/uat/data/images/faces-group-photo.jpg"
-    );
-    const imageData = readFileSync(imagePath).toString("base64");
-
-    const result = await client.callTool("describe_image", {
-      image_data: imageData,
-      mime_type: "image/jpeg",
-      prompt: "How many people are in this image? Describe each person briefly.",
-    });
-
-    assert.ok(result.description, "Should return a description");
+    assert.ok(result.curl_command, "Should return a curl_command");
     assert.ok(
-      result.description.length > 20,
-      "Custom prompt should produce detailed response"
+      result.curl_command.includes("type=image/png"),
+      "curl_command should include the mime_type"
     );
   });
 
-  test("VIS-004: Describe a WebP image", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    const imagePath = join(
-      __dirname,
-      "../tests/uat/data/images/webp-modern.webp"
-    );
-    const imageData = readFileSync(imagePath).toString("base64");
-
+  test("VIS-003: describe_image with custom prompt", async () => {
     const result = await client.callTool("describe_image", {
-      image_data: imageData,
-      mime_type: "image/webp",
+      file_path: "/tmp/diagram.png",
+      prompt: "Count the objects in this image",
     });
 
-    assert.ok(result.description, "Should return a description");
-    assert.ok(result.model, "Should return the model name");
-  });
-
-  test("VIS-005: Invalid base64 returns error", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    try {
-      await client.callTool("describe_image", {
-        image_data: "not-valid-base64!!!",
-        mime_type: "image/png",
-      });
-      assert.fail("Should have thrown an error");
-    } catch (err) {
-      assert.ok(
-        err.message.includes("base64") || err.message.includes("Invalid"),
-        "Error should mention invalid base64"
-      );
-    }
-  });
-
-  test("VIS-006: Empty image data returns error", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    try {
-      // Empty string base64-encodes to empty bytes
-      await client.callTool("describe_image", {
-        image_data: "",
-        mime_type: "image/png",
-      });
-      assert.fail("Should have thrown an error");
-    } catch (err) {
-      assert.ok(err.message, "Should return an error message");
-    }
-  });
-
-  test("VIS-007: Default mime_type works (omitted)", async (t) => {
-    if (!visionAvailable) return t.skip("Vision backend not available");
-
-    const imagePath = join(
-      __dirname,
-      "../tests/uat/data/images/png-transparent.png"
+    assert.ok(result.curl_command, "Should return a curl_command");
+    assert.ok(
+      result.curl_command.includes("prompt="),
+      "curl_command should include the prompt"
     );
-    const imageData = readFileSync(imagePath).toString("base64");
+  });
 
-    // Omit mime_type — should default to image/png
+  test("VIS-004: describe_image upload_url is well-formed", async () => {
     const result = await client.callTool("describe_image", {
-      image_data: imageData,
+      file_path: "/tmp/test.webp",
     });
 
-    assert.ok(result.description, "Should return a description");
+    assert.ok(
+      result.upload_url.endsWith("/api/v1/vision/describe"),
+      "upload_url should end with /api/v1/vision/describe"
+    );
+    assert.equal(result.method, "POST", "Method should be POST");
+    assert.equal(
+      result.content_type,
+      "multipart/form-data",
+      "Content type should be multipart/form-data"
+    );
+  });
+});
+
+describe("Audio: Transcription (curl-command pattern)", () => {
+  let client;
+
+  before(async () => {
+    client = new MCPTestClient();
+    await client.initialize();
   });
 
-  test("VIS-008: Vision not configured returns 503", async (t) => {
-    // This test validates the error message when vision is disabled.
-    // If vision IS available, we skip (we can't test disabled state).
-    if (visionAvailable) return t.skip("Vision is available — cannot test disabled state");
+  after(async () => {
+    await client.close();
+  });
 
-    try {
-      await client.callTool("describe_image", {
-        image_data: "aGVsbG8=", // "hello" in base64
-        mime_type: "image/png",
-      });
-      assert.fail("Should have thrown an error");
-    } catch (err) {
-      assert.ok(
-        err.message.includes("not configured") ||
-          err.message.includes("OLLAMA_VISION_MODEL"),
-        "Error should mention vision model not configured"
-      );
-    }
+  test("AUD-001: transcribe_audio returns curl command with file_path", async () => {
+    const result = await client.callTool("transcribe_audio", {
+      file_path: "/tmp/recording.mp3",
+    });
+
+    assert.ok(result.curl_command, "Should return a curl_command");
+    assert.ok(result.upload_url, "Should return an upload_url");
+    assert.ok(result.instructions, "Should return instructions");
+    assert.ok(
+      result.curl_command.includes("/tmp/recording.mp3"),
+      "curl_command should include the file path"
+    );
+    assert.ok(
+      result.curl_command.includes("/api/v1/audio/transcribe"),
+      "curl_command should target the audio transcribe endpoint"
+    );
+  });
+
+  test("AUD-002: transcribe_audio with mime_type", async () => {
+    const result = await client.callTool("transcribe_audio", {
+      file_path: "/tmp/audio.wav",
+      mime_type: "audio/wav",
+    });
+
+    assert.ok(result.curl_command, "Should return a curl_command");
+    assert.ok(
+      result.curl_command.includes("type=audio/wav"),
+      "curl_command should include the mime_type"
+    );
+  });
+
+  test("AUD-003: transcribe_audio with language hint", async () => {
+    const result = await client.callTool("transcribe_audio", {
+      file_path: "/tmp/speech.mp3",
+      language: "es",
+    });
+
+    assert.ok(result.curl_command, "Should return a curl_command");
+    assert.ok(
+      result.curl_command.includes("language=es"),
+      "curl_command should include the language hint"
+    );
+  });
+
+  test("AUD-004: transcribe_audio upload_url is well-formed", async () => {
+    const result = await client.callTool("transcribe_audio", {
+      file_path: "/tmp/test.flac",
+    });
+
+    assert.ok(
+      result.upload_url.endsWith("/api/v1/audio/transcribe"),
+      "upload_url should end with /api/v1/audio/transcribe"
+    );
+    assert.equal(result.method, "POST", "Method should be POST");
+    assert.equal(
+      result.content_type,
+      "multipart/form-data",
+      "Content type should be multipart/form-data"
+    );
   });
 });

@@ -897,6 +897,55 @@ pub enum ExtractionStrategy {
     OfficeConvert,
     /// Structured data extraction (JSON/YAML/XML)
     StructuredExtract,
+    /// 3D model analysis via multi-view rendering + vision
+    Glb3DModel,
+}
+
+/// Strategy for extracting keyframes from video files.
+///
+/// Controls how FFmpeg selects frames for vision analysis.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case", tag = "mode")]
+pub enum KeyframeStrategy {
+    /// Extract one frame every N seconds (default: 10s).
+    Interval {
+        /// Seconds between keyframe captures.
+        #[serde(default = "default_keyframe_interval")]
+        every_n_secs: u64,
+    },
+    /// Detect scene changes using FFmpeg's scene filter.
+    SceneDetection {
+        /// Scene change threshold (0.0-1.0). Lower = more sensitive. Default: 0.3.
+        #[serde(default = "default_scene_threshold")]
+        threshold: f64,
+    },
+    /// Hybrid: scene detection with a minimum interval floor.
+    Hybrid {
+        /// Scene change threshold (0.0-1.0). Default: 0.3.
+        #[serde(default = "default_scene_threshold")]
+        scene_threshold: f64,
+        /// Minimum seconds between frames even during rapid scene changes. Default: 2.
+        #[serde(default = "default_min_interval")]
+        min_interval_secs: u64,
+    },
+}
+
+fn default_keyframe_interval() -> u64 {
+    10
+}
+fn default_scene_threshold() -> f64 {
+    0.3
+}
+fn default_min_interval() -> u64 {
+    2
+}
+
+impl Default for KeyframeStrategy {
+    fn default() -> Self {
+        Self::Interval {
+            every_n_secs: default_keyframe_interval(),
+        }
+    }
 }
 
 impl ExtractionStrategy {
@@ -932,9 +981,9 @@ impl ExtractionStrategy {
             return Self::VideoMultimodal;
         }
 
-        // 3D models
+        // 3D models (GLB, glTF, OBJ, STL, etc.)
         if mime_lower.starts_with("model/") {
-            return Self::Vision;
+            return Self::Glb3DModel;
         }
 
         // Office documents
@@ -1054,6 +1103,7 @@ impl std::fmt::Display for ExtractionStrategy {
             Self::CodeAst => write!(f, "code_ast"),
             Self::OfficeConvert => write!(f, "office_convert"),
             Self::StructuredExtract => write!(f, "structured_extract"),
+            Self::Glb3DModel => write!(f, "glb_3d_model"),
         }
     }
 }
@@ -1073,6 +1123,7 @@ impl std::str::FromStr for ExtractionStrategy {
             "structured_extract" | "structuredextract" | "structured_data" => {
                 Ok(Self::StructuredExtract)
             }
+            "glb_3d_model" | "glb3dmodel" | "glb" | "3d_model" => Ok(Self::Glb3DModel),
             "none" => Ok(Self::TextNative),
             _ => Err(format!("Invalid extraction strategy: {}", s)),
         }
@@ -3738,7 +3789,7 @@ mod tests {
         ] {
             assert_eq!(
                 ExtractionStrategy::from_mime_type(mime),
-                ExtractionStrategy::Vision,
+                ExtractionStrategy::Glb3DModel,
                 "Failed for {}",
                 mime
             );
@@ -4117,13 +4168,13 @@ mod tests {
             ("image/svg+xml", ExtractionStrategy::Vision),
             ("image/tiff", ExtractionStrategy::Vision),
             // 3D Models
-            ("model/gltf+json", ExtractionStrategy::Vision),
-            ("model/gltf-binary", ExtractionStrategy::Vision),
-            ("model/obj", ExtractionStrategy::Vision),
-            ("model/stl", ExtractionStrategy::Vision),
-            ("model/step", ExtractionStrategy::Vision),
-            ("model/iges", ExtractionStrategy::Vision),
-            ("model/vnd.usdz+zip", ExtractionStrategy::Vision),
+            ("model/gltf+json", ExtractionStrategy::Glb3DModel),
+            ("model/gltf-binary", ExtractionStrategy::Glb3DModel),
+            ("model/obj", ExtractionStrategy::Glb3DModel),
+            ("model/stl", ExtractionStrategy::Glb3DModel),
+            ("model/step", ExtractionStrategy::Glb3DModel),
+            ("model/iges", ExtractionStrategy::Glb3DModel),
+            ("model/vnd.usdz+zip", ExtractionStrategy::Glb3DModel),
             // Audio (non-MIDI)
             ("audio/mpeg", ExtractionStrategy::AudioTranscribe),
             ("audio/wav", ExtractionStrategy::AudioTranscribe),

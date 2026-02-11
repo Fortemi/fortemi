@@ -336,6 +336,8 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
         // 3. Try extension match — file extensions are authoritative for specific
         //    types like .py, .rs, .go (issue #287: content patterns can misidentify
         //    code files, e.g. AsciiDoc patterns matching Python assignment operators).
+        //    However, for generic format types (.yaml, .json, .xml), content detection
+        //    can find a more specific type (issue #312: .yaml + openapi content → openapi).
         if let Some(fname) = filename {
             if let Some(ext) = std::path::Path::new(fname)
                 .extension()
@@ -343,6 +345,38 @@ impl DocumentTypeRepository for PgDocumentTypeRepository {
             {
                 let ext_with_dot = format!(".{}", ext.to_lowercase());
                 if let Some(doc_type) = self.get_by_extension(&ext_with_dot).await? {
+                    // For generic format types, also check content for a more specific match
+                    let is_generic_format = matches!(
+                        doc_type.name.as_str(),
+                        "yaml"
+                            | "json"
+                            | "xml"
+                            | "html"
+                            | "markdown"
+                            | "plaintext"
+                            | "toml"
+                            | "csv"
+                            | "text"
+                    );
+
+                    if is_generic_format {
+                        if let Some(text) = content {
+                            if let Some(content_result) = self.detect_by_content(text).await? {
+                                if content_result.document_type.name != doc_type.name {
+                                    // Content found a more specific type — boost confidence
+                                    // since both extension and content corroborate
+                                    return Ok(Some(DetectDocumentTypeResult {
+                                        document_type: content_result.document_type,
+                                        confidence:
+                                            matric_core::defaults::DETECT_CONFIDENCE_EXTENSION,
+                                        detection_method: "content_pattern+file_extension"
+                                            .to_string(),
+                                    }));
+                                }
+                            }
+                        }
+                    }
+
                     return Ok(Some(DetectDocumentTypeResult {
                         document_type: self.to_summary(&doc_type),
                         confidence: matric_core::defaults::DETECT_CONFIDENCE_EXTENSION,

@@ -26,27 +26,27 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 0 | [Pre-flight Checks](phase-0-preflight.md) | ~2 min | 4 | **Yes** |
 | 1 | [Seed Data Generation](phase-1-seed-data.md) | ~5 min | 11 | **Yes** |
 | 2 | [CRUD Operations](phase-2-crud.md) | ~10 min | 18 | **Yes** |
-| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 24 | **Yes** |
-| 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 32 | **Yes** |
+| 2b | [File Attachments](phase-2b-file-attachments.md) | ~15 min | 22 | **Yes** |
+| 2c | [Attachment Processing](phase-2c-attachment-processing.md) | ~20 min | 31 | **Yes** |
 | 2d | [Vision (Image Description)](phase-2d-vision.md) | ~5 min | 8 | No |
 | 2e | [Audio Transcription](phase-2e-audio.md) | ~5 min | 8 | No |
 | 2f | [Video Processing](phase-2f-video.md) | ~10 min | 10 | No |
 | 2g | [3D Model Processing](phase-2g-3d-model.md) | ~10 min | 10 | No |
 | 3 | [Search Capabilities](phase-3-search.md) | ~10 min | 18 | **Yes** |
-| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 27 | **Yes** |
+| 3b | [Memory Search](phase-3b-memory-search.md) | ~15 min | 26 | **Yes** |
 | 4 | [Tag System](phase-4-tags.md) | ~5 min | 11 | No |
-| 5 | [Collections](phase-5-collections.md) | ~3 min | 12 | No |
+| 5 | [Collections](phase-5-collections.md) | ~3 min | 11 | No |
 | 6 | [Semantic Links](phase-6-links.md) | ~5 min | 13 | No |
 | 7 | [Embeddings](phase-7-embeddings.md) | ~5 min | 20 | No |
 | 8 | [Document Types](phase-8-document-types.md) | ~5 min | 16 | No |
-| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 16 | No |
-| 10 | [Templates](phase-10-templates.md) | ~8 min | 16 | No |
+| 9 | [Edge Cases](phase-9-edge-cases.md) | ~5 min | 15 | No |
+| 10 | [Templates](phase-10-templates.md) | ~8 min | 15 | No |
 | 11 | [Versioning](phase-11-versioning.md) | ~7 min | 15 | No |
-| 12 | [Archives](phase-12-archives.md) | ~8 min | 20 | No |
+| 12 | [Archives](phase-12-archives.md) | ~8 min | 19 | No |
 | 12b | [Multi-Memory](phase-12b-multi-memory.md) | ~8 min | 19 | No |
 | 13 | [SKOS Taxonomy](phase-13-skos.md) | ~12 min | 41 | No |
 | 14 | [PKE Encryption](phase-14-pke.md) | ~8 min | 20 | No |
-| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 24 | No |
+| 15 | [Jobs & Queue](phase-15-jobs.md) | ~8 min | 23 | No |
 | 16 | [Observability](phase-16-observability.md) | ~10 min | 14 | No |
 | 17 | [Authentication & Access Control](phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
 | 18 | [Caching & Performance](phase-18-caching-performance.md) | ~10 min | 15 | No |
@@ -54,7 +54,7 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 | 20 | [Data Export](phase-20-data-export.md) | ~8 min | 24 | No |
 | 21 | [Final Cleanup](phase-21-final-cleanup.md) | ~5 min | 11 | **Yes** |
 
-**Total Tests**: 554
+**Total Tests**: 545
 **Total Estimated Duration**: 260-300 minutes (full suite)
 **Total Phases**: 30 (numbered 0-21, plus sub-phases 2b, 2c, 2d, 2e, 2f, 2g, 3b, and 12b)
 
@@ -66,30 +66,30 @@ This directory contains phase-based UAT test procedures for Matric Memory, desig
 |----------|-------|-----------|----------|
 | Note CRUD | 12 | 39 | 100% |
 | Search | 4 | 39 | 100% |
-| Memory Search | 5 | 27 | 100% |
+| Memory Search | 5 | 26 | 100% |
 | Provenance Creation | 5 | 26 | 100% |
 | Tags | 2 | 11 | 100% |
-| Collections | 9 | 12 | 100% |
-| Templates | 6 | 16 | 100% |
+| Collections | 9 | 11 | 100% |
+| Templates | 6 | 15 | 100% |
 | Embedding Sets | 15 | 20 | 100% |
 | Versioning | 5 | 15 | 100% |
 | Graph/Links | 7 | 13 | 100% |
-| Jobs | 7 | 24 | 100% |
+| Jobs | 7 | 23 | 100% |
 | SKOS | 34 | 41 | 100% |
-| Archives | 7 | 20 | 100% |
+| Archives | 7 | 19 | 100% |
 | Document Types | 6 | 16 | 100% |
 | Backup/Export | 22 | 24 | 100% |
 | PKE | 13 | 20 | 100% |
 | Observability | 8 | 14 | 100% |
 | Auth & Access Control | 11 MCP tools + 4 infra | 22 | 100% |
 | Caching & Performance | 5 MCP tools | 15 | 100% |
-| Attachment Processing | 5 (upload, list, get, detect, delete) | 32 | 100% |
+| Attachment Processing | 5 (upload, list, get, detect, delete) | 31 | 100% |
 | Vision | 2 (describe_image, get_system_info) | 8 | 100% |
 | Audio | 2 (transcribe_audio, get_system_info) | 8 | 100% |
 | Video | 2 (process_video, get_system_info) | 10 | 100% |
 | 3D Models | 2 (process_3d_model, get_system_info) | 10 | 100% |
 | Multi-Memory | 7 | 19 | 100% |
-| **TOTAL** | **202** | **554** | **100%** |
+| **TOTAL** | **202** | **545** | **100%** |
 
 ---
 

@@ -242,6 +242,26 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
     }
 }
 
+/// Validate MIME type format per RFC 2045 (type/subtype).
+///
+/// Returns `true` if the format is valid: exactly one `/`, both parts non-empty,
+/// no whitespace, and only printable ASCII characters.
+pub fn is_valid_mime_type(mime: &str) -> bool {
+    let parts: Vec<&str> = mime.split('/').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let (media_type, subtype) = (parts[0], parts[1]);
+    if media_type.is_empty() || subtype.is_empty() {
+        return false;
+    }
+    // Both parts must be valid tokens: printable ASCII, no spaces or tspecials
+    let is_token_char = |c: char| -> bool {
+        c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '-' | '^' | '_' | '.' | '+')
+    };
+    media_type.chars().all(is_token_char) && subtype.chars().all(is_token_char)
+}
+
 /// Sanitize filename for safe storage
 pub fn sanitize_filename(filename: &str) -> String {
     // Remove path components

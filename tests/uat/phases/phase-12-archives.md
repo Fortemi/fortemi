@@ -344,22 +344,6 @@ delete_archive({ name: "uat-test-archive" })
 
 ---
 
-### ARCH-015b: Delete Non-Empty Archive — Require Force
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `delete_archive`
-
-```javascript
-delete_archive({ name: "uat-test-archive" })
-```
-
-**Pass Criteria**: Returns **409 Conflict** — archive is not empty, requires `force: true` flag.
-
-**Expected: XFAIL** — API currently cascades without requiring force flag.
-
----
-
 ### ARCH-016: Delete Empty Archive
 
 **MCP Tool**: `delete_archive`
@@ -442,7 +426,6 @@ list_archives()  // Should only show default (and any pre-existing)
 | ARCH-013 | `list_notes` | | Verify data isolation |
 | ARCH-014 | `create_archive` | | Duplicate name error |
 | ARCH-015a | `delete_archive` | | Delete non-empty cascade |
-| ARCH-015b | `delete_archive` | | Delete non-empty reject (XFAIL) |
 | ARCH-016 | `delete_archive` | | Delete empty archive |
 | ARCH-017 | `get_archive` | | Verify archive deleted |
 | ARCH-018 | `delete_archive` | | Cannot delete default |

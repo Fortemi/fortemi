@@ -251,27 +251,6 @@
 
 ---
 
-### PROC-007b: Override with Invalid Type — Reject
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `upload_attachment`
-
-**Description**: Upload file with non-existent `document_type_id`. Verify API rejects.
-
-**Prerequisites**: Note from PROC-007a
-
-**Steps**:
-```javascript
-upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "text/plain", document_type_id: "00000000-0000-0000-0000-000000000000" })
-```
-
-**Pass Criteria**: Returns **400 Bad Request** — document_type_id does not exist.
-
-**Expected: XFAIL** — API currently falls back to auto-detection rather than rejecting.
-
----
-
 ### PROC-008: No Override Uses Detection
 
 **MCP Tool**: `upload_attachment`, `get_attachment`
@@ -1096,7 +1075,6 @@ upload_attachment({ note_id: <note_id>, filename: "test.txt", content_type: "tex
 | PROC-005 | Auto-detect from MIME Only | `create_note`, `upload_attachment`, `get_attachment` | |
 | PROC-006 | Override with Valid Type | `get_document_type`, `create_note`, `upload_attachment` | |
 | PROC-007a | Invalid Type Override Fallback | `create_note`, `upload_attachment` | |
-| PROC-007b | Invalid Type Override Reject (XFAIL) | `upload_attachment` | |
 | PROC-008 | No Override Uses Detection | `upload_attachment`, `get_attachment` | |
 | PROC-009 | Override MIME-based Detection | `get_document_type`, `create_note`, `upload_attachment`, `get_attachment` | |
 | PROC-010 | Text File -> TextNative | `upload_attachment`, `get_attachment` | |

@@ -909,11 +909,14 @@ RETURNS: id, name, description, parent_id, note_count, created_at, updated_at`,
     description: `Delete a collection.
 
 Notes in the collection will be moved to uncategorized (not deleted).
-Child collections will be moved to root level.`,
+Child collections will be moved to root level.
+
+By default, deletion fails if the collection contains notes. Use force=true to delete anyway.`,
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Collection UUID to delete" },
+        force: { type: "boolean", description: "Force delete even if collection contains notes (default: false)" },
       },
       required: ["id"],
     },
@@ -1631,11 +1634,9 @@ TIP: Use dry_run=true first to validate.`,
   },
   {
     name: "knowledge_shard",
-    description: `Create knowledge shard and save to disk as .tar.gz file from the active memory.
+    description: `Create and download a knowledge shard (.tar.gz) from the active memory.
 
-Backup operations respect the active memory context.
-
-Saves to output_dir (defaults to system temp directory). Returns the file path.
+Returns a curl command to download the shard file. Execute the command to save the file.
 
 COMPONENTS: notes, collections, tags, templates, links, embedding_sets, embeddings (large!), or "all"
 DEFAULT: notes,collections,tags,templates,links,embedding_sets (no embeddings)
@@ -1650,7 +1651,7 @@ RESTORE: knowledge_shard_import with the saved file path`,
           type: "string",
           description: "Components to include: comma-separated list (notes,collections,tags,templates,links,embedding_sets,embeddings) or 'all'. Default: notes,collections,tags,templates,links,embedding_sets",
         },
-        output_dir: { type: "string", description: "Directory to save the shard file (default: system temp dir)" },
+        output_dir: { type: "string", description: "Directory prefix for the output filename in the curl command" },
       },
     },
     annotations: {
@@ -1738,9 +1739,9 @@ WARNING: skip_snapshot=true is dangerous, always keep prerestore backup.`,
   // ============================================================================
   {
     name: "knowledge_archive_download",
-    description: `Download backup + metadata bundled as .archive file and save to disk.
+    description: `Download backup + metadata bundled as .archive file.
 
-Saves to output_dir (defaults to system temp directory). Returns the file path.
+Returns a curl command to download the archive file. Execute the command to save the file.
 
 FORMAT: Tar containing backup file (.sql.gz/.tar.gz) + metadata.json
 
@@ -2606,6 +2607,9 @@ Available topics:
 - "provenance" - W3C PROV provenance chains and dedicated backlinks
 - "embedding_configs" - Embedding model configuration and MRL support
 - "vision" - Vision model for image description and extraction
+- "audio" - Audio transcription via Whisper-compatible backend
+- "video" - Video multimodal extraction (keyframes, transcription, temporal alignment)
+- "3d-models" - 3D model understanding via multi-view rendering
 
 **Reference:**
 - "workflows" - Usage patterns and advanced workflow examples
@@ -2623,7 +2627,7 @@ USE THIS TOOL when you need:
       properties: {
         topic: {
           type: "string",
-          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "vision", "workflows", "troubleshooting", "contributing", "all"],
+          enum: ["overview", "notes", "search", "concepts", "skos_collections", "chunking", "versioning", "collections", "archives", "templates", "document_types", "backup", "encryption", "jobs", "observability", "provenance", "embedding_configs", "vision", "audio", "video", "3d-models", "workflows", "troubleshooting", "contributing", "all"],
           description: "Documentation topic to retrieve",
           default: "overview"
         },
@@ -3328,10 +3332,17 @@ Combined detection (most accurate):
   // ============================================================================
   {
     name: "describe_image",
-    description: `Describe an image using the configured vision model (e.g., qwen3-vl, llava).
+    description: `Get the upload URL and curl command for describing an image using the vision model.
 
-Accepts base64-encoded image data and returns an AI-generated description.
+Returns a ready-to-use curl command that uploads the image file via multipart/form-data.
+The agent should execute the curl command to upload the file directly to the API.
 Requires OLLAMA_VISION_MODEL to be configured on the server.
+
+Workflow:
+1. Call this tool with the file_path of the image you want to describe
+2. Execute the returned curl_command
+3. The API accepts multipart/form-data — no base64 encoding needed
+4. The response JSON contains { description, model, image_size }
 
 **Use cases:**
 - Describe uploaded images before storing
@@ -3339,38 +3350,182 @@ Requires OLLAMA_VISION_MODEL to be configured on the server.
 - Generate alt-text for accessibility
 - Analyze image content for tagging
 
-**Custom prompts:**
-You can provide a custom prompt to focus the description:
-- "List all text visible in this image"
-- "Describe the architecture diagram"
-- "What programming language is shown in this screenshot?"
-
 **Supported formats:** PNG, JPEG, GIF, WebP
 
-**Example:**
-{ "image_data": "<base64>", "mime_type": "image/png" }
-→ { description: "A flowchart showing...", model: "qwen3-vl", image_size: 45230 }`,
+Binary data never passes through the MCP protocol or LLM context window.`,
     inputSchema: {
       type: "object",
       properties: {
-        image_data: {
+        file_path: {
           type: "string",
-          description: "Base64-encoded image data",
+          description: "Local path to the image file (e.g., '/tmp/photo.png')",
         },
         mime_type: {
           type: "string",
-          description: "Image MIME type (default: image/png). Supported: image/png, image/jpeg, image/gif, image/webp",
+          description: "Image MIME type (default: auto-detected from file). Supported: image/png, image/jpeg, image/gif, image/webp",
         },
         prompt: {
           type: "string",
           description: "Custom prompt for the vision model. If omitted, uses default description prompt.",
         },
       },
-      required: ["image_data"],
+      required: ["file_path"],
     },
     annotations: {
       readOnlyHint: true,
     },
+  },
+
+  // ============================================================================
+  // AUDIO - Audio transcription using Whisper-compatible backends
+  // Requires WHISPER_BASE_URL to be configured
+  // ============================================================================
+  {
+    name: "transcribe_audio",
+    description: `Get the upload URL and curl command for transcribing audio using the Whisper backend.
+
+Returns a ready-to-use curl command that uploads the audio file via multipart/form-data.
+The agent should execute the curl command to upload the file directly to the API.
+Requires WHISPER_BASE_URL to be configured on the server.
+
+Workflow:
+1. Call this tool with the file_path of the audio you want to transcribe
+2. Execute the returned curl_command
+3. The API accepts multipart/form-data — no base64 encoding needed
+4. The response JSON contains { text, segments, language, duration_secs, model, audio_size }
+
+**Language hints:**
+You can provide an ISO 639-1 language code to help the model:
+- "en" for English, "es" for Spanish, "zh" for Chinese, "de" for German
+If omitted, the model auto-detects the language.
+
+**Supported formats:** MP3, WAV, OGG, FLAC, AAC, WebM
+
+Binary data never passes through the MCP protocol or LLM context window.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Local path to the audio file (e.g., '/tmp/recording.mp3')",
+        },
+        mime_type: {
+          type: "string",
+          description: "Audio MIME type (default: auto-detected from file). Supported: audio/mpeg, audio/wav, audio/ogg, audio/flac, audio/aac, audio/webm",
+        },
+        language: {
+          type: "string",
+          description: "ISO 639-1 language code hint (e.g., 'en', 'es', 'zh'). If omitted, the model auto-detects the language.",
+        },
+      },
+      required: ["file_path"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // VIDEO - Video processing via attachment pipeline
+  // Requires ffmpeg in PATH + OLLAMA_VISION_MODEL and/or WHISPER_BASE_URL
+  // ============================================================================
+  {
+    name: "process_video",
+    description: `**Guidance tool** — Video processing runs through the attachment pipeline, not ad-hoc base64.
+
+Video files are too large for base64 transport through the MCP protocol. Instead, use the standard attachment workflow to process video files.
+
+**Workflow to process a video file:**
+
+1. **Ensure a note exists** — If the video has no associated note, create one first:
+   \`create_note({ title: "Video: <filename>", body: "Uploaded video for processing" })\`
+
+2. **Upload the video as an attachment:**
+   \`upload_attachment({ note_id: "<note_id>", filename: "video.mp4", content_type: "video/mp4" })\`
+   Then execute the returned curl command with the actual file path.
+
+3. **Wait for extraction** — The background job worker automatically:
+   - Extracts keyframes using scene detection (ffmpeg)
+   - Describes each keyframe using the vision model (if OLLAMA_VISION_MODEL is set)
+   - Transcribes audio track using Whisper (if WHISPER_BASE_URL is set)
+   - Builds temporal context linking frame descriptions with transcript segments
+   - Stores all extracted metadata with the note
+
+4. **Check extraction status:**
+   \`get_attachment({ id: "<attachment_id>" })\` — look for extraction_metadata in the response
+
+5. **Search by content** — Once extracted, video content is searchable via \`search_notes\`
+
+**Supported video formats:** MP4, WebM, AVI, MOV, MKV, FLV, WMV, OGG
+**Requires:** ffmpeg in PATH, plus OLLAMA_VISION_MODEL and/or WHISPER_BASE_URL
+
+This tool returns the workflow instructions. Call it to get a reminder of the steps.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description: "Optional existing note UUID. If provided, the guidance will reference this note. If omitted, the guidance includes a note creation step.",
+        },
+        filename: {
+          type: "string",
+          description: "Optional filename for the video (used in guidance output)",
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  },
+
+  // ============================================================================
+  // 3D MODELS - 3D model processing via attachment pipeline
+  // Requires Blender headless + OLLAMA_VISION_MODEL
+  // ============================================================================
+  {
+    name: "process_3d_model",
+    description: `**Guidance tool** — 3D model processing runs through the attachment pipeline, not ad-hoc base64.
+
+3D model files (GLB, GLTF, OBJ, FBX, STL, PLY) are processed via multi-view rendering:
+the server uses Blender headless to render the model from multiple angles, then describes
+each view using the vision model.
+
+**Workflow to process a 3D model file:**
+
+1. **Ensure a note exists** — If the model has no associated note, create one first:
+   \`create_note({ title: "3D Model: <filename>", body: "Uploaded 3D model for processing" })\`
+
+2. **Upload the model as an attachment:**
+   \`upload_attachment({ note_id: "<note_id>", filename: "model.glb", content_type: "model/gltf-binary" })\`
+   Then execute the returned curl command with the actual file path.
+
+3. **Wait for extraction** — The background job worker automatically:
+   - Renders the model from multiple angles using Blender headless
+   - Describes each rendered view using the vision model
+   - Synthesizes a composite description from all views
+   - Stores the multi-view descriptions as extraction metadata
+
+4. **Check extraction status:**
+   \`get_attachment({ id: "<attachment_id>" })\` — look for extraction_metadata in the response
+
+5. **Search by content** — Once extracted, 3D model descriptions are searchable via \`search_notes\`
+
+**Supported 3D formats:** GLB, GLTF, OBJ, FBX, STL, PLY
+**Requires:** Blender (headless) in PATH + OLLAMA_VISION_MODEL
+
+This tool returns the workflow instructions. Call it to get a reminder of the steps.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        note_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description: "Optional existing note UUID. If provided, the guidance will reference this note. If omitted, the guidance includes a note creation step.",
+        },
+        filename: {
+          type: "string",
+          description: "Optional filename for the 3D model (used in guidance output)",
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
   },
 
   // ============================================================================
@@ -4411,6 +4566,9 @@ Use cases:
       },
       required: ["name"],
     },
+    annotations: {
+      destructiveHint: false,
+    },
   },
   {
     name: "delete_memory",
@@ -4453,6 +4611,9 @@ Use cases:
         description: { type: "string", description: "Optional description for the clone" },
       },
       required: ["source_name", "new_name"],
+    },
+    annotations: {
+      destructiveHint: false,
     },
   },
   {
@@ -4500,6 +4661,178 @@ Use this when you need to find information across knowledge boundaries, e.g., se
         limit: { type: "integer", description: "Maximum results per memory (default 10)" },
       },
       required: ["q", "memories"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // API KEY MANAGEMENT
+  // ============================================================================
+  {
+    name: "list_api_keys",
+    description: `List all API keys.
+
+Returns all registered API keys with their metadata (name, scope, creation date, expiration).
+Key values are NOT returned — only metadata for management purposes.
+
+Use this to audit existing API keys or check expiration dates.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "create_api_key",
+    description: `Create a new API key for programmatic access.
+
+Returns the full key value ONCE — it cannot be retrieved again after creation.
+Store the returned key securely.
+
+Parameters:
+- name: Human-readable label for the key
+- description: Optional longer description of key purpose
+- scope: Access scope (default: "admin")
+- expires_in_days: Optional expiration in days (null = never expires)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Human-readable name for the API key" },
+        description: { type: "string", description: "Optional description of the key's purpose" },
+        scope: { type: "string", description: "Access scope (default: 'admin')" },
+        expires_in_days: { type: "integer", description: "Days until expiration (omit for no expiration)" },
+      },
+      required: ["name"],
+    },
+    annotations: {
+      destructiveHint: false,
+    },
+  },
+  // revoke_api_key intentionally omitted from MCP tools.
+  // API key revocation is an admin-only operation available via REST API directly:
+  //   DELETE /api/v1/api-keys/:id
+  // Exposing it via MCP would advertise it to all clients regardless of scope.
+
+  // ============================================================================
+  // RATE LIMITING
+  // ============================================================================
+  {
+    name: "get_rate_limit_status",
+    description: `Check whether rate limiting is enabled and its current status.
+
+Returns:
+- enabled: Whether rate limiting is active
+- message: Human-readable status description
+
+Use this to diagnose request throttling issues.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // EXTRACTION PIPELINE
+  // ============================================================================
+  {
+    name: "get_extraction_stats",
+    description: `Get extraction pipeline statistics.
+
+Returns aggregate statistics about the content extraction pipeline including
+document type distribution, processing counts, and strategy usage.
+
+Use this to monitor pipeline health and understand content processing patterns.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // COLLECTION EXPORT
+  // ============================================================================
+  {
+    name: "export_collection",
+    description: `Export all notes in a collection as concatenated markdown.
+
+Returns all notes in the specified collection rendered as markdown with optional YAML frontmatter.
+Useful for bulk export, backup of a specific collection, or generating a document from collected notes.
+
+Parameters:
+- id: Collection UUID to export
+- include_frontmatter: Include YAML frontmatter metadata per note (default: true)
+- content: Which content version to export — "revised" (AI-enhanced, default) or "original"`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid", description: "UUID of the collection to export" },
+        include_frontmatter: { type: "boolean", description: "Include YAML frontmatter metadata (default: true)" },
+        content: { type: "string", enum: ["revised", "original"], description: "Content version: 'revised' (default) or 'original'" },
+      },
+      required: ["id"],
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+
+  // ============================================================================
+  // BACKUP SWAP
+  // ============================================================================
+  {
+    name: "swap_backup",
+    description: `Swap the current database state with a backup shard file.
+
+Restores from a knowledge shard (.tar.gz) file on disk. Only knowledge shards are supported — use database_restore for .sql.gz files.
+
+WARNING: With strategy "wipe" (default), this replaces ALL existing data. Use dry_run=true first to preview.
+
+Parameters:
+- filename: Name of the shard file in the backup directory (no path traversal allowed)
+- dry_run: If true, validate without restoring (default: false)
+- strategy: "wipe" (replace all data, default) or "merge" (add new only)
+
+USE: list_backups first to find available shard filenames.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Shard filename (e.g., 'shard_20260210.tar.gz')" },
+        dry_run: { type: "boolean", description: "Preview without restoring (default: false)" },
+        strategy: { type: "string", enum: ["wipe", "merge"], description: "Restore strategy: 'wipe' (default) or 'merge'" },
+      },
+      required: ["filename"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
+  {
+    name: "memory_backup_download",
+    description: `Download a pg_dump backup of a specific memory archive.
+
+Returns a curl command to download a compressed SQL dump (.sql.gz) of the specified memory's PostgreSQL schema.
+Execute the curl command to save the backup file.
+
+Use this to back up individual memories without affecting other archives.
+
+Parameters:
+- name: Memory archive name (use list_memories to find available names)`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Memory archive name to back up" },
+      },
+      required: ["name"],
     },
     annotations: {
       readOnlyHint: true,

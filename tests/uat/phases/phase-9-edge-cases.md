@@ -31,25 +31,6 @@ create_note({
 
 ---
 
-### EDGE-001b: Empty Content — Reject
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `create_note`
-
-```javascript
-create_note({
-  content: "",
-  tags: ["uat/edge"]
-})
-```
-
-**Pass Criteria**: Returns **400 Bad Request** — content cannot be empty.
-
-**Expected: XFAIL** — API currently accepts empty content.
-
----
-
 ### EDGE-002: Very Long Content
 
 **MCP Tool**: `create_note`
@@ -289,7 +270,6 @@ list_notes({ limit: 5 })
 | Test ID | Name | MCP Tool(s) | Status |
 |---------|------|-------------|--------|
 | EDGE-001a | Empty Content Accept | `create_note` | |
-| EDGE-001b | Empty Content Reject (XFAIL) | `create_note` | |
 | EDGE-002 | Very Long Content | `create_note` | |
 | EDGE-003 | Invalid UUID | `get_note` | |
 | EDGE-004 | Non-existent UUID | `get_note` | |

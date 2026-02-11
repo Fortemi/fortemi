@@ -389,25 +389,6 @@ create_job({
 
 ---
 
-#### JOB-018c: Create Duplicate Job — Reject
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `create_job`
-
-```javascript
-create_job({
-  note_id: job_test_note_id,
-  job_type: "embedding"
-})
-```
-
-**Pass Criteria**: Returns **409 Conflict** — job already exists for this note and type.
-
-**Expected: XFAIL** — API allows duplicates via `queue()` and deduplicates via `queue_deduplicated()`.
-
----
-
 ## Individual Job Operations
 
 #### JOB-019: Get Job by ID
@@ -540,13 +521,12 @@ list_jobs({ note_id: job_test_note_id })  // Should be empty
 | JOB-017 | Invalid job type error | `create_job` | |
 | JOB-018a | Duplicate job allow | `create_job` | |
 | JOB-018b | Duplicate job dedup | `create_job` | |
-| JOB-018c | Duplicate job reject (XFAIL) | `create_job` | |
 | JOB-019 | Get job by ID | `get_job` | |
 | JOB-020 | Get pending jobs count | `get_pending_jobs_count` | |
 | JOB-021 | Reprocess note | `reprocess_note` | |
 | JOB-022 | Reprocess note all ops | `reprocess_note` | |
 
-**Pass Rate Required**: 95% (21/22)
+**Pass Rate Required**: 100% (23/23)
 
 ---
 
@@ -556,7 +536,7 @@ list_jobs({ note_id: job_test_note_id })  // Should be empty
 |------|-------|
 | `get_queue_stats` | JOB-001, JOB-009 |
 | `list_jobs` | JOB-002, JOB-003, JOB-004, JOB-005, JOB-011, JOB-014, JOB-015 |
-| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018a, JOB-018b, JOB-018c |
+| `create_job` | JOB-006, JOB-007, JOB-008, JOB-010, JOB-016, JOB-017, JOB-018a, JOB-018b |
 | `reembed_all` | JOB-012, JOB-013 |
 | `get_job` | JOB-019 |
 | `get_pending_jobs_count` | JOB-020 |

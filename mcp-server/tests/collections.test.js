@@ -126,7 +126,7 @@ describe("Phase 5: Collections", () => {
     cleanup.noteIds.push(note.id);
 
     // Add note to collection
-    const result = await client.callTool("add_to_collection", {
+    const result = await client.callTool("move_note_to_collection", {
       collection_id: collection.id,
       note_id: note.id,
     });
@@ -156,15 +156,15 @@ describe("Phase 5: Collections", () => {
       cleanup.noteIds.push(note.id);
       noteIds.push(note.id);
 
-      await client.callTool("add_to_collection", {
+      await client.callTool("move_note_to_collection", {
         collection_id: collection.id,
         note_id: note.id,
       });
     }
 
     // List notes in collection
-    const result = await client.callTool("list_collection_notes", {
-      collection_id: collection.id,
+    const result = await client.callTool("get_collection_notes", {
+      id: collection.id,
     });
 
     const notes = result.notes || result;
@@ -200,22 +200,21 @@ describe("Phase 5: Collections", () => {
     cleanup.noteIds.push(note.id);
 
     // Add note to collection
-    await client.callTool("add_to_collection", {
+    await client.callTool("move_note_to_collection", {
       collection_id: collection.id,
       note_id: note.id,
     });
 
-    // Remove note from collection
-    const result = await client.callTool("remove_from_collection", {
-      collection_id: collection.id,
+    // Remove note from collection by moving to uncategorized (omit collection_id)
+    const result = await client.callTool("move_note_to_collection", {
       note_id: note.id,
     });
 
     assert.ok(result, "Should return a result");
 
     // Verify note is removed
-    const listResult = await client.callTool("list_collection_notes", {
-      collection_id: collection.id,
+    const listResult = await client.callTool("get_collection_notes", {
+      id: collection.id,
     });
     const notes = listResult.notes || listResult;
     const foundIds = notes.map(n => n.id);
@@ -252,6 +251,88 @@ describe("Phase 5: Collections", () => {
     assert.ok(!found, "Deleted collection should not appear in list");
 
     console.log(`  ✓ Deleted collection successfully`);
+  });
+
+  test("COLL-007b: Delete non-empty collection without force flag fails", async () => {
+    // Create collection
+    const uniqueId = MCPTestClient.uniqueId().slice(0, 8);
+    const collection = await client.callTool("create_collection", {
+      name: `Non-Empty Collection ${uniqueId}`,
+      description: "For force delete test",
+    });
+    cleanup.collectionIds.push(collection.id);
+
+    // Create note in collection
+    const note = await client.callTool("create_note", {
+      content: "Test note for force delete",
+      collection_id: collection.id,
+    });
+    cleanup.noteIds.push(note.id);
+
+    // Try to delete collection without force flag - should fail
+    let errorThrown = false;
+    try {
+      await client.callTool("delete_collection", {
+        id: collection.id,
+      });
+    } catch (error) {
+      errorThrown = true;
+      assert.ok(
+        error.message.includes("force=true") || error.message.includes("not empty"),
+        "Error should mention force flag or non-empty collection"
+      );
+    }
+
+    assert.ok(errorThrown, "Should throw error when deleting non-empty collection without force");
+
+    // Verify collection still exists
+    const listResult = await client.callTool("list_collections", {});
+    const collections = listResult.collections || listResult;
+    const found = collections.find(c => c.id === collection.id);
+    assert.ok(found, "Collection should still exist after failed delete");
+
+    console.log(`  ✓ Non-empty collection delete properly rejected`);
+  });
+
+  test("COLL-007c: Delete non-empty collection with force flag succeeds", async () => {
+    // Create collection
+    const uniqueId = MCPTestClient.uniqueId().slice(0, 8);
+    const collection = await client.callTool("create_collection", {
+      name: `Force Delete Collection ${uniqueId}`,
+      description: "For force delete success test",
+    });
+    cleanup.collectionIds.push(collection.id);
+
+    // Create note in collection
+    const note = await client.callTool("create_note", {
+      content: "Test note for force delete",
+      collection_id: collection.id,
+    });
+    cleanup.noteIds.push(note.id);
+
+    // Delete collection with force flag - should succeed
+    const result = await client.callTool("delete_collection", {
+      id: collection.id,
+      force: true,
+    });
+
+    assert.ok(result, "Delete should return a result");
+
+    // Verify collection is deleted
+    const listResult = await client.callTool("list_collections", {});
+    const collections = listResult.collections || listResult;
+    const found = collections.find(c => c.id === collection.id);
+    assert.ok(!found, "Collection should be deleted with force flag");
+
+    // Verify note was moved to uncategorized (collection_id = null)
+    const noteResult = await client.callTool("get_note", { id: note.id });
+    assert.strictEqual(
+      noteResult.collection_id,
+      null,
+      "Note should be moved to uncategorized"
+    );
+
+    console.log(`  ✓ Force delete of non-empty collection succeeded`);
   });
 
   test("COLL-008: Get collection details", async () => {
@@ -291,7 +372,7 @@ describe("Phase 5: Collections", () => {
     console.log(`  ✓ Created collection with empty description`);
   });
 
-  test("COLL-010: Add same note to multiple collections", async () => {
+  test("COLL-010: Move note between collections", async () => {
     // Create two collections
     const uniqueId = MCPTestClient.uniqueId().slice(0, 8);
     const coll1 = await client.callTool("create_collection", {
@@ -307,41 +388,40 @@ describe("Phase 5: Collections", () => {
     cleanup.collectionIds.push(coll2.id);
 
     // Create one note
-    const testTag = MCPTestClient.testTag("collection", "multi");
+    const testTag = MCPTestClient.testTag("collection", "move");
     const note = await client.callTool("create_note", {
-      content: "Note in multiple collections",
+      content: "Note to move between collections",
       tags: [testTag],
     });
     cleanup.noteIds.push(note.id);
 
-    // Add note to both collections
-    await client.callTool("add_to_collection", {
+    // Move note to first collection
+    await client.callTool("move_note_to_collection", {
       collection_id: coll1.id,
       note_id: note.id,
     });
-    await client.callTool("add_to_collection", {
-      collection_id: coll2.id,
-      note_id: note.id,
-    });
 
-    // Verify note is in both collections
-    const list1 = await client.callTool("list_collection_notes", {
-      collection_id: coll1.id,
+    // Verify note is in first collection
+    const list1 = await client.callTool("get_collection_notes", {
+      id: coll1.id,
     });
-    const list2 = await client.callTool("list_collection_notes", {
-      collection_id: coll2.id,
-    });
-
     const notes1 = list1.notes || list1;
+    assert.ok(notes1.find(n => n.id === note.id), "Note should be in first collection");
+
+    // Move note to second collection
+    await client.callTool("move_note_to_collection", {
+      collection_id: coll2.id,
+      note_id: note.id,
+    });
+
+    // Verify note is now in second collection
+    const list2 = await client.callTool("get_collection_notes", {
+      id: coll2.id,
+    });
     const notes2 = list2.notes || list2;
+    assert.ok(notes2.find(n => n.id === note.id), "Note should be in second collection");
 
-    const found1 = notes1.find(n => n.id === note.id);
-    const found2 = notes2.find(n => n.id === note.id);
-
-    assert.ok(found1, "Note should be in first collection");
-    assert.ok(found2, "Note should be in second collection");
-
-    console.log(`  ✓ Note successfully added to multiple collections`);
+    console.log(`  ✓ Note successfully moved between collections`);
   });
 
   test("COLL-011: Delete collection with notes does not delete notes", async () => {
@@ -361,7 +441,7 @@ describe("Phase 5: Collections", () => {
     cleanup.noteIds.push(note.id);
 
     // Add note to collection
-    await client.callTool("add_to_collection", {
+    await client.callTool("move_note_to_collection", {
       collection_id: collection.id,
       note_id: note.id,
     });
@@ -374,7 +454,8 @@ describe("Phase 5: Collections", () => {
     // Verify note still exists
     const retrieved = await client.callTool("get_note", { id: note.id });
     assert.ok(retrieved, "Note should still exist after collection deletion");
-    assert.strictEqual(retrieved.id, note.id, "Note ID should match");
+    const noteId = retrieved.note?.id || retrieved.id;
+    assert.strictEqual(noteId, note.id, "Note ID should match");
 
     console.log(`  ✓ Note survived collection deletion`);
   });

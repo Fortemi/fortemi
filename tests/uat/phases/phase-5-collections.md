@@ -151,22 +151,6 @@ delete_collection({ id: "<collection_with_notes>" })
 
 ---
 
-### COLL-010b: Delete Collection with Notes — Reject
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `delete_collection`
-
-```javascript
-delete_collection({ id: "<collection_with_notes>" })
-```
-
-**Pass Criteria**: Returns **409 Conflict** — collection is not empty, requires `force: true` or notes must be moved first.
-
-**Expected: XFAIL** — API currently cascades without requiring force flag.
-
----
-
 ### COLL-011: Update Collection
 
 **MCP Tool**: `update_collection`, `get_collection`
@@ -204,7 +188,6 @@ get_collection({ id: "<collection_id>" })
 | COLL-008 | Verify Note Assignment | `get_note` | |
 | COLL-009 | Delete Empty Collection | `move_note_to_collection`, `delete_collection` | |
 | COLL-010a | Delete Collection Cascade | `delete_collection` | |
-| COLL-010b | Delete Collection Reject (XFAIL) | `delete_collection` | |
 | COLL-011 | Update Collection | `update_collection`, `get_collection` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL

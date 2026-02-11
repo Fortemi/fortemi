@@ -374,6 +374,21 @@ impl PgCollectionRepository {
         Ok(())
     }
 
+    /// Count notes in a collection within an existing transaction.
+    pub async fn count_notes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> Result<i64> {
+        let row =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM note WHERE collection_id = $1")
+                .bind(id)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        Ok(row)
+    }
+
     /// Delete a collection within an existing transaction.
     pub async fn delete_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
         // Move notes to uncategorized

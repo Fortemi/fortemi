@@ -1,9 +1,9 @@
 # Extraction Pipeline Design
 
-Technical architecture for the complete content extraction pipeline covering all 9 `ExtractionStrategy` variants, multi-modal processing, AI summarization, and job orchestration.
+Technical architecture for the complete content extraction pipeline covering all 10 `ExtractionStrategy` variants, multi-modal processing, AI summarization, and job orchestration.
 
-**Status:** Design document (not yet implemented for 6 of 9 strategies)
-**Last updated:** 2026-02-06
+**Status:** Design document (not yet implemented for 4 of 10 strategies)
+**Last updated:** 2026-02-10
 
 ---
 
@@ -69,6 +69,7 @@ graph TD
     B -->|CodeAst| I[CodeAstAdapter]
     B -->|OfficeConvert| J[OfficeConvertAdapter]
     B -->|StructuredExtract| K[StructuredExtractAdapter]
+    B -->|Glb3DModel| P[Glb3DModelAdapter]
 
     C --> L{Content Size Check}
     D --> L
@@ -281,7 +282,7 @@ impl ExtractionAdapter for PdfOcrAdapter {
 
 ---
 
-### 5. VisionAdapter (NOT IMPLEMENTED)
+### 5. VisionAdapter (IMPLEMENTED)
 
 **Strategy:** `ExtractionStrategy::Vision`
 **File:** `crates/matric-jobs/src/adapters/vision.rs`
@@ -356,11 +357,23 @@ impl VisionAdapter {
 }
 ```
 
-**Note on Ollama vision API:** The Ollama `/api/generate` endpoint accepts an `images` array of base64-encoded strings alongside the prompt. The `matric-inference` crate currently does not have a vision method on `GenerationBackend`. A new trait method `generate_with_images` will be needed (see [New Types and Trait Extensions](#new-types-and-trait-extensions)).
+**Implementation status:** The core vision pipeline is implemented:
+- `VisionBackend` trait in `crates/matric-inference/src/vision.rs` with `describe_image()`, `health_check()`, and `model_name()`
+- `OllamaVisionBackend` implementation using Ollama `/api/generate` with `images` array (base64-encoded)
+- Ad-hoc `POST /api/v1/vision/describe` HTTP endpoint for direct image description
+- MCP `describe_image` tool for agent access
+- Env var cascade: `OLLAMA_BASE` → `OLLAMA_URL` → default (`http://127.0.0.1:11434`)
+- Configurable via `OLLAMA_VISION_MODEL` (e.g., `qwen3-vl:8b`, `llava`)
+
+**Not yet implemented** (future enhancements from original design):
+- EXIF metadata extraction (`exiftool` integration)
+- Image resize before model call (>4MP downscale)
+- `VisionAdapter` as `ExtractionAdapter` in the job pipeline (current implementation is ad-hoc only)
+- OpenAI Vision API backend alternative
 
 ---
 
-### 6. AudioTranscribeAdapter (NOT IMPLEMENTED)
+### 6. AudioTranscribeAdapter (IMPLEMENTED)
 
 **Strategy:** `ExtractionStrategy::AudioTranscribe`
 **File:** `crates/matric-jobs/src/adapters/audio_transcribe.rs`
@@ -427,22 +440,26 @@ Audio bytes
 
 ---
 
-### 7. VideoMultimodalAdapter (NOT IMPLEMENTED)
+### 7. VideoMultimodalAdapter (IMPLEMENTED)
 
 **Strategy:** `ExtractionStrategy::VideoMultimodal`
 **File:** `crates/matric-jobs/src/adapters/video_multimodal.rs`
 
 | Attribute | Value |
 |-----------|-------|
-| External deps | `ffmpeg`, `ffprobe`, Whisper (for audio), Vision LLM (for frames) |
-| Input | `&[u8]` video bytes (MP4, WebM, MOV, AVI, MKV) |
-| Output | Fused document: interleaved transcript + frame descriptions |
-| Large file handling | Process in temporal segments; limit keyframes to 1 per 30s |
-| Timeout | 300s total (5 min, matching `JOB_TIMEOUT_SECS`); extend to 600s for videos > 30 min |
-| Fallback | Audio-only transcript if vision model unavailable |
-| Health check | Checks `ffmpeg`, `ffprobe`, whisper, and vision model |
+| External deps | `ffmpeg` (required), Whisper (optional, for audio), Vision LLM (optional, for frames) |
+| Input | `&[u8]` video bytes (MP4, WebM, MOV, AVI, MKV, FLV, WMV, OGG) |
+| Output | Fused document: interleaved transcript + frame descriptions with temporal alignment |
+| Keyframe strategy | Scene detection (`select='gt(scene,0.3)'`), interval, or hybrid |
+| Temporal context | Sliding window of 3 previous frame descriptions in vision prompts |
+| Audio-visual alignment | Transcript segments matched to frame timestamps (+/- 5 second window) |
+| Timeout | 300s total; extend for long videos |
+| Fallback | Audio-only transcript if vision model unavailable; vision-only if Whisper unavailable |
+| Health check | Checks `ffmpeg` availability via PATH |
 
 This is the most complex adapter. See [Multi-Modal Processing](#multi-modal-processing) for the full architecture.
+
+**MCP access:** Video files are processed exclusively through the attachment pipeline (no ad-hoc base64 tool). Use the `process_video` guidance tool for step-by-step workflow instructions.
 
 ---
 
@@ -608,6 +625,54 @@ Document bytes
 | .epub | epub | Via pandoc |
 | .eml | -- | Custom parser (not pandoc) |
 | .mbox | -- | Custom parser |
+
+---
+
+### 10. Glb3DModelAdapter (IMPLEMENTED)
+
+**Strategy:** `ExtractionStrategy::Glb3DModel`
+**File:** `crates/matric-jobs/src/adapters/glb_3d_model.rs`
+
+| Attribute | Value |
+|-----------|-------|
+| External deps | Blender (headless), Vision LLM |
+| Input | `&[u8]` model bytes (GLB, GLTF, OBJ, FBX, STL, PLY) |
+| Output | Multi-view descriptions synthesized into composite summary |
+| View count | Configurable (default 8 angles), min 3, max 15 |
+| Timeout | 180s per model (multiple render + vision calls) |
+| Fallback | If Blender unavailable, returns basic file metadata only |
+| Health check | Checks `blender --version` availability |
+
+**Processing flow:**
+
+```
+3D Model bytes
+  --> write to temp file with detected extension
+  --> Blender headless renders N views:
+        - Equidistant angles on horizontal orbit (e.g., 0°, 45°, 90°, ...)
+        - Optional top/bottom views for complex models
+        - Auto-frame camera to model bounding box
+        - Render to PNG at configurable resolution (default 512x512)
+  --> For each rendered view:
+        - Send to vision model with angle context in prompt
+        - "Describe this 3D model viewed from {angle}° angle"
+  --> Synthesize composite description:
+        - Combine all view descriptions
+        - Identify geometry, materials, scale, purpose
+        - Generate searchable summary text
+  --> return ExtractionResult {
+        extracted_text: Some(composite_description),
+        metadata: {
+          view_count, render_resolution,
+          model_format, file_size_bytes,
+          individual_view_descriptions[]
+        },
+      }
+```
+
+**MIME type routing:** All `model/*` MIME types route to `ExtractionStrategy::Glb3DModel`.
+
+**MCP access:** 3D model files are processed exclusively through the attachment pipeline (no ad-hoc base64 tool). Use the `process_3d_model` guidance tool for step-by-step workflow instructions.
 
 ---
 
@@ -1415,9 +1480,9 @@ Adds adapters that rely on compiled-in Rust crates or tools already in the Docke
 
 Adds adapters that require LLM inference (vision, transcription).
 
-- [ ] `VisionBackend` trait in `matric-inference`
-- [ ] Ollama vision implementation (LLaVA support)
-- [ ] `VisionAdapter` -- image description + EXIF
+- [x] `VisionBackend` trait in `matric-inference` (implemented in `vision.rs`)
+- [x] Ollama vision implementation (qwen3-vl, LLaVA support via `OllamaVisionBackend`)
+- [ ] `VisionAdapter` as `ExtractionAdapter` -- full pipeline integration + EXIF
   - Add `exiftool` to Dockerfile.bundle
   - Image resize before model call
   - EXIF metadata extraction

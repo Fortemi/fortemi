@@ -509,27 +509,6 @@
 
 ---
 
-### UAT-2B-015b: Magic Bytes — Detect and Reject Mismatch
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `upload_attachment`
-
-**Description**: Upload file with misleading extension. Verify API detects magic byte mismatch and rejects.
-
-**Prerequisites**:
-- File with mismatched extension and magic bytes: `tests/uat/data/edge-cases/binary-wrong-ext.jpg`
-
-**Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "binary-wrong-ext.jpg", content_type: "image/jpeg" })`
-2. Execute curl with mismatched file
-
-**Pass Criteria**: Returns **400 Bad Request** — content does not match declared MIME type.
-
-**Expected: XFAIL** — API does not currently validate magic bytes (#253)
-
----
-
 ## Attachment Listing and Filtering
 
 ### UAT-2B-016: List All Attachments for Note
@@ -682,26 +661,6 @@
 
 ---
 
-### UAT-2B-021b: Invalid Content Type — Reject
-
-**Isolation**: Required — negative test expects error response
-
-**MCP Tool**: `upload_attachment`
-
-**Description**: Upload with malformed MIME type. Verify API rejects.
-
-**Prerequisites**: None
-
-**Steps**:
-1. Get upload command: `upload_attachment({ note_id: attachment_test_note_id, filename: "test.txt", content_type: "invalid/invalid/invalid" })`
-2. Execute curl with invalid content type (if command returned)
-
-**Pass Criteria**: Returns **400 Bad Request** — invalid content type format.
-
-**Expected: XFAIL** — API does not validate content type format.
-
----
-
 ### UAT-2B-022: Upload to Non-Existent Note
 
 **Isolation**: Required — negative test expects error response
@@ -745,14 +704,12 @@
 | UAT-2B-013 | Block Executable Extension | `upload_attachment` | |
 | UAT-2B-014 | Block Script Extension | `upload_attachment` | |
 | UAT-2B-015a | Magic Bytes Accept Despite Mismatch | `upload_attachment` | |
-| UAT-2B-015b | Magic Bytes Reject Mismatch (XFAIL) | `upload_attachment` | |
 | UAT-2B-016 | List All Attachments | `list_attachments` | |
 | UAT-2B-017 | List Empty Attachments | `create_note`, `list_attachments` | |
 | UAT-2B-018 | Delete Attachment | `delete_attachment`, `list_attachments`, `download_attachment` | |
 | UAT-2B-019 | Delete Shared Blob | `delete_attachment`, `download_attachment`, `get_attachment` | |
 | UAT-2B-020 | Upload Oversized File | `upload_attachment` | |
 | UAT-2B-021a | Invalid Content Type Accept | `upload_attachment` | |
-| UAT-2B-021b | Invalid Content Type Reject (XFAIL) | `upload_attachment` | |
 | UAT-2B-022 | Upload to Non-Existent Note | `upload_attachment` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)

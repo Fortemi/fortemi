@@ -23,20 +23,27 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load the tools array from index.js
-const indexPath = path.join(__dirname, "..", "index.js");
-const indexContent = fs.readFileSync(indexPath, "utf8");
+// Load the tools array from tools.js
+const toolsPath = path.join(__dirname, "..", "tools.js");
+const toolsContent = fs.readFileSync(toolsPath, "utf8");
 
-// Extract tools array
-const toolsMatch = indexContent.match(/const tools = \[([\s\S]*?)\n\];/);
-if (!toolsMatch) {
-  throw new Error("Could not extract tools array from index.js");
+// Extract tools array — supports 'export default [' and 'const tools = ['
+let marker = "export default [";
+let markerIdx = toolsContent.indexOf(marker);
+if (markerIdx === -1) {
+  marker = "const tools = [";
+  markerIdx = toolsContent.indexOf(marker);
 }
+if (markerIdx === -1) {
+  throw new Error("Could not find tools array in tools.js");
+}
+
+const arrayStart = toolsContent.indexOf("[", markerIdx);
+const bracketContent = toolsContent.substring(arrayStart);
 
 let tools;
 try {
-  const toolsCode = `(function() { return [${toolsMatch[1]}]; })()`;
-  tools = eval(toolsCode);
+  tools = eval(`(function() { return ${bracketContent.replace(/;\s*$/, "")} })()`);
 } catch (error) {
   throw new Error(`Failed to parse tools array: ${error.message}`);
 }

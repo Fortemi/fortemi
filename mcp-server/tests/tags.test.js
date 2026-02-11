@@ -111,8 +111,8 @@ describe("Phase 4: Tag Operations", () => {
     });
     cleanup.noteIds.push(created.id);
 
-    // Update to add another tag
-    await client.callTool("update_note", {
+    // Update to add another tag via set_note_tags
+    await client.callTool("set_note_tags", {
       id: created.id,
       tags: [initialTag, addedTag],
     });
@@ -140,8 +140,8 @@ describe("Phase 4: Tag Operations", () => {
     });
     cleanup.noteIds.push(created.id);
 
-    // Update to keep only one tag
-    await client.callTool("update_note", {
+    // Update to keep only one tag via set_note_tags
+    await client.callTool("set_note_tags", {
       id: created.id,
       tags: [tag1],
     });
@@ -292,8 +292,8 @@ describe("Phase 4: Tag Operations", () => {
     });
     cleanup.noteIds.push(created.id);
 
-    // Update to clear tags
-    await client.callTool("update_note", {
+    // Update to clear tags via set_note_tags
+    await client.callTool("set_note_tags", {
       id: created.id,
       tags: [],
     });

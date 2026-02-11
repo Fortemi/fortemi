@@ -92,9 +92,9 @@ describe("Phase 8: Document Types", () => {
     const allTypes = await client.callTool("list_document_types");
     const firstType = allTypes[0];
 
-    // Retrieve by ID
+    // Retrieve by name (tool only accepts name parameter)
     const result = await client.callTool("get_document_type", {
-      id: firstType.id,
+      name: firstType.name,
     });
 
     assert.ok(result, "Document type should be retrieved");
@@ -108,12 +108,13 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("javascript") ||
-        result.name.toLowerCase().includes("js"),
+      result.document_type.name.toLowerCase().includes("javascript") ||
+        result.document_type.name.toLowerCase().includes("js"),
       "Should identify as JavaScript"
     );
-    assert.strictEqual(result.category, "code", "JavaScript should be code category");
+    assert.strictEqual(result.document_type.category, "code", "JavaScript should be code category");
   });
 
   test("DOCTYPE-006: detect_document_type from Python filename", async () => {
@@ -122,11 +123,12 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("python") || result.name.toLowerCase().includes("py"),
+      result.document_type.name.toLowerCase().includes("python") || result.document_type.name.toLowerCase().includes("py"),
       "Should identify as Python"
     );
-    assert.strictEqual(result.category, "code", "Python should be code category");
+    assert.strictEqual(result.document_type.category, "code", "Python should be code category");
   });
 
   test("DOCTYPE-007: detect_document_type from Rust filename", async () => {
@@ -135,11 +137,12 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("rust") || result.name.toLowerCase().includes("rs"),
+      result.document_type.name.toLowerCase().includes("rust") || result.document_type.name.toLowerCase().includes("rs"),
       "Should identify as Rust"
     );
-    assert.strictEqual(result.category, "code", "Rust should be code category");
+    assert.strictEqual(result.document_type.category, "code", "Rust should be code category");
   });
 
   test("DOCTYPE-008: detect_document_type from Markdown filename", async () => {
@@ -148,15 +151,16 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("markdown") ||
-        result.name.toLowerCase().includes("md"),
+      result.document_type.name.toLowerCase().includes("markdown") ||
+        result.document_type.name.toLowerCase().includes("md"),
       "Should identify as Markdown"
     );
-    // Markdown is typically "document" category
+    // Markdown is typically "prose" category
     assert.ok(
-      result.category === "document" || result.category === "text",
-      "Markdown should be document/text category"
+      result.document_type.category === "prose" || result.document_type.category === "document" || result.document_type.category === "text",
+      "Markdown should be prose/document/text category"
     );
   });
 
@@ -166,12 +170,13 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("typescript") ||
-        result.name.toLowerCase().includes("tsx"),
+      result.document_type.name.toLowerCase().includes("typescript") ||
+        result.document_type.name.toLowerCase().includes("tsx"),
       "Should identify as TypeScript"
     );
-    assert.strictEqual(result.category, "code", "TypeScript should be code category");
+    assert.strictEqual(result.document_type.category, "code", "TypeScript should be code category");
   });
 
   test("DOCTYPE-010: detect_document_type with content magic", async () => {
@@ -182,8 +187,9 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type from content");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("python"),
+      result.document_type.name.toLowerCase().includes("python"),
       "Should identify as Python from shebang"
     );
   });
@@ -214,19 +220,19 @@ describe("Phase 8: Document Types", () => {
 
   test("DOCTYPE-013: document type has file patterns", async () => {
     const result = await client.callTool("get_document_type", {
-      name: "JavaScript",
+      name: "javascript",
     });
 
     assert.ok(result, "Should retrieve JavaScript type");
-    assert.ok(result.patterns, "Document type should have patterns");
-    assert.ok(Array.isArray(result.patterns), "Patterns should be an array");
-    assert.ok(result.patterns.length > 0, "Should have at least one pattern");
+    assert.ok(result.file_extensions, "Document type should have file_extensions");
+    assert.ok(Array.isArray(result.file_extensions), "file_extensions should be an array");
+    assert.ok(result.file_extensions.length > 0, "Should have at least one file extension");
 
-    // Check pattern format
-    const jsPattern = result.patterns.find(
-      (p) => p.includes(".js") || p.includes("*.js")
+    // Check extension format
+    const jsExt = result.file_extensions.find(
+      (p) => p.includes(".js")
     );
-    assert.ok(jsPattern, "Should have .js pattern");
+    assert.ok(jsExt, "Should have .js extension");
   });
 
   test("DOCTYPE-014: list_document_types with category filter", async () => {
@@ -262,8 +268,9 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type case-insensitively");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("python"),
+      result.document_type.name.toLowerCase().includes("python"),
       "Should identify as Python"
     );
   });
@@ -274,8 +281,9 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type from full path");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("rust"),
+      result.document_type.name.toLowerCase().includes("rust"),
       "Should identify as Rust"
     );
   });
@@ -310,9 +318,31 @@ describe("Phase 8: Document Types", () => {
     });
 
     assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
     assert.ok(
-      result.name.toLowerCase().includes("json"),
+      result.document_type.name.toLowerCase().includes("json"),
       "Should identify as JSON"
     );
+  });
+
+  test("DOCTYPE-021: combined detection prefers specific type over generic extension (issue #312)", async () => {
+    // A .yaml file with OpenAPI content should be detected as "openapi", not "yaml"
+    const result = await client.callTool("detect_document_type", {
+      filename: "api.yaml",
+      content: "openapi: 3.1.0\ninfo:\n  title: Test API\n  version: 1.0.0\npaths: {}",
+    });
+
+    assert.ok(result, "Should detect document type");
+    assert.ok(result.document_type, "Should have document_type property");
+    assert.strictEqual(
+      result.document_type.name,
+      "openapi",
+      `Expected 'openapi' but got '${result.document_type.name}' — generic extension should not override specific content detection`
+    );
+    assert.ok(
+      result.confidence >= 0.9,
+      `Confidence should be >= 0.9 for combined detection, got ${result.confidence}`
+    );
+    console.log(`  Detected: ${result.document_type.name} (confidence: ${result.confidence}, method: ${result.detection_method})`);
   });
 });

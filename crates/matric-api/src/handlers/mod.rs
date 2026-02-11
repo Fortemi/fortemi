@@ -3,6 +3,7 @@
 //! This module contains HTTP handlers and background job handlers.
 
 pub mod archives;
+pub mod audio;
 pub mod document_types;
 pub mod jobs;
 pub mod pke;

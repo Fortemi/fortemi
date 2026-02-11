@@ -4,12 +4,13 @@
  * MCP Semantic Links Tests (Phase 6)
  *
  * Tests semantic link management via MCP tools:
- * - get_links: Retrieve links for a note
- * - create_link: Create link between two notes
- * - semantic_neighbors: Find semantically similar notes
- * - delete link: Remove a link
+ * - get_note_links: Retrieve links for a note (outgoing and incoming)
+ * - get_note_backlinks: Get backlinks pointing to a note
+ * - explore_graph: Explore graph neighborhood around a note
  *
  * All tests use unique identifiers (UUIDs) for isolation.
+ *
+ * NOTE: Links are created automatically by semantic analysis, not via manual API.
  */
 
 import { strict as assert } from "node:assert";
@@ -18,7 +19,7 @@ import { MCPTestClient } from "./helpers/mcp-client.js";
 
 describe("Phase 6: Semantic Links", () => {
   let client;
-  const cleanup = { noteIds: [], linkIds: [] };
+  const cleanup = { noteIds: [] };
 
   before(async () => {
     client = new MCPTestClient();
@@ -26,15 +27,6 @@ describe("Phase 6: Semantic Links", () => {
   });
 
   after(async () => {
-    // Clean up links first (if we tracked them)
-    for (const id of cleanup.linkIds) {
-      try {
-        await client.callTool("delete_link", { id });
-      } catch (e) {
-        console.error(`Failed to delete link ${id}:`, e.message);
-      }
-    }
-
     // Clean up notes
     for (const id of cleanup.noteIds) {
       try {
@@ -47,255 +39,211 @@ describe("Phase 6: Semantic Links", () => {
     await client.close();
   });
 
-  test("LINKS-001: get_links returns empty array for new note", async () => {
+  test("LINKS-001: Create notes with related content and check link structure", async () => {
     const testId = MCPTestClient.uniqueId();
-    const content = `# Test Note ${testId}\n\nNote with no links yet.`;
+    const sharedTopic = `authentication and security ${testId}`;
+
+    // Create two related notes
+    const note1 = await client.callTool("create_note", {
+      content: `# Security Note ${testId}\n\nThis note discusses ${sharedTopic} in web applications.`,
+    });
+    assert.ok(note1.id, "Note 1 should be created with ID");
+    cleanup.noteIds.push(note1.id);
+
+    const note2 = await client.callTool("create_note", {
+      content: `# Auth Note ${testId}\n\nExploring ${sharedTopic} best practices.`,
+    });
+    assert.ok(note2.id, "Note 2 should be created with ID");
+    cleanup.noteIds.push(note2.id);
+
+    // Check link structure (may be empty as automatic linking takes time)
+    const links = await client.callTool("get_note_links", { id: note1.id });
+    assert.ok(links, "Links response should exist");
+    assert.ok(Array.isArray(links.outgoing), "Outgoing links should be an array");
+    assert.ok(Array.isArray(links.incoming), "Incoming links should be an array");
+  });
+
+  test("LINKS-002: get_note_links returns proper structure", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Test Note ${testId}\n\nNote for link structure validation.`;
 
     const createResult = await client.callTool("create_note", { content });
     assert.ok(createResult.id, "Note should be created with ID");
     cleanup.noteIds.push(createResult.id);
 
-    const links = await client.callTool("get_links", { note_id: createResult.id });
-    assert.ok(Array.isArray(links), "Links should be an array");
-    assert.strictEqual(links.length, 0, "New note should have no links");
+    const links = await client.callTool("get_note_links", { id: createResult.id });
+    assert.ok(links, "Links response should exist");
+    assert.ok(typeof links === "object", "Links should be an object");
+    assert.ok(Array.isArray(links.outgoing), "Should have outgoing array");
+    assert.ok(Array.isArray(links.incoming), "Should have incoming array");
   });
 
-  test("LINKS-002: create_link between two notes", async () => {
+  test("LINKS-003: get_note_backlinks returns proper structure", async () => {
     const testId = MCPTestClient.uniqueId();
+    const content = `# Backlink Test ${testId}\n\nNote for backlink testing.`;
 
-    // Create source note
-    const sourceContent = `# Source Note ${testId}\n\nThis is the source note.`;
-    const sourceResult = await client.callTool("create_note", { content: sourceContent });
-    assert.ok(sourceResult.id, "Source note should be created");
-    cleanup.noteIds.push(sourceResult.id);
-
-    // Create target note
-    const targetContent = `# Target Note ${testId}\n\nThis is the target note.`;
-    const targetResult = await client.callTool("create_note", { content: targetContent });
-    assert.ok(targetResult.id, "Target note should be created");
-    cleanup.noteIds.push(targetResult.id);
-
-    // Create link
-    const linkResult = await client.callTool("create_link", {
-      from_id: sourceResult.id,
-      to_id: targetResult.id,
-      link_type: "references",
-    });
-
-    assert.ok(linkResult.id, "Link should be created with ID");
-    assert.strictEqual(linkResult.from_id, sourceResult.id, "Link should reference source note");
-    assert.strictEqual(linkResult.to_id, targetResult.id, "Link should reference target note");
-    assert.strictEqual(linkResult.link_type, "references", "Link type should be preserved");
-
-    cleanup.linkIds.push(linkResult.id);
-  });
-
-  test("LINKS-003: get_links retrieves created link", async () => {
-    const testId = MCPTestClient.uniqueId();
-
-    // Create two notes and link them
-    const note1 = await client.callTool("create_note", {
-      content: `# Note 1 ${testId}\n\nFirst note.`,
-    });
-    cleanup.noteIds.push(note1.id);
-
-    const note2 = await client.callTool("create_note", {
-      content: `# Note 2 ${testId}\n\nSecond note.`,
-    });
-    cleanup.noteIds.push(note2.id);
-
-    const link = await client.callTool("create_link", {
-      from_id: note1.id,
-      to_id: note2.id,
-      link_type: "related",
-    });
-    cleanup.linkIds.push(link.id);
-
-    // Retrieve links for source note
-    const links = await client.callTool("get_links", { note_id: note1.id });
-    assert.ok(Array.isArray(links), "Links should be an array");
-    assert.ok(links.length > 0, "Note should have at least one link");
-
-    const createdLink = links.find((l) => l.id === link.id);
-    assert.ok(createdLink, "Created link should be in the list");
-    assert.strictEqual(createdLink.from_id, note1.id, "Link from_id should match");
-    assert.strictEqual(createdLink.to_id, note2.id, "Link to_id should match");
-  });
-
-  test("LINKS-004: semantic_neighbors finds similar notes", async () => {
-    const testId = MCPTestClient.uniqueId();
-    const sharedTopic = `artificial intelligence and machine learning ${testId}`;
-
-    // Create notes with similar content
-    const note1 = await client.callTool("create_note", {
-      content: `# AI Research ${testId}\n\nThis note discusses ${sharedTopic} in depth.`,
-    });
-    cleanup.noteIds.push(note1.id);
-
-    const note2 = await client.callTool("create_note", {
-      content: `# ML Study ${testId}\n\nExploring concepts in ${sharedTopic}.`,
-    });
-    cleanup.noteIds.push(note2.id);
-
-    // Allow some time for embeddings to be generated (if async)
-    // In real deployment, embeddings might be queued
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Search for semantic neighbors
-    const neighbors = await client.callTool("semantic_neighbors", {
-      note_id: note1.id,
-      limit: 10,
-    });
-
-    assert.ok(Array.isArray(neighbors), "Neighbors should be an array");
-    // Note: Semantic search requires embeddings, which may not be instant
-    // This test validates the tool runs without error
-  });
-
-  test("LINKS-005: delete_link removes a link", async () => {
-    const testId = MCPTestClient.uniqueId();
-
-    // Create notes and link
-    const note1 = await client.callTool("create_note", {
-      content: `# Delete Test 1 ${testId}`,
-    });
-    cleanup.noteIds.push(note1.id);
-
-    const note2 = await client.callTool("create_note", {
-      content: `# Delete Test 2 ${testId}`,
-    });
-    cleanup.noteIds.push(note2.id);
-
-    const link = await client.callTool("create_link", {
-      from_id: note1.id,
-      to_id: note2.id,
-      link_type: "cites",
-    });
-
-    // Delete the link
-    await client.callTool("delete_link", { id: link.id });
-
-    // Verify link is gone
-    const links = await client.callTool("get_links", { note_id: note1.id });
-    const deletedLink = links.find((l) => l.id === link.id);
-    assert.strictEqual(deletedLink, undefined, "Link should be deleted");
-  });
-
-  test("LINKS-006: create_link with custom metadata", async () => {
-    const testId = MCPTestClient.uniqueId();
-
-    const note1 = await client.callTool("create_note", {
-      content: `# Research Paper ${testId}`,
-    });
-    cleanup.noteIds.push(note1.id);
-
-    const note2 = await client.callTool("create_note", {
-      content: `# Citation ${testId}`,
-    });
-    cleanup.noteIds.push(note2.id);
-
-    // Create link with weight/strength
-    const link = await client.callTool("create_link", {
-      from_id: note1.id,
-      to_id: note2.id,
-      link_type: "cites",
-      weight: 0.95,
-    });
-
-    assert.ok(link.id, "Link should be created");
-    cleanup.linkIds.push(link.id);
-
-    // Verify weight is stored
-    const links = await client.callTool("get_links", { note_id: note1.id });
-    const createdLink = links.find((l) => l.id === link.id);
-    assert.ok(createdLink, "Link should exist");
-  });
-
-  test("LINKS-007: get_links with direction filter", async () => {
-    const testId = MCPTestClient.uniqueId();
-
-    const note1 = await client.callTool("create_note", {
-      content: `# Central Note ${testId}`,
-    });
-    cleanup.noteIds.push(note1.id);
-
-    const note2 = await client.callTool("create_note", {
-      content: `# Outgoing Target ${testId}`,
-    });
-    cleanup.noteIds.push(note2.id);
-
-    const note3 = await client.callTool("create_note", {
-      content: `# Incoming Source ${testId}`,
-    });
-    cleanup.noteIds.push(note3.id);
-
-    // Create outgoing link
-    const outLink = await client.callTool("create_link", {
-      from_id: note1.id,
-      to_id: note2.id,
-      link_type: "references",
-    });
-    cleanup.linkIds.push(outLink.id);
-
-    // Create incoming link
-    const inLink = await client.callTool("create_link", {
-      from_id: note3.id,
-      to_id: note1.id,
-      link_type: "references",
-    });
-    cleanup.linkIds.push(inLink.id);
-
-    // Get all links (both directions)
-    const allLinks = await client.callTool("get_links", {
-      note_id: note1.id,
-    });
-
-    assert.ok(Array.isArray(allLinks), "Links should be an array");
-    assert.ok(allLinks.length >= 2, "Should have at least 2 links");
-  });
-
-  test("LINKS-008: semantic_neighbors with threshold", async () => {
-    const testId = MCPTestClient.uniqueId();
-
-    const note = await client.callTool("create_note", {
-      content: `# Test Note ${testId}\n\nQuantum computing and cryptography.`,
-    });
+    const note = await client.callTool("create_note", { content });
+    assert.ok(note.id, "Note should be created");
     cleanup.noteIds.push(note.id);
 
-    // Search with high threshold
-    const neighbors = await client.callTool("semantic_neighbors", {
-      note_id: note.id,
-      limit: 5,
-      min_similarity: 0.8,
-    });
-
-    assert.ok(Array.isArray(neighbors), "Neighbors should be an array");
-    // High threshold might return fewer results
+    const backlinks = await client.callTool("get_note_backlinks", { id: note.id });
+    assert.ok(backlinks, "Backlinks response should exist");
+    assert.ok(Array.isArray(backlinks.backlinks), "Should have backlinks array");
+    assert.ok(typeof backlinks.count === "number", "Should have count");
+    assert.strictEqual(backlinks.note_id, note.id, "Note ID should match");
   });
 
-  test("LINKS-009: create_link error handling - invalid note IDs", async () => {
-    const fakeId = MCPTestClient.uniqueId();
+  test("LINKS-004: explore_graph returns nodes and edges", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Graph Test ${testId}\n\nNote for graph exploration.`;
 
-    const error = await client.callToolExpectError("create_link", {
-      from_id: fakeId,
-      to_id: MCPTestClient.uniqueId(),
-      link_type: "references",
+    const note = await client.callTool("create_note", { content });
+    assert.ok(note.id, "Note should be created");
+    cleanup.noteIds.push(note.id);
+
+    const graph = await client.callTool("explore_graph", {
+      id: note.id,
+      depth: 2,
+      max_nodes: 10,
     });
 
-    assert.ok(error.error, "Should return an error");
+    assert.ok(graph, "Graph response should exist");
+    assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
+    assert.ok(Array.isArray(graph.edges), "Should have edges array");
+
+    // Should at least include the starting node
+    assert.ok(graph.nodes.length >= 1, "Should have at least starting node");
+    const startNode = graph.nodes.find((n) => n.id === note.id);
+    assert.ok(startNode, "Starting node should be in graph");
+  });
+
+  test("LINKS-005: explore_graph with depth constraint", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Depth Test ${testId}\n\nNote for depth testing.`;
+
+    const note = await client.callTool("create_note", { content });
+    assert.ok(note.id, "Note should be created");
+    cleanup.noteIds.push(note.id);
+
+    const graph = await client.callTool("explore_graph", {
+      id: note.id,
+      depth: 1,
+      max_nodes: 20,
+    });
+
+    assert.ok(graph, "Graph response should exist");
+    assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
+
+    // Verify all nodes respect depth constraint
+    for (const node of graph.nodes) {
+      assert.ok(node.depth !== undefined, "Each node should have depth");
+      assert.ok(node.depth <= 1, "Node depth should not exceed requested depth");
+    }
+  });
+
+  test("LINKS-006: get_note_links on nonexistent note returns error or empty", async () => {
+    const fakeId = MCPTestClient.uniqueId();
+
+    try {
+      const result = await client.callTool("get_note_links", { id: fakeId });
+      // API may return empty arrays for nonexistent notes
+      assert.ok(result, "Should return a result");
+      const outgoing = result.outgoing || [];
+      const incoming = result.incoming || [];
+      assert.strictEqual(outgoing.length, 0, "Should have no outgoing links");
+      assert.strictEqual(incoming.length, 0, "Should have no incoming links");
+    } catch (e) {
+      // Or it may return an error
+      assert.ok(
+        e.message.includes("not found") || e.message.includes("error") || e.message.includes("404"),
+        "Error should indicate note not found"
+      );
+    }
+  });
+
+  test("LINKS-007: explore_graph with max_nodes constraint", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Max Nodes Test ${testId}\n\nNote for node limit testing.`;
+
+    const note = await client.callTool("create_note", { content });
+    assert.ok(note.id, "Note should be created");
+    cleanup.noteIds.push(note.id);
+
+    const maxNodes = 5;
+    const graph = await client.callTool("explore_graph", {
+      id: note.id,
+      depth: 3,
+      max_nodes: maxNodes,
+    });
+
+    assert.ok(graph, "Graph response should exist");
+    assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
     assert.ok(
-      error.error.includes("not found") || error.error.includes("error"),
-      "Error should mention note not found"
+      graph.nodes.length <= maxNodes,
+      `Should not exceed max_nodes limit of ${maxNodes}`
     );
   });
 
-  test("LINKS-010: get_links error handling - invalid note ID", async () => {
+  test("LINKS-008: get_note includes links array in response", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Get Note Links Test ${testId}\n\nVerify get_note includes links.`;
+
+    const createResult = await client.callTool("create_note", { content });
+    assert.ok(createResult.id, "Note should be created");
+    cleanup.noteIds.push(createResult.id);
+
+    const note = await client.callTool("get_note", { id: createResult.id });
+    assert.ok(note, "Note response should exist");
+    assert.ok(note.note, "Should have note object");
+    assert.ok(Array.isArray(note.links), "Should have links array");
+  });
+
+  test("LINKS-009: get_note_backlinks on nonexistent note returns error or empty", async () => {
     const fakeId = MCPTestClient.uniqueId();
 
-    const error = await client.callToolExpectError("get_links", {
-      note_id: fakeId,
+    try {
+      const result = await client.callTool("get_note_backlinks", { id: fakeId });
+      // API may return empty result for nonexistent notes
+      assert.ok(result, "Should return a result");
+      const backlinks = result.backlinks || [];
+      assert.strictEqual(backlinks.length, 0, "Should have no backlinks");
+    } catch (e) {
+      // Or it may return an error
+      assert.ok(
+        e.message.includes("not found") || e.message.includes("error") || e.message.includes("404"),
+        "Error should indicate note not found"
+      );
+    }
+  });
+
+  test("LINKS-010: explore_graph with default parameters", async () => {
+    const testId = MCPTestClient.uniqueId();
+    const content = `# Default Graph Test ${testId}\n\nTest with default graph params.`;
+
+    const note = await client.callTool("create_note", { content });
+    assert.ok(note.id, "Note should be created");
+    cleanup.noteIds.push(note.id);
+
+    // Call with minimal params (defaults should apply)
+    const graph = await client.callTool("explore_graph", {
+      id: note.id,
     });
 
-    assert.ok(error.error, "Should return an error for non-existent note");
+    assert.ok(graph, "Graph response should exist");
+    assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
+    assert.ok(Array.isArray(graph.edges), "Should have edges array");
+
+    // Basic structure validation
+    for (const node of graph.nodes) {
+      assert.ok(node.id, "Each node should have id");
+      assert.ok(node.depth !== undefined, "Each node should have depth");
+    }
+
+    for (const edge of graph.edges) {
+      if (graph.edges.length > 0) {
+        assert.ok(edge.source, "Each edge should have source");
+        assert.ok(edge.target, "Each edge should have target");
+      }
+    }
   });
 });

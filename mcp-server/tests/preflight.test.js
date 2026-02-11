@@ -30,8 +30,10 @@ describe("Phase 0: Preflight Checks", () => {
   });
 
   test("PREFLIGHT-001: Server info returns server name and version", async () => {
-    // Initialize returns server info
-    const serverInfo = await client.initialize();
+    // Create a fresh client to capture initialize response
+    const freshClient = new MCPTestClient();
+    const serverInfo = await freshClient.initialize();
+    await freshClient.close();
 
     assert.ok(serverInfo, "Server info should be returned");
     assert.ok(serverInfo.serverInfo, "Server info should contain serverInfo object");

@@ -2,8 +2,9 @@
 //!
 //! Pipeline:
 //! 1. Extract audio track via FFmpeg (if available) → transcribe via WhisperBackend
-//! 2. Extract keyframes via FFmpeg → describe via VisionBackend
-//! 3. Fuse results with temporal alignment
+//! 2. Extract keyframes via FFmpeg (interval, scene detection, or hybrid) → describe via VisionBackend
+//! 3. Frame-to-frame temporal context: each frame description includes previous frames for continuity
+//! 4. Align transcript segments with keyframe timestamps for coherent multimodal output
 //!
 //! Falls back gracefully if backends are unavailable.
 
@@ -19,9 +20,14 @@ use tokio::process::Command;
 use tracing::{debug, warn};
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
-use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
+use matric_core::{
+    ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy, Result,
+};
 use matric_inference::transcription::TranscriptionBackend;
 use matric_inference::vision::VisionBackend;
+
+/// Maximum number of previous frame descriptions to include as temporal context.
+const TEMPORAL_CONTEXT_WINDOW: usize = 3;
 
 pub struct VideoMultimodalAdapter {
     vision: Option<Arc<dyn VisionBackend>>,
@@ -77,6 +83,26 @@ async fn run_cmd_status(cmd: &mut Command, timeout_secs: u64) -> Result<()> {
     Ok(())
 }
 
+/// Parse KeyframeStrategy from extraction config JSON.
+fn parse_keyframe_strategy(config: &JsonValue) -> KeyframeStrategy {
+    // Try structured strategy first
+    if let Some(strategy_val) = config.get("keyframe_strategy") {
+        if let Ok(strategy) = serde_json::from_value::<KeyframeStrategy>(strategy_val.clone()) {
+            return strategy;
+        }
+    }
+
+    // Fall back to legacy keyframe_interval field
+    let interval = config
+        .get("keyframe_interval")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10);
+
+    KeyframeStrategy::Interval {
+        every_n_secs: interval,
+    }
+}
+
 #[async_trait]
 impl ExtractionAdapter for VideoMultimodalAdapter {
     fn strategy(&self) -> ExtractionStrategy {
@@ -105,10 +131,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("extract_keyframes")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        let keyframe_interval = config
-            .get("keyframe_interval")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10); // Extract keyframe every 10 seconds
+        let keyframe_strategy = parse_keyframe_strategy(config);
 
         // Write video to temp file
         let mut tmpfile = NamedTempFile::new().map_err(|e| {
@@ -124,7 +147,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
         })?;
 
-        debug!(filename, "Extracting video content");
+        debug!(filename, ?keyframe_strategy, "Extracting video content");
 
         // Get video duration and metadata via ffprobe
         let duration_secs = get_video_duration(&video_path).await.ok();
@@ -160,20 +183,43 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }
         }
 
-        // Step 2: Extract and describe keyframes (if backend available and requested)
+        // Step 2: Extract and describe keyframes with temporal context
         if extract_keyframes && self.vision.is_some() {
             debug!(filename, "Extracting keyframes");
-            match extract_keyframes_ffmpeg(&video_path, &work_dir, keyframe_interval).await {
-                Ok(frame_paths) => {
-                    has_video = !frame_paths.is_empty();
+            match extract_keyframes_ffmpeg(&video_path, &work_dir, &keyframe_strategy).await {
+                Ok(frame_entries) => {
+                    has_video = !frame_entries.is_empty();
                     if let Some(ref backend) = self.vision {
-                        for (i, frame_path) in frame_paths.iter().enumerate() {
-                            match describe_frame(backend.as_ref(), frame_path).await {
+                        // Build descriptions with sliding temporal context window
+                        let mut prev_descriptions: Vec<String> = Vec::new();
+
+                        for (i, entry) in frame_entries.iter().enumerate() {
+                            // Build context from transcript segments near this frame's timestamp
+                            let transcript_context = get_transcript_context_for_frame(
+                                entry.timestamp_secs,
+                                &transcript_segments,
+                            );
+
+                            match describe_frame_with_context(
+                                backend.as_ref(),
+                                &entry.path,
+                                &prev_descriptions,
+                                transcript_context.as_deref(),
+                            )
+                            .await
+                            {
                                 Ok(description) => {
                                     keyframe_descriptions.push(json!({
                                         "frame_index": i,
+                                        "timestamp_secs": entry.timestamp_secs,
                                         "description": description,
                                     }));
+
+                                    // Update sliding window
+                                    prev_descriptions.push(description.clone());
+                                    if prev_descriptions.len() > TEMPORAL_CONTEXT_WINDOW {
+                                        prev_descriptions.remove(0);
+                                    }
                                 }
                                 Err(e) => {
                                     warn!(frame = i, error = %e, "Frame description failed");
@@ -186,7 +232,14 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             let descriptions_text = keyframe_descriptions
                                 .iter()
                                 .map(|kf| {
-                                    format!("Frame {}: {}", kf["frame_index"], kf["description"])
+                                    let ts = kf["timestamp_secs"]
+                                        .as_f64()
+                                        .map(|t| format!(" [{:.1}s]", t))
+                                        .unwrap_or_default();
+                                    format!(
+                                        "Frame {}{}: {}",
+                                        kf["frame_index"], ts, kf["description"]
+                                    )
                                 })
                                 .collect::<Vec<_>>()
                                 .join("\n");
@@ -214,6 +267,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                 "frame_count": keyframe_descriptions.len(),
                 "has_audio": has_audio,
                 "has_video": has_video,
+                "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
                 "keyframe_descriptions": keyframe_descriptions,
                 "transcript_segments": transcript_segments,
             }),
@@ -234,6 +288,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
     fn name(&self) -> &str {
         "video_multimodal"
     }
+}
+
+/// A keyframe extracted from video with its timestamp.
+struct FrameEntry {
+    path: PathBuf,
+    timestamp_secs: f64,
 }
 
 /// Get video duration in seconds using ffprobe.
@@ -289,34 +349,74 @@ async fn extract_audio_track(video_path: &str, work_dir: &TempDir) -> Result<Pat
     Ok(audio_path)
 }
 
-/// Extract keyframes from video using FFmpeg.
+/// Extract keyframes from video using the configured strategy.
+///
+/// Returns a list of frame entries with paths and approximate timestamps.
 async fn extract_keyframes_ffmpeg(
     video_path: &str,
     work_dir: &TempDir,
-    interval_secs: u64,
-) -> Result<Vec<PathBuf>> {
+    strategy: &KeyframeStrategy,
+) -> Result<Vec<FrameEntry>> {
     let frame_prefix = work_dir.path().join("frame_%04d.jpg");
+    let showinfo_log = work_dir.path().join("showinfo.log");
 
-    // Use fps filter to extract frames at specified interval
-    let fps_value = if interval_secs > 0 {
-        format!("1/{}", interval_secs)
-    } else {
-        "1/10".to_string() // Default: 1 frame per 10 seconds
+    // Build FFmpeg filter based on strategy
+    let vf_filter = match strategy {
+        KeyframeStrategy::Interval { every_n_secs } => {
+            let interval = if *every_n_secs > 0 { *every_n_secs } else { 10 };
+            format!("fps=1/{},showinfo", interval)
+        }
+        KeyframeStrategy::SceneDetection { threshold } => {
+            let t = threshold.clamp(0.01, 1.0);
+            format!("select='gt(scene\\,{})',showinfo", t)
+        }
+        KeyframeStrategy::Hybrid {
+            scene_threshold,
+            min_interval_secs,
+        } => {
+            let t = scene_threshold.clamp(0.01, 1.0);
+            let min = if *min_interval_secs > 0 {
+                *min_interval_secs
+            } else {
+                2
+            };
+            // Select scene changes but throttle to min_interval_secs apart
+            format!("select='gt(scene\\,{t})*gte(t-prev_selected_t\\,{min})',showinfo")
+        }
     };
 
-    run_cmd_status(
-        Command::new("ffmpeg")
-            .arg("-i")
-            .arg(video_path)
-            .arg("-vf")
-            .arg(format!("fps={}", fps_value))
-            .arg("-q:v")
-            .arg("2") // High quality JPEG
-            .arg("-y")
-            .arg(&frame_prefix),
-        EXTRACTION_CMD_TIMEOUT_SECS * 3,
+    // Run ffmpeg with showinfo to capture timestamps
+    // stderr contains showinfo output, redirect it to a log file
+    let mut cmd = Command::new("ffmpeg");
+    cmd.arg("-i")
+        .arg(video_path)
+        .arg("-vf")
+        .arg(&vf_filter)
+        .arg("-vsync")
+        .arg("vfr") // Variable frame rate for scene detection
+        .arg("-q:v")
+        .arg("2") // High quality JPEG
+        .arg("-y")
+        .arg(&frame_prefix);
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS * 3),
+        cmd.output(),
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        matric_core::Error::Internal(format!(
+            "FFmpeg timed out after {}s",
+            EXTRACTION_CMD_TIMEOUT_SECS * 3
+        ))
+    })?
+    .map_err(|e| matric_core::Error::Internal(format!("Failed to execute ffmpeg: {}", e)))?;
+
+    // Parse showinfo timestamps from stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Save for debugging
+    let _ = fs::write(&showinfo_log, stderr.as_bytes());
+    let timestamps = parse_showinfo_timestamps(&stderr);
 
     // Collect all extracted frames
     let mut frame_paths = Vec::new();
@@ -334,7 +434,51 @@ async fn extract_keyframes_ffmpeg(
     }
     frame_paths.sort();
 
-    Ok(frame_paths)
+    // Pair frames with timestamps
+    let frame_entries: Vec<FrameEntry> = frame_paths
+        .into_iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let timestamp_secs = timestamps.get(i).copied().unwrap_or_else(|| {
+                // Fallback: estimate from interval if timestamps unavailable
+                match strategy {
+                    KeyframeStrategy::Interval { every_n_secs } => {
+                        (i as f64) * (*every_n_secs as f64)
+                    }
+                    _ => i as f64, // Best guess for scene detection
+                }
+            });
+            FrameEntry {
+                path,
+                timestamp_secs,
+            }
+        })
+        .collect();
+
+    Ok(frame_entries)
+}
+
+/// Parse timestamps from FFmpeg showinfo filter output.
+///
+/// Looks for lines like: `[Parsed_showinfo_1 ...] n:   0 pts:   1234 pts_time:1.234`
+fn parse_showinfo_timestamps(stderr: &str) -> Vec<f64> {
+    let mut timestamps = Vec::new();
+    for line in stderr.lines() {
+        if line.contains("pts_time:") {
+            // Extract pts_time value
+            if let Some(pos) = line.find("pts_time:") {
+                let after = &line[pos + 9..];
+                let value_str: String = after
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+                    .collect();
+                if let Ok(ts) = value_str.parse::<f64>() {
+                    timestamps.push(ts);
+                }
+            }
+        }
+    }
+    timestamps
 }
 
 /// Transcribe audio file using transcription backend.
@@ -348,17 +492,73 @@ async fn transcribe_audio(
     backend.transcribe(&audio_data, "audio/wav", None).await
 }
 
-/// Describe a video frame using vision backend.
-async fn describe_frame(backend: &dyn VisionBackend, frame_path: &PathBuf) -> Result<String> {
+/// Find transcript segments that overlap with a keyframe timestamp.
+///
+/// Returns a short context string of nearby dialogue/speech.
+fn get_transcript_context_for_frame(
+    frame_timestamp: f64,
+    segments: &[matric_inference::transcription::TranscriptionSegment],
+) -> Option<String> {
+    if segments.is_empty() {
+        return None;
+    }
+
+    // Find segments within +/- 5 seconds of the frame
+    let window = 5.0;
+    let nearby: Vec<&str> = segments
+        .iter()
+        .filter(|s| {
+            s.start_secs <= frame_timestamp + window && s.end_secs >= frame_timestamp - window
+        })
+        .map(|s| s.text.as_str())
+        .collect();
+
+    if nearby.is_empty() {
+        None
+    } else {
+        Some(nearby.join(" "))
+    }
+}
+
+/// Describe a video frame using vision backend with temporal context.
+///
+/// Includes descriptions of previous frames (sliding window) and nearby
+/// transcript text to help the vision model produce continuity-aware descriptions.
+async fn describe_frame_with_context(
+    backend: &dyn VisionBackend,
+    frame_path: &PathBuf,
+    previous_descriptions: &[String],
+    transcript_context: Option<&str>,
+) -> Result<String> {
     let frame_data = fs::read(frame_path)
         .map_err(|e| matric_core::Error::Internal(format!("Failed to read frame: {}", e)))?;
 
+    // Build a context-rich prompt
+    let mut prompt_parts = Vec::new();
+    prompt_parts
+        .push("Describe this video frame in detail. What is happening in this scene?".to_string());
+
+    if !previous_descriptions.is_empty() {
+        prompt_parts.push("\nPrevious frames for continuity:".to_string());
+        for (i, desc) in previous_descriptions.iter().enumerate() {
+            let offset = previous_descriptions.len() - i;
+            prompt_parts.push(format!("  [{} frame(s) ago]: {}", offset, desc));
+        }
+        prompt_parts
+            .push("Describe what has changed or progressed since the previous frames.".to_string());
+    }
+
+    if let Some(transcript) = transcript_context {
+        prompt_parts.push(format!("\nNearby audio/speech: \"{}\"", transcript));
+        prompt_parts.push(
+            "Align your visual description with the spoken content where relevant.".to_string(),
+        );
+    }
+
+    let prompt = prompt_parts.join("\n");
+
     backend
-        .describe_image(
-            &frame_data,
-            "image/jpeg",
-            Some("Describe this video frame in detail. What is happening in this scene?"),
-        )
+        .describe_image(&frame_data, "image/jpeg", Some(&prompt))
         .await
 }
 
@@ -620,6 +820,142 @@ mod tests {
                 md.get("transcript_segments").is_some(),
                 "Missing transcript_segments"
             );
+            assert!(
+                md.get("keyframe_strategy").is_some(),
+                "Missing keyframe_strategy"
+            );
         }
+    }
+
+    // ── KeyframeStrategy parsing tests ─────────────────────────────────
+
+    #[test]
+    fn test_parse_keyframe_strategy_default() {
+        let config = json!({});
+        let strategy = parse_keyframe_strategy(&config);
+        assert!(matches!(
+            strategy,
+            KeyframeStrategy::Interval { every_n_secs: 10 }
+        ));
+    }
+
+    #[test]
+    fn test_parse_keyframe_strategy_legacy_interval() {
+        let config = json!({ "keyframe_interval": 5 });
+        let strategy = parse_keyframe_strategy(&config);
+        assert!(matches!(
+            strategy,
+            KeyframeStrategy::Interval { every_n_secs: 5 }
+        ));
+    }
+
+    #[test]
+    fn test_parse_keyframe_strategy_scene_detection() {
+        let config = json!({
+            "keyframe_strategy": {
+                "mode": "scene_detection",
+                "threshold": 0.4
+            }
+        });
+        let strategy = parse_keyframe_strategy(&config);
+        match strategy {
+            KeyframeStrategy::SceneDetection { threshold } => {
+                assert!((threshold - 0.4).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected SceneDetection"),
+        }
+    }
+
+    #[test]
+    fn test_parse_keyframe_strategy_hybrid() {
+        let config = json!({
+            "keyframe_strategy": {
+                "mode": "hybrid",
+                "scene_threshold": 0.35,
+                "min_interval_secs": 3
+            }
+        });
+        let strategy = parse_keyframe_strategy(&config);
+        match strategy {
+            KeyframeStrategy::Hybrid {
+                scene_threshold,
+                min_interval_secs,
+            } => {
+                assert!((scene_threshold - 0.35).abs() < f64::EPSILON);
+                assert_eq!(min_interval_secs, 3);
+            }
+            _ => panic!("Expected Hybrid"),
+        }
+    }
+
+    // ── Temporal context tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_get_transcript_context_for_frame_empty() {
+        let segments: Vec<TranscriptionSegment> = vec![];
+        let result = get_transcript_context_for_frame(5.0, &segments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_transcript_context_for_frame_in_range() {
+        let segments = vec![
+            TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 3.0,
+                text: "Hello world".to_string(),
+            },
+            TranscriptionSegment {
+                start_secs: 3.0,
+                end_secs: 6.0,
+                text: "Second segment".to_string(),
+            },
+            TranscriptionSegment {
+                start_secs: 20.0,
+                end_secs: 25.0,
+                text: "Far away".to_string(),
+            },
+        ];
+        // Frame at 4.0s should pick up both first and second segments
+        let result = get_transcript_context_for_frame(4.0, &segments);
+        assert!(result.is_some());
+        let text = result.unwrap();
+        assert!(text.contains("Hello world"));
+        assert!(text.contains("Second segment"));
+        assert!(!text.contains("Far away"));
+    }
+
+    #[test]
+    fn test_get_transcript_context_for_frame_out_of_range() {
+        let segments = vec![TranscriptionSegment {
+            start_secs: 0.0,
+            end_secs: 1.0,
+            text: "Early".to_string(),
+        }];
+        // Frame at 100s should find nothing
+        let result = get_transcript_context_for_frame(100.0, &segments);
+        assert!(result.is_none());
+    }
+
+    // ── showinfo timestamp parsing tests ───────────────────────────────
+
+    #[test]
+    fn test_parse_showinfo_timestamps_valid() {
+        let stderr = r#"
+[Parsed_showinfo_1 @ 0x55a] n:   0 pts:      0 pts_time:0.000000
+[Parsed_showinfo_1 @ 0x55a] n:   1 pts:  10000 pts_time:10.000000
+[Parsed_showinfo_1 @ 0x55a] n:   2 pts:  20000 pts_time:20.000000
+"#;
+        let timestamps = parse_showinfo_timestamps(stderr);
+        assert_eq!(timestamps.len(), 3);
+        assert!((timestamps[0] - 0.0).abs() < 0.001);
+        assert!((timestamps[1] - 10.0).abs() < 0.001);
+        assert!((timestamps[2] - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_showinfo_timestamps_empty() {
+        let timestamps = parse_showinfo_timestamps("nothing useful here");
+        assert!(timestamps.is_empty());
     }
 }

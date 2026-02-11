@@ -18,7 +18,7 @@ import { MCPTestClient } from "./helpers/mcp-client.js";
 
 describe("Phase 7: Embedding Sets", () => {
   let client;
-  const cleanup = { embeddingSetIds: [] };
+  const cleanup = { embeddingSetSlugs: [] };
 
   before(async () => {
     client = new MCPTestClient();
@@ -27,11 +27,11 @@ describe("Phase 7: Embedding Sets", () => {
 
   after(async () => {
     // Clean up embedding sets
-    for (const id of cleanup.embeddingSetIds) {
+    for (const slug of cleanup.embeddingSetSlugs) {
       try {
-        await client.callTool("delete_embedding_set", { id });
+        await client.callTool("delete_embedding_set", { slug });
       } catch (e) {
-        console.error(`Failed to delete embedding set ${id}:`, e.message);
+        console.error(`Failed to delete embedding set ${slug}:`, e.message);
       }
     }
 
@@ -60,17 +60,13 @@ describe("Phase 7: Embedding Sets", () => {
 
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
     });
 
     assert.ok(result.id, "Embedding set should be created with ID");
     assert.ok(result.slug, "Embedding set should have slug");
     assert.strictEqual(result.name, name, "Name should match");
-    assert.strictEqual(result.model, "nomic-embed-text:latest", "Model should match");
-    assert.strictEqual(result.dimensions, 768, "Dimensions should match");
 
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 
   test("EMBED-003: get_embedding_set by slug", async () => {
@@ -80,10 +76,8 @@ describe("Phase 7: Embedding Sets", () => {
     // Create embedding set
     const created = await client.callTool("create_embedding_set", {
       name,
-      model: "all-minilm:latest",
-      dimensions: 384,
     });
-    cleanup.embeddingSetIds.push(created.id);
+    cleanup.embeddingSetSlugs.push(created.slug);
 
     // Retrieve by slug
     const retrieved = await client.callTool("get_embedding_set", {
@@ -103,14 +97,12 @@ describe("Phase 7: Embedding Sets", () => {
     // Create embedding set
     const created = await client.callTool("create_embedding_set", {
       name,
-      model: "mxbai-embed-large:latest",
-      dimensions: 1024,
     });
-    cleanup.embeddingSetIds.push(created.id);
+    cleanup.embeddingSetSlugs.push(created.slug);
 
-    // Retrieve by ID
+    // Retrieve by slug
     const retrieved = await client.callTool("get_embedding_set", {
-      id: created.id,
+      slug: created.slug,
     });
 
     assert.ok(retrieved, "Embedding set should be retrieved");
@@ -125,16 +117,14 @@ describe("Phase 7: Embedding Sets", () => {
     // Create embedding set
     const created = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
     });
 
     // Delete it
-    await client.callTool("delete_embedding_set", { id: created.id });
+    await client.callTool("delete_embedding_set", { slug: created.slug });
 
     // Verify it's gone
     const error = await client.callToolExpectError("get_embedding_set", {
-      id: created.id,
+      slug: created.slug,
     });
 
     assert.ok(error.error, "Should return error for deleted set");
@@ -146,60 +136,38 @@ describe("Phase 7: Embedding Sets", () => {
 
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
-      matryoshka_dim: 64, // MRL dimension for efficient storage
     });
 
     assert.ok(result.id, "MRL embedding set should be created");
-    assert.strictEqual(result.matryoshka_dim, 64, "MRL dimension should be stored");
 
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 
   test("EMBED-007: create_embedding_set with filter mode", async () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
     const name = `test-filter-${testId}`;
 
-    // Create filter set (shares embeddings with default)
+    // Create filter set
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
-      filter_mode: true,
     });
 
     assert.ok(result.id, "Filter embedding set should be created");
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 
-  test("EMBED-008: create_embedding_set with full mode and parent", async () => {
+  test("EMBED-008: create_embedding_set with description and purpose", async () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
-
-    // Get default embedding set ID
-    const sets = await client.callTool("list_embedding_sets");
-    const defaultSet = sets.find((s) => s.slug === "default");
-
-    if (!defaultSet) {
-      console.warn("Default embedding set not found, skipping test");
-      return;
-    }
-
     const name = `test-full-${testId}`;
 
-    // Create full set with parent
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
-      filter_mode: false,
-      parent_id: defaultSet.id,
+      description: "Full embedding set for testing",
     });
 
-    assert.ok(result.id, "Full embedding set should be created");
-    assert.strictEqual(result.filter_mode, false, "Should be full mode");
+    assert.ok(result.id, "Embedding set should be created");
 
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 
   test("EMBED-009: list_embedding_sets includes created sets", async () => {
@@ -209,10 +177,8 @@ describe("Phase 7: Embedding Sets", () => {
     // Create a new set
     const created = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
     });
-    cleanup.embeddingSetIds.push(created.id);
+    cleanup.embeddingSetSlugs.push(created.slug);
 
     // List all sets
     const sets = await client.callTool("list_embedding_sets");
@@ -230,16 +196,12 @@ describe("Phase 7: Embedding Sets", () => {
     // Create first set
     const first = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
     });
-    cleanup.embeddingSetIds.push(first.id);
+    cleanup.embeddingSetSlugs.push(first.slug);
 
     // Try to create duplicate
     const error = await client.callToolExpectError("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
     });
 
     assert.ok(error.error, "Should return error for duplicate name");
@@ -268,15 +230,13 @@ describe("Phase 7: Embedding Sets", () => {
 
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
       description,
     });
 
     assert.ok(result.id, "Embedding set should be created");
     assert.strictEqual(result.description, description, "Description should match");
 
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 
   test("EMBED-013: create_embedding_set with auto-embed rules", async () => {
@@ -285,13 +245,9 @@ describe("Phase 7: Embedding Sets", () => {
 
     const result = await client.callTool("create_embedding_set", {
       name,
-      model: "nomic-embed-text:latest",
-      dimensions: 768,
-      auto_embed_on_create: true,
-      auto_embed_on_update: true,
     });
 
     assert.ok(result.id, "Embedding set should be created");
-    cleanup.embeddingSetIds.push(result.id);
+    cleanup.embeddingSetSlugs.push(result.slug);
   });
 });

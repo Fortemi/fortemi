@@ -72,6 +72,71 @@ impl WhisperBackend {
             .unwrap_or_else(|_| matric_core::defaults::DEFAULT_WHISPER_MODEL.to_string());
         Some(Self::new(base_url, model))
     }
+
+    /// Ensure the configured model is available on the Whisper server.
+    ///
+    /// The speaches container (v0.1.0) doesn't honor `PRELOAD_MODELS` — the model
+    /// must be downloaded via `POST /v1/models/{model_id}` after startup. This method
+    /// polls the health endpoint with retries, then triggers model download if needed.
+    pub async fn ensure_model_available(&self) -> matric_core::Result<()> {
+        // Wait for whisper to be healthy (it may still be starting up)
+        let max_health_retries = 30;
+        for attempt in 1..=max_health_retries {
+            match self.health_check().await {
+                Ok(true) => break,
+                _ => {
+                    if attempt == max_health_retries {
+                        return Err(matric_core::Error::Internal(
+                            "Whisper server not healthy after retries".into(),
+                        ));
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        }
+
+        // Check if model is already listed
+        let list_url = format!("{}/v1/models", self.base_url);
+        let list_resp = self
+            .client
+            .get(&list_url)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| matric_core::Error::Internal(format!("List models failed: {}", e)))?;
+
+        if list_resp.status().is_success() {
+            let body = list_resp.text().await.unwrap_or_default();
+            // Check if our model name appears in the response
+            if body.contains(&self.model) {
+                return Ok(());
+            }
+        }
+
+        // Model not found — trigger download via POST /v1/models/{model_id}
+        let encoded_model = self.model.replace('/', "%2F");
+        let download_url = format!("{}/v1/models/{}", self.base_url, encoded_model);
+        let resp = self
+            .client
+            .post(&download_url)
+            .timeout(std::time::Duration::from_secs(600)) // model download can be slow
+            .send()
+            .await
+            .map_err(|e| {
+                matric_core::Error::Internal(format!("Model download request failed: {}", e))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(matric_core::Error::Internal(format!(
+                "Model download returned {}: {}",
+                status, body
+            )));
+        }
+
+        Ok(())
+    }
 }
 
 /// OpenAI Whisper API response format.
@@ -301,39 +366,5 @@ mod tests {
         assert!(response.segments.is_none());
         assert!(response.language.is_none());
         assert!(response.duration.is_none());
-    }
-
-    #[test]
-    fn test_mime_type_to_extension() {
-        // This test validates the extension mapping logic by checking
-        // that we have reasonable defaults
-        let test_cases = vec![
-            ("audio/mpeg", "mp3"),
-            ("audio/mp3", "mp3"),
-            ("audio/wav", "wav"),
-            ("audio/x-wav", "wav"),
-            ("audio/ogg", "ogg"),
-            ("audio/flac", "flac"),
-            ("audio/aac", "aac"),
-            ("audio/webm", "webm"),
-            ("audio/unknown", "wav"), // default fallback
-        ];
-
-        for (mime_type, expected_ext) in test_cases {
-            let ext = match mime_type {
-                "audio/mpeg" | "audio/mp3" => "mp3",
-                "audio/wav" | "audio/x-wav" => "wav",
-                "audio/ogg" => "ogg",
-                "audio/flac" => "flac",
-                "audio/aac" => "aac",
-                "audio/webm" => "webm",
-                _ => "wav",
-            };
-            assert_eq!(
-                ext, expected_ext,
-                "MIME type {} should map to {}",
-                mime_type, expected_ext
-            );
-        }
     }
 }

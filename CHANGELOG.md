@@ -7,6 +7,58 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- **Video Multimodal Extraction** — Enhanced video processing via attachment pipeline
+  - Scene-detection keyframe extraction using ffmpeg (`select='gt(scene,0.3)'`)
+  - Frame-to-frame temporal context: sliding window of 3 previous descriptions in vision prompts
+  - Audio-visual alignment: transcript segments matched to frame timestamps (+/- 5s window)
+  - `KeyframeStrategy` enum: `Interval`, `SceneDetection`, `Hybrid` modes
+  - `VideoMultimodalAdapter` wired into extraction pipeline (requires ffmpeg + vision/whisper)
+  - MCP `process_video` guidance tool directs agents to attachment upload workflow
+  - MCP documentation topic (`get_documentation({ topic: "video" })`)
+  - `get_system_info` reports video extraction status (`extraction.video`)
+  - UAT Phase 2F with 10 test cases (4 always-execute, 6 conditional on ffmpeg)
+  - All video processing goes through attachment pipeline — no ad-hoc base64 API
+
+- **3D Model Understanding** — Multi-view rendering extraction via attachment pipeline
+  - `Glb3DModelAdapter` with Blender headless multi-view rendering + vision model description
+  - `ExtractionStrategy::Glb3DModel` variant routes all `model/*` MIME types
+  - Configurable view count (default 8, min 3, max 15) from multiple camera angles
+  - Composite synthesis: individual view descriptions combined into holistic summary
+  - MCP `process_3d_model` guidance tool directs agents to attachment upload workflow
+  - MCP documentation topic (`get_documentation({ topic: "3d-models" })`)
+  - `get_system_info` reports 3D model extraction status (`extraction.3d_model`)
+  - Requires Blender in PATH + vision backend (`OLLAMA_VISION_MODEL`)
+  - UAT Phase 2G with 10 test cases (5 always-execute, 5 conditional on Blender + vision)
+  - All 3D model processing goes through attachment pipeline — no ad-hoc base64 API
+
+- **Audio Transcription** — Ad-hoc audio transcription via Whisper-compatible backend
+  - Wires existing `TranscriptionBackend` trait + `WhisperBackend` into API server
+  - `POST /api/v1/audio/transcribe` API endpoint (base64 audio, optional mime_type and language)
+  - MCP `transcribe_audio` tool for agent access
+  - `AudioTranscribeAdapter` registered in extraction pipeline for automatic attachment processing
+  - Configurable via `WHISPER_BASE_URL` and `WHISPER_MODEL` env vars
+  - Returns transcription text, timestamped segments, detected language, duration, model, and audio size
+  - 503 Service Unavailable when transcription backend not configured
+  - Health check integration via `get_system_info` (`extraction.audio.enabled`)
+  - Supports WAV, MP3, OGG, FLAC, AAC, WebM formats
+  - MCP documentation topic (`get_documentation({ topic: "audio" })`)
+
+- **Vision (Image Description)** — Ad-hoc image description via Ollama vision LLM
+  - `VisionBackend` trait + `OllamaVisionBackend` in `matric-inference` crate
+  - `POST /api/v1/vision/describe` API endpoint (base64 image, optional mime_type and prompt)
+  - MCP `describe_image` tool for agent access
+  - Configurable via `OLLAMA_VISION_MODEL` env var (e.g., `qwen3-vl:8b`, `llava`)
+  - Returns AI-generated description, model name, and decoded image size
+  - 503 Service Unavailable when vision model not configured
+  - Health check integration via `get_system_info` (`extraction.vision.available`)
+  - UAT Phase 2D with 8 test cases
+
+### Fixed
+
+- **Vision Ollama URL in Docker** — `OllamaVisionBackend` now reads `OLLAMA_BASE` env var first (matching embedding backend), fixing 500 errors in Docker containers where only `OLLAMA_BASE` is set
+
 ## [2026.2.8] - 2026-02-08
 
 ### Highlights

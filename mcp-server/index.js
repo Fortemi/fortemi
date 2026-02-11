@@ -378,10 +378,14 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/collections/${args.id}`);
           break;
 
-        case "delete_collection":
-          await apiRequest("DELETE", `/api/v1/collections/${args.id}`);
+        case "delete_collection": {
+          const deleteParams = new URLSearchParams();
+          if (args.force) deleteParams.set("force", "true");
+          const deleteUrl = `/api/v1/collections/${args.id}${deleteParams.toString() ? `?${deleteParams}` : ""}`;
+          await apiRequest("DELETE", deleteUrl);
           result = { success: true };
           break;
+        }
 
         case "update_collection": {
           const body = {};
@@ -558,8 +562,8 @@ function createMcpServer() {
             status: health.status || "unknown",
             versions: {
               release: health.version || process.env.MATRIC_VERSION || "unknown",
-              git_sha: process.env.MATRIC_GIT_SHA || (process.env.MATRIC_VERSION?.includes("-") ? process.env.MATRIC_VERSION.split("-")[1] : "unknown"),
-              build_date: process.env.MATRIC_BUILD_DATE || "unknown",
+              git_sha: health.git_sha || process.env.MATRIC_GIT_SHA || "unknown",
+              build_date: health.build_date || process.env.MATRIC_BUILD_DATE || "unknown",
               postgresql: process.env.PG_VERSION || "16.x",
               mcp_server: "1.0.0",
             },
@@ -586,13 +590,25 @@ function createMcpServer() {
               },
               extraction: {
                 vision: {
-                  enabled: !!process.env.OLLAMA_VISION_MODEL,
+                  enabled: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
                   model: process.env.OLLAMA_VISION_MODEL || null,
                   provider: "Ollama",
                 },
                 audio: {
-                  enabled: !!process.env.WHISPER_BASE_URL,
+                  enabled: health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL,
                   provider: process.env.WHISPER_BASE_URL ? "Whisper" : null,
+                },
+                video: {
+                  enabled: (health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL) || (health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL),
+                  keyframe_description: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
+                  audio_transcription: health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL,
+                  requires: "ffmpeg in PATH",
+                },
+                "3d_model": {
+                  enabled: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
+                  renderer: "blender (headless)",
+                  vision_model: process.env.OLLAMA_VISION_MODEL || null,
+                  requires: "Blender + OLLAMA_VISION_MODEL",
                 },
                 ocr: {
                   enabled: process.env.OCR_ENABLED === "true" || process.env.OCR_ENABLED === "1",
@@ -797,44 +813,25 @@ function createMcpServer() {
           if (args.include) {
             shardParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
           }
-
-          // Get token from context for authorization
-          const sessionToken = tokenStorage.getStore()?.token;
-          const headers = { "Accept": "application/gzip" };
-          if (sessionToken) {
-            headers["Authorization"] = `Bearer ${sessionToken}`;
+          const shardUrl = `${API_BASE}/api/v1/backup/knowledge-shard?${shardParams}`;
+          const shardFilename = `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
+          const shardOutputFile = args.output_dir
+            ? `${args.output_dir}/${shardFilename}`
+            : shardFilename;
+          const shardCurlParts = [`curl -o "${shardOutputFile}"`];
+          const shardToken = tokenStorage.getStore()?.token;
+          if (shardToken) {
+            shardCurlParts.push(`-H "Authorization: Bearer ${shardToken}"`);
           } else if (API_KEY) {
-            headers["Authorization"] = `Bearer ${API_KEY}`;
+            shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
           }
-
-          const shardResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-shard?${shardParams}`, { headers });
-          if (!shardResponse.ok) {
-            throw new Error(`Shard creation failed: ${shardResponse.status}`);
-          }
-
-          const shardArrayBuffer = await shardResponse.arrayBuffer();
-
-          const shardContentDisposition = shardResponse.headers.get('content-disposition');
-          const shardFilenameMatch = shardContentDisposition?.match(/filename="([^"]+)"/);
-          const shardFilename = shardFilenameMatch ? shardFilenameMatch[1] : `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
-
-          const shardOutputDir = args.output_dir || os.tmpdir();
-          if (!fs.existsSync(shardOutputDir)) {
-            fs.mkdirSync(shardOutputDir, { recursive: true });
-          }
-          const shardOutputPath = path.join(shardOutputDir, shardFilename);
-          fs.writeFileSync(shardOutputPath, Buffer.from(shardArrayBuffer));
-
+          shardCurlParts.push(`-H "Accept: application/gzip"`);
+          shardCurlParts.push(`"${shardUrl}"`);
           result = {
-            success: true,
-            saved_to: shardOutputPath,
-            filename: shardFilename,
-            size_bytes: shardArrayBuffer.byteLength,
-            size_human: shardArrayBuffer.byteLength > 1024*1024
-              ? `${(shardArrayBuffer.byteLength / (1024*1024)).toFixed(2)} MB`
-              : `${(shardArrayBuffer.byteLength / 1024).toFixed(2)} KB`,
-            content_type: "application/gzip",
-            message: `Knowledge shard saved to: ${shardOutputPath}`,
+            download_url: shardUrl,
+            suggested_filename: shardFilename,
+            curl_command: shardCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to create and download a knowledge shard (.tar.gz). This contains all notes, embeddings, links, and metadata for full backup/restore.`,
           };
           break;
         }
@@ -881,35 +878,24 @@ function createMcpServer() {
         }
 
         case "knowledge_archive_download": {
-          const dlHeaders = {};
-          const dlToken = tokenStorage.getStore()?.token;
-          if (dlToken) {
-            dlHeaders["Authorization"] = `Bearer ${dlToken}`;
+          const kaFilename = encodeURIComponent(args.filename);
+          const kaDownloadUrl = `${API_BASE}/api/v1/backup/knowledge-archive/${kaFilename}`;
+          const kaOutputFile = args.output_dir
+            ? `${args.output_dir}/${args.filename}`
+            : args.filename;
+          const kaCurlParts = [`curl -o "${kaOutputFile}"`];
+          const kaToken = tokenStorage.getStore()?.token;
+          if (kaToken) {
+            kaCurlParts.push(`-H "Authorization: Bearer ${kaToken}"`);
           } else if (API_KEY) {
-            dlHeaders["Authorization"] = `Bearer ${API_KEY}`;
+            kaCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
           }
-          const response = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive/${encodeURIComponent(args.filename)}`, { headers: dlHeaders });
-          if (!response.ok) {
-            throw new Error(`Download failed: ${response.status}`);
-          }
-          const archiveArrayBuffer = await response.arrayBuffer();
-          const archiveContentDisposition = response.headers.get('content-disposition');
-          const archiveFilenameMatch = archiveContentDisposition?.match(/filename="([^"]+)"/);
-          const archiveFilename = archiveFilenameMatch ? archiveFilenameMatch[1] : `${args.filename}.archive`;
-
-          const archiveOutputDir = args.output_dir || os.tmpdir();
-          if (!fs.existsSync(archiveOutputDir)) {
-            fs.mkdirSync(archiveOutputDir, { recursive: true });
-          }
-          const archiveOutputPath = path.join(archiveOutputDir, archiveFilename);
-          fs.writeFileSync(archiveOutputPath, Buffer.from(archiveArrayBuffer));
-
+          kaCurlParts.push(`"${kaDownloadUrl}"`);
           result = {
-            success: true,
-            saved_to: archiveOutputPath,
-            filename: archiveFilename,
-            size_bytes: archiveArrayBuffer.byteLength,
-            message: `Knowledge archive saved to: ${archiveOutputPath}`,
+            download_url: kaDownloadUrl,
+            suggested_filename: args.filename,
+            curl_command: kaCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to download the knowledge archive. Save to a custom directory by modifying the -o path.`,
           };
           break;
         }
@@ -1724,13 +1710,153 @@ function createMcpServer() {
           break;
         }
 
-        // Vision
+        // Vision (multipart file upload — returns curl command)
         case "describe_image": {
-          result = await apiRequest("POST", "/api/v1/vision/describe", {
-            image_data: args.image_data,
-            mime_type: args.mime_type,
-            prompt: args.prompt,
-          });
+          const visionUrl = `${API_BASE}/api/v1/vision/describe`;
+          const visionFile = args.file_path || "IMAGE_FILE_PATH";
+          const visionParts = [`curl -X POST`];
+          if (args.mime_type) {
+            visionParts.push(`-F "file=@${visionFile};type=${args.mime_type}"`);
+          } else {
+            visionParts.push(`-F "file=@${visionFile}"`);
+          }
+          if (args.prompt) {
+            visionParts.push(`-F "prompt=${args.prompt}"`);
+          }
+
+          // Add auth header if available
+          const visionSessionToken = tokenStorage.getStore()?.token;
+          const visionAuthToken = visionSessionToken || API_KEY;
+          if (visionAuthToken) {
+            visionParts.push(`-H "Authorization: Bearer ${visionAuthToken}"`);
+          }
+
+          // Add memory header if set
+          const visionSid = tokenStorage.getStore()?.sessionId;
+          const visionActiveMem = visionSid ? sessionMemories.get(visionSid) : null;
+          if (visionActiveMem) {
+            visionParts.push(`-H "X-Fortemi-Memory: ${visionActiveMem}"`);
+          }
+
+          visionParts.push(`"${visionUrl}"`);
+
+          result = {
+            upload_url: visionUrl,
+            method: "POST",
+            content_type: "multipart/form-data",
+            curl_command: visionParts.join(" \\\n  "),
+            instructions: "Execute the curl command to upload the image file. " +
+              "The API accepts multipart/form-data — no base64 encoding needed. " +
+              "The response JSON contains { description, model, image_size }.",
+          };
+          break;
+        }
+
+        // Audio Transcription (multipart file upload — returns curl command)
+        case "transcribe_audio": {
+          const audioUrl = `${API_BASE}/api/v1/audio/transcribe`;
+          const audioFile = args.file_path || "AUDIO_FILE_PATH";
+          const audioParts = [`curl -X POST`];
+          if (args.mime_type) {
+            audioParts.push(`-F "file=@${audioFile};type=${args.mime_type}"`);
+          } else {
+            audioParts.push(`-F "file=@${audioFile}"`);
+          }
+          if (args.language) {
+            audioParts.push(`-F "language=${args.language}"`);
+          }
+
+          // Add auth header if available
+          const audioSessionToken = tokenStorage.getStore()?.token;
+          const audioAuthToken = audioSessionToken || API_KEY;
+          if (audioAuthToken) {
+            audioParts.push(`-H "Authorization: Bearer ${audioAuthToken}"`);
+          }
+
+          // Add memory header if set
+          const audioSid = tokenStorage.getStore()?.sessionId;
+          const audioActiveMem = audioSid ? sessionMemories.get(audioSid) : null;
+          if (audioActiveMem) {
+            audioParts.push(`-H "X-Fortemi-Memory: ${audioActiveMem}"`);
+          }
+
+          audioParts.push(`"${audioUrl}"`);
+
+          result = {
+            upload_url: audioUrl,
+            method: "POST",
+            content_type: "multipart/form-data",
+            curl_command: audioParts.join(" \\\n  "),
+            instructions: "Execute the curl command to upload the audio file. " +
+              "The API accepts multipart/form-data — no base64 encoding needed. " +
+              "The response JSON contains { text, segments, language, duration_secs, model, audio_size }.",
+          };
+          break;
+        }
+
+        // Video Processing (guidance tool — attachment pipeline only)
+        case "process_video": {
+          const steps = [];
+          if (!args.note_id) {
+            const title = args.filename ? `Video: ${args.filename}` : "Video upload";
+            steps.push(`1. Create a note: create_note({ title: "${title}", body: "Uploaded video for processing" })`);
+            steps.push(`2. Upload the video: upload_attachment({ note_id: "<new_note_id>", filename: "${args.filename || "video.mp4"}", content_type: "video/mp4" })`);
+          } else {
+            steps.push(`1. Upload the video: upload_attachment({ note_id: "${args.note_id}", filename: "${args.filename || "video.mp4"}", content_type: "video/mp4" })`);
+          }
+          steps.push(`${args.note_id ? "2" : "3"}. Execute the curl command returned by upload_attachment with the actual file path`);
+          steps.push(`${args.note_id ? "3" : "4"}. Wait for the background extraction job to complete`);
+          steps.push(`${args.note_id ? "4" : "5"}. Check extraction status: get_attachment({ id: "<attachment_id>" })`);
+
+          result = {
+            workflow: "attachment_pipeline",
+            message: "Video files are processed through the attachment pipeline. Follow these steps:",
+            steps,
+            supported_formats: ["video/mp4", "video/webm", "video/x-msvideo", "video/quicktime", "video/x-matroska", "video/x-flv", "video/x-ms-wmv", "video/ogg"],
+            requires: {
+              ffmpeg: "Must be in PATH for keyframe extraction",
+              vision_model: "OLLAMA_VISION_MODEL for keyframe description (optional)",
+              whisper: "WHISPER_BASE_URL for audio transcription (optional)",
+            },
+            extraction_features: {
+              keyframe_extraction: "Scene detection + interval-based keyframe selection via ffmpeg",
+              frame_description: "Each keyframe described by vision model with temporal context",
+              audio_transcription: "Audio track transcribed with timestamped segments",
+              temporal_alignment: "Frame descriptions aligned with transcript timestamps",
+            },
+          };
+          break;
+        }
+
+        // 3D Model Processing (guidance tool — attachment pipeline only)
+        case "process_3d_model": {
+          const modelSteps = [];
+          if (!args.note_id) {
+            const title = args.filename ? `3D Model: ${args.filename}` : "3D model upload";
+            modelSteps.push(`1. Create a note: create_note({ title: "${title}", body: "Uploaded 3D model for processing" })`);
+            modelSteps.push(`2. Upload the model: upload_attachment({ note_id: "<new_note_id>", filename: "${args.filename || "model.glb"}", content_type: "model/gltf-binary" })`);
+          } else {
+            modelSteps.push(`1. Upload the model: upload_attachment({ note_id: "${args.note_id}", filename: "${args.filename || "model.glb"}", content_type: "model/gltf-binary" })`);
+          }
+          modelSteps.push(`${args.note_id ? "2" : "3"}. Execute the curl command returned by upload_attachment with the actual file path`);
+          modelSteps.push(`${args.note_id ? "3" : "4"}. Wait for the background extraction job to complete`);
+          modelSteps.push(`${args.note_id ? "4" : "5"}. Check extraction status: get_attachment({ id: "<attachment_id>" })`);
+
+          result = {
+            workflow: "attachment_pipeline",
+            message: "3D model files are processed through the attachment pipeline. Follow these steps:",
+            steps: modelSteps,
+            supported_formats: ["model/gltf-binary", "model/gltf+json", "model/obj", "model/fbx", "model/stl", "model/ply"],
+            requires: {
+              blender: "Blender headless must be in PATH for multi-view rendering",
+              vision_model: "OLLAMA_VISION_MODEL for view description (required)",
+            },
+            extraction_features: {
+              multi_view_rendering: "Model rendered from multiple angles using Blender headless",
+              view_description: "Each rendered view described by vision model",
+              composite_description: "Multi-view descriptions synthesized into composite summary",
+            },
+          };
           break;
         }
 
@@ -2092,16 +2218,22 @@ function createMcpServer() {
           // Store the active memory for this session
           const store = tokenStorage.getStore();
           const sessionId = store?.sessionId;
-          if (sessionId) {
-            sessionMemories.set(sessionId, args.name);
-            result = {
-              success: true,
-              message: `Active memory set to: ${args.name}`,
-              active_memory: args.name
-            };
-          } else {
+          if (!sessionId) {
             throw new Error("Session context not available - memory selection requires HTTP transport");
           }
+
+          // "public" is always valid (it's the default schema)
+          if (args.name !== "public") {
+            // Validate the memory/archive exists before selecting it
+            await apiRequest("GET", `/api/v1/archives/${encodeURIComponent(args.name)}`);
+          }
+
+          sessionMemories.set(sessionId, args.name);
+          result = {
+            success: true,
+            message: `Active memory set to: ${args.name}`,
+            active_memory: args.name
+          };
           break;
         }
 
@@ -2157,6 +2289,71 @@ function createMcpServer() {
             body.limit = args.limit;
           }
           result = await apiRequest("POST", "/api/v1/search/federated", body);
+          break;
+        }
+
+        // === API Key Management ===
+        case "list_api_keys":
+          result = await apiRequest("GET", "/api/v1/api-keys");
+          break;
+
+        case "create_api_key": {
+          const apiKeyBody = { name: args.name };
+          if (args.description) apiKeyBody.description = args.description;
+          if (args.scope) apiKeyBody.scope = args.scope;
+          if (args.expires_in_days !== undefined) apiKeyBody.expires_in_days = args.expires_in_days;
+          result = await apiRequest("POST", "/api/v1/api-keys", apiKeyBody);
+          break;
+        }
+
+        // revoke_api_key removed from MCP tools — admin-only via REST API
+
+        // === Rate Limiting ===
+        case "get_rate_limit_status":
+          result = await apiRequest("GET", "/api/v1/rate-limit/status");
+          break;
+
+        // === Extraction Pipeline ===
+        case "get_extraction_stats":
+          result = await apiRequest("GET", "/api/v1/extraction/stats");
+          break;
+
+        // === Collection Export ===
+        case "export_collection": {
+          const exportParams = new URLSearchParams();
+          if (args.include_frontmatter !== undefined) exportParams.set("include_frontmatter", args.include_frontmatter);
+          if (args.content) exportParams.set("content", args.content);
+          result = await apiRequest("GET", `/api/v1/collections/${args.id}/export?${exportParams}`);
+          break;
+        }
+
+        // === Backup Swap ===
+        case "swap_backup": {
+          const swapBody = { filename: args.filename };
+          if (args.dry_run !== undefined) swapBody.dry_run = args.dry_run;
+          if (args.strategy) swapBody.strategy = args.strategy;
+          result = await apiRequest("POST", "/api/v1/backup/swap", swapBody);
+          break;
+        }
+
+        case "memory_backup_download": {
+          const memName = encodeURIComponent(args.name);
+          const memDownloadUrl = `${API_BASE}/api/v1/backup/memory/${memName}`;
+          const memFilename = `memory_${args.name}_backup.sql.gz`;
+          const memCurlParts = [`curl -o "${memFilename}"`];
+          const memToken = tokenStorage.getStore()?.token;
+          if (memToken) {
+            memCurlParts.push(`-H "Authorization: Bearer ${memToken}"`);
+          } else if (API_KEY) {
+            memCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+          }
+          memCurlParts.push(`"${memDownloadUrl}"`);
+          result = {
+            download_url: memDownloadUrl,
+            suggested_filename: memFilename,
+            curl_command: memCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to download the backup. The file is a compressed pg_dump (.sql.gz) of the "${args.name}" memory archive.`,
+          };
           break;
         }
 
@@ -2238,6 +2435,12 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
    - Supports qwen3-vl, llava, and other Ollama vision models
    - See \`get_documentation({ topic: "vision" })\` for setup
 
+8. **Audio Transcription** (optional)
+   - Ad-hoc audio transcription via \`transcribe_audio\`
+   - Automatic audio extraction in background jobs
+   - Uses Whisper-compatible backend (faster-whisper, OpenAI Whisper API)
+   - See \`get_documentation({ topic: "audio" })\` for setup
+
 ## Quick Start
 
 1. Create notes with \`create_note\` - choose appropriate revision_mode
@@ -2297,9 +2500,10 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 - **SKOS**: \`search_concepts\`, \`get_concept\`, \`get_concept_full\`, \`autocomplete_concepts\`, \`get_governance_stats\`, \`export_skos_turtle\`
 - **Versioning**: \`list_note_versions\`, \`get_note_version\`, \`diff_note_versions\`
 - **Health**: \`get_knowledge_health\`, \`get_orphan_tags\`, \`get_stale_notes\`, \`get_unlinked_notes\`, \`get_tag_cooccurrence\`
-- **System**: \`health_check\`, \`get_system_info\`, \`memory_info\`, \`list_jobs\`, \`get_job\`, \`get_queue_stats\`, \`get_pending_jobs_count\`
+- **System**: \`health_check\`, \`get_system_info\`, \`memory_info\`, \`list_jobs\`, \`get_job\`, \`get_queue_stats\`, \`get_pending_jobs_count\`, \`get_rate_limit_status\`, \`get_extraction_stats\`
 - **Config**: \`list_embedding_configs\`, \`get_embedding_config\`, \`get_default_embedding_config\`, \`list_document_types\`, \`get_document_type\`, \`detect_document_type\`
-- **Export**: \`export_note\`, \`export_all_notes\`, \`list_backups\`, \`get_backup_info\`, \`get_backup_metadata\`
+- **Export**: \`export_note\`, \`export_all_notes\`, \`export_collection\`, \`list_backups\`, \`get_backup_info\`, \`get_backup_metadata\`, \`memory_backup_download\`
+- **API Keys**: \`list_api_keys\`
 
 ### Mutating Tools (Require Permission)
 - **Notes**: \`create_note\`, \`update_note\`, \`set_note_tags\`, \`bulk_create_notes\`, \`reprocess_note\`
@@ -2309,12 +2513,13 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 - **SKOS Collections**: \`create_skos_collection\`, \`add_skos_collection_member\`
 - **Templates**: \`create_template\`, \`update_template\`, \`instantiate_template\`
 - **Embedding**: \`create_embedding_set\`, \`update_embedding_set\`, \`add_set_members\`, \`create_embedding_config\`
-- **Backup**: \`backup_now\`, \`knowledge_shard\`, \`knowledge_shard_import\`, \`database_snapshot\`
+- **Backup**: \`backup_now\`, \`knowledge_shard\`, \`knowledge_shard_import\`, \`database_snapshot\`, \`swap_backup\`
+- **API Keys**: \`create_api_key\`
 
 ### Destructive Tools (Usually Restricted)
 - \`delete_note\`, \`restore_note\`, \`purge_note\`, \`purge_notes\`, \`purge_all_notes\`
 - \`delete_collection\`, \`delete_concept\`, \`delete_archive\`
-- \`delete_embedding_set\`, \`delete_document_type\`, \`delete_skos_collection\`
+- \`delete_embedding_set\`, \`delete_document_type\`, \`delete_skos_collection\`, \`revoke_api_key\`
 - \`remove_broader\`, \`remove_narrower\`, \`remove_related\`
 - \`reembed_all\` (regenerates all embeddings)
 - \`database_restore\` (overwrites entire database)`,
@@ -3810,7 +4015,7 @@ The vision system has two modes of operation:
 
 1. **Extraction Pipeline** (automatic): When a note has image attachments, the background job worker runs the vision adapter to generate descriptions during the extraction phase. These descriptions are stored with the note metadata and indexed for search.
 
-2. **Ad-hoc Description** (\`describe_image\` tool): Send any base64-encoded image for on-demand analysis without creating a note or attachment. Useful for previewing, inline analysis, and quick image understanding.
+2. **Ad-hoc Description** (\`describe_image\` tool): Upload any image file for on-demand analysis without creating a note or attachment. Returns a curl command for multipart upload. Useful for previewing, inline analysis, and quick image understanding.
 
 ## Environment Configuration
 
@@ -3841,22 +4046,21 @@ ollama pull qwen3-vl
 
 The \`describe_image\` MCP tool accepts:
 
-- **image_data** (required): Base64-encoded image bytes
-- **mime_type** (optional): MIME type, defaults to \`image/png\`. Supported: \`image/png\`, \`image/jpeg\`, \`image/gif\`, \`image/webp\`
+- **file_path** (required): Local path to the image file
+- **mime_type** (optional): MIME type (auto-detected from file if omitted). Supported: \`image/png\`, \`image/jpeg\`, \`image/gif\`, \`image/webp\`
 - **prompt** (optional): Custom prompt for the vision model. If omitted, uses the default description prompt
+
+The tool returns a curl command for multipart file upload. Execute the command to get the description.
 
 **Example — Describe a photo:**
 \`\`\`json
-{
-  "image_data": "<base64 string>",
-  "mime_type": "image/jpeg"
-}
+{ "file_path": "/path/to/photo.jpg" }
 \`\`\`
 
 **Example — Custom analysis prompt:**
 \`\`\`json
 {
-  "image_data": "<base64 string>",
+  "file_path": "/path/to/diagram.png",
   "prompt": "List all text visible in this image, including signs, labels, and watermarks."
 }
 \`\`\`
@@ -3915,9 +4119,315 @@ If vision shows \`"available": false\`, check that:
 - The default timeout is 120 seconds per image
 
 **Large images**
-- Images are sent as base64 to Ollama — very large images may hit memory limits
-- Consider resizing images client-side before sending via \`describe_image\`
+- Very large images may hit memory limits on the Ollama backend
+- Consider resizing images before uploading via \`describe_image\`
 - The extraction pipeline handles standard attachment sizes well`,
+
+  audio: `# Audio: Transcription & Extraction
+
+Matric Memory includes an optional audio transcription pipeline that uses a Whisper-compatible backend to transcribe audio files.
+
+## Architecture
+
+The audio system has two modes of operation:
+
+1. **Extraction Pipeline** (automatic): When a note has audio attachments, the background job worker runs the AudioTranscribeAdapter to generate transcriptions during the extraction phase. Transcribed text is stored with the note metadata and indexed for search.
+
+2. **Ad-hoc Transcription** (\`transcribe_audio\` tool): Upload any audio file for on-demand transcription without creating a note or attachment. Returns a curl command for multipart upload. Useful for preview, inline analysis, and quick audio understanding.
+
+## Environment Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| \`WHISPER_BASE_URL\` | Yes (to enable) | *(none)* | Whisper-compatible API endpoint (e.g., \`http://localhost:8080\`) |
+| \`WHISPER_MODEL\` | No | \`Systran/faster-distil-whisper-large-v3\` | Whisper model identifier |
+
+If \`WHISPER_BASE_URL\` is not set, audio features are disabled gracefully — the extraction pipeline skips audio transcription and the \`transcribe_audio\` tool returns a 503 error.
+
+## Supported Audio Formats
+
+| Format | MIME Type | Extension |
+|--------|-----------|-----------|
+| WAV | \`audio/wav\` | .wav |
+| MP3 | \`audio/mpeg\` | .mp3 |
+| OGG | \`audio/ogg\` | .ogg |
+| FLAC | \`audio/flac\` | .flac |
+| AAC | \`audio/aac\` | .aac, .m4a |
+| WebM | \`audio/webm\` | .webm |
+
+## Using transcribe_audio
+
+The \`transcribe_audio\` MCP tool accepts:
+
+- **file_path** (required): Local filesystem path to the audio file
+- **mime_type** (optional): Audio MIME type (e.g., \`audio/mpeg\`). If omitted, auto-detected from extension
+- **language** (optional): ISO 639-1 language code hint (e.g., \`en\`, \`es\`, \`zh\`). If omitted, language is auto-detected
+
+The tool returns a curl command that uploads the file via multipart/form-data. Execute the curl command to perform the transcription.
+
+**Example — Transcribe an MP3:**
+\`\`\`json
+{
+  "file_path": "/path/to/recording.mp3",
+  "mime_type": "audio/mpeg"
+}
+\`\`\`
+
+**Example — Transcribe with language hint:**
+\`\`\`json
+{
+  "file_path": "/path/to/audio.wav",
+  "language": "es"
+}
+\`\`\`
+
+**API Response (after executing curl):**
+\`\`\`json
+{
+  "text": "Hello, this is a test recording.",
+  "segments": [
+    { "start_secs": 0.0, "end_secs": 2.5, "text": "Hello, this is a test recording." }
+  ],
+  "language": "en",
+  "duration_secs": 2.5,
+  "model": "Systran/faster-distil-whisper-large-v3",
+  "audio_size": 44100
+}
+\`\`\`
+
+## Extraction Pipeline
+
+When audio transcription is enabled and a note has audio attachments:
+
+1. Note is created or updated with an audio attachment
+2. Background job worker picks up the extraction task
+3. AudioTranscribeAdapter sends the audio to the Whisper backend
+4. Generated transcription and timestamps are stored as extraction metadata
+5. Transcription text is indexed for full-text and semantic search
+
+This means audio files become searchable by their spoken content — search for "quarterly revenue" and find notes with matching audio recordings.
+
+## Checking Audio Status
+
+Use \`get_system_info\` to verify audio transcription is configured:
+
+\`\`\`json
+{
+  "extraction": {
+    "audio": { "enabled": true, "provider": "whisper" }
+  }
+}
+\`\`\`
+
+If audio shows \`"enabled": false\`, set \`WHISPER_BASE_URL\` in the environment and restart the API.
+
+## Troubleshooting
+
+**"Transcription backend not configured" (503)**
+- Set \`WHISPER_BASE_URL\` environment variable and restart the API
+
+**"Transcription error" (500)**
+- Check that the Whisper backend is running and accessible at \`WHISPER_BASE_URL\`
+- Verify the model is available
+
+**Slow transcription**
+- Whisper models are compute-intensive; GPU acceleration helps significantly
+- Shorter audio clips transcribe faster
+- Consider the \`faster-whisper\` backend for improved speed`,
+
+  video: `# Video: Multimodal Extraction
+
+Matric Memory includes an optional video processing pipeline that extracts keyframes, describes visual content, and transcribes audio tracks from video attachments.
+
+## Architecture
+
+Video processing runs **exclusively through the attachment pipeline** — there is no ad-hoc base64 tool for video. Video files are too large for base64 transport through the MCP protocol.
+
+**How it works:**
+
+1. Upload a video file as an attachment to a note (via \`upload_attachment\`)
+2. The background job worker detects the video MIME type and runs the VideoMultimodalAdapter
+3. ffmpeg extracts keyframes using scene detection (significant visual changes)
+4. Each keyframe is described by the vision model with temporal context (what happened in previous frames)
+5. The audio track is transcribed with timestamped segments (if Whisper is configured)
+6. Frame descriptions are aligned with transcript timestamps for audio-visual correlation
+7. All extracted metadata is stored with the note and indexed for search
+
+## Processing a Video File
+
+Use the \`process_video\` guidance tool for step-by-step instructions, or follow this workflow:
+
+\`\`\`
+Step 1: Create a note (if one doesn't exist)
+  create_note({ title: "Video: meeting-recording.mp4", body: "Team standup recording" })
+
+Step 2: Upload the video as an attachment
+  upload_attachment({ note_id: "<note_id>", filename: "meeting-recording.mp4", content_type: "video/mp4" })
+  → Execute the returned curl command with the actual file path
+
+Step 3: Wait for background extraction to complete
+
+Step 4: Check extraction results
+  get_attachment({ id: "<attachment_id>" })
+  → Look for extraction_metadata in the response
+\`\`\`
+
+**Important:** ALL files being processed are attachments. If you have a video file with no associated note, create a note first — every attachment must belong to a note.
+
+## Environment Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| \`OLLAMA_VISION_MODEL\` | For frame description | Vision model for keyframe description (e.g., \`qwen3-vl:8b\`) |
+| \`WHISPER_BASE_URL\` | For audio transcription | Whisper-compatible API endpoint |
+| ffmpeg | Yes | Must be in PATH for keyframe extraction |
+
+At least one of OLLAMA_VISION_MODEL or WHISPER_BASE_URL must be set for video processing to be enabled. ffmpeg is always required.
+
+## Supported Video Formats
+
+| Format | MIME Type | Extension |
+|--------|-----------|-----------|
+| MP4 | \`video/mp4\` | .mp4 |
+| WebM | \`video/webm\` | .webm |
+| AVI | \`video/x-msvideo\` | .avi |
+| MOV | \`video/quicktime\` | .mov |
+| MKV | \`video/x-matroska\` | .mkv |
+| FLV | \`video/x-flv\` | .flv |
+| WMV | \`video/x-ms-wmv\` | .wmv |
+| OGG | \`video/ogg\` | .ogv |
+
+## Extraction Features
+
+### Keyframe Extraction
+- **Scene detection**: ffmpeg \`select='gt(scene,0.3)'\` identifies significant visual changes
+- **Interval fallback**: If scene detection yields too few frames, interval-based extraction kicks in
+- **Hybrid mode**: Combines scene detection with minimum interval spacing
+
+### Frame Description with Temporal Context
+- Each keyframe is described by the vision model
+- The prompt includes descriptions of the previous 3 frames (sliding window)
+- This creates temporally-aware descriptions: "The presenter moves from the whiteboard to the laptop"
+
+### Audio-Visual Alignment
+- Transcript segments are aligned with frame timestamps (+/- 5 second window)
+- Each frame description includes relevant transcript context
+- Enables searching by both visual and spoken content
+
+## Checking Video Status
+
+Use \`get_system_info\` to verify video processing is configured:
+
+\`\`\`json
+{
+  "extraction": {
+    "video": {
+      "enabled": true,
+      "keyframe_description": true,
+      "audio_transcription": true,
+      "requires": "ffmpeg in PATH"
+    }
+  }
+}
+\`\`\`
+
+## Troubleshooting
+
+**Video extraction not running**
+- Verify ffmpeg is installed: \`ffmpeg -version\`
+- Check that OLLAMA_VISION_MODEL or WHISPER_BASE_URL is set
+- Check \`get_system_info\` for video.enabled status
+
+**Slow extraction**
+- Video processing is compute-intensive: keyframe extraction + vision + transcription
+- Consider reducing video length or resolution before upload
+- GPU acceleration for Ollama and Whisper significantly improves speed`,
+
+  "3d-models": `# 3D Models: Multi-View Understanding
+
+Matric Memory includes an optional 3D model processing pipeline that renders models from multiple angles and describes each view using the vision model.
+
+## Architecture
+
+3D model processing runs **exclusively through the attachment pipeline** — there is no ad-hoc base64 tool for 3D models. Model files are processed via multi-view rendering using Blender headless.
+
+**How it works:**
+
+1. Upload a 3D model file as an attachment to a note (via \`upload_attachment\`)
+2. The background job worker detects the 3D model MIME type and runs the GLB3DModelAdapter
+3. Blender headless renders the model from multiple angles (configurable, default 8 views)
+4. Each rendered view is described by the vision model
+5. All view descriptions are synthesized into a composite summary
+6. Extracted metadata is stored with the note and indexed for search
+
+## Processing a 3D Model File
+
+Use the \`process_3d_model\` guidance tool for step-by-step instructions, or follow this workflow:
+
+\`\`\`
+Step 1: Create a note (if one doesn't exist)
+  create_note({ title: "3D Model: robot-arm.glb", body: "Robot arm CAD model" })
+
+Step 2: Upload the model as an attachment
+  upload_attachment({ note_id: "<note_id>", filename: "robot-arm.glb", content_type: "model/gltf-binary" })
+  → Execute the returned curl command with the actual file path
+
+Step 3: Wait for background extraction to complete
+
+Step 4: Check extraction results
+  get_attachment({ id: "<attachment_id>" })
+  → Look for extraction_metadata in the response
+\`\`\`
+
+**Important:** ALL files being processed are attachments. If you have a model file with no associated note, create a note first — every attachment must belong to a note.
+
+## Environment Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| \`OLLAMA_VISION_MODEL\` | Yes | Vision model for view description (e.g., \`qwen3-vl:8b\`) |
+| Blender | Yes | Blender headless must be in PATH |
+
+Both Blender and a vision model are required for 3D model processing.
+
+## Supported 3D Formats
+
+| Format | MIME Type | Extension |
+|--------|-----------|-----------|
+| GLB | \`model/gltf-binary\` | .glb |
+| GLTF | \`model/gltf+json\` | .gltf |
+| OBJ | \`model/obj\` | .obj |
+| FBX | \`model/fbx\` | .fbx |
+| STL | \`model/stl\` | .stl |
+| PLY | \`model/ply\` | .ply |
+
+## Checking 3D Model Status
+
+Use \`get_system_info\` to verify 3D model processing is configured:
+
+\`\`\`json
+{
+  "extraction": {
+    "3d_model": {
+      "enabled": true,
+      "renderer": "blender",
+      "vision_model": "qwen3-vl"
+    }
+  }
+}
+\`\`\`
+
+## Troubleshooting
+
+**3D model extraction not running**
+- Verify Blender is installed: \`blender --version\`
+- Check that OLLAMA_VISION_MODEL is set
+- Check \`get_system_info\` for 3d_model.enabled status
+
+**Rendering failures**
+- Some model formats may need additional Blender addons
+- Very complex models may exceed rendering timeout
+- Check API logs for Blender stderr output`,
 };
 
 // Combine all documentation for "all" topic
