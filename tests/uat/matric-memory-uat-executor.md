@@ -47,19 +47,23 @@ If an MCP tool call returns an unexpected error or the tool doesn't exist:
 
 UAT is split into individual phase documents for agentic consumption.
 
-> **CRITICAL**: This UAT suite contains **25 phases (0-21, plus sub-phases 2b, 2c, 3b)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
+> **CRITICAL**: This UAT suite contains **30 phases (0-21, plus sub-phases 2b, 2c, 2d, 2e, 2f, 2g, 3b, 12b)**. Execute ALL phases in order. DO NOT stop at any intermediate phase. Phase 21 (Final Cleanup) runs LAST.
 
 | Phase | Document | Duration | Tests | Critical |
 |-------|----------|----------|-------|----------|
 | 0 | [phases/phase-0-preflight.md](phases/phase-0-preflight.md) | ~2 min | 4 | Yes |
 | 1 | [phases/phase-1-seed-data.md](phases/phase-1-seed-data.md) | ~5 min | 11 | Yes |
-| 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 17 | **Yes** |
+| 2 | [phases/phase-2-crud.md](phases/phase-2-crud.md) | ~10 min | 18 | **Yes** |
 | 2b | [phases/phase-2b-file-attachments.md](phases/phase-2b-file-attachments.md) | ~15 min | 24 | **Yes** |
 | 2c | [phases/phase-2c-attachment-processing.md](phases/phase-2c-attachment-processing.md) | ~20 min | 32 | **Yes** |
+| 2d | [phases/phase-2d-vision.md](phases/phase-2d-vision.md) | ~5 min | 8 | No |
+| 2e | [phases/phase-2e-audio.md](phases/phase-2e-audio.md) | ~5 min | 8 | No |
+| 2f | [phases/phase-2f-video.md](phases/phase-2f-video.md) | ~10 min | 10 | No |
+| 2g | [phases/phase-2g-3d-model.md](phases/phase-2g-3d-model.md) | ~10 min | 10 | No |
 | 3 | [phases/phase-3-search.md](phases/phase-3-search.md) | ~10 min | 18 | **Yes** |
 | 3b | [phases/phase-3b-memory-search.md](phases/phase-3b-memory-search.md) | ~15 min | 27 | **Yes** |
 | 4 | [phases/phase-4-tags.md](phases/phase-4-tags.md) | ~5 min | 11 | No |
-| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 11 | No |
+| 5 | [phases/phase-5-collections.md](phases/phase-5-collections.md) | ~3 min | 12 | No |
 | 6 | [phases/phase-6-links.md](phases/phase-6-links.md) | ~5 min | 13 | No |
 | 7 | [phases/phase-7-embeddings.md](phases/phase-7-embeddings.md) | ~5 min | 20 | No |
 | 8 | [phases/phase-8-document-types.md](phases/phase-8-document-types.md) | ~5 min | 16 | No |
@@ -67,17 +71,18 @@ UAT is split into individual phase documents for agentic consumption.
 | 10 | [phases/phase-10-templates.md](phases/phase-10-templates.md) | ~8 min | 16 | No |
 | 11 | [phases/phase-11-versioning.md](phases/phase-11-versioning.md) | ~7 min | 15 | No |
 | 12 | [phases/phase-12-archives.md](phases/phase-12-archives.md) | ~8 min | 20 | No |
-| 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 40 | No |
+| 12b | [phases/phase-12b-multi-memory.md](phases/phase-12b-multi-memory.md) | ~10 min | 19 | No |
+| 13 | [phases/phase-13-skos.md](phases/phase-13-skos.md) | ~12 min | 41 | No |
 | 14 | [phases/phase-14-pke.md](phases/phase-14-pke.md) | ~8 min | 20 | No |
 | 15 | [phases/phase-15-jobs.md](phases/phase-15-jobs.md) | ~8 min | 24 | No |
-| 16 | [phases/phase-16-observability.md](phases/phase-16-observability.md) | ~10 min | 12 | No |
-| 17 | [phases/phase-17-oauth-auth.md](phases/phase-17-oauth-auth.md) | ~12 min | 17 | **Yes** |
+| 16 | [phases/phase-16-observability.md](phases/phase-16-observability.md) | ~10 min | 14 | No |
+| 17 | [phases/phase-17-oauth-auth.md](phases/phase-17-oauth-auth.md) | ~12 min | 22 | **Yes** |
 | 18 | [phases/phase-18-caching-performance.md](phases/phase-18-caching-performance.md) | ~10 min | 15 | No |
 | 19 | [phases/phase-19-feature-chains.md](phases/phase-19-feature-chains.md) | ~30 min | 56 | **Yes** |
-| 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 19 | No |
-| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 10 | **Yes** |
+| 20 | [phases/phase-20-data-export.md](phases/phase-20-data-export.md) | ~8 min | 24 | No |
+| 21 | [phases/phase-21-final-cleanup.md](phases/phase-21-final-cleanup.md) | ~5 min | 11 | **Yes** |
 
-**Total**: 484 tests across 25 phases (including 2b, 2c, and 3b)
+**Total**: 554 tests across 30 phases (including 2b, 2c, 2d, 2e, 2f, 2g, 3b, and 12b)
 
 See [phases/README.md](phases/README.md) for execution order and success criteria.
 
@@ -137,13 +142,13 @@ uat_run:
 |-------|-------|--------|--------|-----------|
 | 0: Pre-flight | 4 | X | X | X% |
 | 1: Seed Data | 11 | X | X | X% |
-| 2: CRUD | 17 | X | X | X% |
+| 2: CRUD | 18 | X | X | X% |
 | 2b: Attachments | 24 | X | X | X% |
 | 2c: Attachment Processing | 32 | X | X | X% |
 | 3: Search | 18 | X | X | X% |
 | 3b: Memory Search | 27 | X | X | X% |
 | 4: Tags | 11 | X | X | X% |
-| 5: Collections | 11 | X | X | X% |
+| 5: Collections | 12 | X | X | X% |
 | 6: Links | 13 | X | X | X% |
 | 7: Embeddings | 20 | X | X | X% |
 | 8: Document Types | 16 | X | X | X% |
@@ -151,16 +156,21 @@ uat_run:
 | 10: Templates | 16 | X | X | X% |
 | 11: Versioning | 15 | X | X | X% |
 | 12: Archives | 20 | X | X | X% |
-| 13: SKOS | 40 | X | X | X% |
+| 12b: Multi-Memory | 19 | X | X | X% |
+| 13: SKOS | 41 | X | X | X% |
 | 14: PKE | 20 | X | X | X% |
 | 15: Jobs | 24 | X | X | X% |
-| 16: Observability | 12 | X | X | X% |
-| 17: OAuth/Auth | 17 | X | X | X% |
+| 16: Observability | 14 | X | X | X% |
+| 17: OAuth/Auth | 22 | X | X | X% |
 | 18: Caching | 15 | X | X | X% |
 | 19: Feature Chains | 56 | X | X | X% |
-| 20: Data Export | 19 | X | X | X% |
-| 21: Final Cleanup | 10 | X | X | X% |
-| **TOTAL** | **484** | **X** | **X** | **X%** |
+| 20: Data Export | 24 | X | X | X% |
+| 21: Final Cleanup | 11 | X | X | X% |
+| 2d: Vision | 8 | X | X | X% |
+| 2e: Audio | 8 | X | X | X% |
+| 2f: Video | 10 | X | X | X% |
+| 2g: 3D Models | 10 | X | X | X% |
+| **TOTAL** | **554** | **X** | **X** | **X%** |
 
 ## Gitea Issues Filed
 
@@ -189,7 +199,7 @@ uat_run:
 
 ## Success Criteria
 
-- **All Phases (0-21, including 2b, 2c, 3b)**: 100% pass required for release approval
+- **All Phases (0-21, including 2b, 2c, 2d, 2e, 2f, 2g, 3b, 12b)**: 100% pass required for release approval
 - **Overall**: 100% pass rate for release approval
 - **No skipping**: Every test must be executed. If a test fails, record the failure and file a Gitea issue. Do not skip tests due to upstream failures — cascading failures reveal the true blast radius of bugs.
 
@@ -204,19 +214,24 @@ uat_run:
 | Memory Search | 5 | 100% |
 | Provenance Creation | 5 | 100% |
 | Tags | 2 | 100% |
-| Collections | 8 | 100% |
+| Collections | 9 | 100% |
 | Templates | 6 | 100% |
 | Embedding Sets | 15 | 100% |
 | Versioning | 5 | 100% |
 | Graph/Links | 7 | 100% |
 | Jobs | 7 | 100% |
-| SKOS | 33 | 100% |
+| SKOS | 34 | 100% |
 | Archives | 7 | 100% |
 | Document Types | 6 | 100% |
-| Backup/Export | 17 | 100% |
+| Backup/Export | 22 | 100% |
 | PKE | 13 | 100% |
-| Observability | 7 | 100% |
-| Auth & Access Control | 8 MCP + 4 infra | 100% |
+| Observability | 8 | 100% |
+| Auth & Access Control | 11 MCP + 4 infra | 100% |
 | Caching & Performance | 5 | 100% |
 | Attachment Processing | 5 | 100% |
-| **Total** | **158+** | **100%** |
+| Vision | 2 | 100% |
+| Audio | 2 | 100% |
+| Video | 2 | 100% |
+| 3D Models | 2 | 100% |
+| Multi-Memory | 7 | 100% |
+| **Total** | **202** | **100%** |

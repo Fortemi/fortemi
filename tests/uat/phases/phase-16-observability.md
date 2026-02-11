@@ -281,6 +281,36 @@ get_knowledge_health()
 
 ---
 
+### OBS-013: Get Documentation
+
+**MCP Tool**: `get_documentation`
+
+```javascript
+get_documentation({ topic: "overview" })
+```
+
+**Pass Criteria**:
+- Returns documentation content for the "overview" topic
+- Content is non-empty and contains useful information
+- Response includes formatted text (markdown or similar)
+
+---
+
+### OBS-014: Get Documentation - Specific Topic
+
+**MCP Tool**: `get_documentation`
+
+```javascript
+get_documentation({ topic: "search" })
+```
+
+**Pass Criteria**:
+- Returns documentation about search capabilities
+- Content covers search syntax, operators, or features
+- Different from the "overview" topic content
+
+---
+
 ## Success Criteria
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -297,8 +327,10 @@ get_knowledge_health()
 | OBS-010 | Orphan Tag Workflow | `get_orphan_tags` | |
 | OBS-011 | Stale Note Workflow | `get_stale_notes` | |
 | OBS-012 | Health After Operations | `get_knowledge_health` | |
+| OBS-013 | Get Documentation | `get_documentation` | |
+| OBS-014 | Get Documentation (Topic) | `get_documentation` | |
 
-**Pass Rate Required**: 100% (12/12)
+**Pass Rate Required**: 100% (14/14)
 
 ---
 
@@ -313,8 +345,9 @@ get_knowledge_health()
 | `get_tag_cooccurrence` | OBS-005 |
 | `get_notes_timeline` | OBS-006, OBS-007 |
 | `get_notes_activity` | OBS-008, OBS-009 |
+| `get_documentation` | OBS-013, OBS-014 |
 
-**Coverage**: 7/7 observability tools (100%)
+**Coverage**: 8/8 observability tools (100%)
 
 ---
 

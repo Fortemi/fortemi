@@ -256,6 +256,37 @@ purge_note({ id: "<already_deleted_note>" })
 
 ---
 
+### CRUD-018: Restore Deleted Note
+
+**MCP Tool**: `delete_note`, `restore_note`, `get_note`
+
+```javascript
+// Create and soft-delete a note first
+create_note({
+  content: "# Restore Test\n\nThis note will be deleted then restored.",
+  tags: ["uat/restore-test"],
+  revision_mode: "none"
+})
+// => { id: "<note_id>" }
+
+delete_note({ id: "<note_id>" })
+// Verify: Note no longer appears in list_notes
+
+restore_note({ id: "<note_id>" })
+// Restores the soft-deleted note
+
+get_note({ id: "<note_id>" })
+// Note should be accessible again with original content
+```
+
+**Pass Criteria**:
+- `restore_note` succeeds on soft-deleted note
+- Restored note is accessible via `get_note`
+- Original content, tags, and metadata are preserved
+- Note appears in `list_notes` again
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -277,6 +308,7 @@ purge_note({ id: "<already_deleted_note>" })
 | CRUD-015 | Update Metadata | `update_note`, `get_note` | |
 | CRUD-016 | Soft Delete | `delete_note`, `list_notes` | |
 | CRUD-017 | Purge Note | `purge_note` | |
+| CRUD-018 | Restore Deleted Note | `delete_note`, `restore_note`, `get_note` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL (100% required)
 

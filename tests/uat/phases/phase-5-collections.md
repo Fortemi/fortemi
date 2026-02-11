@@ -167,6 +167,29 @@ delete_collection({ id: "<collection_with_notes>" })
 
 ---
 
+### COLL-011: Update Collection
+
+**MCP Tool**: `update_collection`, `get_collection`
+
+```javascript
+// Use a collection created earlier in this phase
+update_collection({
+  id: "<collection_id>",
+  name: "UAT Renamed Collection",
+  description: "Updated description for UAT testing"
+})
+
+get_collection({ id: "<collection_id>" })
+```
+
+**Pass Criteria**:
+- Collection name updated to "UAT Renamed Collection"
+- Description updated to new value
+- Collection ID remains the same
+- `get_collection` confirms changes persisted
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -182,6 +205,7 @@ delete_collection({ id: "<collection_with_notes>" })
 | COLL-009 | Delete Empty Collection | `move_note_to_collection`, `delete_collection` | |
 | COLL-010a | Delete Collection Cascade | `delete_collection` | |
 | COLL-010b | Delete Collection Reject (XFAIL) | `delete_collection` | |
+| COLL-011 | Update Collection | `update_collection`, `get_collection` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

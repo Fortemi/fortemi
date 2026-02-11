@@ -300,6 +300,27 @@ console.log("System health: " + (systemInfo.health?.status || "OK"))
 
 ---
 
+### CLEAN-011: Purge All Notes (Emergency Cleanup)
+
+**Isolation**: Required — destructive test, use only if individual purge fails
+
+**MCP Tool**: `purge_all_notes`
+
+```javascript
+// Only use if individual cleanup (CLEAN-002/003) left orphaned notes
+// This permanently deletes ALL notes — use with extreme caution
+purge_all_notes({ confirm: true })
+```
+
+**Pass Criteria**:
+- All notes permanently removed
+- `list_notes` returns empty result
+- Operation requires explicit `confirm: true` parameter
+
+**Expected: SKIP** — Only execute if CLEAN-002/003 left orphaned UAT data
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -314,6 +335,7 @@ console.log("System health: " + (systemInfo.health?.status || "OK"))
 | CLEAN-008 | Delete Archives | `list_archives`, `delete_archive` | |
 | CLEAN-009 | Verify Cleanup | `list_notes`, `list_collections` | |
 | CLEAN-010 | Final State Check | `memory_info` | |
+| CLEAN-011 | Purge All Notes (Emergency) | `purge_all_notes` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 
@@ -323,7 +345,7 @@ console.log("System health: " + (systemInfo.health?.status || "OK"))
 
 ## Final UAT Summary
 
-After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, compile the final report:
+After completing **ALL 26 phases (0-21, including sub-phases 2b, 2c, 3b, 12b)**, compile the final report:
 
 ```markdown
 # Matric-Memory UAT Final Report
@@ -340,13 +362,13 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 |-------|-------------|--------|--------|-----------|
 | 0 | Pre-flight | X/4 | X | XX% |
 | 1 | Seed Data | X/11 | X | XX% |
-| 2 | CRUD | X/17 | X | XX% |
+| 2 | CRUD | X/18 | X | XX% |
 | 2b | File Attachments | X/24 | X | XX% |
 | 2c | Attachment Processing | X/32 | X | XX% |
 | 3 | Search | X/18 | X | XX% |
 | 3b | Memory Search | X/27 | X | XX% |
 | 4 | Tags | X/11 | X | XX% |
-| 5 | Collections | X/11 | X | XX% |
+| 5 | Collections | X/12 | X | XX% |
 | 6 | Semantic Links | X/13 | X | XX% |
 | 7 | Embeddings | X/20 | X | XX% |
 | 8 | Document Types | X/16 | X | XX% |
@@ -354,16 +376,17 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 | 10 | Templates | X/16 | X | XX% |
 | 11 | Versioning | X/15 | X | XX% |
 | 12 | Archives | X/20 | X | XX% |
-| 13 | SKOS Taxonomy | X/40 | X | XX% |
+| 12b | Multi-Memory | X/19 | X | XX% |
+| 13 | SKOS Taxonomy | X/41 | X | XX% |
 | 14 | PKE Encryption | X/20 | X | XX% |
 | 15 | Jobs & Queue | X/24 | X | XX% |
-| 16 | Observability | X/12 | X | XX% |
-| 17 | OAuth & Auth | X/17 | X | XX% |
+| 16 | Observability | X/14 | X | XX% |
+| 17 | OAuth & Auth | X/22 | X | XX% |
 | 18 | Caching | X/15 | X | XX% |
 | 19 | Feature Chains | X/56 | X | XX% |
-| 20 | Data Export | X/19 | X | XX% |
-| 21 | Final Cleanup | X/10 | X | XX% |
-| **TOTAL** | | **X/484** | **X** | **XX%** |
+| 20 | Data Export | X/24 | X | XX% |
+| 21 | Final Cleanup | X/11 | X | XX% |
+| **TOTAL** | | **X/518** | **X** | **XX%** |
 
 ## Gitea Issues Filed
 | Issue # | Test ID | Title | Severity |
@@ -385,7 +408,7 @@ After completing **ALL 25 phases (0-21, including sub-phases 2b, 2c, 3b)**, comp
 
 ## Checklist Before Closing UAT
 
-- [ ] All 25 phases (0-21, including 2b, 2c, 3b) executed
+- [ ] All 26 phases (0-21, including 2b, 2c, 3b, 12b) executed
 - [ ] Phase 19 (Feature Chains) completed 48 E2E tests
 - [ ] Phase 20 (Data Export) validated backup/export
 - [ ] Phase 21 (Final Cleanup) removed ALL test data

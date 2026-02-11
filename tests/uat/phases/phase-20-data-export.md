@@ -313,6 +313,90 @@ backup_import({
 
 ---
 
+### BACK-020: Get Rate Limit Status
+
+**MCP Tool**: `get_rate_limit_status`
+
+```javascript
+get_rate_limit_status()
+```
+
+**Pass Criteria**:
+- Returns rate limit information
+- Includes remaining requests or limit counters
+- No error on authenticated request
+
+---
+
+### BACK-021: Get Extraction Stats
+
+**MCP Tool**: `get_extraction_stats`
+
+```javascript
+get_extraction_stats()
+```
+
+**Pass Criteria**:
+- Returns extraction pipeline statistics
+- Includes counts or status information
+- Response is well-structured
+
+---
+
+### BACK-022: Export Collection
+
+**MCP Tool**: `export_collection`
+
+```javascript
+// Create a collection with a note first, then export
+export_collection({
+  id: "<collection_id>",
+  include_frontmatter: true,
+  content: "revised"
+})
+```
+
+**Pass Criteria**:
+- Returns collection notes as exported markdown
+- Frontmatter included when `include_frontmatter: true`
+- Content reflects the `revised` version
+
+---
+
+### BACK-023: Swap Backup (Dry Run)
+
+**MCP Tool**: `swap_backup`
+
+```javascript
+swap_backup({
+  filename: "<backup_filename>",
+  dry_run: true,
+  strategy: "wipe"
+})
+```
+
+**Pass Criteria**:
+- Dry run reports what would happen without executing
+- Returns preview of swap operation
+- No data is actually modified
+
+---
+
+### BACK-024: Memory Backup Download
+
+**MCP Tool**: `memory_backup_download`
+
+```javascript
+memory_backup_download({ name: "public" })
+```
+
+**Pass Criteria**:
+- Returns backup data for the specified memory
+- Content is a valid backup format (SQL dump or archive)
+- Response is non-empty
+
+---
+
 ## Phase Summary
 
 | Test ID | Name | MCP Tool(s) | Status |
@@ -336,6 +420,11 @@ backup_import({
 | BACK-017 | Database Restore | `database_restore` | |
 | BACK-018 | Memory Info | `memory_info` | |
 | BACK-019 | Import Conflict Resolution | `backup_import` | |
+| BACK-020 | Get Rate Limit Status | `get_rate_limit_status` | |
+| BACK-021 | Get Extraction Stats | `get_extraction_stats` | |
+| BACK-022 | Export Collection | `export_collection` | |
+| BACK-023 | Swap Backup (Dry Run) | `swap_backup` | |
+| BACK-024 | Memory Backup Download | `memory_backup_download` | |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

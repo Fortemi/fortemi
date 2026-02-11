@@ -315,13 +315,124 @@ search_notes({ query: "tags:uat/auth-test OR tags:uat/auth-purge", limit: 100 })
 
 **MCP Tests**: 13 (agent-perspective)
 **Infrastructure Tests**: 4 (OAuth plumbing)
-**Pass Rate Required**: 95% (16/17)
+**API Key Management Tests**: 5
+
+---
+
+### Part C: API Key Management (MCP)
+
+### AUTH-018: List API Keys
+
+**MCP Tool**: `list_api_keys`
+
+```javascript
+list_api_keys()
+```
+
+**Pass Criteria**:
+- Returns array of API key metadata
+- Key values are NOT returned (only metadata)
+- Each entry has `id`, `name`, `scope`, `created_at`
+
+---
+
+### AUTH-019: Create API Key
+
+**MCP Tool**: `create_api_key`
+
+```javascript
+create_api_key({
+  name: "UAT Test Key",
+  description: "Key created during UAT testing",
+  scope: "read"
+})
+```
+
+**Pass Criteria**:
+- Returns the full key value (starts with `mm_key_`)
+- Returns key `id` (UUID)
+- Key value is returned ONCE (cannot be retrieved again)
+- Record the key ID for AUTH-021
+
+---
+
+### AUTH-020: Verify Key Appears in List
+
+**MCP Tool**: `list_api_keys`
+
+```javascript
+list_api_keys()
+```
+
+**Pass Criteria**:
+- The key created in AUTH-019 appears in the list
+- Key metadata matches (name: "UAT Test Key", scope: "read")
+- The actual key value is NOT shown in the listing
+
+---
+
+### AUTH-021: Revoke API Key
+
+**MCP Tool**: `revoke_api_key`
+
+```javascript
+revoke_api_key({ id: "<key-id-from-AUTH-019>" })
+```
+
+**Pass Criteria**:
+- Key is successfully revoked
+- Key no longer appears in `list_api_keys`
+
+---
+
+### AUTH-022: Revoke Non-Existent Key (Error)
+
+**MCP Tool**: `revoke_api_key`
+
+```javascript
+revoke_api_key({ id: "00000000-0000-0000-0000-000000000000" })
+```
+
+**Pass Criteria**:
+- Returns error for non-existent key ID
+- Error message is descriptive
+
+---
+
+## Phase Summary (Updated)
+
+| Test ID | Name | MCP Tool(s) | Type | Status |
+|---------|------|-------------|------|--------|
+| AUTH-001 | System Info (Authenticated) | `get_system_info` | MCP | |
+| AUTH-002 | Server Version | `get_system_info` | MCP | |
+| AUTH-003 | List Available Tools | Tool listing | MCP | |
+| AUTH-004 | Write Operation (Create) | `create_note` | MCP | |
+| AUTH-005 | Read Operation (Get) | `get_note` | MCP | |
+| AUTH-006 | Update Operation | `update_note` | MCP | |
+| AUTH-007 | Delete Operation | `delete_note` | MCP | |
+| AUTH-008 | Purge with Write Scope | `purge_note` | MCP | |
+| AUTH-009 | Search with Read Scope | `search_notes` | MCP | |
+| AUTH-010 | Backup Status | `backup_status` | MCP | |
+| AUTH-011 | Memory Info | `memory_info` | MCP | |
+| AUTH-012 | Error Handling (Not Auth) | `get_note` | MCP | |
+| AUTH-013 | Health Check (OAuth Active) | `memory_info` | MCP | |
+| AUTH-014 | Client Registration | Infrastructure Test | Infra | |
+| AUTH-015 | Token Issuance | Infrastructure Test | Infra | |
+| AUTH-016 | Token Introspection | Infrastructure Test | Infra | |
+| AUTH-017 | Token Revocation | Infrastructure Test | Infra | |
+| AUTH-018 | List API Keys | `list_api_keys` | MCP | |
+| AUTH-019 | Create API Key | `create_api_key` | MCP | |
+| AUTH-020 | Verify Key in List | `list_api_keys` | MCP | |
+| AUTH-021 | Revoke API Key | `revoke_api_key` | MCP | |
+| AUTH-022 | Revoke Non-Existent (Error) | `revoke_api_key` | MCP | |
+
+**Pass Rate Required**: 95% (21/22)
 
 ---
 
 ## MCP Tools Covered
 
-`search_notes`, `create_note`, `get_note`, `update_note`, `delete_note`, `purge_note`, `backup_status`, `memory_info`
+`search_notes`, `create_note`, `get_note`, `update_note`, `delete_note`, `purge_note`, `backup_status`, `memory_info`, `create_api_key`, `list_api_keys`, `revoke_api_key`
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 

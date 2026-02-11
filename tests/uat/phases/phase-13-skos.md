@@ -704,6 +704,28 @@ export_skos_turtle()  // No scheme_id = all schemes
 
 ---
 
+### SKOS-041: Update Concept Scheme
+
+**MCP Tool**: `update_concept_scheme`, `get_concept_scheme`
+
+```javascript
+update_concept_scheme({
+  id: "<tech_scheme_id>",
+  title: "UAT Renamed Tech Taxonomy",
+  description: "Updated description for UAT testing"
+})
+
+get_concept_scheme({ id: "<tech_scheme_id>" })
+```
+
+**Pass Criteria**:
+- Title updated to "UAT Renamed Tech Taxonomy"
+- Description updated to new value
+- Scheme ID remains the same
+- `get_concept_scheme` confirms changes persisted
+
+---
+
 ## Cleanup
 
 ```javascript
@@ -767,8 +789,9 @@ delete_note({ id: tagged_note_id })
 | SKOS-038 | `remove_related` | | Remove related |
 | SKOS-039 | `export_skos_turtle` | | Export turtle (scheme) |
 | SKOS-040 | `export_skos_turtle` | | Export turtle (all) |
+| SKOS-041 | `update_concept_scheme`, `get_concept_scheme` | | Update concept scheme |
 
-**Pass Rate Required**: 95% (38/40)
+**Pass Rate Required**: 95% (39/41)
 
 ---
 
@@ -779,6 +802,7 @@ delete_note({ id: tagged_note_id })
 | `list_concept_schemes` | SKOS-001 |
 | `create_concept_scheme` | SKOS-002, SKOS-003 |
 | `get_concept_scheme` | SKOS-004 |
+| `update_concept_scheme` | SKOS-041 |
 | `delete_concept_scheme` | SKOS-027 |
 | `create_concept` | SKOS-005, SKOS-006, SKOS-007, SKOS-008, SKOS-018, SKOS-019 |
 | `get_concept` | SKOS-009 |
@@ -810,4 +834,4 @@ delete_note({ id: tagged_note_id })
 | `remove_related` | SKOS-038 |
 | `export_skos_turtle` | SKOS-039, SKOS-040 |
 
-**Coverage**: 33/33 SKOS tools (100%)
+**Coverage**: 34/34 SKOS tools (100%)
