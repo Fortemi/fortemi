@@ -713,10 +713,16 @@ Job types:
 - 'title_generation': Regenerate the note title
 - 'linking': Recalculate semantic links to related notes
 - 'context_update': Add "Related Context" section based on links
+- 'extraction': Run content extraction pipeline on an attachment (text, vision, audio, video, 3D)
+- 'exif_extraction': Extract EXIF metadata from image attachments
+- 'concept_tagging': Auto-tag note with SKOS concepts
+- 're_embed_all': Regenerate all embeddings across all notes
 
 Priority: Higher values run sooner. Default priorities:
 - ai_revision: 8 (highest - should run first)
+- extraction: 7 (gates downstream work)
 - embedding: 5
+- exif_extraction: 5
 - linking: 3
 - title_generation: 2
 - context_update: 1 (lowest - runs after links exist)
@@ -728,9 +734,10 @@ NOTE: For normal operations, prefer create_note/update_note which handle the ful
         note_id: { type: "string", description: "UUID of the note to process" },
         job_type: {
           type: "string",
-          description: "Single processing step to run. Valid types: ai_revision, embedding, linking, context_update, title_generation, concept_tagging, re_embed_all"
+          description: "Single processing step to run. Valid types: ai_revision, embedding, linking, context_update, title_generation, concept_tagging, re_embed_all, extraction, exif_extraction"
         },
         priority: { type: "number", description: "Job priority (higher = sooner)" },
+        payload: { type: "object", description: "Optional JSON payload for the job. Required for extraction jobs: { strategy, attachment_id, filename, mime_type }. Example: { \"strategy\": \"video_multimodal\", \"attachment_id\": \"uuid\", \"filename\": \"clip.mp4\", \"mime_type\": \"video/mp4\" }" },
         deduplicate: { type: "boolean", description: "When true, skip if a pending job with the same note_id+job_type already exists. Returns status 'already_pending' instead of creating a duplicate." },
       },
       required: ["job_type"],
@@ -771,7 +778,7 @@ Common workflows:
         },
         job_type: {
           type: "string",
-          enum: ["ai_revision", "embedding", "linking", "context_update", "title_generation"],
+          enum: ["ai_revision", "embedding", "linking", "context_update", "title_generation", "concept_tagging", "re_embed_all", "extraction", "exif_extraction"],
           description: "Filter by job type"
         },
         note_id: { type: "string", description: "Filter by specific note UUID" },

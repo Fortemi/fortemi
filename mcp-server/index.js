@@ -482,6 +482,7 @@ function createMcpServer() {
             note_id: args.note_id,
             job_type: args.job_type,
             priority: args.priority,
+            payload: args.payload || null,
             deduplicate: args.deduplicate || false,
           });
           break;

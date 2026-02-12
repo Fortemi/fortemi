@@ -7234,6 +7234,8 @@ async fn create_job(
         "title_generation" => JobType::TitleGeneration,
         "concept_tagging" => JobType::ConceptTagging,
         "re_embed_all" => JobType::ReEmbedAll,
+        "extraction" => JobType::Extraction,
+        "exif_extraction" => JobType::ExifExtraction,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",
