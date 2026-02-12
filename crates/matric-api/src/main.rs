@@ -2723,6 +2723,8 @@ struct ActivityQuery {
     since: Option<String>,
     /// Limit number of results (default: 50)
     limit: Option<i64>,
+    /// Comma-separated event types to filter by: created, updated
+    event_types: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2756,6 +2758,14 @@ async fn get_notes_activity(
         .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
 
     let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
+
+    // Parse event_types filter (comma-separated: "created", "updated")
+    let filter_event_types: Option<Vec<String>> = query.event_types.as_ref().map(|et| {
+        et.split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
 
     // Get recently created notes
     let created_req = ListNotesRequest {
@@ -2834,6 +2844,16 @@ async fn get_notes_activity(
 
     // Sort by most recent activity
     let mut entries: Vec<ActivityEntry> = activity.into_values().collect();
+
+    // Apply event_types filter if specified
+    if let Some(ref types) = filter_event_types {
+        let want_created = types.contains(&"created".to_string());
+        let want_updated = types.contains(&"updated".to_string());
+        entries.retain(|e| {
+            (want_created && e.is_recently_created) || (want_updated && e.is_recently_updated)
+        });
+    }
+
     entries.sort_by(|a, b| {
         let a_time = a.updated_at.max(a.created_at);
         let b_time = b.updated_at.max(b.created_at);
@@ -2937,9 +2957,11 @@ async fn get_knowledge_health(
         .filter(|n| !linked_note_ids.contains(&n.id))
         .count();
 
-    // Get orphan tags (used only once)
+    // Get orphan tags (tags with no notes) and notes-without-tags count
     let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
-    let mut tag_counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let orphan_tag_count = all_tags.iter().filter(|t| t.note_count == 0).count();
+
+    // Count notes that have at least one tag
     let mut notes_with_tags: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for note in &all_notes.notes {
         let note_tags = tags_repo
@@ -2949,13 +2971,7 @@ async fn get_knowledge_health(
         if !note_tags.is_empty() {
             notes_with_tags.insert(note.id);
         }
-        for tag in note_tags {
-            *tag_counts.entry(tag).or_insert(0) += 1;
-        }
     }
-    let orphan_tag_count = tag_counts.iter().filter(|(_, &count)| count == 1).count();
-
-    // Get notes without any tags/concepts
     let notes_without_tags = all_notes.notes.len() - notes_with_tags.len();
 
     drop(tx); // read-only, no commit needed
@@ -2975,6 +2991,43 @@ async fn get_knowledge_health(
         100
     };
 
+    // Generate actionable recommendations based on health data
+    let mut recommendations: Vec<serde_json::Value> = Vec::new();
+    if total_notes > 0 {
+        if stale_count > 0 {
+            recommendations.push(serde_json::json!({
+                "type": "stale_notes",
+                "message": format!("{} notes haven't been updated in {} days", stale_count, stale_days),
+                "action": "Review stale notes and update or archive them",
+                "severity": if stale_count as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+            }));
+        }
+        if unlinked_count > 0 {
+            recommendations.push(serde_json::json!({
+                "type": "unlinked_notes",
+                "message": format!("{} notes have no semantic links", unlinked_count),
+                "action": "Use reprocess_note with steps=[\"linking\"] to auto-link isolated notes",
+                "severity": if unlinked_count as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+            }));
+        }
+        if notes_without_tags > 0 {
+            recommendations.push(serde_json::json!({
+                "type": "untagged_notes",
+                "message": format!("{} notes have no tags or concepts", notes_without_tags),
+                "action": "Tag notes with relevant concepts for better discoverability",
+                "severity": if notes_without_tags as f64 / total_notes as f64 > 0.5 { "high" } else { "medium" }
+            }));
+        }
+    }
+    if orphan_tag_count > 0 {
+        recommendations.push(serde_json::json!({
+            "type": "orphan_tags",
+            "message": format!("{} tags are not used by any notes", orphan_tag_count),
+            "action": "Review orphan tags via get_orphan_tags and clean up unused tags",
+            "severity": "low"
+        }));
+    }
+
     Ok(Json(serde_json::json!({
         "health_score": health_score,
         "total_notes": total_notes,
@@ -2984,11 +3037,19 @@ async fn get_knowledge_health(
         "notes_without_tags": notes_without_tags,
         "orphan_tags": orphan_tag_count,
         "total_tags": all_tags.len(),
-        "total_links": all_links.len()
+        "total_links": all_links.len(),
+        "metrics": {
+            "stale_ratio": if total_notes > 0 { stale_count as f64 / total_notes as f64 } else { 0.0 },
+            "unlinked_ratio": if total_notes > 0 { unlinked_count as f64 / total_notes as f64 } else { 0.0 },
+            "untagged_ratio": if total_notes > 0 { notes_without_tags as f64 / total_notes as f64 } else { 0.0 },
+            "tag_coverage": if total_notes > 0 { 1.0 - (notes_without_tags as f64 / total_notes as f64) } else { 1.0 },
+            "link_coverage": if total_notes > 0 { 1.0 - (unlinked_count as f64 / total_notes as f64) } else { 1.0 }
+        },
+        "recommendations": recommendations
     })))
 }
 
-/// Get tags used only once (orphan tags).
+/// Get tags not used by any notes (true orphan tags).
 #[utoipa::path(
     get,
     path = "/api/v1/health/orphan-tags",
@@ -3007,54 +3068,23 @@ async fn get_orphan_tags(
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_LARGE) as usize;
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
-    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
     let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     let mut tx = ctx.begin_tx().await?;
 
-    // Get all notes and their tags
-    let all_notes = notes_repo
-        .list_tx(
-            &mut tx,
-            ListNotesRequest {
-                limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-                offset: None,
-                filter: None,
-                sort_by: None,
-                sort_order: None,
-                collection_id: None,
-                tags: None,
-                created_after: None,
-                created_before: None,
-                updated_after: None,
-                updated_before: None,
-            },
-        )
-        .await?;
-
-    // Count tag usage
-    let mut tag_usage: std::collections::HashMap<String, Vec<Uuid>> =
-        std::collections::HashMap::new();
-    for note in &all_notes.notes {
-        let note_tags = tags_repo
-            .get_for_note_tx(&mut tx, note.id)
-            .await
-            .unwrap_or_default();
-        for tag in note_tags {
-            tag_usage.entry(tag).or_default().push(note.id);
-        }
-    }
+    // list_tx returns all tags with note_count via LEFT JOIN
+    let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
 
     drop(tx);
 
-    // Filter to orphan tags (used exactly once)
-    let orphan_tags: Vec<serde_json::Value> = tag_usage
+    // Filter to true orphan tags (note_count == 0)
+    let orphan_tags: Vec<serde_json::Value> = all_tags
         .into_iter()
-        .filter(|(_, note_ids)| note_ids.len() == 1)
+        .filter(|tag| tag.note_count == 0)
         .take(limit)
-        .map(|(tag, note_ids)| {
+        .map(|tag| {
             serde_json::json!({
-                "tag": tag,
-                "note_id": note_ids[0]
+                "tag": tag.name,
+                "created_at": tag.created_at_utc
             })
         })
         .collect();

@@ -1,22 +1,18 @@
 {
   "active": false,
-  "task": "Fix Issue #320: create_note rejects empty content with 400 error",
-  "completion": "SUCCESS - removed empty content validation from create_note and bulk_create_notes handlers",
-  "maxIterations": 10,
+  "task": "Fix observability handler bugs: #321/#322 (knowledge health schema), #323 (orphan tags), #324 (activity event_types filter)",
+  "completion": "SUCCESS - all 3 fixes applied and verified",
+  "maxIterations": 5,
   "currentIteration": 1,
-  "startTime": "2026-02-12T06:45:00Z",
+  "startTime": "2026-02-12T10:00:00Z",
   "timeoutMinutes": 60,
   "status": "SUCCESS",
   "files_modified": [
     "crates/matric-api/src/main.rs"
   ],
-  "files_deleted": [
-    "crates/matric-api/tests/create_note_empty_content_integration_test.rs",
-    "crates/matric-api/tests/empty_content_validation_test.rs"
-  ],
   "learnings": [
-    "Empty content validation was added for Issue #378 but contradicts UAT Phase 9 EDGE-001a spec",
-    "Both create_note and bulk_create_notes had independent empty content checks that needed removal",
-    "Deleted test files asserted the OLD rejection behavior — they were testing the wrong spec"
+    "#324: ActivityQuery struct was missing event_types field — serde silently ignores unknown query params",
+    "#323: Old orphan detection used note_ids.len() == 1 (singleton) instead of == 0 (orphan); switched to list_tx() which already has note_count via LEFT JOIN",
+    "#321/#322: Added metrics object with ratios and dynamic recommendations array based on health thresholds"
   ]
 }
