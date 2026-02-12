@@ -635,26 +635,29 @@ Document bytes
 
 | Attribute | Value |
 |-----------|-------|
-| External deps | Blender (headless), Vision LLM |
-| Input | `&[u8]` model bytes (GLB, GLTF, OBJ, FBX, STL, PLY) |
+| External deps | Three.js renderer (localhost:8080), Vision LLM |
+| Input | `&[u8]` model bytes (GLB, GLTF, OBJ, STL) |
 | Output | Multi-view descriptions synthesized into composite summary |
-| View count | Configurable (default 8 angles), min 3, max 15 |
+| View count | Configurable (default 6 angles), min 3, max 15 |
 | Timeout | 180s per model (multiple render + vision calls) |
-| Fallback | If Blender unavailable, returns basic file metadata only |
-| Health check | Checks `blender --version` availability |
+| Fallback | If renderer unavailable, returns basic file metadata only |
+| Health check | Checks `RENDERER_URL/health` endpoint |
 
 **Processing flow:**
 
 ```
 3D Model bytes
-  --> write to temp file with detected extension
-  --> Blender headless renders N views:
-        - Equidistant angles on horizontal orbit (e.g., 0°, 45°, 90°, ...)
-        - Optional top/bottom views for complex models
-        - Auto-frame camera to model bounding box
-        - Render to PNG at configurable resolution (default 512x512)
+  --> Send to Three.js renderer via multipart POST:
+        POST {RENDERER_URL}/render
+        - model: binary model data
+        - filename: original filename (for format detection)
+        - num_views: number of angles to render
+  --> Three.js renderer returns multipart response:
+        - N PNG images (512x512)
+        - Equidistant angles on horizontal orbit
+        - Alternating 30°/60° elevation angles
   --> For each rendered view:
-        - Send to vision model with angle context in prompt
+        - Send PNG to vision model with angle context in prompt
         - "Describe this 3D model viewed from {angle}° angle"
   --> Synthesize composite description:
         - Combine all view descriptions

@@ -6,14 +6,18 @@
 
 ---
 
+> **Implementation Note (2026-02-12)**: The production implementation now uses a **lightweight Three.js renderer** (`docker/threejs-renderer/`) instead of Blender. Three.js with headless-gl provides equivalent multi-view rendering at a fraction of the resource cost (~50MB vs 500MB+). The core concepts in this document (view count, camera positioning, vision synthesis) remain valid; only the rendering backend has changed. See `crates/matric-jobs/src/adapters/glb_3d_model.rs` for current implementation.
+
+---
+
 ## Executive Summary
 
 This document synthesizes best practices for understanding 3D models (GLB/glTF format) using multi-view rendering and vision LLMs. The approach renders 3D models from multiple viewpoints, then uses vision models to analyze and compose a unified description.
 
 **Key Recommendations**:
-- **8-12 views** optimal (6 minimum, 15 maximum)
-- **Dodecahedron camera placement** for uniform coverage
-- **Blender Python API** for headless rendering (proven, scriptable)
+- **6-12 views** optimal (3 minimum, 15 maximum)
+- **Equidistant horizontal orbit** with alternating elevation angles
+- **Three.js + headless-gl** for lightweight server-side rendering (replaced Blender)
 - **Hierarchical description composition** from views to unified scene
 - **GLB metadata extraction** to supplement visual analysis
 

@@ -22,15 +22,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   - All video processing goes through attachment pipeline — no ad-hoc base64 API
 
 - **3D Model Understanding** — Multi-view rendering extraction via attachment pipeline
-  - `Glb3DModelAdapter` with Blender headless multi-view rendering + vision model description
+  - `Glb3DModelAdapter` with Three.js headless multi-view rendering + vision model description
   - `ExtractionStrategy::Glb3DModel` variant routes all `model/*` MIME types
-  - Configurable view count (default 8, min 3, max 15) from multiple camera angles
+  - Lightweight Node.js renderer using Three.js + headless-gl (replaces heavyweight Blender)
+  - Configurable view count (default 6, min 3, max 15) from multiple camera angles
   - Composite synthesis: individual view descriptions combined into holistic summary
   - MCP `process_3d_model` guidance tool directs agents to attachment upload workflow
   - MCP documentation topic (`get_documentation({ topic: "3d-models" })`)
   - `get_system_info` reports 3D model extraction status (`extraction.3d_model`)
-  - Requires Blender in PATH + vision backend (`OLLAMA_VISION_MODEL`)
-  - UAT Phase 2G with 10 test cases (5 always-execute, 5 conditional on Blender + vision)
+  - Bundled Three.js renderer at `RENDERER_URL` (default: localhost:8080) + vision backend
+  - UAT Phase 2G with 10 test cases (5 always-execute, 5 conditional on renderer + vision)
   - All 3D model processing goes through attachment pipeline — no ad-hoc base64 API
 
 - **Audio Transcription** — Ad-hoc audio transcription via Whisper-compatible backend
