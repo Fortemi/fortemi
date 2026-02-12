@@ -165,10 +165,19 @@ fn claimed_is_binary(claimed: &str) -> bool {
     )
 }
 
-/// Map common text/code extensions to MIME types (formats without magic bytes).
+/// Map TEXT-ONLY extensions to MIME types (formats that genuinely lack magic bytes).
+///
+/// IMPORTANT: Binary media formats (image/*, audio/*, video/*) are intentionally
+/// excluded. These formats have well-defined magic bytes, so if `infer::get()`
+/// fails to detect them, the file content doesn't match the extension and should
+/// be downgraded to `application/octet-stream`. Only text/code formats are safe
+/// to trust by extension alone since they have no magic byte signatures.
+///
+/// See: https://github.com/bojand/infer - magic byte detection is authoritative
+/// for binary formats; extension-only detection defeats the mismatch guard.
 fn mime_from_extension(ext: &str) -> Option<&'static str> {
     match ext.to_lowercase().as_str() {
-        // Text
+        // Plain text
         "txt" => Some("text/plain"),
         "csv" => Some("text/csv"),
         "tsv" => Some("text/tab-separated-values"),
@@ -183,7 +192,7 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "md" | "markdown" => Some("text/markdown"),
         "rst" => Some("text/x-rst"),
         "tex" | "latex" => Some("application/x-tex"),
-        // Code
+        // Code (all text-based, no magic bytes)
         "rs" => Some("text/x-rust"),
         "py" => Some("text/x-python"),
         "js" | "mjs" | "cjs" => Some("text/javascript"),
@@ -203,41 +212,18 @@ fn mime_from_extension(ext: &str) -> Option<&'static str> {
         "r" => Some("text/x-r"),
         "lua" => Some("text/x-lua"),
         "pl" | "pm" => Some("text/x-perl"),
-        // Config
+        // Config files (all text-based)
         "ini" | "cfg" | "conf" => Some("text/plain"),
         "env" => Some("text/plain"),
         "gitignore" | "dockerignore" => Some("text/plain"),
         "dockerfile" => Some("text/plain"),
         "makefile" => Some("text/plain"),
-        // Audio (extension fallback when magic bytes are absent/unrecognized)
-        "mp3" => Some("audio/mpeg"),
-        "wav" => Some("audio/wav"),
-        "ogg" | "oga" => Some("audio/ogg"),
-        "flac" => Some("audio/flac"),
-        "aac" => Some("audio/aac"),
-        "m4a" => Some("audio/mp4"),
-        "wma" => Some("audio/x-ms-wma"),
-        "opus" => Some("audio/opus"),
-        "aiff" | "aif" => Some("audio/aiff"),
-        // Video
-        "mp4" | "m4v" => Some("video/mp4"),
-        "avi" => Some("video/x-msvideo"),
-        "mov" => Some("video/quicktime"),
-        "mkv" => Some("video/x-matroska"),
-        "webm" => Some("video/webm"),
-        "wmv" => Some("video/x-ms-wmv"),
-        "flv" => Some("video/x-flv"),
-        // Image
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "png" => Some("image/png"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
+        // SVG is text-based XML (safe to trust by extension)
         "svg" => Some("image/svg+xml"),
-        "bmp" => Some("image/bmp"),
-        "ico" => Some("image/x-icon"),
-        "tiff" | "tif" => Some("image/tiff"),
-        "heic" | "heif" => Some("image/heif"),
-        "avif" => Some("image/avif"),
+        // NOTE: Binary media formats (jpg, png, gif, mp3, mp4, etc.) are
+        // INTENTIONALLY EXCLUDED. These have magic bytes and must be validated
+        // via infer::get(). If magic bytes don't match, the file is garbage
+        // and should get application/octet-stream, not the claimed media type.
         _ => None,
     }
 }
@@ -343,20 +329,22 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_trusts_extension_for_media_jpeg() {
-        // When magic bytes fail but extension is a known media format,
-        // mime_from_extension returns the correct MIME so the file gets
-        // the right extraction strategy (e.g. Vision for JPEG).
+    fn test_detect_rejects_garbage_with_jpeg_extension() {
+        // When magic bytes fail for a binary format, the file is garbage.
+        // Even with .jpg extension and image/jpeg claim, if magic bytes don't
+        // match JPEG signature (0xFF 0xD8 0xFF), downgrade to octet-stream.
+        // This prevents sending garbage to vision models.
         let garbage = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33];
         let result = detect_content_type("photo.jpg", &garbage, "image/jpeg");
-        assert_eq!(result, "image/jpeg");
+        assert_eq!(result, "application/octet-stream");
     }
 
     #[test]
-    fn test_detect_trusts_extension_for_media_png() {
+    fn test_detect_rejects_garbage_with_png_extension() {
+        // Same for PNG - if magic bytes (0x89 PNG) don't match, reject.
         let garbage = b"this is not a png file at all";
         let result = detect_content_type("image.png", garbage, "image/png");
-        assert_eq!(result, "image/png");
+        assert_eq!(result, "application/octet-stream");
     }
 
     #[test]
@@ -367,12 +355,13 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_trusts_extension_for_media_audio() {
-        // Audio files should get audio MIME from extension even when
-        // magic bytes aren't recognized, so they get AudioTranscribe strategy.
+    fn test_detect_rejects_garbage_with_mp3_extension() {
+        // Audio files must have valid magic bytes (ID3 tag or MP3 sync bytes).
+        // Random data with .mp3 extension should be downgraded, not sent to
+        // transcription which would fail and waste resources.
         let garbage = b"random noise data";
         let result = detect_content_type("song.mp3", garbage, "audio/mpeg");
-        assert_eq!(result, "audio/mpeg");
+        assert_eq!(result, "application/octet-stream");
     }
 
     #[test]
@@ -380,6 +369,18 @@ mod tests {
         // text/* claims without magic bytes should pass through
         let result = detect_content_type("data.xyz", b"some text", "text/plain");
         assert_eq!(result, "text/plain");
+    }
+
+    #[test]
+    fn test_detect_svg_by_extension() {
+        // SVG is text-based XML, so it's safe to trust by extension
+        // (it has no binary magic bytes, just XML declaration)
+        let result = detect_content_type(
+            "icon.svg",
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            "application/octet-stream",
+        );
+        assert_eq!(result, "image/svg+xml");
     }
 
     #[test]
