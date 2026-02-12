@@ -3413,14 +3413,6 @@ async fn create_note(
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
 
-    // Issue #378: Validate empty content
-    let has_empty_content = body.content.trim().is_empty();
-
-    // Reject empty content (Issue #378)
-    if has_empty_content {
-        return Err(ApiError::BadRequest("Content is required".to_string()));
-    }
-
     let req = CreateNoteRequest {
         content: body.content,
         format: body.format.unwrap_or_else(|| "markdown".to_string()),
@@ -3602,14 +3594,8 @@ async fn bulk_create_notes(
         ));
     }
 
-    // Issue #376: Validate content in each note (ensures UTF-8 correctness and non-empty)
+    // Validate tags in each note
     for (i, note) in body.notes.iter().enumerate() {
-        if note.content.trim().is_empty() {
-            return Err(ApiError::BadRequest(format!(
-                "Note at index {} has empty content",
-                i
-            )));
-        }
         // Validate tag depth and length (fixes #193, #189)
         if let Some(ref tags) = note.tags {
             for tag in tags {
