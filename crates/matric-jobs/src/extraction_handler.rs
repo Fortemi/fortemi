@@ -95,9 +95,15 @@ impl JobHandler for ExtractionHandler {
 
         // Check adapter availability
         if !self.registry.has_adapter(strategy) {
+            let available: Vec<String> = self
+                .registry
+                .available_strategies()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             return JobResult::Failed(format!(
-                "No adapter registered for strategy: {:?}",
-                strategy
+                "No adapter registered for strategy: {:?}. Available strategies: {:?}",
+                strategy, available
             ));
         }
 

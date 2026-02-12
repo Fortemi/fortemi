@@ -590,33 +590,32 @@ function createMcpServer() {
                 dimension: embeddingDimension,
               },
               extraction: {
+                registered_strategies: health.capabilities?.extraction_strategies ?? [],
                 vision: {
-                  enabled: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
+                  enabled: (health.capabilities?.extraction_strategies ?? []).includes("vision"),
                   model: process.env.OLLAMA_VISION_MODEL || null,
                   provider: "Ollama",
                 },
                 audio: {
-                  enabled: health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL,
+                  enabled: (health.capabilities?.extraction_strategies ?? []).includes("audio_transcribe"),
                   provider: process.env.WHISPER_BASE_URL ? "Whisper" : null,
                 },
                 video: {
-                  enabled: (health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL) || (health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL),
-                  keyframe_description: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
-                  audio_transcription: health.capabilities?.audio_transcription ?? !!process.env.WHISPER_BASE_URL,
-                  requires: "ffmpeg in PATH",
+                  enabled: (health.capabilities?.extraction_strategies ?? []).includes("video_multimodal"),
+                  requires: "ffmpeg in PATH + OLLAMA_VISION_MODEL",
                 },
                 "3d_model": {
-                  enabled: health.capabilities?.vision ?? !!process.env.OLLAMA_VISION_MODEL,
+                  enabled: (health.capabilities?.extraction_strategies ?? []).includes("glb_3d_model"),
                   renderer: "blender (headless)",
                   vision_model: process.env.OLLAMA_VISION_MODEL || null,
                   requires: "Blender + OLLAMA_VISION_MODEL",
                 },
                 ocr: {
-                  enabled: process.env.OCR_ENABLED === "true" || process.env.OCR_ENABLED === "1",
+                  enabled: (health.capabilities?.extraction_strategies ?? []).includes("pdf_ocr"),
                 },
-                text_native: { enabled: true },
-                code_ast: { enabled: true },
-                structured_extract: { enabled: true },
+                text_native: { enabled: (health.capabilities?.extraction_strategies ?? []).includes("text_native") },
+                code_ast: { enabled: (health.capabilities?.extraction_strategies ?? []).includes("code_ast") },
+                structured_extract: { enabled: (health.capabilities?.extraction_strategies ?? []).includes("structured_extract") },
               },
             },
             stats: {
