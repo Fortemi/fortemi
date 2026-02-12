@@ -95,7 +95,14 @@ async function apiRequest(method, path, body = null) {
   if (response.status === 204) return null;
   const text = await response.text();
   if (!text || text.trim() === '') return null;
-  return JSON.parse(text);
+
+  // Check Content-Type to handle non-JSON responses (e.g., markdown exports)
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return JSON.parse(text);
+  }
+  // Return raw text for non-JSON responses (text/markdown, text/plain, etc.)
+  return text;
 }
 
 // Format bytes to human-readable string (e.g., "1.23 GB")
