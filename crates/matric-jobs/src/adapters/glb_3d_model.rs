@@ -413,7 +413,7 @@ fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedV
         };
 
         // Verify PNG magic bytes
-        if image_bytes.len() < 8 || &image_bytes[0..4] != &[0x89, 0x50, 0x4E, 0x47] {
+        if image_bytes.len() < 8 || image_bytes[0..4] != [0x89, 0x50, 0x4E, 0x47] {
             warn!(index, "Invalid PNG data in multipart response");
             continue;
         }
