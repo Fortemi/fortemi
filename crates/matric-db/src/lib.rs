@@ -46,6 +46,7 @@ pub mod memory_search;
 pub mod notes;
 pub mod oauth;
 pub mod pke_keys;
+pub mod pke_keysets;
 pub mod pool;
 pub mod provenance;
 pub mod schema_context;
@@ -109,6 +110,9 @@ pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};
 pub use oauth::PgOAuthRepository;
 pub use pke_keys::{PgPkeKeyRepository, PkePublicKey};
+pub use pke_keysets::{
+    CreateKeysetRequest, ExportedKeyset, PgPkeKeysetRepository, PkeKeyset, PkeKeysetSummary,
+};
 pub use pool::{create_pool, create_pool_with_config, log_pool_metrics, PoolConfig};
 pub use provenance::PgProvenanceRepository;
 pub use schema_context::SchemaContext;
@@ -179,6 +183,8 @@ pub struct Database {
     pub webhooks: PgWebhookRepository,
     /// PKE public key registry (Issue #113).
     pub pke_keys: PgPkeKeyRepository,
+    /// PKE keyset repository for REST API (Issues #328, #332).
+    pub pke_keysets: PgPkeKeysetRepository,
 }
 
 impl Database {
@@ -208,6 +214,7 @@ impl Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
+            pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             pool,
         }
     }
@@ -359,6 +366,7 @@ impl Clone for Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
+            pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
         }
     }
 }

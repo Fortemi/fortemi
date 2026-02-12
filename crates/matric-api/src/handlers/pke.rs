@@ -368,3 +368,381 @@ pub async fn pke_verify(Path(address): Path<String>) -> Json<PkeVerifyResponse> 
         }),
     }
 }
+
+// =============================================================================
+// KEYSET MANAGEMENT HANDLERS (Issues #328, #332)
+// =============================================================================
+
+use crate::AppState;
+use axum::extract::State;
+use matric_db::{CreateKeysetRequest, ExportedKeyset};
+use uuid::Uuid;
+
+#[derive(Debug, Deserialize)]
+pub struct CreateKeysetApiRequest {
+    pub name: String,
+    pub passphrase: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct KeysetResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub address: String,
+    pub label: Option<String>,
+    pub is_active: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveKeysetResponse {
+    pub active: bool,
+    pub keyset: Option<KeysetResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportKeysetRequest {
+    pub name: String,
+    pub exported: ExportedKeyset,
+}
+
+/// List all PKE keysets.
+///
+/// GET /api/v1/pke/keysets
+#[utoipa::path(get, path = "/api/v1/pke/keysets", tag = "PKE",
+    responses((status = 200, description = "Success")))]
+pub async fn list_keysets(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let keysets = state.db.pke_keysets.list().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "database_error",
+                "error_description": format!("Failed to list keysets: {}", e)
+            })),
+        )
+    })?;
+
+    let response: Vec<KeysetResponse> = keysets
+        .into_iter()
+        .map(|k| KeysetResponse {
+            id: k.id,
+            name: k.name,
+            address: k.address,
+            label: k.label,
+            is_active: k.is_active,
+            created_at: k.created_at,
+        })
+        .collect();
+
+    Ok(Json(response))
+}
+
+/// Create a new PKE keyset.
+///
+/// POST /api/v1/pke/keysets
+#[utoipa::path(post, path = "/api/v1/pke/keysets", tag = "PKE",
+    request_body = CreateKeysetApiRequest,
+    responses((status = 201, description = "Created")))]
+pub async fn create_keyset(
+    State(state): State<AppState>,
+    Json(req): Json<CreateKeysetApiRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    use matric_crypto::pke::{key_storage, Keypair};
+
+    // Generate new keypair
+    let keypair = Keypair::generate();
+    let address = keypair.public.to_address();
+
+    // Encode public key
+    let public_key = keypair.public.as_bytes().to_vec();
+
+    // Encrypt private key with passphrase
+    let encrypted_private_key =
+        key_storage::encrypt_private_key(keypair.private.as_bytes(), &req.passphrase).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "encryption_failed",
+                        "error_description": format!("Failed to encrypt private key: {}", e)
+                    })),
+                )
+            },
+        )?;
+
+    // Store in database
+    let keyset = state
+        .db
+        .pke_keysets
+        .create(CreateKeysetRequest {
+            name: req.name,
+            public_key,
+            encrypted_private_key,
+            address: address.to_string(),
+            label: req.label,
+        })
+        .await
+        .map_err(|e| {
+            let (status, error) = match &e {
+                matric_core::Error::InvalidInput(_) => (StatusCode::CONFLICT, "keyset_exists"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
+            };
+            (
+                status,
+                Json(serde_json::json!({
+                    "error": error,
+                    "error_description": format!("{}", e)
+                })),
+            )
+        })?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(KeysetResponse {
+            id: keyset.id,
+            name: keyset.name,
+            address: keyset.address,
+            label: keyset.label,
+            is_active: false,
+            created_at: keyset.created_at,
+        }),
+    ))
+}
+
+/// Get the active PKE keyset.
+///
+/// GET /api/v1/pke/keysets/active
+#[utoipa::path(get, path = "/api/v1/pke/keysets/active", tag = "PKE",
+    responses((status = 200, description = "Success")))]
+pub async fn get_active_keyset(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let keyset = state.db.pke_keysets.get_active().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "database_error",
+                "error_description": format!("Failed to get active keyset: {}", e)
+            })),
+        )
+    })?;
+
+    Ok(Json(ActiveKeysetResponse {
+        active: keyset.is_some(),
+        keyset: keyset.map(|k| KeysetResponse {
+            id: k.id,
+            name: k.name.clone(),
+            address: k.address,
+            label: k.label,
+            is_active: true,
+            created_at: k.created_at,
+        }),
+    }))
+}
+
+/// Set the active PKE keyset by name or ID.
+///
+/// PUT /api/v1/pke/keysets/:name_or_id/active
+#[utoipa::path(put, path = "/api/v1/pke/keysets/{name_or_id}/active", tag = "PKE",
+    params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
+    responses((status = 200, description = "Success")))]
+pub async fn set_active_keyset(
+    State(state): State<AppState>,
+    Path(name_or_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    // Try to parse as UUID first, otherwise treat as name
+    let keyset = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
+        state.db.pke_keysets.get_by_id(uuid).await
+    } else {
+        state.db.pke_keysets.get_by_name(&name_or_id).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "database_error",
+                "error_description": format!("Failed to get keyset: {}", e)
+            })),
+        )
+    })?;
+
+    let keyset = keyset.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "error_description": format!("Keyset '{}' not found", name_or_id)
+            })),
+        )
+    })?;
+
+    state
+        .db
+        .pke_keysets
+        .set_active(keyset.id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "database_error",
+                    "error_description": format!("Failed to set active keyset: {}", e)
+                })),
+            )
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "active_keyset": keyset.name
+    })))
+}
+
+/// Delete a PKE keyset by name or ID.
+///
+/// DELETE /api/v1/pke/keysets/:name_or_id
+#[utoipa::path(delete, path = "/api/v1/pke/keysets/{name_or_id}", tag = "PKE",
+    params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
+    responses((status = 200, description = "Success")))]
+pub async fn delete_keyset(
+    State(state): State<AppState>,
+    Path(name_or_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    // Try to parse as UUID first, otherwise treat as name
+    let deleted = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
+        state.db.pke_keysets.delete(uuid).await
+    } else {
+        state.db.pke_keysets.delete_by_name(&name_or_id).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "database_error",
+                "error_description": format!("Failed to delete keyset: {}", e)
+            })),
+        )
+    })?;
+
+    if deleted {
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "deleted": name_or_id
+        })))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "error_description": format!("Keyset '{}' not found", name_or_id)
+            })),
+        ))
+    }
+}
+
+/// Export a PKE keyset by name or ID.
+///
+/// GET /api/v1/pke/keysets/:name_or_id/export
+#[utoipa::path(get, path = "/api/v1/pke/keysets/{name_or_id}/export", tag = "PKE",
+    params(("name_or_id" = String, Path, description = "Keyset name or UUID")),
+    responses((status = 200, description = "Success")))]
+pub async fn export_keyset(
+    State(state): State<AppState>,
+    Path(name_or_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    // Try to parse as UUID first, otherwise treat as name
+    let keyset = if let Ok(uuid) = Uuid::parse_str(&name_or_id) {
+        state.db.pke_keysets.get_by_id(uuid).await
+    } else {
+        state.db.pke_keysets.get_by_name(&name_or_id).await
+    }
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "database_error",
+                "error_description": format!("Failed to get keyset: {}", e)
+            })),
+        )
+    })?;
+
+    let keyset = keyset.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "error_description": format!("Keyset '{}' not found", name_or_id)
+            })),
+        )
+    })?;
+
+    let exported = state
+        .db
+        .pke_keysets
+        .export(keyset.id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "database_error",
+                    "error_description": format!("Failed to export keyset: {}", e)
+                })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": "not_found",
+                    "error_description": format!("Keyset '{}' not found", name_or_id)
+                })),
+            )
+        })?;
+
+    Ok(Json(exported))
+}
+
+/// Import a PKE keyset.
+///
+/// POST /api/v1/pke/keysets/import
+#[utoipa::path(post, path = "/api/v1/pke/keysets/import", tag = "PKE",
+    request_body = ImportKeysetRequest,
+    responses((status = 201, description = "Created")))]
+pub async fn import_keyset(
+    State(state): State<AppState>,
+    Json(req): Json<ImportKeysetRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let keyset = state
+        .db
+        .pke_keysets
+        .import(req.name, req.exported)
+        .await
+        .map_err(|e| {
+            let (status, error) = match &e {
+                matric_core::Error::InvalidInput(_) => (StatusCode::BAD_REQUEST, "invalid_input"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
+            };
+            (
+                status,
+                Json(serde_json::json!({
+                    "error": error,
+                    "error_description": format!("{}", e)
+                })),
+            )
+        })?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(KeysetResponse {
+            id: keyset.id,
+            name: keyset.name,
+            address: keyset.address,
+            label: keyset.label,
+            is_active: false,
+            created_at: keyset.created_at,
+        }),
+    ))
+}

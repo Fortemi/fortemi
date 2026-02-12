@@ -1,18 +1,23 @@
 {
   "active": false,
-  "task": "Fix observability handler bugs: #321/#322 (knowledge health schema), #323 (orphan tags), #324 (activity event_types filter)",
-  "completion": "SUCCESS - all 3 fixes applied and verified",
+  "task": "Fix issues #325 (search tag filtering), #326, #327, #328 (PKE REST API), #329-#331 (embedding sets), #332 (PKE tools mirror)",
+  "completion": "SUCCESS - All issues addressed: #325 fixed (tags field), #326/#327 closed (user error), #328/#332 fixed (PKE keyset REST API), #329-#331 fixed (embedding sets)",
   "maxIterations": 5,
-  "currentIteration": 1,
-  "startTime": "2026-02-12T10:00:00Z",
+  "currentIteration": 2,
+  "startTime": "2026-02-12T07:44:00Z",
   "timeoutMinutes": 60,
   "status": "SUCCESS",
   "files_modified": [
-    "crates/matric-api/src/main.rs"
+    "crates/matric-api/src/main.rs",
+    "crates/matric-api/src/handlers/pke.rs",
+    "crates/matric-db/src/pke_keysets.rs"
   ],
   "learnings": [
-    "#324: ActivityQuery struct was missing event_types field — serde silently ignores unknown query params",
-    "#323: Old orphan detection used note_ids.len() == 1 (singleton) instead of == 0 (orphan); switched to list_tx() which already has note_count via LEFT JOIN",
-    "#321/#322: Added metrics object with ratios and dynamic recommendations array based on health thresholds"
+    "#325: SearchQuery struct was missing `tags` field — serde silently ignores unknown query params so tag filtering was completely bypassed",
+    "#326: NOT A BUG — UAT tester used /api/v1/skos/schemes (404) instead of correct /api/v1/concepts/schemes. Full SKOS REST API exists.",
+    "#327: NOT A BUG — Two upload endpoints exist by design: /attachments (JSON+base64) and /attachments/upload (multipart/form-data). Tester used wrong endpoint.",
+    "#328/#332: PKE keyset REST API wired - 7 endpoints added to mirror MCP tools. Uses DB storage vs filesystem for MCP.",
+    "Axum State extraction: Use State<AppState> not State<Arc<AppState>> - the Arc is already inside AppState",
+    "matric_core::Error has InvalidInput variant, not Validation - test assertion needed update"
   ]
 }

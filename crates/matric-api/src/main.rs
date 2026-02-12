@@ -292,7 +292,11 @@ use handlers::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
     },
-    pke::{pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients, pke_verify},
+    pke::{
+        create_keyset, delete_keyset, export_keyset, get_active_keyset, import_keyset,
+        list_keysets, pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients,
+        pke_verify, set_active_keyset,
+    },
     provenance::{
         create_file_provenance, create_named_location, create_note_provenance, create_prov_device,
         create_prov_location,
@@ -1244,6 +1248,25 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/pke/decrypt", post(pke_decrypt))
         .route("/api/v1/pke/recipients", post(pke_recipients))
         .route("/api/v1/pke/verify/:address", get(pke_verify))
+        // PKE Keysets (REST API keyset management - Issues #328, #332)
+        .route(
+            "/api/v1/pke/keysets",
+            get(list_keysets).post(create_keyset),
+        )
+        .route("/api/v1/pke/keysets/active", get(get_active_keyset))
+        .route("/api/v1/pke/keysets/import", post(import_keyset))
+        .route(
+            "/api/v1/pke/keysets/:name_or_id",
+            delete(delete_keyset),
+        )
+        .route(
+            "/api/v1/pke/keysets/:name_or_id/active",
+            put(set_active_keyset),
+        )
+        .route(
+            "/api/v1/pke/keysets/:name_or_id/export",
+            get(export_keyset),
+        )
         // Tags (legacy)
         .route("/api/v1/tags", get(list_tags))
         // SKOS Concept Schemes
@@ -6501,6 +6524,8 @@ struct SearchQuery {
     updated_before: Option<chrono::DateTime<chrono::Utc>>,
     /// Relative time filter: "7d" (7 days), "1w" (1 week), "1m" (1 month), "2h" (2 hours)
     since: Option<String>,
+    /// Filter by tags (comma-separated). Notes must have ALL specified tags.
+    tags: Option<String>,
     /// Strict tag filter for SKOS-based filtering (JSON string).
     /// Example: {"required_tags":["tag1"],"excluded_tags":["tag2"]}
     #[serde(default)]
@@ -6533,6 +6558,7 @@ async fn search_notes(
     // Generate cache key (before expensive operations)
     // Only cache pure text queries without strict filters or temporal filters
     let cache_key = if query.strict_filter.is_none()
+        && query.tags.is_none()
         && query.created_after.is_none()
         && query.created_before.is_none()
         && query.updated_after.is_none()
@@ -6590,7 +6616,21 @@ async fn search_notes(
         .with_limit(limit)
         .with_config(config);
 
-    if let Some(filters) = &query.filters {
+    // Merge tags param into filters (comma-separated tags → "tag:x tag:y" format)
+    let merged_filters = {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(ref filters) = query.filters {
+            parts.push(filters.clone());
+        }
+        if let Some(ref tags_str) = query.tags {
+            for tag in tags_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                parts.push(format!("tag:{}", tag));
+            }
+        }
+        if parts.is_empty() { None } else { Some(parts.join(" ")) }
+    };
+
+    if let Some(filters) = &merged_filters {
         request = request.with_filters(filters);
     }
 
@@ -6966,21 +7006,26 @@ async fn list_embedding_sets(
     Ok(Json(sets))
 }
 
-/// Get an embedding set by slug
+/// Get an embedding set by slug or ID
 #[utoipa::path(get, path = "/api/v1/embedding-sets/{slug}", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 200, description = "Success")))]
 async fn get_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-    let set = ctx
-        .query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug).await }))
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?;
+    // Try to parse as UUID first, then fall back to slug
+    let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, id).await }))
+            .await?
+    } else {
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_or_id).await }))
+            .await?
+    };
+    let set = set.ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?;
     Ok(Json(set))
 }
 
@@ -6992,6 +7037,24 @@ async fn create_embedding_set(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Validate truncate_dim is positive if provided
+    if let Some(dim) = body.truncate_dim {
+        if dim <= 0 {
+            return Err(ApiError::BadRequest(
+                "truncate_dim must be a positive integer".to_string(),
+            ));
+        }
+    }
+    // Validate embedding_config_id exists if provided
+    if let Some(config_id) = body.embedding_config_id {
+        let config = state.db.embedding_sets.get_config(config_id).await?;
+        if config.is_none() {
+            return Err(ApiError::BadRequest(format!(
+                "embedding_config_id '{}' does not exist",
+                config_id
+            )));
+        }
+    }
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     let set = ctx
@@ -7002,16 +7065,26 @@ async fn create_embedding_set(
 
 /// Update an embedding set
 #[utoipa::path(patch, path = "/api/v1/embedding-sets/{slug}", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 204, description = "Success")))]
 async fn update_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
     Json(body): Json<UpdateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    // Resolve to actual slug first (needed for update_tx which uses slug)
+    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
+            .slug
+    } else {
+        slug_or_id
+    };
     let set = ctx
         .execute(move |tx| Box::pin(async move { repo.update_tx(tx, &slug, body).await }))
         .await?;
@@ -7020,15 +7093,25 @@ async fn update_embedding_set(
 
 /// Delete an embedding set (not allowed for system sets)
 #[utoipa::path(delete, path = "/api/v1/embedding-sets/{slug}", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 204, description = "Success")))]
 async fn delete_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    // Resolve to actual slug first (needed for delete_tx which uses slug)
+    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
+            .slug
+    } else {
+        slug_or_id
+    };
     ctx.execute(move |tx| Box::pin(async move { repo.delete_tx(tx, &slug).await }))
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -7042,12 +7125,12 @@ struct ListMembersQuery {
 
 /// List members of an embedding set
 #[utoipa::path(get, path = "/api/v1/embedding-sets/{slug}/members", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 200, description = "Success")))]
 async fn list_embedding_set_members(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
     Query(query): Query<ListMembersQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query
@@ -7056,6 +7139,16 @@ async fn list_embedding_set_members(
     let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    // Resolve to actual slug first
+    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
+            .slug
+    } else {
+        slug_or_id
+    };
     let members = ctx
         .query(move |tx| {
             Box::pin(async move { repo.list_members_tx(tx, &slug, limit, offset).await })
@@ -7066,16 +7159,26 @@ async fn list_embedding_set_members(
 
 /// Add notes to an embedding set
 #[utoipa::path(post, path = "/api/v1/embedding-sets/{slug}/members", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 201, description = "Success")))]
 async fn add_embedding_set_members(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
     Json(body): Json<AddMembersRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    // Resolve to actual slug first
+    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
+            .slug
+    } else {
+        slug_or_id
+    };
     let count = ctx
         .execute(move |tx| Box::pin(async move { repo.add_members_tx(tx, &slug, body).await }))
         .await?;
@@ -7085,17 +7188,27 @@ async fn add_embedding_set_members(
 /// Remove a note from an embedding set
 #[utoipa::path(delete, path = "/api/v1/embedding-sets/{slug}/members/{note_id}", tag = "Embeddings",
     params(
-        ("slug" = String, Path, description = "Embedding set slug"),
+        ("slug" = String, Path, description = "Embedding set slug or UUID"),
         ("note_id" = Uuid, Path, description = "Note ID")
     ),
     responses((status = 204, description = "Success")))]
 async fn remove_embedding_set_member(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path((slug, note_id)): Path<(String, Uuid)>,
+    Path((slug_or_id, note_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    // Resolve to actual slug first
+    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
+            .await?
+            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
+            .slug
+    } else {
+        slug_or_id
+    };
     let removed = ctx
         .execute(move |tx| Box::pin(async move { repo.remove_member_tx(tx, &slug, note_id).await }))
         .await?;
@@ -7110,21 +7223,27 @@ async fn remove_embedding_set_member(
 
 /// Refresh an embedding set by re-evaluating criteria
 #[utoipa::path(post, path = "/api/v1/embedding-sets/{slug}/refresh", tag = "Embeddings",
-    params(("slug" = String, Path, description = "Embedding set slug")),
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
     responses((status = 200, description = "Success")))]
 async fn refresh_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
-    Path(slug): Path<String>,
+    Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     // First check the mode within the archive schema
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-    let slug_clone = slug.clone();
-    let set = ctx
-        .query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_clone).await }))
-        .await?
-        .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug)))?;
+    // Resolve to embedding set by ID or slug
+    let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, id).await }))
+            .await?
+    } else {
+        let slug_clone = slug_or_id.clone();
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_clone).await }))
+            .await?
+    };
+    let set = set.ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug_or_id)))?;
+    let slug = set.slug.clone();
 
     if set.mode == matric_core::EmbeddingSetMode::Manual {
         // Manual sets: queue a re-embed job (jobs are global, not per-schema)
