@@ -1889,6 +1889,13 @@ function createMcpServer() {
 
         case "set_default_archive": {
           await apiRequest("POST", `/api/v1/archives/${args.name}/set-default`);
+          // Also sync the session memory to the new default (Issue #316)
+          // This ensures subsequent MCP calls target the new default archive
+          const store = tokenStorage.getStore();
+          const sessionId = store?.sessionId;
+          if (sessionId) {
+            sessionMemories.set(sessionId, args.name);
+          }
           result = { success: true, default_archive: args.name };
           break;
         }

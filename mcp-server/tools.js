@@ -3688,9 +3688,11 @@ This operation cannot be undone.
 
   {
     name: "set_default_archive",
-    description: `Set an archive as the default.
+    description: `Set an archive as the default and switch to it for this session.
 
 The default archive is used when no specific archive is specified in operations. Only one archive can be default at a time.
+
+This also sets the active memory for this MCP session, ensuring subsequent operations target the new default archive. This is equivalent to calling set_default_archive followed by select_memory.
 
 **Parameters:**
 - name: Archive name to set as default

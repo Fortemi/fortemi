@@ -250,4 +250,59 @@ describe("Phase 12: Memory Archives", () => {
     assert.ok(archive.is_default !== undefined, "Should have is_default field");
     // Other fields may be present: id, schema_name, description, created_at, note_count, size_bytes
   });
+
+  test("ARCH-020: set_default_archive syncs session memory (Issue #316)", async () => {
+    // Create a dedicated archive for this test
+    const archiveName = `arch316-${MCPTestClient.uniqueId()}`;
+    await client.callTool("create_archive", {
+      name: archiveName,
+      description: "Issue #316 isolation test",
+    });
+
+    // Save original default to restore later
+    const before = await client.callTool("list_archives", {});
+    const originalDefault = before.find((a) => a.is_default);
+
+    try {
+      // Set the test archive as default - this should ALSO set session memory
+      await client.callTool("set_default_archive", { name: archiveName });
+
+      // Create a note - should go into the test archive, not public
+      const note = await client.callTool("create_note", {
+        content: `Issue 316 test note ${MCPTestClient.uniqueId()}`,
+        revision_mode: "none",
+      });
+      assert.ok(note.id, "Should create note");
+
+      // Switch back to public as default
+      await client.callTool("set_default_archive", { name: "public" });
+
+      // List notes in public - the test note should NOT appear
+      const publicNotes = await client.callTool("list_notes", { limit: 100 });
+      const foundInPublic = publicNotes.notes.some((n) => n.id === note.id);
+      assert.strictEqual(foundInPublic, false, "Note should NOT appear in public after switching default");
+
+      // Switch to test archive and verify the note IS there
+      await client.callTool("select_memory", { name: archiveName });
+      const archiveNotes = await client.callTool("list_notes", { limit: 100 });
+      const foundInArchive = archiveNotes.notes.some((n) => n.id === note.id);
+      assert.strictEqual(foundInArchive, true, "Note should be in the archive where it was created");
+
+      // Clean up - delete the note
+      await client.callTool("delete_note", { id: note.id });
+    } finally {
+      // Restore original default
+      if (originalDefault) {
+        await client.callTool("set_default_archive", { name: originalDefault.name });
+      }
+      // Switch back to public for other tests
+      await client.callTool("select_memory", { name: "public" });
+      // Delete test archive
+      try {
+        await client.callTool("delete_archive", { name: archiveName });
+      } catch {
+        // Ignore if can't delete
+      }
+    }
+  });
 });
