@@ -2781,34 +2781,49 @@ async fn get_notes_activity(
             .collect()
     });
 
-    // Get recently created notes
-    let created_req = ListNotesRequest {
-        limit: Some(limit),
-        offset: None,
-        filter: None,
-        sort_by: Some("created_at".to_string()),
-        sort_order: Some("desc".to_string()),
-        collection_id: None,
-        tags: None,
-        created_after: Some(since),
-        created_before: None,
-        updated_after: None,
-        updated_before: None,
+    // Determine which queries are needed based on event_types filter
+    let want_created = filter_event_types
+        .as_ref()
+        .map_or(true, |types| types.contains(&"created".to_string()));
+    let want_updated = filter_event_types
+        .as_ref()
+        .map_or(true, |types| types.contains(&"updated".to_string()));
+
+    // Only build and execute queries for requested event types
+    let created_req = if want_created {
+        Some(ListNotesRequest {
+            limit: Some(limit),
+            offset: None,
+            filter: None,
+            sort_by: Some("created_at".to_string()),
+            sort_order: Some("desc".to_string()),
+            collection_id: None,
+            tags: None,
+            created_after: Some(since),
+            created_before: None,
+            updated_after: None,
+            updated_before: None,
+        })
+    } else {
+        None
     };
 
-    // Get recently updated notes
-    let updated_req = ListNotesRequest {
-        limit: Some(limit),
-        offset: None,
-        filter: None,
-        sort_by: Some("updated_at".to_string()),
-        sort_order: Some("desc".to_string()),
-        collection_id: None,
-        tags: None,
-        created_after: None,
-        created_before: None,
-        updated_after: Some(since),
-        updated_before: None,
+    let updated_req = if want_updated {
+        Some(ListNotesRequest {
+            limit: Some(limit),
+            offset: None,
+            filter: None,
+            sort_by: Some("updated_at".to_string()),
+            sort_order: Some("desc".to_string()),
+            collection_id: None,
+            tags: None,
+            created_after: None,
+            created_before: None,
+            updated_after: Some(since),
+            updated_before: None,
+        })
+    } else {
+        None
     };
 
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
@@ -2816,8 +2831,22 @@ async fn get_notes_activity(
     let (created_notes, updated_notes) = ctx
         .query(move |tx| {
             Box::pin(async move {
-                let created = notes.list_tx(tx, created_req).await?;
-                let updated = notes.list_tx(tx, updated_req).await?;
+                let created = if let Some(req) = created_req {
+                    notes.list_tx(tx, req).await?
+                } else {
+                    matric_core::ListNotesResponse {
+                        notes: vec![],
+                        total: 0,
+                    }
+                };
+                let updated = if let Some(req) = updated_req {
+                    notes.list_tx(tx, req).await?
+                } else {
+                    matric_core::ListNotesResponse {
+                        notes: vec![],
+                        total: 0,
+                    }
+                };
                 Ok((created, updated))
             })
         })
