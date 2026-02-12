@@ -243,7 +243,8 @@ pub fn is_valid_mime_type(mime: &str) -> bool {
     }
     // Both parts must be valid tokens: printable ASCII, no spaces or tspecials
     let is_token_char = |c: char| -> bool {
-        c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '-' | '^' | '_' | '.' | '+')
+        c.is_ascii_alphanumeric()
+            || matches!(c, '!' | '#' | '$' | '&' | '-' | '^' | '_' | '.' | '+')
     };
     media_type.chars().all(is_token_char) && subtype.chars().all(is_token_char)
 }
