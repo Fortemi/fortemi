@@ -318,9 +318,9 @@ assert_status "POST /notes/:id/move (to collection)" "204"
 api_call GET "/api/v1/collections/$COLLECTION_ID/notes"
 assert_status "GET /collections/:id/notes" "200"
 
-# Delete collection
-api_call DELETE "/api/v1/collections/$COLLECTION_ID"
-assert_status "DELETE /collections/:id" "204"
+# Delete collection (force=true because we moved a note into it)
+api_call DELETE "/api/v1/collections/$COLLECTION_ID?force=true"
+assert_status "DELETE /collections/:id (force)" "204"
 
 # ---------------------------------------------------------------------------
 # 9. Templates
