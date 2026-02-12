@@ -906,8 +906,8 @@ async fn main() -> anyhow::Result<()> {
         if let Some(ref backend) = vision_backend {
             let adapter = Glb3DModelAdapter::new(Arc::clone(backend));
             let renderer_available = adapter.health_check().await.unwrap_or(false);
-            let renderer_url =
-                std::env::var("RENDERER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+            let renderer_url = std::env::var("RENDERER_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string());
             if renderer_available {
                 info!(
                     "Extraction adapter registered: Glb3DModel (model: {}, renderer: {})",

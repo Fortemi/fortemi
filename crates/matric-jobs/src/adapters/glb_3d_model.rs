@@ -96,7 +96,9 @@ impl Glb3DModelAdapter {
         let model_part = multipart::Part::bytes(data.to_vec())
             .file_name(filename.to_string())
             .mime_str("application/octet-stream")
-            .map_err(|e| matric_core::Error::Internal(format!("Failed to create model part: {}", e)))?;
+            .map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to create model part: {}", e))
+            })?;
 
         let form = multipart::Form::new()
             .part("model", model_part)
@@ -109,9 +111,7 @@ impl Glb3DModelAdapter {
             .timeout(std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS))
             .send()
             .await
-            .map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to call renderer: {}", e))
-            })?;
+            .map_err(|e| matric_core::Error::Internal(format!("Failed to call renderer: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -148,7 +148,9 @@ impl Glb3DModelAdapter {
             .split("boundary=")
             .nth(1)
             .map(|s| s.to_string())
-            .ok_or_else(|| matric_core::Error::Internal("Missing multipart boundary".to_string()))?;
+            .ok_or_else(|| {
+                matric_core::Error::Internal("Missing multipart boundary".to_string())
+            })?;
 
         // Now consume response to get body
         let body = response.bytes().await.map_err(|e| {
@@ -378,8 +380,8 @@ fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedV
         let angle_degrees = parse_disposition_param(headers, "angle_degrees")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
-        let elevation = parse_disposition_param(headers, "elevation")
-            .unwrap_or_else(|| "unknown".to_string());
+        let elevation =
+            parse_disposition_param(headers, "elevation").unwrap_or_else(|| "unknown".to_string());
 
         // Get Content-Length to extract exact image bytes
         let content_length = headers
@@ -391,7 +393,8 @@ fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedV
         // Extract image data
         let image_bytes = if let Some(len) = content_length {
             // Use Content-Length to extract exact bytes from original body
-            let part_start = body.windows(part.len())
+            let part_start = body
+                .windows(part.len())
                 .position(|w| String::from_utf8_lossy(w) == *part);
 
             if let Some(start) = part_start {
@@ -611,10 +614,22 @@ mod tests {
 Content-Type: image/png
 Content-Length: 1234"#;
 
-        assert_eq!(parse_disposition_param(headers, "index"), Some("0".to_string()));
-        assert_eq!(parse_disposition_param(headers, "angle_degrees"), Some("0".to_string()));
-        assert_eq!(parse_disposition_param(headers, "elevation"), Some("low_30deg".to_string()));
-        assert_eq!(parse_disposition_param(headers, "filename"), Some("view_000.png".to_string()));
+        assert_eq!(
+            parse_disposition_param(headers, "index"),
+            Some("0".to_string())
+        );
+        assert_eq!(
+            parse_disposition_param(headers, "angle_degrees"),
+            Some("0".to_string())
+        );
+        assert_eq!(
+            parse_disposition_param(headers, "elevation"),
+            Some("low_30deg".to_string())
+        );
+        assert_eq!(
+            parse_disposition_param(headers, "filename"),
+            Some("view_000.png".to_string())
+        );
         assert_eq!(parse_disposition_param(headers, "nonexistent"), None);
     }
 
