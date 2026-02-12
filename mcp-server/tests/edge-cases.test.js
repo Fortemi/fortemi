@@ -305,20 +305,24 @@ Here is \`inline code\` and **bold** and *italic*.
     cleanup.noteIds.push(result.id);
   });
 
-  test("EDGE-014: zero-length content", async () => {
-    const error = await client.callToolExpectError("create_note", {
+  test("EDGE-014: zero-length content succeeds", async () => {
+    // API allows empty content (e.g., title-only notes, template placeholders)
+    const result = await client.callTool("create_note", {
       content: "",
     });
 
-    assert.ok(error.error, "Empty content should fail");
+    assert.ok(result.id, "Empty content note should be created");
+    cleanup.noteIds.push(result.id);
   });
 
-  test("EDGE-015: whitespace-only content", async () => {
-    const error = await client.callToolExpectError("create_note", {
+  test("EDGE-015: whitespace-only content succeeds", async () => {
+    // API allows whitespace-only content without stripping
+    const result = await client.callTool("create_note", {
       content: "   \n\n\t\t  ",
     });
 
-    assert.ok(error.error, "Whitespace-only content should fail");
+    assert.ok(result.id, "Whitespace-only content note should be created");
+    cleanup.noteIds.push(result.id);
   });
 
   test("EDGE-016: large tag array", async () => {

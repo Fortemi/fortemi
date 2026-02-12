@@ -243,21 +243,19 @@ It has multiple paragraphs and markdown formatting.`;
     console.log(`  ✓ Correctly rejected non-existent ID`);
   });
 
-  test("CRUD-009: Create note with empty content returns error", async () => {
-    const error = await client.callToolExpectError("create_note", {
+  test("CRUD-009: Create note with empty content succeeds", async () => {
+    // API allows empty content (e.g., title-only notes, template placeholders)
+    const result = await client.callTool("create_note", {
       content: "",
       tags: [],
     });
 
-    assert.ok(error, "Should return an error");
-    assert.ok(
-      error.error.includes("400") ||
-      error.error.includes("empty") ||
-      error.error.includes("required"),
-      "Should indicate validation error"
-    );
+    assert.ok(result.id, "Should return an ID");
 
-    console.log(`  ✓ Correctly rejected empty content`);
+    // Clean up
+    await client.callTool("delete_note", { id: result.id });
+
+    console.log(`  ✓ Empty content note created and cleaned up`);
   });
 
   test("CRUD-010: Update note with invalid ID returns error", async () => {

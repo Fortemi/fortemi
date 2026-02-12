@@ -326,8 +326,9 @@ describe("Phase 5: Collections", () => {
 
     // Verify note was moved to uncategorized (collection_id = null)
     const noteResult = await client.callTool("get_note", { id: note.id });
+    const collectionId = noteResult.note?.collection_id ?? noteResult.collection_id ?? null;
     assert.strictEqual(
-      noteResult.collection_id,
+      collectionId,
       null,
       "Note should be moved to uncategorized"
     );
@@ -446,18 +447,27 @@ describe("Phase 5: Collections", () => {
       note_id: note.id,
     });
 
-    // Delete collection
+    // Delete collection with force (required for non-empty collections)
     await client.callTool("delete_collection", {
       id: collection.id,
+      force: true,
     });
 
-    // Verify note still exists
+    // Verify note still exists and was moved to uncategorized
     const retrieved = await client.callTool("get_note", { id: note.id });
     assert.ok(retrieved, "Note should still exist after collection deletion");
     const noteId = retrieved.note?.id || retrieved.id;
     assert.strictEqual(noteId, note.id, "Note ID should match");
 
-    console.log(`  ✓ Note survived collection deletion`);
+    // Verify note was moved to uncategorized (collection_id = null)
+    const collectionId = retrieved.note?.collection_id ?? retrieved.collection_id ?? null;
+    assert.strictEqual(
+      collectionId,
+      null,
+      "Note should be moved to uncategorized"
+    );
+
+    console.log(`  ✓ Note survived collection deletion and moved to uncategorized`);
   });
 
   test("COLL-012: Update collection name and description", async () => {

@@ -4533,12 +4533,22 @@ if (MCP_TRANSPORT === "http") {
   }
 
   // OAuth token validation middleware
+  // Respects REQUIRE_AUTH env var: when false, allows unauthenticated MCP access
+  // but still extracts token if provided (for API call forwarding)
   async function validateToken(req, res, next) {
-    const result = await validateBearerToken(req.headers.authorization);
-    if (!result.valid) {
+    const requireAuth = process.env.REQUIRE_AUTH === 'true';
+
+    if (req.headers.authorization) {
+      const result = await validateBearerToken(req.headers.authorization);
+      if (result.valid) {
+        req.accessToken = result.token;
+      } else if (requireAuth) {
+        return send401(res, "Valid bearer token required");
+      }
+    } else if (requireAuth) {
       return send401(res, "Valid bearer token required");
     }
-    req.accessToken = result.token;
+
     next();
   }
 
