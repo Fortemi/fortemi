@@ -439,7 +439,7 @@ async fn extract_keyframes_ffmpeg(
         .into_iter()
         .enumerate()
         .map(|(i, path)| {
-            let timestamp_secs = timestamps.get(i).copied().unwrap_or_else(|| {
+            let timestamp_secs = timestamps.get(i).copied().unwrap_or({
                 // Fallback: estimate from interval if timestamps unavailable
                 match strategy {
                     KeyframeStrategy::Interval { every_n_secs } => {

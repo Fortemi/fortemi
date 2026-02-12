@@ -184,7 +184,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             .unwrap_or("glb");
 
         // Write model to temp file (preserving extension for Blender import)
-        let mut tmpfile = NamedTempFile::with_suffix(&format!(".{}", extension)).map_err(|e| {
+        let mut tmpfile = NamedTempFile::with_suffix(format!(".{}", extension)).map_err(|e| {
             matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
         })?;
         tmpfile.write_all(data).map_err(|e| {
