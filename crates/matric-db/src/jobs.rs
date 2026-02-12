@@ -167,11 +167,13 @@ impl JobRepository for PgJobRepository {
     ) -> Result<Option<Uuid>> {
         let job_type_str = Self::job_type_to_str(job_type);
 
-        // Check for existing pending job
+        // Check for existing pending or running job (running jobs haven't finished yet,
+        // so we should deduplicate against them too)
         let existing: Option<Uuid> = if let Some(nid) = note_id {
             sqlx::query_scalar(
                 "SELECT id FROM job_queue
-                 WHERE note_id = $1 AND job_type = $2::job_type AND status = 'pending'::job_status
+                 WHERE note_id = $1 AND job_type = $2::job_type
+                   AND status IN ('pending'::job_status, 'running'::job_status)
                  LIMIT 1",
             )
             .bind(nid)
@@ -184,7 +186,7 @@ impl JobRepository for PgJobRepository {
         };
 
         if existing.is_some() {
-            return Ok(None); // Job already exists
+            return Ok(None); // Job already exists (pending or running)
         }
 
         let job_id = self.queue(note_id, job_type, priority, payload).await?;

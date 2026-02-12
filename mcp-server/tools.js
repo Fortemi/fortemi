@@ -738,7 +738,7 @@ NOTE: For normal operations, prefer create_note/update_note which handle the ful
         },
         priority: { type: "number", description: "Job priority (higher = sooner)" },
         payload: { type: "object", description: "Optional JSON payload for the job. Required for extraction jobs: { strategy, attachment_id, filename, mime_type }. Example: { \"strategy\": \"video_multimodal\", \"attachment_id\": \"uuid\", \"filename\": \"clip.mp4\", \"mime_type\": \"video/mp4\" }" },
-        deduplicate: { type: "boolean", description: "When true, skip if a pending job with the same note_id+job_type already exists. Returns status 'already_pending' instead of creating a duplicate." },
+        deduplicate: { type: "boolean", description: "When true, skip if a pending or running job with the same note_id+job_type already exists. Returns status 'already_pending' instead of creating a duplicate." },
       },
       required: ["job_type"],
     },
