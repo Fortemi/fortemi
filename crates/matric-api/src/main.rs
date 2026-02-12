@@ -2784,10 +2784,10 @@ async fn get_notes_activity(
     // Determine which queries are needed based on event_types filter
     let want_created = filter_event_types
         .as_ref()
-        .map_or(true, |types| types.contains(&"created".to_string()));
+        .is_none_or(|types| types.contains(&"created".to_string()));
     let want_updated = filter_event_types
         .as_ref()
-        .map_or(true, |types| types.contains(&"updated".to_string()));
+        .is_none_or(|types| types.contains(&"updated".to_string()));
 
     // Only build and execute queries for requested event types
     let created_req = if want_created {
