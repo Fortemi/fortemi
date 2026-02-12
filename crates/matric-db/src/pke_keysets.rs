@@ -143,7 +143,18 @@ impl PgPkeKeysetRepository {
 
     /// List all keysets with active status.
     pub async fn list(&self) -> Result<Vec<PkeKeysetSummary>> {
-        let keysets = sqlx::query_as::<_, (Uuid, String, String, Option<String>, DateTime<Utc>, DateTime<Utc>, Option<Uuid>)>(
+        let keysets = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                String,
+                Option<String>,
+                DateTime<Utc>,
+                DateTime<Utc>,
+                Option<Uuid>,
+            ),
+        >(
             r#"
             SELECT k.id, k.name, k.address, k.label, k.created_at, k.updated_at, a.keyset_id
             FROM pke_keysets k
@@ -157,8 +168,8 @@ impl PgPkeKeysetRepository {
 
         let summaries = keysets
             .into_iter()
-            .map(|(id, name, address, label, created_at, updated_at, active_id)| {
-                PkeKeysetSummary {
+            .map(
+                |(id, name, address, label, created_at, updated_at, active_id)| PkeKeysetSummary {
                     id,
                     name,
                     address,
@@ -166,8 +177,8 @@ impl PgPkeKeysetRepository {
                     is_active: active_id == Some(id),
                     created_at,
                     updated_at,
-                }
-            })
+                },
+            )
             .collect();
 
         Ok(summaries)
@@ -225,9 +236,10 @@ impl PgPkeKeysetRepository {
 
     /// Set the active keyset by name.
     pub async fn set_active_by_name(&self, name: &str) -> Result<()> {
-        let keyset = self.get_by_name(name).await?.ok_or_else(|| {
-            Error::NotFound(format!("Keyset '{}' not found", name))
-        })?;
+        let keyset = self
+            .get_by_name(name)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Keyset '{}' not found", name)))?;
 
         self.set_active(keyset.id).await
     }
@@ -247,13 +259,11 @@ impl PgPkeKeysetRepository {
         .await
         .map_err(Error::Database)?;
 
-        let result = sqlx::query(
-            r#"DELETE FROM pke_keysets WHERE id = $1"#,
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        let result = sqlx::query(r#"DELETE FROM pke_keysets WHERE id = $1"#)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
 
         Ok(result.rows_affected() > 0)
     }

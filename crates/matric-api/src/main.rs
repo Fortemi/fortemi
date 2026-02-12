@@ -1249,24 +1249,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/pke/recipients", post(pke_recipients))
         .route("/api/v1/pke/verify/:address", get(pke_verify))
         // PKE Keysets (REST API keyset management - Issues #328, #332)
-        .route(
-            "/api/v1/pke/keysets",
-            get(list_keysets).post(create_keyset),
-        )
+        .route("/api/v1/pke/keysets", get(list_keysets).post(create_keyset))
         .route("/api/v1/pke/keysets/active", get(get_active_keyset))
         .route("/api/v1/pke/keysets/import", post(import_keyset))
-        .route(
-            "/api/v1/pke/keysets/:name_or_id",
-            delete(delete_keyset),
-        )
+        .route("/api/v1/pke/keysets/:name_or_id", delete(delete_keyset))
         .route(
             "/api/v1/pke/keysets/:name_or_id/active",
             put(set_active_keyset),
         )
-        .route(
-            "/api/v1/pke/keysets/:name_or_id/export",
-            get(export_keyset),
-        )
+        .route("/api/v1/pke/keysets/:name_or_id/export", get(export_keyset))
         // Tags (legacy)
         .route("/api/v1/tags", get(list_tags))
         // SKOS Concept Schemes
@@ -6623,11 +6614,19 @@ async fn search_notes(
             parts.push(filters.clone());
         }
         if let Some(ref tags_str) = query.tags {
-            for tag in tags_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            for tag in tags_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 parts.push(format!("tag:{}", tag));
             }
         }
-        if parts.is_empty() { None } else { Some(parts.join(" ")) }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" "))
+        }
     };
 
     if let Some(filters) = &merged_filters {
@@ -7242,7 +7241,8 @@ async fn refresh_embedding_set(
         ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_clone).await }))
             .await?
     };
-    let set = set.ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug_or_id)))?;
+    let set =
+        set.ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", slug_or_id)))?;
     let slug = set.slug.clone();
 
     if set.mode == matric_core::EmbeddingSetMode::Manual {
