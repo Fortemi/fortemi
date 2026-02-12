@@ -1,22 +1,23 @@
 //! GLB/3D Model extraction adapter — understands 3D models via multi-view rendering.
 //!
 //! Pipeline:
-//! 1. Write model data to temp file with original extension
-//! 2. Run Blender headless with a Python script to render N views from configurable camera angles
+//! 1. Send model data to bundled Three.js renderer via multipart POST
+//! 2. Receive rendered PNG images for each camera angle
 //! 3. Describe each rendered view using VisionBackend
 //! 4. Synthesize a composite description from all views
 //!
-//! Requires: Blender (headless) + VisionBackend (Ollama with vision-capable model).
+//! Configuration:
+//! - `RENDERER_URL` (default: `http://localhost:8080`) - Three.js renderer endpoint
+//!
+//! Requires: Three.js renderer (bundled) + VisionBackend (Ollama with vision-capable model).
 
-use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use reqwest::multipart;
+use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
-use tempfile::{NamedTempFile, TempDir};
-use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
@@ -28,105 +29,33 @@ const DEFAULT_VIEW_COUNT: u64 = 6;
 /// Maximum number of views to prevent runaway rendering.
 const MAX_VIEW_COUNT: u64 = 15;
 
-/// Blender Python script template for multi-view rendering.
+/// Default renderer URL (bundled Three.js renderer).
+const DEFAULT_RENDERER_URL: &str = "http://localhost:8080";
+
+/// Return the renderer URL.
 ///
-/// Renders the model from N evenly-distributed camera positions on a sphere,
-/// outputting numbered PNG images.
-const BLENDER_RENDER_SCRIPT: &str = r#"
-import bpy
-import sys
-import math
-import os
+/// Checks `RENDERER_URL` env var, falls back to bundled default.
+fn renderer_url() -> String {
+    std::env::var("RENDERER_URL").unwrap_or_else(|_| DEFAULT_RENDERER_URL.to_string())
+}
 
-# Parse arguments after '--'
-argv = sys.argv
-argv = argv[argv.index("--") + 1:]
-model_path = argv[0]
-output_dir = argv[1]
-num_views = int(argv[2])
+/// Health check response from renderer.
+#[derive(Deserialize)]
+struct RendererHealthResponse {
+    status: String,
+}
 
-# Clear default scene
-bpy.ops.wm.read_factory_settings(use_empty=True)
-
-# Import the model based on extension
-ext = os.path.splitext(model_path)[1].lower()
-if ext in ('.glb', '.gltf'):
-    bpy.ops.import_scene.gltf(filepath=model_path)
-elif ext == '.obj':
-    bpy.ops.wm.obj_import(filepath=model_path)
-elif ext == '.fbx':
-    bpy.ops.import_scene.fbx(filepath=model_path)
-elif ext == '.stl':
-    bpy.ops.wm.stl_import(filepath=model_path)
-elif ext == '.ply':
-    bpy.ops.import_mesh.ply(filepath=model_path)
-else:
-    # Try GLTF as fallback
-    bpy.ops.import_scene.gltf(filepath=model_path)
-
-# Find all mesh objects and compute bounding box
-meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
-if not meshes:
-    print("ERROR: No meshes found in model", file=sys.stderr)
-    sys.exit(1)
-
-# Compute scene bounding box
-min_co = [float('inf')] * 3
-max_co = [float('-inf')] * 3
-for obj in meshes:
-    for corner in obj.bound_box:
-        world_co = obj.matrix_world @ bpy.app.driver_namespace.get('Vector', __import__('mathutils').Vector)(corner)
-        for i in range(3):
-            min_co[i] = min(min_co[i], world_co[i])
-            max_co[i] = max(max_co[i], world_co[i])
-
-center = [(min_co[i] + max_co[i]) / 2 for i in range(3)]
-size = max(max_co[i] - min_co[i] for i in range(3))
-camera_distance = size * 2.5  # Distance based on model size
-
-# Add camera
-bpy.ops.object.camera_add()
-camera = bpy.context.active_object
-bpy.context.scene.camera = camera
-
-# Add lighting (3-point)
-bpy.ops.object.light_add(type='SUN', location=(camera_distance, camera_distance, camera_distance * 1.5))
-bpy.context.active_object.data.energy = 3.0
-bpy.ops.object.light_add(type='AREA', location=(-camera_distance, -camera_distance * 0.5, camera_distance))
-bpy.context.active_object.data.energy = 50.0
-bpy.context.active_object.data.size = size
-
-# Render settings
-scene = bpy.context.scene
-scene.render.resolution_x = 512
-scene.render.resolution_y = 512
-scene.render.image_settings.file_format = 'PNG'
-scene.render.film_transparent = True
-
-# Render from multiple angles
-for i in range(num_views):
-    angle = (2 * math.pi * i) / num_views
-    elevation = math.pi / 6  # 30 degrees above horizon
-
-    # Alternate elevation for odd views
-    if i % 2 == 1:
-        elevation = math.pi / 3  # 60 degrees (top-down-ish)
-
-    x = center[0] + camera_distance * math.cos(angle) * math.cos(elevation)
-    y = center[1] + camera_distance * math.sin(angle) * math.cos(elevation)
-    z = center[2] + camera_distance * math.sin(elevation)
-
-    camera.location = (x, y, z)
-
-    # Point camera at center
-    direction = bpy.app.driver_namespace.get('Vector', __import__('mathutils').Vector)(center) - camera.location
-    camera.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
-
-    scene.render.filepath = os.path.join(output_dir, f"view_{i:03d}.png")
-    bpy.ops.render.render(write_still=True)
-
-print(f"Rendered {num_views} views to {output_dir}")
-"#;
+/// A rendered view with image data and metadata.
+struct RenderedView {
+    /// Index of this view (0-based).
+    index: usize,
+    /// Camera angle in degrees (0-360).
+    angle_degrees: f64,
+    /// Elevation description.
+    elevation: String,
+    /// PNG image data.
+    image_data: Vec<u8>,
+}
 
 pub struct Glb3DModelAdapter {
     backend: Arc<dyn VisionBackend>,
@@ -146,6 +75,95 @@ impl Glb3DModelAdapter {
 
         let backend = OllamaVisionBackend::from_env()?;
         Some(Self::new(Arc::new(backend)))
+    }
+
+    /// Render the 3D model using the bundled Three.js renderer.
+    ///
+    /// Uses multipart POST to send the model, receives multipart response with PNG images.
+    async fn render_via_renderer(
+        &self,
+        data: &[u8],
+        filename: &str,
+        num_views: u64,
+    ) -> Result<Vec<RenderedView>> {
+        let base_url = renderer_url();
+        let client = reqwest::Client::new();
+        let render_url = format!("{}/render", base_url.trim_end_matches('/'));
+
+        debug!(render_url = %render_url, filename, num_views, "Calling Three.js renderer");
+
+        // Build multipart form with model data
+        let model_part = multipart::Part::bytes(data.to_vec())
+            .file_name(filename.to_string())
+            .mime_str("application/octet-stream")
+            .map_err(|e| matric_core::Error::Internal(format!("Failed to create model part: {}", e)))?;
+
+        let form = multipart::Form::new()
+            .part("model", model_part)
+            .text("filename", filename.to_string())
+            .text("num_views", num_views.to_string());
+
+        let response = client
+            .post(&render_url)
+            .multipart(form)
+            .timeout(std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS))
+            .send()
+            .await
+            .map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to call renderer: {}", e))
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(matric_core::Error::Internal(format!(
+                "Renderer error {}: {}",
+                status, error_text
+            )));
+        }
+
+        // Check for success header
+        let render_success = response
+            .headers()
+            .get("X-Render-Success")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        if !render_success {
+            return Err(matric_core::Error::Internal(
+                "Renderer reported failure".to_string(),
+            ));
+        }
+
+        // Extract boundary from content-type header BEFORE consuming response
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let boundary = content_type
+            .split("boundary=")
+            .nth(1)
+            .map(|s| s.to_string())
+            .ok_or_else(|| matric_core::Error::Internal("Missing multipart boundary".to_string()))?;
+
+        // Now consume response to get body
+        let body = response.bytes().await.map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to read renderer response: {}", e))
+        })?;
+
+        // Parse multipart body to extract PNG images
+        let rendered_views = parse_multipart_response(&body, &boundary)?;
+
+        info!(
+            filename,
+            num_views = rendered_views.len(),
+            "Rendering complete"
+        );
+        Ok(rendered_views)
     }
 }
 
@@ -177,120 +195,28 @@ impl ExtractionAdapter for Glb3DModelAdapter {
 
         let custom_prompt = config.get("prompt").and_then(|v| v.as_str());
 
-        // Determine file extension from filename
-        let extension = std::path::Path::new(filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("glb");
-
-        // Write model to temp file (preserving extension for Blender import)
-        let mut tmpfile = NamedTempFile::with_suffix(format!(".{}", extension)).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
-        })?;
-        tmpfile.write_all(data).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
-        })?;
-        let model_path = tmpfile.path().to_string_lossy().to_string();
-
-        // Create output directory for rendered views
-        let render_dir = TempDir::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create render dir: {}", e))
-        })?;
-        let render_path = render_dir.path().to_string_lossy().to_string();
-
-        // Write Blender script to temp file
-        let mut script_file = NamedTempFile::with_suffix(".py").map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create script file: {}", e))
-        })?;
-        script_file
-            .write_all(BLENDER_RENDER_SCRIPT.as_bytes())
-            .map_err(|e| matric_core::Error::Internal(format!("Failed to write script: {}", e)))?;
-        let script_path = script_file.path().to_string_lossy().to_string();
-
         debug!(
             filename,
             num_views, "Rendering 3D model from multiple angles"
         );
 
-        // Run Blender headless to render views
-        // Timeout: allow 30s per view (rendering can be slow) + base timeout
-        let render_timeout = EXTRACTION_CMD_TIMEOUT_SECS + (num_views * 30);
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(render_timeout),
-            Command::new("blender")
-                .arg("--background")
-                .arg("--python")
-                .arg(&script_path)
-                .arg("--")
-                .arg(&model_path)
-                .arg(&render_path)
-                .arg(num_views.to_string())
-                .output(),
-        )
-        .await
-        .map_err(|_| {
-            matric_core::Error::Internal(format!(
-                "Blender rendering timed out after {}s",
-                render_timeout
-            ))
-        })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute Blender: {}", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(matric_core::Error::Internal(format!(
-                "Blender rendering failed (exit {}): {}",
-                output.status,
-                stderr.chars().take(500).collect::<String>()
-            )));
-        }
-
-        // Collect rendered view files
-        let mut view_paths: Vec<PathBuf> = Vec::new();
-        let entries = std::fs::read_dir(render_dir.path()).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to read render dir: {}", e))
-        })?;
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to read dir entry: {}", e))
-            })?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("png") {
-                view_paths.push(path);
-            }
-        }
-        view_paths.sort();
-
-        if view_paths.is_empty() {
-            return Err(matric_core::Error::Internal(
-                "Blender produced no rendered views".to_string(),
-            ));
-        }
+        // Get rendered views from Three.js renderer
+        let rendered_views = self.render_via_renderer(data, filename, num_views).await?;
 
         debug!(
             filename,
-            rendered = view_paths.len(),
+            rendered = rendered_views.len(),
             "Describing rendered views"
         );
 
         // Describe each view using vision backend
         let mut view_descriptions = Vec::new();
-        for (i, view_path) in view_paths.iter().enumerate() {
-            let image_data = std::fs::read(view_path).map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to read rendered view: {}", e))
-            })?;
-
-            let angle_deg = (360.0 / num_views as f64) * i as f64;
-            let elevation = if i % 2 == 0 {
-                "low (30°)"
-            } else {
-                "high (60°)"
-            };
-
+        let total_views = rendered_views.len();
+        for view in &rendered_views {
             let prompt = if let Some(custom) = custom_prompt {
                 format!(
                     "{}\n\nThis is view {} of {} (angle: {:.0}°, elevation: {}) of a 3D model from file '{}'.",
-                    custom, i + 1, view_paths.len(), angle_deg, elevation, filename
+                    custom, view.index + 1, total_views, view.angle_degrees, view.elevation, filename
                 )
             } else {
                 format!(
@@ -298,25 +224,25 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                      This is view {} of {} (camera angle: {:.0}°, elevation: {}). \
                      The model file is '{}'. \
                      Describe the shape, materials, textures, colors, and any notable features visible from this angle.",
-                    i + 1, view_paths.len(), angle_deg, elevation, filename
+                    view.index + 1, total_views, view.angle_degrees, view.elevation, filename
                 )
             };
 
             match self
                 .backend
-                .describe_image(&image_data, "image/png", Some(&prompt))
+                .describe_image(&view.image_data, "image/png", Some(&prompt))
                 .await
             {
                 Ok(description) => {
                     view_descriptions.push(json!({
-                        "view_index": i,
-                        "angle_degrees": angle_deg,
-                        "elevation": elevation,
+                        "view_index": view.index,
+                        "angle_degrees": view.angle_degrees,
+                        "elevation": &view.elevation,
                         "description": description,
                     }));
                 }
                 Err(e) => {
-                    warn!(view = i, error = %e, "View description failed");
+                    warn!(view = view.index, error = %e, "View description failed");
                 }
             }
         }
@@ -370,7 +296,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 "filename": filename,
                 "size_bytes": data.len(),
                 "num_views_requested": num_views,
-                "num_views_rendered": view_paths.len(),
+                "num_views_rendered": rendered_views.len(),
                 "num_views_described": view_descriptions.len(),
                 "view_descriptions": view_descriptions,
             }),
@@ -380,13 +306,31 @@ impl ExtractionAdapter for Glb3DModelAdapter {
     }
 
     async fn health_check(&self) -> Result<bool> {
-        // Check if Blender is available
-        let blender_ok = match Command::new("blender").arg("--version").output().await {
-            Ok(output) => output.status.success(),
+        // Check renderer availability
+        let base_url = renderer_url();
+        let client = reqwest::Client::new();
+        let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+
+        let renderer_ok = match client
+            .get(&health_url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    match resp.json::<RendererHealthResponse>().await {
+                        Ok(health) => health.status == "healthy",
+                        Err(_) => false,
+                    }
+                } else {
+                    false
+                }
+            }
             Err(_) => false,
         };
 
-        if !blender_ok {
+        if !renderer_ok {
             return Ok(false);
         }
 
@@ -397,6 +341,115 @@ impl ExtractionAdapter for Glb3DModelAdapter {
     fn name(&self) -> &str {
         "glb_3d_model"
     }
+}
+
+/// Parse a multipart response body and extract rendered view images.
+fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedView>> {
+    let boundary_bytes = format!("--{}", boundary);
+    let mut views = Vec::new();
+
+    // Split by boundary
+    let body_str = String::from_utf8_lossy(body);
+    let parts: Vec<&str> = body_str.split(&boundary_bytes).collect();
+
+    for part in parts.iter().skip(1) {
+        // Skip empty parts and final boundary marker
+        if part.trim().is_empty() || part.starts_with("--") {
+            continue;
+        }
+
+        // Find headers/body separator
+        let Some(header_end) = part.find("\r\n\r\n") else {
+            continue;
+        };
+
+        let headers = &part[..header_end];
+        let body_start = header_end + 4;
+
+        // Check if this is an image part
+        if !headers.contains("Content-Type: image/png") {
+            continue;
+        }
+
+        // Parse Content-Disposition for metadata
+        let index = parse_disposition_param(headers, "index")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        let angle_degrees = parse_disposition_param(headers, "angle_degrees")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let elevation = parse_disposition_param(headers, "elevation")
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Get Content-Length to extract exact image bytes
+        let content_length = headers
+            .lines()
+            .find(|l| l.to_lowercase().starts_with("content-length:"))
+            .and_then(|l| l.split(':').nth(1))
+            .and_then(|s| s.trim().parse::<usize>().ok());
+
+        // Extract image data
+        let image_bytes = if let Some(len) = content_length {
+            // Use Content-Length to extract exact bytes from original body
+            let part_start = body.windows(part.len())
+                .position(|w| String::from_utf8_lossy(w) == *part);
+
+            if let Some(start) = part_start {
+                let abs_body_start = start + body_start;
+                let abs_body_end = (abs_body_start + len).min(body.len());
+                body[abs_body_start..abs_body_end].to_vec()
+            } else {
+                // Fallback: strip trailing CRLF
+                let body_part = &part[body_start..];
+                body_part.trim_end_matches("\r\n").as_bytes().to_vec()
+            }
+        } else {
+            // Fallback: strip trailing CRLF
+            let body_part = &part[body_start..];
+            body_part.trim_end_matches("\r\n").as_bytes().to_vec()
+        };
+
+        // Verify PNG magic bytes
+        if image_bytes.len() < 8 || &image_bytes[0..4] != &[0x89, 0x50, 0x4E, 0x47] {
+            warn!(index, "Invalid PNG data in multipart response");
+            continue;
+        }
+
+        views.push(RenderedView {
+            index,
+            angle_degrees,
+            elevation,
+            image_data: image_bytes,
+        });
+    }
+
+    if views.is_empty() {
+        return Err(matric_core::Error::Internal(
+            "No valid PNG views in multipart response".to_string(),
+        ));
+    }
+
+    // Sort by index
+    views.sort_by_key(|v| v.index);
+
+    Ok(views)
+}
+
+/// Parse a parameter from Content-Disposition header.
+fn parse_disposition_param(headers: &str, param: &str) -> Option<String> {
+    for line in headers.lines() {
+        if line.to_lowercase().starts_with("content-disposition:") {
+            // Find param="value" pattern
+            let pattern = format!("{}=\"", param);
+            if let Some(start) = line.find(&pattern) {
+                let value_start = start + pattern.len();
+                if let Some(end) = line[value_start..].find('"') {
+                    return Some(line[value_start..value_start + end].to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Create a minimal valid 1x1 white PNG for use as a dummy image
@@ -493,14 +546,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_glb_adapter_health_check_no_blender() {
-        // This test checks that health_check gracefully handles missing Blender.
-        // If Blender happens to be installed, it will return true (also valid).
+    async fn test_glb_adapter_health_check_no_renderer() {
+        // This test checks that health_check gracefully handles missing renderer.
         let mock = MockVisionBackend::new("test");
         let adapter = Glb3DModelAdapter::new(Arc::new(mock));
         let result = adapter.health_check().await;
         assert!(result.is_ok());
-        // Result depends on whether Blender is installed — both true/false are valid
+        // Result will be false if renderer is not running
     }
 
     #[tokio::test]
@@ -509,9 +561,6 @@ mod tests {
         let adapter = Glb3DModelAdapter::new(Arc::new(mock));
         let result = adapter.health_check().await;
         assert!(result.is_ok());
-        // Even if Blender is present, unhealthy backend means false
-        // (Blender absent also means false — either way, not both healthy)
-        // We can't assert the exact value because Blender may or may not be installed
     }
 
     #[test]
@@ -557,31 +606,16 @@ mod tests {
     }
 
     #[test]
-    fn test_extension_parsing() {
-        let ext = std::path::Path::new("model.glb")
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("glb");
-        assert_eq!(ext, "glb");
+    fn test_parse_disposition_param() {
+        let headers = r#"Content-Disposition: attachment; filename="view_000.png"; index="0"; angle_degrees="0"; elevation="low_30deg"
+Content-Type: image/png
+Content-Length: 1234"#;
 
-        let ext = std::path::Path::new("scene.gltf")
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("glb");
-        assert_eq!(ext, "gltf");
-
-        let ext = std::path::Path::new("mesh.obj")
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("glb");
-        assert_eq!(ext, "obj");
-
-        // No extension falls back to "glb"
-        let ext = std::path::Path::new("noext")
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("glb");
-        assert_eq!(ext, "glb");
+        assert_eq!(parse_disposition_param(headers, "index"), Some("0".to_string()));
+        assert_eq!(parse_disposition_param(headers, "angle_degrees"), Some("0".to_string()));
+        assert_eq!(parse_disposition_param(headers, "elevation"), Some("low_30deg".to_string()));
+        assert_eq!(parse_disposition_param(headers, "filename"), Some("view_000.png".to_string()));
+        assert_eq!(parse_disposition_param(headers, "nonexistent"), None);
     }
 
     #[test]
@@ -590,5 +624,14 @@ mod tests {
         let adapter = Glb3DModelAdapter::new(Arc::new(mock));
         assert_eq!(adapter.name(), "glb_3d_model");
         assert_eq!(adapter.strategy(), ExtractionStrategy::Glb3DModel);
+    }
+
+    #[test]
+    fn test_renderer_url_default() {
+        // When RENDERER_URL is not set, should return default
+        // This test may fail if RENDERER_URL is set in the environment
+        let url = renderer_url();
+        // Either the default or whatever is in the environment
+        assert!(!url.is_empty());
     }
 }

@@ -3,16 +3,14 @@
 **Purpose**: Verify 3D model processing guidance tool and attachment pipeline extraction for 3D model files
 **Duration**: ~10 minutes
 **Prerequisites**: Phase 0 preflight passed, Phase 2b attachment uploads working
-**Critical**: No (requires optional Blender headless + vision backend)
+**Critical**: No (requires Three.js renderer + vision backend)
 **Tools Tested**: `process_3d_model`, `get_system_info`, `create_note`, `upload_attachment`, `get_attachment`, `list_jobs`
 
 > **Attachment Pipeline**: 3D model files are processed through the standard attachment pipeline — NOT via base64 ad-hoc API. The `process_3d_model` MCP tool is a **guidance tool** that returns workflow instructions for agents. Actual processing happens when a 3D model file is uploaded as an attachment and the background job worker renders and describes it.
 
 > **Backend Requirements**: Full extraction requires:
-> - **Blender** headless in PATH (for multi-view rendering)
+> - **Three.js renderer** (bundled in Docker at localhost:8080, or set RENDERER_URL)
 > - **OLLAMA_VISION_MODEL** set (for view description — required for meaningful extraction)
->
-> If Blender is not available, MDL-002 detects this and attachment pipeline tests (MDL-004+) are marked SKIPPED. Guidance tool tests (MDL-001, MDL-003) always execute.
 
 > **Test Data**: This phase uses 3D model files. Provide at least one GLB file (<5MB) for attachment pipeline testing. Khronos glTF sample models work well (e.g., Box.glb, Duck.glb).
 
@@ -28,11 +26,10 @@
 **Pass Criteria**:
 - Response includes `extraction.3d_model` object
 - Record `extraction.3d_model.enabled` value
-- Record `extraction.3d_model.blender_available` (boolean)
-- If `blender_available === true` AND vision model is available: continue to MDL-004
-- If `blender_available === false`: mark MDL-004 through MDL-010 as SKIPPED (guidance tests MDL-002, MDL-003 still execute)
+- `extraction.3d_model.renderer_available` should be `true` (Three.js renderer bundled)
+- Vision model should be available (`extraction.3d_model.vision_model` set)
 
-**Notes**: Gate test for attachment pipeline tests. Guidance tool tests always run regardless.
+**Notes**: Verifies 3D model extraction backend is properly configured.
 
 ---
 
@@ -51,7 +48,7 @@ process_3d_model({
 - Response contains `message` (non-empty string mentioning "attachment pipeline")
 - Response contains `steps` (array with 5 entries — includes note creation step)
 - Response contains `supported_formats` (array including `"model/gltf-binary"`)
-- Response contains `requires` object with `blender` and `vision_model` keys
+- Response contains `requires` object with `renderer` and `vision_model` keys
 - Response contains `extraction_features` object with `multi_view_rendering` key
 - Step 1 mentions `create_note`
 - Step 2 mentions `upload_attachment`
@@ -159,12 +156,12 @@ get_attachment({
 - Response contains attachment metadata
 - `extraction_strategy` is `"glb_3d_model"` or similar
 - If extraction completed: `extraction_metadata` contains extracted content
-- If extraction pending: retry after 15 seconds (max 3 retries — Blender rendering takes longer)
+- If extraction pending: retry after 15 seconds (max 3 retries — rendering takes time)
 - Extraction metadata (when present) should contain:
   - `ai_description` (composite description synthesized from multiple views)
   - `metadata` with `num_views`, `model` (vision model name), `filename`
 
-**Notes**: Multi-view rendering with Blender can take 60-120 seconds depending on model complexity and number of views. Each view is rendered then described by the vision model.
+**Notes**: Multi-view rendering can take 30-60 seconds depending on model complexity and number of views. Each view is rendered then described by the vision model.
 
 ---
 
@@ -228,17 +225,15 @@ process_3d_model({
 
 | Test ID | Test Name | Status | Notes |
 |---------|-----------|--------|-------|
-| MDL-001 | Check 3D Model Extraction Backend | | Gate test for pipeline tests |
-| MDL-002 | Guidance Tool — No Note ID | | Always executes |
-| MDL-003 | Guidance Tool — With Note ID | | Always executes |
-| MDL-004 | Create Note for 3D Model Upload | | Requires Blender + vision |
-| MDL-005 | Upload 3D Model Attachment | | Requires Blender + test GLB |
-| MDL-006 | Check Extraction Job Created | | Requires Blender |
-| MDL-007 | Wait and Check Extraction Results | | Requires Blender + vision |
-| MDL-008 | 3D Model Content Searchable | | After extraction |
-| MDL-009 | Guidance for OBJ Format | | Always executes |
-| MDL-010 | Guidance for STL Format | | Always executes |
+| MDL-001 | Check 3D Model Extraction Backend | | Verify backend configuration |
+| MDL-002 | Guidance Tool — No Note ID | | Workflow instructions |
+| MDL-003 | Guidance Tool — With Note ID | | Workflow with existing note |
+| MDL-004 | Create Note for 3D Model Upload | | Create parent note |
+| MDL-005 | Upload 3D Model Attachment | | Upload GLB file |
+| MDL-006 | Check Extraction Job Created | | Verify job triggered |
+| MDL-007 | Wait and Check Extraction Results | | Verify extraction output |
+| MDL-008 | 3D Model Content Searchable | | Verify search indexing |
+| MDL-009 | Guidance for OBJ Format | | OBJ format support |
+| MDL-010 | Guidance for STL Format | | STL format support |
 
 **Total Tests**: 10
-**Always-Execute Tests**: 5 (MDL-001, MDL-002, MDL-003, MDL-009, MDL-010)
-**Conditional Tests**: 5 (MDL-004 through MDL-008, require Blender + vision)

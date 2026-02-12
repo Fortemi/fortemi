@@ -101,11 +101,31 @@ echo "  Listening on: ${HOST:-0.0.0.0}:${PORT:-3000}"
 cleanup() {
     echo "Shutting down..."
     kill $MCP_PID 2>/dev/null || true
+    kill $RENDERER_PID 2>/dev/null || true
     kill $API_PID 2>/dev/null || true
     su postgres -c "pg_ctl -D $PGDATA stop -m fast" 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
+
+# --- Start Three.js 3D Renderer (for GLB extraction) ---
+echo ">>> Starting Three.js 3D Renderer..."
+mkdir -p /var/log/matric
+RENDERER_PORT="${RENDERER_PORT:-8080}"
+cd /app/threejs-renderer
+PORT=$RENDERER_PORT xvfb-run -a --server-args="-screen 0 1024x768x24" node server.js > /var/log/matric/threejs-renderer.log 2>&1 &
+RENDERER_PID=$!
+cd /app
+echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
+
+# Wait for renderer to be ready
+sleep 2
+if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
+    echo "  Renderer is healthy!"
+else
+    echo "  WARNING: Renderer health check failed (3D model extraction may not work)"
+    cat /var/log/matric/threejs-renderer.log 2>/dev/null | tail -20 || true
+fi
 
 /app/matric-api &
 API_PID=$!

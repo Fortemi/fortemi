@@ -284,7 +284,7 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Vision (image description)** via Ollama vision LLM (qwen3-vl, llava)
 - **Audio transcription** via Whisper-compatible backend (attachment pipeline + ad-hoc API)
 - **Video multimodal extraction** via attachment pipeline (keyframe extraction, scene detection, transcription alignment)
-- **3D model understanding** via attachment pipeline (Blender multi-view rendering + vision description)
+- **3D model understanding** via attachment pipeline (Three.js multi-view rendering + vision description)
 
 ### Multi-Memory Architecture
 

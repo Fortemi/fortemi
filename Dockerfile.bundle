@@ -83,6 +83,25 @@ COPY mcp-server /app/mcp-server
 WORKDIR /app/mcp-server
 RUN npm ci --omit=dev
 
+# Copy Three.js 3D renderer for GLB/GLTF multi-view extraction
+COPY docker/threejs-renderer /app/threejs-renderer
+
+# Install headless-gl dependencies for WebGL server-side rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-dev \
+    libxi-dev \
+    libxext-dev \
+    xvfb \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Three.js renderer dependencies
+WORKDIR /app/threejs-renderer
+RUN npm install --production && \
+    npm install pngjs canvas --production
+
 WORKDIR /app
 
 # Copy entrypoint script
@@ -135,6 +154,13 @@ ENV FTS_MULTILINGUAL_CONFIGS=true
 
 # Background worker (enabled by default)
 # ENV WORKER_ENABLED=true
+
+# =============================================================================
+# 3D Model Renderer (Three.js)
+# =============================================================================
+# Internal renderer URL - points to the bundled Three.js renderer
+ENV RENDERER_URL=http://localhost:8080
+ENV RENDERER_PORT=8080
 
 # Backup configuration
 # ENV BACKUP_DEST=/var/backups/matric-memory

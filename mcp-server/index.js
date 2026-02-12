@@ -613,9 +613,10 @@ function createMcpServer() {
                 },
                 "3d_model": {
                   enabled: (health.capabilities?.extraction_strategies ?? []).includes("glb_3d_model"),
-                  renderer: "blender (headless)",
+                  renderer: "three.js",
+                  renderer_url: process.env.RENDERER_URL || "http://localhost:8080",
                   vision_model: process.env.OLLAMA_VISION_MODEL || null,
-                  requires: "Blender + OLLAMA_VISION_MODEL",
+                  requires: "Three.js renderer (bundled) + OLLAMA_VISION_MODEL",
                 },
                 ocr: {
                   enabled: (health.capabilities?.extraction_strategies ?? []).includes("pdf_ocr"),
@@ -1855,11 +1856,11 @@ function createMcpServer() {
             steps: modelSteps,
             supported_formats: ["model/gltf-binary", "model/gltf+json", "model/obj", "model/fbx", "model/stl", "model/ply"],
             requires: {
-              blender: "Blender headless must be in PATH for multi-view rendering",
+              renderer: "Three.js renderer (bundled at localhost:8080 or set RENDERER_URL)",
               vision_model: "OLLAMA_VISION_MODEL for view description (required)",
             },
             extraction_features: {
-              multi_view_rendering: "Model rendered from multiple angles using Blender headless",
+              multi_view_rendering: "Model rendered from multiple angles using Three.js renderer",
               view_description: "Each rendered view described by vision model",
               composite_description: "Multi-view descriptions synthesized into composite summary",
             },
@@ -4363,13 +4364,13 @@ Matric Memory includes an optional 3D model processing pipeline that renders mod
 
 ## Architecture
 
-3D model processing runs **exclusively through the attachment pipeline** — there is no ad-hoc base64 tool for 3D models. Model files are processed via multi-view rendering using Blender headless.
+3D model processing runs **exclusively through the attachment pipeline** — there is no ad-hoc base64 tool for 3D models. Model files are processed via multi-view rendering using the Three.js renderer.
 
 **How it works:**
 
 1. Upload a 3D model file as an attachment to a note (via \`upload_attachment\`)
 2. The background job worker detects the 3D model MIME type and runs the GLB3DModelAdapter
-3. Blender headless renders the model from multiple angles (configurable, default 8 views)
+3. Three.js renderer renders the model from multiple angles (configurable, default 8 views)
 4. Each rendered view is described by the vision model
 5. All view descriptions are synthesized into a composite summary
 6. Extracted metadata is stored with the note and indexed for search
@@ -4400,9 +4401,9 @@ Step 4: Check extraction results
 | Variable | Required | Description |
 |----------|----------|-------------|
 | \`OLLAMA_VISION_MODEL\` | Yes | Vision model for view description (e.g., \`qwen3-vl:8b\`) |
-| Blender | Yes | Blender headless must be in PATH |
+| \`RENDERER_URL\` | No | Three.js renderer URL (defaults to \`http://localhost:8080\` bundled renderer) |
 
-Both Blender and a vision model are required for 3D model processing.
+The Three.js renderer is bundled in the Docker bundle and runs automatically on port 8080. A vision model is required for 3D model processing.
 
 ## Supported 3D Formats
 
@@ -4424,7 +4425,8 @@ Use \`get_system_info\` to verify 3D model processing is configured:
   "extraction": {
     "3d_model": {
       "enabled": true,
-      "renderer": "blender",
+      "renderer": "three.js",
+      "renderer_url": "http://localhost:8080",
       "vision_model": "qwen3-vl"
     }
   }
@@ -4434,14 +4436,14 @@ Use \`get_system_info\` to verify 3D model processing is configured:
 ## Troubleshooting
 
 **3D model extraction not running**
-- Verify Blender is installed: \`blender --version\`
+- Check that the Three.js renderer is running: \`curl http://localhost:8080/health\`
 - Check that OLLAMA_VISION_MODEL is set
 - Check \`get_system_info\` for 3d_model.enabled status
+- If running outside Docker, set \`RENDERER_URL\` to point to the renderer
 
 **Rendering failures**
-- Some model formats may need additional Blender addons
 - Very complex models may exceed rendering timeout
-- Check API logs for Blender stderr output`,
+- Check API logs for renderer errors`,
 };
 
 // Combine all documentation for "all" topic

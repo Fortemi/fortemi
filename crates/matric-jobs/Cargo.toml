@@ -38,7 +38,7 @@ futures.workspace = true
 tracing.workspace = true
 
 # HTTP client
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
 
 # File handling
 tempfile = "3"

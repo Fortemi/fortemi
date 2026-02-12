@@ -3485,14 +3485,14 @@ This tool returns the workflow instructions. Call it to get a reminder of the st
 
   // ============================================================================
   // 3D MODELS - 3D model processing via attachment pipeline
-  // Requires Blender headless + OLLAMA_VISION_MODEL
+  // Requires Three.js renderer + OLLAMA_VISION_MODEL
   // ============================================================================
   {
     name: "process_3d_model",
     description: `**Guidance tool** — 3D model processing runs through the attachment pipeline, not ad-hoc base64.
 
 3D model files (GLB, GLTF, OBJ, FBX, STL, PLY) are processed via multi-view rendering:
-the server uses Blender headless to render the model from multiple angles, then describes
+the server uses the Three.js renderer to render the model from multiple angles, then describes
 each view using the vision model.
 
 **Workflow to process a 3D model file:**
@@ -3505,7 +3505,7 @@ each view using the vision model.
    Then execute the returned curl command with the actual file path.
 
 3. **Wait for extraction** — The background job worker automatically:
-   - Renders the model from multiple angles using Blender headless
+   - Renders the model from multiple angles using Three.js renderer
    - Describes each rendered view using the vision model
    - Synthesizes a composite description from all views
    - Stores the multi-view descriptions as extraction metadata
@@ -3516,7 +3516,7 @@ each view using the vision model.
 5. **Search by content** — Once extracted, 3D model descriptions are searchable via \`search_notes\`
 
 **Supported 3D formats:** GLB, GLTF, OBJ, FBX, STL, PLY
-**Requires:** Blender (headless) in PATH + OLLAMA_VISION_MODEL
+**Requires:** Three.js renderer (bundled in Docker at localhost:8080, or set RENDERER_URL) + OLLAMA_VISION_MODEL
 
 This tool returns the workflow instructions. Call it to get a reminder of the steps.`,
     inputSchema: {

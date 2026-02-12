@@ -901,19 +901,28 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // Conditional: GLB 3D model requires Blender + vision backend
-        // Reuses the shared vision_backend created above.
+        // GLB 3D model requires Three.js renderer + vision backend.
+        // Bundled in Docker bundle at http://localhost:8080, or set RENDERER_URL for external.
         if let Some(ref backend) = vision_backend {
             let adapter = Glb3DModelAdapter::new(Arc::clone(backend));
-            if adapter.health_check().await.unwrap_or(false) {
+            let renderer_available = adapter.health_check().await.unwrap_or(false);
+            let renderer_url =
+                std::env::var("RENDERER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+            if renderer_available {
                 info!(
-                    "Extraction adapter registered: Glb3DModel (model: {})",
+                    "Extraction adapter registered: Glb3DModel (model: {}, renderer: {})",
                     backend.model_name(),
+                    renderer_url
                 );
-                extraction_registry.register(Arc::new(adapter));
             } else {
-                warn!("Glb3DModelAdapter disabled: Blender not found in PATH or vision backend unhealthy");
+                warn!(
+                    "Extraction adapter registered: Glb3DModel (model: {}, renderer: NOT AVAILABLE at {} — \
+                     ensure Three.js renderer is running)",
+                    backend.model_name(),
+                    renderer_url,
+                );
             }
+            extraction_registry.register(Arc::new(adapter));
         }
 
         // Conditional: OCR requires OCR_ENABLED=true
