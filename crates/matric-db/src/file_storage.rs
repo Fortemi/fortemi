@@ -392,20 +392,56 @@ impl PgFileStorageRepository {
 
     /// Delete an attachment.
     ///
-    /// The attachment is removed, but the blob is retained (with decremented reference count)
-    /// for potential reuse by other attachments. Orphaned blobs (reference_count = 0) can be
-    /// cleaned up separately by a garbage collection process.
+    /// The attachment is removed and the blob reference_count is decremented by trigger.
+    /// If no other attachments reference the same blob, the blob row and physical file
+    /// are also deleted.
     pub async fn delete(&self, attachment_id: Uuid) -> Result<()> {
-        let result = sqlx::query("DELETE FROM attachment WHERE id = $1")
+        // Get the blob_id before deleting the attachment
+        let blob_id: Uuid = sqlx::query_scalar("SELECT blob_id FROM attachment WHERE id = $1")
+            .bind(attachment_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Attachment {} not found", attachment_id)))?;
+
+        // Delete the attachment row (trigger decrements reference_count)
+        sqlx::query("DELETE FROM attachment WHERE id = $1")
             .bind(attachment_id)
             .execute(&self.pool)
             .await?;
-        if result.rows_affected() == 0 {
-            return Err(Error::NotFound(format!(
-                "Attachment {} not found",
-                attachment_id
-            )));
+
+        // Check if blob is now orphaned (no remaining references)
+        let blob_info: Option<(i32, Option<String>, String)> = sqlx::query_as(
+            r#"SELECT reference_count, storage_path, storage_backend
+               FROM attachment_blob WHERE id = $1"#,
+        )
+        .bind(blob_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some((ref_count, storage_path, storage_backend)) = blob_info {
+            if ref_count <= 0 {
+                // Delete the blob row
+                sqlx::query("DELETE FROM attachment_blob WHERE id = $1")
+                    .bind(blob_id)
+                    .execute(&self.pool)
+                    .await?;
+
+                // Delete the physical file if stored on filesystem
+                if storage_backend == "filesystem" {
+                    if let Some(path) = storage_path {
+                        if let Err(e) = self.backend.delete(&path).await {
+                            warn!(
+                                blob_id = %blob_id,
+                                path = %path,
+                                error = %e,
+                                "Failed to delete orphaned blob file (blob row already removed)"
+                            );
+                        }
+                    }
+                }
+            }
         }
+
         Ok(())
     }
 
@@ -670,13 +706,9 @@ impl PgFileStorageRepository {
             blob_id
         };
 
-        // Increment blob reference count (fixes #197 - phantom write)
-        sqlx::query(
-            "UPDATE attachment_blob SET reference_count = reference_count + 1 WHERE id = $1",
-        )
-        .bind(blob_id)
-        .execute(&mut **tx)
-        .await?;
+        // Note: reference_count is managed by the update_blob_refcount() trigger
+        // which fires on INSERT/DELETE/UPDATE of attachment rows.
+        // No explicit increment needed here — the trigger handles it.
 
         // Create attachment record
         let attachment_id = Uuid::now_v7();
@@ -760,21 +792,61 @@ impl PgFileStorageRepository {
     }
 
     /// Transaction-aware variant of delete.
+    ///
+    /// Deletes the attachment row (trigger decrements blob reference_count).
+    /// If no other attachments reference the same blob, the blob row and
+    /// physical file are also deleted.
     pub async fn delete_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         attachment_id: Uuid,
     ) -> Result<()> {
-        let result = sqlx::query("DELETE FROM attachment WHERE id = $1")
+        // Get the blob_id before deleting the attachment
+        let blob_id: Uuid = sqlx::query_scalar("SELECT blob_id FROM attachment WHERE id = $1")
+            .bind(attachment_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Attachment {} not found", attachment_id)))?;
+
+        // Delete the attachment row (trigger decrements reference_count)
+        sqlx::query("DELETE FROM attachment WHERE id = $1")
             .bind(attachment_id)
             .execute(&mut **tx)
             .await?;
-        if result.rows_affected() == 0 {
-            return Err(Error::NotFound(format!(
-                "Attachment {} not found",
-                attachment_id
-            )));
+
+        // Check if blob is now orphaned (no remaining references)
+        let blob_info: Option<(i32, Option<String>, String)> = sqlx::query_as(
+            r#"SELECT reference_count, storage_path, storage_backend
+               FROM attachment_blob WHERE id = $1"#,
+        )
+        .bind(blob_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if let Some((ref_count, storage_path, storage_backend)) = blob_info {
+            if ref_count <= 0 {
+                // Delete the blob row
+                sqlx::query("DELETE FROM attachment_blob WHERE id = $1")
+                    .bind(blob_id)
+                    .execute(&mut **tx)
+                    .await?;
+
+                // Delete the physical file if stored on filesystem
+                if storage_backend == "filesystem" {
+                    if let Some(path) = storage_path {
+                        if let Err(e) = self.backend.delete(&path).await {
+                            warn!(
+                                blob_id = %blob_id,
+                                path = %path,
+                                error = %e,
+                                "Failed to delete orphaned blob file (blob row already removed)"
+                            );
+                        }
+                    }
+                }
+            }
         }
+
         Ok(())
     }
 
