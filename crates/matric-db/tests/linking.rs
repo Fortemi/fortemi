@@ -8,8 +8,10 @@
 //! - Link-005: Link score calculation
 //! - Link-006: Link metadata preservation
 //! - Link-007: Link deletion cascades
+//! - Link-008: Content-type-aware thresholds (code uses 0.85)
 //!
 //! Related issues:
+//! - #347: Embedding similarity thresholds need calibration
 //! - #355: Verify automatic linking functionality
 
 use uuid::Uuid;
@@ -18,17 +20,20 @@ use uuid::Uuid;
 // CONSTANTS
 // ============================================================================
 
-/// Similarity threshold for automatic linking (70%)
-const LINK_SIMILARITY_THRESHOLD: f32 = 0.70;
+/// Default similarity threshold for automatic linking (prose/general, 70%)
+const LINK_SIMILARITY_THRESHOLD: f32 = matric_core::defaults::SEMANTIC_LINK_THRESHOLD;
 
-/// High similarity score (should always create link)
+/// Stricter similarity threshold for code-category notes (85%)
+const CODE_SIMILARITY_THRESHOLD: f32 = matric_core::defaults::SEMANTIC_LINK_THRESHOLD_CODE;
+
+/// High similarity score (should always create link regardless of category)
 const HIGH_SIMILARITY: f32 = 0.90;
 
-/// Medium similarity score (above threshold)
+/// Medium similarity score (above prose threshold but below code threshold)
 #[allow(dead_code)]
 const MEDIUM_SIMILARITY: f32 = 0.75;
 
-/// Low similarity score (below threshold)
+/// Low similarity score (below all thresholds)
 #[allow(dead_code)]
 const LOW_SIMILARITY: f32 = 0.60;
 
@@ -115,9 +120,14 @@ fn generate_similar_embedding(base: &[f32], similarity_target: f32) -> Vec<f32> 
     result
 }
 
-/// Check if a similarity score should create a link.
+/// Check if a similarity score should create a link for prose/general content.
 fn should_create_link(similarity: f32) -> bool {
     similarity >= LINK_SIMILARITY_THRESHOLD
+}
+
+/// Check if a similarity score should create a link for code content.
+fn should_create_link_code(similarity: f32) -> bool {
+    similarity >= CODE_SIMILARITY_THRESHOLD
 }
 
 // ============================================================================
@@ -280,8 +290,83 @@ fn test_should_create_link_below_threshold() {
 fn test_threshold_value() {
     assert_eq!(
         LINK_SIMILARITY_THRESHOLD, 0.70,
-        "Threshold should be 70% as per spec"
+        "Default threshold should be 70% as per spec"
     );
+}
+
+#[test]
+fn test_code_threshold_value() {
+    assert_eq!(
+        CODE_SIMILARITY_THRESHOLD, 0.85,
+        "Code threshold should be 85% (stricter than default)"
+    );
+}
+
+// ============================================================================
+// UNIT TESTS - Content-Type-Aware Thresholds (Link-008)
+// ============================================================================
+
+#[test]
+fn test_code_notes_not_linked_at_default_threshold() {
+    // Issue #347: Code embeddings cluster tightly — a similarity of 0.75
+    // between Rust and Python code should NOT create a link.
+    let similarity = 0.75;
+    assert!(
+        should_create_link(similarity),
+        "Prose at 0.75 SHOULD create link (above 0.70 default)"
+    );
+    assert!(
+        !should_create_link_code(similarity),
+        "Code at 0.75 should NOT create link (below 0.85 code threshold)"
+    );
+}
+
+#[test]
+fn test_code_notes_linked_above_code_threshold() {
+    // Very similar code (same algorithm in same language) should link
+    let similarity = 0.88;
+    assert!(
+        should_create_link_code(similarity),
+        "Code at 0.88 SHOULD create link (above 0.85 code threshold)"
+    );
+}
+
+#[test]
+fn test_threshold_for_category_matches_constants() {
+    use matric_core::defaults::semantic_link_threshold_for;
+    use matric_core::models::DocumentCategory;
+
+    assert_eq!(
+        semantic_link_threshold_for(DocumentCategory::Code),
+        CODE_SIMILARITY_THRESHOLD
+    );
+    assert_eq!(
+        semantic_link_threshold_for(DocumentCategory::Prose),
+        LINK_SIMILARITY_THRESHOLD
+    );
+}
+
+#[test]
+fn test_code_threshold_boundary_between_thresholds() {
+    // Scores in the 0.70-0.85 gap: linked for prose, NOT linked for code
+    for score_x100 in 70..85 {
+        let score = score_x100 as f32 / 100.0;
+        assert!(
+            should_create_link(score),
+            "Prose at {score} should create link"
+        );
+        assert!(
+            !should_create_link_code(score),
+            "Code at {score} should NOT create link"
+        );
+    }
+}
+
+#[test]
+fn test_high_similarity_links_regardless_of_category() {
+    // Scores above 0.85 should always create links
+    assert!(should_create_link(HIGH_SIMILARITY));
+    assert!(should_create_link_code(HIGH_SIMILARITY));
 }
 
 // ============================================================================

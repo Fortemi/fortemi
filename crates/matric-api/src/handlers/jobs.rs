@@ -727,6 +727,18 @@ impl JobHandler for LinkingHandler {
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
 
+        // Determine content-type-aware similarity threshold.
+        // Code-like notes need a stricter threshold because embedding models
+        // place programming content closer together in vector space.
+        let link_threshold = if let Some(dt_id) = note.note.document_type_id {
+            match self.db.document_types.get(dt_id).await {
+                Ok(Some(dt)) => matric_core::defaults::semantic_link_threshold_for(dt.category),
+                _ => matric_core::defaults::SEMANTIC_LINK_THRESHOLD,
+            }
+        } else {
+            matric_core::defaults::SEMANTIC_LINK_THRESHOLD
+        };
+
         // Use revised content if available, otherwise original
         let content = if !note.revised.content.is_empty() {
             &note.revised.content
@@ -801,9 +813,8 @@ impl JobHandler for LinkingHandler {
         ctx.report_progress(80, Some("Creating bidirectional semantic links..."));
 
         for hit in similar {
-            // Skip self and low scores (threshold 0.7 for semantic links)
-            if hit.note_id == note_id || hit.score < matric_core::defaults::SEMANTIC_LINK_THRESHOLD
-            {
+            // Skip self and low scores (content-type-aware threshold)
+            if hit.note_id == note_id || hit.score < link_threshold {
                 continue;
             }
 
@@ -845,7 +856,8 @@ impl JobHandler for LinkingHandler {
         JobResult::Success(Some(serde_json::json!({
             "links_created": created,
             "wiki_links_found": wiki_links_found,
-            "wiki_links_resolved": wiki_links_resolved
+            "wiki_links_resolved": wiki_links_resolved,
+            "similarity_threshold": link_threshold
         })))
     }
 }

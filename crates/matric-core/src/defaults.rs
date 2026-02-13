@@ -281,8 +281,13 @@ pub const MAX_HISTORY_VERSIONS: i32 = 50;
 // SIMILARITY THRESHOLDS (Tier 2 — Algorithm Parameters)
 // =============================================================================
 
-/// Minimum similarity score for creating semantic links between notes.
+/// Minimum similarity score for creating semantic links between notes (prose/general).
 pub const SEMANTIC_LINK_THRESHOLD: f32 = 0.7;
+
+/// Minimum similarity score for creating semantic links between code-category notes.
+/// Code embeddings (Rust, Python, JS etc.) cluster more tightly than prose, so a
+/// higher threshold prevents false-positive links between unrelated code files.
+pub const SEMANTIC_LINK_THRESHOLD_CODE: f32 = 0.85;
 
 /// Minimum similarity score for context-update link filtering (stricter).
 pub const CONTEXT_LINK_THRESHOLD: f32 = 0.75;
@@ -295,6 +300,24 @@ pub const AI_TAGGING_CONFIDENCE: f32 = 0.8;
 
 /// Relevance decay factor per rank position in concept tagging.
 pub const RELEVANCE_DECAY_FACTOR: f32 = 0.1;
+
+/// Returns the semantic link threshold appropriate for the given document category.
+///
+/// Code-like categories (Code, Shell, Config, Iac, Database, Package) use a
+/// stricter threshold because embedding models place programming-language
+/// content closer together in vector space regardless of actual relatedness.
+pub fn semantic_link_threshold_for(category: crate::models::DocumentCategory) -> f32 {
+    use crate::models::DocumentCategory;
+    match category {
+        DocumentCategory::Code
+        | DocumentCategory::Shell
+        | DocumentCategory::Config
+        | DocumentCategory::Iac
+        | DocumentCategory::Database
+        | DocumentCategory::Package => SEMANTIC_LINK_THRESHOLD_CODE,
+        _ => SEMANTIC_LINK_THRESHOLD,
+    }
+}
 
 // =============================================================================
 // CONTENT PREVIEW SIZES (Tier 2)
@@ -419,5 +442,60 @@ mod tests {
             assert!(PAGE_LIMIT < PAGE_LIMIT_LARGE);
             assert!(PAGE_LIMIT_LARGE < INTERNAL_FETCH_LIMIT);
         }
+    }
+
+    #[test]
+    fn code_threshold_stricter_than_default() {
+        assert!(
+            SEMANTIC_LINK_THRESHOLD_CODE > SEMANTIC_LINK_THRESHOLD,
+            "Code threshold ({}) must be stricter than default ({})",
+            SEMANTIC_LINK_THRESHOLD_CODE,
+            SEMANTIC_LINK_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn semantic_link_threshold_for_categories() {
+        use crate::models::DocumentCategory;
+
+        // Code-like categories get stricter threshold
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Code),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Shell),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Config),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Iac),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Database),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Package),
+            SEMANTIC_LINK_THRESHOLD_CODE
+        );
+
+        // Non-code categories get default threshold
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Prose),
+            SEMANTIC_LINK_THRESHOLD
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Docs),
+            SEMANTIC_LINK_THRESHOLD
+        );
+        assert_eq!(
+            semantic_link_threshold_for(DocumentCategory::Creative),
+            SEMANTIC_LINK_THRESHOLD
+        );
     }
 }
