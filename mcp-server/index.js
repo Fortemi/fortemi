@@ -58,7 +58,15 @@ async function apiRequest(method, path, body = null) {
   const headers = { "Content-Type": "application/json" };
 
   // Get token from async context (HTTP mode) or use API_KEY (stdio mode)
-  const sessionToken = tokenStorage.getStore()?.token;
+  const store = tokenStorage.getStore();
+  const sessionToken = store?.token;
+  const sessionId = store?.sessionId;
+
+  // DEBUG: Trace AsyncLocalStorage context propagation (#350)
+  if (process.env.DEBUG_SESSION_CONTEXT) {
+    console.log(`[apiRequest] ${method} ${path} | sessionId=${sessionId || 'UNDEFINED'} | hasToken=${!!sessionToken}`);
+  }
+
   if (sessionToken) {
     headers["Authorization"] = `Bearer ${sessionToken}`;
   } else if (API_KEY) {
@@ -66,12 +74,16 @@ async function apiRequest(method, path, body = null) {
   }
 
   // Add X-Fortemi-Memory header if active memory is set for this session
-  const sessionId = tokenStorage.getStore()?.sessionId;
   if (sessionId) {
     const activeMemory = sessionMemories.get(sessionId);
     if (activeMemory) {
       headers["X-Fortemi-Memory"] = activeMemory;
+      if (process.env.DEBUG_SESSION_CONTEXT) {
+        console.log(`[apiRequest] Adding X-Fortemi-Memory=${activeMemory} for session=${sessionId}`);
+      }
     }
+  } else if (process.env.DEBUG_SESSION_CONTEXT) {
+    console.log(`[apiRequest] WARNING: No sessionId in context for ${method} ${path}`);
   }
 
   const options = { method, headers };
@@ -792,26 +804,74 @@ function createMcpServer() {
         }
 
         case "backup_download": {
-          // Download backup as file (returns same data as export)
+          // Return download URL + curl command (API pointer pattern)
           const downloadParams = new URLSearchParams();
           if (args.starred_only) downloadParams.set("starred_only", "true");
           if (args.tags) downloadParams.set("tags", args.tags.join(","));
           if (args.created_after) downloadParams.set("created_after", args.created_after);
           if (args.created_before) downloadParams.set("created_before", args.created_before);
 
-          result = await apiRequest("GET", `/api/v1/backup/download?${downloadParams}`);
+          const bdFilename = `matric-backup-${new Date().toISOString().slice(0,10)}.json`;
+          const bdOutputFile = args.output_dir
+            ? `${args.output_dir}/${bdFilename}`
+            : bdFilename;
+          const bdUrl = `${API_BASE}/api/v1/backup/download?${downloadParams}`;
+          const bdCurlParts = [`curl -o "${bdOutputFile}"`];
+          const bdToken = tokenStorage.getStore()?.token;
+          if (bdToken) {
+            bdCurlParts.push(`-H "Authorization: Bearer ${bdToken}"`);
+          } else if (API_KEY) {
+            bdCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+          }
+          const bdSid = tokenStorage.getStore()?.sessionId;
+          const bdMem = bdSid ? sessionMemories.get(bdSid) : null;
+          if (bdMem) {
+            bdCurlParts.push(`-H "X-Fortemi-Memory: ${bdMem}"`);
+          }
+          bdCurlParts.push(`"${bdUrl}"`);
+          result = {
+            download_url: bdUrl,
+            suggested_filename: bdFilename,
+            curl_command: bdCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to download the JSON backup. Respects the active memory context. Use export_all_notes for in-memory processing, knowledge_shard for tar.gz format.`,
+          };
           break;
         }
 
         case "backup_import": {
-          // Import backup data
-          const importBody = {
-            backup: args.backup,
-            dry_run: args.dry_run || false,
-            on_conflict: args.on_conflict || "skip",
-          };
+          // Return upload URL + curl command (API pointer pattern)
+          const biUrl = `${API_BASE}/api/v1/backup/import`;
+          const biFilePath = args.file_path || "BACKUP_FILE.json";
+          const biDryRun = args.dry_run ? "true" : "false";
+          const biConflict = args.on_conflict || "skip";
 
-          result = await apiRequest("POST", "/api/v1/backup/import", importBody);
+          // The API expects {backup: <json>, dry_run, on_conflict} — wrap file content with jq
+          const biCurlParts = [`curl -X POST`];
+          biCurlParts.push(`-H "Content-Type: application/json"`);
+          const biToken = tokenStorage.getStore()?.token;
+          if (biToken) {
+            biCurlParts.push(`-H "Authorization: Bearer ${biToken}"`);
+          } else if (API_KEY) {
+            biCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+          }
+          const biSid = tokenStorage.getStore()?.sessionId;
+          const biMem = biSid ? sessionMemories.get(biSid) : null;
+          if (biMem) {
+            biCurlParts.push(`-H "X-Fortemi-Memory: ${biMem}"`);
+          }
+          biCurlParts.push(`-d "$(jq -n --slurpfile backup ${biFilePath} '{backup: $backup[0], dry_run: ${biDryRun}, on_conflict: \\"${biConflict}\\"}')"`)
+          biCurlParts.push(`"${biUrl}"`);
+          result = {
+            upload_url: biUrl,
+            method: "POST",
+            content_type: "application/json",
+            curl_command: biCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to import a JSON backup file. The file should be from export_all_notes or backup_download. ` +
+              `Use dry_run=true first to validate. Conflict strategy: skip (keep existing), replace (overwrite), merge (add new only).`,
+          };
+          if (args.file_path) {
+            result.file_path_hint = args.file_path;
+          }
           break;
         }
 
@@ -845,22 +905,42 @@ function createMcpServer() {
         }
 
         case "knowledge_shard_import": {
-          const shardPath = args.file_path;
-          if (!fs.existsSync(shardPath)) {
-            throw new Error(`File not found: ${shardPath}`);
+          // Return upload URL + curl command (API pointer pattern)
+          // The API requires shard_base64 in JSON body, so the curl command encodes the file
+          const ksiUrl = `${API_BASE}/api/v1/backup/knowledge-shard/import`;
+          const ksiFilePath = args.file_path || "SHARD_FILE.tar.gz";
+          const ksiDryRun = args.dry_run ? "true" : "false";
+          const ksiConflict = args.on_conflict || "skip";
+          const ksiSkipEmbed = args.skip_embedding_regen ? "true" : "false";
+
+          const ksiCurlParts = [`curl -X POST`];
+          ksiCurlParts.push(`-H "Content-Type: application/json"`);
+          const ksiToken = tokenStorage.getStore()?.token;
+          if (ksiToken) {
+            ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
+          } else if (API_KEY) {
+            ksiCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
           }
-          const shardData = fs.readFileSync(shardPath);
-          const shardBase64 = shardData.toString('base64');
-
-          const importBody = {
-            shard_base64: shardBase64,
-            include: args.include,
-            dry_run: args.dry_run || false,
-            on_conflict: args.on_conflict || "skip",
-            skip_embedding_regen: args.skip_embedding_regen || false,
+          const ksiSid = tokenStorage.getStore()?.sessionId;
+          const ksiMem = ksiSid ? sessionMemories.get(ksiSid) : null;
+          if (ksiMem) {
+            ksiCurlParts.push(`-H "X-Fortemi-Memory: ${ksiMem}"`);
+          }
+          // Build JSON payload with base64-encoded file content via shell substitution
+          const ksiIncludeJson = args.include ? `, "include": "${args.include}"` : "";
+          ksiCurlParts.push(`-d "{\\"shard_base64\\": \\"$(base64 -w0 ${ksiFilePath})\\", \\"dry_run\\": ${ksiDryRun}, \\"on_conflict\\": \\"${ksiConflict}\\", \\"skip_embedding_regen\\": ${ksiSkipEmbed}${ksiIncludeJson}}"`)
+          ksiCurlParts.push(`"${ksiUrl}"`);
+          result = {
+            upload_url: ksiUrl,
+            method: "POST",
+            content_type: "application/json",
+            curl_command: ksiCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to import a knowledge shard (.tar.gz). The file is base64-encoded by the shell command before sending. ` +
+              `Use dry_run=true first to validate. The file should be from the knowledge_shard tool.`,
           };
-
-          result = await apiRequest("POST", "/api/v1/backup/knowledge-shard/import", importBody);
+          if (args.file_path) {
+            result.file_path_hint = args.file_path;
+          }
           break;
         }
 
@@ -909,43 +989,35 @@ function createMcpServer() {
         }
 
         case "knowledge_archive_upload": {
-          const archivePath = args.file_path;
-          if (!fs.existsSync(archivePath)) {
-            throw new Error(`File not found: ${archivePath}`);
-          }
-          const archiveBuffer = fs.readFileSync(archivePath);
-          const uploadFilename = args.filename || path.basename(archivePath);
+          // Return upload URL + curl command (API pointer pattern)
+          const kauUrl = `${API_BASE}/api/v1/backup/knowledge-archive`;
+          const kauFilePath = args.file_path || "ARCHIVE_FILE.archive";
+          const kauCurlParts = [`curl -X POST`];
+          kauCurlParts.push(`-F "file=@${kauFilePath}"`);
 
-          const boundary = '----KnowledgeArchiveBoundary' + Date.now();
-          const body = Buffer.concat([
-            Buffer.from(`--${boundary}\r\n`),
-            Buffer.from(`Content-Disposition: form-data; name="file"; filename="${uploadFilename}"\r\n`),
-            Buffer.from('Content-Type: application/x-tar\r\n\r\n'),
-            archiveBuffer,
-            Buffer.from(`\r\n--${boundary}--\r\n`),
-          ]);
-
-          const ulHeaders = {};
-          const ulToken = tokenStorage.getStore()?.token;
-          if (ulToken) {
-            ulHeaders["Authorization"] = `Bearer ${ulToken}`;
+          const kauToken = tokenStorage.getStore()?.token;
+          if (kauToken) {
+            kauCurlParts.push(`-H "Authorization: Bearer ${kauToken}"`);
           } else if (API_KEY) {
-            ulHeaders["Authorization"] = `Bearer ${API_KEY}`;
+            kauCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
           }
-          ulHeaders['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
-          ulHeaders['Content-Length'] = body.length.toString();
-
-          const uploadResponse = await fetch(`${API_BASE}/api/v1/backup/knowledge-archive`, {
-            method: 'POST',
-            headers: ulHeaders,
-            body: body,
-          });
-
-          if (!uploadResponse.ok) {
-            const errorText = await uploadResponse.text();
-            throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
+          const kauSid = tokenStorage.getStore()?.sessionId;
+          const kauMem = kauSid ? sessionMemories.get(kauSid) : null;
+          if (kauMem) {
+            kauCurlParts.push(`-H "X-Fortemi-Memory: ${kauMem}"`);
           }
-          result = await uploadResponse.json();
+          kauCurlParts.push(`"${kauUrl}"`);
+          result = {
+            upload_url: kauUrl,
+            method: "POST",
+            content_type: "multipart/form-data",
+            curl_command: kauCurlParts.join(" \\\n  "),
+            instructions: `Run the curl command to upload the .archive file. The API accepts multipart/form-data — no base64 encoding needed. ` +
+              `The file should be from knowledge_archive_download. After upload, use database_restore to apply the backup.`,
+          };
+          if (args.file_path) {
+            result.file_path_hint = args.file_path;
+          }
           break;
         }
 
@@ -2131,6 +2203,12 @@ function createMcpServer() {
           } else if (API_KEY) {
             turtleHeaders["Authorization"] = `Bearer ${API_KEY}`;
           }
+          // Add memory header if active archive is set
+          const turtleSid = tokenStorage.getStore()?.sessionId;
+          const turtleMem = turtleSid ? sessionMemories.get(turtleSid) : null;
+          if (turtleMem) {
+            turtleHeaders["X-Fortemi-Memory"] = turtleMem;
+          }
           // If scheme_id provided, export single scheme; otherwise export all
           const turtleUrl = args.scheme_id
             ? `${API_BASE}/api/v1/concepts/schemes/${args.scheme_id}/export/turtle`
@@ -2238,6 +2316,11 @@ function createMcpServer() {
             throw new Error("Session context not available - memory selection requires HTTP transport");
           }
 
+          // DEBUG: Trace memory selection (#350)
+          if (process.env.DEBUG_SESSION_CONTEXT) {
+            console.log(`[select_memory] Setting memory="${args.name}" for session=${sessionId}`);
+          }
+
           // "public" is always valid (it's the default schema)
           if (args.name !== "public") {
             // Validate the memory/archive exists before selecting it
@@ -2245,6 +2328,9 @@ function createMcpServer() {
           }
 
           sessionMemories.set(sessionId, args.name);
+          if (process.env.DEBUG_SESSION_CONTEXT) {
+            console.log(`[select_memory] Stored. sessionMemories now has ${sessionMemories.size} entries`);
+          }
           result = {
             success: true,
             message: `Active memory set to: ${args.name}`,
@@ -4609,25 +4695,42 @@ if (MCP_TRANSPORT === "http") {
     const sessionId = req.headers['mcp-session-id'];
     console.log(`[mcp] POST, sessionId from header: ${sessionId || 'none'}`);
 
+    // Check both established transports AND pending transports (being initialized)
     const existingSession = sessionId ? transports.get(sessionId) : undefined;
+    const pendingSession = sessionId ? pendingTransports.get(sessionId) : undefined;
 
     let transport;
     let isNewTransport = false;
+    let contextSessionId;
+
     if (existingSession && existingSession.type === 'streamable') {
       // Reuse existing transport for this session
       console.log(`[mcp] Reusing existing transport for session ${sessionId}`);
       transport = existingSession.transport;
+      contextSessionId = sessionId;
+    } else if (pendingSession) {
+      // Transport exists but is still being initialized - reuse it
+      console.log(`[mcp] Reusing pending transport for session ${sessionId}`);
+      transport = pendingSession.transport;
+      contextSessionId = sessionId;
     } else {
-      // Create new StreamableHTTP transport
+      // Create new StreamableHTTP transport with pre-generated sessionId
       isNewTransport = true;
+      const newSessionId = crypto.randomUUID();
+      contextSessionId = newSessionId;
+
       transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
+        sessionIdGenerator: () => newSessionId, // Use our pre-generated ID
       });
+
+      // Store in pendingTransports IMMEDIATELY to prevent race conditions
+      // This ensures concurrent requests find the same transport
+      pendingTransports.set(newSessionId, { transport, token: req.accessToken, type: 'streamable' });
+      console.log(`[mcp] Created pending transport with pre-assigned sessionId: ${newSessionId}`);
 
       // Create and connect new MCP server for this transport
       const mcpServer = createMcpServer();
       await mcpServer.connect(transport);
-      console.log(`[mcp] Transport connected (sessionId will be set during handleRequest)`);
 
       // Set up cleanup on close
       transport.onclose = () => {
@@ -4635,30 +4738,39 @@ if (MCP_TRANSPORT === "http") {
         if (transport?.sessionId) {
           transports.delete(transport.sessionId);
           pendingTransports.delete(transport.sessionId);
+          sessionMemories.delete(transport.sessionId);
         }
       };
     }
 
-    // Handle the request with token context
+    // Handle the request with token context - contextSessionId is ALWAYS defined now
     try {
-      // For new transports, handleRequest will call the sessionIdGenerator and set transport.sessionId
-      // We need to store it SYNCHRONOUSLY after handleRequest completes to avoid race conditions
-      const contextSessionId = transport.sessionId;
+      // DEBUG: Trace context creation (#350)
+      if (process.env.DEBUG_SESSION_CONTEXT) {
+        console.log(`[transport] Running tokenStorage.run with sessionId=${contextSessionId}`);
+      }
       await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
+        if (process.env.DEBUG_SESSION_CONTEXT) {
+          const verifyStore = tokenStorage.getStore();
+          console.log(`[transport] Inside run callback, store.sessionId=${verifyStore?.sessionId}`);
+        }
         await transport.handleRequest(req, res);
       });
 
-      // Store transport IMMEDIATELY after handleRequest - sessionId is now set
-      // This prevents the race where concurrent requests arrive before storage
-      if (isNewTransport && transport.sessionId && !transports.has(transport.sessionId)) {
-        console.log(`[mcp] Storing new transport with sessionId: ${transport.sessionId}`);
-        transports.set(transport.sessionId, { transport, token: req.accessToken, type: 'streamable' });
+      // Move from pending to established transports after successful handleRequest
+      if (isNewTransport && transport.sessionId) {
+        pendingTransports.delete(transport.sessionId);
+        if (!transports.has(transport.sessionId)) {
+          console.log(`[mcp] Promoting transport to established: ${transport.sessionId}`);
+          transports.set(transport.sessionId, { transport, token: req.accessToken, type: 'streamable' });
+        }
       }
     } catch (error) {
       console.error(`[mcp] Error handling request:`, error);
       // Clean up pending transport on error
-      if (isNewTransport && transport?.sessionId) {
-        pendingTransports.delete(transport.sessionId);
+      if (isNewTransport && contextSessionId) {
+        pendingTransports.delete(contextSessionId);
+        sessionMemories.delete(contextSessionId);
       }
       if (!res.headersSent) {
         res.status(500).json({ error: error.message });

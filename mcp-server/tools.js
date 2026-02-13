@@ -1568,11 +1568,12 @@ NEXT: list_backups for full file listing, memory_info for storage breakdown.`,
   },
   {
     name: "backup_download",
-    description: `Same as export_all_notes but with download headers. Respects the active memory context.
+    description: `Download JSON backup of notes from the active memory.
 
-Use for file saving.
+Returns a curl command to download the backup file. Execute the command to save the file.
 
-USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.gz format.`,
+USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.gz format.
+RESTORE: backup_import with the saved file path.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1580,6 +1581,7 @@ USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.
         tags: { type: "array", items: { type: "string" }, description: "Only include notes with these tags" },
         created_after: { type: "string", description: "Only include notes created after this date (ISO 8601)" },
         created_before: { type: "string", description: "Only include notes created before this date (ISO 8601)" },
+        output_dir: { type: "string", description: "Directory prefix for the output filename in the curl command" },
       },
     },
     annotations: {
@@ -1588,9 +1590,10 @@ USE INSTEAD: export_all_notes for in-memory processing, knowledge_shard for tar.
   },
   {
     name: "backup_import",
-    description: `Import notes from JSON backup (from export_all_notes/backup_download).
+    description: `Import notes from a JSON backup file on disk (from export_all_notes/backup_download).
 
-RETURNS: {status, imported{notes,collections,templates}, skipped, errors[]}
+Returns a curl command to upload and import the backup. Execute the command to perform the import.
+
 CONFLICTS: "skip" (keep existing) | "replace" (overwrite) | "merge" (add new only)
 
 USE WHEN: Restore from JSON export, migrate between instances.
@@ -1599,32 +1602,7 @@ TIP: Use dry_run=true first to validate.`,
     inputSchema: {
       type: "object",
       properties: {
-        backup: {
-          type: "object",
-          description: "Data from export_all_notes",
-          properties: {
-            manifest: { type: "object" },
-            notes: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  id: { type: "string", description: "Original note UUID (optional)" },
-                  original_content: { type: "string", description: "Original note content" },
-                  content: { type: "string", description: "Note content (fallback if original_content missing)" },
-                  revised_content: { type: "string", description: "AI-revised content (optional)" },
-                  format: { type: "string", description: "Content format (default: markdown)" },
-                  starred: { type: "boolean", description: "Star the note" },
-                  archived: { type: "boolean", description: "Archive the note" },
-                  tags: { type: "array", items: { type: "string" }, description: "Tags to apply" },
-                },
-              },
-            },
-            collections: { type: "array", description: "Collections to import" },
-            templates: { type: "array", description: "Templates to import" },
-          },
-          required: ["notes"],
-        },
+        file_path: { type: "string", description: "Path to the JSON backup file on disk (from backup_download or export_all_notes)" },
         dry_run: { type: "boolean", description: "Validate without importing", default: false },
         on_conflict: {
           type: "string",
@@ -1633,7 +1611,7 @@ TIP: Use dry_run=true first to validate.`,
           default: "skip",
         },
       },
-      required: ["backup"],
+      required: ["file_path"],
     },
     annotations: {
       destructiveHint: true,
@@ -1669,9 +1647,13 @@ RESTORE: knowledge_shard_import with the saved file path`,
     name: "knowledge_shard_import",
     description: `Import knowledge shard from a .tar.gz file on disk into the active memory.
 
+Returns a curl command to import the shard. Execute the command to perform the import.
+
 Backup operations respect the active memory context.
 
-RETURNS: {status, manifest, imported{}, skipped{}, errors[]}`,
+USE WHEN: Restore from tar.gz shard (from knowledge_shard tool).
+USE INSTEAD: backup_import for JSON format, knowledge_archive_upload for .archive format.
+TIP: Use dry_run=true first to validate.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -1771,7 +1753,7 @@ WORKFLOW: list_backups → knowledge_archive_download → transfer → knowledge
     name: "knowledge_archive_upload",
     description: `Upload .archive file from disk. Extracts backup + metadata to backup directory.
 
-RETURNS: {success, filename, path, size_bytes, size_human, metadata}
+Returns a curl command to upload the archive. Execute the command to perform the upload.
 
 USE WHEN: Restore backup from another system, import transferred archive.
 WORKFLOW: knowledge_archive_download (source) → transfer → knowledge_archive_upload (target) → database_restore
