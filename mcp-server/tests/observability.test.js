@@ -9,6 +9,8 @@ describe("Phase 16: Observability", () => {
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
   });
 
   after(async () => {

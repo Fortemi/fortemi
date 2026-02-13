@@ -8,6 +8,8 @@ describe("Phase 22: Video Processing (guidance tool)", () => {
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
   });
 
   after(async () => {
@@ -108,6 +110,8 @@ describe("Phase 22: 3D Model Processing (guidance tool)", () => {
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
   });
 
   after(async () => {

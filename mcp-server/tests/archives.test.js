@@ -13,6 +13,12 @@ describe("Phase 12: Memory Archives", () => {
   });
 
   after(async () => {
+    // Restore default archive to "public" to prevent state leakage to other test suites
+    try {
+      await client.callTool("set_default_archive", { name: "public" });
+      await client.callTool("select_memory", { name: "public" });
+    } catch {}
+
     // Clean up notes first
     for (const id of cleanup.noteIds) {
       try { await client.callTool("delete_note", { id }); } catch {}

@@ -11,6 +11,8 @@ describe("Phase 20: Data Export", () => {
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
 
     // Create a test note for export operations
     const note = await client.callTool("create_note", {

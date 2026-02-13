@@ -64,7 +64,7 @@ test("index.js uses FORTEMI_URL environment variable", () => {
   );
 });
 
-test(".mcp.json uses fortemi server key", () => {
+test(".mcp.json uses fortemi server key", { skip: !fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".mcp.json")) }, () => {
   const mcpPath = path.join(projectRoot, "..", ".mcp.json");
   const mcpJson = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
 
@@ -82,7 +82,7 @@ test(".mcp.json uses fortemi server key", () => {
   );
 });
 
-test(".claude/settings.local.json references fortemi", () => {
+test(".claude/settings.local.json references fortemi", { skip: !fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".claude", "settings.local.json")) }, () => {
   const settingsPath = path.join(
     projectRoot,
     "..",

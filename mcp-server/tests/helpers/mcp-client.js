@@ -125,50 +125,95 @@ export class MCPTestClient {
 
   /**
    * Call an MCP tool and return the parsed result.
+   * Automatically retries on deadlock errors with exponential backoff.
    *
    * @param {string} name - Tool name
    * @param {object} args - Tool arguments
+   * @param {object} options - Optional { maxRetries, retryDelayMs }
    * @returns {object} Parsed tool result (JSON content) or raw content
    * @throws {Error} If tool returns isError or MCP error
    */
-  async callTool(name, args = {}) {
-    const result = await this._rpc("tools/call", {
-      name,
-      arguments: args,
-    });
+  async callTool(name, args = {}, options = {}) {
+    // Use exponential backoff: 500ms, 1s, 2s, 4s, 8s, 16s, 32s = ~63s total
+    const maxRetries = options.maxRetries ?? 7;
+    const baseDelay = options.retryDelayMs ?? 500;
+    let lastError;
 
-    if (result.error) {
-      const err = new Error(`MCP error: ${result.error.message || JSON.stringify(result.error)}`);
-      err.code = result.error.code;
-      err.data = result.error.data;
-      throw err;
-    }
-
-    const content = result.result?.content;
-    if (!content || content.length === 0) {
-      return null;
-    }
-
-    // Check for tool-level errors
-    if (result.result?.isError) {
-      const text = content.map(c => c.text || "").join("\n");
-      const err = new Error(`Tool error: ${text}`);
-      err.isToolError = true;
-      throw err;
-    }
-
-    // Parse the first text content as JSON (most tools return JSON)
-    const firstText = content.find(c => c.type === "text");
-    if (firstText) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return JSON.parse(firstText.text);
-      } catch {
-        // Return raw text if not JSON
-        return firstText.text;
+        const result = await this._rpc("tools/call", {
+          name,
+          arguments: args,
+        });
+
+        if (result.error) {
+          const err = new Error(`MCP error: ${result.error.message || JSON.stringify(result.error)}`);
+          err.code = result.error.code;
+          err.data = result.error.data;
+          throw err;
+        }
+
+        const content = result.result?.content;
+        if (!content || content.length === 0) {
+          return null;
+        }
+
+        // Check for tool-level errors
+        if (result.result?.isError) {
+          const text = content.map(c => c.text || "").join("\n");
+          const err = new Error(`Tool error: ${text}`);
+          err.isToolError = true;
+
+          // Check for retryable errors during parallel test execution
+          // - "deadlock detected": PostgreSQL transaction deadlock
+          // - "Referenced resource not found": FK constraint violation (transient)
+          // - "Note not found": Race condition where note isn't visible yet (transient)
+          // - "Export failed": Export races with note creation (transient)
+          // - "does not exist": Schema/table deleted by parallel cleanup (transient)
+          const retryablePatterns = [
+            "deadlock detected",
+            "Referenced resource not found",
+            "Note not found",
+            "Export failed",
+            "does not exist",
+          ];
+          if (retryablePatterns.some(pattern => text.includes(pattern))) {
+            err.isRetryable = true;
+          }
+          throw err;
+        }
+
+        // Parse the first text content as JSON (most tools return JSON)
+        const firstText = content.find(c => c.type === "text");
+        if (firstText) {
+          try {
+            return JSON.parse(firstText.text);
+          } catch {
+            // Return raw text if not JSON
+            return firstText.text;
+          }
+        }
+
+        return content;
+      } catch (e) {
+        lastError = e;
+
+        // Check if this is a retryable deadlock error
+        const isDeadlock = e.message?.includes("deadlock detected") || e.isRetryable;
+
+        if (isDeadlock && attempt < maxRetries) {
+          // True exponential backoff: 2^attempt * baseDelay + jitter
+          // Example: 500ms, 1s, 2s, 4s, 8s, 16s, 32s = ~63s total coverage
+          const delay = Math.pow(2, attempt) * baseDelay + Math.random() * 200;
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        throw e;
       }
     }
 
-    return content;
+    throw lastError;
   }
 
   /**

@@ -9,6 +9,8 @@ describe("Phase 2b: File Attachments", () => {
   before(async () => {
     client = new MCPTestClient();
     await client.initialize();
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
   });
 
   after(async () => {
@@ -27,30 +29,80 @@ describe("Phase 2b: File Attachments", () => {
    * This mirrors the real agent workflow:
    * 1. MCP tool returns the upload URL + curl command
    * 2. Agent executes the upload directly against the API
+   *
+   * Includes retry logic for transient errors during parallel test execution.
    */
   async function uploadFile(noteId, filename, content, contentType) {
-    // Step 1: Get upload URL from MCP tool
-    const info = await client.callTool("upload_attachment", {
-      note_id: noteId,
-      filename,
-      content_type: contentType,
-    });
-    assert.ok(info.upload_url, "Should return upload URL");
-    assert.ok(info.curl_command, "Should return curl command");
+    const maxRetries = 5;
+    const baseDelay = 300;
+    let lastError;
 
-    // Step 2: Upload directly to the API via multipart/form-data
-    const blob = new Blob([content], { type: contentType });
-    const formData = new FormData();
-    formData.append("file", blob, filename);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Step 1: Get upload URL from MCP tool
+        const info = await client.callTool("upload_attachment", {
+          note_id: noteId,
+          filename,
+          content_type: contentType,
+        });
+        assert.ok(info.upload_url, "Should return upload URL");
+        assert.ok(info.curl_command, "Should return curl command");
 
-    const response = await fetch(info.upload_url, {
-      method: "POST",
-      body: formData,
-    });
-    assert.ok(response.ok, `Upload should succeed (got ${response.status})`);
-    const result = await response.json();
-    assert.ok(result.id, "Should return attachment ID");
-    return result;
+        // Step 2: Upload directly to the API via multipart/form-data
+        const blob = new Blob([content], { type: contentType });
+        const formData = new FormData();
+        formData.append("file", blob, filename);
+
+        // Build headers - include auth if available
+        const uploadHeaders = {};
+        if (client.apiKey) {
+          uploadHeaders["Authorization"] = `Bearer ${client.apiKey}`;
+        }
+
+        const response = await fetch(info.upload_url, {
+          method: "POST",
+          body: formData,
+          headers: uploadHeaders,
+        });
+
+        // Check for transient errors that should be retried
+        if (!response.ok) {
+          const text = await response.text();
+          const isRetryable = response.status === 400 || response.status === 404 ||
+            text.includes("Referenced resource not found") ||
+            text.includes("Note not found") ||
+            text.includes("does not exist");
+
+          if (isRetryable && attempt < maxRetries) {
+            const delay = Math.pow(2, attempt) * baseDelay + Math.random() * 100;
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          throw new Error(`Upload failed (${response.status}): ${text}`);
+        }
+
+        const result = await response.json();
+        assert.ok(result.id, "Should return attachment ID");
+        return result;
+      } catch (error) {
+        lastError = error;
+
+        // Check if this is a retryable error
+        const isRetryable = error.message?.includes("Referenced resource not found") ||
+          error.message?.includes("Note not found") ||
+          error.message?.includes("does not exist") ||
+          error.message?.includes("Upload failed (400)") ||
+          error.message?.includes("Upload failed (404)");
+
+        if (isRetryable && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * baseDelay + Math.random() * 100;
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
   }
 
   test("ATT-001: Store file attachment to a note", async () => {

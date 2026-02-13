@@ -29,6 +29,9 @@ describe("Phase 3: Search Operations (CRITICAL)", () => {
     client = new MCPTestClient();
     await client.initialize();
 
+    // Ensure we're in the default archive context (prevents state leakage from other tests)
+    await client.callTool("select_memory", { name: "public" });
+
     // Create test notes for search
     const testTag = MCPTestClient.testTag("search", "fixtures");
     const testNotes = [
