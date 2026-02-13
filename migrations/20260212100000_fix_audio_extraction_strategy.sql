@@ -4,18 +4,18 @@
 -- Specific audio types (voice-memo, tracker-module) already use audio_transcribe,
 -- but the generic fallback 'audio' type was missing it.
 
-UPDATE document_types
+UPDATE document_type
 SET extraction_strategy = 'audio_transcribe'
-WHERE slug = 'audio'
+WHERE name = 'audio'
   AND extraction_strategy IS NULL;
 
 -- Also fix 'video' and 'podcast' types which have the same NULL issue
-UPDATE document_types
+UPDATE document_type
 SET extraction_strategy = 'video_multimodal'
-WHERE slug = 'video'
+WHERE name = 'video'
   AND extraction_strategy IS NULL;
 
-UPDATE document_types
+UPDATE document_type
 SET extraction_strategy = 'audio_transcribe'
-WHERE slug = 'podcast'
+WHERE name = 'podcast'
   AND extraction_strategy IS NULL;
