@@ -6673,7 +6673,11 @@ async fn search_notes(
 
     // Resolve embedding set slug to UUID and apply filter (return 404 if slug is invalid)
     if let Some(ref set_slug) = query.embedding_set {
-        let set = state.db.embedding_sets.get_by_slug(set_slug).await?
+        let set = state
+            .db
+            .embedding_sets
+            .get_by_slug(set_slug)
+            .await?
             .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", set_slug)))?;
         request = request.with_embedding_set(set.id);
     }
