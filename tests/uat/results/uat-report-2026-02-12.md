@@ -25,7 +25,7 @@
 
 ### Release Recommendation
 
-**PASS** — 95.5% executable pass rate across 554 tests (530 executable). All 6 Gitea issues filed and **ALL CLOSED**:
+**PASS** — 95.5% executable pass rate across 554 tests (530 executable). All 7 Gitea issues filed and **ALL CLOSED**:
 
 | Issue | Title | Resolution |
 |-------|-------|------------|
@@ -35,6 +35,7 @@
 | #322 | get_knowledge_health returns error | FIXED |
 | #323 | get_orphan_tags returns error | FIXED |
 | #324 | event_types filter not working | FIXED |
+| #335 | search_notes ignores invalid embedding set slug | FIXED (R7) — Now returns 404 error |
 
 ---
 
@@ -122,7 +123,20 @@ curl -s -X POST .../jobs -d '{"deduplicate":true}' & wait
 - Request 1: `{"id":"019c5434-1ca7...","status":"queued"}`
 - Request 2: `{"id":null,"status":"already_pending"}` ✅
 
-**Result**: Issue #299 CLOSED — All 6 issues now resolved
+**Result**: Issue #299 CLOSED — 6 of 7 issues resolved
+
+### Retest R7 (MCP Reconnect - Final Verification)
+
+Final verification after MCP reconnection.
+
+| Issue | Test | Result | Notes |
+|-------|------|--------|-------|
+| #335 | search_notes with invalid embedding set | **PASS** | Now returns `404: Embedding set not found` |
+| - | search_memories_federated | **PASS** | Federated search working across memories |
+| - | describe_image MCP tool | **PASS** | Tool accessible (sandbox permissions resolved) |
+| - | transcribe_audio MCP tool | **PASS** | Tool accessible (sandbox permissions resolved) |
+
+**Result**: Issue #335 CLOSED — **ALL 7 issues now resolved**
 
 ---
 
@@ -137,7 +151,9 @@ curl -s -X POST .../jobs -d '{"deduplicate":true}' & wait
 | [#323](https://git.integrolabs.net/fortemi/fortemi/issues/323) | get_orphan_tags returns error | 16 | Medium | **Closed** (R1) |
 | [#324](https://git.integrolabs.net/fortemi/fortemi/issues/324) | event_types filter not working | 16 | Low | **Closed** (R2) |
 
-**Total**: 6 issues filed, **6 closed (100%)**
+| [#335](https://git.integrolabs.net/fortemi/fortemi/issues/335) | search_notes ignores invalid embedding set slug | 19 | Low | **Closed** (R7) |
+
+**Total**: 7 issues filed, **7 closed (100%)**
 
 ---
 
