@@ -185,22 +185,34 @@ describe("Phase 15: Background Jobs", () => {
   // --- Job Completion Monitoring ---
 
   test("JOB-014: Monitor job progress", async () => {
-    // Wait briefly for some jobs to process
-    await new Promise((r) => setTimeout(r, 500));
+    // Poll until at least one job has moved beyond pending, or timeout
+    const validStatuses = ["pending", "running", "completed", "failed", "cancelled"];
+    let jobs = [];
+    const maxWaitMs = 5000;
+    const pollIntervalMs = 300;
+    const start = Date.now();
 
-    const result = await client.callTool("list_jobs", {
-      note_id: sharedNoteId,
-      limit: 10,
-    });
-    assert.ok(result, "Should return jobs for monitoring");
-    const jobs = Array.isArray(result) ? result : (result.jobs || []);
-    // Jobs should have status field
-    for (const job of jobs) {
-      assert.ok(
-        ["pending", "processing", "completed", "failed"].includes(job.status),
-        `Job status should be valid, got: ${job.status}`
-      );
+    while (Date.now() - start < maxWaitMs) {
+      const result = await client.callTool("list_jobs", {
+        note_id: sharedNoteId,
+        limit: 10,
+      });
+      assert.ok(result, "Should return jobs for monitoring");
+      jobs = Array.isArray(result) ? result : (result.jobs || []);
+
+      // Validate all statuses are valid DB enum values
+      for (const job of jobs) {
+        assert.ok(
+          validStatuses.includes(job.status),
+          `Job status should be valid, got: ${job.status}`
+        );
+      }
+
+      // If any job has progressed beyond pending, we've observed a transition
+      if (jobs.some((j) => j.status !== "pending")) break;
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
     }
+
     const statusCounts = {};
     for (const job of jobs) {
       statusCounts[job.status] = (statusCounts[job.status] || 0) + 1;

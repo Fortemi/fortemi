@@ -765,7 +765,7 @@ Returns job list with queue statistics summary.
 
 Common workflows:
 1. After bulk update: list_jobs(status="pending") → confirm all queued
-2. Monitor progress: list_jobs(status="processing") → see what's running
+2. Monitor progress: list_jobs(status="running") → see what's running
 3. Check failures: list_jobs(status="failed") → surface errors
 4. Track specific note: list_jobs(note_id="uuid") → see all jobs for one note`,
     inputSchema: {
@@ -773,7 +773,7 @@ Common workflows:
       properties: {
         status: {
           type: "string",
-          enum: ["pending", "processing", "completed", "failed"],
+          enum: ["pending", "running", "completed", "failed"],
           description: "Filter by job status"
         },
         job_type: {
@@ -4100,7 +4100,7 @@ Use this to understand the origin and context of media attachments.`,
     description: `Get detailed information about a specific job.
 
 Returns full job details including:
-- status: pending/processing/completed/failed
+- status: pending/running/completed/failed
 - job_type: ai_revision/embedding/linking/etc.
 - result: Output from successful job
 - error: Error details if failed

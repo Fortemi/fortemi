@@ -3726,7 +3726,7 @@ Jobs run asynchronously - content may not be immediately searchable.
 \`\`\`
 // List jobs with filters
 list_jobs({ status: "pending", limit: 20 })
-// Statuses: pending, processing, completed, failed
+// Statuses: pending, running, completed, failed
 // Returns: [{ id, job_type, note_id, status, created_at, started_at }]
 
 // Get specific job details
