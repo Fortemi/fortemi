@@ -288,10 +288,7 @@ pub fn prepare_attachment_metadata(
     // Add top-level datetime_original in ISO 8601 if capture_time was parsed
     if let Some(ct) = capture_time {
         if let Some(obj) = metadata.as_object_mut() {
-            obj.insert(
-                "datetime_original".to_string(),
-                json!(ct.to_rfc3339()),
-            );
+            obj.insert("datetime_original".to_string(), json!(ct.to_rfc3339()));
         }
     }
 
@@ -757,7 +754,9 @@ mod tests {
         let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
 
         // Camera fields should be accessible as metadata.camera.make
-        let camera = metadata.get("camera").expect("metadata.camera should exist");
+        let camera = metadata
+            .get("camera")
+            .expect("metadata.camera should exist");
         assert_eq!(camera["make"].as_str().unwrap(), "Apple");
         assert_eq!(camera["model"].as_str().unwrap(), "iPhone 15 Pro");
     }
