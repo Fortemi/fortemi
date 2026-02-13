@@ -480,7 +480,7 @@ impl PgFileStorageRepository {
     ) -> Result<()> {
         sqlx::query(
             r#"UPDATE attachment
-               SET document_type_id = $2, extraction_strategy = $3::extraction_strategy, updated_at = NOW()
+               SET document_type_id = $2, extraction_strategy = COALESCE($3::extraction_strategy, extraction_strategy), updated_at = NOW()
                WHERE id = $1"#,
         )
         .bind(attachment_id)
@@ -808,7 +808,7 @@ impl PgFileStorageRepository {
     ) -> Result<()> {
         sqlx::query(
             r#"UPDATE attachment
-               SET document_type_id = $2, extraction_strategy = $3::extraction_strategy, updated_at = NOW()
+               SET document_type_id = $2, extraction_strategy = COALESCE($3::extraction_strategy, extraction_strategy), updated_at = NOW()
                WHERE id = $1"#,
         )
         .bind(attachment_id)
