@@ -167,30 +167,48 @@ impl JobRepository for PgJobRepository {
     ) -> Result<Option<Uuid>> {
         let job_type_str = Self::job_type_to_str(job_type);
 
-        // Check for existing pending or running job (running jobs haven't finished yet,
-        // so we should deduplicate against them too)
-        let existing: Option<Uuid> = if let Some(nid) = note_id {
-            sqlx::query_scalar(
-                "SELECT id FROM job_queue
-                 WHERE note_id = $1 AND job_type = $2::job_type
-                   AND status IN ('pending'::job_status, 'running'::job_status)
-                 LIMIT 1",
+        // Atomic check-and-insert using INSERT ... WHERE NOT EXISTS to prevent
+        // TOCTOU race conditions when concurrent requests try to queue the same job.
+        // Only deduplicates when note_id is present; without note_id, always insert.
+        if let Some(nid) = note_id {
+            let job_id = new_v7();
+            let now = Utc::now();
+
+            let estimated_duration: Option<i32> =
+                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                    .bind(job_type_str)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(Error::Database)?
+                    .flatten();
+
+            let result = sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at)
+                 SELECT $1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM job_queue
+                     WHERE note_id = $2 AND job_type = $3::job_type
+                       AND status IN ('pending'::job_status, 'running'::job_status)
+                 )
+                 RETURNING id",
             )
+            .bind(job_id)
             .bind(nid)
             .bind(job_type_str)
+            .bind(priority)
+            .bind(&payload)
+            .bind(estimated_duration)
+            .bind(now)
             .fetch_optional(&self.pool)
             .await
-            .map_err(Error::Database)?
+            .map_err(Error::Database)?;
+
+            Ok(result)
         } else {
-            None
-        };
-
-        if existing.is_some() {
-            return Ok(None); // Job already exists (pending or running)
+            // No note_id — can't deduplicate, just queue normally
+            let job_id = self.queue(note_id, job_type, priority, payload).await?;
+            Ok(Some(job_id))
         }
-
-        let job_id = self.queue(note_id, job_type, priority, payload).await?;
-        Ok(Some(job_id))
     }
 
     async fn claim_next(&self) -> Result<Option<Job>> {

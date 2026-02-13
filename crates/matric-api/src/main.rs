@@ -6671,11 +6671,11 @@ async fn search_notes(
         request = request.with_filters(filters);
     }
 
-    // Resolve embedding set slug to UUID and apply filter
+    // Resolve embedding set slug to UUID and apply filter (return 404 if slug is invalid)
     if let Some(ref set_slug) = query.embedding_set {
-        if let Some(set) = state.db.embedding_sets.get_by_slug(set_slug).await? {
-            request = request.with_embedding_set(set.id);
-        }
+        let set = state.db.embedding_sets.get_by_slug(set_slug).await?
+            .ok_or_else(|| ApiError::NotFound(format!("Embedding set not found: {}", set_slug)))?;
+        request = request.with_embedding_set(set.id);
     }
 
     if let Some(vec) = query_embedding {
@@ -10282,6 +10282,13 @@ async fn knowledge_shard_import(
 // FILE ATTACHMENT HANDLERS
 // =============================================================================
 
+/// Query parameters for attachment upload endpoints
+#[derive(Debug, Deserialize)]
+struct UploadAttachmentQuery {
+    /// Optional explicit document type override via query parameter
+    document_type_id: Option<Uuid>,
+}
+
 /// Request body for uploading file attachments
 #[derive(Debug, Deserialize)]
 struct UploadAttachmentBody {
@@ -10323,6 +10330,7 @@ async fn upload_attachment(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
+    Query(att_query): Query<UploadAttachmentQuery>,
     Json(body): Json<UploadAttachmentBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -10377,7 +10385,9 @@ async fn upload_attachment(
     attachment.extraction_strategy = Some(strategy);
 
     // Validate the document_type_id exists; reject if invalid (issue #309)
-    if let Some(doc_type_id) = body.document_type_id {
+    // Query parameter takes priority over body field (issue #334)
+    let effective_doc_type_id = att_query.document_type_id.or(body.document_type_id);
+    if let Some(doc_type_id) = effective_doc_type_id {
         if state.db.document_types.get(doc_type_id).await?.is_some() {
             file_storage
                 .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
@@ -10434,6 +10444,7 @@ async fn upload_attachment_multipart(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
+    Query(att_query): Query<UploadAttachmentQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -10522,7 +10533,9 @@ async fn upload_attachment_multipart(
     attachment.extraction_strategy = Some(strategy);
 
     // Validate the document_type_id exists; reject if invalid (issue #309)
-    if let Some(doc_type_id) = document_type_id {
+    // Query parameter takes priority over form field (issue #334)
+    let effective_doc_type_id = att_query.document_type_id.or(document_type_id);
+    if let Some(doc_type_id) = effective_doc_type_id {
         if state.db.document_types.get(doc_type_id).await?.is_some() {
             file_storage
                 .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
