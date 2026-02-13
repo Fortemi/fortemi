@@ -446,12 +446,10 @@ mod tests {
 
     #[test]
     fn code_threshold_stricter_than_default() {
-        assert!(
-            SEMANTIC_LINK_THRESHOLD_CODE > SEMANTIC_LINK_THRESHOLD,
-            "Code threshold ({}) must be stricter than default ({})",
-            SEMANTIC_LINK_THRESHOLD_CODE,
-            SEMANTIC_LINK_THRESHOLD
-        );
+        // Compile-time assertion for constant comparison
+        const {
+            assert!(SEMANTIC_LINK_THRESHOLD_CODE > SEMANTIC_LINK_THRESHOLD);
+        }
     }
 
     #[test]
