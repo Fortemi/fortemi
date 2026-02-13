@@ -176,7 +176,7 @@ impl PgMemorySearchRepository {
                 LEFT JOIN attachment a ON p.attachment_id = a.id
                 LEFT JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-                WHERE p.capture_time && tstzrange($1, $2)
+                WHERE p.capture_time && tstzrange($1, $2, '[]')
 
                 UNION ALL
 
@@ -190,7 +190,7 @@ impl PgMemorySearchRepository {
                     NULL::text as event_type,
                     n.metadata->>'location_name' as location_name
                 FROM note n
-                JOIN note_original no ON n.id = no.note_id
+                LEFT JOIN note_original no ON n.id = no.note_id
                 WHERE n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
@@ -274,7 +274,7 @@ impl PgMemorySearchRepository {
                     ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                     $3
                 )
-                AND p.capture_time && tstzrange($4, $5)
+                AND p.capture_time && tstzrange($4, $5, '[]')
 
                 UNION ALL
 
@@ -676,7 +676,7 @@ impl PgMemorySearchRepository {
                 LEFT JOIN attachment a ON p.attachment_id = a.id
                 LEFT JOIN prov_location pl ON p.location_id = pl.id
                 LEFT JOIN named_location nl ON pl.named_location_id = nl.id
-                WHERE p.capture_time && tstzrange($1, $2)
+                WHERE p.capture_time && tstzrange($1, $2, '[]')
 
                 UNION ALL
 
@@ -690,7 +690,7 @@ impl PgMemorySearchRepository {
                     NULL::text as event_type,
                     n.metadata->>'location_name' as location_name
                 FROM note n
-                JOIN note_original no ON n.id = no.note_id
+                LEFT JOIN note_original no ON n.id = no.note_id
                 WHERE n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
                   AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
@@ -764,7 +764,7 @@ impl PgMemorySearchRepository {
                     ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                     $3
                 )
-                AND p.capture_time && tstzrange($4, $5)
+                AND p.capture_time && tstzrange($4, $5, '[]')
 
                 UNION ALL
 
