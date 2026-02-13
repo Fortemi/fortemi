@@ -268,9 +268,54 @@ fn dms_to_decimal(dms: &[exif::Rational]) -> Option<f64> {
     Some(d + m / 60.0 + s / 3600.0)
 }
 
+/// Prepares EXIF metadata for storage on an attachment record.
+///
+/// Transforms the raw `extract_exif_metadata()` output (which wraps everything
+/// under an `"exif"` key) into a flat structure suitable for querying as
+/// `extracted_metadata.gps.latitude`, `extracted_metadata.camera.make`, etc.
+///
+/// Also adds a top-level `datetime_original` field in ISO 8601 format,
+/// parsed from the EXIF DateTimeOriginal (or DateTimeDigitized fallback).
+///
+/// Returns `None` if the input has no `"exif"` key.
+pub fn prepare_attachment_metadata(
+    exif_data: &JsonValue,
+    capture_time: Option<chrono::DateTime<chrono::Utc>>,
+) -> Option<JsonValue> {
+    let exif = exif_data.get("exif")?;
+    let mut metadata = exif.clone();
+
+    // Add top-level datetime_original in ISO 8601 if capture_time was parsed
+    if let Some(ct) = capture_time {
+        if let Some(obj) = metadata.as_object_mut() {
+            obj.insert(
+                "datetime_original".to_string(),
+                json!(ct.to_rfc3339()),
+            );
+        }
+    }
+
+    Some(metadata)
+}
+
+/// Parses EXIF datetime string into a UTC DateTime.
+///
+/// Tries the standard EXIF format "YYYY:MM:DD HH:MM:SS".
+/// Returns `None` if the datetime cannot be parsed.
+pub fn parse_exif_datetime(exif: &JsonValue) -> Option<chrono::DateTime<chrono::Utc>> {
+    let datetime = exif.get("datetime")?;
+    let dt_str = datetime
+        .get("original")
+        .or_else(|| datetime.get("digitized"))
+        .and_then(|v| v.as_str())?;
+    let naive = chrono::NaiveDateTime::parse_from_str(dt_str, "%Y:%m:%d %H:%M:%S").ok()?;
+    Some(naive.and_utc())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Datelike;
 
     // ── dms_to_decimal tests ───────────────────────────────────────────
 
@@ -660,5 +705,392 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── prepare_attachment_metadata unit tests ────────────────────────────
+
+    #[test]
+    fn test_prepare_metadata_strips_exif_wrapper() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+
+        // Raw extraction has "exif" wrapper
+        assert!(exif_data.get("exif").is_some());
+
+        let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
+
+        // Prepared metadata should NOT have the "exif" wrapper
+        assert!(
+            metadata.get("exif").is_none(),
+            "Stored metadata should not have 'exif' wrapper; got keys: {:?}",
+            metadata.as_object().unwrap().keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_prepare_metadata_gps_at_top_level() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
+
+        // GPS fields should be accessible as metadata.gps.latitude (not metadata.exif.gps.latitude)
+        let gps = metadata.get("gps").expect("metadata.gps should exist");
+        let lat = gps.get("latitude").and_then(|v| v.as_f64());
+        let lon = gps.get("longitude").and_then(|v| v.as_f64());
+        let alt = gps.get("altitude").and_then(|v| v.as_f64());
+
+        assert!(lat.is_some(), "metadata.gps.latitude should be present");
+        assert!(lon.is_some(), "metadata.gps.longitude should be present");
+        assert!(alt.is_some(), "metadata.gps.altitude should be present");
+
+        let lat = lat.unwrap();
+        let lon = lon.unwrap();
+        // Paris coordinates
+        assert!(lat > 48.0 && lat < 49.0, "Paris lat ~48.858, got {}", lat);
+        assert!(lon > 2.0 && lon < 3.0, "Paris lon ~2.294, got {}", lon);
+    }
+
+    #[test]
+    fn test_prepare_metadata_camera_at_top_level() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
+
+        // Camera fields should be accessible as metadata.camera.make
+        let camera = metadata.get("camera").expect("metadata.camera should exist");
+        assert_eq!(camera["make"].as_str().unwrap(), "Apple");
+        assert_eq!(camera["model"].as_str().unwrap(), "iPhone 15 Pro");
+    }
+
+    #[test]
+    fn test_prepare_metadata_datetime_original_iso8601() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+        let capture_time = parse_exif_datetime(exif);
+        assert!(capture_time.is_some(), "Should parse capture time");
+
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+        // datetime_original should be at top level in ISO 8601
+        let dt = metadata
+            .get("datetime_original")
+            .and_then(|v| v.as_str())
+            .expect("metadata.datetime_original should be present");
+
+        assert!(
+            dt.contains("2024"),
+            "datetime_original should contain year 2024, got: {}",
+            dt
+        );
+        // ISO 8601 format: contains 'T' separator
+        assert!(
+            dt.contains('T'),
+            "datetime_original should be ISO 8601 (contain 'T'), got: {}",
+            dt
+        );
+        // Should be parseable as RFC 3339
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(dt).is_ok(),
+            "datetime_original should be valid RFC 3339, got: {}",
+            dt
+        );
+    }
+
+    #[test]
+    fn test_prepare_metadata_no_datetime_original_when_unparseable() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+
+        // Pass None for capture_time (simulates unparseable datetime)
+        let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
+
+        // datetime_original should NOT be present when capture_time is None
+        assert!(
+            metadata.get("datetime_original").is_none(),
+            "datetime_original should be absent when capture_time is None"
+        );
+
+        // But raw datetime should still be in the nested datetime object
+        assert!(
+            metadata.get("datetime").is_some(),
+            "Raw datetime object should still be present"
+        );
+    }
+
+    #[test]
+    fn test_prepare_metadata_returns_none_for_missing_exif_key() {
+        // Input without "exif" key should return None
+        let bad_input = json!({"something": "else"});
+        assert!(
+            prepare_attachment_metadata(&bad_input, None).is_none(),
+            "Should return None when 'exif' key is missing"
+        );
+    }
+
+    #[test]
+    fn test_prepare_metadata_preserves_all_categories() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let metadata = prepare_attachment_metadata(&exif_data, None).unwrap();
+        let obj = metadata.as_object().unwrap();
+
+        // All inner categories from the extraction should be preserved
+        assert!(obj.contains_key("camera"), "Should contain camera");
+        assert!(obj.contains_key("gps"), "Should contain gps");
+        assert!(obj.contains_key("datetime"), "Should contain datetime");
+        // settings, image, lens may or may not be present depending on image
+    }
+
+    // ── parse_exif_datetime unit tests ───────────────────────────────────
+
+    #[test]
+    fn test_parse_exif_datetime_from_original() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+
+        let dt = parse_exif_datetime(exif);
+        assert!(dt.is_some(), "Should parse datetime from test image");
+        let dt = dt.unwrap();
+        assert_eq!(dt.format("%Y").to_string(), "2024");
+    }
+
+    #[test]
+    fn test_parse_exif_datetime_returns_none_without_datetime() {
+        let exif = json!({"camera": {"make": "Apple"}});
+        assert!(
+            parse_exif_datetime(&exif).is_none(),
+            "Should return None when no datetime present"
+        );
+    }
+
+    #[test]
+    fn test_parse_exif_datetime_returns_none_for_invalid_format() {
+        let exif = json!({"datetime": {"original": "not-a-date"}});
+        assert!(
+            parse_exif_datetime(&exif).is_none(),
+            "Should return None for unparseable datetime"
+        );
+    }
+
+    #[test]
+    fn test_parse_exif_datetime_falls_back_to_digitized() {
+        let exif = json!({"datetime": {"digitized": "2023:06:15 09:30:00"}});
+        let dt = parse_exif_datetime(&exif);
+        assert!(dt.is_some(), "Should fall back to 'digitized' field");
+        assert_eq!(dt.unwrap().format("%Y-%m-%d").to_string(), "2023-06-15");
+    }
+
+    #[test]
+    fn test_parse_exif_datetime_prefers_original_over_digitized() {
+        let exif = json!({
+            "datetime": {
+                "original": "2024:07:14 12:30:00",
+                "digitized": "2023:06:15 09:30:00"
+            }
+        });
+        let dt = parse_exif_datetime(&exif).unwrap();
+        // Should use "original", not "digitized"
+        assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-07-14");
+    }
+
+    // ── UAT contract tests (verify API-level expectations) ───────────────
+
+    /// UAT-2B-010: GPS coordinates available in extracted_metadata
+    #[test]
+    fn test_uat_2b_010_gps_coordinates_in_metadata() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+        let capture_time = parse_exif_datetime(exif);
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+        // Verify exact paths from UAT-2B-010
+        let lat = metadata
+            .pointer("/gps/latitude")
+            .and_then(|v| v.as_f64())
+            .expect("UAT-2B-010: extracted_metadata.gps.latitude must be present");
+        let lon = metadata
+            .pointer("/gps/longitude")
+            .and_then(|v| v.as_f64())
+            .expect("UAT-2B-010: extracted_metadata.gps.longitude must be present");
+
+        // Paris Eiffel Tower approximate: 48.858°N, 2.294°E
+        assert!(
+            lat > 48.0 && lat < 49.0,
+            "UAT-2B-010: latitude ~48.858 for Paris, got {}",
+            lat
+        );
+        assert!(
+            lon > 2.0 && lon < 3.0,
+            "UAT-2B-010: longitude ~2.294 for Paris, got {}",
+            lon
+        );
+
+        // Altitude may be present
+        if let Some(alt) = metadata.pointer("/gps/altitude").and_then(|v| v.as_f64()) {
+            assert!(
+                (alt - 35.0).abs() < 5.0,
+                "UAT-2B-010: altitude ~35m, got {}",
+                alt
+            );
+        }
+    }
+
+    /// UAT-2B-011: Camera make/model and datetime in extracted_metadata
+    #[test]
+    fn test_uat_2b_011_camera_metadata() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+        let capture_time = parse_exif_datetime(exif);
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+        // Verify exact paths from UAT-2B-011
+        let make = metadata
+            .pointer("/camera/make")
+            .and_then(|v| v.as_str())
+            .expect("UAT-2B-011: extracted_metadata.camera.make must be present");
+        let model = metadata
+            .pointer("/camera/model")
+            .and_then(|v| v.as_str())
+            .expect("UAT-2B-011: extracted_metadata.camera.model must be present");
+        let datetime_original = metadata
+            .get("datetime_original")
+            .and_then(|v| v.as_str())
+            .expect("UAT-2B-011: extracted_metadata.datetime_original must be present");
+
+        assert_eq!(make, "Apple", "UAT-2B-011: camera make should be 'Apple'");
+        assert_eq!(
+            model, "iPhone 15 Pro",
+            "UAT-2B-011: camera model should be 'iPhone 15 Pro'"
+        );
+        assert!(
+            datetime_original.contains("2024"),
+            "UAT-2B-011: datetime_original should contain year 2024"
+        );
+    }
+
+    /// UAT-2B-012: DateTimeOriginal in ISO 8601 format
+    #[test]
+    fn test_uat_2b_012_datetime_iso8601() {
+        let data = load_test_jpeg();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+        let capture_time = parse_exif_datetime(exif);
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+        let dt_str = metadata
+            .get("datetime_original")
+            .and_then(|v| v.as_str())
+            .expect("UAT-2B-012: extracted_metadata.datetime_original must be present");
+
+        // Must be valid ISO 8601 / RFC 3339
+        let parsed = chrono::DateTime::parse_from_rfc3339(dt_str);
+        assert!(
+            parsed.is_ok(),
+            "UAT-2B-012: datetime_original must be ISO 8601, got: {}",
+            dt_str
+        );
+
+        // Verify the actual date values
+        let dt = parsed.unwrap();
+        assert_eq!(dt.year(), 2024, "UAT-2B-012: year should be 2024");
+        assert_eq!(dt.month(), 6, "UAT-2B-012: month should be June");
+        assert_eq!(dt.day(), 15, "UAT-2B-012: day should be 15");
+    }
+
+    // ── Multi-image coverage tests ───────────────────────────────────────
+
+    #[test]
+    fn test_prepare_metadata_paris_provenance_image() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/uat/data/provenance/paris-eiffel-tower.jpg");
+        let data = std::fs::read(&path).unwrap();
+        let exif_data = extract_exif_metadata(&data).unwrap();
+        let exif = exif_data.get("exif").unwrap();
+        let capture_time = parse_exif_datetime(exif);
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+        // GPS should be at top level
+        assert!(metadata.pointer("/gps/latitude").is_some());
+        assert!(metadata.pointer("/gps/longitude").is_some());
+        // Camera should be at top level
+        assert!(metadata.pointer("/camera/make").is_some());
+        assert!(metadata.pointer("/camera/model").is_some());
+    }
+
+    #[test]
+    fn test_prepare_metadata_tokyo_image() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/uat/data/provenance/tokyo-shibuya.jpg");
+        let data = std::fs::read(&path).unwrap();
+        if let Some(exif_data) = extract_exif_metadata(&data) {
+            let exif = exif_data.get("exif").unwrap();
+            let capture_time = parse_exif_datetime(exif);
+            let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+            // Should NOT have "exif" wrapper
+            assert!(metadata.get("exif").is_none());
+
+            // If GPS present, verify positive latitude (Northern hemisphere)
+            if let Some(lat) = metadata.pointer("/gps/latitude").and_then(|v| v.as_f64()) {
+                assert!(lat > 0.0, "Tokyo lat should be positive (N), got {}", lat);
+            }
+        }
+    }
+
+    #[test]
+    fn test_prepare_metadata_new_york_image() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/uat/data/provenance/newyork-statue-liberty.jpg");
+        let data = std::fs::read(&path).unwrap();
+        if let Some(exif_data) = extract_exif_metadata(&data) {
+            let exif = exif_data.get("exif").unwrap();
+            let capture_time = parse_exif_datetime(exif);
+            let metadata = prepare_attachment_metadata(&exif_data, capture_time).unwrap();
+
+            // Should NOT have "exif" wrapper
+            assert!(metadata.get("exif").is_none());
+
+            // If GPS present, verify negative longitude (Western hemisphere)
+            if let Some(lon) = metadata.pointer("/gps/longitude").and_then(|v| v.as_f64()) {
+                assert!(lon < 0.0, "NYC lon should be negative (W), got {}", lon);
+            }
+        }
+    }
+
+    #[test]
+    fn test_prepare_metadata_no_metadata_image() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/uat/data/images/jpeg-no-metadata.jpg");
+        let data = std::fs::read(&path).unwrap();
+        let result = extract_exif_metadata(&data);
+
+        if let Some(exif_data) = result {
+            // If somehow partial EXIF exists, prepare_attachment_metadata should still work
+            let metadata = prepare_attachment_metadata(&exif_data, None);
+            if let Some(m) = metadata {
+                assert!(m.get("exif").is_none(), "Should not have exif wrapper");
+            }
+        }
+        // None is also acceptable for no-EXIF images
     }
 }

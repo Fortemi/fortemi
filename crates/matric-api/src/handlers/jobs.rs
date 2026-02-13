@@ -16,7 +16,9 @@ use matric_core::{
 };
 use matric_db::{Chunker, ChunkerConfig, Database, SemanticChunker};
 use matric_inference::OllamaBackend;
-use matric_jobs::adapters::exif::extract_exif_metadata;
+use matric_jobs::adapters::exif::{
+    extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
+};
 use matric_jobs::{JobContext, JobHandler, JobResult};
 
 /// Maximum number of related notes to retrieve for AI context.
@@ -1763,8 +1765,6 @@ impl JobHandler for ExifExtractionHandler {
 
         let mut location_id: Option<uuid::Uuid> = None;
         let mut device_id: Option<uuid::Uuid> = None;
-        let mut capture_time: Option<chrono::DateTime<chrono::Utc>> = None;
-
         // Create provenance location from GPS data
         if let Some(gps) = exif.get("gps") {
             if let (Some(lat), Some(lon)) = (
@@ -1842,23 +1842,7 @@ impl JobHandler for ExifExtractionHandler {
         ctx.report_progress(70, Some("Processing capture time..."));
 
         // Parse EXIF datetime
-        if let Some(datetime) = exif.get("datetime") {
-            let dt_str = datetime
-                .get("original")
-                .or_else(|| datetime.get("digitized"))
-                .and_then(|v| v.as_str());
-
-            if let Some(dt_str) = dt_str {
-                // EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
-                if let Ok(naive) =
-                    chrono::NaiveDateTime::parse_from_str(dt_str, "%Y:%m:%d %H:%M:%S")
-                {
-                    capture_time = Some(naive.and_utc());
-                } else {
-                    debug!(dt_str, "Could not parse EXIF datetime");
-                }
-            }
-        }
+        let capture_time = parse_exif_datetime(exif);
 
         ctx.report_progress(80, Some("Creating file provenance record..."));
 
@@ -1913,8 +1897,12 @@ impl JobHandler for ExifExtractionHandler {
         ctx.report_progress(90, Some("Updating attachment metadata..."));
 
         // Persist extracted EXIF metadata on the attachment
+        // Store the unwrapped exif content directly (without the "exif" wrapper)
+        // so fields are accessible as extracted_metadata.gps.latitude, etc.
+        let metadata = prepare_attachment_metadata(&exif_data, capture_time)
+            .unwrap_or_else(|| exif_data.clone());
         if let Err(e) = file_storage
-            .update_extracted_content(attachment_id, None, Some(exif_data.clone()))
+            .update_extracted_content(attachment_id, None, Some(metadata))
             .await
         {
             warn!(error = %e, "Failed to update attachment extracted metadata");
