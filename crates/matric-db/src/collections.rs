@@ -248,6 +248,13 @@ impl CollectionRepository for PgCollectionRepository {
             .map_err(Error::Database)?;
         Ok(())
     }
+
+    async fn move_collection(&self, id: Uuid, new_parent_id: Option<Uuid>) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        self.move_collection_tx(&mut tx, id, new_parent_id).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(())
+    }
 }
 
 /// Transaction-aware variants for archive-scoped operations (Issue #108).
@@ -430,6 +437,63 @@ impl PgCollectionRepository {
             .execute(&mut **tx)
             .await
             .map_err(Error::Database)?;
+        Ok(())
+    }
+
+    /// Move a collection to a new parent within an existing transaction.
+    /// Prevents circular references by checking that new_parent_id is not
+    /// a descendant of the collection being moved.
+    pub async fn move_collection_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        new_parent_id: Option<Uuid>,
+    ) -> Result<()> {
+        // Moving to root (no parent) is always safe
+        if let Some(parent_id) = new_parent_id {
+            // Cannot move a collection to be its own parent
+            if parent_id == id {
+                return Err(Error::InvalidInput(
+                    "Cannot move a collection to be its own parent".to_string(),
+                ));
+            }
+
+            // Check for circular reference: walk up from new_parent_id
+            // and ensure we never encounter `id` (which would mean
+            // new_parent_id is a descendant of the collection being moved).
+            let row = sqlx::query(
+                r#"
+                WITH RECURSIVE ancestors AS (
+                    SELECT id, parent_id FROM collection WHERE id = $1
+                    UNION ALL
+                    SELECT c.id, c.parent_id
+                    FROM collection c
+                    INNER JOIN ancestors a ON c.id = a.parent_id
+                )
+                SELECT COUNT(*) as cnt FROM ancestors WHERE id = $2
+                "#,
+            )
+            .bind(parent_id)
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            let count: i64 = row.get("cnt");
+            if count > 0 {
+                return Err(Error::InvalidInput(
+                    "Cannot move collection: would create a circular reference".to_string(),
+                ));
+            }
+        }
+
+        sqlx::query("UPDATE collection SET parent_id = $1 WHERE id = $2")
+            .bind(new_parent_id)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
         Ok(())
     }
 

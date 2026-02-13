@@ -240,6 +240,9 @@ pub trait CollectionRepository: Send + Sync {
 
     /// Move a note to a collection.
     async fn move_note(&self, note_id: Uuid, collection_id: Option<Uuid>) -> Result<()>;
+
+    /// Move a collection to a new parent, with circular reference prevention.
+    async fn move_collection(&self, id: Uuid, new_parent_id: Option<Uuid>) -> Result<()>;
 }
 
 // =============================================================================
