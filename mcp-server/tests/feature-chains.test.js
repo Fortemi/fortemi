@@ -1040,4 +1040,153 @@ describe("Phase 19: Multi-Tool Workflows (CRITICAL)", () => {
     await client.callTool("delete_embedding_set", { slug: created.slug });
     console.log(`  Embedding set lifecycle: create → list → get → refresh → delete`);
   });
+
+  // --- PKE Keyset-Based Note Encryption Workflow ---
+
+  test("CHAIN-026: pke_create_keyset → encrypt note content → decrypt roundtrip", async () => {
+    const testId = MCPTestClient.uniqueId().slice(0, 8);
+    const keysetName = `chain026-${testId}`;
+    const passphrase = `test-pass-${testId}`;
+    const sensitiveContent = `API_KEY=sk_test_${testId}_secret_value\nDB_PASSWORD=hunter2`;
+
+    // CHAIN-026: Create keyset
+    const keyset = await client.callTool("pke_create_keyset", {
+      name: keysetName,
+      passphrase,
+    });
+    assert.ok(keyset, "Should create keyset");
+    assert.ok(keyset.name === keysetName, "Keyset name should match");
+    assert.ok(keyset.public_key, "Should have public_key");
+    assert.ok(keyset.encrypted_private_key, "Should have encrypted_private_key");
+    assert.ok(keyset.address, "Should have address");
+    console.log(`  CHAIN-026: Created keyset '${keysetName}' with address ${keyset.address}`);
+
+    try {
+      // CHAIN-027: Create a sensitive note
+      const note = await client.callTool("create_note", {
+        content: `# Sensitive Note\n\n${sensitiveContent}`,
+        tags: [MCPTestClient.testTag("pke", "chain026")],
+        revision_mode: "none",
+      });
+      assert.ok(note.id, "Should create sensitive note");
+      console.log(`  CHAIN-027: Created sensitive note ${note.id}`);
+
+      try {
+        // CHAIN-028: Encrypt the note content using keyset's public key
+        const plaintext = Buffer.from(sensitiveContent).toString("base64");
+        const encrypted = await client.callTool("pke_encrypt", {
+          plaintext,
+          recipient_keys: [keyset.public_key],
+        });
+        assert.ok(encrypted, "Should encrypt content");
+        const ciphertext = encrypted.ciphertext || encrypted;
+        assert.ok(ciphertext, "Should have ciphertext");
+        console.log(`  CHAIN-028: Encrypted note content (${ciphertext.length} chars)`);
+
+        // Update note with encrypted content
+        await client.callTool("update_note", {
+          id: note.id,
+          content: `# Encrypted Note\n\nCIPHERTEXT:${ciphertext}`,
+        });
+
+        // CHAIN-029: Verify address from the keyset
+        const addrResult = await client.callTool("pke_verify_address", {
+          address: keyset.address,
+        });
+        assert.ok(addrResult, "Should verify keyset address");
+        console.log(`  CHAIN-029: Verified address ${keyset.address}`);
+
+        // List recipients of the encrypted data
+        const recipients = await client.callTool("pke_list_recipients", {
+          ciphertext,
+        });
+        assert.ok(recipients, "Should list recipients");
+        const addrs = Array.isArray(recipients) ? recipients : (recipients.addresses || recipients.recipients || []);
+        assert.ok(addrs.length > 0, "Should have at least one recipient");
+        console.log(`  CHAIN-029: Listed ${addrs.length} recipient(s)`);
+
+        // CHAIN-030: Decrypt the content using keyset's encrypted private key
+        const decrypted = await client.callTool("pke_decrypt", {
+          ciphertext,
+          encrypted_private_key: keyset.encrypted_private_key,
+          passphrase,
+        });
+        assert.ok(decrypted, "Should decrypt content");
+        const decryptedText = decrypted.plaintext || decrypted;
+        const decoded = Buffer.from(decryptedText, "base64").toString("utf-8");
+        assert.ok(
+          decoded.includes("sk_test_") && decoded.includes("hunter2"),
+          "Decrypted content should match original sensitive data"
+        );
+        console.log(`  CHAIN-030: Decrypted content matches original`);
+
+        // CHAIN-031: Verify full roundtrip - get note, decrypt, compare
+        const storedNote = await client.callTool("get_note", { id: note.id });
+        assert.ok(storedNote, "Should retrieve stored note");
+        assert.ok(
+          storedNote.original.content.includes("CIPHERTEXT:"),
+          "Stored note should contain encrypted content"
+        );
+        // Extract ciphertext from note, decrypt, verify
+        const storedCiphertext = storedNote.original.content.split("CIPHERTEXT:")[1];
+        const reDecrypted = await client.callTool("pke_decrypt", {
+          ciphertext: storedCiphertext,
+          encrypted_private_key: keyset.encrypted_private_key,
+          passphrase,
+        });
+        const reDecryptedText = reDecrypted.plaintext || reDecrypted;
+        const reDecoded = Buffer.from(reDecryptedText, "base64").toString("utf-8");
+        assert.strictEqual(reDecoded, sensitiveContent, "Re-decrypted content should match original exactly");
+        console.log(`  CHAIN-031: Full roundtrip verified - note content integrity confirmed`);
+      } finally {
+        // Clean up note
+        try { await client.callTool("delete_note", { id: note.id }); } catch {}
+      }
+    } finally {
+      // Clean up keyset
+      try { await client.callTool("pke_delete_keyset", { name: keysetName }); } catch {}
+    }
+  });
+
+  test("CHAIN-027: pke_create_keyset → pke_set_active → pke_get_active → pke_list_keysets lifecycle", async () => {
+    const testId = MCPTestClient.uniqueId().slice(0, 8);
+    const keysetName = `chain027-${testId}`;
+    const passphrase = `lifecycle-pass-${testId}`;
+
+    // Step 1: Create keyset
+    const keyset = await client.callTool("pke_create_keyset", {
+      name: keysetName,
+      passphrase,
+    });
+    assert.ok(keyset.name === keysetName, "Should create keyset");
+    assert.ok(keyset.address, "Should have address");
+    console.log(`  Created keyset: ${keysetName}`);
+
+    try {
+      // Step 2: Set as active
+      const setResult = await client.callTool("pke_set_active_keyset", {
+        name: keysetName,
+      });
+      assert.ok(setResult, "Should set active keyset");
+      console.log(`  Set active: ${keysetName}`);
+
+      // Step 3: Get active keyset
+      const active = await client.callTool("pke_get_active_keyset", {});
+      assert.ok(active, "Should return active keyset");
+      assert.strictEqual(active.name, keysetName, "Active keyset should match");
+      console.log(`  Active keyset confirmed: ${active.name}`);
+
+      // Step 4: List keysets
+      const keysets = await client.callTool("pke_list_keysets", {});
+      assert.ok(Array.isArray(keysets), "Should return keyset array");
+      const found = keysets.find((k) => k.name === keysetName);
+      assert.ok(found, "Created keyset should appear in list");
+      assert.ok(found.address, "Listed keyset should have address");
+      assert.ok(found.public_key, "Listed keyset should have public_key");
+      console.log(`  Listed ${keysets.length} keysets, found '${keysetName}'`);
+    } finally {
+      // Clean up
+      try { await client.callTool("pke_delete_keyset", { name: keysetName }); } catch {}
+    }
+  });
 });

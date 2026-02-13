@@ -1420,6 +1420,7 @@ function createMcpServer() {
               name: args.name,
               address: keygenResult.address,
               public_key: keygenResult.public_key,
+              encrypted_private_key: keygenResult.encrypted_private_key,
               created: new Date().toISOString(),
             };
           } catch (e) {
@@ -1854,7 +1855,7 @@ function createMcpServer() {
             workflow: "attachment_pipeline",
             message: "3D model files are processed through the attachment pipeline. Follow these steps:",
             steps: modelSteps,
-            supported_formats: ["model/gltf-binary", "model/gltf+json", "model/obj", "model/fbx", "model/stl", "model/ply"],
+            supported_formats: ["model/gltf-binary", "model/gltf+json", "model/obj", "model/fbx", "model/stl", "model/ply", "model/step", "model/iges", "model/vnd.usdz+zip"],
             requires: {
               renderer: "Three.js renderer (bundled at localhost:8080 or set RENDERER_URL)",
               vision_model: "OLLAMA_VISION_MODEL for view description (required)",

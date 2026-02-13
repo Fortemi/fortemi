@@ -8,7 +8,7 @@
 Memory = isolated PostgreSQL schema. Select via X-Fortemi-Memory header or MCP select_memory.
 Default = public schema. Omitting header = default memory (archive_public).
 All CRUD/tag/collection/template/version/attachment operations are memory-scoped.
-Search (FTS+semantic) currently limited to default archive only (federated search planned).
+Search is memory-scoped by default. Use federated search to query across multiple memories.
 Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <50).
 ```
 

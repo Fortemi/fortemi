@@ -4515,6 +4515,10 @@ The selected memory persists for the duration of this MCP session.`,
       },
       required: ["name"],
     },
+    annotations: {
+      destructiveHint: false,
+      idempotentHint: true,
+    },
   },
   {
     name: "get_active_memory",

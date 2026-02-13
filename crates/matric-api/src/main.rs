@@ -3624,6 +3624,9 @@ async fn create_note(
         has_links: false,
     });
 
+    // Invalidate search cache so new note appears in search results (#341)
+    state.search_cache.invalidate_all().await;
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": note_id })),
@@ -3756,6 +3759,9 @@ async fn bulk_create_notes(
         )
         .await;
     }
+
+    // Invalidate search cache so bulk-created notes appear in search results (#341)
+    state.search_cache.invalidate_all().await;
 
     Ok((
         StatusCode::CREATED,
@@ -3919,6 +3925,9 @@ async fn update_note(
         has_links: !note.links.is_empty(),
     });
 
+    // Invalidate search cache so updated content appears in search results (#341)
+    state.search_cache.invalidate_all().await;
+
     Ok(Json(note))
 }
 
@@ -4043,6 +4052,10 @@ async fn update_note_status(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
         .await?;
+
+    // Invalidate search cache so status changes are reflected (#341)
+    state.search_cache.invalidate_all().await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4279,6 +4292,10 @@ async fn set_note_tags(
         Box::pin(async move { repo.set_for_note_tx(tx, id, body.tags, "api").await })
     })
     .await?;
+
+    // Invalidate search cache so tag changes are reflected in filtered searches (#341)
+    state.search_cache.invalidate_all().await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -6836,12 +6853,12 @@ async fn federated_search(
             .await
             .map_err(|e| ApiError::Internal(format!("Failed to set search_path: {}", e)))?;
 
-        // Run FTS query
+        // Run FTS query (uses matric_english to match the tsv generated column config)
         let rows = sqlx::query(
             r#"
             SELECT
                 n.id AS note_id,
-                ts_rank_cd(nrc.tsv, websearch_to_tsquery('english', $1)) AS score,
+                ts_rank_cd(nrc.tsv, websearch_to_tsquery('matric_english', $1)) AS score,
                 substring(nrc.content for 200) AS snippet,
                 n.title,
                 COALESCE(
@@ -6851,7 +6868,8 @@ async fn federated_search(
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
             WHERE n.deleted_at IS NULL
-                AND nrc.tsv @@ websearch_to_tsquery('english', $1)
+                AND (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
+                     OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
             ORDER BY score DESC
             LIMIT $2
             "#,

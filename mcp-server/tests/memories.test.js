@@ -450,16 +450,14 @@ describe("Multi-Memory Features (UAT)", () => {
     assert.ok(result, "Should return result");
     assert.ok(Array.isArray(result.results), "Should return results array");
 
-    // Note: Search (FTS + semantic) is limited to default archive only.
-    // Federated search may return empty results for non-default archives.
-    // We verify the API call succeeds and returns the expected structure.
-    if (result.results.length > 0) {
-      console.log(`  Found ${result.results.length} results across memories`);
-    } else {
-      console.log(`  ⚠ No results found (search limited to default archive — expected)`);
-    }
+    // Federated search should find notes across all memories
+    assert.ok(result.results.length >= 2, `Should find notes from both memories, got ${result.results.length}`);
 
-    console.log(`  ✓ Federated search returned ${result.results.length} results`);
+    // Verify results come from different memories
+    const memories = new Set(result.results.map((r) => r.memory));
+    assert.ok(memories.size >= 2, `Results should come from at least 2 memories, got ${memories.size}`);
+
+    console.log(`  ✓ Federated search found ${result.results.length} results across ${memories.size} memories`);
 
     // Clean up
     await client.callTool("select_memory", { name: "public" });
@@ -509,16 +507,14 @@ describe("Multi-Memory Features (UAT)", () => {
     assert.ok(result, "Should return result");
     assert.ok(Array.isArray(result.results), "Should return results array");
 
-    // Note: Search (FTS + semantic) is limited to default archive only.
-    // The memories filter parameter may not restrict results to specified archives.
-    // We verify the API call succeeds and returns expected structure.
-    if (result.results.length > 0) {
-      console.log(`  Found ${result.results.length} results`);
-    } else {
-      console.log(`  ⚠ No results found (search limited to default archive — expected)`);
-    }
+    // Federated search with specific memory should find notes only from that memory
+    assert.ok(result.results.length >= 1, `Should find at least 1 result in ${mem1Name}, got ${result.results.length}`);
 
-    console.log(`  ✓ Specific memory search limited to: ${mem1Name}`);
+    // All results should come from the specified memory
+    const memories = new Set(result.results.map((r) => r.memory));
+    assert.ok(!memories.has(mem2Name), `Should NOT include results from ${mem2Name}`);
+
+    console.log(`  ✓ Specific memory search found ${result.results.length} results in ${mem1Name}`);
 
     // Clean up
     await client.callTool("select_memory", { name: "public" });

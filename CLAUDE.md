@@ -299,9 +299,8 @@ Fortemi supports parallel memory archives for data isolation. Each memory operat
 - Auto-migration ensures existing archives gain new tables on access
 
 **Current limitations:**
-- Search (FTS + semantic) restricted to default archive only
 - No cross-archive note linking
-- Federated search across archives is planned but not yet implemented
+- Regular search is scoped to the active memory; use federated search (`POST /api/v1/search/federated`) to search across multiple archives
 
 **For agents:** See `docs/content/multi-memory-agent-guide.md` for segmentation strategies and decision framework.
 

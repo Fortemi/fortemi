@@ -208,19 +208,15 @@ describe("Phase 12: Memory Archives", () => {
   });
 
   test("ARCH-016: search_memories_federated searches across archives", async () => {
-    try {
-      const result = await client.callTool("search_memories_federated", {
-        q: "test",
-        limit: 5,
-      });
-      assert.ok(result !== undefined, "Should return federated search results");
-    } catch (e) {
-      // Federated search may not be fully implemented
-      assert.ok(
-        e.message.includes("error") || e.message.includes("not"),
-        "Should fail gracefully if not implemented"
-      );
-    }
+    const result = await client.callTool("search_memories_federated", {
+      q: "test",
+      memories: ["all"],
+      limit: 5,
+    });
+    assert.ok(result !== undefined, "Should return federated search results");
+    assert.ok(Array.isArray(result.results), "Should have results array");
+    assert.ok(result.memories_searched !== undefined, "Should report memories searched");
+    console.log(`  ✓ Federated search returned ${result.results.length} results across ${result.memories_searched} memories`);
   });
 
   test("ARCH-017: get_archive with non-existent name errors", async () => {
