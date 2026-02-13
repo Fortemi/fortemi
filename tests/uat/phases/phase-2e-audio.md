@@ -3,10 +3,10 @@
 **Purpose**: Verify ad-hoc audio transcription via Whisper-compatible backend through MCP tool calls
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 0 preflight passed, Whisper backend configured (`WHISPER_BASE_URL`)
-**Critical**: No (requires optional transcription backend)
+**Critical**: Yes (transcription backend MUST be configured)
 **Tools Tested**: `transcribe_audio`, `get_system_info`
 
-> **Transcription Backend Requirement**: Tests in this phase require a Whisper-compatible API backend (e.g., faster-whisper-server, OpenAI Whisper API). If `WHISPER_BASE_URL` is not configured, AUD-001 detects this and remaining tests are marked SKIPPED (not FAILED). This is expected — audio transcription is an optional capability.
+> **Transcription Backend Requirement**: Tests in this phase require a Whisper-compatible API backend (e.g., faster-whisper-server, OpenAI Whisper API). The `WHISPER_BASE_URL` environment variable MUST be configured. If AUD-001 reports `enabled === false`, this is a test environment configuration failure — file issue and fix the environment.
 
 > **Curl-Command Pattern**: The `transcribe_audio` tool returns a curl command for multipart file upload. The MCP client does NOT send audio data directly — instead, it generates a curl command that the user executes to upload the file. This avoids base64 encoding overhead and shell argument limits.
 
@@ -28,9 +28,9 @@
 - Response includes `extraction.audio` object
 - Record `extraction.audio.enabled` value
 - If `enabled === true`: record provider, continue to AUD-002
-- If `enabled === false`: mark AUD-002 through AUD-008 as SKIPPED, proceed to next phase
+- If `enabled === false`: **FAIL** — transcription backend is required. File issue to configure test environment.
 
-**Notes**: This is a gate test. If transcription is not configured, remaining tests cannot execute.
+**Notes**: Transcription backend availability is a hard requirement. All AUD-* tests must pass.
 
 ---
 

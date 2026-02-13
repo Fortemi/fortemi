@@ -83,7 +83,7 @@ set_note_tags({
 
 ---
 
-## SKOS Concepts (Optional)
+## SKOS Concepts
 
 ### SKOS-001: List Concept Schemes
 

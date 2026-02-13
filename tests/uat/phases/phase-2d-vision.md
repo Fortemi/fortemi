@@ -3,10 +3,10 @@
 **Purpose**: Verify ad-hoc image description via vision LLM (Ollama) through MCP tool calls
 **Duration**: ~5 minutes
 **Prerequisites**: Phase 0 preflight passed, Ollama vision model configured (`OLLAMA_VISION_MODEL`)
-**Critical**: No (requires optional vision backend)
+**Critical**: Yes (vision backend MUST be configured)
 **Tools Tested**: `describe_image`, `get_system_info`
 
-> **Vision Backend Requirement**: Tests in this phase require an Ollama-compatible vision model (e.g., `qwen3-vl:8b`, `llava`). If `OLLAMA_VISION_MODEL` is not configured, VIS-001 detects this and remaining tests are marked SKIPPED (not FAILED). This is expected — vision is an optional capability.
+> **Vision Backend Requirement**: Tests in this phase require an Ollama-compatible vision model (e.g., `qwen3-vl:8b`, `llava`). The `OLLAMA_VISION_MODEL` environment variable MUST be configured. If VIS-001 reports `available === false`, this is a test environment configuration failure — file issue and fix the environment.
 
 > **Curl-Command Pattern**: The `describe_image` tool returns a curl command for multipart file upload. The MCP client does NOT send image data directly — instead, it generates a curl command that the user executes to upload the file. This avoids base64 encoding overhead and shell argument limits.
 
@@ -28,9 +28,9 @@
 - Response includes `extraction.vision` object
 - Record `extraction.vision.available` value
 - If `available === true`: record model name, continue to VIS-002
-- If `available === false`: mark VIS-002 through VIS-010 as SKIPPED, proceed to next phase
+- If `available === false`: **FAIL** — vision backend is required. File issue to configure test environment.
 
-**Notes**: This is a gate test. If vision is not configured, remaining tests cannot execute.
+**Notes**: Vision backend availability is a hard requirement. All VIS-* tests must pass.
 
 ---
 

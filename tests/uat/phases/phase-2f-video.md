@@ -3,17 +3,17 @@
 **Purpose**: Verify video processing guidance tool and attachment pipeline extraction for video files
 **Duration**: ~10 minutes
 **Prerequisites**: Phase 0 preflight passed, Phase 2b attachment uploads working
-**Critical**: No (requires optional ffmpeg + vision/transcription backends)
+**Critical**: Yes (ffmpeg + vision/transcription backends MUST be configured)
 **Tools Tested**: `process_video`, `get_system_info`, `create_note`, `upload_attachment`, `get_attachment`, `list_jobs`
 
 > **Attachment Pipeline**: Video files are processed through the standard attachment pipeline — NOT via base64 ad-hoc API. The `process_video` MCP tool is a **guidance tool** that returns workflow instructions for agents. Actual processing happens when a video file is uploaded as an attachment and the background job worker extracts content.
 
 > **Backend Requirements**: Full extraction requires:
 > - **ffmpeg** in PATH (for keyframe extraction)
-> - **OLLAMA_VISION_MODEL** set (for keyframe description — optional)
-> - **WHISPER_BASE_URL** set (for audio transcription — optional)
+> - **OLLAMA_VISION_MODEL** set (for keyframe description — REQUIRED)
+> - **WHISPER_BASE_URL** set (for audio transcription — REQUIRED)
 >
-> If ffmpeg is not available, VID-002 detects this and attachment pipeline tests (VID-004+) are marked SKIPPED. Guidance tool tests (VID-001, VID-003) always execute.
+> ffmpeg MUST be available in the test environment. If VID-001 reports `ffmpeg_available === false`, this is a test environment configuration failure — file issue and fix the environment before proceeding.
 
 > **Test Data**: This phase uses video files from supplementary test media. If `/mnt/global/test-media/video/` is not available, the executor should provide at least one MP4 file (3-10 seconds, <5MB) for attachment pipeline testing.
 
@@ -31,9 +31,9 @@
 - Record `extraction.video.enabled` value
 - Record `extraction.video.ffmpeg_available` (boolean)
 - If `ffmpeg_available === true`: continue to VID-002
-- If `ffmpeg_available === false`: mark VID-004 through VID-010 as SKIPPED (guidance tests VID-002, VID-003 still execute)
+- If `ffmpeg_available === false`: **FAIL** — ffmpeg is required for video processing. File issue to configure test environment.
 
-**Notes**: Gate test for attachment pipeline tests. Guidance tool tests always run regardless.
+**Notes**: ffmpeg availability is a hard requirement. All VID-* tests must pass.
 
 ---
 

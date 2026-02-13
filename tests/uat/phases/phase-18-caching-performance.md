@@ -20,7 +20,7 @@ This phase tests search caching, cache invalidation, and performance from the ag
 
 ## Important Notes
 
-- Redis is optional; system works without it (degrades to no caching)
+- Redis MUST be configured for caching tests to pass
 - Search cache uses query hash as key
 - Cache TTL is configurable (default: 5 minutes)
 - Cache invalidated on note create/update/delete

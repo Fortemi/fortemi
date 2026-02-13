@@ -1920,7 +1920,7 @@ search_notes({
 // Expected: returns only py_dataclass_note_id
 ```
 
-> **MCP Gap**: No `list_notes_in_embedding_set` tool exists. Workaround: Use `search_notes` with the embedding set slug as filter. Filed for tracking.
+**Expected**: `search_notes` with `embedding_set_id` filter returns only notes in that embedding set.
 
 **Expected Results**:
 - Set contains only matching notes

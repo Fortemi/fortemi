@@ -40,11 +40,10 @@ list_document_types({ category: "code" })
 **MCP Tool**: `list_document_types`
 
 ```javascript
-// Workaround: list all and inspect is_system field on each type
-list_document_types({ detail: true })
+list_document_types({ is_system: true })
 ```
 
-> **MCP Gap**: `list_document_types` does not support `is_system` filter parameter. Workaround: List all types with `detail: true` and inspect the `is_system` field on each returned type.
+**Expected**: Returns only system-defined document types (not user-created).
 
 **Pass Criteria**: Returns types with `is_system` field present on each type object
 
