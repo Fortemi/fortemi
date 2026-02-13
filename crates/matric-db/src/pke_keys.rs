@@ -139,10 +139,14 @@ impl PgPkeKeyRepository {
 mod tests {
     use super::*;
     use crate::pool::create_pool;
+    use uuid::Uuid;
 
     async fn setup_test_pool() -> Pool<Postgres> {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        // Note: Migrations are run by the CI workflow before tests.
+        // Do NOT run migrations here - parallel tests cause race conditions.
+        // See issues #349, #352.
         create_pool(&database_url)
             .await
             .expect("Failed to create pool")
@@ -153,11 +157,8 @@ mod tests {
         let pool = setup_test_pool().await;
         let repo = PgPkeKeyRepository::new(pool);
 
-        let test_id = format!(
-            "test-addr-{}",
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
-        );
-        let address = test_id.clone();
+        let test_id = Uuid::new_v4().to_string();
+        let address = format!("test-addr-{}", test_id);
         let public_key = vec![1, 2, 3, 4, 5];
         let label = Some("Test Key".to_string());
 
@@ -186,11 +187,8 @@ mod tests {
         let pool = setup_test_pool().await;
         let repo = PgPkeKeyRepository::new(pool);
 
-        let test_id = format!(
-            "test-addr-update-{}",
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
-        );
-        let address = test_id.clone();
+        let test_id = Uuid::new_v4().to_string();
+        let address = format!("test-addr-update-{}", test_id);
 
         // Register initial key
         repo.register_key(address.clone(), vec![1, 2, 3], Some("Original".to_string()))
@@ -233,7 +231,7 @@ mod tests {
         let pool = setup_test_pool().await;
         let repo = PgPkeKeyRepository::new(pool);
 
-        let test_id = Utc::now().timestamp_nanos_opt().unwrap_or(0);
+        let test_id = Uuid::new_v4().to_string();
         let addr1 = format!("test-list-1-{}", test_id);
         let addr2 = format!("test-list-2-{}", test_id);
 
@@ -269,11 +267,8 @@ mod tests {
         let pool = setup_test_pool().await;
         let repo = PgPkeKeyRepository::new(pool);
 
-        let test_id = format!(
-            "test-delete-{}",
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
-        );
-        let address = test_id.clone();
+        let test_id = Uuid::new_v4().to_string();
+        let address = format!("test-delete-{}", test_id);
 
         // Register key
         repo.register_key(address.clone(), vec![1, 2, 3], None)
@@ -308,11 +303,8 @@ mod tests {
         let pool = setup_test_pool().await;
         let repo = PgPkeKeyRepository::new(pool);
 
-        let test_id = format!(
-            "test-no-label-{}",
-            Utc::now().timestamp_nanos_opt().unwrap_or(0)
-        );
-        let address = test_id.clone();
+        let test_id = Uuid::new_v4().to_string();
+        let address = format!("test-no-label-{}", test_id);
 
         // Register without label
         repo.register_key(address.clone(), vec![1, 2, 3], None)

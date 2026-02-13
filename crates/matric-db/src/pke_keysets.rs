@@ -330,6 +330,9 @@ mod tests {
     async fn setup_test_pool() -> Pool<Postgres> {
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        // Note: Migrations are run by the CI workflow before tests.
+        // Do NOT run migrations here - parallel tests cause race conditions.
+        // See issues #349, #352.
         create_pool(&database_url)
             .await
             .expect("Failed to create pool")
