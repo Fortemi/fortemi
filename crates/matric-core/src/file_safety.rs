@@ -442,8 +442,8 @@ mod tests {
         // Invalid patterns
         assert!(!is_mp3_sync_frame(&[0xFF, 0xD0])); // Not enough sync bits
         assert!(!is_mp3_sync_frame(&[0xFE, 0xFB])); // Wrong first byte
-        assert!(!is_mp3_sync_frame(&[0xFF]));       // Too short
-        assert!(!is_mp3_sync_frame(&[]));           // Empty
+        assert!(!is_mp3_sync_frame(&[0xFF])); // Too short
+        assert!(!is_mp3_sync_frame(&[])); // Empty
     }
 
     #[test]
