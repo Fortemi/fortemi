@@ -40,14 +40,12 @@ Fortemi transforms unstructured notes into a navigable knowledge graph with inte
 
 ## Use Cases
 
-Fortemi adapts to diverse deployment scenarios:
+Fortemi adapts to how you actually work:
 - **Personal knowledge management** - Organize research notes, articles, and ideas with automatic linking and semantic search
-- **Team documentation hub*** - Centralize team knowledge with controlled vocabularies and guaranteed data isolation
-- **AI research assistant / RAG pipeline*** - Power chatbots and AI agents with hybrid retrieval and context-aware generation
-- **Enterprise document management*** - Process and search across 131 document types with automatic classification
-- **Hybrid cloud/edge deployment*** - Run on-premises for data sovereignty or in cloud for scalability
-
-*\*Scaled, organizational, enterprise, or commercial deployments require a license agreement. See [License](#license).*
+- **Team documentation hub** - Centralize team knowledge with controlled vocabularies and guaranteed data isolation
+- **AI research assistant / RAG pipeline** - Power chatbots and AI agents with hybrid retrieval and context-aware generation
+- **Enterprise document management** - Process and search across 131 document types with automatic classification
+- **Hybrid cloud/edge deployment** - Run on-premises for data sovereignty or in cloud for scalability
 
 See [Use Cases](docs/content/use-cases.md) for detailed deployment patterns.
 
@@ -308,10 +306,14 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## License
 
-This project is licensed under the **Business Source License 1.1** (BSL-1.1).
+Fortemi is licensed under the [Business Source License 1.1](BSL-LICENSE) (BSL-1.1).
 
-**Personal and local use is permitted.** You may freely use Fortemi for personal knowledge management, local development, and individual research on your own hardware.
+**Free forever for personal use.** Use Fortemi for yourself — your notes, your research, your side projects, your learning. No license key, no time limit, no strings attached. Students, hobbyists, solo researchers, open-source contributors: this is for you.
 
-**Commercial licensing required for:** Organizational deployments, enterprise use, multi-tenant hosting, resale, or any scaled deployment serving multiple users. Contact the development team at [github.com/Fortemi/fortemi](https://github.com/Fortemi/fortemi/issues) to discuss licensing options.
+**Small team or startup?** We want to work with you. If you're a team of 10 or fewer, [reach out](https://github.com/Fortemi/fortemi/issues) — we'll find something that works for your budget.
 
-See [LICENSE](LICENSE) for the full license text and [docs/content/licensing.md](docs/content/licensing.md) for a plain-English explanation.
+**Larger deployments** (multi-user servers, SaaS, enterprise) need a commercial license. [Let's talk](https://github.com/Fortemi/fortemi/issues) — we respond within 2–3 days.
+
+**Fully open source in 2030.** On February 8, 2030 the license automatically converts to AGPL v3. Every version, past and future.
+
+See [docs/content/licensing.md](docs/content/licensing.md) for the full FAQ and plain-English explanation.

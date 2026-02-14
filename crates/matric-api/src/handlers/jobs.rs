@@ -123,12 +123,12 @@ impl JobHandler for AiRevisionHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract revision mode from payload (default to Full)
+        // Extract revision mode from payload (default to Light)
         let revision_mode = ctx
             .payload()
             .and_then(|p| p.get("revision_mode"))
             .and_then(|v| serde_json::from_value::<RevisionMode>(v.clone()).ok())
-            .unwrap_or(RevisionMode::Full);
+            .unwrap_or(RevisionMode::Light);
 
         // Extract schema from payload (default to "public" for backward compatibility)
         let _schema = ctx

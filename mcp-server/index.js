@@ -2450,6 +2450,19 @@ function createMcpServer() {
           break;
 
         // ============================================================================
+        // BULK REPROCESS (#377)
+        // ============================================================================
+        case "bulk_reprocess_notes": {
+          const body = {};
+          if (args.revision_mode) body.revision_mode = args.revision_mode;
+          if (args.note_ids) body.note_ids = args.note_ids;
+          if (args.steps) body.steps = args.steps;
+          if (args.limit) body.limit = args.limit;
+          result = await apiRequest("POST", `/api/v1/notes/reprocess`, body);
+          break;
+        }
+
+        // ============================================================================
         // TIMELINE & ACTIVITY (#456)
         // ============================================================================
         case "get_notes_timeline": {

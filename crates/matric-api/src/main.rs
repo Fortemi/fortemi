@@ -374,7 +374,7 @@ struct AppState {
         get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence,
         list_notes, create_note, bulk_create_notes, get_note,
         update_note, delete_note, purge_note, update_note_status,
-        restore_note, reprocess_note, get_note_tags, set_note_tags,
+        restore_note, reprocess_note, bulk_reprocess_notes, get_note_tags, set_note_tags,
         list_tags, list_concept_schemes, create_concept_scheme, get_concept_scheme,
         update_concept_scheme, delete_concept_scheme, get_top_concepts, search_concepts,
         create_concept, autocomplete_concepts, get_concept, get_concept_full,
@@ -1143,6 +1143,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/:id/restore", post(restore_note))
         .route("/api/v1/notes/:id/purge", post(purge_note))
         .route("/api/v1/notes/:id/reprocess", post(reprocess_note))
+        .route("/api/v1/notes/reprocess", post(bulk_reprocess_notes))
         .route(
             "/api/v1/notes/:id/tags",
             get(get_note_tags).put(set_note_tags),
@@ -3638,11 +3639,11 @@ async fn create_note(
         document_type_id: body.document_type_id,
     };
 
-    // Parse revision mode (default to Full)
+    // Parse revision mode (default to Light)
     let revision_mode = match body.revision_mode.as_deref() {
-        Some("light") => RevisionMode::Light,
+        Some("full") => RevisionMode::Full,
         Some("none") => RevisionMode::None,
-        _ => RevisionMode::Full, // "full" or unspecified
+        _ => RevisionMode::Light, // "light" or unspecified
     };
 
     // Insert note (archive-scoped via SchemaContext)
@@ -4011,7 +4012,7 @@ async fn update_note(
 
     // Queue full NLP pipeline if content changed
     if content_changed {
-        // Parse revision mode (default to Full)
+        // Parse revision mode (default to Light)
         let revision_mode = match body.revision_mode.as_deref() {
             Some("light") => RevisionMode::Light,
             Some("none") => RevisionMode::None,
@@ -4216,11 +4217,11 @@ async fn restore_note(
     ctx.execute(move |tx| Box::pin(async move { notes.restore_tx(tx, id).await }))
         .await?;
 
-    // Parse revision mode (default to Full)
+    // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
-        Some("light") => RevisionMode::Light,
+        Some("full") => RevisionMode::Full,
         Some("none") => RevisionMode::None,
-        _ => RevisionMode::Full,
+        _ => RevisionMode::Light,
     };
 
     // Determine schema for background jobs
@@ -4248,7 +4249,7 @@ async fn restore_note(
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct ReprocessNoteBody {
-    /// AI revision mode: "full" (default), "light", or "none"
+    /// AI revision mode: "full", "light" (default), or "none"
     revision_mode: Option<String>,
     /// Specific pipeline steps to run. If omitted or contains "all", runs all steps.
     steps: Option<Vec<String>>,
@@ -4280,11 +4281,11 @@ async fn reprocess_note(
 
     let body = body.map(|b| b.0);
 
-    // Parse revision mode (default to Full)
+    // Parse revision mode (default to Light)
     let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
-        Some("light") => RevisionMode::Light,
+        Some("full") => RevisionMode::Full,
         Some("none") => RevisionMode::None,
-        _ => RevisionMode::Full,
+        _ => RevisionMode::Light,
     };
 
     // Determine which steps to run
@@ -4357,6 +4358,149 @@ async fn reprocess_note(
         "note_id": id,
         "revision_mode": revision_mode,
         "jobs_queued": jobs_queued
+    })))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct BulkReprocessBody {
+    /// AI revision mode: "full", "light" (default), or "none"
+    revision_mode: Option<String>,
+    /// Specific note IDs to reprocess. If omitted, reprocesses all non-deleted notes.
+    note_ids: Option<Vec<Uuid>>,
+    /// Pipeline steps to run. Defaults to all steps.
+    steps: Option<Vec<String>>,
+    /// Maximum number of notes to process (safety limit). Default: 500
+    limit: Option<i64>,
+}
+
+/// Bulk reprocess notes through the NLP pipeline.
+///
+/// The "Make Smarter" endpoint — triggers AI revision, re-embedding, and relinking
+/// for multiple notes at once. Use `revision_mode: "full"` for deep contextual
+/// enhancement, or omit for light formatting.
+#[utoipa::path(post, path = "/api/v1/notes/reprocess", tag = "Notes",
+    request_body(content = Option<BulkReprocessBody>),
+    responses(
+        (status = 200, description = "Jobs queued for bulk reprocessing"),
+    )
+)]
+async fn bulk_reprocess_notes(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    body: Option<Json<BulkReprocessBody>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let body = body.map(|b| b.0);
+    let limit = body.as_ref().and_then(|b| b.limit).unwrap_or(500).min(5000);
+
+    // Parse revision mode (default to Light)
+    let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
+        Some("full") => RevisionMode::Full,
+        Some("none") => RevisionMode::None,
+        _ => RevisionMode::Light, // "light" or unspecified
+    };
+
+    // Determine which steps to run
+    let requested_steps = body.as_ref().and_then(|b| b.steps.as_ref());
+    let run_all = requested_steps.is_none()
+        || requested_steps
+            .map(|s| s.is_empty() || s.iter().any(|step| step == "all"))
+            .unwrap_or(true);
+
+    let should_run = |step: &str| -> bool {
+        run_all
+            || requested_steps
+                .map(|s| s.iter().any(|rs| rs == step))
+                .unwrap_or(false)
+    };
+
+    // Get note IDs to process
+    let note_ids: Vec<Uuid> = if let Some(ids) = body.as_ref().and_then(|b| b.note_ids.clone()) {
+        ids.into_iter().take(limit as usize).collect()
+    } else {
+        // Fetch all active note IDs from this archive
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let notes = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    notes_repo
+                        .list_tx(
+                            tx,
+                            ListNotesRequest {
+                                limit: Some(limit),
+                                filter: Some("all".to_string()),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                })
+            })
+            .await?;
+        notes.notes.into_iter().map(|n| n.id).collect()
+    };
+
+    let total = note_ids.len();
+    let mut jobs_queued: usize = 0;
+
+    for note_id in &note_ids {
+        // Queue AI revision if requested and mode != None
+        if revision_mode != RevisionMode::None && should_run("ai_revision") {
+            let payload = serde_json::json!({
+                "revision_mode": revision_mode,
+                "schema": &archive_ctx.schema,
+            });
+            if let Ok(Some(job_id)) = state
+                .db
+                .jobs
+                .queue_deduplicated(
+                    Some(*note_id),
+                    JobType::AiRevision,
+                    JobType::AiRevision.default_priority(),
+                    Some(payload),
+                )
+                .await
+            {
+                state.event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::AiRevision),
+                    note_id: Some(*note_id),
+                });
+                jobs_queued += 1;
+            }
+        }
+
+        // Queue remaining pipeline steps
+        let step_types = [
+            ("embedding", JobType::Embedding),
+            ("title_generation", JobType::TitleGeneration),
+            ("linking", JobType::Linking),
+            ("concept_tagging", JobType::ConceptTagging),
+        ];
+
+        for (step_name, job_type) in &step_types {
+            if should_run(step_name) {
+                if let Ok(Some(job_id)) = state
+                    .db
+                    .jobs
+                    .queue_deduplicated(Some(*note_id), *job_type, job_type.default_priority(), None)
+                    .await
+                {
+                    state.event_bus.emit(ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", job_type),
+                        note_id: Some(*note_id),
+                    });
+                    jobs_queued += 1;
+                }
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "message": "Bulk reprocessing queued",
+        "notes_count": total,
+        "jobs_queued": jobs_queued,
+        "revision_mode": revision_mode,
     })))
 }
 
@@ -6021,8 +6165,8 @@ async fn instantiate_template(
     // Parse and queue NLP pipeline
     let revision_mode = match body.revision_mode.as_deref() {
         Some("none") => RevisionMode::None,
-        Some("light") => RevisionMode::Light,
-        _ => RevisionMode::Full,
+        Some("full") => RevisionMode::Full,
+        _ => RevisionMode::Light,
     };
     queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus, None).await;
 

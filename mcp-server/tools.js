@@ -244,7 +244,7 @@ export default [
                   "light",
                   "none"
                 ],
-                "default": "full"
+                "default": "light"
               }
             },
             "required": [
@@ -296,7 +296,7 @@ export default [
             "none"
           ],
           "description": "AI revision mode: 'full' (default), 'light' (format only), 'none' (skip)",
-          "default": "full"
+          "default": "light"
         },
         "collection_id": {
           "type": "string",
@@ -1409,7 +1409,7 @@ export default [
             "none"
           ],
           "description": "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
-          "default": "full"
+          "default": "light"
         },
         "collection_id": {
           "type": "string",
@@ -1462,7 +1462,7 @@ export default [
                   "none"
                 ],
                 "description": "AI revision mode for this note",
-                "default": "full"
+                "default": "light"
               }
             },
             "required": [
@@ -1507,7 +1507,7 @@ export default [
             "none"
           ],
           "description": "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
-          "default": "full"
+          "default": "light"
         },
         "metadata": {
           "type": "object",
@@ -2053,7 +2053,7 @@ export default [
             "none"
           ],
           "description": "AI revision mode (default: full)",
-          "default": "full"
+          "default": "light"
         }
       },
       "required": [
@@ -4702,6 +4702,58 @@ export default [
       "required": [
         "id"
       ]
+    },
+    annotations: {"destructiveHint":false},
+  },
+  {
+    name: "bulk_reprocess_notes",
+    description: `Bulk reprocess multiple notes through the AI pipeline — the "Make Smarter" operation.
+
+Queues AI revision, embedding, and linking jobs for many notes at once. Use revision_mode "full" for deep contextual enhancement that cross-references related notes, or omit for light formatting cleanup.
+
+When called without note_ids, processes all notes in the current archive (up to the limit).`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "revision_mode": {
+          "type": "string",
+          "enum": [
+            "full",
+            "light",
+            "none"
+          ],
+          "default": "light",
+          "description": "AI revision mode: 'full' for deep enhancement, 'light' for formatting only (default), 'none' to skip revision"
+        },
+        "note_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Specific note UUIDs to process. Omit to process all notes."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ai_revision",
+              "embedding",
+              "linking",
+              "title_generation",
+              "concept_tagging",
+              "all"
+            ]
+          },
+          "description": "Pipeline steps to run (omit for all)"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 500,
+          "description": "Maximum notes to process (safety limit, max 5000)"
+        }
+      }
     },
     annotations: {"destructiveHint":false},
   },

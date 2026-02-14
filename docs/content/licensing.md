@@ -1,112 +1,102 @@
 # Licensing
 
-Fortemi is licensed under the **Business Source License 1.1 (BSL 1.1)** with a change date of **January 30, 2030**, after which it converts to **AAGPL v3** (GNU Affero General Public License).
+Fortemi is licensed under the **Business Source License 1.1 (BSL 1.1)** with a change date of **February 8, 2030**, after which it converts to **AGPL v3** (GNU Affero General Public License).
 
-This document explains what that means in plain English.
+This page explains what that means in plain English.
 
-## License Overview
+## The Short Version
 
-The Business Source License (BSL) is a "eventually open source" license that:
+- **Personal use is free.** Always. No license key, no time bomb, no asterisks.
+- **Small teams, students, researchers, open-source folks** — you're welcome here.
+- **Commercial/multi-user production deployments** need a license. We keep pricing fair.
+- **Fully open source on February 8, 2030.** Every version, automatically.
 
-1. **Allows free use** for non-production purposes (personal, educational, evaluation, development)
-2. **Restricts production use** to licensed deployments
-3. **Automatically converts** to AGPL v3 open source after the change date (January 30, 2030)
+## What You Can Do (No License Needed)
 
-Think of it as "free for individuals, paid for companies running it as infrastructure, and fully open source in 4 years."
+Use Fortemi freely for:
 
-## What You Can Do
+- **Personal projects** — your notes, your research, your ideas, your laptop
+- **Educational purposes** — classes, coursework, teaching, academic research
+- **Evaluation** — test it, benchmark it, see if it fits
+- **Desktop use** — personal productivity, journaling, writing
+- **Development** — fork it, modify it, experiment, contribute back
+- **Solo use at work** — running it on your own machine for your own notes
 
-You are **free to use Fortemi** without a license for:
-
-- **Personal projects** - Run it on your own computer/server for your own notes
-- **Educational purposes** - Use it in classes, research, teaching
-- **Evaluation** - Test it out to see if it fits your needs
-- **Desktop use** - Run it locally for personal productivity
-- **Development** - Fork, modify, experiment, contribute back
-- **Internal tools** - Use it at work on your laptop for your own productivity
-
-No license required. No questions asked.
+No license required. No questions asked. No usage tracking.
 
 ## What Requires a License
 
-You need a **commercial license** if you:
+You need a commercial license if you:
 
-- **Deploy on company servers** for multiple users
-- **Offer it as a service** to customers (hosted notes/knowledge base)
-- **Embed it in a commercial product** that you sell or license
-- **Run it in production** for business operations
+- **Deploy on shared infrastructure** for multiple users in your organization
+- **Offer it as a service** to customers (hosted knowledge base, SaaS)
+- **Embed it in a commercial product** that you sell
+- **Run it in production** as part of business operations for a team
 
-The key distinction: **single-user desktop use vs. multi-user production deployment**.
+The line is simple: **one person on their own machine = free. Multiple users on shared servers = license.**
 
 ## FAQ
 
-### Can I use this for personal projects?
+### Can I use this for my personal notes?
 
-**Yes.** Run it for yourself, your family, your hobbies. No license needed.
+**Yes.** That's exactly what it's for. Run it however you like — Docker, bare metal, your home server. It's free.
 
-### Can I use this at work on my laptop?
+### Can I use it at work on my laptop?
 
-**Yes.** If you're running it locally for your own productivity (like a note-taking app), that's personal use. No license needed.
+**Yes.** If it's just you using it on your own machine, that's personal use. No license needed, even if your notes are work-related.
 
-### Can I deploy this on company servers?
+### I'm a student / researcher. Do I need a license?
 
-**Requires a commercial license.** If you're deploying it for your team/organization on shared infrastructure, that's production use.
+**No.** Academic and educational use is free. Use it for your thesis, your lab, your research group.
+
+### Can I use this at my 6-person startup?
+
+**Yes — reach out to us.** We want to support small teams and early-stage companies. [Open an issue](https://github.com/Fortemi/fortemi/issues) and we'll work out something affordable. We're not trying to price anyone out.
+
+### Can I deploy it for my 50-person company?
+
+**That needs a commercial license.** But the process is simple — [contact us](https://github.com/Fortemi/fortemi/issues) and we'll get back to you within 2–3 business days.
 
 ### Can I fork and modify the code?
 
-**Yes.** You can fork, modify, and distribute your changes under the same BSL 1.1 license. Your fork inherits the same license terms.
+**Yes.** Fork it, change it, improve it. Your modifications stay under BSL 1.1 (same terms). We'd love it if you contributed changes back.
 
-### Can I contribute back to the project?
+### When does it become fully open source?
 
-**Yes, please do!** Contributions are welcome. By contributing, you agree your code will be licensed under BSL 1.1 (and eventually AGPL v3).
-
-### When does it become AGPL v3?
-
-**January 30, 2030.** After that date, all versions (past and future) automatically convert to AGPL v3, which is fully open source with no production restrictions.
-
-### What if I need production use now?
-
-**Contact us for a commercial license.** See the Commercial Licensing section below.
-
-### What about open source alternatives?
-
-If BSL doesn't work for you and you need production deployment now:
-
-- **Wait until 2030** when it converts to AGPL v3
-- **Contact us** for a commercial license (may include source access)
-- **Build your own** using similar open source components
+**February 8, 2030.** On that date, every version of Fortemi — past, present, and future — automatically converts to AGPL v3. No more production restrictions for anyone.
 
 ### Can I use this in a SaaS product?
 
-**Requires a commercial license.** Offering Fortemi (or a derivative) as a hosted service to customers is production use.
+**Requires a commercial license.** Hosting Fortemi (or a derivative) as a service for customers is production use.
 
-### Can I use this in an open source project?
+### Can I integrate my open-source project with Fortemi?
 
-**Yes, with caveats.** Your project can integrate with Fortemi via its API, but if you embed/bundle Fortemi, your project must respect the BSL production use restrictions (or wait until 2030 for GPL).
+**Yes.** Your project can call Fortemi's API freely. If you embed/bundle Fortemi itself, your project needs to respect the BSL terms (or wait for the AGPL conversion in 2030).
 
-### What happens to my license after 2030?
+### What happens to my commercial license after 2030?
 
-**Your commercial license remains valid**, but after January 30, 2030, anyone can use Fortemi for production without a license (under AGPL v3).
+**It stays valid.** But after February 8, 2030, anyone can use Fortemi for production under AGPL v3 — so you might not need to renew.
 
 ## Commercial Licensing
 
-Need a production deployment today? We offer commercial licenses.
+We keep things simple and fair.
 
-### Contact Information
+### Pricing Philosophy
 
-- **GitHub Issues:** [github.com/Fortemi/fortemi/issues](https://github.com/Fortemi/fortemi/issues)
-- **Response time:** 2-3 business days
+We're a small project that wants to grow sustainably. Our licensing reflects that:
+- **Solo users and tiny teams** — we'll find something that works for your budget
+- **Mid-size companies** — fair per-seat pricing, nothing predatory
+- **Enterprise** — custom agreements with the support you need
 
 ### License Tiers
 
-We offer flexible licensing based on your needs:
-
-| Tier | Use Case | Pricing |
-|------|----------|---------|
-| **Personal** | Free | Single-user, non-production use |
-| **Team** | Contact us | Up to 50 users, single deployment |
-| **Enterprise** | Contact us | Unlimited users, multiple deployments |
-| **OEM/Embedded** | Contact us | Bundle in your product |
+| Tier | Who It's For | Cost |
+|------|-------------|------|
+| **Personal** | Solo users, students, researchers | Free |
+| **Small Team** | Up to 10 users | [Let's talk](https://github.com/Fortemi/fortemi/issues) |
+| **Team** | Up to 50 users, single deployment | [Contact us](https://github.com/Fortemi/fortemi/issues) |
+| **Enterprise** | Unlimited users, multiple deployments | [Contact us](https://github.com/Fortemi/fortemi/issues) |
+| **OEM/Embedded** | Bundle in your product | [Contact us](https://github.com/Fortemi/fortemi/issues) |
 
 All commercial licenses include:
 
@@ -115,75 +105,60 @@ All commercial licenses include:
 - Bug fixes and security patches
 - Upgrade rights to new versions
 
-### What to Include in Your Inquiry
+### How to Get Started
 
-When contacting us, please provide:
+[Open an issue on GitHub](https://github.com/Fortemi/fortemi/issues) or email us. Tell us:
 
-- **Company name** and size
-- **Use case** (internal team knowledge base, customer-facing, embedded, etc.)
-- **Number of users** (approximate)
-- **Deployment model** (self-hosted, cloud, hybrid)
-- **Timeline** (when do you need to deploy?)
+- What you're building and roughly how many people will use it
+- Whether you need self-hosted, cloud, or both
 
-We'll work with you to find a license that fits your needs and budget.
+That's it. We'll respond within 2–3 business days with options.
 
 ## Open Source Conversion
 
-### Change Date: January 30, 2030
+### Change Date: February 8, 2030
 
-On this date, Fortemi automatically converts from BSL 1.1 to **AGPL v3**.
+On this date, Fortemi automatically converts from BSL 1.1 to **AGPL v3**:
 
-This means:
+- **No more production restrictions** — anyone can deploy for any purpose
+- **Full AGPL v3 freedoms** — use, modify, distribute freely
+- **Copyleft requirement** — derivatives must also be AGPL v3
+- **All versions included** — past and future releases are AGPL v3
 
-- **No more production restrictions** - Anyone can deploy for any purpose
-- **Full AGPL v3 freedoms** - Use, modify, distribute freely
-- **Copyleft requirement** - Derivatives must be AGPL v3
-- **All versions included** - Past and future releases are AGPL v3
+### Why BSL + AGPL?
 
-### Why BSL → GPL?
-
-We chose this path because:
-
-1. **Sustain development** - Commercial licenses fund full-time development
-2. **Prevent parasitic use** - Large companies can't just take and run for free
-3. **Guarantee open source** - It WILL become fully open source, period
-4. **Fair compromise** - Free for individuals, paid for businesses, open for everyone eventually
+1. **Sustainability** — commercial licenses fund full-time development
+2. **Fairness** — free for individuals, affordable for teams, licensed for large orgs
+3. **Guaranteed open source** — the conversion date is baked into the license, not a promise
+4. **Anti-parasitic** — large cloud providers can't take and resell without contributing back
 
 ### What is AGPL v3?
 
-The GNU Affero General Public License v3 is a strong copyleft open source license that:
-
-- Allows commercial use
-- Requires sharing modifications
-- Requires source disclosure for network/server use (closes the "SaaS loophole")
-- Prevents patent restrictions
-- Preserves user freedoms
-
-The AGPL is like GPL but with an additional requirement: if you run modified AGPL software as a network service, you must make the source code available to users of that service.
+The GNU Affero General Public License v3 is a copyleft open source license. It works like the GPL but also covers network use: if you run modified AGPL software as a web service, you must share your source code with users of that service.
 
 Learn more: https://www.gnu.org/licenses/agpl-3.0.html
 
-## License Text
+## License Files
 
 The license files are in the repository root:
 
-- `LICENSE` - BSL 1.1 terms (current license until Change Date)
-- `LICENSE.txt` - AGPL v3 full text (takes effect after Change Date)
+- `BSL-LICENSE` — BSL 1.1 terms (current license until Change Date)
+- `LICENSE.txt` — AGPL v3 full text (takes effect after Change Date)
 
 Key parameters:
 
 - **Licensor:** Fortémi Project
 - **Licensed Work:** Fortémi (all versions)
-- **Change Date:** January 30, 2030
+- **Change Date:** February 8, 2030
 - **Change License:** AGPL v3
 - **Additional Use Grant:** Non-production use is free
 
 ## Summary
 
-- **Free for personal use** - Run it on your laptop, experiment, learn
-- **Paid for production** - Company deployments need a commercial license
-- **Open source in 2030** - Converts to AGPL v3 automatically
-- **Fair and sustainable** - Funds development while guaranteeing eventual open source
+- **Free for personal use** — always, no catches
+- **Welcoming to small teams** — reach out, we'll work with you
+- **Licensed for production** — fair pricing for organizations
+- **Fully open source in 2030** — guaranteed by the license itself
 
 Questions? [Open an issue on GitHub](https://github.com/Fortemi/fortemi/issues).
 

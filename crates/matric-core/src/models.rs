@@ -1763,10 +1763,10 @@ pub enum JobStatus {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RevisionMode {
-    /// Full contextual enhancement - expands content with related concepts (default)
-    #[default]
+    /// Full contextual enhancement - expands content with related concepts
     Full,
-    /// Light touch - formatting and structure only, no invented details
+    /// Light touch - formatting and structure only, no invented details (default)
+    #[default]
     Light,
     /// No AI revision - store original as-is
     None,
@@ -3100,7 +3100,7 @@ mod tests {
 
     #[test]
     fn test_revision_mode_default() {
-        assert_eq!(RevisionMode::default(), RevisionMode::Full);
+        assert_eq!(RevisionMode::default(), RevisionMode::Light);
     }
 
     #[test]
