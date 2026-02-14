@@ -92,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxi-dev \
     libxext-dev \
     xvfb \
+    xauth \
     python3 \
     make \
     g++ \
