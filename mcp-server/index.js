@@ -28,7 +28,7 @@ process.on("unhandledRejection", (reason) => {
 const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤22 tools) or "full" (all 186)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤23 tools) or "full" (all)
 
 // Core tool surface — high-level agent-friendly tools (issue #365)
 const CORE_TOOLS = new Set([
@@ -49,6 +49,8 @@ const CORE_TOOLS = new Set([
   "describe_image", "transcribe_audio",
   // Observability
   "get_knowledge_health",
+  // Bulk operations
+  "bulk_reprocess_notes",
 ]);
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;

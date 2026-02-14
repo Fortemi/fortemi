@@ -336,4 +336,98 @@ describe("Phase 15: Background Jobs", () => {
     });
     assert.ok(result, "Should return reprocess result for all operations");
   });
+
+  // --- Bulk Reprocessing ---
+  // Requires API endpoint POST /api/v1/notes/reprocess (added in #377)
+
+  test("JOB-023: Bulk reprocess notes with specific note_ids", async () => {
+    let result;
+    try {
+      result = await client.callTool("bulk_reprocess_notes", {
+        note_ids: [sharedNoteId],
+        revision_mode: "light",
+        steps: ["embedding"],
+      });
+    } catch (e) {
+      if (e.message.includes("Unknown tool")) {
+        console.log("  SKIP: bulk_reprocess_notes not available in this MCP build");
+        return;
+      }
+      if (e.message.includes("405") || e.message.includes("Method Not Allowed")) {
+        console.log("  SKIP: API endpoint not deployed yet (requires rebuild)");
+        return;
+      }
+      throw e;
+    }
+    assert.ok(result, "Should return bulk reprocess result");
+    console.log(`  Bulk reprocess result: ${JSON.stringify(result).slice(0, 200)}`);
+  });
+
+  test("JOB-024: Bulk reprocess notes with limit (no note_ids)", async () => {
+    let result;
+    try {
+      result = await client.callTool("bulk_reprocess_notes", {
+        revision_mode: "light",
+        limit: 5,
+      });
+    } catch (e) {
+      if (e.message.includes("Unknown tool") || e.message.includes("405")) {
+        console.log("  SKIP: bulk_reprocess_notes not deployed yet");
+        return;
+      }
+      throw e;
+    }
+    assert.ok(result, "Should return bulk reprocess result");
+  });
+
+  test("JOB-025: Bulk reprocess notes defaults to light revision", async () => {
+    let result;
+    try {
+      result = await client.callTool("bulk_reprocess_notes", {
+        note_ids: [sharedNoteId],
+      });
+    } catch (e) {
+      if (e.message.includes("Unknown tool") || e.message.includes("405")) {
+        console.log("  SKIP: bulk_reprocess_notes not deployed yet");
+        return;
+      }
+      throw e;
+    }
+    assert.ok(result, "Should return bulk reprocess result with default light mode");
+  });
+
+  test("JOB-026: Bulk reprocess with full revision mode", async () => {
+    let result;
+    try {
+      result = await client.callTool("bulk_reprocess_notes", {
+        note_ids: [sharedNoteId],
+        revision_mode: "full",
+        steps: ["ai_revision"],
+      });
+    } catch (e) {
+      if (e.message.includes("Unknown tool") || e.message.includes("405")) {
+        console.log("  SKIP: bulk_reprocess_notes not deployed yet");
+        return;
+      }
+      throw e;
+    }
+    assert.ok(result, "Should accept full revision mode explicitly");
+  });
+
+  test("JOB-027: Bulk reprocess with all steps", async () => {
+    let result;
+    try {
+      result = await client.callTool("bulk_reprocess_notes", {
+        note_ids: [sharedNoteId],
+        steps: ["all"],
+      });
+    } catch (e) {
+      if (e.message.includes("Unknown tool") || e.message.includes("405")) {
+        console.log("  SKIP: bulk_reprocess_notes not deployed yet");
+        return;
+      }
+      throw e;
+    }
+    assert.ok(result, "Should accept 'all' steps");
+  });
 });

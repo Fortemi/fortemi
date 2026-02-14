@@ -59,6 +59,9 @@ TEST_FILES=(
   "oauth.test.js"
   "api-management.test.js"
 
+  # Consolidated tool surface (issue #365)
+  "consolidated-tools.test.js"
+
   # E2E & export
   "feature-chains.test.js"
   "data-export.test.js"

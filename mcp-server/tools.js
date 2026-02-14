@@ -2052,7 +2052,7 @@ export default [
             "light",
             "none"
           ],
-          "description": "AI revision mode (default: full)",
+          "description": "AI revision mode (default: light)",
           "default": "light"
         }
       },

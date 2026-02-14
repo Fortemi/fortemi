@@ -129,7 +129,20 @@ describe("Consolidated Tools", () => {
     assert.ok(result !== undefined, "Should return temporal results");
   });
 
-  test("SRCH-005: search rejects invalid action", async () => {
+  test("SRCH-005: search spatial_temporal action combines both", async () => {
+    const result = await client.callTool("search", {
+      action: "spatial_temporal",
+      lat: 40.7128,
+      lon: -74.006,
+      radius: 50000,
+      start: "2020-01-01T00:00:00Z",
+      end: "2030-12-31T23:59:59Z",
+      limit: 5,
+    });
+    assert.ok(result !== undefined, "Should return spatial-temporal results");
+  });
+
+  test("SRCH-006: search rejects invalid action", async () => {
     await assert.rejects(
       () => client.callTool("search", { action: "bogus" }),
       (err) => {
@@ -165,7 +178,24 @@ describe("Consolidated Tools", () => {
     assert.ok(result.success, "Should return success");
   });
 
-  test("MT-003: manage_tags rejects invalid action", async () => {
+  test("MT-003: manage_tags get_concepts action returns note concepts", async () => {
+    // Use a note we already created
+    const note = await client.callTool("capture_knowledge", {
+      action: "create",
+      content: "Concept tag test note",
+      tags: [MCPTestClient.testTag("mt", "concepts")],
+    });
+    cleanup.noteIds.push(note.id);
+
+    const result = await client.callTool("manage_tags", {
+      action: "get_concepts",
+      note_id: note.id,
+    });
+    // May be empty array but should not error
+    assert.ok(Array.isArray(result) || result !== undefined, "Should return concepts array or response");
+  });
+
+  test("MT-004: manage_tags rejects invalid action", async () => {
     await assert.rejects(
       () => client.callTool("manage_tags", { action: "nope" }),
       (err) => {
@@ -264,7 +294,17 @@ describe("Consolidated Tools", () => {
     assert.ok(result !== undefined, "Should return governance stats");
   });
 
-  test("MCO-003: manage_concepts rejects invalid action", async () => {
+  test("MCO-003: manage_concepts autocomplete action works", async () => {
+    const result = await client.callTool("manage_concepts", {
+      action: "autocomplete",
+      q: "test",
+      limit: 5,
+    });
+    // May return empty but should not error
+    assert.ok(result !== undefined, "Should return autocomplete results");
+  });
+
+  test("MCO-004: manage_concepts rejects invalid action", async () => {
     await assert.rejects(
       () => client.callTool("manage_concepts", { action: "nope" }),
       (err) => {
@@ -298,7 +338,44 @@ describe("Consolidated Tools", () => {
     assert.ok(result.id, "Should return named location ID");
   });
 
-  test("RP-003: record_provenance rejects invalid action", async () => {
+  test("RP-003: record_provenance device action creates device", async () => {
+    const result = await client.callTool("record_provenance", {
+      action: "device",
+      device_make: "TestCo",
+      device_model: `TestModel-${MCPTestClient.uniqueId().slice(0, 8)}`,
+    });
+    assert.ok(result.id, "Should return device ID");
+  });
+
+  test("RP-004: record_provenance note action creates note provenance", async () => {
+    // Need a note and location first
+    const note = await client.callTool("capture_knowledge", {
+      action: "create",
+      content: "Provenance test note",
+      tags: [MCPTestClient.testTag("rp", "note")],
+    });
+    cleanup.noteIds.push(note.id);
+
+    const loc = await client.callTool("record_provenance", {
+      action: "location",
+      latitude: 35.6762,
+      longitude: 139.6503,
+      source: "user_manual",
+      confidence: "high",
+    });
+
+    const result = await client.callTool("record_provenance", {
+      action: "note",
+      note_id: note.id,
+      location_id: loc.id || loc.location_id,
+      capture_time_start: "2026-01-01T00:00:00Z",
+      time_source: "user_manual",
+      time_confidence: "high",
+    });
+    assert.ok(result.id, "Should return note provenance ID");
+  });
+
+  test("RP-005: record_provenance rejects invalid action", async () => {
     await assert.rejects(
       () => client.callTool("record_provenance", { action: "invalid" }),
       (err) => {

@@ -712,6 +712,7 @@ const CORE_TOOLS = new Set([
   "select_memory", "get_active_memory",
   "describe_image", "transcribe_audio",
   "get_knowledge_health",
+  "bulk_reprocess_notes",
 ]);
 
 describe("Core Tool Surface (Issue #365)", () => {
@@ -722,13 +723,13 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 22 tools", () => {
-    assert.equal(CORE_TOOLS.size, 22, `Expected 22 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 23 tools", () => {
+    assert.equal(CORE_TOOLS.size, 23, `Expected 23 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 22, `Expected 22 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 23, `Expected 23 filtered tools, got ${coreTools.length}`);
   });
 
   test("CORE-004: All 6 consolidated tools have action enum", () => {
