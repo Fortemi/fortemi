@@ -54,11 +54,12 @@ describe("Phase 0: Preflight Checks", () => {
     console.log(`  ✓ Server has ${tools.length} tools registered`);
   });
 
-  test("PREFLIGHT-003: Tools list returns 100+ tools", async () => {
+  test("PREFLIGHT-003: Tools list returns expected tool count", async () => {
     const tools = await client.listTools();
 
     assert.ok(Array.isArray(tools), "Tools should be an array");
-    assert.ok(tools.length >= 100, `Expected 100+ tools, got ${tools.length}`);
+    // In core mode (default): 22 tools; in full mode: 100+
+    assert.ok(tools.length >= 20, `Expected 20+ tools, got ${tools.length}`);
 
     // Verify tool structure
     const firstTool = tools[0];
@@ -69,28 +70,29 @@ describe("Phase 0: Preflight Checks", () => {
     console.log(`  ✓ Found ${tools.length} tools with valid structure`);
   });
 
-  test("PREFLIGHT-004: Critical tools are present", async () => {
+  test("PREFLIGHT-004: Core tools are present", async () => {
     const tools = await client.listTools();
     const toolNames = tools.map(t => t.name);
 
-    // Verify critical CRUD tools exist
-    const criticalTools = [
-      "create_note",
+    // Core tools that must be present in any mode
+    const coreCriticalTools = [
+      "list_notes",
       "get_note",
       "update_note",
       "delete_note",
-      "list_notes",
-      "search_notes",
+      "capture_knowledge",
+      "search",
+      "get_documentation",
     ];
 
-    for (const toolName of criticalTools) {
+    for (const toolName of coreCriticalTools) {
       assert.ok(
         toolNames.includes(toolName),
-        `Critical tool missing: ${toolName}`
+        `Core tool missing: ${toolName}`
       );
     }
 
-    console.log(`  ✓ All ${criticalTools.length} critical tools present`);
+    console.log(`  ✓ All ${coreCriticalTools.length} core tools present`);
   });
 
   test("PREFLIGHT-005: Session management works correctly", async () => {

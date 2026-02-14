@@ -28,6 +28,28 @@ process.on("unhandledRejection", (reason) => {
 const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤22 tools) or "full" (all 186)
+
+// Core tool surface — high-level agent-friendly tools (issue #365)
+const CORE_TOOLS = new Set([
+  // Notes CRUD
+  "list_notes", "get_note", "update_note", "delete_note", "restore_note",
+  // Consolidated tools (discriminated-union pattern)
+  "capture_knowledge", "search", "record_provenance",
+  "manage_tags", "manage_collection", "manage_concepts",
+  // Graph & links
+  "explore_graph", "get_note_links",
+  // Export
+  "export_note",
+  // System & docs
+  "get_documentation", "get_system_info", "health_check",
+  // Multi-memory
+  "select_memory", "get_active_memory",
+  // Media (when backends available)
+  "describe_image", "transcribe_audio",
+  // Observability
+  "get_knowledge_health",
+]);
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 const MAX_UPLOAD_SIZE = parseInt(process.env.MATRIC_MAX_UPLOAD_SIZE_BYTES || String(DEFAULTS.MAX_UPLOAD_SIZE_BYTES), 10);
@@ -149,9 +171,12 @@ function createMcpServer() {
     }
   );
 
-  // Handle list tools request
+  // Handle list tools request — filter by MCP_TOOL_MODE
   mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools };
+    if (MCP_TOOL_MODE === "full") {
+      return { tools };
+    }
+    return { tools: tools.filter(t => CORE_TOOLS.has(t.name)) };
   });
 
   // Handle tool calls
@@ -180,6 +205,68 @@ function createMcpServer() {
         case "get_note":
           result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
           break;
+
+        case "capture_knowledge": {
+          const action = args.action;
+          if (action === "create") {
+            result = await apiRequest("POST", "/api/v1/notes", {
+              content: args.content,
+              tags: args.tags,
+              revision_mode: args.revision_mode,
+              collection_id: args.collection_id,
+              metadata: args.metadata,
+            });
+          } else if (action === "bulk_create") {
+            const bulkRes = await apiRequest("POST", "/api/v1/notes/bulk", {
+              notes: args.notes,
+            });
+            result = (bulkRes.ids || []).map((id) => ({ id }));
+          } else if (action === "from_template") {
+            result = await apiRequest("POST", `/api/v1/templates/${args.template_id}/instantiate`, {
+              variables: args.variables || {},
+              tags: args.tags,
+              collection_id: args.collection_id,
+              revision_mode: args.revision_mode,
+            });
+          } else if (action === "upload") {
+            const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments/upload`;
+            const fname = args.filename || "FILE_PATH";
+            const curlParts = [`curl -X POST`];
+            curlParts.push(`-F "file=@${fname}"`);
+            if (args.document_type_id) {
+              curlParts.push(`-F "document_type_id=${args.document_type_id}"`);
+            }
+            if (args.content_type) {
+              curlParts.push(`-F "file=@${fname};type=${args.content_type}"`);
+              curlParts.splice(1, 1);
+            }
+            const sessionTok = tokenStorage.getStore()?.token;
+            const authTok = sessionTok || API_KEY;
+            if (authTok) {
+              curlParts.push(`-H "Authorization: Bearer ${authTok}"`);
+            }
+            const sessId = tokenStorage.getStore()?.sessionId;
+            const actMem = sessId ? sessionMemories.get(sessId) : null;
+            if (actMem) {
+              curlParts.push(`-H "X-Fortemi-Memory: ${actMem}"`);
+            }
+            curlParts.push(`"${uploadUrl}"`);
+            result = {
+              upload_url: uploadUrl,
+              method: "POST",
+              content_type: "multipart/form-data",
+              max_size: `${Math.round(MAX_UPLOAD_SIZE / (1024 * 1024))}MB`,
+              curl_command: curlParts.join(" \\\n  "),
+              instructions: "Execute the curl command to upload the file. Replace the filename with the actual file path.",
+            };
+            if (args.filename) {
+              result.filename_hint = args.filename;
+            }
+          } else {
+            throw new Error(`Unknown capture_knowledge action: ${action}. Valid: create, bulk_create, from_template, upload`);
+          }
+          break;
+        }
 
         case "create_note":
           result = await apiRequest("POST", "/api/v1/notes", {
@@ -221,6 +308,51 @@ function createMcpServer() {
         case "restore_note":
           result = await apiRequest("POST", `/api/v1/notes/${args.id}/restore`);
           break;
+
+        case "search": {
+          const action = args.action;
+          if (action === "text") {
+            const params = new URLSearchParams({ q: args.query });
+            if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
+            if (args.mode) params.set("mode", args.mode);
+            if (args.set) params.set("set", args.set);
+            if (args.collection_id) params.set("collection_id", args.collection_id);
+            if (args.required_tags || args.excluded_tags || args.any_tags) {
+              const filter = {};
+              if (args.required_tags) filter.required_tags = args.required_tags;
+              if (args.excluded_tags) filter.excluded_tags = args.excluded_tags;
+              if (args.any_tags) filter.any_tags = args.any_tags;
+              params.set("strict_filter", JSON.stringify(filter));
+            }
+            result = await apiRequest("GET", `/api/v1/search?${params}`);
+          } else if (action === "spatial") {
+            const params = new URLSearchParams();
+            params.set("lat", args.lat);
+            params.set("lon", args.lon);
+            if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
+            result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          } else if (action === "temporal") {
+            const params = new URLSearchParams();
+            params.set("start", args.start);
+            params.set("end", args.end);
+            result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          } else if (action === "spatial_temporal") {
+            const params = new URLSearchParams();
+            params.set("lat", args.lat);
+            params.set("lon", args.lon);
+            if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
+            params.set("start", args.start);
+            params.set("end", args.end);
+            result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          } else if (action === "federated") {
+            const body = { q: args.query, memories: args.memories };
+            if (args.limit) body.limit = args.limit;
+            result = await apiRequest("POST", "/api/v1/search/federated", body);
+          } else {
+            throw new Error(`Unknown search action: ${action}. Valid: text, spatial, temporal, spatial_temporal, federated`);
+          }
+          break;
+        }
 
         case "search_notes": {
           const params = new URLSearchParams({ q: args.query });
@@ -267,6 +399,89 @@ function createMcpServer() {
           params.set("start", args.start);
           params.set("end", args.end);
           result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
+          break;
+        }
+
+        case "record_provenance": {
+          const action = args.action;
+          if (action === "location") {
+            result = await apiRequest("POST", "/api/v1/provenance/locations", {
+              latitude: toNum(args.latitude),
+              longitude: toNum(args.longitude),
+              altitude_m: toNum(args.altitude_m),
+              horizontal_accuracy_m: toNum(args.horizontal_accuracy_m),
+              vertical_accuracy_m: toNum(args.vertical_accuracy_m),
+              heading_degrees: toNum(args.heading_degrees),
+              speed_mps: toNum(args.speed_mps),
+              named_location_id: args.named_location_id,
+              source: args.source,
+              confidence: args.confidence,
+            });
+          } else if (action === "named_location") {
+            result = await apiRequest("POST", "/api/v1/provenance/named-locations", {
+              name: args.name,
+              location_type: args.location_type,
+              latitude: toNum(args.latitude),
+              longitude: toNum(args.longitude),
+              radius_m: toNum(args.radius_m),
+              address_line: args.address_line,
+              locality: args.locality,
+              admin_area: args.admin_area,
+              country: args.country,
+              country_code: args.country_code,
+              postal_code: args.postal_code,
+              timezone: args.timezone,
+              altitude_m: toNum(args.altitude_m),
+              is_private: args.is_private,
+              metadata: args.metadata,
+            });
+          } else if (action === "device") {
+            result = await apiRequest("POST", "/api/v1/provenance/devices", {
+              device_make: args.device_make,
+              device_model: args.device_model,
+              device_os: args.device_os,
+              device_os_version: args.device_os_version,
+              software: args.software,
+              software_version: args.software_version,
+              has_gps: args.has_gps,
+              has_accelerometer: args.has_accelerometer,
+              sensor_metadata: args.sensor_metadata,
+              device_name: args.device_name,
+            });
+          } else if (action === "file") {
+            result = await apiRequest("POST", "/api/v1/provenance/files", {
+              attachment_id: args.attachment_id,
+              note_id: args.note_id,
+              capture_time_start: args.capture_time_start,
+              capture_time_end: args.capture_time_end,
+              capture_timezone: args.capture_timezone,
+              capture_duration_seconds: toNum(args.capture_duration_seconds),
+              time_source: args.time_source,
+              time_confidence: args.time_confidence,
+              location_id: args.location_id,
+              device_id: args.device_id,
+              event_type: args.event_type,
+              event_title: args.event_title,
+              event_description: args.event_description,
+              raw_metadata: args.raw_metadata,
+            });
+          } else if (action === "note") {
+            result = await apiRequest("POST", "/api/v1/provenance/notes", {
+              note_id: args.note_id,
+              capture_time_start: args.capture_time_start,
+              capture_time_end: args.capture_time_end,
+              capture_timezone: args.capture_timezone,
+              time_source: args.time_source,
+              time_confidence: args.time_confidence,
+              location_id: args.location_id,
+              device_id: args.device_id,
+              event_type: args.event_type,
+              event_title: args.event_title,
+              event_description: args.event_description,
+            });
+          } else {
+            throw new Error(`Unknown record_provenance action: ${action}. Valid: location, named_location, device, file, note`);
+          }
           break;
         }
 
@@ -355,6 +570,29 @@ function createMcpServer() {
           });
           break;
 
+        case "manage_tags": {
+          const action = args.action;
+          if (action === "list") {
+            result = await apiRequest("GET", "/api/v1/tags");
+          } else if (action === "set") {
+            await apiRequest("PUT", `/api/v1/notes/${args.note_id}/tags`, { tags: args.tags });
+            result = { success: true };
+          } else if (action === "tag_concept") {
+            result = await apiRequest("POST", `/api/v1/notes/${args.note_id}/concepts`, {
+              concept_id: args.concept_id,
+              is_primary: args.is_primary || false,
+            });
+          } else if (action === "untag_concept") {
+            await apiRequest("DELETE", `/api/v1/notes/${args.note_id}/concepts/${args.concept_id}`);
+            result = { success: true };
+          } else if (action === "get_concepts") {
+            result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/concepts`);
+          } else {
+            throw new Error(`Unknown manage_tags action: ${action}. Valid: list, set, tag_concept, untag_concept, get_concepts`);
+          }
+          break;
+        }
+
         case "list_tags":
           result = await apiRequest("GET", "/api/v1/tags");
           break;
@@ -382,6 +620,53 @@ function createMcpServer() {
             throw new Error(`Export failed: ${exportResponse.status}`);
           }
           result = { markdown: await exportResponse.text() };
+          break;
+        }
+
+        case "manage_collection": {
+          const mcAction = args.action;
+          if (mcAction === "list") {
+            const p = new URLSearchParams();
+            if (args.parent_id) p.set("parent_id", args.parent_id);
+            result = await apiRequest("GET", `/api/v1/collections?${p}`);
+          } else if (mcAction === "create") {
+            result = await apiRequest("POST", "/api/v1/collections", {
+              name: args.name,
+              description: args.description,
+              parent_id: args.parent_id,
+            });
+          } else if (mcAction === "get") {
+            result = await apiRequest("GET", `/api/v1/collections/${args.id}`);
+          } else if (mcAction === "update") {
+            const body = {};
+            if (args.name !== undefined) body.name = args.name;
+            if (args.description !== undefined) body.description = args.description;
+            if (args.parent_id !== undefined) body.parent_id = args.parent_id;
+            result = await apiRequest("PATCH", `/api/v1/collections/${args.id}`, body);
+          } else if (mcAction === "delete") {
+            const dp = new URLSearchParams();
+            if (args.force) dp.set("force", "true");
+            const deleteUrl = `/api/v1/collections/${args.id}${dp.toString() ? `?${dp}` : ""}`;
+            await apiRequest("DELETE", deleteUrl);
+            result = { success: true };
+          } else if (mcAction === "list_notes") {
+            const np = new URLSearchParams();
+            if (args.limit !== undefined && args.limit !== null) np.set("limit", args.limit);
+            if (args.offset) np.set("offset", args.offset);
+            result = await apiRequest("GET", `/api/v1/collections/${args.id}/notes?${np}`);
+          } else if (mcAction === "move_note") {
+            await apiRequest("POST", `/api/v1/notes/${args.note_id}/move`, {
+              collection_id: args.collection_id || null,
+            });
+            result = { success: true };
+          } else if (mcAction === "export") {
+            const ep = new URLSearchParams();
+            if (args.include_frontmatter !== undefined) ep.set("include_frontmatter", args.include_frontmatter);
+            if (args.content) ep.set("content", args.content);
+            result = await apiRequest("GET", `/api/v1/collections/${args.id}/export?${ep}`);
+          } else {
+            throw new Error(`Unknown manage_collection action: ${mcAction}. Valid: list, create, get, update, delete, list_notes, move_note, export`);
+          }
           break;
         }
 
@@ -1100,6 +1385,38 @@ function createMcpServer() {
           await apiRequest("DELETE", `/api/v1/concepts/schemes/${args.id}${args.force ? "?force=true" : ""}`);
           result = { success: true };
           break;
+
+        case "manage_concepts": {
+          const mcaAction = args.action;
+          if (mcaAction === "search") {
+            const p = new URLSearchParams();
+            if (args.q) p.set("q", args.q);
+            if (args.scheme_id) p.set("scheme_id", args.scheme_id);
+            if (args.status) p.set("status", args.status);
+            if (args.top_only) p.set("top_only", "true");
+            if (args.limit !== undefined && args.limit !== null) p.set("limit", args.limit);
+            if (args.offset) p.set("offset", args.offset);
+            result = await apiRequest("GET", `/api/v1/concepts?${p}`);
+          } else if (mcaAction === "autocomplete") {
+            const p = new URLSearchParams();
+            p.set("q", args.q);
+            if (args.limit !== undefined && args.limit !== null) p.set("limit", args.limit);
+            result = await apiRequest("GET", `/api/v1/concepts/autocomplete?${p}`);
+          } else if (mcaAction === "get") {
+            result = await apiRequest("GET", `/api/v1/concepts/${args.id}`);
+          } else if (mcaAction === "get_full") {
+            result = await apiRequest("GET", `/api/v1/concepts/${args.id}/full`);
+          } else if (mcaAction === "stats") {
+            const p = new URLSearchParams();
+            if (args.scheme_id) p.set("scheme_id", args.scheme_id);
+            result = await apiRequest("GET", `/api/v1/concepts/governance?${p}`);
+          } else if (mcaAction === "top") {
+            result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.scheme_id}/top-concepts`);
+          } else {
+            throw new Error(`Unknown manage_concepts action: ${mcaAction}. Valid: search, autocomplete, get, get_full, stats, top`);
+          }
+          break;
+        }
 
         case "search_concepts": {
           const conceptParams = new URLSearchParams();
@@ -2495,6 +2812,19 @@ const DOCUMENTATION = {
 
 Matric Memory is an AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines.
 
+## Consolidated Tools (Recommended)
+
+| Tool | Purpose | Actions |
+|------|---------|---------|
+| \`search\` | Find knowledge | text, spatial, temporal, spatial_temporal, federated |
+| \`capture_knowledge\` | Add knowledge | create, bulk_create, from_template, upload |
+| \`record_provenance\` | Track origins | location, named_location, device, file, note |
+| \`manage_tags\` | Tag notes | list, set, tag_concept, untag_concept, get_concepts |
+| \`manage_collection\` | Organize | list, create, get, update, delete, list_notes, move_note, export |
+| \`manage_concepts\` | Browse taxonomy | search, autocomplete, get, get_full, stats, top |
+
+These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
+
 ## Core Capabilities
 
 1. **AI-Enhanced Notes**
@@ -2635,6 +2965,8 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 
   notes: `# Notes: Creation and Management
 
+**Consolidated tool**: Use \`capture_knowledge\` for all creation methods (single, bulk, template, upload).
+
 ## Revision Modes
 
 | Mode | When to Use | Behavior |
@@ -2699,6 +3031,8 @@ After create_note/update_note:
 - Check \`list_jobs\` before searching new content`,
 
   search: `# Search: Finding Knowledge
+
+**Consolidated tool**: Use \`search\` with action: text/spatial/temporal/spatial_temporal/federated.
 
 ## Search Modes
 
@@ -2784,6 +3118,8 @@ search_with_dedup({ query: "neural networks", mode: "hybrid" })
    - Accented text: Unaccented queries match accented content`,
 
   concepts: `# SKOS Hierarchical Tagging
+
+**Consolidated tools**: Use \`manage_concepts\` for browsing (search, autocomplete, get, get_full, stats, top) and \`manage_tags\` for tagging notes (list, set, tag_concept, untag_concept, get_concepts).
 
 W3C SKOS-compliant concept taxonomy system for organizing knowledge with semantic relationships.
 
@@ -3057,6 +3393,8 @@ diff_note_versions({ note_id: "uuid", from_version: 1, to_version: 3 })
 - Cannot restore revisions: Only original track supports restore`,
 
   collections: `# Collections (Folders)
+
+**Consolidated tool**: Use \`manage_collection\` with action: list/create/get/update/delete/list_notes/move_note/export.
 
 Hierarchical folder organization for notes.
 
@@ -3783,6 +4121,8 @@ reembed_all({ confirm: true })
 4. Reprocess notes after infrastructure changes (model updates, etc.)`,
 
   provenance: `# Provenance & Backlinks
+
+**Consolidated tool**: Use \`record_provenance\` with action: location/named_location/device/file/note.
 
 Track content origins, create spatial-temporal context for files, and discover reverse connections.
 

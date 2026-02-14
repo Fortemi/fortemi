@@ -3,7 +3,7 @@
 /**
  * MCP Tool Schema Validation Tests (Issue #344)
  *
- * Validates that all 155 MCP tools have:
+ * Validates that all MCP tools have:
  * - Required fields: name, description, inputSchema
  * - Valid JSON Schema structure in inputSchema
  * - Proper type definitions
@@ -696,6 +696,72 @@ describe("Schema Coverage Statistics", () => {
     // Basic sanity checks
     assert.ok(stats.total_tools > 0, "Should have at least one tool");
     assert.ok(stats.avg_properties_per_tool >= 0, "Average should be non-negative");
+  });
+});
+
+// ============================================================================
+// CORE TOOL SURFACE VALIDATION (Issue #365 — Tool Surface Reduction)
+// ============================================================================
+
+const CORE_TOOLS = new Set([
+  "list_notes", "get_note", "update_note", "delete_note", "restore_note",
+  "capture_knowledge", "search", "record_provenance",
+  "manage_tags", "manage_collection", "manage_concepts",
+  "explore_graph", "get_note_links", "export_note",
+  "get_documentation", "get_system_info", "health_check",
+  "select_memory", "get_active_memory",
+  "describe_image", "transcribe_audio",
+  "get_knowledge_health",
+]);
+
+describe("Core Tool Surface (Issue #365)", () => {
+  const toolNames = new Set(tools.map(t => t.name));
+
+  test("CORE-001: All CORE_TOOLS exist in tools.js", () => {
+    const missing = [...CORE_TOOLS].filter(n => !toolNames.has(n));
+    assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
+  });
+
+  test("CORE-002: Core surface has exactly 22 tools", () => {
+    assert.equal(CORE_TOOLS.size, 22, `Expected 22 core tools, got ${CORE_TOOLS.size}`);
+  });
+
+  test("CORE-003: Core filtering produces correct count", () => {
+    const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
+    assert.equal(coreTools.length, 22, `Expected 22 filtered tools, got ${coreTools.length}`);
+  });
+
+  test("CORE-004: All 6 consolidated tools have action enum", () => {
+    const consolidated = [
+      "capture_knowledge", "search", "record_provenance",
+      "manage_tags", "manage_collection", "manage_concepts",
+    ];
+    for (const name of consolidated) {
+      const tool = tools.find(t => t.name === name);
+      assert.ok(tool, `Consolidated tool ${name} should exist`);
+      assert.ok(tool.inputSchema.properties?.action?.enum,
+        `${name} should have action enum in schema`);
+    }
+  });
+
+  test("CORE-005: Core tools have short descriptions (≤80 words)", () => {
+    const verbose = [];
+    for (const name of CORE_TOOLS) {
+      const tool = tools.find(t => t.name === name);
+      if (!tool) continue;
+      const words = tool.description.split(/\s+/).length;
+      if (words > 80) verbose.push({ name, words });
+    }
+    assert.equal(verbose.length, 0,
+      `Core tools with >80 word descriptions: ${verbose.map(v => `${v.name}(${v.words}w)`).join(", ")}`);
+  });
+
+  test("CORE-006: Token reduction is significant (≥60%)", () => {
+    const fullJson = JSON.stringify(tools);
+    const coreJson = JSON.stringify(tools.filter(t => CORE_TOOLS.has(t.name)));
+    const reduction = 1 - coreJson.length / fullJson.length;
+    assert.ok(reduction >= 0.6, `Expected ≥60% reduction, got ${(reduction * 100).toFixed(1)}%`);
+    console.log(`  Token reduction: ${(reduction * 100).toFixed(1)}% (${fullJson.length} → ${coreJson.length} chars)`);
   });
 });
 
