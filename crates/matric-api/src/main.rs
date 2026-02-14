@@ -4482,7 +4482,12 @@ async fn bulk_reprocess_notes(
                 if let Ok(Some(job_id)) = state
                     .db
                     .jobs
-                    .queue_deduplicated(Some(*note_id), *job_type, job_type.default_priority(), None)
+                    .queue_deduplicated(
+                        Some(*note_id),
+                        *job_type,
+                        job_type.default_priority(),
+                        None,
+                    )
                     .await
                 {
                     state.event_bus.emit(ServerEvent::JobQueued {
