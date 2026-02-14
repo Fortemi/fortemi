@@ -11,9 +11,10 @@
 #   FORTEMI_REGISTRY=ghcr.io FORTEMI_TAG=bundle-latest \
 #     docker compose -f docker-compose.bundle.yml up -d
 #
-# With GPU audio transcription (requires NVIDIA GPU + Container Toolkit):
-#   docker compose -f docker-compose.bundle.yml --profile whisper up -d
-#   # Set in .env: WHISPER_BASE_URL=http://whisper:8000
+# Audio transcription (Whisper) is enabled by default:
+#   - GPU mode (default): Uses NVIDIA GPU for fast transcription
+#   - No GPU? App still starts, transcription disabled until you enable CPU mode:
+#     docker compose -f docker-compose.bundle.yml --profile whisper-cpu up -d
 #
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
@@ -38,12 +39,9 @@ services:
       retries: 3
 
   # Whisper speech-to-text server (GPU-accelerated, OpenAI-compatible API)
-  # Activate with: docker compose --profile whisper up -d
-  # Then set WHISPER_BASE_URL=http://whisper:8000 in .env
+  # Enabled by default with GPU. For CPU-only: use --profile whisper-cpu instead
   whisper:
     image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
-    profiles:
-      - whisper
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
     environment:
@@ -66,6 +64,30 @@ services:
       retries: 3
       start_period: 60s
 
+  # Whisper CPU-only variant (slower but works without NVIDIA GPU)
+  # Activate with: docker compose --profile whisper-cpu up -d
+  whisper-cpu:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    profiles:
+      - whisper-cpu
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      - WHISPER__INFERENCE_DEVICE=cpu
+      - WHISPER__COMPUTE_TYPE=int8
+      - PRELOAD_MODELS=["${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}"]
+    networks:
+      default:
+        aliases:
+          - whisper  # Allow matric to reach this as http://whisper:8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
   matric:
     image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_TAG:-bundle-main}
     build:
@@ -81,6 +103,9 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      whisper:
+        condition: service_healthy
+        required: false  # GPU whisper is optional - matric starts without it
     environment:
       # ── PostgreSQL ──────────────────────────────────────────────────────
       - POSTGRES_USER=matric
@@ -157,9 +182,8 @@ services:
 
       # ── Optional Extraction Services ───────────────────────────────────
       - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}
-      # Default points to bundled whisper service; start with: --profile whisper
-      # For remote: set WHISPER_BASE_URL=https://your-whisper-server.com in .env
-      - WHISPER_BASE_URL=${WHISPER_BASE_URL:-}
+      # Whisper is bundled and enabled by default (GPU). Override for remote server.
+      - WHISPER_BASE_URL=${WHISPER_BASE_URL:-http://whisper:8000}
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
