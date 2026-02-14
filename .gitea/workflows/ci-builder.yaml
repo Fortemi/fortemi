@@ -441,6 +441,8 @@ jobs:
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=dev-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
             -t ${IMAGE}:bundle .
 
           docker tag ${IMAGE}:bundle ${IMAGE}:bundle-${SHORT_SHA}
@@ -508,6 +510,8 @@ jobs:
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
             -t ${IMAGE}:bundle-${VERSION} .
 
           docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
@@ -628,6 +632,8 @@ jobs:
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
             -t ${IMAGE}:bundle-${VERSION} .
 
           docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
