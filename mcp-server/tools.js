@@ -2039,7 +2039,7 @@ export default [
           "items": {
             "type": "string"
           },
-          "description": "Override default tags"
+          "description": "Additional tags to merge with template default_tags"
         },
         "collection_id": {
           "type": "string",

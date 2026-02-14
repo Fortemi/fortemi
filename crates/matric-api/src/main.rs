@@ -5948,7 +5948,7 @@ struct InstantiateTemplateBody {
     /// Variables to substitute in the template (placeholder -> value)
     #[serde(default)]
     variables: std::collections::HashMap<String, String>,
-    /// Override default tags
+    /// Additional tags to merge with template default_tags
     tags: Option<Vec<String>>,
     /// Override default collection
     collection_id: Option<Uuid>,
@@ -5984,12 +5984,21 @@ async fn instantiate_template(
         content = content.replace(&format!("{{{{{}}}}}", key), value);
     }
 
-    // Use provided tags or template defaults
-    let tags = body.tags.or(if template.default_tags.is_empty() {
-        None
-    } else {
-        Some(template.default_tags.clone())
-    });
+    // Merge provided tags with template defaults (deduplicated)
+    let tags = match (body.tags, template.default_tags.is_empty()) {
+        (Some(provided), false) => {
+            let mut merged = template.default_tags.clone();
+            for tag in provided {
+                if !merged.contains(&tag) {
+                    merged.push(tag);
+                }
+            }
+            Some(merged)
+        }
+        (Some(provided), true) => Some(provided),
+        (None, false) => Some(template.default_tags.clone()),
+        (None, true) => None,
+    };
 
     // Use provided collection_id or template default
     let collection_id = body.collection_id.or(template.collection_id);
