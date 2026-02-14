@@ -110,9 +110,9 @@ describe("Consolidated Tools", () => {
   test("SRCH-003: search spatial action accepts coordinates", async () => {
     const result = await client.callTool("search", {
       action: "spatial",
-      latitude: 40.7128,
-      longitude: -74.006,
-      radius_km: 10,
+      lat: 40.7128,
+      lon: -74.006,
+      radius: 10000,
       limit: 5,
     });
     // May return empty results but should not error
@@ -200,12 +200,17 @@ describe("Consolidated Tools", () => {
     assert.equal(fetched.name, name, "Should return correct name");
 
     // Update
-    const updated = await client.callTool("manage_collection", {
+    await client.callTool("manage_collection", {
       action: "update",
       id: created.id,
       name: name + "-updated",
     });
-    assert.ok(updated, "Should return updated collection");
+    // Verify update took effect
+    const afterUpdate = await client.callTool("manage_collection", {
+      action: "get",
+      id: created.id,
+    });
+    assert.equal(afterUpdate.name, name + "-updated", "Name should be updated");
 
     // Delete
     const deleted = await client.callTool("manage_collection", {
@@ -276,7 +281,8 @@ describe("Consolidated Tools", () => {
       action: "location",
       latitude: 40.7128,
       longitude: -74.006,
-      source: "test",
+      source: "user_manual",
+      confidence: "medium",
     });
     assert.ok(result.id || result.location_id, "Should return location ID");
   });
@@ -285,7 +291,7 @@ describe("Consolidated Tools", () => {
     const result = await client.callTool("record_provenance", {
       action: "named_location",
       name: `test-place-${Date.now()}`,
-      location_type: "office",
+      location_type: "poi",
       latitude: 51.5074,
       longitude: -0.1278,
     });
