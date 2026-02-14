@@ -2550,8 +2550,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         async {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
-                sqlx::query_scalar::<_, i32>("SELECT 1")
-                    .fetch_one(&state.db.pool),
+                sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.db.pool),
             )
             .await
             {
