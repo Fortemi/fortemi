@@ -32,6 +32,13 @@ const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PO
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
 const MAX_UPLOAD_SIZE = parseInt(process.env.MATRIC_MAX_UPLOAD_SIZE_BYTES || String(DEFAULTS.MAX_UPLOAD_SIZE_BYTES), 10);
 
+/** Coerce a value to number if defined, otherwise return undefined (stripped by JSON.stringify). */
+function toNum(v) {
+  if (v === undefined || v === null) return undefined;
+  const n = Number(v);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 // AsyncLocalStorage for per-request token context
 const tokenStorage = new AsyncLocalStorage();
 
@@ -265,13 +272,13 @@ function createMcpServer() {
 
         case "create_provenance_location":
           result = await apiRequest("POST", "/api/v1/provenance/locations", {
-            latitude: args.latitude,
-            longitude: args.longitude,
-            altitude_m: args.altitude_m,
-            horizontal_accuracy_m: args.horizontal_accuracy_m,
-            vertical_accuracy_m: args.vertical_accuracy_m,
-            heading_degrees: args.heading_degrees,
-            speed_mps: args.speed_mps,
+            latitude: toNum(args.latitude),
+            longitude: toNum(args.longitude),
+            altitude_m: toNum(args.altitude_m),
+            horizontal_accuracy_m: toNum(args.horizontal_accuracy_m),
+            vertical_accuracy_m: toNum(args.vertical_accuracy_m),
+            heading_degrees: toNum(args.heading_degrees),
+            speed_mps: toNum(args.speed_mps),
             named_location_id: args.named_location_id,
             source: args.source,
             confidence: args.confidence,
@@ -282,9 +289,9 @@ function createMcpServer() {
           result = await apiRequest("POST", "/api/v1/provenance/named-locations", {
             name: args.name,
             location_type: args.location_type,
-            latitude: args.latitude,
-            longitude: args.longitude,
-            radius_m: args.radius_m,
+            latitude: toNum(args.latitude),
+            longitude: toNum(args.longitude),
+            radius_m: toNum(args.radius_m),
             address_line: args.address_line,
             locality: args.locality,
             admin_area: args.admin_area,
@@ -292,7 +299,7 @@ function createMcpServer() {
             country_code: args.country_code,
             postal_code: args.postal_code,
             timezone: args.timezone,
-            altitude_m: args.altitude_m,
+            altitude_m: toNum(args.altitude_m),
             is_private: args.is_private,
             metadata: args.metadata,
           });
@@ -320,7 +327,7 @@ function createMcpServer() {
             capture_time_start: args.capture_time_start,
             capture_time_end: args.capture_time_end,
             capture_timezone: args.capture_timezone,
-            capture_duration_seconds: args.capture_duration_seconds,
+            capture_duration_seconds: toNum(args.capture_duration_seconds),
             time_source: args.time_source,
             time_confidence: args.time_confidence,
             location_id: args.location_id,
@@ -500,7 +507,7 @@ function createMcpServer() {
           result = await apiRequest("POST", "/api/v1/jobs", {
             note_id: args.note_id,
             job_type: args.job_type,
-            priority: args.priority,
+            priority: toNum(args.priority),
             payload: args.payload || null,
             deduplicate: args.deduplicate || false,
           });
@@ -2028,7 +2035,7 @@ function createMcpServer() {
 
         case "add_skos_collection_member":
           result = await apiRequest("POST", `/api/v1/concepts/collections/${args.id}/members/${args.concept_id}`, {
-            position: args.position,
+            position: toNum(args.position),
           });
           break;
 
@@ -2165,11 +2172,11 @@ function createMcpServer() {
           result = await apiRequest("POST", "/api/v1/embedding-configs", {
             name: args.name,
             model: args.model,
-            dimension: args.dimension,
+            dimension: toNum(args.dimension),
             provider: args.provider,
             is_default: args.is_default || false,
-            chunk_size: args.chunk_size,
-            chunk_overlap: args.chunk_overlap,
+            chunk_size: toNum(args.chunk_size),
+            chunk_overlap: toNum(args.chunk_overlap),
           });
           break;
 
@@ -2177,11 +2184,11 @@ function createMcpServer() {
           const body = {};
           if (args.name !== undefined) body.name = args.name;
           if (args.model !== undefined) body.model = args.model;
-          if (args.dimension !== undefined) body.dimension = args.dimension;
+          if (args.dimension !== undefined) body.dimension = toNum(args.dimension);
           if (args.provider !== undefined) body.provider = args.provider;
           if (args.is_default !== undefined) body.is_default = args.is_default;
-          if (args.chunk_size !== undefined) body.chunk_size = args.chunk_size;
-          if (args.chunk_overlap !== undefined) body.chunk_overlap = args.chunk_overlap;
+          if (args.chunk_size !== undefined) body.chunk_size = toNum(args.chunk_size);
+          if (args.chunk_overlap !== undefined) body.chunk_overlap = toNum(args.chunk_overlap);
           result = await apiRequest("PATCH", `/api/v1/embedding-configs/${args.id}`, body);
           break;
         }
