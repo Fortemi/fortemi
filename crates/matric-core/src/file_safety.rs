@@ -113,14 +113,22 @@ pub fn detect_content_type(filename: &str, data: &[u8], claimed: &str) -> String
         return kind.mime_type().to_string();
     }
 
-    // 2. Fallback: extension-based detection for text formats (no magic bytes)
+    // 2. Custom detection for formats the infer crate doesn't fully support.
+    //    The infer crate v0.16 only detects MPEG-1 Layer 3 (0xFF 0xFB) but not
+    //    MPEG-2/2.5 variants (0xFF 0xF3, 0xFF 0xE3, etc.). Add custom MP3 sync
+    //    frame detection to handle all valid MP3 files. (fixes #354)
+    if is_mp3_sync_frame(data) {
+        return "audio/mpeg".to_string();
+    }
+
+    // 3. Fallback: extension-based detection for text formats (no magic bytes)
     if let Some(ext) = filename.rsplit('.').next() {
         if let Some(mime) = mime_from_extension(ext) {
             return mime.to_string();
         }
     }
 
-    // 3. Mismatch guard: if the claimed type is a binary format that *should*
+    // 4. Mismatch guard: if the claimed type is a binary format that *should*
     //    have recognizable magic bytes (image/*, audio/*, video/*, application/pdf,
     //    application/zip, etc.) but infer::get() returned None, the data doesn't
     //    match the claim. Downgrade to application/octet-stream to prevent wasted
@@ -131,8 +139,30 @@ pub fn detect_content_type(filename: &str, data: &[u8], claimed: &str) -> String
         return "application/octet-stream".to_string();
     }
 
-    // 4. Final fallback: trust the claimed type (text-like formats)
+    // 5. Final fallback: trust the claimed type (text-like formats)
     claimed.to_string()
+}
+
+/// Returns true if the data starts with a valid MP3 frame sync pattern.
+///
+/// The infer crate v0.16 only detects MPEG-1 Layer 3 (0xFF 0xFB) but not all
+/// valid MPEG audio variants. This function detects the MPEG audio frame sync
+/// pattern which is 11 consecutive set bits (0xFF followed by 0xE0-0xFF).
+///
+/// Valid sync byte patterns by MPEG version:
+/// - MPEG-1:   0xFF 0xFA, 0xFF 0xFB (Layer 3)
+/// - MPEG-2:   0xFF 0xF2, 0xFF 0xF3 (Layer 3)
+/// - MPEG-2.5: 0xFF 0xE2, 0xFF 0xE3 (Layer 3)
+///
+/// The second byte encodes version, layer, and protection bits, but all valid
+/// combinations have the upper 3 bits set (sync continuation).
+fn is_mp3_sync_frame(data: &[u8]) -> bool {
+    if data.len() < 2 {
+        return false;
+    }
+    // First byte must be 0xFF (frame sync)
+    // Second byte must have upper 3 bits set (0xE0 mask) for valid MPEG audio
+    data[0] == 0xFF && (data[1] & 0xE0) == 0xE0
 }
 
 /// Returns true if the claimed MIME type is a binary format that should have
@@ -363,6 +393,57 @@ mod tests {
         let garbage = b"random noise data";
         let result = detect_content_type("song.mp3", garbage, "audio/mpeg");
         assert_eq!(result, "application/octet-stream");
+    }
+
+    #[test]
+    fn test_detect_mp3_mpeg1_layer3() {
+        // MPEG-1 Layer 3 (standard MP3) - detected by infer crate
+        let mpeg1 = [0xFFu8, 0xFB, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00];
+        let result = detect_content_type("song.mp3", &mpeg1, "audio/mpeg");
+        assert_eq!(result, "audio/mpeg");
+    }
+
+    #[test]
+    fn test_detect_mp3_mpeg2_layer3() {
+        // MPEG-2 Layer 3 (0xFF 0xF3) - NOT detected by infer crate v0.16
+        // This is the format used by the UAT test file english-speech-5s.mp3
+        // Fixes issue #354
+        let mpeg2 = [0xFFu8, 0xF3, 0x84, 0xC4, 0x00, 0x00, 0x00, 0x00];
+        let result = detect_content_type("song.mp3", &mpeg2, "audio/mpeg");
+        assert_eq!(result, "audio/mpeg");
+    }
+
+    #[test]
+    fn test_detect_mp3_mpeg25_layer3() {
+        // MPEG-2.5 Layer 3 (0xFF 0xE3) - extension for lower bitrates
+        let mpeg25 = [0xFFu8, 0xE3, 0x84, 0xC4, 0x00, 0x00, 0x00, 0x00];
+        let result = detect_content_type("song.mp3", &mpeg25, "audio/mpeg");
+        assert_eq!(result, "audio/mpeg");
+    }
+
+    #[test]
+    fn test_detect_mp3_with_id3_tag() {
+        // MP3 with ID3v2 header (most common format) - detected by infer crate
+        let id3 = [0x49u8, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00];
+        let result = detect_content_type("song.mp3", &id3, "audio/mpeg");
+        assert_eq!(result, "audio/mpeg");
+    }
+
+    #[test]
+    fn test_is_mp3_sync_frame() {
+        // Valid sync patterns
+        assert!(is_mp3_sync_frame(&[0xFF, 0xFB])); // MPEG-1 Layer 3
+        assert!(is_mp3_sync_frame(&[0xFF, 0xF3])); // MPEG-2 Layer 3
+        assert!(is_mp3_sync_frame(&[0xFF, 0xE3])); // MPEG-2.5 Layer 3
+        assert!(is_mp3_sync_frame(&[0xFF, 0xFA])); // MPEG-1 Layer 3 (CRC)
+        assert!(is_mp3_sync_frame(&[0xFF, 0xF2])); // MPEG-2 Layer 3 (CRC)
+        assert!(is_mp3_sync_frame(&[0xFF, 0xE2])); // MPEG-2.5 Layer 3 (CRC)
+
+        // Invalid patterns
+        assert!(!is_mp3_sync_frame(&[0xFF, 0xD0])); // Not enough sync bits
+        assert!(!is_mp3_sync_frame(&[0xFE, 0xFB])); // Wrong first byte
+        assert!(!is_mp3_sync_frame(&[0xFF]));       // Too short
+        assert!(!is_mp3_sync_frame(&[]));           // Empty
     }
 
     #[test]
