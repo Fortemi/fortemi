@@ -107,6 +107,7 @@ impl PgMemorySearchRepository {
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -302,6 +303,7 @@ impl PgMemorySearchRepository {
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -614,6 +616,7 @@ impl PgMemorySearchRepository {
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
@@ -792,6 +795,7 @@ impl PgMemorySearchRepository {
                   AND n.metadata->>'longitude' IS NOT NULL
                   AND n.deleted_at IS NULL
                   AND NOT EXISTS (SELECT 1 FROM provenance WHERE note_id = n.id)
+                  AND NOT EXISTS (SELECT 1 FROM provenance p2 JOIN attachment att ON p2.attachment_id = att.id WHERE att.note_id = n.id)
                   AND ST_DWithin(
                       ST_SetSRID(ST_MakePoint(
                           (n.metadata->>'longitude')::float8,
