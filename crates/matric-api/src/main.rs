@@ -363,10 +363,10 @@ struct AppState {
 #[openapi(
     info(
         title = "Matric Memory API",
-        version = "2026.2.0",
+        version = "2026.2.8",
         description = "AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines"
     ),
-    servers((url = "https://memory.integrolabs.net")),
+    servers((url = "http://localhost:3000")),
     paths(
         create_webhook, list_webhooks, get_webhook, update_webhook,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
@@ -584,25 +584,23 @@ async fn openapi_yaml() -> impl IntoResponse {
 ///
 /// # Default Origins
 /// If not set or empty:
-/// - https://memory.integrolabs.net
 /// - http://localhost:3000
 ///
 /// # Examples
 /// ```bash
 /// # Production
-/// ALLOWED_ORIGINS=https://memory.integrolabs.net
+/// ALLOWED_ORIGINS=https://your-domain.com
 ///
 /// # Development
-/// ALLOWED_ORIGINS=https://memory.integrolabs.net,http://localhost:3000,https://staging.example.com
+/// ALLOWED_ORIGINS=https://your-domain.com,http://localhost:3000,https://staging.example.com
 /// ```
 fn parse_allowed_origins() -> Vec<HeaderValue> {
     let origins_str = std::env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "https://memory.integrolabs.net,http://localhost:3000".to_string());
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     if origins_str.trim().is_empty() {
         // Default origins
         return vec![
-            HeaderValue::from_static("https://memory.integrolabs.net"),
             HeaderValue::from_static("http://localhost:3000"),
         ];
     }
@@ -15779,7 +15777,7 @@ mod tests {
             "Title must match"
         );
         assert!(
-            yaml.contains("version: '2026.2.0'") || yaml.contains("version: 2026.2.0"),
+            yaml.contains("version: '2026.2.8'") || yaml.contains("version: 2026.2.8"),
             "Version must match"
         );
 

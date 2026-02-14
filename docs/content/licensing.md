@@ -51,11 +51,11 @@ The line is simple: **one person on their own machine = free. Multiple users on 
 
 ### Can I use this at my 6-person startup?
 
-**Yes — reach out to us.** We want to support small teams and early-stage companies. [Open an issue](https://github.com/Fortemi/fortemi/issues) and we'll work out something affordable. We're not trying to price anyone out.
+**Yes — reach out to us.** We want to support small teams and early-stage companies. [Open an issue](https://github.com/fortemi/fortemi/issues) and we'll work out something affordable. We're not trying to price anyone out.
 
 ### Can I deploy it for my 50-person company?
 
-**That needs a commercial license.** But the process is simple — [contact us](https://github.com/Fortemi/fortemi/issues) and we'll get back to you within 2–3 business days.
+**That needs a commercial license.** But the process is simple — [contact us](https://github.com/fortemi/fortemi/issues) and we'll get back to you within 2–3 business days.
 
 ### Can I fork and modify the code?
 
@@ -93,10 +93,10 @@ We're a small project that wants to grow sustainably. Our licensing reflects tha
 | Tier | Who It's For | Cost |
 |------|-------------|------|
 | **Personal** | Solo users, students, researchers | Free |
-| **Small Team** | Up to 10 users | [Let's talk](https://github.com/Fortemi/fortemi/issues) |
-| **Team** | Up to 50 users, single deployment | [Contact us](https://github.com/Fortemi/fortemi/issues) |
-| **Enterprise** | Unlimited users, multiple deployments | [Contact us](https://github.com/Fortemi/fortemi/issues) |
-| **OEM/Embedded** | Bundle in your product | [Contact us](https://github.com/Fortemi/fortemi/issues) |
+| **Small Team** | Up to 10 users | [Let's talk](https://github.com/fortemi/fortemi/issues) |
+| **Team** | Up to 50 users, single deployment | [Contact us](https://github.com/fortemi/fortemi/issues) |
+| **Enterprise** | Unlimited users, multiple deployments | [Contact us](https://github.com/fortemi/fortemi/issues) |
+| **OEM/Embedded** | Bundle in your product | [Contact us](https://github.com/fortemi/fortemi/issues) |
 
 All commercial licenses include:
 
@@ -107,7 +107,7 @@ All commercial licenses include:
 
 ### How to Get Started
 
-[Open an issue on GitHub](https://github.com/Fortemi/fortemi/issues) or email us. Tell us:
+[Open an issue on GitHub](https://github.com/fortemi/fortemi/issues) or email us. Tell us:
 
 - What you're building and roughly how many people will use it
 - Whether you need self-hosted, cloud, or both
@@ -160,7 +160,7 @@ Key parameters:
 - **Licensed for production** — fair pricing for organizations
 - **Fully open source in 2030** — guaranteed by the license itself
 
-Questions? [Open an issue on GitHub](https://github.com/Fortemi/fortemi/issues).
+Questions? [Open an issue on GitHub](https://github.com/fortemi/fortemi/issues).
 
 ## See Also
 

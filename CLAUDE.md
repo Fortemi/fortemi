@@ -1,6 +1,6 @@
 # Matric Memory
 
-> **Repository**: `fortemi/fortemi` on Gitea (git.integrolabs.net)
+> **Repository**: `fortemi/fortemi` on GitHub
 > **Gitea MCP**: `owner=fortemi`, `repo=fortemi`
 > **NOT** the `roctinam/matric` monorepo - this is the standalone matric-memory project
 
@@ -198,6 +198,8 @@ Configure nginx to proxy to the container:
 ## MCP Server
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
+
+**Tool modes:** Default is "core" (23 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`). Set `MCP_TOOL_MODE=full` for all 187 granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json

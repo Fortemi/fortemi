@@ -343,6 +343,17 @@ jobs:
           VERBOSE=1 \
             bash scripts/container-api-tests.sh
 
+      - name: Export OpenAPI spec
+        run: |
+          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
+          curl -sf http://localhost:${TEST_PORT}/openapi.yaml -o openapi.yaml
+
+      - name: Upload OpenAPI spec artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: openapi-spec
+          path: openapi.yaml
+
       - name: Teardown test environment
         if: always()
         run: |

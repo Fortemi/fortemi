@@ -114,7 +114,7 @@ When adding new API endpoints, ensure they are routed BEFORE the SPA catch-all:
 
 ```bash
 # Copy config to nginx sites
-sudo cp deploy/nginx/memory.integrolabs.net.conf /etc/nginx/sites-available/memory
+sudo cp deploy/nginx/your-domain.com.conf /etc/nginx/sites-available/memory
 
 # Enable site
 sudo ln -sf /etc/nginx/sites-available/memory /etc/nginx/sites-enabled/memory
@@ -132,23 +132,23 @@ After deployment, verify all endpoints route correctly:
 
 ```bash
 # OAuth discovery (should return JSON, not HTML)
-curl -s https://memory.integrolabs.net/.well-known/oauth-authorization-server | head -1
-# Expected: {"issuer":"https://memory.integrolabs.net",...}
+curl -s https://your-domain.com/.well-known/oauth-authorization-server | head -1
+# Expected: {"issuer":"https://your-domain.com",...}
 
 # OAuth token (should return 401 JSON, not 405 HTML)
-curl -s -o /dev/null -w "%{http_code}" -X POST https://memory.integrolabs.net/oauth/token
+curl -s -o /dev/null -w "%{http_code}" -X POST https://your-domain.com/oauth/token
 # Expected: 401 (not 405)
 
 # API health
-curl -s https://memory.integrolabs.net/api/v1/health
+curl -s https://your-domain.com/api/v1/health
 # Expected: {"status":"healthy",...}
 
 # MCP (should return auth error JSON)
-curl -s https://memory.integrolabs.net/mcp -X POST -H "Content-Type: application/json" -d '{}'
+curl -s https://your-domain.com/mcp -X POST -H "Content-Type: application/json" -d '{}'
 # Expected: {"error":"unauthorized",...}
 
 # SPA (should return HTML)
-curl -s https://memory.integrolabs.net/ | head -1
+curl -s https://your-domain.com/ | head -1
 # Expected: <!DOCTYPE html>...
 ```
 
@@ -190,5 +190,5 @@ curl http://127.0.0.1:4180/
 Ensure wildcard cert covers the domain:
 
 ```bash
-openssl s_client -connect memory.integrolabs.net:443 -servername memory.integrolabs.net </dev/null 2>/dev/null | openssl x509 -noout -subject -dates
+openssl s_client -connect your-domain.com:443 -servername your-domain.com </dev/null 2>/dev/null | openssl x509 -noout -subject -dates
 ```

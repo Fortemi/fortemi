@@ -80,271 +80,100 @@ The server exposes:
 | `/.well-known/oauth-authorization-server` | GET | OAuth2 authorization server metadata |
 | `/.well-known/oauth-protected-resource` | GET | OAuth2 protected resource metadata (RFC 9728) |
 
-## Available Tools (167 Total)
+## Tool Surface Modes
 
-### Core Note Operations
+The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-| Tool | Description |
-|------|-------------|
-| `list_notes` | List all notes with summaries |
-| `get_note` | Get full note details |
-| `create_note` | Create a new note with full AI pipeline |
-| `bulk_create_notes` | Create multiple notes in batch |
-| `update_note` | Update note content/status |
-| `delete_note` | Soft delete a note (recoverable) |
-| `restore_note` | Restore a soft-deleted note |
-| `purge_note` | Permanently delete a note and all related data |
-| `purge_notes` | Batch permanently delete multiple notes |
-| `purge_all_notes` | Delete ALL notes (requires confirm: true) |
-| `set_note_tags` | Set tags for a note |
-| `get_note_links` | Get note relationships |
-| `export_note` | Export note as markdown |
+### Core Mode (Default) — 23 Tools
 
-### Search
+Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~78% compared to full mode.
 
-| Tool | Description |
-|------|-------------|
-| `search_notes` | Full-text and semantic search (supports embedding sets) |
-| `list_tags` | List all tags |
+**Core tools:**
 
-### Memory Search
+| Category | Tools | Count |
+|----------|-------|-------|
+| **Notes CRUD** | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
+| **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts` | 6 |
+| **Graph** | `explore_graph`, `get_note_links` | 2 |
+| **Export** | `export_note` | 1 |
+| **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
+| **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
+| **Media** | `describe_image`, `transcribe_audio` | 2 |
+| **Observability** | `get_knowledge_health` | 1 |
+| **Bulk ops** | `bulk_reprocess_notes` | 1 |
 
-| Tool | Description |
-|------|-------------|
-| `search_memories_by_location` | Find memories near geographic coordinates |
-| `search_memories_by_time` | Find memories within a time range |
-| `search_memories_combined` | Find memories by location AND time |
-| `get_memory_provenance` | Get file provenance chain for a note |
-| `create_provenance_location` | Create a GPS location record |
-| `create_named_location` | Create a semantic place name |
-| `create_provenance_device` | Register a capture device |
-| `create_file_provenance` | Link attachment to location+device+time |
+**Total:** 23 tools
 
-### Collections (Folders)
+### Full Mode — 187 Tools
 
-| Tool | Description |
-|------|-------------|
-| `list_collections` | List all collections |
-| `create_collection` | Create a new collection |
-| `get_collection` | Get collection details |
-| `update_collection` | Update collection metadata |
-| `delete_collection` | Delete a collection |
-| `get_collection_notes` | List notes in a collection |
-| `move_note_to_collection` | Move note to collection |
-| `explore_graph` | Explore knowledge graph from a note |
+All granular API operations exposed as individual tools. For backward compatibility and specialized use cases requiring fine-grained control.
 
-### Templates
+Enable with:
+```bash
+MCP_TOOL_MODE=full node index.js
+```
 
-| Tool | Description |
-|------|-------------|
-| `list_templates` | List all note templates |
-| `create_template` | Create a new template |
-| `get_template` | Get template details |
-| `update_template` | Update template metadata |
-| `delete_template` | Delete a template |
-| `instantiate_template` | Create note from template |
+### Consolidated Tools Pattern
 
-### Background Jobs
+Core mode uses discriminated-union tools with an `action` parameter:
 
-| Tool | Description |
-|------|-------------|
-| `create_job` | Queue specific AI processing jobs |
-| `list_jobs` | List and filter background jobs |
-| `get_job` | Get details of a specific job |
-| `get_queue_stats` | Get job queue statistics |
-| `get_pending_jobs_count` | Count pending jobs |
-| `reprocess_note` | Reprocess note through AI pipeline |
+**`capture_knowledge`** — Create notes
+- `action: "create"` — Single note creation
+- `action: "bulk_create"` — Batch note creation
+- `action: "from_template"` — Instantiate template
+- `action: "upload"` — Upload file attachment
 
-### Embedding Sets
+**`search`** — Search knowledge base
+- `action: "text"` — Full-text and semantic search
+- `action: "spatial"` — Location-based search
+- `action: "temporal"` — Time-range search
+- `action: "spatial_temporal"` — Combined location + time
+- `action: "federated"` — Cross-archive search
 
-| Tool | Description |
-|------|-------------|
-| `list_embedding_sets` | List all embedding sets with stats |
-| `get_embedding_set` | Get embedding set details by slug |
-| `create_embedding_set` | Create a new embedding set |
-| `update_embedding_set` | Update embedding set configuration |
-| `delete_embedding_set` | Delete an embedding set |
-| `list_set_members` | List notes in an embedding set |
-| `add_set_members` | Add notes to an embedding set |
-| `remove_set_member` | Remove a note from an embedding set |
-| `refresh_embedding_set` | Refresh set membership based on criteria |
-| `reembed_all` | Regenerate embeddings for all notes or a specific set |
+**`record_provenance`** — Track note origins
+- `action: "location"` — GPS coordinates
+- `action: "named_location"` — Semantic place name
+- `action: "device"` — Capture device
+- `action: "file"` — File attachment metadata
+- `action: "note"` — Note-level provenance
 
-### Embedding Configs
+**`manage_tags`** — Tag operations
+- `action: "list"` — List all tags
+- `action: "set"` — Set note tags
+- `action: "tag_concept"` — Tag with SKOS concept
+- `action: "untag_concept"` — Remove SKOS tag
+- `action: "get_concepts"` — Get note's SKOS concepts
 
-| Tool | Description |
-|------|-------------|
-| `list_embedding_configs` | List all embedding configurations |
-| `get_default_embedding_config` | Get the default embedding configuration |
-| `get_embedding_config` | Get specific embedding config |
-| `create_embedding_config` | Create new embedding configuration |
-| `update_embedding_config` | Update embedding configuration |
-| `delete_embedding_config` | Delete embedding configuration |
+**`manage_collection`** — Collection/folder operations
+- `action: "list"` — List collections
+- `action: "create"` — Create collection
+- `action: "get"` — Get collection details
+- `action: "update"` — Update collection
+- `action: "delete"` — Delete collection
+- `action: "list_notes"` — List notes in collection
+- `action: "move_note"` — Move note to collection
+- `action: "export"` — Export collection
 
-### Archives
+**`manage_concepts`** — SKOS concept operations
+- `action: "search"` — Search concepts
+- `action: "autocomplete"` — Type-ahead search
+- `action: "get"` — Get basic concept
+- `action: "get_full"` — Get concept with relations
+- `action: "stats"` — Governance statistics
+- `action: "top"` — Get top-level concepts
 
-| Tool | Description |
-|------|-------------|
-| `list_archives` | List all archives |
-| `create_archive` | Create new archive |
-| `get_archive` | Get archive details |
-| `update_archive` | Update archive metadata |
-| `delete_archive` | Delete archive |
-| `set_default_archive` | Set the default archive |
-| `get_archive_stats` | Get archive statistics |
+## Advanced Features
 
-### Document Types
+Features not exposed in the core tool surface (versioning, PKE encryption, SKOS admin, OAuth, embedding sets, job queue, etc.) are accessible via the full API. Use the `get_documentation` tool for guidance:
 
-| Tool | Description |
-|------|-------------|
-| `list_document_types` | List all types with optional category filter |
-| `get_document_type` | Get type details by name |
-| `create_document_type` | Create custom document type |
-| `update_document_type` | Update type configuration |
-| `delete_document_type` | Delete non-system type |
-| `detect_document_type` | Auto-detect from filename/content |
+```javascript
+get_documentation({ topic: "versioning" })
+get_documentation({ topic: "pke" })
+get_documentation({ topic: "embedding-sets" })
+get_documentation({ topic: "skos" })
+```
 
-### File Attachments
-
-| Tool | Description |
-|------|-------------|
-| `upload_attachment` | Upload file attachment to a note (base64 content) |
-| `list_attachments` | List all attachments for a note |
-| `get_attachment` | Get attachment metadata |
-| `download_attachment` | Download attachment binary content (base64) |
-| `delete_attachment` | Permanently remove an attachment |
-
-### SKOS Concepts (Hierarchical Tags)
-
-| Tool | Description |
-|------|-------------|
-| `list_concept_schemes` | List all concept schemes (vocabularies) |
-| `create_concept_scheme` | Create a new concept scheme |
-| `get_concept_scheme` | Get concept scheme details |
-| `delete_concept_scheme` | Delete a concept scheme (with force option) |
-| `search_concepts` | Search for concepts by label or query |
-| `create_concept` | Create a new concept with optional relations |
-| `get_concept` | Get basic concept details |
-| `get_concept_full` | Get concept with all relations |
-| `update_concept` | Update concept labels, definitions, and status |
-| `delete_concept` | Delete an unused concept |
-| `autocomplete_concepts` | Type-ahead concept search |
-| `get_broader` | Get broader (parent) concepts |
-| `add_broader` | Add a broader (parent) relation |
-| `remove_broader` | Remove a broader (parent) relation |
-| `get_narrower` | Get narrower (child) concepts |
-| `add_narrower` | Add a narrower (child) relation |
-| `remove_narrower` | Remove a narrower (child) relation |
-| `get_related` | Get related (associative) concepts |
-| `add_related` | Add a related (associative) relation |
-| `remove_related` | Remove a related (associative) relation |
-| `tag_note_concept` | Tag a note with a SKOS concept |
-| `untag_note_concept` | Remove SKOS concept tag from note |
-| `get_note_concepts` | Get all SKOS concepts for a note |
-| `get_governance_stats` | Get tag governance statistics |
-| `get_top_concepts` | Get root concepts in a scheme |
-
-### SKOS Collections
-
-| Tool | Description |
-|------|-------------|
-| `list_skos_collections` | List concept collections |
-| `create_skos_collection` | Create concept collection |
-| `get_skos_collection` | Get collection details |
-| `update_skos_collection` | Update collection |
-| `delete_skos_collection` | Delete collection |
-| `add_skos_collection_member` | Add concept to collection |
-| `remove_skos_collection_member` | Remove concept from collection |
-
-### Note Versioning
-
-| Tool | Description |
-|------|-------------|
-| `list_note_versions` | List all versions of a note |
-| `get_note_version` | Get a specific version of a note |
-| `restore_note_version` | Restore a note to a previous version |
-| `delete_note_version` | Delete a specific version |
-| `diff_note_versions` | Compare two versions of a note |
-
-### Knowledge Health
-
-| Tool | Description |
-|------|-------------|
-| `get_knowledge_health` | Overall knowledge base health metrics |
-| `get_orphan_tags` | Tags not used by any notes |
-| `get_stale_notes` | Notes not updated recently |
-| `get_unlinked_notes` | Notes with no semantic links |
-| `get_tag_cooccurrence` | Tag co-occurrence statistics |
-| `get_note_backlinks` | Backlinks for a specific note |
-| `get_note_provenance` | Provenance chain for a note |
-
-### Content Retrieval
-
-| Tool | Description |
-|------|-------------|
-| `get_full_document` | Reconstruct chunked document |
-| `search_with_dedup` | Search with chunk deduplication |
-| `get_chunk_chain` | Get all chunks in document chain |
-| `get_documentation` | Get built-in documentation by topic |
-
-### Notes Timeline
-
-| Tool | Description |
-|------|-------------|
-| `get_notes_timeline` | Timeline view of notes |
-| `get_notes_activity` | Activity feed for notes |
-
-### Backup & Export
-
-| Tool | Description |
-|------|-------------|
-| `export_all_notes` | Export all notes as JSON |
-| `backup_now` | Trigger a manual backup |
-| `backup_status` | Get current backup status |
-| `backup_download` | Download a backup file |
-| `backup_import` | Import data from a backup |
-| `knowledge_shard` | Create a knowledge archive (shard) |
-| `knowledge_shard_import` | Import a knowledge shard |
-| `database_snapshot` | Create a database snapshot |
-| `database_restore` | Restore from database snapshot |
-| `knowledge_archive_download` | Download a .archive file |
-| `knowledge_archive_upload` | Upload a .archive file |
-| `list_backups` | List available backups |
-| `get_backup_info` | Get details about a specific backup |
-| `get_backup_metadata` | Get backup metadata |
-| `update_backup_metadata` | Update backup metadata |
-
-### PKE Encryption (Public Key Encryption)
-
-| Tool | Description |
-|------|-------------|
-| `pke_generate_keypair` | Generate a new PKE keypair |
-| `pke_get_address` | Get public key address for a keyset |
-| `pke_encrypt` | Encrypt a note for recipients |
-| `pke_decrypt` | Decrypt an encrypted note |
-| `pke_list_recipients` | List recipients who can decrypt a note |
-| `pke_verify_address` | Verify a PKE address format |
-| `pke_list_keysets` | List all PKE keysets |
-| `pke_create_keyset` | Create a new PKE keyset |
-| `pke_get_active_keyset` | Get the active PKE keyset |
-| `pke_set_active_keyset` | Set the active PKE keyset |
-| `pke_export_keyset` | Export a PKE keyset |
-| `pke_import_keyset` | Import a PKE keyset |
-| `pke_delete_keyset` | Delete a PKE keyset |
-
-### System
-
-| Tool | Description |
-|------|-------------|
-| `health_check` | System health status |
-| `get_system_info` | Comprehensive system diagnostics |
-| `memory_info` | Storage and memory statistics |
-
-### SKOS Export
-
-| Tool | Description |
-|------|-------------|
-| `export_skos_turtle` | Export SKOS taxonomy as W3C RDF/Turtle |
+Or switch to full mode: `MCP_TOOL_MODE=full`
 
 ## Document Types
 
@@ -361,50 +190,35 @@ Document types define how content should be chunked, embedded, and processed:
 
 ### Using Document Types via MCP
 
-**1. Auto-detect document type from filename:**
+**Core mode:**
+```javascript
+// Document type auto-detection happens automatically during note creation
+capture_knowledge({
+  action: "upload",
+  filename: "main.rs",
+  content: "...",
+  content_type: "text/plain"
+})
+// Auto-detects: { type: "rust", category: "code", chunking: "syntactic" }
+```
+
+**Full mode:**
 ```javascript
 detect_document_type({ filename: "main.rs" })
 // Returns: { type: "rust", confidence: 0.9, category: "code" }
-```
 
-**2. Auto-detect from content:**
-```javascript
-detect_document_type({ content: "openapi: 3.1.0\ninfo:" })
-// Returns: { type: "openapi", confidence: 0.7, category: "api-spec" }
-```
-
-**3. List all document types:**
-```javascript
-// List all types
-list_document_types()
-
-// Filter by category
 list_document_types({ category: "code" })
 // Returns types: rust, python, javascript, typescript, etc.
-```
 
-**4. Get specific type details:**
-```javascript
 get_document_type({ name: "rust" })
-// Returns: {
-//   name: "rust",
-//   display_name: "Rust",
-//   category: "code",
-//   file_extensions: [".rs"],
-//   chunking_strategy: "syntactic",
-//   ...
-// }
-```
+// Returns full configuration
 
-**5. Create custom document type:**
-```javascript
 create_document_type({
   name: "my-custom-type",
   display_name: "My Custom Type",
   category: "custom",
   file_extensions: [".mytype"],
-  chunking_strategy: "semantic",
-  filename_patterns: ["*.mytype"]
+  chunking_strategy: "semantic"
 })
 ```
 
@@ -441,15 +255,24 @@ Every note in Fortémi has vector embeddings for semantic search. By default, al
 
 ### Using Embedding Sets via MCP
 
-**1. Discover available sets:**
+**Core mode:**
+```javascript
+// Search within a specific set
+search({
+  action: "text",
+  query: "transformer architecture attention mechanism",
+  mode: "semantic",
+  set: "ml-research"  // Restricts search to this set
+})
+```
+
+**Full mode:**
 ```javascript
 // List all embedding sets to see what's available
 list_embedding_sets()
 // Returns: [{ slug: "default", name: "All Notes", ... }, { slug: "ml-research", ... }]
-```
 
-**2. Create a new set:**
-```javascript
+// Create a new set
 create_embedding_set({
   name: "Machine Learning Research",
   slug: "ml-research",
@@ -462,27 +285,13 @@ create_embedding_set({
     tags: ["ml", "research", "ai"]
   }
 })
-```
 
-**3. Search within a set:**
-```javascript
-// Search only within the ml-research set
-search_notes({
-  query: "transformer architecture attention mechanism",
-  mode: "semantic",
-  set: "ml-research"  // Restricts search to this set
-})
-```
-
-**4. Manage membership (manual/mixed mode):**
-```javascript
-// Add specific notes to a set
+// Manage membership (manual/mixed mode)
 add_set_members({
   slug: "ml-research",
   note_ids: ["note-uuid-1", "note-uuid-2"]
 })
 
-// Remove a note from a set
 remove_set_member({
   slug: "ml-research",
   note_id: "note-uuid-1"
@@ -514,7 +323,8 @@ create_embedding_set({
 })
 
 // Search within project context
-search_notes({
+search({
+  action: "text",
   query: "API authentication design decisions",
   set: "project-alpha"
 })
@@ -541,11 +351,11 @@ Fortémi supports both soft delete and hard delete (purge) operations.
 
 **Soft Delete** (`delete_note`):
 - Marks note as deleted but preserves all data
-- Can be restored later (future feature)
+- Can be restored via `restore_note`
 - Embeddings, links, and tags remain in database
 - Use for normal deletion when you might want to recover
 
-**Hard Delete** (`purge_note`, `purge_notes`, `purge_all_notes`):
+**Hard Delete** (full mode only: `purge_note`, `purge_notes`, `purge_all_notes`):
 - Permanently removes note and ALL related data
 - Cannot be recovered - this is irreversible
 - Deletes embeddings, links, tags, revisions, set memberships
@@ -565,7 +375,7 @@ Fortémi supports both soft delete and hard delete (purge) operations.
 - Permanent removal of sensitive information
 - Bulk cleanup of unwanted content
 
-### Purge Operations
+### Purge Operations (Full Mode)
 
 **Single note purge:**
 ```javascript
@@ -638,7 +448,7 @@ FORTEMI_URL=http://localhost:3000 npm test
 - **API Reachability**: Health endpoint and authentication
 - **HTTP Transport**: StreamableHTTP protocol, session management
 - **SSE Transport**: Server-Sent Events connection
-- **Tool Execution**: Calling tools through MCP (list_notes, search_notes, etc.)
+- **Tool Execution**: Calling tools through MCP (list_notes, search, etc.)
 - **Session Isolation**: Multiple concurrent sessions work independently
 - **Stdio Transport**: Direct stdin/stdout communication
 
@@ -729,6 +539,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (23 tools) or `full` (187 tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
@@ -756,7 +567,7 @@ Required scopes: `mcp` or `read`
 ```
 User: Search my notes for anything about API design
 
-Claude: [uses search_notes tool with query "API design"]
+Claude: [uses search tool with action="text", query="API design"]
 
 Found 3 notes about API design:
 1. "REST API Best Practices" - discusses versioning and error handling
@@ -771,8 +582,7 @@ Found 3 notes about API design:
 ```
 User: I need to find notes about neural network architectures, but only from my ML research
 
-Claude: [uses list_embedding_sets to discover "ml-research" set]
-        [uses search_notes with query="neural network architectures" and set="ml-research"]
+Claude: [uses search with action="text", query="neural network architectures", set="ml-research"]
 
 Found 5 notes in ML research set:
 1. "Transformer Architecture Deep Dive" - attention mechanism details
@@ -781,31 +591,29 @@ Found 5 notes in ML research set:
 ...
 ```
 
-### Creating and Using Project-Specific Sets
+### Creating Notes from Templates
 
 ```
-User: Create an embedding set for my quantum computing research
+User: Create a meeting note for today's standup
 
-Claude: [uses create_embedding_set with appropriate criteria]
-        [uses add_set_members to add existing relevant notes]
+Claude: [uses capture_knowledge with action="from_template", template_slug="meeting-notes"]
 
-Created "quantum-computing" embedding set with 15 existing notes.
-You can now use set="quantum-computing" in search_notes for focused searches.
+Created note "Standup 2024-03-15" from template with pre-filled sections:
+- Attendees
+- Agenda
+- Action Items
+- Next Steps
 ```
 
-### Development Cleanup
+### Multi-Archive Search
 
 ```
-User: I need to clean up all my test notes before deploying
+User: Search for notes about "database migration" across all my archives
 
-Claude: [uses list_notes with filter for test data]
-        [uses purge_notes with the test note IDs]
+Claude: [uses search with action="federated", query="database migration"]
 
-WARNING: This will permanently delete 23 test notes. Confirm?
-
-User: Yes, purge them
-
-Claude: [executes purge_notes]
-
-Queued 23 notes for permanent deletion. Use list_jobs to monitor progress.
+Found 12 results across 3 archives:
+- personal (5 notes)
+- work-projects (6 notes)
+- learning (1 note)
 ```

@@ -11,7 +11,7 @@
  * - Tool execution
  *
  * Prerequisites:
- *   - matric-api running at MATRIC_MEMORY_URL (default: https://memory.integrolabs.net)
+ *   - matric-api running at MATRIC_MEMORY_URL (default: http://localhost:3000)
  *   - Valid API key in MATRIC_MEMORY_API_KEY
  *
  * Run: node test-mcp-connectivity.js
@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Configuration from environment
-const API_BASE = process.env.MATRIC_MEMORY_URL || 'https://memory.integrolabs.net';
+const API_BASE = process.env.MATRIC_MEMORY_URL || 'http://localhost:3000';
 let API_KEY = process.env.MATRIC_MEMORY_API_KEY;
 const MCP_HTTP_PORT = parseInt(process.env.MCP_TEST_PORT || '3098', 10);
 

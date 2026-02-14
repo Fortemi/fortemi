@@ -5,7 +5,7 @@
 Fortémi uses Gitea Actions for continuous integration and deployment. The pipeline is configured in `.gitea/workflows/ci-builder.yaml` and runs on self-hosted runners.
 
 **Release targets:**
-- **Internal**: Gitea registry (`git.integrolabs.net`) - Development builds
+- **Internal**: Container registry - Development builds
 - **Public**: GitHub Container Registry (`ghcr.io/fortemi/fortemi`) - Production releases
 
 ## Pipeline Stages
@@ -153,10 +153,10 @@ The pipeline uses two self-hosted runners:
 ## Secrets Required
 
 ### BUILD_REPO_TOKEN
-Used for internal Gitea registry authentication:
+Used for internal container registry authentication:
 
 ```yaml
-echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login git.integrolabs.net -u ${{ gitea.actor }} --password-stdin
+echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login $REGISTRY -u ${{ gitea.actor }} --password-stdin
 ```
 
 ### GH_PUBLISH_TOKEN

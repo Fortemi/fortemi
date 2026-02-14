@@ -175,23 +175,24 @@ const active = await get_active_memory();
 // Returns: { name: "project-alpha" }
 
 // All subsequent MCP calls use selected memory automatically
-await add_note({ title: "Note", content: "..." }); // goes to project-alpha
-await search_notes({ query: "..." }); // searches project-alpha only
+await capture_knowledge({
+  action: "create",
+  title: "Note",
+  content: "...",
+  metadata: {}
+}); // goes to project-alpha
 
-// List all memories
-const memories = await list_archives();
+await search({
+  action: "text",
+  query: "..."
+}); // searches project-alpha only
 
-// Get memory statistics
-const stats = await get_archive_stats({ archive_name: "project-alpha" });
+// List all memories (API-only, use GET /api/v1/archives)
+// Note: Archive management is API-only; use select_memory for switching contexts
 
-// Create new memory
-await create_archive({
-  name: "project-beta",
-  description: "Beta project knowledge base"
-});
+// Create new memory (API-only, use POST /api/v1/archives)
 
-// Delete memory (DESTRUCTIVE)
-await delete_archive({ archive_name: "project-beta" });
+// Delete memory (API-only, use DELETE /api/v1/archives/:name)
 ```
 
 ## Common Mistakes
@@ -215,19 +216,12 @@ await delete_archive({ archive_name: "project-beta" });
 |------|---------|---------------------|------------------------------|
 | `select_memory` | Set active memory for MCP session | Sets it (no active required) | No |
 | `get_active_memory` | Check current active memory | No (retrieves state) | No |
-| `list_archives` / `list_memories` | List all memories | No (system-wide) | No |
-| `create_archive` / `create_memory` | Create new memory | No (system-wide) | No |
-| `delete_archive` / `delete_memory` | Delete memory (destructive) | No (system-wide) | No |
-| `get_archive_stats` | Get memory statistics | No (specify by name) | No |
-| `memory_info` | System info for active memory | Yes | No |
-| `add_note` / `update_note` / `delete_note` | Note CRUD | Yes | No |
-| `search_notes` / `semantic_search` | Search notes | Yes | **YES** (only default searchable) |
-| `add_tag` / `list_tags` | Tag management | Yes | No |
-| `create_collection` / `list_collections` | Collection management | Yes | No |
-| `add_template` / `list_templates` | Template management | Yes | No |
-| `link_notes` / `get_backlinks` | Link management | Yes | No |
-| `attach_file` / `list_attachments` | Attachment management | Yes | No |
-| `add_version` / `list_versions` | Version history | Yes | No |
+| `capture_knowledge` | Create/update/delete notes | Yes | No |
+| `search` | Search notes (text/semantic/combined) | Yes | **YES** (only default searchable) |
+| `manage_tags` | Tag operations (list/add/remove/update) | Yes | No |
+| `manage_collection` | Collection operations | Yes | No |
+| `record_provenance` | Provenance tracking | Yes | No |
+| `manage_concepts` | SKOS concept operations | Yes | No |
 
 ## Performance Characteristics
 

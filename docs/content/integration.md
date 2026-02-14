@@ -16,7 +16,7 @@ Use the Fortémi API server directly:
 
 ```bash
 # Clone repository
-git clone https://github.com/Fortemi/fortemi
+git clone https://github.com/fortemi/fortemi
 
 # Build
 cargo build --release -p matric-api
@@ -30,7 +30,7 @@ DATABASE_URL="postgres://user:pass@localhost/matric" ./target/release/matric-api
 ```toml
 # Cargo.toml
 [dependencies]
-Fortémi = { git = "https://github.com/Fortemi/fortemi" }
+Fortémi = { git = "https://github.com/fortemi/fortemi" }
 ```
 
 ## Database Setup
@@ -209,6 +209,6 @@ For encryption details, see the [Encryption Guide](./encryption.md).
 
 ## Support
 
-- **Issues**: https://github.com/Fortemi/fortemi/issues
+- **Issues**: https://github.com/fortemi/fortemi/issues
 - **API Docs**: http://localhost:3000/docs
 - **OpenAPI Spec**: http://localhost:3000/openapi.yaml

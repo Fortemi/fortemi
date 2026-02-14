@@ -20,25 +20,25 @@ use axum::http::HeaderValue;
 #[test]
 fn test_cors_allowed_origins_parsing() {
     // Test case 1: Single origin
-    let origins = parse_allowed_origins("https://memory.integrolabs.net");
+    let origins = parse_allowed_origins("https://app.example.com");
     assert_eq!(origins.len(), 1);
     assert_eq!(
         origins[0].to_str().unwrap(),
-        "https://memory.integrolabs.net"
+        "https://app.example.com"
     );
 
     // Test case 2: Multiple origins with comma separator
-    let origins = parse_allowed_origins("https://memory.integrolabs.net,http://localhost:3000");
+    let origins = parse_allowed_origins("https://app.example.com,http://localhost:3000");
     assert_eq!(origins.len(), 2);
     assert_eq!(
         origins[0].to_str().unwrap(),
-        "https://memory.integrolabs.net"
+        "https://app.example.com"
     );
     assert_eq!(origins[1].to_str().unwrap(), "http://localhost:3000");
 
     // Test case 3: Multiple origins with whitespace
     let origins = parse_allowed_origins(
-        "https://memory.integrolabs.net, http://localhost:3000 , https://api.example.com",
+        "https://app.example.com, http://localhost:3000 , https://api.example.com",
     );
     assert_eq!(origins.len(), 3);
 
@@ -135,13 +135,13 @@ fn test_cors_max_age_configured() {
 ///
 /// # Default
 /// If empty or invalid, returns default origins:
-/// - https://memory.integrolabs.net
+/// - https://app.example.com
 /// - http://localhost:3000
 fn parse_allowed_origins(origins_str: &str) -> Vec<HeaderValue> {
     if origins_str.trim().is_empty() {
         // Default origins
         return vec![
-            HeaderValue::from_static("https://memory.integrolabs.net"),
+            HeaderValue::from_static("https://app.example.com"),
             HeaderValue::from_static("http://localhost:3000"),
         ];
     }
@@ -197,17 +197,17 @@ mod documentation_tests {
         // Environment variable: ALLOWED_ORIGINS
         //
         // Format: Comma-separated list of allowed origin URLs
-        // Example: "https://memory.integrolabs.net,http://localhost:3000"
+        // Example: "https://app.example.com,http://localhost:3000"
         //
         // Default (if not set):
-        // - https://memory.integrolabs.net
+        // - https://app.example.com
         // - http://localhost:3000
         //
         // Production deployment:
-        // ALLOWED_ORIGINS=https://memory.integrolabs.net
+        // ALLOWED_ORIGINS=https://app.example.com
         //
         // Development/staging:
-        // ALLOWED_ORIGINS=https://memory.integrolabs.net,http://localhost:3000,https://staging.example.com
+        // ALLOWED_ORIGINS=https://app.example.com,http://localhost:3000,https://staging.example.com
     }
 
     /// Documents verification commands
@@ -231,7 +231,7 @@ mod documentation_tests {
         //    curl -H "Origin: https://evil.com" -I http://localhost:3000/health
         //    # Should NOT include Access-Control-Allow-Origin: https://evil.com
         //
-        //    curl -H "Origin: https://memory.integrolabs.net" -I http://localhost:3000/health
-        //    # SHOULD include Access-Control-Allow-Origin: https://memory.integrolabs.net
+        //    curl -H "Origin: https://app.example.com" -I http://localhost:3000/health
+        //    # SHOULD include Access-Control-Allow-Origin: https://app.example.com
     }
 }

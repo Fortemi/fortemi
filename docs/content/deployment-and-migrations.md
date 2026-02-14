@@ -221,7 +221,7 @@ SELECT indexname FROM pg_indexes WHERE indexname LIKE '%trgm%';
 docker compose -f docker-compose.bundle.yml down
 
 # Tag current image for safety
-docker tag github.com/Fortemi/fortemi:bundle github.com/Fortemi/fortemi:bundle-backup
+docker tag ghcr.io/fortemi/fortemi:bundle ghcr.io/fortemi/fortemi:bundle-backup
 
 # Pull/checkout previous version
 git checkout <previous-commit>
@@ -382,7 +382,7 @@ See `deploy/nginx/README.md` for complete documentation including:
 
 ```bash
 # Copy and enable nginx config
-sudo cp deploy/nginx/memory.integrolabs.net.conf /etc/nginx/sites-available/memory
+sudo cp deploy/nginx/your-domain.conf /etc/nginx/sites-available/memory
 sudo ln -sf /etc/nginx/sites-available/memory /etc/nginx/sites-enabled/memory
 sudo nginx -t && sudo systemctl reload nginx
 ```

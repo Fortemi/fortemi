@@ -74,7 +74,7 @@ When you push the tag, the CI pipeline automatically:
 
 1. **Runs all tests** (lint, unit tests, integration tests, container tests)
 2. **Publishes Docker images** to both registries:
-   - Internal: `git.integrolabs.net/fortemi/fortemi:{version}`
+   - Internal: `ghcr.io/fortemi/fortemi:{version}`
    - Public: `ghcr.io/fortemi/fortemi:{version}`
 3. **Creates releases** on both Gitea and GitHub with:
    - Changelog extracted from `CHANGELOG.md`

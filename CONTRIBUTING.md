@@ -69,7 +69,7 @@ Examples:
 4. Push and open a PR
 5. Address review feedback
 
-Use PR templates when available (see `.github/PULL_REQUEST_TEMPLATE/`).
+Follow project conventions for PR descriptions and commit messages.
 
 ## Testing
 

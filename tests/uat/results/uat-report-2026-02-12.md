@@ -144,14 +144,14 @@ Final verification after MCP reconnection.
 
 | Issue | Title | Phase | Severity | Status |
 |-------|-------|-------|----------|--------|
-| [#299](https://git.integrolabs.net/fortemi/fortemi/issues/299) | Job deduplication not enforced | 15 | Medium | **Closed** (R5) |
-| [#319](https://git.integrolabs.net/fortemi/fortemi/issues/319) | 3D model extraction Blender unavailable | 2c | Medium | **Closed** (R2) |
-| [#320](https://git.integrolabs.net/fortemi/fortemi/issues/320) | Empty content returns 500 error | 2 | Medium | **Closed** (R1) |
-| [#322](https://git.integrolabs.net/fortemi/fortemi/issues/322) | get_knowledge_health returns error | 16 | Medium | **Closed** (R1) |
-| [#323](https://git.integrolabs.net/fortemi/fortemi/issues/323) | get_orphan_tags returns error | 16 | Medium | **Closed** (R1) |
-| [#324](https://git.integrolabs.net/fortemi/fortemi/issues/324) | event_types filter not working | 16 | Low | **Closed** (R2) |
+| [#299](https://github.com/fortemi/fortemi/issues/299) | Job deduplication not enforced | 15 | Medium | **Closed** (R5) |
+| [#319](https://github.com/fortemi/fortemi/issues/319) | 3D model extraction Blender unavailable | 2c | Medium | **Closed** (R2) |
+| [#320](https://github.com/fortemi/fortemi/issues/320) | Empty content returns 500 error | 2 | Medium | **Closed** (R1) |
+| [#322](https://github.com/fortemi/fortemi/issues/322) | get_knowledge_health returns error | 16 | Medium | **Closed** (R1) |
+| [#323](https://github.com/fortemi/fortemi/issues/323) | get_orphan_tags returns error | 16 | Medium | **Closed** (R1) |
+| [#324](https://github.com/fortemi/fortemi/issues/324) | event_types filter not working | 16 | Low | **Closed** (R2) |
 
-| [#335](https://git.integrolabs.net/fortemi/fortemi/issues/335) | search_notes ignores invalid embedding set slug | 19 | Low | **Closed** (R7) |
+| [#335](https://github.com/fortemi/fortemi/issues/335) | search_notes ignores invalid embedding set slug | 19 | Low | **Closed** (R7) |
 
 **Total**: 7 issues filed, **7 closed (100%)**
 

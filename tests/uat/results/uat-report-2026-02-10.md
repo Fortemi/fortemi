@@ -73,16 +73,16 @@
 
 | Issue | Title | Phase | Severity | Status |
 |-------|-------|-------|----------|--------|
-| [#283](https://git.integrolabs.net/fortemi/fortemi/issues/283) | No code_ast extraction worker for code files | 2c | Medium | **Closed** (fixed in retest) |
-| [#284](https://git.integrolabs.net/fortemi/fortemi/issues/284) | .js file extension blocked by upload API | 2c | Low | **Closed** (fixed in retest) |
-| [#285](https://git.integrolabs.net/fortemi/fortemi/issues/285) | Invalid document_type_id rejects instead of fallback | 2c | Low | **Closed** (fixed in retest) |
-| [#286](https://git.integrolabs.net/fortemi/fortemi/issues/286) | FTS NOT operator returns 0 results for "programming -rust" | 3 | Low | **Closed** (fixed in retest) |
-| [#287](https://git.integrolabs.net/fortemi/fortemi/issues/287) | detect_document_type misidentifies Python as AsciiDoc | 19 | Low | **Closed** (fixed in retest round 2) |
-| [#288](https://git.integrolabs.net/fortemi/fortemi/issues/288) | Emoji FTS search returns 0 results | 19 | Low | **Closed** (fixed in retest round 1) |
-| [#296](https://git.integrolabs.net/fortemi/fortemi/issues/296) | Inverted time range returns results instead of empty/error | 3b | Low | **Closed** (fixed in retest round 2) |
-| [#297](https://git.integrolabs.net/fortemi/fortemi/issues/297) | Missing update_concept_scheme MCP tool | 13 | Low | **Closed** (fixed in retest round 2) |
-| [#298](https://git.integrolabs.net/fortemi/fortemi/issues/298) | MCP create_job enum constraint prevents invalid job_type testing | 15 | Low | **Closed** (fixed in retest round 2) |
-| [#299](https://git.integrolabs.net/fortemi/fortemi/issues/299) | No job deduplication mechanism in MCP create_job | 15 | Low | **Open** (deduplicate param accepted but not enforced) |
+| [#283](https://github.com/fortemi/fortemi/issues/283) | No code_ast extraction worker for code files | 2c | Medium | **Closed** (fixed in retest) |
+| [#284](https://github.com/fortemi/fortemi/issues/284) | .js file extension blocked by upload API | 2c | Low | **Closed** (fixed in retest) |
+| [#285](https://github.com/fortemi/fortemi/issues/285) | Invalid document_type_id rejects instead of fallback | 2c | Low | **Closed** (fixed in retest) |
+| [#286](https://github.com/fortemi/fortemi/issues/286) | FTS NOT operator returns 0 results for "programming -rust" | 3 | Low | **Closed** (fixed in retest) |
+| [#287](https://github.com/fortemi/fortemi/issues/287) | detect_document_type misidentifies Python as AsciiDoc | 19 | Low | **Closed** (fixed in retest round 2) |
+| [#288](https://github.com/fortemi/fortemi/issues/288) | Emoji FTS search returns 0 results | 19 | Low | **Closed** (fixed in retest round 1) |
+| [#296](https://github.com/fortemi/fortemi/issues/296) | Inverted time range returns results instead of empty/error | 3b | Low | **Closed** (fixed in retest round 2) |
+| [#297](https://github.com/fortemi/fortemi/issues/297) | Missing update_concept_scheme MCP tool | 13 | Low | **Closed** (fixed in retest round 2) |
+| [#298](https://github.com/fortemi/fortemi/issues/298) | MCP create_job enum constraint prevents invalid job_type testing | 15 | Low | **Closed** (fixed in retest round 2) |
+| [#299](https://github.com/fortemi/fortemi/issues/299) | No job deduplication mechanism in MCP create_job | 15 | Low | **Open** (deduplicate param accepted but not enforced) |
 
 ---
 

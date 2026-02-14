@@ -1578,7 +1578,7 @@ docker compose -f docker-compose.bundle.yml logs -f
 - OpenAPI spec: `http://localhost:3000/openapi.yaml`
 
 **Report issues:**
-- Repository issues: `https://github.com/Fortemi/fortemi/issues`
+- Repository issues: `https://github.com/fortemi/fortemi/issues`
 - Include: error message, relevant logs, Docker/system info, steps to reproduce
 
 **Additional documentation:**

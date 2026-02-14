@@ -34,7 +34,7 @@ This guide covers deployment, operations, and troubleshooting for Fortémi using
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/Fortemi/fortemi.git
+git clone https://github.com/fortemi/fortemi.git
 cd Fortémi
 
 # 2. Start container (creates database)
@@ -530,7 +530,7 @@ All environment variables are optional unless marked as required. The API reads 
 
 | Variable | Default | Description | Example |
 |----------|---------|-------------|---------|
-| `ALLOWED_ORIGINS` | `https://memory.integrolabs.net,http://localhost:3000` | Comma-separated CORS origins | `https://app.example.com,https://staging.example.com` |
+| `ALLOWED_ORIGINS` | `https://your-domain.com,http://localhost:3000` | Comma-separated CORS origins | `https://app.example.com,https://staging.example.com` |
 
 #### Logging
 
@@ -818,7 +818,7 @@ docker exec -i Fortémi-matric-1 psql -U matric -d matric < latest_backup.sql
 
 ## Resources
 
-- **Repository:** https://github.com/Fortemi/fortemi
+- **Repository:** https://github.com/fortemi/fortemi
 - **Operators Guide:** [operators-guide.md](./operators-guide.md)
 - **MCP Documentation:** [mcp-server/README.md](../../mcp-server/README.md)
 - **Real-Time Events:** [real-time-events.md](./real-time-events.md)

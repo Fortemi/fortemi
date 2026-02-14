@@ -5204,7 +5204,7 @@ if (MCP_TRANSPORT === "http") {
       authorization_servers: [process.env.ISSUER_URL || API_BASE],
       bearer_methods_supported: ["header"],
       scopes_supported: ["mcp"],
-      resource_documentation: "https://memory.integrolabs.net/api-docs",
+      resource_documentation: `${API_BASE}/docs`,
     });
   });
 

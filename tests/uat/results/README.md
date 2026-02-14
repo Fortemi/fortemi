@@ -58,12 +58,12 @@ This directory contains User Acceptance Test (UAT) results for the Matric Memory
 
 - [Latest Summary](./uat-phases-7-9-summary-final.md)
 - [Full Report](./uat-report-2026-02-08-phases-7-9.md)
-- [Gitea Issues](https://git.integrolabs.net/fortemi/fortemi/issues)
-- [API URL](https://memory.integrolabs.net)
+- [GitHub Issues](https://github.com/fortemi/fortemi/issues)
+- [API URL](https://localhost:3000)
 
 ## Test Methodology
 
-All tests executed via direct API calls (curl) against production instance at https://memory.integrolabs.net. Tests follow isolation requirements to prevent data corruption and side effects.
+All tests executed via direct API calls (curl) against production instance at https://localhost:3000. Tests follow isolation requirements to prevent data corruption and side effects.
 
 **Test Standards**:
 - Attempt all tests before marking BLOCKED

@@ -130,7 +130,7 @@ All-in-one container with PostgreSQL, API server, and MCP server. Best for quick
 
 ```bash
 # Clone and start
-git clone https://github.com/Fortemi/fortemi
+git clone https://github.com/fortemi/fortemi
 cd Fortémi
 docker compose -f docker-compose.bundle.yml up -d
 
@@ -217,4 +217,4 @@ See the [Getting Started Guide](./getting-started.md) for step-by-step instructi
 
 ---
 
-*Fortémi is licensed under the Business Source License 1.1. See [licensing details](./licensing.md). Contributions welcome at [github.com/Fortemi/fortemi](https://github.com/Fortemi/fortemi).*
+*Fortémi is licensed under the Business Source License 1.1. See [licensing details](./licensing.md). Contributions welcome at [github.com/fortemi/fortemi](https://github.com/fortemi/fortemi).*

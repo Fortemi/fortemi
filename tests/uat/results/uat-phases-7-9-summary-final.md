@@ -111,7 +111,7 @@
 | #188 | create_document_type requires undocumented display_name | High | Document Types API |
 | #189 | Empty content and very long tags not validated | Low | Notes API |
 
-View issues: https://git.integrolabs.net/fortemi/fortemi/issues
+View issues: https://github.com/fortemi/fortemi/issues
 
 ## Recommendations
 

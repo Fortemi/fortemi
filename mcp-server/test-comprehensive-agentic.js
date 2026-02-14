@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Configuration from environment
-const API_BASE = process.env.MATRIC_MEMORY_URL || 'https://memory.integrolabs.net';
+const API_BASE = process.env.MATRIC_MEMORY_URL || 'http://localhost:3000';
 let API_KEY = process.env.MATRIC_MEMORY_API_KEY;
 const MCP_HTTP_PORT = parseInt(process.env.MCP_TEST_PORT || '3099', 10);
 
