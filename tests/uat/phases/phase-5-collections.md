@@ -1,195 +1,304 @@
 # UAT Phase 5: Collections
 
-**Purpose**: Verify hierarchical folder organization
-**Duration**: ~3 minutes
-**Prerequisites**: Phase 1 seed data exists
-**Tools Tested**: `create_collection`, `list_collections`, `get_collection`, `move_note_to_collection`, `get_collection_notes`, `get_note`, `delete_collection`
+**Purpose**: Validate collection management including creation, updates, note organization, and export.
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Do NOT use curl, HTTP API calls, or any other method. If an MCP tool fails or is missing for an operation, **file a bug issue** — do not fall back to the API. The MCP tool name and exact parameters are specified for each test.
+**Duration**: ~5 minutes
 
----
+**Prerequisites**: Phase 1 completion (notes must exist for collection operations)
 
-## Collection CRUD
+**Tools Tested**: `manage_collection` (8 actions: list, create, get, update, delete, list_notes, move_note, export)
 
-### COLL-001: Create Collection
-
-**MCP Tool**: `create_collection`
-
-```javascript
-create_collection({
-  name: "UAT-Test-Collection",
-  description: "Test collection for UAT"
-})
-```
-
-**Pass Criteria**: Returns `{ id: "<uuid>" }`
-**Store**: `test_collection_id`
+> **MCP-First Requirement**: All tests in this phase use MCP tool calls exclusively. No direct HTTP requests are permitted. The `manage_collection` tool provides complete access to the hierarchical folder system.
 
 ---
 
-### COLL-002: Create Nested Collection
+## Test Cases
 
-**MCP Tool**: `create_collection`
+### COL-001: List Collections
 
-```javascript
-create_collection({
-  name: "UAT-Subcollection",
-  description: "Nested under test collection",
-  parent_id: "<test_collection_id>"
-})
-```
-
-**Pass Criteria**: Returns ID, collection has `parent_id` set
-
----
-
-### COLL-003: List Collections
-
-**MCP Tool**: `list_collections`
+**Test ID**: COL-001
+**MCP Tool**: `manage_collection` (action: list)
+**Description**: List all collections in the system
 
 ```javascript
-list_collections()
+const result = await useTool('manage_collection', {
+  action: 'list'
+});
 ```
 
-**Pass Criteria**: Returns array with UAT collections
-
----
-
-### COLL-004: List Child Collections
-
-**MCP Tool**: `list_collections`
-
-```javascript
-list_collections({ parent_id: "<test_collection_id>" })
-```
-
-**Pass Criteria**: Returns only child collections of specified parent
-
----
-
-### COLL-005: Get Collection
-
-**MCP Tool**: `get_collection`
-
-```javascript
-get_collection({ id: "<test_collection_id>" })
-```
-
-**Pass Criteria**: Returns full collection details
-
----
-
-## Note Organization
-
-### COLL-006: Move Note to Collection
-
-**MCP Tool**: `move_note_to_collection`
-
-```javascript
-move_note_to_collection({
-  note_id: "<seed_ml_note_id>",
-  collection_id: "<test_collection_id>"
-})
-```
-
-**Pass Criteria**: Success response
-
----
-
-### COLL-007: Get Collection Notes
-
-**MCP Tool**: `get_collection_notes`
-
-```javascript
-get_collection_notes({ id: "<test_collection_id>" })
-```
-
-**Pass Criteria**: Contains the moved note
-
----
-
-### COLL-008: Verify Note Collection Assignment
-
-**MCP Tool**: `get_note`
-
-```javascript
-get_note({ id: "<moved_note_id>" })
-```
-
-**Pass Criteria**: Note shows `collection_id` matching test collection
-
----
-
-## Collection Deletion
-
-### COLL-009: Delete Empty Collection
-
-**MCP Tool**: `move_note_to_collection`, `delete_collection`
-
-```javascript
-// First move note out
-move_note_to_collection({ note_id: "<note_id>", collection_id: null })
-
-// Then delete
-delete_collection({ id: "<empty_collection_id>" })
-```
-
-**Pass Criteria**: Collection deleted successfully
-
----
-
-### COLL-010a: Delete Collection with Notes — Cascade
-
-**MCP Tool**: `delete_collection`
-
-```javascript
-// Delete collection containing notes — notes become unassigned
-delete_collection({ id: "<collection_with_notes>" })
-```
-
-**Pass Criteria**: Collection deleted. Notes previously in collection have `collection_id` set to null. Notes themselves are NOT deleted.
-
----
-
-### COLL-011: Update Collection
-
-**MCP Tool**: `update_collection`, `get_collection`
-
-```javascript
-// Use a collection created earlier in this phase
-update_collection({
-  id: "<collection_id>",
-  name: "UAT Renamed Collection",
-  description: "Updated description for UAT testing"
-})
-
-get_collection({ id: "<collection_id>" })
-```
+**Expected Response**:
+- Array of collection objects
+- Each collection has `id`, `name`, `description` fields
+- May be empty if no collections exist
 
 **Pass Criteria**:
-- Collection name updated to "UAT Renamed Collection"
-- Description updated to new value
-- Collection ID remains the same
-- `get_collection` confirms changes persisted
+- [ ] Returns valid JSON array
+- [ ] Collection structure includes core fields
+- [ ] No error if empty
+- [ ] Handles zero collections gracefully
 
 ---
 
-## Phase Summary
+### COL-002: Create Collection
 
-| Test ID | Name | MCP Tool(s) | Status |
-|---------|------|-------------|--------|
-| COLL-001 | Create Collection | `create_collection` | |
-| COLL-002 | Create Nested Collection | `create_collection` | |
-| COLL-003 | List Collections | `list_collections` | |
-| COLL-004 | List Child Collections | `list_collections` | |
-| COLL-005 | Get Collection | `get_collection` | |
-| COLL-006 | Move Note to Collection | `move_note_to_collection` | |
-| COLL-007 | Get Collection Notes | `get_collection_notes` | |
-| COLL-008 | Verify Note Assignment | `get_note` | |
-| COLL-009 | Delete Empty Collection | `move_note_to_collection`, `delete_collection` | |
-| COLL-010a | Delete Collection Cascade | `delete_collection` | |
-| COLL-011 | Update Collection | `update_collection`, `get_collection` | |
+**Test ID**: COL-002
+**MCP Tool**: `manage_collection` (action: create)
+**Description**: Create a new collection
 
-**Phase Result**: [ ] PASS / [ ] FAIL
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'create',
+  name: 'uat-test-collection',
+  description: 'UAT test collection for Phase 5'
+});
+```
+
+**Expected Response**:
+- Newly created collection object
+- Contains assigned `id`
+- Name and description match input
+
+**Pass Criteria**:
+- [ ] Returns valid JSON object
+- [ ] `id` field present and non-null
+- [ ] `name` equals "uat-test-collection"
+- [ ] `description` matches input
+
+**Store**: `collection_id` (for subsequent tests)
+
+---
+
+### COL-003: Get Collection
+
+**Test ID**: COL-003
+**MCP Tool**: `manage_collection` (action: get)
+**Description**: Retrieve collection by ID
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'get',
+  id: collection_id
+});
+```
+
+**Expected Response**:
+- Single collection object
+- ID matches requested collection
+- Includes metadata and note count
+
+**Pass Criteria**:
+- [ ] Returns valid JSON object
+- [ ] `id` matches `collection_id`
+- [ ] `name` equals "uat-test-collection"
+- [ ] Metadata fields present
+
+---
+
+### COL-004: Update Collection
+
+**Test ID**: COL-004
+**MCP Tool**: `manage_collection` (action: update)
+**Description**: Update collection name
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'update',
+  id: collection_id,
+  name: 'uat-renamed-collection'
+});
+```
+
+**Expected Response**:
+- Updated collection object
+- Name changed to new value
+- ID remains unchanged
+
+**Pass Criteria**:
+- [ ] Returns valid JSON object
+- [ ] `id` still matches `collection_id`
+- [ ] `name` equals "uat-renamed-collection"
+- [ ] Update confirmed
+
+---
+
+### COL-005: Move Note to Collection
+
+**Test ID**: COL-005
+**MCP Tool**: `manage_collection` (action: move_note)
+**Description**: Move a note into the collection
+**Store**: `note_id` (from Phase 1)
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'move_note',
+  note_id: note_id,
+  collection_id: collection_id
+});
+```
+
+**Expected Response**:
+- Success response confirming move
+- Note now associated with collection
+
+**Pass Criteria**:
+- [ ] Returns success status
+- [ ] No error messages
+- [ ] Move operation acknowledged
+- [ ] Note ID and collection ID match
+
+---
+
+### COL-006: List Collection Notes
+
+**Test ID**: COL-006
+**MCP Tool**: `manage_collection` (action: list_notes)
+**Description**: List all notes in the collection
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'list_notes',
+  id: collection_id
+});
+```
+
+**Expected Response**:
+- Array of note objects in collection
+- Contains the note moved in COL-005
+- Note count ≥ 1
+
+**Pass Criteria**:
+- [ ] Returns valid JSON array
+- [ ] Array contains at least 1 note
+- [ ] Moved note appears in results
+- [ ] Note structure includes `id`, `title`
+
+---
+
+### COL-007: Export Collection
+
+**Test ID**: COL-007
+**MCP Tool**: `manage_collection` (action: export)
+**Description**: Export collection to markdown archive
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'export',
+  id: collection_id
+});
+```
+
+**Expected Response**:
+- Markdown archive content or download link
+- Includes all notes from collection
+- Valid markdown formatting
+
+**Pass Criteria**:
+- [ ] Returns valid export data
+- [ ] Contains markdown content
+- [ ] Includes notes from collection
+- [ ] No corruption or errors
+
+---
+
+### COL-008: Delete Collection
+
+**Test ID**: COL-008
+**MCP Tool**: `manage_collection` (action: delete)
+**Description**: Delete the test collection
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'delete',
+  id: collection_id
+});
+```
+
+**Expected Response**:
+- Success response confirming deletion
+- Collection removed from system
+
+**Pass Criteria**:
+- [ ] Returns success status
+- [ ] No error messages
+- [ ] Deletion confirmed
+- [ ] Collection ID acknowledged
+
+**Store**: `deleted_collection_id` (same as `collection_id`, for COL-009)
+
+---
+
+### COL-009: Get Deleted Collection Error
+
+**Test ID**: COL-009
+**MCP Tool**: `manage_collection` (action: get)
+**Description**: Verify deleted collection returns error
+**Isolation**: Required
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'get',
+  id: deleted_collection_id
+});
+```
+
+**Expected Response**:
+- Error response indicating collection not found
+- HTTP 404 or similar
+
+**Pass Criteria**:
+- [ ] Returns error (not success)
+- [ ] Error indicates collection not found
+- [ ] HTTP 404 status or equivalent
+- [ ] Deletion confirmed by error
+
+---
+
+### COL-010: Invalid Action
+
+**Test ID**: COL-010
+**MCP Tool**: `manage_collection` (action: fly)
+**Description**: Validate error handling for invalid action
+**Isolation**: Required
+
+```javascript
+const result = await useTool('manage_collection', {
+  action: 'fly',
+  id: collection_id
+});
+```
+
+**Expected Response**:
+- Error response indicating invalid action
+- HTTP 400 or validation error
+
+**Pass Criteria**:
+- [ ] Returns error (not success)
+- [ ] Error message mentions invalid action
+- [ ] Does not crash or hang
+- [ ] Clear error response format
+
+---
+
+## Phase 5 Summary
+
+| Category | Count | Pass | Fail |
+|----------|-------|------|------|
+| List Collections | 1 | - | - |
+| Create Collection | 1 | - | - |
+| Get Collection | 1 | - | - |
+| Update Collection | 1 | - | - |
+| Move Note | 1 | - | - |
+| List Notes | 1 | - | - |
+| Export Collection | 1 | - | - |
+| Delete Collection | 1 | - | - |
+| Error Handling | 2 | - | - |
+| **Total** | **10** | **-** | **-** |
+
+**Phase 5 Result**: [ ] PASS [ ] FAIL
 
 **Notes**:
+- Collection deletion does NOT cascade to notes (notes remain, just unassociated)
+- Export format is markdown with YAML frontmatter
+- Collections support hierarchical nesting (not tested in this phase)
+- `move_note` replaces previous collection association
+- Phase 1 seed notes used for collection membership tests
