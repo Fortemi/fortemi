@@ -327,20 +327,38 @@ mod tests {
     use super::*;
     use crate::pool::create_pool;
 
-    async fn setup_test_pool() -> Pool<Postgres> {
+    /// Returns pool if integration test DB is available, None to skip.
+    /// These tests require a migrated database with the pke_keysets table.
+    /// Set INTEGRATION_TEST_DB=1 when running with a migrated database.
+    async fn setup_test_pool() -> Option<Pool<Postgres>> {
+        // Skip if INTEGRATION_TEST_DB is not explicitly set.
+        // This prevents failures when running locally without migrations.
+        // CI sets this env var after running migrations.
+        if std::env::var("INTEGRATION_TEST_DB").is_err() {
+            eprintln!(
+                "Skipping pke_keysets test: INTEGRATION_TEST_DB not set. \
+                 These tests require a migrated database. Set INTEGRATION_TEST_DB=1 to run."
+            );
+            return None;
+        }
+
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
         // Note: Migrations are run by the CI workflow before tests.
         // Do NOT run migrations here - parallel tests cause race conditions.
         // See issues #349, #352.
-        create_pool(&database_url)
-            .await
-            .expect("Failed to create pool")
+        Some(
+            create_pool(&database_url)
+                .await
+                .expect("Failed to create pool"),
+        )
     }
 
     #[tokio::test]
     async fn test_create_and_get_keyset() {
-        let pool = setup_test_pool().await;
+        let Some(pool) = setup_test_pool().await else {
+            return;
+        };
         let repo = PgPkeKeysetRepository::new(pool);
 
         let test_id = Uuid::new_v4().to_string();
@@ -383,7 +401,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_keysets() {
-        let pool = setup_test_pool().await;
+        let Some(pool) = setup_test_pool().await else {
+            return;
+        };
         let repo = PgPkeKeysetRepository::new(pool);
 
         let test_id = Uuid::new_v4().to_string();
@@ -415,7 +435,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_active_keyset() {
-        let pool = setup_test_pool().await;
+        let Some(pool) = setup_test_pool().await else {
+            return;
+        };
         let repo = PgPkeKeysetRepository::new(pool);
 
         let test_id = Uuid::new_v4().to_string();
@@ -462,7 +484,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_import_keyset() {
-        let pool = setup_test_pool().await;
+        let Some(pool) = setup_test_pool().await else {
+            return;
+        };
         let repo = PgPkeKeysetRepository::new(pool);
 
         let test_id = Uuid::new_v4().to_string();
@@ -511,7 +535,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_name_error() {
-        let pool = setup_test_pool().await;
+        let Some(pool) = setup_test_pool().await else {
+            return;
+        };
         let repo = PgPkeKeysetRepository::new(pool);
 
         let test_id = Uuid::new_v4().to_string();

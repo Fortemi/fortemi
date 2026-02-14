@@ -113,6 +113,7 @@ jobs:
         run: |
           DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export INTEGRATION_TEST_DB=1
           # Run lib tests and doc tests separately (can't mix --lib and --doc)
           cargo test --lib --workspace
           cargo test --doc --workspace
@@ -200,6 +201,7 @@ jobs:
         run: |
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export INTEGRATION_TEST_DB=1
 
           # Run all workspace tests except matric-jobs
           # (matric-jobs tests already run above with serial execution)
@@ -292,6 +294,7 @@ jobs:
         run: |
           DB_PORT=$((15532 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export INTEGRATION_TEST_DB=1
 
           # Run all other tests with coverage (accumulate with --no-clean)
           cargo llvm-cov --all-features --workspace --exclude matric-jobs --no-clean --lcov --output-path target/coverage/lcov.info
@@ -388,6 +391,7 @@ jobs:
         run: |
           DB_PORT=$((15632 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="postgres://matric:matric@localhost:${DB_PORT}/matric_test"
+          export INTEGRATION_TEST_DB=1
 
           # Run tests marked with #[ignore] serially to avoid database state conflicts
           # (spatial search tests share the same tables and need isolation)
