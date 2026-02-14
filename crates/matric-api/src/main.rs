@@ -1122,6 +1122,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Health check
         .route("/health", get(health_check))
+        .route("/health/live", get(health_check_live))
         // OpenAPI / Swagger UI
         .merge(
             SwaggerUi::new("/docs").config(
@@ -2444,7 +2445,7 @@ fn check_scope_enforcement(
 /// Check if a route is public (accessible without authentication).
 fn is_public_route(path: &str) -> bool {
     // Health endpoints
-    if path == "/health" || path.starts_with("/api/v1/health") {
+    if path.starts_with("/health") || path.starts_with("/api/v1/health") {
         return true;
     }
     // OAuth endpoints
@@ -2519,6 +2520,139 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "extraction_strategies": state.extraction_strategies,
         },
     }))
+}
+
+/// Live health check endpoint (readiness probe).
+///
+/// Performs concurrent live connectivity checks on all dependent services:
+/// - PostgreSQL (SELECT 1)
+/// - Redis search cache (connection check)
+/// - Ollama vision backend (if configured)
+/// - Whisper transcription backend (if configured)
+///
+/// Returns 200 for healthy or degraded (optional services down),
+/// 503 when critical services (PostgreSQL) are unreachable.
+#[utoipa::path(
+    get,
+    path = "/health/live",
+    tag = "System",
+    responses(
+        (status = 200, description = "Healthy or degraded"),
+        (status = 503, description = "Critical service unavailable"),
+    )
+)]
+async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+
+    // Run all checks concurrently
+    let (db_result, redis_result, vision_result, transcription_result) = tokio::join!(
+        // PostgreSQL: SELECT 1 with 5s timeout
+        async {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                sqlx::query_scalar::<_, i32>("SELECT 1")
+                    .fetch_one(&state.db.pool),
+            )
+            .await
+            {
+                Ok(Ok(1)) => ("ok", None),
+                Ok(Ok(_)) => ("ok", None),
+                Ok(Err(e)) => ("error", Some(format!("{e}"))),
+                Err(_) => ("error", Some("timeout (5s)".to_string())),
+            }
+        },
+        // Redis: connection check
+        async {
+            if state.search_cache.is_connected().await {
+                ("ok", None)
+            } else {
+                ("unavailable", Some("not connected".to_string()))
+            }
+        },
+        // Vision backend (optional)
+        async {
+            match &state.vision_backend {
+                Some(backend) => match backend.health_check().await {
+                    Ok(_) => ("ok", None),
+                    Err(e) => ("error", Some(format!("{e}"))),
+                },
+                None => ("not_configured", None),
+            }
+        },
+        // Transcription backend (optional)
+        async {
+            match &state.transcription_backend {
+                Some(backend) => match backend.health_check().await {
+                    Ok(_) => ("ok", None),
+                    Err(e) => ("error", Some(format!("{e}"))),
+                },
+                None => ("not_configured", None),
+            }
+        },
+    );
+
+    let elapsed_ms = start.elapsed().as_millis();
+
+    // PostgreSQL is critical — if it's down, the service is unhealthy
+    let db_healthy = db_result.0 == "ok";
+
+    // Determine overall status
+    let (overall_status, http_status) = if !db_healthy {
+        ("unhealthy", StatusCode::SERVICE_UNAVAILABLE)
+    } else if redis_result.0 == "error"
+        || (vision_result.0 == "error")
+        || (transcription_result.0 == "error")
+    {
+        ("degraded", StatusCode::OK)
+    } else {
+        ("healthy", StatusCode::OK)
+    };
+
+    let mut services = serde_json::json!({
+        "postgresql": {
+            "status": db_result.0,
+        },
+        "redis": {
+            "status": redis_result.0,
+        },
+        "vision": {
+            "status": vision_result.0,
+        },
+        "transcription": {
+            "status": transcription_result.0,
+        },
+    });
+
+    // Add error details where present
+    if let Some(err) = &db_result.1 {
+        services["postgresql"]["error"] = serde_json::Value::String(err.clone());
+    }
+    if let Some(err) = &redis_result.1 {
+        services["redis"]["error"] = serde_json::Value::String(err.clone());
+    }
+    if let Some(err) = &vision_result.1 {
+        services["vision"]["error"] = serde_json::Value::String(err.clone());
+    }
+    if let Some(err) = &transcription_result.1 {
+        services["transcription"]["error"] = serde_json::Value::String(err.clone());
+    }
+
+    let body = serde_json::json!({
+        "status": overall_status,
+        "version": env!("CARGO_PKG_VERSION"),
+        "git_sha": state.git_sha,
+        "build_date": state.build_date,
+        "check_duration_ms": elapsed_ms,
+        "services": services,
+        "capabilities": {
+            "vision": state.vision_backend.is_some(),
+            "audio_transcription": state.transcription_backend.is_some(),
+            "auth_required": state.require_auth,
+            "extraction_strategies": state.extraction_strategies,
+        },
+    });
+
+    (http_status, Json(body))
 }
 
 // =============================================================================

@@ -108,6 +108,36 @@ See [docs/content/self-maintenance.md](/docs/content/self-maintenance.md) for fu
 
 ## Testing Scripts
 
+### Local Test Runner (Recommended)
+
+Use `act` to run CI workflows locally. This ensures your local tests match CI exactly.
+
+**Install act (one-time):**
+```bash
+curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+```
+
+**Run tests locally:**
+```bash
+# Run the full test workflow (matches CI)
+act -j fast-tests
+
+# Run a specific job
+act -j integration-tests
+
+# List available jobs
+act -l
+
+# Run with verbose output
+act -j fast-tests -v
+```
+
+**Benefits:**
+- Exactly matches CI environment and workflow
+- Uses same Docker containers, migrations, and test setup
+- No local database setup required
+- Catches CI-specific issues before pushing
+
 ### Container API Tests
 
 Tests the API endpoints in a containerized environment:
