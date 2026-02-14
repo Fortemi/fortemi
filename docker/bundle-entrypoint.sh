@@ -271,9 +271,15 @@ echo "  Renderer: http://localhost:${RENDERER_PORT:-8080} (3D models)"
 echo "  MCP Client ID: ${MCP_CLIENT_ID:-NOT SET}"
 echo "========================================"
 
-# Wait for any process to exit (renderer included so silent death is detected)
-wait -n $API_PID $MCP_PID $RENDERER_PID
+# Wait for critical processes to exit (API and MCP are required, renderer is optional)
+# Only include renderer in wait if it started successfully
+WAIT_PIDS="$API_PID $MCP_PID"
+if [ "$RENDERER_READY" = true ] && kill -0 $RENDERER_PID 2>/dev/null; then
+    WAIT_PIDS="$WAIT_PIDS $RENDERER_PID"
+fi
 
-# If we get here, one of the processes died
-echo "A process exited unexpectedly"
+wait -n $WAIT_PIDS
+
+# If we get here, one of the critical processes died
+echo "A critical process exited unexpectedly"
 cleanup
