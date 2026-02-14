@@ -1,125 +1,66 @@
 {
-  "active": false,
-  "task": "Execute MCP UAT suite v2026.2.20 - all 30 phases",
-  "completion": "All 30 phases executed, results recorded, issues filed for failures",
+  "active": true,
+  "task": "Execute MCP UAT suite v2026.2.8 - all phases, 1 phase per iteration, 1 test per subagent",
+  "completion": "All phases executed, results recorded, issues filed for failures",
   "maxIterations": 100,
-  "currentIteration": 8,
-  "startTime": "2026-02-12T20:00:00Z",
-  "endTime": "2026-02-13T04:30:00Z",
+  "currentIteration": 27,
+  "startTime": "2026-02-13T12:00:00Z",
   "timeoutMinutes": 600,
-  "status": "completed",
+  "status": "running",
   "constraints": {
     "one_phase_per_iteration": true,
     "one_test_per_subagent": true,
     "mcp_first": true,
-    "no_context_overload": true
+    "no_context_overload": true,
+    "subagent_model": "sonnet"
   },
-  "phases_completed": [
-    "phase-0", "phase-1", "phase-2", "phase-2b", "phase-2c", "phase-2d", "phase-2e", "phase-2f", "phase-2g",
-    "phase-3", "phase-3b", "phase-4", "phase-5", "phase-6", "phase-7", "phase-8", "phase-9",
-    "phase-10", "phase-11", "phase-12", "phase-12b", "phase-13", "phase-14", "phase-15",
-    "phase-16", "phase-17", "phase-18", "phase-19", "phase-20", "phase-21"
+  "phases_completed": ["phase-0", "phase-1", "phase-2", "phase-2b", "phase-2c", "phase-2d", "phase-2e", "phase-2f", "phase-2g", "phase-3", "phase-3b", "phase-4", "phase-5", "phase-6", "phase-7", "phase-8", "phase-9", "phase-10", "phase-11", "phase-12", "phase-12b", "phase-13", "phase-14", "phase-15", "phase-16", "phase-17", "phase-18"],
+  "phases_remaining": [
+    "phase-19", "phase-20", "phase-21"
   ],
-  "phases_remaining": [],
-  "total_tests": 554,
-  "tests_passed": 506,
-  "tests_failed": 0,
-  "tests_partial": 10,
-  "tests_blocked": 1,
-  "tests_not_executed": 24,
-  "executable_pass_rate": "95.5%",
-  "issues_filed": ["#299", "#319", "#320", "#322", "#323", "#324", "#335"],
-  "issues_closed": ["#299", "#319", "#320", "#322", "#323", "#324", "#335"],
-  "issues_open": [],
+  "total_tests": 455,
+  "tests_passed": 429,
+  "tests_failed": 7,
+  "tests_partial": 14,
+  "tests_blocked": 4,
+  "tests_not_executed": 1,
+  "executable_pass_rate": "95.6%",
+  "issues_filed": ["#355", "#356", "#358", "#359", "#361", "#362", "#363"],
+  "issues_closed": [],
+  "issues_open": ["#355", "#356", "#358", "#359", "#362", "#363"],
+  "infrastructure_notes": [
+    "Whisper backend (http://whisper:8000) not reachable - affects audio transcription tests (#356)",
+    "Three.js renderer (http://localhost:8080) not reachable - affects 3D model extraction tests (#355)",
+    "MCP numeric serialization issue - lat/lon as strings (#358)",
+    "Spatial filter bug in combined search - returns null location records (#359)"
+  ],
   "phase_results": {
-    "phase-0": { "tests": 4, "passed": 4, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-1": { "tests": 11, "passed": 11, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-2": { "tests": 17, "passed": 17, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-2b": { "tests": 24, "passed": 22, "failed": 0, "blocked": 0, "other": 2, "pass_rate": "100%" },
-    "phase-2c": { "tests": 31, "passed": 29, "failed": 0, "blocked": 0, "other": 2, "pass_rate": "100%" },
-    "phase-3": { "tests": 18, "passed": 18, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-3b": { "tests": 26, "passed": 24, "failed": 0, "blocked": 0, "other": 2, "pass_rate": "100%" },
-    "phase-4": { "tests": 11, "passed": 11, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-5": { "tests": 11, "passed": 10, "failed": 0, "blocked": 0, "other": 1, "pass_rate": "100%" },
-    "phase-6": { "tests": 13, "passed": 13, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-7": { "tests": 20, "passed": 20, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-8": { "tests": 16, "passed": 16, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-9": { "tests": 16, "passed": 16, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-10": { "tests": 16, "passed": 16, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-11": { "tests": 15, "passed": 15, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-12": { "tests": 20, "passed": 18, "failed": 0, "blocked": 1, "other": 1, "pass_rate": "100%" },
-    "phase-13": { "tests": 40, "passed": 40, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-14": { "tests": 20, "passed": 20, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-15": { "tests": 22, "passed": 21, "failed": 0, "blocked": 0, "other": 1, "pass_rate": "100%" },
-    "phase-16": { "tests": 12, "passed": 12, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-17": { "tests": 17, "passed": 17, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-18": { "tests": 15, "passed": 14, "failed": 0, "blocked": 0, "other": 1, "pass_rate": "100%" },
-    "phase-19": { "tests": 48, "passed": 42, "failed": 0, "blocked": 0, "other": 6, "pass_rate": "100%" },
-    "phase-20": { "tests": 19, "passed": 19, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-21": { "tests": 10, "passed": 10, "failed": 0, "blocked": 0, "pass_rate": "100%" },
-    "phase-22": { "tests": 12, "passed": 11, "failed": 0, "blocked": 0, "other": 1, "pass_rate": "100%" }
-  },
-  "retest_history": [
-    {
-      "round": "R1",
-      "timestamp": "2026-02-12T22:00:00Z",
-      "tests_retested": 10,
-      "fixed": ["#320", "#322", "#323"],
-      "still_failing": ["#299", "#324"]
-    },
-    {
-      "round": "R2",
-      "timestamp": "2026-02-12T23:30:00Z",
-      "tests_retested": 3,
-      "fixed": ["#319", "#324"],
-      "still_failing": ["#299"]
-    },
-    {
-      "round": "R3",
-      "timestamp": "2026-02-13T00:30:00Z",
-      "tests_retested": 5,
-      "confirmed_fixed": ["#320", "#322", "#323", "#324"],
-      "reopened": ["#299"]
-    },
-    {
-      "round": "R4",
-      "timestamp": "2026-02-13T01:30:00Z",
-      "tests_retested": 1,
-      "still_failing": ["#299"]
-    },
-    {
-      "round": "R5",
-      "timestamp": "2026-02-13T02:30:00Z",
-      "tests_retested": 1,
-      "fixed": ["#299"],
-      "verification": "Parallel curl test: first returns queued, second returns already_pending"
-    },
-    {
-      "round": "R6",
-      "timestamp": "2026-02-13T03:30:00Z",
-      "tests_retested": 88,
-      "phases_retested": ["phase-13", "phase-19"],
-      "results": {
-        "phase-13": "41/41 PASS (100%)",
-        "phase-19": "45/47 PASS, 1 FAIL, 1 PARTIAL (95.7%)"
-      },
-      "issues_filed": ["#335"]
-    },
-    {
-      "round": "R7",
-      "timestamp": "2026-02-13T05:15:00Z",
-      "tests_retested": 4,
-      "tests": ["CHAIN-006b (embedding set validation)", "ARCH-019 (federated search)", "VIS-001 (describe_image)", "AUD-001 (transcribe_audio)"],
-      "results": {
-        "CHAIN-006b": "PASS - search_notes now returns 404 for invalid embedding set slug",
-        "ARCH-019": "PASS - federated search returns results across memories",
-        "VIS-001": "PASS - describe_image MCP tool accessible",
-        "AUD-001": "PASS - transcribe_audio MCP tool accessible"
-      },
-      "fixed": ["#335"],
-      "notes": "Multimedia MCP tools now accessible (sandbox permissions resolved)"
-    }
-  ],
-  "final_verdict": "PASS",
-  "release_recommendation": "Ready for production deployment - 95.5% pass rate, ALL 7 issues CLOSED"
+    "phase-0": { "total": 4, "passed": 4, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-1": { "total": 11, "passed": 11, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-2": { "total": 18, "passed": 18, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-2b": { "total": 22, "passed": 20, "failed": 1, "partial": 1, "blocked": 0 },
+    "phase-2c": { "total": 31, "passed": 28, "failed": 2, "partial": 1, "blocked": 0 },
+    "phase-2d": { "total": 8, "passed": 8, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-2e": { "total": 8, "passed": 5, "failed": 1, "partial": 2, "blocked": 0 },
+    "phase-2f": { "total": 10, "passed": 10, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-2g": { "total": 10, "passed": 9, "failed": 1, "partial": 0, "blocked": 0 },
+    "phase-3": { "total": 18, "passed": 16, "failed": 0, "partial": 1, "blocked": 1 },
+    "phase-3b": { "total": 26, "passed": 22, "failed": 1, "partial": 1, "blocked": 1 },
+    "phase-4": { "total": 11, "passed": 11, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-5": { "total": 11, "passed": 11, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-6": { "total": 13, "passed": 13, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-7": { "total": 20, "passed": 19, "failed": 1, "partial": 0, "blocked": 0 },
+    "phase-8": { "total": 16, "passed": 15, "failed": 0, "partial": 1, "blocked": 0 },
+    "phase-9": { "total": 15, "passed": 14, "failed": 0, "partial": 1, "blocked": 0 },
+    "phase-10": { "total": 15, "passed": 13, "failed": 0, "partial": 2, "blocked": 0 },
+    "phase-11": { "total": 15, "passed": 15, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-12": { "total": 19, "passed": 19, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-12b": { "total": 19, "passed": 19, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-13": { "total": 41, "passed": 37, "failed": 0, "partial": 2, "blocked": 2 },
+    "phase-14": { "total": 20, "passed": 20, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-15": { "total": 23, "passed": 23, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-16": { "total": 14, "passed": 14, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-17": { "total": 22, "passed": 22, "failed": 0, "partial": 0, "blocked": 0 },
+    "phase-18": { "total": 15, "passed": 13, "failed": 0, "partial": 2, "blocked": 0 }
+  }
 }
