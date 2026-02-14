@@ -89,6 +89,9 @@ services:
 
       # ── API Server ─────────────────────────────────────────────────────
       - RUST_LOG=${RUST_LOG:-info}
+
+      # ── Debug ──────────────────────────────────────────────────────────
+      - DEBUG_SESSION_CONTEXT=${DEBUG_SESSION_CONTEXT:-}
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
@@ -146,6 +149,11 @@ services:
       - OLLAMA_EMBED_DIM=${OLLAMA_EMBED_DIM:-768}
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
+
+      # ── 3D Model Renderer (Three.js) ───────────────────────────────────
+      # Internal renderer URL — bundled Three.js renderer on localhost:8080
+      - RENDERER_URL=${RENDERER_URL:-http://localhost:8080}
+      - RENDERER_PORT=${RENDERER_PORT:-8080}
 
       # ── Optional Extraction Services ───────────────────────────────────
       - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}

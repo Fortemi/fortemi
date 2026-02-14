@@ -118,12 +118,26 @@ RENDERER_PID=$!
 cd /app
 echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
 
-# Wait for renderer to be ready
-sleep 2
-if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
-    echo "  Renderer is healthy!"
-else
-    echo "  WARNING: Renderer health check failed (3D model extraction may not work)"
+# Wait for renderer to be ready (xvfb + Three.js + headless-gl can take time)
+echo "  Waiting for renderer to be ready..."
+RENDERER_READY=false
+for i in {1..15}; do
+    if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
+        echo "  Renderer is healthy!"
+        RENDERER_READY=true
+        break
+    fi
+    # Check renderer process is still alive
+    if ! kill -0 $RENDERER_PID 2>/dev/null; then
+        echo "  WARNING: Renderer process died during startup"
+        cat /var/log/matric/threejs-renderer.log 2>/dev/null | tail -20 || true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$RENDERER_READY" = false ] && kill -0 $RENDERER_PID 2>/dev/null; then
+    echo "  WARNING: Renderer health check timed out after 15s (3D model extraction may not work)"
     cat /var/log/matric/threejs-renderer.log 2>/dev/null | tail -20 || true
 fi
 
@@ -233,6 +247,7 @@ PORT="${MCP_PORT:-3001}" \
 MATRIC_API_URL="${MATRIC_API_URL:-http://localhost:3000}" \
 MCP_CLIENT_ID="$MCP_CLIENT_ID" \
 MCP_CLIENT_SECRET="$MCP_CLIENT_SECRET" \
+DEBUG_SESSION_CONTEXT="${DEBUG_SESSION_CONTEXT:-}" \
 node index.js > /var/log/matric/mcp-server.log 2>&1 &
 MCP_PID=$!
 echo "  MCP server started (PID: $MCP_PID)"
@@ -250,13 +265,14 @@ fi
 
 echo "========================================"
 echo "=== Matric Memory Bundle Ready ==="
-echo "  API: http://0.0.0.0:${PORT:-3000}"
-echo "  MCP: http://0.0.0.0:${MCP_PORT:-3001}"
+echo "  API:      http://0.0.0.0:${PORT:-3000}"
+echo "  MCP:      http://0.0.0.0:${MCP_PORT:-3001}"
+echo "  Renderer: http://localhost:${RENDERER_PORT:-8080} (3D models)"
 echo "  MCP Client ID: ${MCP_CLIENT_ID:-NOT SET}"
 echo "========================================"
 
-# Wait for any process to exit
-wait -n $API_PID $MCP_PID
+# Wait for any process to exit (renderer included so silent death is detected)
+wait -n $API_PID $MCP_PID $RENDERER_PID
 
 # If we get here, one of the processes died
 echo "A process exited unexpectedly"
