@@ -304,7 +304,7 @@ use handlers::{
     vision::describe_image,
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
-    TitleGenerationHandler,
+    RefreshEmbeddingSetHandler, TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -998,6 +998,9 @@ async fn main() -> anyhow::Result<()> {
         }
         worker
             .register_handler(ExifExtractionHandler::new(db.clone()))
+            .await;
+        worker
+            .register_handler(RefreshEmbeddingSetHandler::new(db.clone()))
             .await;
 
         let handle = worker.start();
@@ -7671,9 +7674,30 @@ async fn add_embedding_set_members(
     } else {
         slug_or_id
     };
+    let note_ids = body.note_ids.clone();
+    let slug_for_resolve = slug.clone();
     let count = ctx
         .execute(move |tx| Box::pin(async move { repo.add_members_tx(tx, &slug, body).await }))
         .await?;
+
+    // Resolve set ID and queue embedding jobs for each added note
+    let resolve_repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    if let Some(set) = resolve_repo.get_by_slug(&slug_for_resolve).await? {
+        for note_id in &note_ids {
+            let payload = serde_json::json!({ "embedding_set_id": set.id.to_string() });
+            let _ = state
+                .db
+                .jobs
+                .queue(
+                    Some(*note_id),
+                    matric_core::JobType::Embedding,
+                    matric_core::JobType::Embedding.default_priority(),
+                    Some(payload),
+                )
+                .await;
+        }
+    }
+
     Ok(Json(serde_json::json!({ "added": count })))
 }
 

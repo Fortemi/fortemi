@@ -14,5 +14,5 @@ pub mod vision;
 pub use jobs::{
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
     ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
-    TitleGenerationHandler,
+    RefreshEmbeddingSetHandler, TitleGenerationHandler,
 };

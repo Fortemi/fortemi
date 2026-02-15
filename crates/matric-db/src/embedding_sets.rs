@@ -492,6 +492,7 @@ impl PgEmbeddingSetRepository {
     }
 
     /// Refresh an embedding set by re-evaluating criteria.
+    /// For manual sets, returns the count of members missing embeddings.
     pub async fn refresh(&self, set_slug: &str) -> Result<i64> {
         let set = self
             .get_by_slug(set_slug)
@@ -499,7 +500,21 @@ impl PgEmbeddingSetRepository {
             .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         if set.mode == EmbeddingSetMode::Manual {
-            return Ok(0); // Manual sets don't auto-refresh
+            // Return count of members missing embeddings for this set
+            let count: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)
+                FROM embedding_set_member m
+                LEFT JOIN embedding e ON e.note_id = m.note_id AND e.embedding_set_id = m.embedding_set_id
+                WHERE m.embedding_set_id = $1 AND e.id IS NULL
+                "#,
+            )
+            .bind(set.id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+            return Ok(count);
         }
 
         // Find matching notes
@@ -2003,7 +2018,21 @@ impl PgEmbeddingSetRepository {
             .ok_or_else(|| Error::NotFound(format!("Embedding set not found: {}", set_slug)))?;
 
         if set.mode == EmbeddingSetMode::Manual {
-            return Ok(0);
+            // Return count of members missing embeddings for this set
+            let count: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)
+                FROM embedding_set_member m
+                LEFT JOIN embedding e ON e.note_id = m.note_id AND e.embedding_set_id = m.embedding_set_id
+                WHERE m.embedding_set_id = $1 AND e.id IS NULL
+                "#,
+            )
+            .bind(set.id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            return Ok(count);
         }
 
         let matching_notes = self.find_matching_notes_tx(tx, set.id, 1_000_000).await?;

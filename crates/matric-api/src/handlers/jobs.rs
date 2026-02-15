@@ -441,14 +441,27 @@ impl JobHandler for EmbeddingHandler {
 
         let chunk_count = chunk_vectors.len();
 
-        // Store embeddings
+        // Store embeddings — use set-scoped storage if embedding_set_id is in payload
         let model_name = EmbeddingBackend::model_name(&self.backend);
-        if let Err(e) = self
-            .db
-            .embeddings
-            .store(note_id, chunk_vectors, model_name)
-            .await
-        {
+        let embedding_set_id = ctx
+            .payload()
+            .and_then(|p| p.get("embedding_set_id"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok());
+
+        let store_result = if let Some(set_id) = embedding_set_id {
+            self.db
+                .embeddings
+                .store_for_set(note_id, set_id, chunk_vectors, model_name)
+                .await
+        } else {
+            self.db
+                .embeddings
+                .store(note_id, chunk_vectors, model_name)
+                .await
+        };
+
+        if let Err(e) = store_result {
             return JobResult::Failed(format!("Failed to store embeddings: {}", e));
         }
 
@@ -1836,6 +1849,117 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
     }
 
     cleaned
+}
+
+/// Handler for refreshing embedding sets.
+///
+/// For manual sets: finds members that are missing embeddings for this set
+/// and queues individual Embedding jobs with `embedding_set_id` in the payload.
+pub struct RefreshEmbeddingSetHandler {
+    db: Database,
+}
+
+impl RefreshEmbeddingSetHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl JobHandler for RefreshEmbeddingSetHandler {
+    fn job_type(&self) -> JobType {
+        JobType::RefreshEmbeddingSet
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "refresh_embedding_set", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+
+        let set_slug = match ctx
+            .payload()
+            .and_then(|p| p.get("set_slug"))
+            .and_then(|v| v.as_str())
+        {
+            Some(s) => s.to_string(),
+            None => return JobResult::Failed("No set_slug in payload".into()),
+        };
+
+        ctx.report_progress(10, Some("Looking up embedding set..."));
+
+        let set = match self.db.embedding_sets.get_by_slug(&set_slug).await {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                return JobResult::Failed(format!("Embedding set not found: {}", set_slug))
+            }
+            Err(e) => return JobResult::Failed(format!("Failed to look up set: {}", e)),
+        };
+
+        ctx.report_progress(20, Some("Finding members missing embeddings..."));
+
+        // Find members that don't have embeddings for this set
+        let missing_note_ids: Vec<uuid::Uuid> = match sqlx::query_scalar(
+            r#"
+            SELECT m.note_id
+            FROM embedding_set_member m
+            LEFT JOIN embedding e ON e.note_id = m.note_id AND e.embedding_set_id = m.embedding_set_id
+            WHERE m.embedding_set_id = $1 AND e.id IS NULL
+            "#,
+        )
+        .bind(set.id)
+        .fetch_all(&self.db.pool)
+        .await
+        {
+            Ok(ids) => ids,
+            Err(e) => return JobResult::Failed(format!("Failed to find missing embeddings: {}", e)),
+        };
+
+        ctx.report_progress(50, Some("Queuing embedding jobs..."));
+
+        let mut queued = 0;
+        for note_id in &missing_note_ids {
+            let payload = serde_json::json!({ "embedding_set_id": set.id.to_string() });
+            match self
+                .db
+                .jobs
+                .queue(
+                    Some(*note_id),
+                    JobType::Embedding,
+                    JobType::Embedding.default_priority(),
+                    Some(payload),
+                )
+                .await
+            {
+                Ok(_) => queued += 1,
+                Err(e) => warn!(note_id = %note_id, error = %e, "Failed to queue embedding job"),
+            }
+        }
+
+        // Update set status
+        let _ = sqlx::query(
+            "UPDATE embedding_set SET last_refresh_at = NOW(), index_status = 'building', updated_at = NOW() WHERE id = $1",
+        )
+        .bind(set.id)
+        .execute(&self.db.pool)
+        .await;
+
+        ctx.report_progress(100, Some("Refresh complete"));
+        info!(
+            set_slug = %set_slug,
+            missing = missing_note_ids.len(),
+            queued = queued,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Embedding set refresh completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "set_slug": set_slug,
+            "missing_count": missing_note_ids.len(),
+            "jobs_queued": queued
+        })))
+    }
 }
 
 /// Handler for EXIF metadata extraction jobs.

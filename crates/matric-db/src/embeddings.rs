@@ -429,6 +429,52 @@ impl PgEmbeddingRepository {
 
 // Transaction-aware variants for archive-scoped operations
 impl PgEmbeddingRepository {
+    /// Store embeddings scoped to a specific embedding set.
+    ///
+    /// Unlike `store()`, this only deletes embeddings for the given set (not all sets),
+    /// making it safe for multi-set scenarios.
+    pub async fn store_for_set(
+        &self,
+        note_id: Uuid,
+        embedding_set_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+
+        // Delete only embeddings for this specific set
+        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
+            .bind(note_id)
+            .bind(embedding_set_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        if !chunks.is_empty() {
+            let now = Utc::now();
+            for (i, (text, vector)) in chunks.into_iter().enumerate() {
+                sqlx::query(
+                    "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                )
+                .bind(new_v7())
+                .bind(note_id)
+                .bind(i as i32)
+                .bind(&text)
+                .bind(&vector)
+                .bind(model)
+                .bind(now)
+                .bind(embedding_set_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+            }
+        }
+
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(())
+    }
+
     /// Store embeddings within an existing transaction.
     pub async fn store_tx(
         &self,
