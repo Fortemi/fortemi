@@ -1,4 +1,4 @@
-# UAT Phase 13: Final Cleanup
+# UAT Phase 14: Final Cleanup
 
 ## Purpose
 Remove ALL UAT test data from the system to restore clean state. This phase MUST run last and ensures no test artifacts remain after the test suite completes.
@@ -7,7 +7,7 @@ Remove ALL UAT test data from the system to restore clean state. This phase MUST
 ~3 minutes
 
 ## Prerequisites
-- All previous phases (1-12) completed
+- All previous phases (1-13) completed
 - MCP server healthy
 - Access to all memories used during testing
 
@@ -15,11 +15,12 @@ Remove ALL UAT test data from the system to restore clean state. This phase MUST
 - `list_notes`
 - `delete_note`
 - `manage_collection`
+- `manage_embeddings`
 - `select_memory`
 
 ---
 
-> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Direct API calls or curl commands are NOT acceptable. This cleanup phase removes all notes with `uat/` tag prefix and all UAT-related collections.
+> **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls. Direct API calls or curl commands are NOT acceptable. This cleanup phase removes all notes with `uat/` tag prefix, all UAT-related collections, and all UAT embedding sets.
 
 ---
 
@@ -267,7 +268,62 @@ const totalRemaining = defaultVerify.notes.length + testVerify.notes.length;
 
 ---
 
-### CLEAN-005: Switch to Default Memory
+### CLEAN-005: Delete UAT Embedding Sets
+**MCP Tool**: `manage_embeddings`
+
+```javascript
+// Switch to default memory
+await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "select_memory",
+  arguments: { name: "public" }
+});
+
+// List all embedding sets
+const allSets = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "manage_embeddings",
+  arguments: { action: "list" }
+});
+
+// Delete sets with "uat-embed-" prefix in name
+const uatSets = allSets.sets.filter(s =>
+  s.name.toLowerCase().startsWith("uat-embed-")
+);
+
+for (const set of uatSets) {
+  await use_mcp_tool({
+    server_name: "matric-memory",
+    tool_name: "manage_embeddings",
+    arguments: {
+      action: "delete",
+      slug: set.slug
+    }
+  });
+}
+
+// Verify no UAT embedding sets remain
+const verifyResult = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "manage_embeddings",
+  arguments: { action: "list" }
+});
+
+const remaining = verifyResult.sets.filter(s =>
+  s.name.toLowerCase().startsWith("uat-embed-")
+);
+```
+
+**Expected**: All UAT embedding sets deleted
+**Pass Criteria**:
+- Each set delete completes without errors
+- No sets with `uat-embed-` prefix remain
+- `remaining.length === 0`
+- Default embedding set is NOT deleted (only UAT sets)
+
+---
+
+### CLEAN-006: Switch to Default Memory
 **MCP Tool**: `select_memory`
 
 ```javascript
@@ -300,6 +356,7 @@ const activeMemory = await use_mcp_tool({
 **Expected deletions:**
 - Notes created across all phases: ~60-80 notes
 - Collections created: 3-5 collections
+- Embedding sets created: 2-3 sets (with `uat-embed-` prefix)
 - Memories used: 1-2 (public + optional uat-test-memory)
 
 **Cleanup verification:**
@@ -312,9 +369,9 @@ const finalCheck = await use_mcp_tool({
 });
 
 if (finalCheck.notes.length === 0) {
-  console.log("✅ Cleanup successful - zero UAT notes remaining");
+  console.log("Cleanup successful - zero UAT notes remaining");
 } else {
-  console.error(`❌ Cleanup incomplete - ${finalCheck.notes.length} UAT notes still exist`);
+  console.error(`Cleanup incomplete - ${finalCheck.notes.length} UAT notes still exist`);
 }
 ```
 
@@ -327,19 +384,21 @@ if (finalCheck.notes.length === 0) {
 | UAT Note Cleanup | 0 | 0 | 0 | 2 |
 | Collection Cleanup | 0 | 0 | 0 | 1 |
 | Verification | 0 | 0 | 0 | 1 |
+| Embedding Set Cleanup | 0 | 0 | 0 | 1 |
 | Memory Reset | 0 | 0 | 0 | 1 |
-| **Total** | **0** | **0** | **0** | **5** |
+| **Total** | **0** | **0** | **0** | **6** |
 
 ## Phase Result
-- [ ] **Phase 13 PASSED** - All UAT data successfully removed
-- [ ] **Phase 13 FAILED** - See failure details above
-- [ ] **Phase 13 SKIPPED** - Reason: _______________
+- [ ] **Phase 14 PASSED** - All UAT data successfully removed
+- [ ] **Phase 14 FAILED** - See failure details above
+- [ ] **Phase 14 SKIPPED** - Reason: _______________
 
 ## Post-Cleanup Checklist
 
-After CLEAN-005 completes:
+After CLEAN-006 completes:
 - [ ] Zero notes with `uat` tags remain
 - [ ] Zero collections with "uat" in name remain
+- [ ] Zero embedding sets with "uat-embed-" prefix remain
 - [ ] Active memory is "public" (default)
 - [ ] System ready for production use or next test run
 - [ ] No orphaned tags or broken references
@@ -367,17 +426,20 @@ DELETE FROM notes WHERE tags @> ARRAY['uat']::text[];
 -- Delete UAT collections
 DELETE FROM collections WHERE name ILIKE '%uat%';
 
+-- Delete UAT embedding sets
+DELETE FROM embedding_sets WHERE name ILIKE 'uat-embed-%';
+
 -- Verify cleanup
 SELECT COUNT(*) FROM notes WHERE tags @> ARRAY['uat']::text[];
 -- Expected: 0
 ```
 
 **Only use manual cleanup if:**
-1. CLEAN-002 through CLEAN-004 all fail
+1. CLEAN-002 through CLEAN-005 all fail
 2. MCP server is confirmed healthy
 3. You have database admin access
 4. Production data is confirmed safe
 
 ---
 
-**End of UAT Phase 13**
+**End of UAT Phase 14**

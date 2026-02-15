@@ -6,35 +6,36 @@ This directory contains phase-based UAT test procedures for Fortemi, designed fo
 
 ---
 
-## Tool Surface: 22 Core MCP Tools
+## Tool Surface: 23 Core MCP Tools
 
-Following the tool surface consolidation (#365), Fortemi exposes **22 core MCP tools** using a discriminated-union pattern. Seven consolidated tools replace ~180 granular tools:
+Following the tool surface consolidation (#365), Fortemi exposes **23 core MCP tools** using a discriminated-union pattern. Eight consolidated tools replace ~180 granular tools:
 
 | Category | Tools | Count |
 |----------|-------|-------|
 | Notes CRUD | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
-| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments` | 7 |
+| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments`, `manage_embeddings` | 8 |
 | Graph | `explore_graph`, `get_note_links` | 2 |
 | Export | `export_note` | 1 |
 | System | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | Multi-memory | `select_memory`, `get_active_memory` | 2 |
 | Observability | `get_knowledge_health` | 1 |
 | Bulk ops | `bulk_reprocess_notes` | 1 |
-| **Total** | | **22** |
+| **Total** | | **23** |
 
-**Advanced features** (versioning, PKE encryption, embedding set management, SKOS taxonomy editing, OAuth admin, job queue management) are accessible via the REST API. Use `get_documentation` for API guidance.
+**Advanced features** (versioning, PKE encryption, SKOS taxonomy editing, OAuth admin, job queue management) are accessible via the REST API. Use `get_documentation` for API guidance.
 
 ---
 
 ## Suite Completion Requirements
 
-> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **14 phases (0-13)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
+> **WARNING FOR AGENTIC EXECUTORS**: This UAT suite contains **15 phases (0-14)**. You MUST execute ALL phases to completion. DO NOT stop at any intermediate phase.
 
 The suite is NOT complete until:
 - Phase 12 (Feature Chains) completes all 20 end-to-end tests
-- Phase 13 (Cleanup) removes ALL test data using MCP tools
+- Phase 13 (Embedding Sets) completes all 18 embedding set tests
+- Phase 14 (Cleanup) removes ALL test data using MCP tools
 
-**Phase 13 is the ONLY cleanup phase — it runs LAST, not in the middle.**
+**Phase 14 is the ONLY cleanup phase — it runs LAST, not in the middle.**
 
 ---
 
@@ -55,11 +56,12 @@ The suite is NOT complete until:
 | 10 | [Export, Health & Bulk Ops](phase-10-export-health.md) | ~5 min | 8 | No |
 | 11 | [Edge Cases](phase-11-edge-cases.md) | ~5 min | 10 | No |
 | 12 | [Feature Chains (E2E)](phase-12-feature-chains.md) | ~15 min | 20 | **Yes** |
-| 13 | [Final Cleanup](phase-13-cleanup.md) | ~3 min | 5 | **Yes** |
+| 13 | [Embedding Sets](phase-13-embedding-sets.md) | ~8 min | 18 | No |
+| 14 | [Final Cleanup](phase-14-cleanup.md) | ~3 min | 6 | **Yes** |
 
-**Total Tests**: ~141
-**Total Estimated Duration**: ~80 minutes (full suite)
-**Total Phases**: 14
+**Total Tests**: ~159
+**Total Estimated Duration**: ~90 minutes (full suite)
+**Total Phases**: 15
 
 ---
 
@@ -70,34 +72,35 @@ The suite is NOT complete until:
 | `health_check` | 0 | 1 |
 | `get_system_info` | 0, 9 | 2 |
 | `get_documentation` | 0 | 1 |
-| `capture_knowledge` | 1, 7, 8, 11, 12 | ~15 |
-| `list_notes` | 2, 8, 13 | ~6 |
+| `capture_knowledge` | 1, 7, 8, 11, 12, 13 | ~18 |
+| `list_notes` | 2, 8, 14 | ~6 |
 | `get_note` | 2, 12 | ~4 |
 | `update_note` | 2, 11 | ~6 |
-| `delete_note` | 2, 11, 13 | ~4 |
+| `delete_note` | 2, 11, 14 | ~4 |
 | `restore_note` | 2, 11 | ~3 |
-| `search` | 3, 7, 8, 11, 12 | ~14 |
+| `search` | 3, 7, 8, 11, 12, 13 | ~18 |
 | `manage_tags` | 4 | 5 |
 | `manage_concepts` | 4 | 7 |
-| `manage_collection` | 5, 12, 13 | ~12 |
+| `manage_collection` | 5, 12, 14 | ~12 |
 | `explore_graph` | 6, 12 | ~5 |
 | `get_note_links` | 6 | ~3 |
 | `record_provenance` | 7, 12 | ~10 |
-| `select_memory` | 8, 13 | ~4 |
+| `select_memory` | 8, 14 | ~4 |
 | `get_active_memory` | 8 | ~3 |
 | `manage_attachments` | 9 | 7 |
+| `manage_embeddings` | 13, 14 | ~18 |
 | `export_note` | 10, 12 | ~3 |
 | `get_knowledge_health` | 10, 12 | ~3 |
 | `bulk_reprocess_notes` | 10, 12 | ~4 |
-| **22/22 tools** | **All phases** | **~141** |
+| **23/23 tools** | **All phases** | **~159** |
 
-**Coverage**: 22/22 core tools (100%)
+**Coverage**: 23/23 core MCP tools (100%)
 
 ---
 
 ## Execution Order
 
-**IMPORTANT**: Phases MUST be executed in numerical order from 0 to 13.
+**IMPORTANT**: Phases MUST be executed in numerical order from 0 to 14.
 
 ### Phase Groupings
 
@@ -118,7 +121,10 @@ The suite is NOT complete until:
 │  RESILIENCE & E2E (Phases 11-12) - CRITICAL          │
 │  Edge cases, cross-cutting feature chains            │
 ├──────────────────────────────────────────────────────┤
-│  FINALIZATION (Phase 13) - ALWAYS LAST               │
+│  EMBEDDING SETS (Phase 13)                           │
+│  Set CRUD, membership, search scoping                │
+├──────────────────────────────────────────────────────┤
+│  FINALIZATION (Phase 14) - ALWAYS LAST               │
 │  Cleanup all UAT test data via MCP                   │
 └──────────────────────────────────────────────────────┘
 ```
@@ -128,8 +134,8 @@ The suite is NOT complete until:
 1. **Generate test data** first: `cd tests/uat/data/scripts && ./generate-test-data.sh`
 2. **Phase 0** validates system readiness
 3. **Phase 1** creates seed notes required by subsequent phases
-4. **Phases 2-12** execute feature tests in order
-5. **Phase 13** (Final Cleanup) MUST run LAST
+4. **Phases 2-13** execute feature tests in order
+5. **Phase 14** (Final Cleanup) MUST run LAST
 
 ### No Test Skipping
 
@@ -140,13 +146,13 @@ Every test must be executed regardless of upstream failures. Cascading failures 
 If running a subset, always include:
 - **Start**: Phases 0, 1 (foundation)
 - **Core**: Phases 2, 3 (critical CRUD + search)
-- **End**: Phase 13 (cleanup - ALWAYS LAST)
+- **End**: Phase 14 (cleanup - ALWAYS LAST)
 
 ---
 
 ## Success Criteria
 
-- **All Phases (0-13)**: 100% pass required for release approval
+- **All Phases (0-14)**: 100% pass required for release approval
 - **No skipping**: Every test must execute. Failures get filed as issues.
 - **Test data**: Must be generated before execution
 
@@ -193,13 +199,13 @@ cd tests/uat/data/scripts
 ## Execution Modes
 
 ### Quick Smoke Test (~15 min)
-Phases: 0, 1, 2, 3, 13
+Phases: 0, 1, 2, 3, 14
 
 ### Standard Suite (~50 min)
-Phases: 0-10, 13
+Phases: 0-10, 14
 
-### Full Suite (~80 min)
-Phases: 0-13 (all phases in order)
+### Full Suite (~90 min)
+Phases: 0-14 (all phases in order)
 
 ---
 
@@ -220,8 +226,8 @@ Agents MUST:
 3. Execute tests sequentially within each phase
 4. Record results in the phase summary table
 5. **Always proceed to the next phase** — never skip due to upstream failures
-6. **Execute ALL 14 phases (0-13)** — do not stop early
-7. **Phase 13 (Final Cleanup) is MANDATORY** and runs LAST
+6. **Execute ALL 15 phases (0-14)** — do not stop early
+7. **Phase 14 (Final Cleanup) is MANDATORY** and runs LAST
 8. **File a Gitea issue for every failure** — tag with `bug` and `mcp`
 
 ### Negative Test Isolation Protocol
@@ -239,8 +245,9 @@ Tests marked with `**Isolation**: Required` expect an error response. These MUST
 
 Before declaring UAT complete, verify:
 - [ ] Phase 12 (Feature Chains) executed with 20 tests
-- [ ] Phase 13 (Cleanup) removed all UAT test data
-- [ ] Final report includes all 14 phases
+- [ ] Phase 13 (Embedding Sets) executed with 18 tests
+- [ ] Phase 14 (Cleanup) removed all UAT test data
+- [ ] Final report includes all 15 phases
 
 ---
 
@@ -250,7 +257,6 @@ The following features are NOT covered by the 23 core MCP tools and require dire
 
 - **Versioning**: Note version history, rollback
 - **PKE Encryption**: Key generation, encrypt/decrypt
-- **Embedding Sets**: Set management, MRL configuration, auto-embed rules
 - **SKOS Taxonomy**: Concept scheme CRUD, broader/narrower relations, turtle export
 - **OAuth & Auth**: Client registration, token management, API keys
 - **Job Queue**: Individual job creation, monitoring, queue stats
@@ -263,6 +269,7 @@ These may be tested separately via API integration tests outside this MCP UAT su
 
 ## Version History
 
+- **2026.2.15**: Added Phase 13 (Embedding Sets) with 18 tests covering `manage_embeddings` CRUD, membership, search scoping, and error handling. Renumbered cleanup to Phase 14 with embedding set cleanup (CLEAN-005). 15 phases / ~159 tests.
 - **2026.2.14**: Complete rewrite for 22-tool core surface (#365, #389, #392). 14 phases / ~141 tests. Removed standalone media tools (describe_image, transcribe_audio) — media processing is pipeline-only. Added `manage_attachments` consolidated tool. Advanced features (versioning, PKE, SKOS admin, OAuth, jobs, embeddings) documented as API-only.
 - **2026.2.19**: Previous version — 30 phases, 545 tests, 202 MCP tools
 - **2026.1.0**: Initial UAT document
