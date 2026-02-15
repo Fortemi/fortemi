@@ -181,8 +181,8 @@ services:
       - RENDERER_URL=${RENDERER_URL:-http://localhost:8080}
       - RENDERER_PORT=${RENDERER_PORT:-8080}
 
-      # ── Optional Extraction Services ───────────────────────────────────
-      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}
+      # ── Extraction Services (enabled by default) ─────────────────────
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen3-vl:8b}
       # Whisper is bundled and enabled by default (GPU). Override for remote server.
       - WHISPER_BASE_URL=${WHISPER_BASE_URL:-http://whisper:8000}
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}

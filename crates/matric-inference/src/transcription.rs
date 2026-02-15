@@ -62,9 +62,11 @@ impl WhisperBackend {
     }
 
     /// Create from environment variables.
-    /// Returns None if WHISPER_BASE_URL is not set.
+    /// Uses DEFAULT_WHISPER_BASE_URL if WHISPER_BASE_URL is not set.
+    /// Returns None only if WHISPER_BASE_URL is explicitly set to empty string.
     pub fn from_env() -> Option<Self> {
-        let base_url = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL).ok()?;
+        let base_url = std::env::var(matric_core::defaults::ENV_WHISPER_BASE_URL)
+            .unwrap_or_else(|_| matric_core::defaults::DEFAULT_WHISPER_BASE_URL.to_string());
         if base_url.is_empty() {
             return None;
         }

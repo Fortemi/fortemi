@@ -806,7 +806,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref backend) = vision_backend {
         info!("Vision backend available: model={}", backend.model_name());
     } else {
-        info!("Vision backend disabled: OLLAMA_VISION_MODEL not set");
+        info!("Vision backend disabled: OLLAMA_VISION_MODEL set to empty");
     }
 
     // Create transcription backend (shared between worker extraction pipeline and API transcribe endpoint).
@@ -820,7 +820,7 @@ async fn main() -> anyhow::Result<()> {
             backend.model_name()
         );
     } else {
-        info!("Transcription backend disabled: WHISPER_BASE_URL not set");
+        info!("Transcription backend disabled: WHISPER_BASE_URL set to empty");
     }
 
     // Spawn background task to ensure whisper model is downloaded on the backend.

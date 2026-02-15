@@ -41,9 +41,11 @@ impl OllamaVisionBackend {
     }
 
     /// Create from environment variables.
-    /// Returns None if OLLAMA_VISION_MODEL is not set.
+    /// Uses DEFAULT_OLLAMA_VISION_MODEL if OLLAMA_VISION_MODEL is not set.
+    /// Returns None only if OLLAMA_VISION_MODEL is explicitly set to empty string.
     pub fn from_env() -> Option<Self> {
-        let model = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL).ok()?;
+        let model = std::env::var(matric_core::defaults::ENV_OLLAMA_VISION_MODEL)
+            .unwrap_or_else(|_| matric_core::defaults::DEFAULT_OLLAMA_VISION_MODEL.to_string());
         if model.is_empty() {
             return None;
         }

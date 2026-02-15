@@ -172,8 +172,8 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL |
 | `OLLAMA_BASE` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `OLLAMA_VISION_MODEL` | (none) | Vision model for image description |
-| `WHISPER_BASE_URL` | (none) | Audio transcription endpoint |
+| `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
+| `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `100` | Maximum memory archives |
 | `MCP_TOOL_MODE` | `core` | `core` (23 tools) or `full` (187) |
 

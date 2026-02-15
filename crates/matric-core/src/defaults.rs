@@ -150,8 +150,14 @@ pub const EXTRACTION_CMD_TIMEOUT_SECS: u64 = 60;
 /// Environment variable for the vision model name.
 pub const ENV_OLLAMA_VISION_MODEL: &str = "OLLAMA_VISION_MODEL";
 
+/// Default vision model for image description.
+pub const DEFAULT_OLLAMA_VISION_MODEL: &str = "qwen3-vl:8b";
+
 /// Environment variable for the Whisper transcription server URL.
 pub const ENV_WHISPER_BASE_URL: &str = "WHISPER_BASE_URL";
+
+/// Default Whisper transcription server URL.
+pub const DEFAULT_WHISPER_BASE_URL: &str = "http://localhost:8000";
 
 /// Environment variable for the Whisper model name.
 pub const ENV_WHISPER_MODEL: &str = "WHISPER_MODEL";

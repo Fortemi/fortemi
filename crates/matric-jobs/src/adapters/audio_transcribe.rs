@@ -27,7 +27,7 @@ impl AudioTranscribeAdapter {
 
     /// Create from environment variables using WhisperBackend.
     ///
-    /// Returns None if WHISPER_BASE_URL is not set or empty.
+    /// Returns None only if WHISPER_BASE_URL is explicitly set to empty string.
     pub fn from_env() -> Option<Self> {
         use matric_inference::transcription::WhisperBackend;
 

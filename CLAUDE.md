@@ -136,12 +136,12 @@ ISSUER_URL=https://your-domain.com
 MCP_CLIENT_ID=mm_xxxxx      # Register via POST /oauth/register
 MCP_CLIENT_SECRET=xxxxx
 
-# Vision model for image description (optional, requires Ollama with vision-capable model)
-# OLLAMA_VISION_MODEL=qwen3-vl:8b
+# Vision model for image description (enabled by default, set to empty to disable)
+OLLAMA_VISION_MODEL=qwen3-vl:8b
 
-# Audio transcription backend (optional, requires Whisper-compatible API)
-# WHISPER_BASE_URL=http://localhost:8080
-# WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
+# Audio transcription backend (enabled by default, set to empty to disable)
+WHISPER_BASE_URL=http://localhost:8000
+WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
 ```
 
 **First-time MCP setup:** Register an OAuth client for token introspection:

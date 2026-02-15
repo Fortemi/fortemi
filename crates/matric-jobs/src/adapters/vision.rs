@@ -29,7 +29,7 @@ impl VisionAdapter {
 
     /// Create from environment variables using OllamaVisionBackend.
     ///
-    /// Returns None if OLLAMA_VISION_MODEL is not set.
+    /// Returns None only if OLLAMA_VISION_MODEL is explicitly set to empty string.
     pub fn from_env() -> Option<Self> {
         use matric_inference::vision::OllamaVisionBackend;
 
