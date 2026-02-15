@@ -20,6 +20,17 @@ use crate::fts_flags::FtsFeatureFlags;
 use crate::rrf::rrf_fuse;
 use crate::script_detection::{detect_script, DetectedScript};
 
+/// Minimum raw cosine similarity for semantic results to enter RRF fusion.
+///
+/// Semantic search always returns top-K results regardless of actual similarity.
+/// Without this threshold, nonsense queries produce inflated RRF scores because
+/// single-list normalization maps even low-similarity results to near 1.0.
+///
+/// 0.3 is conservative — typical good matches score 0.5-0.9, while truly
+/// unrelated content scores below 0.2. This filters noise without losing
+/// marginal but potentially useful results.
+const MIN_SEMANTIC_SIMILARITY: f32 = 0.3;
+
 /// Configuration for hybrid search.
 #[derive(Debug, Clone)]
 pub struct HybridSearchConfig {
@@ -666,6 +677,15 @@ impl HybridSearch for HybridSearchEngine {
                         .find_similar(embedding, limit * 2, config.exclude_archived)
                         .await?
                 };
+                // Filter out low-similarity semantic results BEFORE RRF fusion (fixes #384).
+                // Without this, nonsense queries return results because semantic search
+                // always returns top-K regardless of similarity, and RRF normalization
+                // with a single list inflates scores to near 1.0.
+                let semantic_results: Vec<SearchHit> = semantic_results
+                    .into_iter()
+                    .filter(|hit| hit.score >= MIN_SEMANTIC_SIMILARITY)
+                    .collect();
+
                 semantic_count = semantic_results.len();
                 debug!(
                     semantic_hits = semantic_count,
@@ -808,6 +828,12 @@ impl HybridSearch for HybridSearchEngine {
                         .find_similar(embedding, limit * 2, config.exclude_archived)
                         .await?
                 };
+                // Filter out low-similarity semantic results before RRF fusion (fixes #384)
+                let semantic_results: Vec<SearchHit> = semantic_results
+                    .into_iter()
+                    .filter(|hit| hit.score >= MIN_SEMANTIC_SIMILARITY)
+                    .collect();
+
                 debug!(semantic_hits = semantic_results.len(), "Semantic retrieval");
 
                 if !semantic_results.is_empty() {

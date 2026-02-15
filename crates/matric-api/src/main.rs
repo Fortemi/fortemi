@@ -3864,6 +3864,46 @@ async fn bulk_create_notes(
         .execute(move |tx| Box::pin(async move { notes.insert_bulk_tx(tx, reqs).await }))
         .await?;
 
+    // Resolve tags via SKOS for each note (fixes #393: required_tags filter
+    // returned 0 for bulk_create notes because SKOS concepts were never created)
+    for (i, note_id) in ids.iter().enumerate() {
+        if let Some(ref tags) = requests[i].tags {
+            if !tags.is_empty() {
+                let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+                let ctx_for_tags = state.db.for_schema(&archive_ctx.schema)?;
+                let tags_owned = tags.clone();
+                let nid = *note_id;
+
+                let _ = ctx_for_tags
+                    .execute(move |tx| {
+                        Box::pin(async move {
+                            let mut concept_ids = Vec::new();
+                            for tag in &tags_owned {
+                                let tag_input = TagInput::parse(tag);
+                                if let Ok(resolved) =
+                                    skos.resolve_or_create_tag_tx(tx, &tag_input).await
+                                {
+                                    concept_ids.push(resolved.concept_id);
+                                }
+                            }
+                            if !concept_ids.is_empty() {
+                                let batch_req = BatchTagNoteRequest {
+                                    note_id: nid,
+                                    concept_ids,
+                                    source: "user".to_string(),
+                                    confidence: None,
+                                    created_by: None,
+                                };
+                                skos.batch_tag_note_tx(tx, batch_req).await?;
+                            }
+                            Ok::<_, matric_core::Error>(())
+                        })
+                    })
+                    .await;
+            }
+        }
+    }
+
     // Determine schema for background jobs
     let schema_for_jobs = if archive_ctx.schema != "public" {
         Some(archive_ctx.schema.as_str())
@@ -5949,6 +5989,16 @@ async fn explore_graph(
     Query(query): Query<GraphQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Verify starting note exists (fixes #388)
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let exists = ctx
+        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
+        .await?;
+    if !exists {
+        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+    }
+
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     // Clamp resource limits to prevent DoS (fixes #218)
     let depth = query.depth.clamp(0, 10);
@@ -6201,6 +6251,15 @@ async fn get_note_links(
     let pool = state.db.pool.clone();
     let note_id = id;
 
+    // Verify note exists (fixes #388)
+    let notes = matric_db::PgNoteRepository::new(pool.clone());
+    let exists = ctx
+        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, note_id).await }))
+        .await?;
+    if !exists {
+        return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
+    }
+
     let outgoing = {
         let links = matric_db::PgLinkRepository::new(pool.clone());
         ctx.query(move |tx| Box::pin(async move { links.get_outgoing_tx(tx, note_id).await }))
@@ -6226,6 +6285,16 @@ async fn get_note_backlinks(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Verify note exists (fixes #388)
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let exists = ctx
+        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
+        .await?;
+    if !exists {
+        return Err(ApiError::NotFound(format!("Note {} not found", id)));
+    }
+
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     let backlinks = ctx
         .query(move |tx| Box::pin(async move { links.get_incoming_tx(tx, id).await }))

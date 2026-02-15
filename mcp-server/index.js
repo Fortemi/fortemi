@@ -224,6 +224,12 @@ function createMcpServer() {
             });
             result = (bulkRes.ids || []).map((id) => ({ id }));
           } else if (action === "from_template") {
+            if (!args.template_id) {
+              throw new Error("template_id is required for the 'from_template' action. Use list_templates to find available templates and their UUIDs.");
+            }
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.template_id)) {
+              throw new Error(`template_id must be a valid UUID, got: "${args.template_id}". Use list_templates to find available templates and their UUIDs.`);
+            }
             result = await apiRequest("POST", `/api/v1/templates/${args.template_id}/instantiate`, {
               variables: args.variables || {},
               tags: args.tags,
@@ -231,6 +237,9 @@ function createMcpServer() {
               revision_mode: args.revision_mode,
             });
           } else if (action === "upload") {
+            if (!args.note_id) {
+              throw new Error("note_id is required for the 'upload' action. Create a note first with action='create', then use its ID here.");
+            }
             const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments/upload`;
             const fname = args.filename || "FILE_PATH";
             const curlParts = [`curl -X POST`];
@@ -1413,7 +1422,15 @@ function createMcpServer() {
             if (args.scheme_id) p.set("scheme_id", args.scheme_id);
             result = await apiRequest("GET", `/api/v1/concepts/governance?${p}`);
           } else if (mcaAction === "top") {
-            result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.scheme_id}/top-concepts`);
+            if (args.scheme_id) {
+              result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.scheme_id}/top-concepts`);
+            } else {
+              // No scheme_id: use search with top_only filter
+              const p = new URLSearchParams();
+              p.set("top_only", "true");
+              if (args.limit !== undefined && args.limit !== null) p.set("limit", args.limit);
+              result = await apiRequest("GET", `/api/v1/concepts?${p}`);
+            }
           } else {
             throw new Error(`Unknown manage_concepts action: ${mcaAction}. Valid: search, autocomplete, get, get_full, stats, top`);
           }
