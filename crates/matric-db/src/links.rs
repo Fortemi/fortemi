@@ -709,12 +709,11 @@ impl PgLinkRepository {
         let median_degree: f64 = row.get("median_degree");
 
         // Total semantic links
-        let link_row = sqlx::query(
-            "SELECT COUNT(*) as total_links FROM link WHERE kind = 'semantic'",
-        )
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
+        let link_row =
+            sqlx::query("SELECT COUNT(*) as total_links FROM link WHERE kind = 'semantic'")
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
         let total_links: i64 = link_row.get("total_links");
 
         // Connected components via iterative BFS

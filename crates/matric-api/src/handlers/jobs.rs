@@ -819,13 +819,7 @@ impl LinkingHandler {
             if let Err(e) = self
                 .db
                 .links
-                .create_reciprocal(
-                    note_id,
-                    hit.note_id,
-                    "semantic",
-                    hit.score,
-                    Some(metadata),
-                )
+                .create_reciprocal(note_id, hit.note_id, "semantic", hit.score, Some(metadata))
                 .await
             {
                 debug!(error = %e, "Failed to create reciprocal link (may already exist)");
@@ -837,15 +831,11 @@ impl LinkingHandler {
         // Isolated node fallback: if heuristic selected nothing but we had
         // candidates, link to single best match to prevent graph isolation.
         if created == 0 {
-            let fallback_candidates = match self
-                .db
-                .embeddings
-                .find_similar(source_vec, 2, true)
-                .await
-            {
-                Ok(c) => c,
-                Err(_) => return Ok(0),
-            };
+            let fallback_candidates =
+                match self.db.embeddings.find_similar(source_vec, 2, true).await {
+                    Ok(c) => c,
+                    Err(_) => return Ok(0),
+                };
             if let Some(best_hit) = fallback_candidates
                 .into_iter()
                 .find(|h| h.note_id != note_id && h.score >= config.min_similarity)
@@ -884,12 +874,7 @@ impl LinkingHandler {
         source_vec: &pgvector::Vector,
         link_threshold: f32,
     ) -> std::result::Result<usize, String> {
-        let similar = match self
-            .db
-            .embeddings
-            .find_similar(source_vec, 10, true)
-            .await
-        {
+        let similar = match self.db.embeddings.find_similar(source_vec, 10, true).await {
             Ok(s) => s,
             Err(e) => return Err(format!("Failed to find similar: {}", e)),
         };
@@ -1049,8 +1034,13 @@ impl JobHandler for LinkingHandler {
                     k = effective_k,
                     "Linking with HNSW Algorithm 4"
                 );
-                self.link_by_hnsw_heuristic(note_id, &embeddings[0].vector, &graph_config, note_count.max(100))
-                    .await
+                self.link_by_hnsw_heuristic(
+                    note_id,
+                    &embeddings[0].vector,
+                    &graph_config,
+                    note_count.max(100),
+                )
+                .await
             }
             matric_core::defaults::GraphLinkingStrategy::Threshold => {
                 info!(
@@ -2493,13 +2483,7 @@ Quick note about the meeting discussion and action items."#;
     #[test]
     fn test_heuristic_empty_candidates() {
         let source = make_vec(&[1.0, 0.0, 0.0]);
-        let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            vec![],
-            5,
-            false,
-            true,
-        );
+        let result = LinkingHandler::select_neighbors_heuristic(&source, vec![], 5, false, true);
         assert!(result.is_empty());
     }
 
@@ -2507,18 +2491,10 @@ Quick note about the meeting discussion and action items."#;
     fn test_heuristic_single_candidate_accepted() {
         let source = make_vec(&[1.0, 0.0, 0.0]);
         let id = uuid::Uuid::new_v4();
-        let candidates = vec![(
-            make_hit(id, 0.9),
-            make_vec(&[0.9, 0.1, 0.0]),
-        )];
+        let candidates = vec![(make_hit(id, 0.9), make_vec(&[0.9, 0.1, 0.0]))];
 
-        let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            5,
-            false,
-            true,
-        );
+        let result =
+            LinkingHandler::select_neighbors_heuristic(&source, candidates, 5, false, true);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0.note_id, id);
     }
@@ -2539,11 +2515,8 @@ Quick note about the meeting discussion and action items."#;
             .collect();
 
         let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            3, // Only accept 3
-            false,
-            false, // No keep_pruned
+            &source, candidates, 3, // Only accept 3
+            false, false, // No keep_pruned
         );
         assert!(result.len() <= 3);
     }
@@ -2565,11 +2538,7 @@ Quick note about the meeting discussion and action items."#;
         ];
 
         let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            3,
-            false,
-            false, // No keep_pruned
+            &source, candidates, 3, false, false, // No keep_pruned
         );
 
         // id1 should be accepted (first candidate, always passes)
@@ -2606,11 +2575,7 @@ Quick note about the meeting discussion and action items."#;
         assert_eq!(result_with_pruned.len(), 3);
 
         let result_without_pruned = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            5,
-            false,
-            false, // keep_pruned = false
+            &source, candidates, 5, false, false, // keep_pruned = false
         );
 
         // Without keep_pruned, only diverse neighbors returned
@@ -2635,22 +2600,21 @@ Quick note about the meeting discussion and action items."#;
 
         // Slightly decreasing scores for deterministic processing order
         let mut candidates = vec![
-            (make_hit(id_a, c - 0.0001), make_vec(&[c,  s, 0.0])),   // +y direction
-            (make_hit(id_b, c - 0.0002), make_vec(&[c, -s, 0.0])),   // -y direction
-            (make_hit(id_c, c - 0.0003), make_vec(&[c, 0.0, s])),    // +z direction
+            (make_hit(id_a, c - 0.0001), make_vec(&[c, s, 0.0])), // +y direction
+            (make_hit(id_b, c - 0.0002), make_vec(&[c, -s, 0.0])), // -y direction
+            (make_hit(id_c, c - 0.0003), make_vec(&[c, 0.0, s])), // +z direction
         ];
         candidates.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
 
-        let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            3,
-            false,
-            false,
-        );
+        let result =
+            LinkingHandler::select_neighbors_heuristic(&source, candidates, 3, false, false);
 
         // All 3 diverse candidates should be accepted
-        assert_eq!(result.len(), 3, "All diverse candidates should pass Algorithm 4");
+        assert_eq!(
+            result.len(),
+            3,
+            "All diverse candidates should pass Algorithm 4"
+        );
 
         // Verify identities and acceptance order
         let selected: Vec<_> = result.iter().map(|(h, _)| h.note_id).collect();
@@ -2669,13 +2633,8 @@ Quick note about the meeting discussion and action items."#;
             (make_hit(id2, 0.90), make_vec(&[0.90, 0.0, 0.44])),
         ];
 
-        let result = LinkingHandler::select_neighbors_heuristic(
-            &source,
-            candidates,
-            1,
-            false,
-            false,
-        );
+        let result =
+            LinkingHandler::select_neighbors_heuristic(&source, candidates, 1, false, false);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0.note_id, id1);
