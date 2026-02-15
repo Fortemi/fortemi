@@ -1926,6 +1926,15 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "get_topology_stats",
+    description: `Get graph topology statistics including degree distribution, connected components, isolated nodes, and current linking strategy. Useful for monitoring graph health after auto-linking.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {}
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
     name: "list_templates",
     description: `List all available note templates.`,
     inputSchema: {

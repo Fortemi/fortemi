@@ -31,7 +31,7 @@ const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://f
 const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤23 tools) or "full" (all)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤24 tools) or "full" (all)
 
 // Core tool surface — high-level agent-friendly tools (issue #365)
 const CORE_TOOLS = new Set([
@@ -41,7 +41,7 @@ const CORE_TOOLS = new Set([
   "capture_knowledge", "search", "record_provenance",
   "manage_tags", "manage_collection", "manage_concepts",
   // Graph & links
-  "explore_graph", "get_note_links",
+  "explore_graph", "get_topology_stats", "get_note_links",
   // Export
   "export_note",
   // System & docs
@@ -744,6 +744,10 @@ function createMcpServer() {
           break;
         }
 
+        case "get_topology_stats":
+          result = await apiRequest("GET", "/api/v1/graph/topology/stats");
+          break;
+
         case "list_templates":
           result = await apiRequest("GET", "/api/v1/templates");
           break;
@@ -872,11 +876,12 @@ function createMcpServer() {
               return { status: "unknown" };
             }
           };
-          const [health, memoryInfo, queueStats, embeddingSets] = await Promise.all([
+          const [health, memoryInfo, queueStats, embeddingSets, topologyStats] = await Promise.all([
             fetchHealth(),
             apiRequest("GET", "/api/v1/memory/info").catch(() => ({})),
             apiRequest("GET", "/api/v1/jobs/stats").catch(() => ({})),
             apiRequest("GET", "/api/v1/embedding-sets").catch(() => ({ sets: [] })),
+            apiRequest("GET", "/api/v1/graph/topology/stats").catch(() => ({})),
           ]);
 
           // Extract embedding model from default set
@@ -952,6 +957,14 @@ function createMcpServer() {
               total_tags: memoryInfo.summary?.total_tags || 0,
               embedding_sets: (embeddingSets.sets || memoryInfo.embedding_sets || []).length,
               pending_jobs: queueStats.pending || 0,
+              graph: {
+                linking_strategy: topologyStats.linking_strategy || "unknown",
+                effective_k: topologyStats.effective_k || 0,
+                total_links: topologyStats.total_links || 0,
+                isolated_nodes: topologyStats.isolated_nodes || 0,
+                connected_components: topologyStats.connected_components || 0,
+                avg_degree: topologyStats.avg_degree || 0,
+              },
             },
             storage: memoryInfo.storage || {},
             components: health.components || {},

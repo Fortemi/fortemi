@@ -8,11 +8,12 @@
 - Phase 1 completed (seed notes with content that may have generated semantic links)
 - At least 3 notes created with related content to enable link generation
 
-> **Graph Topology Setup**: This phase creates its own chain-topology notes (A→B→C) to ensure depth=2 traversal reliably discovers nodes beyond depth=1. Auto-linked notes from Phase 1 tend to form star topologies where all notes connect directly, making depth>1 tests unreliable.
+> **Graph Topology Setup**: This phase creates its own chain-topology notes (A→B→C) to ensure depth=2 traversal reliably discovers nodes beyond depth=1. While the new HNSW Algorithm 4 linking strategy (default) produces diverse neighbor connections that mitigate star topology issues, chain notes provide deterministic depth testing regardless of linking algorithm.
 
 **Tools Tested**:
 - `explore_graph` (graph traversal with configurable depth)
 - `get_note_links` (direct link retrieval)
+- `get_topology_stats` (graph health and linking strategy metrics)
 
 > **MCP-First Requirement**: Every test in this phase MUST use MCP tool calls exclusively. No direct HTTP requests, no curl commands. This validates the agent-first workflow that real AI assistants will experience.
 
@@ -310,18 +311,85 @@ const response = await use_mcp_tool({
 
 ---
 
+### GRAPH-009: Get Topology Statistics
+
+**MCP Tool**: `get_topology_stats`
+
+```javascript
+const response = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "get_topology_stats",
+  arguments: {}
+});
+```
+
+**Expected Response**:
+- `total_notes`: integer >= 0 (should be > 0 after earlier phases)
+- `total_links`: integer >= 0
+- `isolated_nodes`: integer >= 0
+- `connected_components`: integer >= 0
+- `avg_degree`: float >= 0
+- `max_degree`: integer >= 0
+- `min_degree_linked`: integer >= 0
+- `median_degree`: float >= 0
+- `linking_strategy`: string (e.g., "HnswHeuristic" or "Threshold")
+- `effective_k`: integer >= 5
+
+**Pass Criteria**:
+- [ ] Response contains all topology fields
+- [ ] `total_notes` matches known count from earlier phases
+- [ ] `linking_strategy` is present and non-empty
+- [ ] `effective_k` >= 5 (minimum k from adaptive formula)
+- [ ] No errors
+
+**Store**: `topology_stats` (full response for GRAPH-010)
+
+---
+
+### GRAPH-010: Verify Linking Strategy is HNSW Heuristic
+
+**Purpose**: Confirm the default linking strategy is HNSW Algorithm 4 (diverse neighbor selection).
+
+**Validation** (uses stored `topology_stats` from GRAPH-009):
+
+**Pass Criteria**:
+- [ ] `linking_strategy` is "HnswHeuristic" (default)
+- [ ] `effective_k` is between 5 and 15 (adaptive range)
+- [ ] `avg_degree` is reasonable (> 0 if links exist)
+- [ ] If `total_links > 0`: `isolated_nodes < total_notes` (not all nodes are isolated)
+
+---
+
+### GRAPH-011: Verify Diverse Linking (Anti-Star Topology)
+
+**Purpose**: After auto-linking runs on Phase 1 seed notes, verify the graph does NOT form a pure star topology. HNSW Algorithm 4 should produce diverse connections.
+
+**Validation** (uses stored `topology_stats` from GRAPH-009):
+
+**Pass Criteria**:
+- [ ] If `total_links >= 10`: `max_degree < total_links` (not all links on one hub)
+- [ ] If `total_notes >= 5`: `connected_components <= total_notes / 2` (reasonable connectivity)
+- [ ] `avg_degree` is within reasonable range (1-15 for typical UAT corpus)
+
+> **Note**: These thresholds are intentionally loose. The UAT corpus is small (~10-20 notes), so perfect mesh topology is not expected. The goal is to confirm links are distributed, not concentrated on a single hub.
+
+---
+
 ## Phase Summary
 
 | Metric | Target | Actual |
 |--------|--------|--------|
-| Tests Executed | 9 | ___ |
-| Tests Passed | 9 | ___ |
+| Tests Executed | 12 | ___ |
+| Tests Passed | 12 | ___ |
 | Tests Failed | 0 | ___ |
 | Duration | ~5 min | ___ |
 | Chain Topology Created | ✓ | ___ |
 | Graph Depth Validated | ✓ | ___ |
 | Link Discovery Validated | ✓ | ___ |
 | Error Handling Validated | ✓ | ___ |
+| Topology Stats Validated | ✓ | ___ |
+| Linking Strategy Confirmed | ✓ | ___ |
+| Diverse Linking Verified | ✓ | ___ |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 
@@ -331,3 +399,7 @@ const response = await use_mcp_tool({
 - Link generation is automatic based on content similarity (typically >70% threshold)
 - Allow 5-10 seconds after GRAPH-SETUP for auto-linking pipeline to generate links
 - Depth limits prevent performance issues on large graphs
+- `get_topology_stats` returns graph-wide metrics — useful for monitoring linking health
+- Default linking strategy is `HnswHeuristic` (HNSW Algorithm 4, Malkov & Yashunin 2018)
+- Linking strategy is configurable via `GRAPH_LINKING_STRATEGY` env var (threshold fallback available)
+- Adaptive k computes `log₂(N)` clamped to [5, 15] based on corpus size
