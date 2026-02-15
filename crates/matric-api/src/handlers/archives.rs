@@ -134,11 +134,12 @@ pub async fn create_archive(
         ));
     }
 
-    // Enforce MAX_MEMORIES limit (only prevents creation, not growth of existing memories)
+    // Enforce MAX_MEMORIES limit on live (in-database) memories.
+    // Users can export memories as shards, delete them to free slots, and re-import later.
     let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
     if current_count >= state.max_memories {
         return Err(ApiError::BadRequest(format!(
-            "Memory limit reached ({}/{}). Delete unused memories or increase MAX_MEMORIES.",
+            "Live memory limit reached ({}/{}). Export and delete unused memories, or increase MAX_MEMORIES.",
             current_count, state.max_memories
         )));
     }
@@ -344,11 +345,11 @@ pub async fn clone_archive(
         ));
     }
 
-    // Enforce MAX_MEMORIES limit (clone creates a new memory)
+    // Enforce MAX_MEMORIES limit on live memories (clone creates a new one)
     let current_count = state.db.archives.list_archive_schemas().await?.len() as i64;
     if current_count >= state.max_memories {
         return Err(ApiError::BadRequest(format!(
-            "Memory limit reached ({}/{}). Delete unused memories or increase MAX_MEMORIES.",
+            "Live memory limit reached ({}/{}). Export and delete unused memories, or increase MAX_MEMORIES.",
             current_count, state.max_memories
         )));
     }

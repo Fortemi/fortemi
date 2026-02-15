@@ -145,7 +145,7 @@ JOB_POLL_INTERVAL=10
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `MAX_MEMORIES` | Integer | `10` | Maximum number of memory archives allowed |
+| `MAX_MEMORIES` | Integer | `10` | Maximum number of **live** memory archives in the database |
 
 **Example:**
 ```bash
@@ -183,6 +183,8 @@ MAX_MEMORIES = max_total_notes / target_notes_per_memory
 | Tier 4 (Professional) | 64 GB+ | 1 TB+ | 500 | ~50,000 | ~25,000,000 |
 
 **Memory Limits:**
+- `MAX_MEMORIES` limits **live** memories (schemas in the database), not the total number you can ever create
+- Export memories as shards (`POST /api/v1/shards/export`), delete them to free slots, and re-import later — there is no limit on the number of archived shards you can store on disk
 - Attempting to create memories beyond `MAX_MEMORIES` returns HTTP 400
 - Check current usage via `GET /api/v1/memories/overview`
 - Each memory adds minimal overhead (<1MB metadata + indexes); data growth is the real constraint

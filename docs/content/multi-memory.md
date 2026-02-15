@@ -415,7 +415,7 @@ curl http://localhost:3000/api/v1/memories/overview \
 
 ### Configuring Memory Limits
 
-Set the maximum number of memories via environment variable:
+`MAX_MEMORIES` limits the number of **live** memories (active schemas in the database). This is not a hard cap on total archives — you can export any memory as a shard, delete it to free a slot, and re-import it later. There is no limit on the number of archived shards stored on disk.
 
 ```bash
 # .env — scale with your hardware
@@ -427,7 +427,21 @@ MAX_MEMORIES=500  # Tier 4: 64GB+ RAM, 1TB+ disk
 
 See [Configuration Reference](./configuration.md#memory-architecture) for the capacity formula and detailed sizing by hardware tier.
 
-Attempts to create memories beyond this limit will fail with HTTP 400:
+**Swapping memories in and out:**
+```bash
+# Export a memory to a shard file (frees the slot after delete)
+curl -X POST http://localhost:3000/api/v1/shards/export \
+  -H "X-Fortemi-Memory: old-project" -o old-project.shard
+
+# Delete the live memory to free a slot
+curl -X DELETE http://localhost:3000/api/v1/archives/old-project
+
+# Later: re-import when needed
+curl -X POST http://localhost:3000/api/v1/shards/import \
+  -F "file=@old-project.shard"
+```
+
+Attempting to create memories beyond the live limit will fail with HTTP 400:
 
 ```json
 {

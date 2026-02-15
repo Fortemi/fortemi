@@ -461,7 +461,9 @@ nvidia-smi -l 1
 
 ## Memory Capacity Planning
 
-Multi-memory archives provide schema-level isolation. Each empty memory adds ~1MB overhead (41 tables + indexes). The real storage cost comes from data within each memory.
+`MAX_MEMORIES` limits the number of **live** memories (active schemas in the database at once). This is not a cap on how many archives you can ever create — export a memory as a shard, delete it to free a slot, and re-import when needed. There is no limit on archived shards stored on disk.
+
+Each empty live memory adds ~1MB overhead (41 tables + indexes). The real storage cost comes from data within each memory.
 
 ### Storage Per Note
 

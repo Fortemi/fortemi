@@ -227,8 +227,12 @@ pub const FINETUNE_VALIDATION_SPLIT: f32 = 0.1;
 // MEMORY / ARCHIVE LIMITS
 // =============================================================================
 
-/// Maximum number of memories (archives) that can be created.
+/// Maximum number of **live** memories (active schemas in the database).
 /// Configurable via `MAX_MEMORIES` env var.
+///
+/// This limits concurrent in-database memories, not total archives ever
+/// created. Users can export memories as shards, delete them to free
+/// slots, and re-import later with no limit on archived shards on disk.
 ///
 /// Default of 10 fits Tier 1 minimum hardware (8GB RAM, 10GB storage).
 /// Each empty memory adds ~1MB schema overhead; the real cost is data
