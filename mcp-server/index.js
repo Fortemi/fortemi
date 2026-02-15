@@ -26,6 +26,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
+// Public-facing URL for links shown to users (upload guidance, download URLs, etc.)
+// Uses ISSUER_URL (external hostname) rather than FORTEMI_URL (internal container URL)
+const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤23 tools) or "full" (all)
@@ -240,7 +243,7 @@ function createMcpServer() {
             if (!args.note_id) {
               throw new Error("note_id is required for the 'upload' action. Create a note first with action='create', then use its ID here.");
             }
-            const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments/upload`;
+            const uploadUrl = `${PUBLIC_URL}/api/v1/notes/${args.note_id}/attachments/upload`;
             const fname = args.filename || "FILE_PATH";
             const curlParts = [`curl -X POST`];
             curlParts.push(`-F "file=@${fname}"`);
@@ -1118,7 +1121,7 @@ function createMcpServer() {
           const bdOutputFile = args.output_dir
             ? `${args.output_dir}/${bdFilename}`
             : bdFilename;
-          const bdUrl = `${API_BASE}/api/v1/backup/download?${downloadParams}`;
+          const bdUrl = `${PUBLIC_URL}/api/v1/backup/download?${downloadParams}`;
           const bdCurlParts = [`curl -o "${bdOutputFile}"`];
           const bdToken = tokenStorage.getStore()?.token;
           if (bdToken) {
@@ -1143,7 +1146,7 @@ function createMcpServer() {
 
         case "backup_import": {
           // Return upload URL + curl command (API pointer pattern)
-          const biUrl = `${API_BASE}/api/v1/backup/import`;
+          const biUrl = `${PUBLIC_URL}/api/v1/backup/import`;
           const biFilePath = args.file_path || "BACKUP_FILE.json";
           const biDryRun = args.dry_run ? "true" : "false";
           const biConflict = args.on_conflict || "skip";
@@ -1184,7 +1187,7 @@ function createMcpServer() {
           if (args.include) {
             shardParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
           }
-          const shardUrl = `${API_BASE}/api/v1/backup/knowledge-shard?${shardParams}`;
+          const shardUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard?${shardParams}`;
           const shardFilename = `matric-backup-${new Date().toISOString().slice(0,10)}.tar.gz`;
           const shardOutputFile = args.output_dir
             ? `${args.output_dir}/${shardFilename}`
@@ -1210,7 +1213,7 @@ function createMcpServer() {
         case "knowledge_shard_import": {
           // Return upload URL + curl command (API pointer pattern)
           // The API requires shard_base64 in JSON body, so the curl command encodes the file
-          const ksiUrl = `${API_BASE}/api/v1/backup/knowledge-shard/import`;
+          const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/import`;
           const ksiFilePath = args.file_path || "SHARD_FILE.tar.gz";
           const ksiDryRun = args.dry_run ? "true" : "false";
           const ksiConflict = args.on_conflict || "skip";
@@ -1270,7 +1273,7 @@ function createMcpServer() {
 
         case "knowledge_archive_download": {
           const kaFilename = encodeURIComponent(args.filename);
-          const kaDownloadUrl = `${API_BASE}/api/v1/backup/knowledge-archive/${kaFilename}`;
+          const kaDownloadUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-archive/${kaFilename}`;
           const kaOutputFile = args.output_dir
             ? `${args.output_dir}/${args.filename}`
             : args.filename;
@@ -1293,7 +1296,7 @@ function createMcpServer() {
 
         case "knowledge_archive_upload": {
           // Return upload URL + curl command (API pointer pattern)
-          const kauUrl = `${API_BASE}/api/v1/backup/knowledge-archive`;
+          const kauUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-archive`;
           const kauFilePath = args.file_path || "ARCHIVE_FILE.archive";
           const kauCurlParts = [`curl -X POST`];
           kauCurlParts.push(`-F "file=@${kauFilePath}"`);
@@ -2582,7 +2585,7 @@ function createMcpServer() {
         // FILE ATTACHMENTS (#14)
         // ============================================================================
         case "upload_attachment": {
-          const uploadUrl = `${API_BASE}/api/v1/notes/${args.note_id}/attachments/upload`;
+          const uploadUrl = `${PUBLIC_URL}/api/v1/notes/${args.note_id}/attachments/upload`;
           const filename = args.filename || "FILE_PATH";
           const curlParts = [`curl -X POST`];
           curlParts.push(`-F "file=@${filename}"`);
@@ -2635,15 +2638,15 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
           if (result && result.id) {
             result._api_urls = {
-              download: `${API_BASE}/api/v1/attachments/${result.id}/download`,
-              download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${API_BASE}/api/v1/attachments/${result.id}/download"`,
+              download: `${PUBLIC_URL}/api/v1/attachments/${result.id}/download`,
+              download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`,
             };
           }
           break;
 
         case "download_attachment": {
           const meta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
-          const downloadUrl = `${API_BASE}/api/v1/attachments/${args.id}/download`;
+          const downloadUrl = `${PUBLIC_URL}/api/v1/attachments/${args.id}/download`;
           const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
 
           result = {
@@ -2796,7 +2799,7 @@ function createMcpServer() {
 
         case "memory_backup_download": {
           const memName = encodeURIComponent(args.name);
-          const memDownloadUrl = `${API_BASE}/api/v1/backup/memory/${memName}`;
+          const memDownloadUrl = `${PUBLIC_URL}/api/v1/backup/memory/${memName}`;
           const memFilename = `memory_${args.name}_backup.sql.gz`;
           const memCurlParts = [`curl -o "${memFilename}"`];
           const memToken = tokenStorage.getStore()?.token;
@@ -5221,7 +5224,7 @@ if (MCP_TRANSPORT === "http") {
       authorization_servers: [process.env.ISSUER_URL || API_BASE],
       bearer_methods_supported: ["header"],
       scopes_supported: ["mcp"],
-      resource_documentation: `${API_BASE}/docs`,
+      resource_documentation: `${PUBLIC_URL}/docs`,
     });
   });
 

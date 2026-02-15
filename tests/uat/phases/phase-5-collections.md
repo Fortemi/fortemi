@@ -234,6 +234,8 @@ const result = await useTool('manage_collection', {
 **Description**: Verify deleted collection returns error
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 const result = await useTool('manage_collection', {
   action: 'get',
@@ -259,6 +261,8 @@ const result = await useTool('manage_collection', {
 **MCP Tool**: `manage_collection` (action: fly)
 **Description**: Validate error handling for invalid action
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 ```javascript
 const result = await useTool('manage_collection', {

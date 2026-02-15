@@ -58,6 +58,8 @@ const result = await mcp.call_tool("get_note", {
 
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 try {
   await mcp.call_tool("get_note", {

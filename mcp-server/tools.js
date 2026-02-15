@@ -1869,7 +1869,7 @@ export default [
         },
         "max_nodes": {
           "type": "number",
-          "description": "Maximum nodes to return (default: 50)",
+          "description": "Maximum total nodes to return, including the starting node (default: 50)",
           "default": 50
         }
       },

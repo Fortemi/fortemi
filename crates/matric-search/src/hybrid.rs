@@ -22,14 +22,17 @@ use crate::script_detection::{detect_script, DetectedScript};
 
 /// Minimum raw cosine similarity for semantic results to enter RRF fusion.
 ///
-/// Semantic search always returns top-K results regardless of actual similarity.
-/// Without this threshold, nonsense queries produce inflated RRF scores because
-/// single-list normalization maps even low-similarity results to near 1.0.
-///
-/// 0.3 is conservative — typical good matches score 0.5-0.9, while truly
-/// unrelated content scores below 0.2. This filters noise without losing
-/// marginal but potentially useful results.
+/// Minimum cosine similarity for semantic results when FTS also has matches.
+/// When FTS confirms keyword relevance, we can accept weaker semantic matches
+/// since the combined signal is still useful.
 const MIN_SEMANTIC_SIMILARITY: f32 = 0.3;
+
+/// Stricter threshold when FTS returns zero results (semantic-only mode).
+/// Without FTS confirmation, semantic matches must be strong to avoid returning
+/// noise for nonsense queries. In small corpora, embedding models produce
+/// cosine similarity 0.3-0.5 even for completely unrelated text because all
+/// vectors occupy a similar region of the embedding manifold.
+const MIN_SEMANTIC_SIMILARITY_NO_FTS: f32 = 0.55;
 
 /// Configuration for hybrid search.
 #[derive(Debug, Clone)]
@@ -678,17 +681,24 @@ impl HybridSearch for HybridSearchEngine {
                         .await?
                 };
                 // Filter out low-similarity semantic results BEFORE RRF fusion (fixes #384).
-                // Without this, nonsense queries return results because semantic search
-                // always returns top-K regardless of similarity, and RRF normalization
-                // with a single list inflates scores to near 1.0.
+                // Use stricter threshold when FTS found nothing — without keyword
+                // confirmation, require stronger semantic evidence to avoid returning
+                // noise for nonsense queries in small corpora.
+                let threshold = if fts_count == 0 {
+                    MIN_SEMANTIC_SIMILARITY_NO_FTS
+                } else {
+                    MIN_SEMANTIC_SIMILARITY
+                };
                 let semantic_results: Vec<SearchHit> = semantic_results
                     .into_iter()
-                    .filter(|hit| hit.score >= MIN_SEMANTIC_SIMILARITY)
+                    .filter(|hit| hit.score >= threshold)
                     .collect();
 
                 semantic_count = semantic_results.len();
                 debug!(
                     semantic_hits = semantic_count,
+                    threshold = %threshold,
+                    fts_gate = fts_count == 0,
                     duration_ms = sem_start.elapsed().as_millis() as u64,
                     "Semantic retrieval complete"
                 );
@@ -754,6 +764,7 @@ impl HybridSearch for HybridSearchEngine {
     ) -> Result<Vec<EnhancedSearchHit>> {
         let start = Instant::now();
         let mut ranked_lists = Vec::new();
+        let mut fts_count: usize = 0;
 
         // FTS search with filters — strategy-aware (fixes #295/#288 emoji search)
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
@@ -795,7 +806,8 @@ impl HybridSearch for HybridSearchEngine {
                 fts_results.retain(|hit| member_ids.contains(&hit.note_id));
             }
 
-            debug!(fts_hits = fts_results.len(), "FTS filtered retrieval");
+            fts_count = fts_results.len();
+            debug!(fts_hits = fts_count, "FTS filtered retrieval");
 
             if !fts_results.is_empty() {
                 ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
@@ -829,12 +841,18 @@ impl HybridSearch for HybridSearchEngine {
                         .await?
                 };
                 // Filter out low-similarity semantic results before RRF fusion (fixes #384)
+                // Use stricter threshold when FTS found nothing
+                let threshold = if fts_count == 0 {
+                    MIN_SEMANTIC_SIMILARITY_NO_FTS
+                } else {
+                    MIN_SEMANTIC_SIMILARITY
+                };
                 let semantic_results: Vec<SearchHit> = semantic_results
                     .into_iter()
-                    .filter(|hit| hit.score >= MIN_SEMANTIC_SIMILARITY)
+                    .filter(|hit| hit.score >= threshold)
                     .collect();
 
-                debug!(semantic_hits = semantic_results.len(), "Semantic retrieval");
+                debug!(semantic_hits = semantic_results.len(), threshold = %threshold, "Semantic retrieval");
 
                 if !semantic_results.is_empty() {
                     ranked_lists.push(Self::apply_weights(

@@ -124,6 +124,8 @@ const result = await useTool('manage_tags', {
 **Description**: Validate error handling for invalid action
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 const result = await useTool('manage_tags', {
   action: 'nope',
@@ -314,6 +316,8 @@ if (concept_id) {
 **MCP Tool**: `manage_concepts` (action: nope)
 **Description**: Validate error handling for invalid action
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 ```javascript
 const result = await useTool('manage_concepts', {

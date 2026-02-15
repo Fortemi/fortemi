@@ -170,6 +170,8 @@ console.log("Duration:", result.duration);
 
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 Attempt to describe non-existent image file.
 
 ```javascript
@@ -205,6 +207,8 @@ try {
 **MCP Tool**: `transcribe_audio`
 
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 Attempt to transcribe non-existent audio file.
 

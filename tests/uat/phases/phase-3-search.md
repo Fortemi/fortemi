@@ -292,6 +292,8 @@ const result = await useTool('search', {
 **Description**: Validate error handling for invalid action
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 const result = await useTool('search', {
   action: 'bogus',
@@ -317,6 +319,8 @@ const result = await useTool('search', {
 **MCP Tool**: `search` (action: text)
 **Description**: Validate error handling for missing required parameter
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 ```javascript
 const result = await useTool('search', {

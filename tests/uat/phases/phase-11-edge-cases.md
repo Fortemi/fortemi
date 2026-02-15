@@ -154,6 +154,8 @@ const result = await use_mcp_tool({
 **MCP Tool**: `update_note`
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 const result = await use_mcp_tool({
   server_name: "matric-memory",
@@ -177,6 +179,8 @@ const result = await use_mcp_tool({
 **MCP Tool**: `delete_note`
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 ```javascript
 const result = await use_mcp_tool({
   server_name: "matric-memory",
@@ -198,6 +202,8 @@ const result = await use_mcp_tool({
 ### EDGE-007: Double Delete
 **MCP Tool**: `delete_note`
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 ```javascript
 // Create a note to delete
@@ -238,6 +244,8 @@ const result = await use_mcp_tool({
 ### EDGE-008: Restore Non-Deleted Note
 **MCP Tool**: `restore_note`
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 ```javascript
 // Create an active note (not deleted)

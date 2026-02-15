@@ -103,6 +103,8 @@ if (hasFrontmatter && frontmatterEnd > 0) {
 
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 Attempt to export note that doesn't exist.
 
 ```javascript

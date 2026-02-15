@@ -8,6 +8,8 @@
 - Phase 1 completed (seed notes with content that may have generated semantic links)
 - At least 3 notes created with related content to enable link generation
 
+> **Graph Topology Setup**: This phase creates its own chain-topology notes (A→B→C) to ensure depth=2 traversal reliably discovers nodes beyond depth=1. Auto-linked notes from Phase 1 tend to form star topologies where all notes connect directly, making depth>1 tests unreliable.
+
 **Tools Tested**:
 - `explore_graph` (graph traversal with configurable depth)
 - `get_note_links` (direct link retrieval)
@@ -18,16 +20,59 @@
 
 ## Test Cases
 
+### GRAPH-SETUP: Create Chain Topology Notes
+
+**Purpose**: Create three notes with content designed to form a chain (A→B→C) where A links to B, B links to C, but A does NOT directly link to C. This guarantees depth=2 traversal discovers nodes that depth=1 cannot reach.
+
+**MCP Tool**: `capture_knowledge` (action: create) — 3 calls
+
+```javascript
+// Note A: Machine learning topic
+const noteA = await mcp.call_tool("capture_knowledge", {
+  action: "create",
+  content: "# Neural Network Architectures\n\nConvolutional neural networks (CNNs) use learnable filters to extract spatial features from input data. Key architectures include ResNet, VGG, and EfficientNet. Training involves backpropagation with gradient descent optimizers like Adam and SGD with momentum.",
+  tags: ["uat/graph", "uat/graph-chain"],
+  revision_mode: "none"
+});
+
+// Note B: Bridges ML and hardware — links to both A and C
+const noteB = await mcp.call_tool("capture_knowledge", {
+  action: "create",
+  content: "# GPU Computing for Deep Learning\n\nGraphics processing units accelerate neural network training through massive parallelism. CUDA cores execute matrix multiplications for backpropagation. Modern GPUs like NVIDIA A100 provide tensor cores optimized for mixed-precision training of convolutional and transformer architectures.",
+  tags: ["uat/graph", "uat/graph-chain"],
+  revision_mode: "none"
+});
+
+// Note C: Hardware topic — links to B but not A
+const noteC = await mcp.call_tool("capture_knowledge", {
+  action: "create",
+  content: "# Semiconductor Manufacturing Process\n\nModern chip fabrication uses extreme ultraviolet (EUV) lithography at 3nm and 5nm process nodes. TSMC and Samsung foundries produce processors and graphics processing units using silicon wafers. Yield optimization and thermal management are critical challenges in advanced semiconductor packaging.",
+  tags: ["uat/graph", "uat/graph-chain"],
+  revision_mode: "none"
+});
+```
+
+**Pass Criteria**:
+- [ ] All three notes created successfully with UUIDs
+- [ ] Notes tagged with `uat/graph-chain` for cleanup
+
+**Store**: `chain_note_a_id`, `chain_note_b_id`, `chain_note_c_id`
+
+> **Wait**: Allow 5-10 seconds for the auto-linking pipeline to process embeddings and generate semantic links before proceeding to GRAPH-001.
+
+---
+
 ### GRAPH-001: Explore Graph from Note (Depth 1)
 
 **MCP Tool**: `explore_graph`
 
 ```javascript
+// Use note A as the center — at depth 1, should find B but not C
 const response = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "explore_graph",
   arguments: {
-    note_id: "<note_id_from_phase_1>",
+    note_id: chain_note_a_id,
     depth: 1
   }
 });
@@ -35,18 +80,22 @@ const response = await use_mcp_tool({
 
 **Expected Response**:
 - Graph structure with nodes and edges
-- Central node is the queried note
-- Connected nodes at depth 1 (direct links only)
+- Central node is note A (neural networks)
+- Connected nodes at depth 1: note B (GPU computing) — semantically similar via ML terms
+- Note C (semiconductors) should NOT appear — no direct ML link
 - Each node includes: id, title, snippet
 - Each edge includes: source, target, similarity score
 
 **Pass Criteria**:
 - [ ] Response contains `nodes` array
 - [ ] Response contains `edges` array
-- [ ] Central note appears in nodes
+- [ ] Central note A appears in nodes
+- [ ] Note B (GPU computing) appears as depth-1 neighbor
 - [ ] Depth respected (only 1-hop neighbors)
 
-**Store**: `graph_center_note_id` for subsequent tests
+**Store**: `graph_center_note_id = chain_note_a_id`, `depth1_node_count` (number of nodes returned)
+
+> **Note**: If note C also appears at depth 1, the content overlap is too high. The chain topology relies on B being the semantic bridge. If this happens, the test still passes structurally but GRAPH-002 may not show additional depth-2 nodes.
 
 ---
 
@@ -55,6 +104,7 @@ const response = await use_mcp_tool({
 **MCP Tool**: `explore_graph`
 
 ```javascript
+// Same center note A, but depth 2 — should now discover C via B
 const response = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "explore_graph",
@@ -66,14 +116,16 @@ const response = await use_mcp_tool({
 ```
 
 **Expected Response**:
-- Graph structure with nodes at depth 1 and depth 2
-- More nodes than GRAPH-001 (if 2-hop neighbors exist)
-- Edges connecting depth-1 nodes to depth-2 nodes
+- Graph structure with nodes at depth 1 AND depth 2
+- Depth 1: note B (GPU computing) — direct link from A
+- Depth 2: note C (semiconductors) — reached via B's link to C
+- More nodes than GRAPH-001 result
+- Edges connecting A→B and B→C
 
 **Pass Criteria**:
 - [ ] Response contains nodes and edges
-- [ ] Node count >= GRAPH-001 node count
-- [ ] Graph includes 2-hop connections
+- [ ] Node count >= `depth1_node_count` from GRAPH-001
+- [ ] Graph includes 2-hop connections (nodes reachable only via intermediary)
 - [ ] No nodes beyond depth 2
 
 ---
@@ -176,6 +228,8 @@ const response = await use_mcp_tool({
 
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 **MCP Tool**: `explore_graph`
 
 ```javascript
@@ -203,6 +257,8 @@ const response = await use_mcp_tool({
 ### GRAPH-007: Get Links for Non-Existent Note
 
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 **MCP Tool**: `get_note_links`
 
@@ -258,10 +314,11 @@ const response = await use_mcp_tool({
 
 | Metric | Target | Actual |
 |--------|--------|--------|
-| Tests Executed | 8 | ___ |
-| Tests Passed | 8 | ___ |
+| Tests Executed | 9 | ___ |
+| Tests Passed | 9 | ___ |
 | Tests Failed | 0 | ___ |
 | Duration | ~5 min | ___ |
+| Chain Topology Created | ✓ | ___ |
 | Graph Depth Validated | ✓ | ___ |
 | Link Discovery Validated | ✓ | ___ |
 | Error Handling Validated | ✓ | ___ |
@@ -269,7 +326,8 @@ const response = await use_mcp_tool({
 **Phase Result**: [ ] PASS / [ ] FAIL
 
 **Notes**:
-- Graph exploration requires pre-existing notes with semantic relationships
+- GRAPH-SETUP creates chain-topology notes (A→B→C) for reliable depth testing
+- Auto-linked notes from Phase 1 may form star topologies where depth>1 adds no new nodes
 - Link generation is automatic based on content similarity (typically >70% threshold)
-- If no links exist, verify Phase 1 created sufficiently related content
+- Allow 5-10 seconds after GRAPH-SETUP for auto-linking pipeline to generate links
 - Depth limits prevent performance issues on large graphs

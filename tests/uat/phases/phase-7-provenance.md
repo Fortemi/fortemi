@@ -275,6 +275,8 @@ const response = await use_mcp_tool({
 
 **Isolation**: Required
 
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
 **MCP Tool**: `record_provenance`
 
 ```javascript
@@ -301,6 +303,8 @@ const response = await use_mcp_tool({
 ### PROV-010: Missing Required Fields for Location
 
 **Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
 
 **MCP Tool**: `record_provenance`
 
