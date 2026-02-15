@@ -13,5 +13,5 @@
   "pass_rate": "100%",
   "issues_filed": ["#404", "#405", "#406", "#407", "#408", "#409"],
   "issues_closed": ["#404", "#405", "#406", "#407", "#408", "#409"],
-  "report": "tests/uat/results/RELEASE-UAT-REPORT.md"
+  "report": ".aiwg/reports/uat/RELEASE-UAT-REPORT.md"
 }
