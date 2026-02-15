@@ -354,7 +354,8 @@ struct AppState {
     /// Extraction strategies that are actually registered and available.
     extraction_strategies: Vec<String>,
     /// Cached per-schema search engines for non-default archives.
-    schema_engines: Arc<tokio::sync::RwLock<std::collections::HashMap<String, Arc<HybridSearchEngine>>>>,
+    schema_engines:
+        Arc<tokio::sync::RwLock<std::collections::HashMap<String, Arc<HybridSearchEngine>>>>,
     /// Database URL for creating per-schema connection pools.
     database_url: String,
 }
