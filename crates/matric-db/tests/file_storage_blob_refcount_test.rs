@@ -68,7 +68,9 @@ async fn test_shared_blob_survives_sibling_deletion() {
 
     let note_id = create_test_note(&pool).await;
 
-    let file_data = b"shared content for dedup test";
+    let unique = Uuid::now_v7().to_string();
+    let file_data = format!("shared content for dedup test {}", unique);
+    let file_data = file_data.as_bytes();
 
     // Upload same content twice → should produce two attachments sharing one blob
     let attachment1 = file_storage
@@ -136,7 +138,9 @@ async fn test_orphaned_blob_cleaned_up_on_last_delete() {
 
     let note_id = create_test_note(&pool).await;
 
-    let file_data = b"unique content for cleanup test";
+    let unique = Uuid::now_v7().to_string();
+    let file_data = format!("unique content for cleanup test {}", unique);
+    let file_data = file_data.as_bytes();
 
     // Upload a file
     let attachment = file_storage
@@ -196,7 +200,9 @@ async fn test_store_file_tx_correct_refcount() {
 
     let note_id = create_test_note(&pool).await;
 
-    let file_data = b"tx refcount test content";
+    let unique = Uuid::now_v7().to_string();
+    let file_data = format!("tx refcount test content {}", unique);
+    let file_data = file_data.as_bytes();
 
     // Use store_file_tx via a transaction
     let mut tx = pool.begin().await.expect("Failed to begin transaction");
@@ -227,7 +233,9 @@ async fn test_mixed_store_methods_refcount_consistency() {
 
     let note_id = create_test_note(&pool).await;
 
-    let file_data = b"mixed method dedup content";
+    let unique = Uuid::now_v7().to_string();
+    let file_data = format!("mixed method dedup content {}", unique);
+    let file_data = file_data.as_bytes();
 
     // Store via non-tx method
     let att1 = file_storage
