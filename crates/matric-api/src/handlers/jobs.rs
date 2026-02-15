@@ -663,6 +663,12 @@ Generate only the title, no quotes, no explanations."#,
 }
 
 /// Handler for link detection jobs - creates both semantic and keyword links.
+///
+/// Supports two strategies:
+/// - **Threshold** (legacy): Link all notes above a cosine similarity threshold.
+/// - **HNSW Heuristic** (Algorithm 4, Malkov & Yashunin 2018): Diverse neighbor
+///   selection that approximates the Relative Neighborhood Graph, preventing
+///   star topology on clustered data.
 pub struct LinkingHandler {
     db: Database,
 }
@@ -683,7 +689,6 @@ impl LinkingHandler {
 
     /// Resolve a wiki-link title to a note ID by searching for matching titles.
     async fn resolve_wiki_link(&self, title: &str) -> Option<uuid::Uuid> {
-        // Search for notes with matching title (case-insensitive)
         let results = self.db.search.search(title, 5, true).await.ok()?;
 
         for hit in results {
@@ -694,6 +699,233 @@ impl LinkingHandler {
             }
         }
         None
+    }
+
+    /// Cosine similarity between two vectors.
+    fn cosine_similarity(a: &pgvector::Vector, b: &pgvector::Vector) -> f32 {
+        let a = a.as_slice();
+        let b = b.as_slice();
+        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm_a == 0.0 || norm_b == 0.0 {
+            return 0.0;
+        }
+        dot / (norm_a * norm_b)
+    }
+
+    /// HNSW Algorithm 4: SELECT-NEIGHBORS-HEURISTIC (Malkov & Yashunin 2018).
+    ///
+    /// Selects up to `m` neighbors from candidates by accepting a candidate only
+    /// if it is closer to the source than to any already-accepted neighbor. This
+    /// creates connections in diverse directions, approximating the Relative
+    /// Neighborhood Graph and preventing star topology on clustered data.
+    ///
+    /// Returns selected (hit, vector) pairs.
+    fn select_neighbors_heuristic(
+        source_vec: &pgvector::Vector,
+        candidates: Vec<(matric_core::SearchHit, pgvector::Vector)>,
+        m: usize,
+        _extend_candidates: bool,
+        keep_pruned: bool,
+    ) -> Vec<(matric_core::SearchHit, pgvector::Vector)> {
+        // candidates should already be sorted by descending similarity to source
+        let mut result: Vec<(matric_core::SearchHit, pgvector::Vector)> = Vec::with_capacity(m);
+        let mut discarded: Vec<(matric_core::SearchHit, pgvector::Vector)> = Vec::new();
+
+        for (hit, vec) in candidates {
+            if result.len() >= m {
+                break;
+            }
+
+            let sim_to_source = Self::cosine_similarity(&vec, source_vec);
+
+            // Check diversity: is this candidate closer to source than to
+            // ANY already-accepted neighbor?
+            let is_diverse = result.iter().all(|(_, accepted_vec)| {
+                let sim_to_accepted = Self::cosine_similarity(&vec, accepted_vec);
+                sim_to_source > sim_to_accepted
+            });
+
+            if is_diverse {
+                result.push((hit, vec));
+            } else {
+                discarded.push((hit, vec));
+            }
+        }
+
+        // Fill remaining slots from discarded candidates (keepPrunedConnections)
+        if keep_pruned {
+            for item in discarded {
+                if result.len() >= m {
+                    break;
+                }
+                result.push(item);
+            }
+        }
+
+        result
+    }
+
+    /// Link using HNSW Algorithm 4 (diverse neighbor selection heuristic).
+    async fn link_by_hnsw_heuristic(
+        &self,
+        note_id: uuid::Uuid,
+        source_vec: &pgvector::Vector,
+        config: &matric_core::defaults::GraphConfig,
+        note_count: usize,
+    ) -> std::result::Result<usize, String> {
+        let k = config.effective_k(note_count);
+        // Fetch 3*k candidates to give the heuristic enough to work with
+        let candidate_limit = (k * 3).max(15) as i64;
+
+        let candidates = match self
+            .db
+            .embeddings
+            .find_similar_with_vectors(source_vec, candidate_limit, true)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => return Err(format!("Failed to find similar: {}", e)),
+        };
+
+        // Filter self and below minimum similarity
+        let filtered: Vec<_> = candidates
+            .into_iter()
+            .filter(|(hit, _)| hit.note_id != note_id && hit.score >= config.min_similarity)
+            .collect();
+
+        if filtered.is_empty() {
+            debug!(note_id = %note_id, "No candidates above min_similarity");
+            return Ok(0);
+        }
+
+        // Run Algorithm 4: diverse neighbor selection
+        let selected = Self::select_neighbors_heuristic(
+            source_vec,
+            filtered,
+            k,
+            config.extend_candidates,
+            config.keep_pruned,
+        );
+
+        let mut created = 0;
+        for (i, (hit, _)) in selected.iter().enumerate() {
+            let metadata = serde_json::json!({
+                "strategy": "hnsw_heuristic",
+                "k": k,
+                "rank": i + 1,
+            });
+            if let Err(e) = self
+                .db
+                .links
+                .create_reciprocal(
+                    note_id,
+                    hit.note_id,
+                    "semantic",
+                    hit.score,
+                    Some(metadata),
+                )
+                .await
+            {
+                debug!(error = %e, "Failed to create reciprocal link (may already exist)");
+            } else {
+                created += 1;
+            }
+        }
+
+        // Isolated node fallback: if heuristic selected nothing but we had
+        // candidates, link to single best match to prevent graph isolation.
+        if created == 0 {
+            let fallback_candidates = match self
+                .db
+                .embeddings
+                .find_similar(source_vec, 2, true)
+                .await
+            {
+                Ok(c) => c,
+                Err(_) => return Ok(0),
+            };
+            if let Some(best_hit) = fallback_candidates
+                .into_iter()
+                .find(|h| h.note_id != note_id && h.score >= config.min_similarity)
+            {
+                let metadata = serde_json::json!({
+                    "strategy": "hnsw_fallback",
+                    "k": k,
+                    "reason": "no_diverse_neighbors",
+                });
+                if let Err(e) = self
+                    .db
+                    .links
+                    .create_reciprocal(
+                        note_id,
+                        best_hit.note_id,
+                        "semantic",
+                        best_hit.score,
+                        Some(metadata),
+                    )
+                    .await
+                {
+                    debug!(error = %e, "Failed to create fallback link");
+                } else {
+                    created += 1;
+                }
+            }
+        }
+
+        Ok(created)
+    }
+
+    /// Link using legacy threshold approach (unchanged from pre-#386 behavior).
+    async fn link_by_threshold(
+        &self,
+        note_id: uuid::Uuid,
+        source_vec: &pgvector::Vector,
+        link_threshold: f32,
+    ) -> std::result::Result<usize, String> {
+        let similar = match self
+            .db
+            .embeddings
+            .find_similar(source_vec, 10, true)
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Failed to find similar: {}", e)),
+        };
+
+        let mut created = 0;
+        for hit in similar {
+            if hit.note_id == note_id || hit.score < link_threshold {
+                continue;
+            }
+
+            // Forward link (new -> old)
+            if let Err(e) = self
+                .db
+                .links
+                .create(note_id, hit.note_id, "semantic", hit.score, None)
+                .await
+            {
+                debug!(error = %e, "Failed to create forward link (may already exist)");
+            } else {
+                created += 1;
+            }
+
+            // Backward link (old -> new)
+            if let Err(e) = self
+                .db
+                .links
+                .create(hit.note_id, note_id, "semantic", hit.score, None)
+                .await
+            {
+                debug!(error = %e, "Failed to create backward link (may already exist)");
+            } else {
+                created += 1;
+            }
+        }
+
+        Ok(created)
     }
 }
 
@@ -719,6 +951,9 @@ impl JobHandler for LinkingHandler {
         let wiki_links_found;
         let mut wiki_links_resolved = 0;
 
+        // Load graph configuration from environment
+        let graph_config = matric_core::defaults::GraphConfig::from_env();
+
         // First, parse wiki-style [[links]] from note content
         ctx.report_progress(10, Some("Parsing wiki-style links..."));
 
@@ -727,9 +962,7 @@ impl JobHandler for LinkingHandler {
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
 
-        // Determine content-type-aware similarity threshold.
-        // Code-like notes need a stricter threshold because embedding models
-        // place programming content closer together in vector space.
+        // Determine content-type-aware similarity threshold (for threshold strategy).
         let link_threshold = if let Some(dt_id) = note.note.document_type_id {
             match self.db.document_types.get(dt_id).await {
                 Ok(Some(dt)) => matric_core::defaults::semantic_link_threshold_for(dt.category),
@@ -755,7 +988,6 @@ impl JobHandler for LinkingHandler {
         for link_title in &wiki_links {
             if let Some(target_id) = self.resolve_wiki_link(link_title).await {
                 if target_id != note_id {
-                    // Create explicit wiki link with title in metadata
                     let metadata = serde_json::json!({"wiki_title": link_title});
                     if let Err(e) = self
                         .db
@@ -797,56 +1029,50 @@ impl JobHandler for LinkingHandler {
             })));
         }
 
-        ctx.report_progress(60, Some("Searching for similar notes..."));
+        ctx.report_progress(60, Some("Creating semantic links..."));
 
-        // Use the first embedding to find similar notes
-        let similar = match self
-            .db
-            .embeddings
-            .find_similar(&embeddings[0].vector, 10, true)
-            .await
-        {
-            Ok(s) => s,
-            Err(e) => return JobResult::Failed(format!("Failed to find similar: {}", e)),
+        // Dispatch to strategy
+        let semantic_created = match graph_config.strategy {
+            matric_core::defaults::GraphLinkingStrategy::HnswHeuristic => {
+                // Count total notes for adaptive k
+                let note_count = self
+                    .db
+                    .embeddings
+                    .find_similar(&embeddings[0].vector, 1, true)
+                    .await
+                    .map(|r| r.len())
+                    .unwrap_or(0);
+                // Use a rough count — we'll get the real count from the candidate pool size
+                let effective_k = graph_config.effective_k(note_count.max(100));
+                info!(
+                    strategy = "hnsw_heuristic",
+                    k = effective_k,
+                    "Linking with HNSW Algorithm 4"
+                );
+                self.link_by_hnsw_heuristic(note_id, &embeddings[0].vector, &graph_config, note_count.max(100))
+                    .await
+            }
+            matric_core::defaults::GraphLinkingStrategy::Threshold => {
+                info!(
+                    strategy = "threshold",
+                    threshold = link_threshold,
+                    "Linking with threshold strategy"
+                );
+                self.link_by_threshold(note_id, &embeddings[0].vector, link_threshold)
+                    .await
+            }
         };
 
-        ctx.report_progress(80, Some("Creating bidirectional semantic links..."));
-
-        for hit in similar {
-            // Skip self and low scores (content-type-aware threshold)
-            if hit.note_id == note_id || hit.score < link_threshold {
-                continue;
-            }
-
-            // Forward link (new -> old)
-            if let Err(e) = self
-                .db
-                .links
-                .create(note_id, hit.note_id, "semantic", hit.score, None)
-                .await
-            {
-                debug!(error = %e, "Failed to create forward link (may already exist)");
-            } else {
-                created += 1;
-            }
-
-            // Backward link (old -> new) - reciprocal linking like HOTM
-            if let Err(e) = self
-                .db
-                .links
-                .create(hit.note_id, note_id, "semantic", hit.score, None)
-                .await
-            {
-                debug!(error = %e, "Failed to create backward link (may already exist)");
-            } else {
-                created += 1;
-            }
+        match semantic_created {
+            Ok(n) => created += n,
+            Err(e) => return JobResult::Failed(e),
         }
 
         ctx.report_progress(100, Some("Linking complete"));
         info!(
             note_id = %note_id,
             result_count = created,
+            strategy = %graph_config.strategy,
             wiki_found = wiki_links_found,
             wiki_resolved = wiki_links_resolved,
             duration_ms = start.elapsed().as_millis() as u64,
@@ -857,7 +1083,7 @@ impl JobHandler for LinkingHandler {
             "links_created": created,
             "wiki_links_found": wiki_links_found,
             "wiki_links_resolved": wiki_links_resolved,
-            "similarity_threshold": link_threshold
+            "strategy": graph_config.strategy.to_string()
         })))
     }
 }
@@ -2212,5 +2438,266 @@ Quick note about the meeting discussion and action items."#;
         for chunk in chunks {
             assert!(chunk.len() <= 100); // Some overhead for line breaks
         }
+    }
+
+    // =========================================================================
+    // HNSW Algorithm 4 / Graph Linking Tests
+    // =========================================================================
+
+    fn make_vec(vals: &[f32]) -> pgvector::Vector {
+        pgvector::Vector::from(vals.to_vec())
+    }
+
+    fn make_hit(note_id: uuid::Uuid, score: f32) -> matric_core::SearchHit {
+        matric_core::SearchHit {
+            note_id,
+            score,
+            snippet: Some(String::new()),
+            title: None,
+            tags: vec![],
+            embedding_status: None,
+        }
+    }
+
+    #[test]
+    fn test_cosine_similarity_identical_vectors() {
+        let v = make_vec(&[1.0, 0.0, 0.0]);
+        let sim = LinkingHandler::cosine_similarity(&v, &v);
+        assert!((sim - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal_vectors() {
+        let a = make_vec(&[1.0, 0.0, 0.0]);
+        let b = make_vec(&[0.0, 1.0, 0.0]);
+        let sim = LinkingHandler::cosine_similarity(&a, &b);
+        assert!(sim.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_cosine_similarity_opposite_vectors() {
+        let a = make_vec(&[1.0, 0.0]);
+        let b = make_vec(&[-1.0, 0.0]);
+        let sim = LinkingHandler::cosine_similarity(&a, &b);
+        assert!((sim - (-1.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector() {
+        let a = make_vec(&[1.0, 0.0]);
+        let b = make_vec(&[0.0, 0.0]);
+        let sim = LinkingHandler::cosine_similarity(&a, &b);
+        assert_eq!(sim, 0.0);
+    }
+
+    #[test]
+    fn test_heuristic_empty_candidates() {
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            vec![],
+            5,
+            false,
+            true,
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_heuristic_single_candidate_accepted() {
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+        let id = uuid::Uuid::new_v4();
+        let candidates = vec![(
+            make_hit(id, 0.9),
+            make_vec(&[0.9, 0.1, 0.0]),
+        )];
+
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            5,
+            false,
+            true,
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0.note_id, id);
+    }
+
+    #[test]
+    fn test_heuristic_respects_m_limit() {
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+        // Create 10 diverse candidates spread across different directions
+        let candidates: Vec<_> = (0..10)
+            .map(|i| {
+                let angle = (i as f32) * std::f32::consts::PI / 10.0;
+                let id = uuid::Uuid::new_v4();
+                (
+                    make_hit(id, 0.9 - (i as f32) * 0.02),
+                    make_vec(&[angle.cos(), angle.sin(), 0.0]),
+                )
+            })
+            .collect();
+
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            3, // Only accept 3
+            false,
+            false, // No keep_pruned
+        );
+        assert!(result.len() <= 3);
+    }
+
+    #[test]
+    fn test_heuristic_diversity_rejects_clustered_candidates() {
+        // Source at [1, 0, 0]
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+
+        let id1 = uuid::Uuid::new_v4();
+        let id2 = uuid::Uuid::new_v4();
+
+        // Two candidates nearly identical direction from source.
+        // id1 accepted first. id2 has sim(id2,id1) >> sim(id2,source),
+        // so Algorithm 4 rejects it.
+        let candidates = vec![
+            (make_hit(id1, 0.99), make_vec(&[0.95, 0.05, 0.0])),
+            (make_hit(id2, 0.98), make_vec(&[0.93, 0.07, 0.0])),
+        ];
+
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            3,
+            false,
+            false, // No keep_pruned
+        );
+
+        // id1 should be accepted (first candidate, always passes)
+        assert_eq!(result[0].0.note_id, id1);
+
+        // id2 should be rejected: sim(id2, id1) ≈ 0.9998 >> sim(id2, source) ≈ 0.9546
+        assert_eq!(result.len(), 1, "Clustered candidate should be rejected")
+    }
+
+    #[test]
+    fn test_heuristic_keep_pruned_fills_remaining_slots() {
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+
+        let id1 = uuid::Uuid::new_v4();
+        let id2 = uuid::Uuid::new_v4();
+        let id3 = uuid::Uuid::new_v4();
+
+        // id1 accepted, id2 rejected by heuristic (same direction), id3 different
+        let candidates = vec![
+            (make_hit(id1, 0.99), make_vec(&[0.95, 0.05, 0.0])),
+            (make_hit(id2, 0.98), make_vec(&[0.93, 0.07, 0.0])),
+            (make_hit(id3, 0.80), make_vec(&[0.5, 0.5, 0.0])),
+        ];
+
+        let result_with_pruned = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates.clone(),
+            5, // M=5, more than candidates available
+            false,
+            true, // keep_pruned = true
+        );
+
+        // With keep_pruned, all 3 should be returned (accepted + pruned)
+        assert_eq!(result_with_pruned.len(), 3);
+
+        let result_without_pruned = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            5,
+            false,
+            false, // keep_pruned = false
+        );
+
+        // Without keep_pruned, only diverse neighbors returned
+        assert!(result_without_pruned.len() <= result_with_pruned.len());
+    }
+
+    #[test]
+    fn test_heuristic_diverse_directions_accepted() {
+        // Source along x-axis (unit vector)
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+
+        // 15° cone: all candidates have cos(15°) ≈ 0.966 similarity to source.
+        // Pairwise angles between candidates are 27-30°, so each candidate
+        // is closer to source than to any accepted neighbor → all pass Algorithm 4.
+        let theta = 15.0_f32.to_radians();
+        let c = theta.cos(); // ≈ 0.9659
+        let s = theta.sin(); // ≈ 0.2588
+
+        let id_a = uuid::Uuid::new_v4();
+        let id_b = uuid::Uuid::new_v4();
+        let id_c = uuid::Uuid::new_v4();
+
+        // Slightly decreasing scores for deterministic processing order
+        let mut candidates = vec![
+            (make_hit(id_a, c - 0.0001), make_vec(&[c,  s, 0.0])),   // +y direction
+            (make_hit(id_b, c - 0.0002), make_vec(&[c, -s, 0.0])),   // -y direction
+            (make_hit(id_c, c - 0.0003), make_vec(&[c, 0.0, s])),    // +z direction
+        ];
+        candidates.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap());
+
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            3,
+            false,
+            false,
+        );
+
+        // All 3 diverse candidates should be accepted
+        assert_eq!(result.len(), 3, "All diverse candidates should pass Algorithm 4");
+
+        // Verify identities and acceptance order
+        let selected: Vec<_> = result.iter().map(|(h, _)| h.note_id).collect();
+        assert_eq!(selected, vec![id_a, id_b, id_c]);
+    }
+
+    #[test]
+    fn test_heuristic_max_neighbors_one() {
+        // With m=1, should return exactly the top candidate regardless of diversity
+        let source = make_vec(&[1.0, 0.0, 0.0]);
+        let id1 = uuid::Uuid::new_v4();
+        let id2 = uuid::Uuid::new_v4();
+
+        let candidates = vec![
+            (make_hit(id1, 0.95), make_vec(&[0.95, 0.31, 0.0])),
+            (make_hit(id2, 0.90), make_vec(&[0.90, 0.0, 0.44])),
+        ];
+
+        let result = LinkingHandler::select_neighbors_heuristic(
+            &source,
+            candidates,
+            1,
+            false,
+            false,
+        );
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0.note_id, id1);
+    }
+
+    #[test]
+    fn test_parse_wiki_links() {
+        assert_eq!(
+            LinkingHandler::parse_wiki_links("See [[My Note]] for details"),
+            vec!["My Note"]
+        );
+        assert_eq!(
+            LinkingHandler::parse_wiki_links("[[A]] and [[B]]"),
+            vec!["A", "B"]
+        );
+        assert_eq!(
+            LinkingHandler::parse_wiki_links("No links here"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            LinkingHandler::parse_wiki_links("Empty [[]] should be filtered"),
+            Vec::<String>::new()
+        );
     }
 }

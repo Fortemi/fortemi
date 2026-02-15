@@ -320,6 +320,143 @@ pub fn semantic_link_threshold_for(category: crate::models::DocumentCategory) ->
 }
 
 // =============================================================================
+// GRAPH LINKING CONFIGURATION (Tier 2 — Topology Control)
+// =============================================================================
+
+/// Graph linking strategy selection.
+///
+/// - `Threshold`: Legacy epsilon-threshold linking (cosine similarity >= threshold).
+///   Creates star topologies on clustered data.
+/// - `HnswHeuristic`: HNSW Algorithm 4 (Malkov & Yashunin 2018) diverse neighbor
+///   selection. Approximates the Relative Neighborhood Graph by accepting a candidate
+///   only if it is closer to the source than to any already-accepted neighbor.
+///   Produces mesh-of-stars topology with bounded degree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphLinkingStrategy {
+    Threshold,
+    HnswHeuristic,
+}
+
+impl GraphLinkingStrategy {
+    /// Parse strategy from string (case-insensitive, accepts hyphens/underscores).
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('-', "_").as_str() {
+            "threshold" => Some(Self::Threshold),
+            "hnsw_heuristic" | "hnsw" | "heuristic" | "diverse" => Some(Self::HnswHeuristic),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for GraphLinkingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Threshold => write!(f, "threshold"),
+            Self::HnswHeuristic => write!(f, "hnsw_heuristic"),
+        }
+    }
+}
+
+/// Configuration for the graph linking strategy.
+///
+/// Read from environment variables on each linking job execution
+/// (no restart required for changes).
+#[derive(Debug, Clone)]
+pub struct GraphConfig {
+    /// Active linking strategy.
+    pub strategy: GraphLinkingStrategy,
+    /// Maximum number of neighbors to select (M in HNSW terminology).
+    /// When `adaptive_k` is true, this is the explicit override (0 = use adaptive).
+    pub k_neighbors: usize,
+    /// Whether to compute k adaptively as log₂(N) clamped to [k_min, k_max].
+    pub adaptive_k: bool,
+    /// Minimum k value (inclusive) for adaptive computation.
+    pub k_min: usize,
+    /// Maximum k value (inclusive) for adaptive computation.
+    pub k_max: usize,
+    /// Absolute similarity floor — no links below this regardless of strategy.
+    pub min_similarity: f32,
+    /// Whether to extend candidates with neighbors-of-neighbors (Algorithm 4 option).
+    pub extend_candidates: bool,
+    /// Whether to fill remaining slots from pruned candidates (Algorithm 4 option).
+    pub keep_pruned: bool,
+}
+
+impl Default for GraphConfig {
+    fn default() -> Self {
+        Self {
+            strategy: GraphLinkingStrategy::HnswHeuristic,
+            k_neighbors: 7,
+            adaptive_k: true,
+            k_min: 5,
+            k_max: 15,
+            min_similarity: 0.5,
+            extend_candidates: false,
+            keep_pruned: true,
+        }
+    }
+}
+
+impl GraphConfig {
+    /// Load configuration from environment variables with fallback to defaults.
+    pub fn from_env() -> Self {
+        let mut config = Self::default();
+
+        if let Ok(val) = std::env::var("GRAPH_LINKING_STRATEGY") {
+            if let Some(strategy) = GraphLinkingStrategy::from_str_loose(&val) {
+                config.strategy = strategy;
+            } else {
+                tracing::warn!(value = %val, "Invalid GRAPH_LINKING_STRATEGY, using default");
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_K_NEIGHBORS") {
+            if let Ok(k) = val.parse::<usize>() {
+                if k == 0 {
+                    config.adaptive_k = true;
+                } else {
+                    config.k_neighbors = k.clamp(3, 50);
+                    config.adaptive_k = false;
+                }
+            } else {
+                tracing::warn!(value = %val, "Invalid GRAPH_K_NEIGHBORS, using default");
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_MIN_SIMILARITY") {
+            if let Ok(s) = val.parse::<f32>() {
+                config.min_similarity = s.clamp(0.0, 1.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_EXTEND_CANDIDATES") {
+            config.extend_candidates = val == "true" || val == "1";
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_KEEP_PRUNED") {
+            config.keep_pruned = val != "false" && val != "0";
+        }
+
+        config
+    }
+
+    /// Compute effective k for a given corpus size.
+    ///
+    /// When adaptive, uses `log₂(N)` clamped to `[k_min, k_max]`.
+    /// When explicit, returns `k_neighbors` unchanged.
+    pub fn effective_k(&self, note_count: usize) -> usize {
+        if !self.adaptive_k {
+            return self.k_neighbors;
+        }
+        if note_count <= 1 {
+            return self.k_min;
+        }
+        let k = (note_count as f64).log2().floor() as usize;
+        k.clamp(self.k_min, self.k_max)
+    }
+}
+
+// =============================================================================
 // CONTENT PREVIEW SIZES (Tier 2)
 // =============================================================================
 
@@ -450,6 +587,91 @@ mod tests {
         const {
             assert!(SEMANTIC_LINK_THRESHOLD_CODE > SEMANTIC_LINK_THRESHOLD);
         }
+    }
+
+    #[test]
+    fn graph_config_defaults() {
+        let config = GraphConfig::default();
+        assert_eq!(config.strategy, GraphLinkingStrategy::HnswHeuristic);
+        assert_eq!(config.k_neighbors, 7);
+        assert!(config.adaptive_k);
+        assert_eq!(config.k_min, 5);
+        assert_eq!(config.k_max, 15);
+        assert!((config.min_similarity - 0.5).abs() < f32::EPSILON);
+        assert!(!config.extend_candidates);
+        assert!(config.keep_pruned);
+    }
+
+    #[test]
+    fn graph_config_effective_k_adaptive() {
+        let config = GraphConfig::default();
+
+        // Edge cases
+        assert_eq!(config.effective_k(0), 5); // k_min
+        assert_eq!(config.effective_k(1), 5); // k_min
+
+        // Small corpus: log₂(10) ≈ 3.32 → 3, clamped to k_min=5
+        assert_eq!(config.effective_k(10), 5);
+
+        // Medium corpus: log₂(100) ≈ 6.64 → 6
+        assert_eq!(config.effective_k(100), 6);
+
+        // Large corpus: log₂(1000) ≈ 9.96 → 9
+        assert_eq!(config.effective_k(1000), 9);
+
+        // Very large: log₂(100000) ≈ 16.6 → 16, clamped to k_max=15
+        assert_eq!(config.effective_k(100_000), 15);
+    }
+
+    #[test]
+    fn graph_config_effective_k_explicit() {
+        let mut config = GraphConfig::default();
+        config.adaptive_k = false;
+        config.k_neighbors = 10;
+
+        // Should always return explicit k regardless of corpus size
+        assert_eq!(config.effective_k(0), 10);
+        assert_eq!(config.effective_k(5), 10);
+        assert_eq!(config.effective_k(100_000), 10);
+    }
+
+    #[test]
+    fn graph_linking_strategy_from_str_loose() {
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("threshold"),
+            Some(GraphLinkingStrategy::Threshold)
+        );
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("HNSW_HEURISTIC"),
+            Some(GraphLinkingStrategy::HnswHeuristic)
+        );
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("hnsw-heuristic"),
+            Some(GraphLinkingStrategy::HnswHeuristic)
+        );
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("hnsw"),
+            Some(GraphLinkingStrategy::HnswHeuristic)
+        );
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("diverse"),
+            Some(GraphLinkingStrategy::HnswHeuristic)
+        );
+        assert_eq!(
+            GraphLinkingStrategy::from_str_loose("heuristic"),
+            Some(GraphLinkingStrategy::HnswHeuristic)
+        );
+        assert_eq!(GraphLinkingStrategy::from_str_loose("invalid"), None);
+        assert_eq!(GraphLinkingStrategy::from_str_loose(""), None);
+    }
+
+    #[test]
+    fn graph_linking_strategy_display() {
+        assert_eq!(GraphLinkingStrategy::Threshold.to_string(), "threshold");
+        assert_eq!(
+            GraphLinkingStrategy::HnswHeuristic.to_string(),
+            "hnsw_heuristic"
+        );
     }
 
     #[test]

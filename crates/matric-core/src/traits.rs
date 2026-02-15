@@ -142,6 +142,17 @@ pub trait EmbeddingRepository: Send + Sync {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>>;
+
+    /// Find similar notes by vector, returning embedding vectors alongside hits.
+    ///
+    /// Used by HNSW Algorithm 4 (diverse neighbor selection) which needs the
+    /// actual vectors to compute inter-candidate distances for the diversity check.
+    async fn find_similar_with_vectors(
+        &self,
+        query_vec: &Vector,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<(SearchHit, Vector)>>;
 }
 
 // =============================================================================

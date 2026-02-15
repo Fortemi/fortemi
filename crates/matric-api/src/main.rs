@@ -386,7 +386,7 @@ struct AppState {
         create_skos_collection, get_skos_collection, update_skos_collection, delete_skos_collection,
         replace_skos_collection_members, add_skos_collection_member, remove_skos_collection_member, list_collections,
         create_collection, get_collection, update_collection, delete_collection,
-        get_collection_notes, export_collection, move_note_to_collection, explore_graph,
+        get_collection_notes, export_collection, move_note_to_collection, explore_graph, graph_topology_stats,
         list_templates, create_template, get_template, update_template,
         delete_template, instantiate_template, get_note_links, get_note_backlinks,
         get_note_provenance, search_memories, get_memory_provenance_handler, export_note,
@@ -1429,6 +1429,7 @@ async fn main() -> anyhow::Result<()> {
                 .delete(delete_embedding_config),
         )
         // Graph exploration
+        .route("/api/v1/graph/topology/stats", get(graph_topology_stats))
         .route("/api/v1/graph/:id", get(explore_graph))
         // Templates
         .route(
@@ -6005,6 +6006,28 @@ async fn explore_graph(
         .query(move |tx| {
             Box::pin(async move { links.traverse_graph_tx(tx, id, depth, max_nodes).await })
         })
+        .await?;
+    Ok(Json(result))
+}
+
+/// Returns graph topology statistics including degree distribution, connected
+/// components, isolated nodes, and current linking strategy configuration.
+///
+/// Response fields: total_notes, total_links, isolated_nodes, connected_components,
+/// avg_degree, max_degree, min_degree_linked, median_degree, linking_strategy, effective_k.
+#[utoipa::path(get, path = "/api/v1/graph/topology/stats", tag = "Graph",
+    responses(
+        (status = 200, description = "Graph topology statistics"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn graph_topology_stats(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| Box::pin(async move { links.topology_stats_tx(tx).await }))
         .await?;
     Ok(Json(result))
 }

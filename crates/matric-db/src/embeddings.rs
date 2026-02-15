@@ -132,6 +132,76 @@ impl EmbeddingRepository for PgEmbeddingRepository {
 
         Ok(results)
     }
+
+    async fn find_similar_with_vectors(
+        &self,
+        query_vec: &Vector,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<(SearchHit, Vector)>> {
+        let archive_clause = if exclude_archived {
+            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
+        } else {
+            "AND n.deleted_at IS NULL"
+        };
+
+        let query = format!(
+            r#"
+            SELECT DISTINCT ON (e.note_id)
+                   e.note_id AS note_id,
+                   1.0 - (e.vector <=> $1::vector) AS score,
+                   e.vector AS vector,
+                   substring(nrc.content for 200) AS snippet,
+                   n.title,
+                   COALESCE(
+                       (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+                       ''
+                   ) as tags
+            FROM embedding e
+            JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
+            WHERE TRUE {}
+            ORDER BY e.note_id, e.vector <=> $1::vector
+            "#,
+            archive_clause
+        );
+
+        let wrapped_query = format!(
+            "SELECT note_id, score, vector, snippet, title, tags FROM ({}) sub ORDER BY score DESC LIMIT $2",
+            query
+        );
+
+        let rows = sqlx::query(&wrapped_query)
+            .bind(query_vec)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let tags_str: String = row.get("tags");
+                let tags = if tags_str.is_empty() {
+                    Vec::new()
+                } else {
+                    tags_str.split(',').map(String::from).collect()
+                };
+                let hit = SearchHit {
+                    note_id: row.get("note_id"),
+                    score: row.get::<f64, _>("score") as f32,
+                    snippet: row.get("snippet"),
+                    title: row.get("title"),
+                    tags,
+                    embedding_status: None,
+                };
+                let vector: Vector = row.get("vector");
+                (hit, vector)
+            })
+            .collect();
+
+        Ok(results)
+    }
 }
 
 // Additional methods not part of the trait

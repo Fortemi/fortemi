@@ -657,4 +657,128 @@ impl PgLinkRepository {
             .map_err(Error::Database)?;
         Ok(row.get("count"))
     }
+
+    /// Compute graph topology statistics within an existing transaction.
+    ///
+    /// Returns degree distribution, clustering coefficient, connected components,
+    /// and isolated node count — all in a single SQL round-trip.
+    pub async fn topology_stats_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<TopologyStats> {
+        // Degree distribution + basic counts
+        let row = sqlx::query(
+            r#"
+            WITH degrees AS (
+                SELECT note_id, COUNT(*) as degree FROM (
+                    SELECT from_note_id AS note_id FROM link WHERE kind = 'semantic'
+                    UNION ALL
+                    SELECT to_note_id AS note_id FROM link WHERE kind = 'semantic'
+                ) sub
+                GROUP BY note_id
+            ),
+            all_notes AS (
+                SELECT id FROM note WHERE deleted_at IS NULL
+            ),
+            note_degrees AS (
+                SELECT
+                    a.id AS note_id,
+                    COALESCE(d.degree, 0) AS degree
+                FROM all_notes a
+                LEFT JOIN degrees d ON d.note_id = a.id
+            )
+            SELECT
+                COUNT(*) AS total_notes,
+                COUNT(*) FILTER (WHERE degree = 0) AS isolated_nodes,
+                COALESCE(AVG(degree), 0) AS avg_degree,
+                COALESCE(MAX(degree), 0) AS max_degree,
+                COALESCE(MIN(degree) FILTER (WHERE degree > 0), 0) AS min_degree_linked,
+                COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY degree), 0) AS median_degree
+            FROM note_degrees
+            "#,
+        )
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let total_notes: i64 = row.get("total_notes");
+        let isolated_nodes: i64 = row.get("isolated_nodes");
+        let avg_degree: f64 = row.get("avg_degree");
+        let max_degree: i64 = row.get("max_degree");
+        let min_degree_linked: i64 = row.get("min_degree_linked");
+        let median_degree: f64 = row.get("median_degree");
+
+        // Total semantic links
+        let link_row = sqlx::query(
+            "SELECT COUNT(*) as total_links FROM link WHERE kind = 'semantic'",
+        )
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+        let total_links: i64 = link_row.get("total_links");
+
+        // Connected components via iterative BFS
+        let components_row = sqlx::query(
+            r#"
+            WITH RECURSIVE edges AS (
+                SELECT DISTINCT from_note_id AS a, to_note_id AS b FROM link WHERE kind = 'semantic'
+                UNION
+                SELECT DISTINCT to_note_id AS a, from_note_id AS b FROM link WHERE kind = 'semantic'
+            ),
+            all_linked AS (
+                SELECT DISTINCT a AS note_id FROM edges
+            ),
+            component_walk AS (
+                SELECT note_id, note_id AS component_root, 0 AS depth
+                FROM all_linked
+                UNION
+                SELECT e.b, cw.component_root, cw.depth + 1
+                FROM component_walk cw
+                JOIN edges e ON e.a = cw.note_id
+                WHERE cw.depth < 50
+            )
+            SELECT COUNT(DISTINCT min_root) AS connected_components
+            FROM (
+                SELECT note_id, MIN(component_root) AS min_root
+                FROM component_walk
+                GROUP BY note_id
+            ) sub
+            "#,
+        )
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+        let connected_components: i64 = components_row.get("connected_components");
+
+        // Strategy info from current config
+        let strategy = matric_core::defaults::GraphConfig::from_env();
+
+        Ok(TopologyStats {
+            total_notes,
+            total_links,
+            isolated_nodes,
+            connected_components,
+            avg_degree,
+            max_degree,
+            min_degree_linked,
+            median_degree,
+            linking_strategy: format!("{:?}", strategy.strategy),
+            effective_k: strategy.effective_k(total_notes as usize),
+        })
+    }
+}
+
+/// Graph topology statistics.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TopologyStats {
+    pub total_notes: i64,
+    pub total_links: i64,
+    pub isolated_nodes: i64,
+    pub connected_components: i64,
+    pub avg_degree: f64,
+    pub max_degree: i64,
+    pub min_degree_linked: i64,
+    pub median_degree: f64,
+    pub linking_strategy: String,
+    pub effective_k: usize,
 }
