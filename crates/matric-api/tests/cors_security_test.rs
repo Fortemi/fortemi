@@ -22,18 +22,12 @@ fn test_cors_allowed_origins_parsing() {
     // Test case 1: Single origin
     let origins = parse_allowed_origins("https://app.example.com");
     assert_eq!(origins.len(), 1);
-    assert_eq!(
-        origins[0].to_str().unwrap(),
-        "https://app.example.com"
-    );
+    assert_eq!(origins[0].to_str().unwrap(), "https://app.example.com");
 
     // Test case 2: Multiple origins with comma separator
     let origins = parse_allowed_origins("https://app.example.com,http://localhost:3000");
     assert_eq!(origins.len(), 2);
-    assert_eq!(
-        origins[0].to_str().unwrap(),
-        "https://app.example.com"
-    );
+    assert_eq!(origins[0].to_str().unwrap(), "https://app.example.com");
     assert_eq!(origins[1].to_str().unwrap(), "http://localhost:3000");
 
     // Test case 3: Multiple origins with whitespace

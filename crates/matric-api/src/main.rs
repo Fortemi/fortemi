@@ -595,14 +595,12 @@ async fn openapi_yaml() -> impl IntoResponse {
 /// ALLOWED_ORIGINS=https://your-domain.com,http://localhost:3000,https://staging.example.com
 /// ```
 fn parse_allowed_origins() -> Vec<HeaderValue> {
-    let origins_str = std::env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let origins_str =
+        std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     if origins_str.trim().is_empty() {
         // Default origins
-        return vec![
-            HeaderValue::from_static("http://localhost:3000"),
-        ];
+        return vec![HeaderValue::from_static("http://localhost:3000")];
     }
 
     origins_str
