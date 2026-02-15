@@ -1061,7 +1061,7 @@ impl SkosConceptRepository for PgSkosRepository {
         }
         if req.query.is_some() {
             conditions.push(format!(
-                "l.tsv @@ websearch_to_tsquery('matric_english', ${})",
+                "l.tsv @@ websearch_to_tsquery('public.matric_english', ${})",
                 param_idx
             ));
             param_idx += 1;

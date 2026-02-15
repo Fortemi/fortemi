@@ -7294,7 +7294,7 @@ async fn federated_search(
             r#"
             SELECT
                 n.id AS note_id,
-                ts_rank_cd(nrc.tsv, websearch_to_tsquery('matric_english', $1)) AS score,
+                ts_rank_cd(nrc.tsv, websearch_to_tsquery('public.matric_english', $1)) AS score,
                 substring(nrc.content for 200) AS snippet,
                 n.title,
                 COALESCE(
@@ -7304,8 +7304,8 @@ async fn federated_search(
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
             WHERE n.deleted_at IS NULL
-                AND (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
-                     OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+                AND (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                     OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
             ORDER BY score DESC
             LIMIT $2
             "#,

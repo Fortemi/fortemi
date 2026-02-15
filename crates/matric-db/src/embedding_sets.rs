@@ -462,7 +462,7 @@ impl PgEmbeddingSetRepository {
             // Add FTS filter
             if let Some(fts_query) = &criteria.fts_query {
                 conditions.push(format!(
-                    "nrc.tsv @@ websearch_to_tsquery('matric_english', '{}')",
+                    "nrc.tsv @@ websearch_to_tsquery('public.matric_english', '{}')",
                     fts_query.replace('\'', "''")
                 ));
             }
@@ -1978,7 +1978,7 @@ impl PgEmbeddingSetRepository {
 
             if let Some(fts_query) = &criteria.fts_query {
                 conditions.push(format!(
-                    "nrc.tsv @@ websearch_to_tsquery('matric_english', '{}')",
+                    "nrc.tsv @@ websearch_to_tsquery('public.matric_english', '{}')",
                     fts_query.replace('\'', "''")
                 ));
             }

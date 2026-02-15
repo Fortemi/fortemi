@@ -48,13 +48,13 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(
-                       setweight(COALESCE(to_tsvector('matric_english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') ||
                        setweight(COALESCE((
-                           SELECT to_tsvector('matric_english', string_agg(tag_name, ' '))
+                           SELECT to_tsvector('public.matric_english', string_agg(tag_name, ' '))
                            FROM note_tag WHERE note_id = n.id
                        ), ''::tsvector), 'B') ||
                        setweight(nrc.tsv, 'C'),
-                       websearch_to_tsquery('matric_english', $1),
+                       websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
                    substring(nrc.content for 200) AS snippet,
@@ -65,8 +65,8 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
-                   OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
               {}
             ORDER BY score DESC
             LIMIT $2
@@ -152,13 +152,13 @@ impl PgFtsSearch {
             )
             SELECT n.id as note_id,
                    ts_rank(
-                       setweight(COALESCE(to_tsvector('matric_english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') ||
                        setweight(COALESCE((
-                           SELECT to_tsvector('matric_english', string_agg(tag_name, ' '))
+                           SELECT to_tsvector('public.matric_english', string_agg(tag_name, ' '))
                            FROM note_tag WHERE note_id = n.id
                        ), ''::tsvector), 'B') ||
                        setweight(nrc.tsv, 'C'),
-                       websearch_to_tsquery('matric_english', $1),
+                       websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
                    substring(nrc.content for 200) AS snippet,
@@ -170,8 +170,8 @@ impl PgFtsSearch {
             FROM filtered_notes fn
             JOIN note n ON n.id = fn.id
             JOIN note_revised_current nrc ON nrc.note_id = n.id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
-                   OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
             ORDER BY score DESC
             LIMIT ${}
             "#,
@@ -247,13 +247,13 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(
-                       setweight(COALESCE(to_tsvector('matric_english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') ||
                        setweight(COALESCE((
-                           SELECT to_tsvector('matric_english', string_agg(tag_name, ' '))
+                           SELECT to_tsvector('public.matric_english', string_agg(tag_name, ' '))
                            FROM note_tag WHERE note_id = n.id
                        ), ''::tsvector), 'B') ||
                        setweight(nrc.tsv, 'C'),
-                       websearch_to_tsquery('matric_english', $1),
+                       websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
                    substring(nrc.content for 200) AS snippet,
@@ -264,8 +264,8 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
-                   OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
               {}
             "#,
             archive_clause
@@ -363,7 +363,7 @@ impl PgFtsSearch {
             SELECT DISTINCT n.id
             FROM note n
             JOIN note_revised_current nrc ON nrc.note_id = n.id
-            WHERE nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
+            WHERE nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
               AND (n.archived IS FALSE OR n.archived IS NULL)
               AND n.deleted_at IS NULL
             LIMIT $2
@@ -491,9 +491,9 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(
-                       to_tsvector('matric_simple', COALESCE(n.title, '')) ||
-                       to_tsvector('matric_simple', nrc.content),
-                       websearch_to_tsquery('matric_simple', $1)
+                       to_tsvector('public.matric_simple', COALESCE(n.title, '')) ||
+                       to_tsvector('public.matric_simple', nrc.content),
+                       websearch_to_tsquery('public.matric_simple', $1)
                    ) AS score,
                    substring(nrc.content for 200) AS snippet,
                    n.title,
@@ -504,8 +504,8 @@ impl PgFtsSearch {
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
             WHERE (
-                to_tsvector('matric_simple', nrc.content) @@ websearch_to_tsquery('matric_simple', $1)
-                OR to_tsvector('matric_simple', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_simple', $1)
+                to_tsvector('public.matric_simple', nrc.content) @@ websearch_to_tsquery('public.matric_simple', $1)
+                OR to_tsvector('public.matric_simple', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_simple', $1)
             )
             {}
             ORDER BY score DESC
@@ -695,13 +695,13 @@ impl PgFtsSearch {
             r#"
             SELECT n.id as note_id,
                    ts_rank(
-                       setweight(COALESCE(to_tsvector('matric_english', n.title), ''::tsvector), 'A') ||
+                       setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') ||
                        setweight(COALESCE((
-                           SELECT to_tsvector('matric_english', string_agg(tag_name, ' '))
+                           SELECT to_tsvector('public.matric_english', string_agg(tag_name, ' '))
                            FROM note_tag WHERE note_id = n.id
                        ), ''::tsvector), 'B') ||
                        setweight(nrc.tsv, 'C'),
-                       websearch_to_tsquery('matric_english', $1),
+                       websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
                    substring(nrc.content for 200) AS snippet,
@@ -712,8 +712,8 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('matric_english', $1)
-                   OR to_tsvector('matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('matric_english', $1))
+            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
               {}
             ORDER BY score DESC
             LIMIT $2
