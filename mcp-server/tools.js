@@ -5465,4 +5465,219 @@ When called without note_ids, processes all notes in the current archive (up to 
     },
     annotations: {"readOnlyHint":true},
   },
+  // ==========================================================================
+  // CONSOLIDATED CORE TOOLS — Archives, Encryption, Backups (Issue #441)
+  // ==========================================================================
+  {
+    name: "manage_archives",
+    description: `Manage parallel memory archives (schema-level data isolation). See \`get_documentation(topic='archives')\` for multi-memory architecture.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "create",
+            "get",
+            "update",
+            "delete",
+            "set_default",
+            "stats",
+            "clone"
+          ],
+          "description": "Action: 'list' (all archives), 'create' (new archive), 'get' (details), 'update' (metadata), 'delete' (permanent!), 'set_default', 'stats', 'clone' (deep copy)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Archive name (required for create/get/update/delete/set_default/stats/clone)"
+        },
+        "description": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "Archive description (for create/update; null to clear)"
+        },
+        "new_name": {
+          "type": "string",
+          "description": "Name for cloned archive (required for 'clone')"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    annotations: {"destructiveHint":false},
+  },
+  {
+    name: "manage_encryption",
+    description: `PKE (Public Key Encryption) operations — keypair generation, encrypt/decrypt, keyset management. See \`get_documentation(topic='encryption')\`.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "generate_keypair",
+            "get_address",
+            "encrypt",
+            "decrypt",
+            "list_recipients",
+            "verify_address",
+            "list_keysets",
+            "create_keyset",
+            "get_active_keyset",
+            "set_active_keyset",
+            "export_keyset",
+            "import_keyset",
+            "delete_keyset"
+          ],
+          "description": "Action: crypto ops (generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address) or keyset management (list_keysets, create_keyset, get_active_keyset, set_active_keyset, export_keyset, import_keyset, delete_keyset)"
+        },
+        "passphrase": {
+          "type": "string",
+          "description": "Passphrase for private key (required for generate_keypair, create_keyset, decrypt)"
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label for keypair (for generate_keypair)"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Directory for key file output (generate_keypair) or keyset export (export_keyset)"
+        },
+        "public_key": {
+          "type": "string",
+          "description": "Base64-encoded public key (for get_address, encrypt)"
+        },
+        "public_key_path": {
+          "type": "string",
+          "description": "Path to public key file (fallback for get_address)"
+        },
+        "plaintext": {
+          "type": "string",
+          "description": "Base64-encoded plaintext to encrypt (for encrypt)"
+        },
+        "recipient_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Base64-encoded recipient public keys (for encrypt)"
+        },
+        "original_filename": {
+          "type": "string",
+          "description": "Filename to embed in encrypted header (for encrypt)"
+        },
+        "ciphertext": {
+          "type": "string",
+          "description": "Base64-encoded ciphertext (for decrypt, list_recipients)"
+        },
+        "encrypted_private_key": {
+          "type": "string",
+          "description": "Base64-encoded encrypted private key (for decrypt)"
+        },
+        "address": {
+          "type": "string",
+          "description": "PKE address to verify (for verify_address, format: mm:...)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Keyset name (for create_keyset, set_active_keyset, export_keyset, import_keyset, delete_keyset)"
+        },
+        "import_path": {
+          "type": "string",
+          "description": "Path to exported keyset directory (for import_keyset)"
+        },
+        "private_key_path": {
+          "type": "string",
+          "description": "Path to encrypted private key file (for import_keyset with public_key_path)"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    annotations: {"destructiveHint":false},
+  },
+  {
+    name: "manage_backups",
+    description: `Backup, restore, shard export/import, and memory swap operations. See \`get_documentation(topic='backup')\`.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "export_shard",
+            "import_shard",
+            "snapshot",
+            "restore",
+            "list",
+            "get_info",
+            "get_metadata",
+            "update_metadata",
+            "download_archive",
+            "upload_archive",
+            "swap",
+            "download_memory"
+          ],
+          "description": "Action: shards (export_shard, import_shard), database (snapshot, restore), backups (list, get_info, get_metadata, update_metadata), archives (download_archive, upload_archive), swap, download_memory"
+        },
+        "filename": {
+          "type": "string",
+          "description": "Backup/shard filename (for restore, get_info, get_metadata, update_metadata, download_archive, swap)"
+        },
+        "file_path": {
+          "type": "string",
+          "description": "Path to file on disk (for import_shard, upload_archive)"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Directory prefix for download output (for export_shard, download_archive, download_memory)"
+        },
+        "include": {
+          "type": "string",
+          "description": "Components to include: comma-separated (notes,collections,tags,templates,links,embedding_sets,embeddings) or 'all' (for export_shard, import_shard)"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Preview without writing data (for import_shard, swap)"
+        },
+        "on_conflict": {
+          "type": "string",
+          "enum": ["skip", "replace", "merge"],
+          "description": "Conflict resolution: skip, replace, merge (for import_shard)"
+        },
+        "skip_embedding_regen": {
+          "type": "boolean",
+          "description": "Skip embedding regeneration on import (for import_shard)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Snapshot name suffix or memory archive name (for snapshot, download_memory)"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable title (for snapshot, update_metadata)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description (for snapshot, update_metadata)"
+        },
+        "skip_snapshot": {
+          "type": "boolean",
+          "description": "DANGEROUS: Skip pre-restore backup (for restore)"
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["wipe", "merge"],
+          "description": "Restore strategy (for swap)"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    annotations: {"destructiveHint":false},
+  },
 ];

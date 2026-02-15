@@ -6,23 +6,23 @@ This directory contains phase-based UAT test procedures for Fortemi, designed fo
 
 ---
 
-## Tool Surface: 23 Core MCP Tools
+## Tool Surface: 27 Core MCP Tools
 
-Following the tool surface consolidation (#365), Fortemi exposes **23 core MCP tools** using a discriminated-union pattern. Eight consolidated tools replace ~180 granular tools:
+Following the tool surface consolidation (#365), Fortemi exposes **27 core MCP tools** using a discriminated-union pattern. Eleven consolidated tools replace ~180 granular tools:
 
 | Category | Tools | Count |
 |----------|-------|-------|
 | Notes CRUD | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
-| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments`, `manage_embeddings` | 8 |
-| Graph | `explore_graph`, `get_note_links` | 2 |
+| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups` | 11 |
+| Graph | `explore_graph`, `get_topology_stats`, `get_note_links` | 3 |
 | Export | `export_note` | 1 |
 | System | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | Multi-memory | `select_memory`, `get_active_memory` | 2 |
 | Observability | `get_knowledge_health` | 1 |
 | Bulk ops | `bulk_reprocess_notes` | 1 |
-| **Total** | | **23** |
+| **Total** | | **27** |
 
-**Advanced features** (versioning, PKE encryption, SKOS taxonomy editing, OAuth admin, job queue management) are accessible via the REST API. Use `get_documentation` for API guidance.
+**Advanced features** (versioning, SKOS taxonomy editing, OAuth admin, job queue management) are accessible via the REST API. Use `get_documentation` for API guidance.
 
 ---
 
@@ -57,10 +57,11 @@ The suite is NOT complete until:
 | 11 | [Edge Cases](phase-11-edge-cases.md) | ~5 min | 10 | No |
 | 12 | [Feature Chains (E2E)](phase-12-feature-chains.md) | ~15 min | 20 | **Yes** |
 | 13 | [Embedding Sets](phase-13-embedding-sets.md) | ~8 min | 18 | No |
-| 14 | [Final Cleanup](phase-14-cleanup.md) | ~3 min | 6 | **Yes** |
+| 14 | [Final Cleanup](phase-14-cleanup.md) | ~3 min | 7 | **Yes** |
 
-**Total Tests**: ~159
+**Total Tests**: ~165
 **Total Estimated Duration**: ~90 minutes (full suite)
+
 **Total Phases**: 15
 
 ---
@@ -89,12 +90,17 @@ The suite is NOT complete until:
 | `get_active_memory` | 8 | ~3 |
 | `manage_attachments` | 9 | 7 |
 | `manage_embeddings` | 13, 14 | ~18 |
+| `manage_archives` | 0, 8, 12, 14 | ~6 |
+| `manage_encryption` | — | 0 |
+| `manage_backups` | — | 0 |
+| `get_topology_stats` | 6 | ~1 |
 | `export_note` | 10, 12 | ~3 |
 | `get_knowledge_health` | 10, 12 | ~3 |
 | `bulk_reprocess_notes` | 10, 12 | ~4 |
-| **23/23 tools** | **All phases** | **~159** |
+| **27/27 tools** | **All phases** | **~165** |
 
-**Coverage**: 23/23 core MCP tools (100%)
+**Coverage**: 27/27 core MCP tools (100%)
+> **Note**: `manage_encryption` and `manage_backups` are covered by automated integration tests (`consolidated-tools.test.js`) but not included in manual UAT phases since they require specific infrastructure (PKE keys, shard files). Use `get_documentation` for usage guidance.
 
 ---
 
@@ -246,17 +252,16 @@ Tests marked with `**Isolation**: Required` expect an error response. These MUST
 Before declaring UAT complete, verify:
 - [ ] Phase 12 (Feature Chains) executed with 20 tests
 - [ ] Phase 13 (Embedding Sets) executed with 18 tests
-- [ ] Phase 14 (Cleanup) removed all UAT test data
+- [ ] Phase 14 (Cleanup) removed all UAT test data and archives
 - [ ] Final report includes all 15 phases
 
 ---
 
 ## Advanced Features (API-Only)
 
-The following features are NOT covered by the 23 core MCP tools and require direct API access. Use `get_documentation` for guidance:
+The following features are NOT covered by the 27 core MCP tools and require direct API access. Use `get_documentation` for guidance:
 
 - **Versioning**: Note version history, rollback
-- **PKE Encryption**: Key generation, encrypt/decrypt
 - **SKOS Taxonomy**: Concept scheme CRUD, broader/narrower relations, turtle export
 - **OAuth & Auth**: Client registration, token management, API keys
 - **Job Queue**: Individual job creation, monitoring, queue stats
@@ -269,6 +274,7 @@ These may be tested separately via API integration tests outside this MCP UAT su
 
 ## Version History
 
+- **2026.2.15b**: Added `manage_archives`, `manage_encryption`, `manage_backups`, `get_topology_stats` to core surface (23→27 tools, 8→11 consolidated). Updated PF-003/PF-006, MEM-004, CHAIN-012, CLEAN-007 to use `manage_archives` instead of HTTP API. PKE encryption moved from API-only to MCP core. ~165 tests.
 - **2026.2.15**: Added Phase 13 (Embedding Sets) with 18 tests covering `manage_embeddings` CRUD, membership, search scoping, and error handling. Renumbered cleanup to Phase 14 with embedding set cleanup (CLEAN-005). 15 phases / ~159 tests.
 - **2026.2.14**: Complete rewrite for 22-tool core surface (#365, #389, #392). 14 phases / ~141 tests. Removed standalone media tools (describe_image, transcribe_audio) — media processing is pipeline-only. Added `manage_attachments` consolidated tool. Advanced features (versioning, PKE, SKOS admin, OAuth, jobs, embeddings) documented as API-only.
 - **2026.2.19**: Previous version — 30 phases, 545 tests, 202 MCP tools

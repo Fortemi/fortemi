@@ -9,6 +9,7 @@
 - System supports multi-memory architecture (MAX_MEMORIES env var set)
 
 **Tools Tested**:
+- `manage_archives` (create test archive)
 - `select_memory` (switch active memory context)
 - `get_active_memory` (query current memory)
 - `search` (federated action for cross-archive search)
@@ -103,24 +104,22 @@ const response = await use_mcp_tool({
 
 ### MEM-004: Provision and Select Test Archive
 
-**Note**: Archive creation via `POST /api/v1/archives` is NOT available as an MCP core tool. The UAT executor must provision it via HTTP API before selecting it with MCP.
+**MCP Tool**: `manage_archives`, `select_memory`
 
-> **Self-Provisioning**: The test creates the archive itself — no manual pre-setup required. If the archive already exists (e.g., from a prior UAT run), the 409 Conflict response is safe to ignore.
+> **Self-Provisioning**: The test creates the archive itself via `manage_archives` — no manual pre-setup required. If the archive already exists (e.g., from PF-006 or a prior UAT run), the error response is safe to ignore.
 
 ```javascript
-// Step 1: Provision test archive via HTTP API
-const archiveResponse = await fetch("http://localhost:3000/api/v1/archives", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
+// Step 1: Provision test archive via MCP
+const archiveResult = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "manage_archives",
+  arguments: {
+    action: "create",
     name: "test-archive",
     description: "UAT test memory for multi-memory validation"
-  })
+  }
 });
-// 201 = created, 409 = already exists — both are OK
-if (![201, 409].includes(archiveResponse.status)) {
-  throw new Error(`Failed to provision test archive: ${archiveResponse.status}`);
-}
+// Success or "already exists" error — both are OK
 
 // Step 2: Select the test archive via MCP
 const response = await use_mcp_tool({
@@ -133,7 +132,7 @@ const response = await use_mcp_tool({
 ```
 
 **Pass Criteria**:
-- [ ] Archive provisioned (201) or already existed (409)
+- [ ] Archive created or already exists (no unexpected error)
 - [ ] `select_memory` switches to "test-archive" successfully
 - [ ] MEM-005 through MEM-008 can proceed
 
@@ -364,27 +363,17 @@ const response = await use_mcp_tool({
 - Multi-memory architecture enables parallel data isolation (e.g., personal vs work vs project)
 - Each memory maps to a separate PostgreSQL schema
 - Default memory is "public" (backward compatible with pre-multi-memory systems)
-- Archive creation requires API access (`POST /api/v1/archives`) - not available via MCP core tools (MEM-004 self-provisions)
+- Archive creation available via `manage_archives` MCP tool (action: `create`)
 - `X-Fortemi-Memory` HTTP header selects memory per request (MCP tools handle this internally)
 - Federated search is the ONLY way to search across multiple memories
 - Memory switching persists for the duration of the MCP session
-- Maximum memories configurable via `MAX_MEMORIES` env var (default: 100)
-
-**Test Archive Setup for UAT**:
-```bash
-# Create test archive before running UAT Phase 8
-curl -X POST http://localhost:3000/api/v1/archives \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "test-archive",
-    "description": "UAT test memory for multi-memory validation"
-  }'
-```
+- Maximum memories configurable via `MAX_MEMORIES` env var (default: 10)
 
 **Cleanup After UAT**:
-```bash
-# Optional: Remove test archive after UAT completion
-# (Currently no delete endpoint - archives are long-lived by design)
-# Manual cleanup via direct SQL if needed:
-# DROP SCHEMA "test-archive" CASCADE;
+```javascript
+// Remove test archive via MCP (Phase 14 handles this)
+await mcp.call_tool("manage_archives", {
+  action: "delete",
+  name: "test-archive"
+});
 ```

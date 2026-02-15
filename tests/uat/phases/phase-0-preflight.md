@@ -96,7 +96,7 @@ const toolCount = info.available_tools?.length || 0;
 ```
 
 **Pass Criteria**:
-- [ ] System reports exactly 23 core MCP tools available
+- [ ] System reports exactly 27 core MCP tools available
 - [ ] Tool list includes all consolidated tools (capture_knowledge, search, etc.)
 - [ ] No legacy granular tools present (create_note, search_notes_fts, etc.)
 
@@ -126,7 +126,7 @@ await mcp.call_tool("get_documentation", {});
 ```
 
 **Pass Criteria**:
-- [ ] Response contains documentation for all 23 core tools
+- [ ] Response contains documentation for all 27 core tools
 - [ ] Each consolidated tool lists its available actions
 - [ ] Response includes usage guidance or examples
 - [ ] Documentation structure is navigable
@@ -162,34 +162,28 @@ for (const dir of testDirs) {
 
 ---
 
-### PF-006: Provision Test Memory Archive
-**MCP Tool**: None (HTTP API — archive creation is not an MCP core tool)
+### PF-006: Provision Test Memory Archives
+**MCP Tool**: `manage_archives`, `select_memory`, `get_active_memory`
 
-> **Why Preflight?** Multiple UAT phases (Phase 8: Multi-Memory, Phase 12: Feature Chains) require a secondary memory archive. Provisioning it once in preflight avoids duplicated setup and ensures all downstream phases can rely on it.
+> **Why Preflight?** Multiple UAT phases (Phase 8: Multi-Memory, Phase 12: Feature Chains) require secondary memory archives. Provisioning them once in preflight avoids duplicated setup and ensures all downstream phases can rely on them.
 
 ```javascript
 // Provision "test-archive" for Phase 8 (MEM-004 through MEM-008)
-const archiveResponse1 = await fetch("http://localhost:3000/api/v1/archives", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    name: "test-archive",
-    description: "UAT test memory for multi-memory validation (Phase 8)"
-  })
+const archive1 = await mcp.call_tool("manage_archives", {
+  action: "create",
+  name: "test-archive",
+  description: "UAT test memory for multi-memory validation (Phase 8)"
 });
-// 201 = created, 409 = already exists — both are OK
-console.log(`test-archive: ${archiveResponse1.status === 201 ? "created" : "already exists"}`);
+// Success or "already exists" error — both are OK
+console.log(`test-archive: ${archive1.name ? "created" : "already exists"}`);
 
 // Provision "uat-test-memory" for Phase 12 (CHAIN-012 through CHAIN-014)
-const archiveResponse2 = await fetch("http://localhost:3000/api/v1/archives", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    name: "uat-test-memory",
-    description: "UAT test memory for feature chain validation (Phase 12)"
-  })
+const archive2 = await mcp.call_tool("manage_archives", {
+  action: "create",
+  name: "uat-test-memory",
+  description: "UAT test memory for feature chain validation (Phase 12)"
 });
-console.log(`uat-test-memory: ${archiveResponse2.status === 201 ? "created" : "already exists"}`);
+console.log(`uat-test-memory: ${archive2.name ? "created" : "already exists"}`);
 
 // Verify both archives are selectable via MCP
 await mcp.call_tool("select_memory", { name: "test-archive" });
@@ -205,8 +199,8 @@ await mcp.call_tool("select_memory", { name: "public" });
 ```
 
 **Pass Criteria**:
-- [ ] `test-archive` provisioned (201) or already exists (409)
-- [ ] `uat-test-memory` provisioned (201) or already exists (409)
+- [ ] `test-archive` created or already exists (no error)
+- [ ] `uat-test-memory` created or already exists (no error)
 - [ ] Both archives selectable via `select_memory`
 - [ ] Active memory restored to `public` after verification
 
@@ -223,7 +217,7 @@ await mcp.call_tool("select_memory", { name: "public" });
 | PF-003  | get_system_info | Tool count verification | ⬜ |
 | PF-004  | get_documentation | Documentation availability | ⬜ |
 | PF-005  | (filesystem) | Test data readiness | ⬜ |
-| PF-006  | (HTTP API + MCP) | Test archive provisioning | ⬜ |
+| PF-006  | manage_archives + MCP | Test archive provisioning | ⬜ |
 
 **Phase Result**: ⬜ PASS / ⬜ FAIL
 

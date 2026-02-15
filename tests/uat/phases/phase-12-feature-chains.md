@@ -401,28 +401,23 @@ const result = await use_mcp_tool({
 ---
 
 ### CHAIN-012: Provision Test Archive, Switch Memory, Create Note
-**MCP Tool**: `select_memory`, `capture_knowledge`
+**MCP Tool**: `manage_archives`, `select_memory`, `capture_knowledge`
 
 > **Archive Provisioning**: The test archive must be created before it can be selected.
-> Use the HTTP API to create it (archive creation is not available as an MCP core tool).
-> If the archive already exists, the API returns 409 Conflict — this is safe to ignore.
+> Use `manage_archives` to create it. If the archive already exists (e.g., from PF-006), the error is safe to ignore.
 
 ```javascript
-// Step 0: Provision the test archive via HTTP API
-// (This is the ONLY non-MCP call in the chain — required because
-// archive creation is an admin operation not exposed via MCP tools)
-const archiveResponse = await fetch("http://localhost:3000/api/v1/archives", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
+// Step 0: Provision the test archive via MCP
+const archiveResult = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "manage_archives",
+  arguments: {
+    action: "create",
     name: "uat-test-memory",
     description: "UAT test memory for multi-memory validation"
-  })
+  }
 });
-// 201 = created, 409 = already exists — both are OK
-if (![201, 409].includes(archiveResponse.status)) {
-  throw new Error(`Failed to provision test archive: ${archiveResponse.status}`);
-}
+// Success or "already exists" error — both are OK
 
 // Switch to UAT test memory
 await use_mcp_tool({

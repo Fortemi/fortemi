@@ -58,8 +58,8 @@ describe("Phase 0: Preflight Checks", () => {
     const tools = await client.listTools();
 
     assert.ok(Array.isArray(tools), "Tools should be an array");
-    // In core mode (default): 22 tools; in full mode: 100+
-    assert.ok(tools.length >= 20, `Expected 20+ tools, got ${tools.length}`);
+    // In core mode (default): 27 tools; in full mode: 190+
+    assert.ok(tools.length >= 25, `Expected 25+ tools, got ${tools.length}`);
 
     // Verify tool structure
     const firstTool = tools[0];

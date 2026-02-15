@@ -31,7 +31,7 @@ const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://f
 const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤24 tools) or "full" (all)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤27 tools) or "full" (all)
 
 // Core tool surface — high-level agent-friendly tools (issue #365)
 const CORE_TOOLS = new Set([
@@ -40,6 +40,7 @@ const CORE_TOOLS = new Set([
   // Consolidated tools (discriminated-union pattern)
   "capture_knowledge", "search", "record_provenance",
   "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
+  "manage_archives", "manage_encryption", "manage_backups",
   // Graph & links
   "explore_graph", "get_topology_stats", "get_note_links",
   // Export
@@ -2887,6 +2888,351 @@ function createMcpServer() {
           break;
         }
 
+        // ============================================================================
+        // CONSOLIDATED CORE TOOLS — Archives, Encryption, Backups (Issue #441)
+        // ============================================================================
+
+        case "manage_archives": {
+          const maAction = args.action;
+          if (maAction === "list") {
+            result = await apiRequest("GET", "/api/v1/archives");
+          } else if (maAction === "create") {
+            result = await apiRequest("POST", "/api/v1/archives", {
+              name: args.name,
+              description: args.description,
+            });
+          } else if (maAction === "get") {
+            result = await apiRequest("GET", `/api/v1/archives/${args.name}`);
+          } else if (maAction === "update") {
+            await apiRequest("PATCH", `/api/v1/archives/${args.name}`, {
+              description: args.description,
+            });
+            result = { success: true, updated: args.name };
+          } else if (maAction === "delete") {
+            await apiRequest("DELETE", `/api/v1/archives/${args.name}`);
+            result = { success: true, deleted: args.name };
+          } else if (maAction === "set_default") {
+            await apiRequest("POST", `/api/v1/archives/${args.name}/set-default`);
+            const store = tokenStorage.getStore();
+            const sid = store?.sessionId;
+            if (sid) {
+              sessionMemories.set(sid, args.name);
+            }
+            result = { success: true, default_archive: args.name };
+          } else if (maAction === "stats") {
+            result = await apiRequest("GET", `/api/v1/archives/${args.name}/stats`);
+          } else if (maAction === "clone") {
+            result = await apiRequest("POST", `/api/v1/archives/${args.name}/clone`, {
+              new_name: args.new_name,
+              description: args.description,
+            });
+          } else {
+            throw new Error(`Unknown manage_archives action: ${maAction}. Valid: list, create, get, update, delete, set_default, stats, clone`);
+          }
+          break;
+        }
+
+        case "manage_encryption": {
+          const meAction = args.action;
+          if (meAction === "generate_keypair") {
+            const apiResult = await apiRequest("POST", "/api/v1/pke/keygen", {
+              passphrase: args.passphrase,
+              label: args.label || null,
+            });
+            if (args.output_dir) {
+              fs.mkdirSync(args.output_dir, { recursive: true });
+              fs.writeFileSync(path.join(args.output_dir, "public.key"), Buffer.from(apiResult.public_key, "base64"));
+              fs.writeFileSync(path.join(args.output_dir, "private.key.enc"), Buffer.from(apiResult.encrypted_private_key, "base64"));
+              fs.writeFileSync(path.join(args.output_dir, "address.txt"), apiResult.address);
+            }
+            result = {
+              address: apiResult.address,
+              public_key: apiResult.public_key,
+              encrypted_private_key: apiResult.encrypted_private_key,
+              label: apiResult.label,
+              output_dir: args.output_dir || null,
+            };
+          } else if (meAction === "get_address") {
+            const pubKeyB64 = args.public_key
+              ? args.public_key
+              : args.public_key_path
+                ? readPublicKeyAsBase64(args.public_key_path)
+                : null;
+            if (!pubKeyB64) throw new Error("Provide either public_key (base64) or public_key_path");
+            const apiResult = await apiRequest("POST", "/api/v1/pke/address", { public_key: pubKeyB64 });
+            result = { address: apiResult.address };
+          } else if (meAction === "encrypt") {
+            const apiResult = await apiRequest("POST", "/api/v1/pke/encrypt", {
+              plaintext: args.plaintext,
+              recipients: args.recipient_keys,
+              original_filename: args.original_filename || null,
+            });
+            result = {
+              ciphertext: apiResult.ciphertext,
+              recipients: apiResult.recipients,
+              size_bytes: Buffer.from(apiResult.ciphertext, "base64").length,
+            };
+          } else if (meAction === "decrypt") {
+            const apiResult = await apiRequest("POST", "/api/v1/pke/decrypt", {
+              ciphertext: args.ciphertext,
+              encrypted_private_key: args.encrypted_private_key,
+              passphrase: args.passphrase,
+            });
+            result = { plaintext: apiResult.plaintext, original_filename: apiResult.original_filename };
+          } else if (meAction === "list_recipients") {
+            const apiResult = await apiRequest("POST", "/api/v1/pke/recipients", { ciphertext: args.ciphertext });
+            result = { recipients: apiResult.recipients };
+          } else if (meAction === "verify_address") {
+            result = await apiRequest("GET", `/api/v1/pke/verify/${encodeURIComponent(args.address)}`);
+          } else if (meAction === "list_keysets") {
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            if (!fs.existsSync(keysDir)) { result = []; break; }
+            const entries = fs.readdirSync(keysDir, { withFileTypes: true });
+            const keysets = [];
+            for (const entry of entries) {
+              if (!entry.isDirectory()) continue;
+              const keysetDir = path.join(keysDir, entry.name);
+              const publicKeyPath = path.join(keysetDir, "public.key");
+              const privateKeyPath = path.join(keysetDir, "private.key.enc");
+              if (!fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) continue;
+              let address = null;
+              try {
+                const pubKeyB64 = readPublicKeyAsBase64(publicKeyPath);
+                const addrResult = await apiRequest("POST", "/api/v1/pke/address", { public_key: pubKeyB64 });
+                address = addrResult.address;
+              } catch { continue; }
+              const stats = fs.statSync(keysetDir);
+              keysets.push({
+                name: entry.name,
+                address,
+                public_key: readPublicKeyAsBase64(publicKeyPath),
+                created: stats.birthtime.toISOString(),
+              });
+            }
+            result = keysets;
+          } else if (meAction === "create_keyset") {
+            if (!/^[a-zA-Z0-9_-]+$/.test(args.name)) throw new Error("Keyset name must contain only alphanumeric characters, hyphens, and underscores");
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const keysetDir = path.join(keysDir, args.name);
+            if (fs.existsSync(keysetDir)) throw new Error(`Keyset '${args.name}' already exists`);
+            const keygenResult = await apiRequest("POST", "/api/v1/pke/keygen", { passphrase: args.passphrase, label: args.name });
+            fs.mkdirSync(keysetDir, { recursive: true });
+            fs.writeFileSync(path.join(keysetDir, "public.key"), Buffer.from(keygenResult.public_key, "base64"));
+            fs.writeFileSync(path.join(keysetDir, "private.key.enc"), Buffer.from(keygenResult.encrypted_private_key, "base64"));
+            result = {
+              name: args.name,
+              address: keygenResult.address,
+              public_key: keygenResult.public_key,
+              encrypted_private_key: keygenResult.encrypted_private_key,
+              created: new Date().toISOString(),
+            };
+          } else if (meAction === "get_active_keyset") {
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const activeFile = path.join(keysDir, "active");
+            if (!fs.existsSync(activeFile)) { result = null; break; }
+            const activeKeyset = fs.readFileSync(activeFile, "utf8").trim();
+            if (!activeKeyset) { result = null; break; }
+            const keysetDir = path.join(keysDir, activeKeyset);
+            const publicKeyPath = path.join(keysetDir, "public.key");
+            const privateKeyPath = path.join(keysetDir, "private.key.enc");
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) { result = null; break; }
+            const pubKeyB64 = readPublicKeyAsBase64(publicKeyPath);
+            const addrResult = await apiRequest("POST", "/api/v1/pke/address", { public_key: pubKeyB64 });
+            const stats = fs.statSync(keysetDir);
+            result = { name: activeKeyset, address: addrResult.address, public_key: pubKeyB64, created: stats.birthtime.toISOString() };
+          } else if (meAction === "set_active_keyset") {
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const keysetDir = path.join(keysDir, args.name);
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(path.join(keysetDir, "public.key")) || !fs.existsSync(path.join(keysetDir, "private.key.enc"))) {
+              throw new Error(`Keyset '${args.name}' not found`);
+            }
+            fs.mkdirSync(keysDir, { recursive: true });
+            fs.writeFileSync(path.join(keysDir, "active"), args.name, "utf8");
+            result = { success: true, active_keyset: args.name };
+          } else if (meAction === "export_keyset") {
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const keysetDir = path.join(keysDir, args.name);
+            const publicKeyPath = path.join(keysetDir, "public.key");
+            const privateKeyPath = path.join(keysetDir, "private.key.enc");
+            if (!fs.existsSync(keysetDir) || !fs.existsSync(publicKeyPath) || !fs.existsSync(privateKeyPath)) {
+              throw new Error(`Keyset '${args.name}' not found`);
+            }
+            const exportDir = args.output_dir || path.join(os.homedir(), ".matric", "exports");
+            fs.mkdirSync(exportDir, { recursive: true });
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+            const exportPath = path.join(exportDir, `${args.name}-${timestamp}`);
+            fs.mkdirSync(exportPath, { recursive: true });
+            fs.copyFileSync(publicKeyPath, path.join(exportPath, "public.key"));
+            fs.copyFileSync(privateKeyPath, path.join(exportPath, "private.key.enc"));
+            fs.writeFileSync(path.join(exportPath, "keyset.json"), JSON.stringify({
+              keyset_name: args.name, exported_at: new Date().toISOString(), files: ["public.key", "private.key.enc"],
+            }, null, 2));
+            result = { success: true, keyset_name: args.name, export_path: exportPath };
+          } else if (meAction === "import_keyset") {
+            if (!/^[a-zA-Z0-9_-]+$/.test(args.name)) throw new Error("Keyset name must contain only alphanumeric characters, hyphens, and underscores");
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const keysetDir = path.join(keysDir, args.name);
+            if (fs.existsSync(keysetDir)) throw new Error(`Keyset '${args.name}' already exists`);
+            let sourcePublicKey, sourcePrivateKey;
+            if (args.import_path) {
+              sourcePublicKey = path.join(args.import_path, "public.key");
+              sourcePrivateKey = path.join(args.import_path, "private.key.enc");
+              if (!fs.existsSync(sourcePublicKey) || !fs.existsSync(sourcePrivateKey)) {
+                throw new Error(`Invalid keyset directory. Expected public.key and private.key.enc in ${args.import_path}`);
+              }
+            } else if (args.public_key_path && args.private_key_path) {
+              sourcePublicKey = args.public_key_path;
+              sourcePrivateKey = args.private_key_path;
+              if (!fs.existsSync(sourcePublicKey)) throw new Error(`Public key not found: ${sourcePublicKey}`);
+              if (!fs.existsSync(sourcePrivateKey)) throw new Error(`Private key not found: ${sourcePrivateKey}`);
+            } else {
+              throw new Error("Must provide either import_path (directory) or both public_key_path and private_key_path");
+            }
+            fs.mkdirSync(keysetDir, { recursive: true });
+            fs.copyFileSync(sourcePublicKey, path.join(keysetDir, "public.key"));
+            fs.copyFileSync(sourcePrivateKey, path.join(keysetDir, "private.key.enc"));
+            const importedPubKeyB64 = readPublicKeyAsBase64(path.join(keysetDir, "public.key"));
+            const addrResult = await apiRequest("POST", "/api/v1/pke/address", { public_key: importedPubKeyB64 });
+            result = { success: true, keyset_name: args.name, address: addrResult.address, public_key: importedPubKeyB64 };
+          } else if (meAction === "delete_keyset") {
+            const keysDir = path.join(os.homedir(), ".matric", "keys");
+            const keysetDir = path.join(keysDir, args.name);
+            if (!fs.existsSync(keysetDir)) throw new Error(`Keyset '${args.name}' not found`);
+            const activeFile = path.join(keysDir, "active");
+            if (fs.existsSync(activeFile)) {
+              const activeKeyset = fs.readFileSync(activeFile, "utf8").trim();
+              if (activeKeyset === args.name) fs.writeFileSync(activeFile, "", "utf8");
+            }
+            fs.rmSync(keysetDir, { recursive: true, force: true });
+            result = { success: true, deleted_keyset: args.name };
+          } else {
+            throw new Error(`Unknown manage_encryption action: ${meAction}. Valid: generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list_keysets, create_keyset, get_active_keyset, set_active_keyset, export_keyset, import_keyset, delete_keyset`);
+          }
+          break;
+        }
+
+        case "manage_backups": {
+          const mbAction = args.action;
+          if (mbAction === "export_shard") {
+            const shardParams = new URLSearchParams();
+            if (args.include) shardParams.set("include", Array.isArray(args.include) ? args.include.join(",") : args.include);
+            const shardUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard?${shardParams}`;
+            const shardFilename = `matric-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+            const shardOutputFile = args.output_dir ? `${args.output_dir}/${shardFilename}` : shardFilename;
+            const shardCurlParts = [`curl -o "${shardOutputFile}"`];
+            const shardToken = tokenStorage.getStore()?.token;
+            if (shardToken) shardCurlParts.push(`-H "Authorization: Bearer ${shardToken}"`);
+            else if (API_KEY) shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            shardCurlParts.push(`-H "Accept: application/gzip"`);
+            shardCurlParts.push(`"${shardUrl}"`);
+            result = {
+              download_url: shardUrl,
+              suggested_filename: shardFilename,
+              curl_command: shardCurlParts.join(" \\\n  "),
+              instructions: `Run the curl command to create and download a knowledge shard (.tar.gz). Contains all notes, embeddings, links, and metadata.`,
+            };
+          } else if (mbAction === "import_shard") {
+            const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/import`;
+            const ksiFilePath = args.file_path || "SHARD_FILE.tar.gz";
+            const ksiDryRun = args.dry_run ? "true" : "false";
+            const ksiConflict = args.on_conflict || "skip";
+            const ksiSkipEmbed = args.skip_embedding_regen ? "true" : "false";
+            const ksiCurlParts = [`curl -X POST`];
+            ksiCurlParts.push(`-H "Content-Type: application/json"`);
+            const ksiToken = tokenStorage.getStore()?.token;
+            if (ksiToken) ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
+            else if (API_KEY) ksiCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            const ksiSid = tokenStorage.getStore()?.sessionId;
+            const ksiMem = ksiSid ? sessionMemories.get(ksiSid) : null;
+            if (ksiMem) ksiCurlParts.push(`-H "X-Fortemi-Memory: ${ksiMem}"`);
+            const ksiIncludeJson = args.include ? `, "include": "${args.include}"` : "";
+            ksiCurlParts.push(`-d "{\\"shard_base64\\": \\"$(base64 -w0 ${ksiFilePath})\\", \\"dry_run\\": ${ksiDryRun}, \\"on_conflict\\": \\"${ksiConflict}\\", \\"skip_embedding_regen\\": ${ksiSkipEmbed}${ksiIncludeJson}}"`);
+            ksiCurlParts.push(`"${ksiUrl}"`);
+            result = {
+              upload_url: ksiUrl,
+              method: "POST",
+              curl_command: ksiCurlParts.join(" \\\n  "),
+              instructions: `Run the curl command to import a knowledge shard (.tar.gz). Use dry_run=true first to validate.`,
+            };
+            if (args.file_path) result.file_path_hint = args.file_path;
+          } else if (mbAction === "snapshot") {
+            result = await apiRequest("POST", "/api/v1/backup/database/snapshot", {
+              name: args.name, title: args.title, description: args.description,
+            });
+          } else if (mbAction === "restore") {
+            result = await apiRequest("POST", "/api/v1/backup/database/restore", {
+              filename: args.filename, skip_snapshot: args.skip_snapshot || false,
+            });
+          } else if (mbAction === "list") {
+            result = await apiRequest("GET", "/api/v1/backup/list");
+          } else if (mbAction === "get_info") {
+            result = await apiRequest("GET", `/api/v1/backup/list/${encodeURIComponent(args.filename)}`);
+          } else if (mbAction === "get_metadata") {
+            result = await apiRequest("GET", `/api/v1/backup/metadata/${encodeURIComponent(args.filename)}`);
+          } else if (mbAction === "update_metadata") {
+            result = await apiRequest("PUT", `/api/v1/backup/metadata/${encodeURIComponent(args.filename)}`, {
+              title: args.title, description: args.description,
+            });
+          } else if (mbAction === "download_archive") {
+            const kaFilename = encodeURIComponent(args.filename);
+            const kaDownloadUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-archive/${kaFilename}`;
+            const kaOutputFile = args.output_dir ? `${args.output_dir}/${args.filename}` : args.filename;
+            const kaCurlParts = [`curl -o "${kaOutputFile}"`];
+            const kaToken = tokenStorage.getStore()?.token;
+            if (kaToken) kaCurlParts.push(`-H "Authorization: Bearer ${kaToken}"`);
+            else if (API_KEY) kaCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            kaCurlParts.push(`"${kaDownloadUrl}"`);
+            result = {
+              download_url: kaDownloadUrl,
+              suggested_filename: args.filename,
+              curl_command: kaCurlParts.join(" \\\n  "),
+              instructions: `Run the curl command to download the knowledge archive.`,
+            };
+          } else if (mbAction === "upload_archive") {
+            const kauUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-archive`;
+            const kauFilePath = args.file_path || "ARCHIVE_FILE.archive";
+            const kauCurlParts = [`curl -X POST`];
+            kauCurlParts.push(`-F "file=@${kauFilePath}"`);
+            const kauToken = tokenStorage.getStore()?.token;
+            if (kauToken) kauCurlParts.push(`-H "Authorization: Bearer ${kauToken}"`);
+            else if (API_KEY) kauCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            const kauSid = tokenStorage.getStore()?.sessionId;
+            const kauMem = kauSid ? sessionMemories.get(kauSid) : null;
+            if (kauMem) kauCurlParts.push(`-H "X-Fortemi-Memory: ${kauMem}"`);
+            kauCurlParts.push(`"${kauUrl}"`);
+            result = {
+              upload_url: kauUrl,
+              method: "POST",
+              curl_command: kauCurlParts.join(" \\\n  "),
+              instructions: `Run the curl command to upload the .archive file (multipart/form-data).`,
+            };
+            if (args.file_path) result.file_path_hint = args.file_path;
+          } else if (mbAction === "swap") {
+            const swapBody = { filename: args.filename };
+            if (args.dry_run !== undefined) swapBody.dry_run = args.dry_run;
+            if (args.strategy) swapBody.strategy = args.strategy;
+            result = await apiRequest("POST", "/api/v1/backup/swap", swapBody);
+          } else if (mbAction === "download_memory") {
+            const memName = encodeURIComponent(args.name);
+            const memDownloadUrl = `${PUBLIC_URL}/api/v1/backup/memory/${memName}`;
+            const memFilename = `memory_${args.name}_backup.sql.gz`;
+            const memCurlParts = [`curl -o "${memFilename}"`];
+            const memToken = tokenStorage.getStore()?.token;
+            if (memToken) memCurlParts.push(`-H "Authorization: Bearer ${memToken}"`);
+            else if (API_KEY) memCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            memCurlParts.push(`"${memDownloadUrl}"`);
+            result = {
+              download_url: memDownloadUrl,
+              suggested_filename: memFilename,
+              curl_command: memCurlParts.join(" \\\n  "),
+              instructions: `Run the curl command to download the backup (.sql.gz) of the "${args.name}" memory archive.`,
+            };
+          } else {
+            throw new Error(`Unknown manage_backups action: ${mbAction}. Valid: export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory`);
+          }
+          break;
+        }
+
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -2928,6 +3274,9 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_concepts\` | Browse taxonomy | search, autocomplete, get, get_full, stats, top |
 | \`manage_attachments\` | File attachments | list, upload, get, download, delete |
 | \`manage_embeddings\` | Embedding sets | list, get, create, update, delete, list_members, add_members, remove_member, refresh |
+| \`manage_archives\` | Memory archives | list, create, get, update, delete, set_default, stats, clone |
+| \`manage_encryption\` | PKE encryption | generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list/create/get_active/set_active/export/import/delete_keyset |
+| \`manage_backups\` | Backup & restore | export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
 

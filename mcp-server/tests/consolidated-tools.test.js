@@ -3,14 +3,19 @@
 /**
  * Consolidated Tools Tests
  *
- * Tests the 6 discriminated-union consolidated tools that form the
- * agent-friendly core surface (issue #365):
+ * Tests the 11 discriminated-union consolidated tools that form the
+ * agent-friendly core surface (issue #365, #441):
  *   - capture_knowledge (create, bulk_create, from_template, upload)
  *   - search (text, spatial, temporal, spatial_temporal, federated)
  *   - record_provenance (location, named_location, device, file, note)
  *   - manage_tags (list, set, tag_concept, untag_concept, get_concepts)
  *   - manage_collection (list, create, get, update, delete, list_notes, move_note, export)
  *   - manage_concepts (search, autocomplete, get, get_full, stats, top)
+ *   - manage_attachments (list, upload, get, download, delete)
+ *   - manage_embeddings (list, get, create, update, delete, list_members, add_members, remove_member, refresh)
+ *   - manage_archives (list, create, get, update, delete, set_default, stats, clone)
+ *   - manage_encryption (generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, keyset ops)
+ *   - manage_backups (export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory)
  */
 
 import { strict as assert } from "node:assert";
@@ -19,7 +24,7 @@ import { MCPTestClient } from "./helpers/mcp-client.js";
 
 describe("Consolidated Tools", () => {
   let client;
-  const cleanup = { noteIds: [], collectionIds: [] };
+  const cleanup = { noteIds: [], collectionIds: [], archiveNames: [], keysetNames: [] };
 
   before(async () => {
     client = new MCPTestClient();
@@ -28,11 +33,21 @@ describe("Consolidated Tools", () => {
   });
 
   after(async () => {
+    // Restore default archive to public before cleanup
+    try { await client.callTool("manage_archives", { action: "set_default", name: "public" }); } catch {}
+    try { await client.callTool("select_memory", { name: "public" }); } catch {}
+
     for (const id of cleanup.noteIds) {
       try { await client.callTool("delete_note", { id }); } catch {}
     }
     for (const id of cleanup.collectionIds) {
       try { await client.callTool("delete_collection", { id }); } catch {}
+    }
+    for (const name of cleanup.archiveNames.reverse()) {
+      try { await client.callTool("manage_archives", { action: "delete", name }); } catch {}
+    }
+    for (const name of cleanup.keysetNames) {
+      try { await client.callTool("manage_encryption", { action: "delete_keyset", name }); } catch {}
     }
     await client.close();
   });
@@ -428,12 +443,318 @@ describe("Consolidated Tools", () => {
     );
   });
 
+  // === manage_archives ===
+
+  test("MA-001: manage_archives list action returns archives", async () => {
+    const result = await client.callTool("manage_archives", { action: "list" });
+    assert.ok(Array.isArray(result), "Should return array of archives");
+    assert.ok(result.length >= 1, "Should have at least the default archive");
+    const defaultArchive = result.find(a => a.is_default);
+    assert.ok(defaultArchive, "Should have a default archive");
+  });
+
+  test("MA-002: manage_archives create/get/update/stats/delete lifecycle", async () => {
+    const name = `ct-arch-${MCPTestClient.uniqueId().slice(0, 8)}`;
+
+    // Create
+    const created = await client.callTool("manage_archives", {
+      action: "create",
+      name,
+      description: "Consolidated tool test archive",
+    });
+    assert.ok(created.id || created.name, "Should return archive id or name");
+    cleanup.archiveNames.push(name);
+
+    // Get
+    const fetched = await client.callTool("manage_archives", { action: "get", name });
+    assert.strictEqual(fetched.name, name, "Should return correct name");
+    assert.strictEqual(fetched.description, "Consolidated tool test archive", "Should have description");
+
+    // Update
+    const updateResult = await client.callTool("manage_archives", {
+      action: "update",
+      name,
+      description: "Updated description",
+    });
+    assert.ok(updateResult.success, "Should return success");
+
+    // Verify update
+    const afterUpdate = await client.callTool("manage_archives", { action: "get", name });
+    assert.strictEqual(afterUpdate.description, "Updated description", "Description should be updated");
+
+    // Stats
+    const stats = await client.callTool("manage_archives", { action: "stats", name });
+    assert.ok(stats.note_count !== undefined, "Should have note_count");
+    assert.ok(stats.size_bytes !== undefined, "Should have size_bytes");
+
+    // Delete
+    const deleted = await client.callTool("manage_archives", { action: "delete", name });
+    assert.ok(deleted.success, "Should confirm deletion");
+    // Remove from cleanup since we already deleted
+    cleanup.archiveNames = cleanup.archiveNames.filter(n => n !== name);
+  });
+
+  test("MA-003: manage_archives clone action deep-copies archive", async () => {
+    const sourceName = `ct-src-${MCPTestClient.uniqueId().slice(0, 8)}`;
+    const cloneName = `ct-cln-${MCPTestClient.uniqueId().slice(0, 8)}`;
+
+    // Create source
+    await client.callTool("manage_archives", {
+      action: "create",
+      name: sourceName,
+      description: "Source for clone",
+    });
+    cleanup.archiveNames.push(sourceName);
+
+    // Clone
+    const cloned = await client.callTool("manage_archives", {
+      action: "clone",
+      name: sourceName,
+      new_name: cloneName,
+      description: "Cloned archive",
+    });
+    assert.ok(cloned.id || cloned.name, "Should return cloned archive info");
+    cleanup.archiveNames.push(cloneName);
+
+    // Verify clone exists
+    const fetched = await client.callTool("manage_archives", { action: "get", name: cloneName });
+    assert.strictEqual(fetched.name, cloneName, "Clone should exist with correct name");
+  });
+
+  test("MA-004: manage_archives set_default action changes default", async () => {
+    const name = `ct-def-${MCPTestClient.uniqueId().slice(0, 8)}`;
+    await client.callTool("manage_archives", { action: "create", name });
+    cleanup.archiveNames.push(name);
+
+    // Set as default
+    const result = await client.callTool("manage_archives", { action: "set_default", name });
+    assert.ok(result.success, "Should confirm default set");
+
+    // Verify
+    const archives = await client.callTool("manage_archives", { action: "list" });
+    const newDefault = archives.find(a => a.is_default);
+    assert.strictEqual(newDefault.name, name, "New default should be our archive");
+
+    // Restore
+    await client.callTool("manage_archives", { action: "set_default", name: "public" });
+  });
+
+  test("MA-005: manage_archives rejects invalid action", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_archives", { action: "fly" }),
+      (err) => {
+        assert.ok(err.message.includes("Unknown manage_archives action"), "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
+  // === manage_encryption ===
+
+  test("ME-001: manage_encryption generate_keypair creates keypair", async () => {
+    const result = await client.callTool("manage_encryption", {
+      action: "generate_keypair",
+      passphrase: "test-passphrase-12chars",
+    });
+    assert.ok(result.address, "Should return address");
+    assert.ok(result.public_key, "Should return public key");
+    assert.ok(result.encrypted_private_key, "Should return encrypted private key");
+    assert.ok(result.address.startsWith("mm:"), "Address should start with mm:");
+  });
+
+  test("ME-002: manage_encryption get_address derives address from key", async () => {
+    // Generate a keypair first
+    const keypair = await client.callTool("manage_encryption", {
+      action: "generate_keypair",
+      passphrase: "test-passphrase-12chars",
+    });
+
+    const result = await client.callTool("manage_encryption", {
+      action: "get_address",
+      public_key: keypair.public_key,
+    });
+    assert.ok(result.address, "Should return derived address");
+    assert.strictEqual(result.address, keypair.address, "Derived address should match original");
+  });
+
+  test("ME-003: manage_encryption encrypt/decrypt roundtrip", async () => {
+    const keypair = await client.callTool("manage_encryption", {
+      action: "generate_keypair",
+      passphrase: "roundtrip-pass-12ch",
+    });
+
+    // Encrypt
+    const plaintext = Buffer.from("Hello from consolidated test!").toString("base64");
+    const encrypted = await client.callTool("manage_encryption", {
+      action: "encrypt",
+      plaintext,
+      recipient_keys: [keypair.public_key],
+    });
+    assert.ok(encrypted.ciphertext, "Should return ciphertext");
+
+    // List recipients
+    const recipients = await client.callTool("manage_encryption", {
+      action: "list_recipients",
+      ciphertext: encrypted.ciphertext,
+    });
+    assert.ok(Array.isArray(recipients.recipients), "Should return recipients array");
+    assert.ok(recipients.recipients.includes(keypair.address), "Should include our address");
+
+    // Decrypt
+    const decrypted = await client.callTool("manage_encryption", {
+      action: "decrypt",
+      ciphertext: encrypted.ciphertext,
+      encrypted_private_key: keypair.encrypted_private_key,
+      passphrase: "roundtrip-pass-12ch",
+    });
+    assert.ok(decrypted.plaintext, "Should return plaintext");
+    const decoded = Buffer.from(decrypted.plaintext, "base64").toString("utf-8");
+    assert.strictEqual(decoded, "Hello from consolidated test!", "Decrypted content should match");
+  });
+
+  test("ME-004: manage_encryption verify_address validates format", async () => {
+    const keypair = await client.callTool("manage_encryption", {
+      action: "generate_keypair",
+      passphrase: "verify-test-12chars",
+    });
+
+    const result = await client.callTool("manage_encryption", {
+      action: "verify_address",
+      address: keypair.address,
+    });
+    assert.ok(result, "Should return verification result");
+  });
+
+  test("ME-005: manage_encryption keyset lifecycle", async () => {
+    const keysetName = `ct-ks-${MCPTestClient.uniqueId().slice(0, 8)}`;
+    cleanup.keysetNames.push(keysetName);
+
+    // Create keyset
+    const created = await client.callTool("manage_encryption", {
+      action: "create_keyset",
+      name: keysetName,
+      passphrase: "keyset-test-12chars",
+    });
+    assert.ok(created.address, "Should return keyset address");
+    assert.strictEqual(created.name, keysetName, "Should return keyset name");
+
+    // List keysets
+    const keysets = await client.callTool("manage_encryption", { action: "list_keysets" });
+    assert.ok(Array.isArray(keysets), "Should return array");
+    const found = keysets.find(k => k.name === keysetName);
+    assert.ok(found, "Created keyset should appear in list");
+
+    // Set active
+    const activated = await client.callTool("manage_encryption", {
+      action: "set_active_keyset",
+      name: keysetName,
+    });
+    assert.ok(activated.success, "Should confirm activation");
+
+    // Get active
+    const active = await client.callTool("manage_encryption", { action: "get_active_keyset" });
+    assert.strictEqual(active.name, keysetName, "Active keyset should match");
+
+    // Delete keyset
+    const deleted = await client.callTool("manage_encryption", {
+      action: "delete_keyset",
+      name: keysetName,
+    });
+    assert.ok(deleted.success, "Should confirm deletion");
+    cleanup.keysetNames = cleanup.keysetNames.filter(n => n !== keysetName);
+  });
+
+  test("ME-006: manage_encryption rejects invalid action", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_encryption", { action: "nope" }),
+      (err) => {
+        assert.ok(err.message.includes("Unknown manage_encryption action"), "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
+  // === manage_backups ===
+
+  test("MB-001: manage_backups list action returns backups", async () => {
+    const result = await client.callTool("manage_backups", { action: "list" });
+    // May return empty array or object with files
+    assert.ok(result !== undefined, "Should return backup list");
+  });
+
+  test("MB-002: manage_backups snapshot action creates backup", async () => {
+    const result = await client.callTool("manage_backups", {
+      action: "snapshot",
+      name: `ct-snap-${MCPTestClient.uniqueId().slice(0, 8)}`,
+      title: "Consolidated tool test backup",
+      description: "Test snapshot",
+    });
+    assert.ok(result, "Should return snapshot result");
+  });
+
+  test("MB-003: manage_backups export_shard returns curl command", async () => {
+    const result = await client.callTool("manage_backups", {
+      action: "export_shard",
+      include: "notes,tags",
+    });
+    assert.ok(result.download_url, "Should return download URL");
+    assert.ok(result.curl_command, "Should return curl command");
+    assert.ok(result.suggested_filename, "Should return suggested filename");
+  });
+
+  test("MB-004: manage_backups import_shard returns curl command", async () => {
+    const result = await client.callTool("manage_backups", {
+      action: "import_shard",
+      file_path: "/tmp/test-shard.tar.gz",
+      dry_run: true,
+    });
+    assert.ok(result.upload_url, "Should return upload URL");
+    assert.ok(result.curl_command, "Should return curl command");
+  });
+
+  test("MB-005: manage_backups download_memory returns curl command", async () => {
+    const result = await client.callTool("manage_backups", {
+      action: "download_memory",
+      name: "public",
+    });
+    assert.ok(result.download_url, "Should return download URL");
+    assert.ok(result.curl_command, "Should return curl command");
+    assert.ok(result.suggested_filename, "Should return suggested filename");
+  });
+
+  test("MB-006: manage_backups swap with nonexistent file errors", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_backups", {
+        action: "swap",
+        filename: "nonexistent-backup.tar.gz",
+      }),
+      (err) => {
+        assert.ok(err.message, "Should return error for nonexistent file");
+        return true;
+      }
+    );
+  });
+
+  test("MB-007: manage_backups rejects invalid action", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_backups", { action: "nope" }),
+      (err) => {
+        assert.ok(err.message.includes("Unknown manage_backups action"), "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
   // === Tool schema validation ===
 
-  test("SCHEMA-001: All 6 consolidated tools have action enum in schema", async () => {
+  test("SCHEMA-001: All 11 consolidated tools have action enum in schema", async () => {
     const tools = await client.listTools();
-    const consolidated = ["capture_knowledge", "search", "record_provenance",
-      "manage_tags", "manage_collection", "manage_concepts"];
+    const consolidated = [
+      "capture_knowledge", "search", "record_provenance",
+      "manage_tags", "manage_collection", "manage_concepts",
+      "manage_attachments", "manage_embeddings",
+      "manage_archives", "manage_encryption", "manage_backups",
+    ];
 
     for (const name of consolidated) {
       const tool = tools.find(t => t.name === name);
