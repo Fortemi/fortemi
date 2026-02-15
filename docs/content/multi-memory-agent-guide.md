@@ -9,7 +9,7 @@ Memory = isolated PostgreSQL schema. Select via X-Fortemi-Memory header or MCP s
 Default = public schema. Omitting header = default memory (archive_public).
 All CRUD/tag/collection/template/version/attachment operations are memory-scoped.
 Search is memory-scoped by default. Use federated search to query across multiple memories.
-Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <50).
+Max memories configurable via MAX_MEMORIES env var (default: 10, scales with hardware — see configuration docs).
 ```
 
 ## When to Create a New Memory (Decision Matrix)
@@ -208,7 +208,7 @@ await search({
 | Creating memory per tag | Memories are heavyweight schema isolation (full table set + indexes per schema) | Use tags within single memory |
 | Forgetting X-Fortemi-Memory header in HTTP API | Operations go to default memory silently, no error | Always set header explicitly or use select_memory in MCP |
 | Searching without selecting memory | Search defaults to the public schema if no memory is selected | Always select memory first via `X-Fortemi-Memory` header or `select_memory` in MCP |
-| Creating 100+ memories | Each clones the full per-memory table set with indexes, massive overhead | Limit to <50 memories for performance, prefer tags/collections |
+| Exceeding MAX_MEMORIES limit | Each clones the full per-memory table set with indexes | Increase MAX_MEMORIES per hardware tier, prefer tags/collections |
 | Manual vacuum scheduling | Unnecessary — Fortemi handles maintenance automatically across all memory schemas | No action needed; auto-maintenance covers all schemas at normalized intervals |
 | Assuming cross-memory links work | Links are memory-scoped, no foreign keys across schemas | Export/import notes or use same memory |
 | Using memories for temporary grouping | Memories are permanent structures, expensive to delete | Use collections for temporary grouping |
@@ -235,7 +235,7 @@ await search({
 ### Memory Creation
 - **Time:** ~200ms (clones all per-memory tables + indexes)
 - **Storage:** ~1MB empty, scales with data
-- **Limit:** 100 memories by default (MAX_MEMORIES env var)
+- **Limit:** 10 memories by default (scale via MAX_MEMORIES env var per hardware tier)
 
 ### Memory Cloning
 - **Time:** Proportional to data size (indexes rebuilt)

@@ -145,17 +145,48 @@ JOB_POLL_INTERVAL=10
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `MAX_MEMORIES` | Integer | `100` | Maximum number of memory archives allowed |
+| `MAX_MEMORIES` | Integer | `10` | Maximum number of memory archives allowed |
 
 **Example:**
 ```bash
-MAX_MEMORIES=200
+# Scale with your hardware (see capacity formula below)
+MAX_MEMORIES=50   # 16GB RAM, 100GB disk
+MAX_MEMORIES=200  # 32GB RAM, 500GB disk
+MAX_MEMORIES=500  # 64GB+ RAM, 1TB+ disk
 ```
+
+**Capacity Planning:**
+
+Each empty memory adds ~1MB schema overhead (41 tables + indexes). The real cost is data growth within each memory. Average storage per note (with 20% attachment rate):
+
+| Component | Per Note | Per 1,000 Notes |
+|-----------|----------|-----------------|
+| Note metadata + content | ~11 KB | 11 MB |
+| Embeddings (768-dim) | ~3 KB | 3 MB |
+| Attachments (avg 500KB, 20% rate) | ~100 KB | 100 MB |
+| Thumbnails (100KB, 20% rate) | ~20 KB | 20 MB |
+| **Total average** | **~134 KB** | **~134 MB** |
+
+**Capacity formula:**
+```
+max_total_notes = available_storage / 134 KB
+MAX_MEMORIES = max_total_notes / target_notes_per_memory
+```
+
+**Recommended limits by hardware tier:**
+
+| Tier | RAM | Storage | MAX_MEMORIES | Notes per Memory | Total Notes |
+|------|-----|---------|--------------|------------------|-------------|
+| Tier 1 (Minimum) | 8 GB | 10 GB | 10 | ~5,000 | ~50,000 |
+| Tier 2 (Standard) | 16 GB | 100 GB | 50 | ~20,000 | ~1,000,000 |
+| Tier 3 (Performance) | 32 GB | 500 GB | 200 | ~50,000 | ~10,000,000 |
+| Tier 4 (Professional) | 64 GB+ | 1 TB+ | 500 | ~50,000 | ~25,000,000 |
 
 **Memory Limits:**
 - Attempting to create memories beyond `MAX_MEMORIES` returns HTTP 400
 - Check current usage via `GET /api/v1/memories/overview`
-- Each memory adds minimal overhead (<1MB metadata + indexes)
+- Each memory adds minimal overhead (<1MB metadata + indexes); data growth is the real constraint
+- Notes without attachments are much smaller (~14 KB each) — adjust estimates for your workload
 
 ### Request Headers
 

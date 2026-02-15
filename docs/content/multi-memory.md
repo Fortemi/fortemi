@@ -381,9 +381,9 @@ curl http://localhost:3000/api/v1/memories/overview \
 ```json
 {
   "capacity": {
-    "max_memories": 100,
+    "max_memories": 10,
     "current_count": 3,
-    "available": 97
+    "available": 7
   },
   "usage": {
     "total_notes": 1768,
@@ -418,15 +418,20 @@ curl http://localhost:3000/api/v1/memories/overview \
 Set the maximum number of memories via environment variable:
 
 ```bash
-# .env
-MAX_MEMORIES=100  # Default value
+# .env — scale with your hardware
+MAX_MEMORIES=10   # Default (Tier 1: 8GB RAM, 10GB disk)
+MAX_MEMORIES=50   # Tier 2: 16GB RAM, 100GB disk
+MAX_MEMORIES=200  # Tier 3: 32GB RAM, 500GB disk
+MAX_MEMORIES=500  # Tier 4: 64GB+ RAM, 1TB+ disk
 ```
+
+See [Configuration Reference](./configuration.md#memory-architecture) for the capacity formula and detailed sizing by hardware tier.
 
 Attempts to create memories beyond this limit will fail with HTTP 400:
 
 ```json
 {
-  "error": "Memory limit reached. Maximum 100 memories allowed."
+  "error": "Memory limit reached. Maximum 10 memories allowed."
 }
 ```
 

@@ -229,7 +229,23 @@ pub const FINETUNE_VALIDATION_SPLIT: f32 = 0.1;
 
 /// Maximum number of memories (archives) that can be created.
 /// Configurable via `MAX_MEMORIES` env var.
-pub const MAX_MEMORIES: i64 = 100;
+///
+/// Default of 10 fits Tier 1 minimum hardware (8GB RAM, 10GB storage).
+/// Each empty memory adds ~1MB schema overhead; the real cost is data
+/// growth (~134KB/note average with 20% attachment rate).
+///
+/// Capacity formula:
+///   max_notes = available_storage / 134KB
+///   MAX_MEMORIES = max_notes / target_notes_per_memory
+///
+/// Recommended limits by hardware tier:
+///   Tier 1 (8GB RAM, 10GB disk):    10 memories  (~5K notes each)
+///   Tier 2 (16GB RAM, 100GB disk):  50 memories  (~20K notes each)
+///   Tier 3 (32GB RAM, 500GB disk): 200 memories  (~50K notes each)
+///   Tier 4 (64GB+ RAM, 1TB+ disk): 500 memories
+///
+/// See docs/content/hardware-planning.md for detailed sizing guidance.
+pub const MAX_MEMORIES: i64 = 10;
 
 // =============================================================================
 // CROSS-ARCHIVE SEARCH

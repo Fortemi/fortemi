@@ -80,7 +80,7 @@ The API supports opt-in authentication via the `REQUIRE_AUTH` environment variab
 |----------|---------|-------------|
 | `REQUIRE_AUTH` | `false` | Set to `true` to require auth on all `/api/v1/*` endpoints |
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL (REQUIRED for OAuth/MCP) |
-| `MAX_MEMORIES` | `100` | Maximum number of memory archives (schema-level isolation) |
+| `MAX_MEMORIES` | `10` | Maximum memory archives. Scale with hardware: 10 (8GB), 50 (16GB), 200 (32GB), 500 (64GB+) |
 
 When `REQUIRE_AUTH=false` (default), all endpoints are publicly accessible.
 When `REQUIRE_AUTH=true`, all `/api/v1/*` endpoints require a valid Bearer token.

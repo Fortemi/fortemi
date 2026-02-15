@@ -459,6 +459,58 @@ nvidia-smi -l 1
 
 ---
 
+## Memory Capacity Planning
+
+Multi-memory archives provide schema-level isolation. Each empty memory adds ~1MB overhead (41 tables + indexes). The real storage cost comes from data within each memory.
+
+### Storage Per Note
+
+Average storage per note assuming 20% of notes have file attachments:
+
+| Component | Per Note | Per 1,000 Notes |
+|-----------|----------|-----------------|
+| Note metadata + content | ~11 KB | 11 MB |
+| Embeddings (768-dim, 4 bytes/float) | ~3 KB | 3 MB |
+| Attachments (avg 500KB, 20% rate) | ~100 KB | 100 MB |
+| Thumbnails (100KB, 20% rate) | ~20 KB | 20 MB |
+| **Total average** | **~134 KB** | **~134 MB** |
+
+Notes without attachments average ~14 KB each. Text-only knowledge bases can store 7x more notes in the same space.
+
+### Capacity Formula
+
+```
+available_storage = total_disk - OS - models - PostgreSQL_overhead
+max_total_notes   = available_storage / 134 KB     (with attachments)
+                  = available_storage /  14 KB     (text-only)
+MAX_MEMORIES      = max_total_notes / target_notes_per_memory
+```
+
+### Recommended MAX_MEMORIES by Hardware Tier
+
+| Tier | RAM | Usable Storage | MAX_MEMORIES | Notes/Memory | Total Notes | `MAX_MEMORIES` Setting |
+|------|-----|----------------|--------------|-------------|-------------|------------------------|
+| Tier 1 (Minimum) | 8 GB | ~7 GB | **10** | ~5,000 | ~50,000 | `10` (default) |
+| Tier 2 (Standard) | 16 GB | ~70 GB | **50** | ~20,000 | ~1,000,000 | `50` |
+| Tier 3 (Performance) | 32 GB | ~400 GB | **200** | ~50,000 | ~10,000,000 | `200` |
+| Tier 4 (Professional) | 64 GB+ | ~800 GB+ | **500** | ~50,000 | ~25,000,000 | `500` |
+
+**Assumptions:** Usable storage accounts for OS (~3GB), Ollama models (~10-30GB depending on tier), and PostgreSQL WAL/overhead (~10%). Notes/memory targets keep search sub-second per memory.
+
+### Configuration
+
+```bash
+# .env — set based on your hardware tier
+MAX_MEMORIES=10   # Tier 1 default (8GB RAM, 10GB disk)
+MAX_MEMORIES=50   # Tier 2 (16GB RAM, 100GB disk)
+MAX_MEMORIES=200  # Tier 3 (32GB RAM, 500GB disk)
+MAX_MEMORIES=500  # Tier 4 (64GB+ RAM, 1TB+ disk)
+```
+
+See [Configuration Reference](./configuration.md) for all memory-related settings and [Multi-Memory Guide](./multi-memory.md) for architecture details.
+
+---
+
 ## Related Documentation
 
 - [Inference Backends](./inference-backends.md) - Backend configuration details

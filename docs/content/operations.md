@@ -627,7 +627,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `BACKUP_DEST` | `/var/backups/matric-memory` | Backup destination directory | `/mnt/backups` |
 | `BACKUP_SCRIPT_PATH` | `/usr/local/bin/backup-matric.sh` | Path to backup script | `/opt/scripts/backup.sh` |
-| `MAX_MEMORIES` | `100` | Maximum number of memory archives | `50` |
+| `MAX_MEMORIES` | `10` | Max memory archives (scale per hardware tier: 10/50/200/500) | `50` |
 
 #### PostgreSQL (Bundle Deployment Only)
 

@@ -174,7 +174,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
 | `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
-| `MAX_MEMORIES` | `100` | Maximum memory archives |
+| `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
 | `MCP_TOOL_MODE` | `core` | `core` (23 tools) or `full` (187) |
 
 ---
