@@ -1873,7 +1873,11 @@ impl JobHandler for RefreshEmbeddingSetHandler {
 
     #[instrument(
         skip(self, ctx),
-        fields(subsystem = "jobs", component = "refresh_embedding_set", op = "execute")
+        fields(
+            subsystem = "jobs",
+            component = "refresh_embedding_set",
+            op = "execute"
+        )
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
@@ -1891,9 +1895,7 @@ impl JobHandler for RefreshEmbeddingSetHandler {
 
         let set = match self.db.embedding_sets.get_by_slug(&set_slug).await {
             Ok(Some(s)) => s,
-            Ok(None) => {
-                return JobResult::Failed(format!("Embedding set not found: {}", set_slug))
-            }
+            Ok(None) => return JobResult::Failed(format!("Embedding set not found: {}", set_slug)),
             Err(e) => return JobResult::Failed(format!("Failed to look up set: {}", e)),
         };
 
