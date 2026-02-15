@@ -302,7 +302,7 @@ Fortemi supports parallel memory archives for data isolation. Each memory operat
 
 **Current limitations:**
 - No cross-archive note linking
-- Regular search is scoped to the active memory; use federated search (`POST /api/v1/search/federated`) to search across multiple archives
+- Per-memory search works via per-schema connection pools; use federated search (`POST /api/v1/search/federated`) to search across multiple archives simultaneously
 
 **For agents:** See `docs/content/multi-memory-agent-guide.md` for segmentation strategies and decision framework.
 

@@ -1096,19 +1096,13 @@ WHERE name = 'default';
 If `memories` is omitted, all memories are searched. If specified, only the listed
 memories are searched.
 
-### Current Limitation
+### Per-Memory Search
 
-The standard hybrid search endpoint (`GET /api/v1/search`) currently rejects requests for non-public archives:
+The standard hybrid search endpoint (`GET /api/v1/search`) supports all memories via per-schema connection pools. When a non-default memory is selected via `X-Fortemi-Memory`, the search engine creates (or reuses from cache) a dedicated `PgPool` with `search_path` pinned to `{schema},public`. This means all SQL in `HybridSearchEngine` and `Database` repositories works unmodified — schema routing is handled at the connection level.
 
-```rust
-if archive_ctx.schema != "public" {
-    return Err(ApiError::BadRequest(
-        "Search not yet supported for non-default archives".to_string(),
-    ));
-}
-```
+Archive-scoped search engines are cached in `AppState::schema_engines` (a `RwLock<HashMap<String, Arc<HybridSearchEngine>>>`) and created lazily on first request. Pool sizes are smaller (max 3 connections) since most traffic stays on the default memory.
 
-This is because the `HybridSearchEngine` operates directly on the connection pool and does not yet support `SchemaContext`-based scoping. Federated search (`POST /api/v1/search/federated`) works across all memories using dynamically-built schema-qualified queries.
+Federated search (`POST /api/v1/search/federated`) provides cross-memory search using dynamically-built schema-qualified `UNION ALL` queries.
 
 ### Implementation
 

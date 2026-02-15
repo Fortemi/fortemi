@@ -1,6 +1,6 @@
 # ADR-071: Authentication Middleware for API Security
 
-**Status:** Proposed
+**Status:** Implemented
 **Date:** 2026-02-06
 **Author:** Security Engineer
 **Related Issues:** Gitea Issue #71 - OAuth/Auth critical security deficiencies

@@ -1,94 +1,74 @@
 # Changelog
 
-All notable changes to matric-memory are documented here.
+All notable changes to Fortémi are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-### Added
-
-- **Video Multimodal Extraction** — Enhanced video processing via attachment pipeline
-  - Scene-detection keyframe extraction using ffmpeg (`select='gt(scene,0.3)'`)
-  - Frame-to-frame temporal context: sliding window of 3 previous descriptions in vision prompts
-  - Audio-visual alignment: transcript segments matched to frame timestamps (+/- 5s window)
-  - `KeyframeStrategy` enum: `Interval`, `SceneDetection`, `Hybrid` modes
-  - `VideoMultimodalAdapter` wired into extraction pipeline (requires ffmpeg + vision/whisper)
-  - MCP `process_video` guidance tool directs agents to attachment upload workflow
-  - MCP documentation topic (`get_documentation({ topic: "video" })`)
-  - `get_system_info` reports video extraction status (`extraction.video`)
-  - UAT Phase 2F with 10 test cases (4 always-execute, 6 conditional on ffmpeg)
-  - All video processing goes through attachment pipeline — no ad-hoc base64 API
-
-- **3D Model Understanding** — Multi-view rendering extraction via attachment pipeline
-  - `Glb3DModelAdapter` with Three.js headless multi-view rendering + vision model description
-  - `ExtractionStrategy::Glb3DModel` variant routes all `model/*` MIME types
-  - Lightweight Node.js renderer using Three.js + headless-gl (replaces heavyweight Blender)
-  - Configurable view count (default 6, min 3, max 15) from multiple camera angles
-  - Composite synthesis: individual view descriptions combined into holistic summary
-  - MCP `process_3d_model` guidance tool directs agents to attachment upload workflow
-  - MCP documentation topic (`get_documentation({ topic: "3d-models" })`)
-  - `get_system_info` reports 3D model extraction status (`extraction.3d_model`)
-  - Bundled Three.js renderer at `RENDERER_URL` (default: localhost:8080) + vision backend
-  - UAT Phase 2G with 10 test cases (5 always-execute, 5 conditional on renderer + vision)
-  - All 3D model processing goes through attachment pipeline — no ad-hoc base64 API
-
-- **Audio Transcription** — Ad-hoc audio transcription via Whisper-compatible backend
-  - Wires existing `TranscriptionBackend` trait + `WhisperBackend` into API server
-  - `POST /api/v1/audio/transcribe` API endpoint (base64 audio, optional mime_type and language)
-  - MCP `transcribe_audio` tool for agent access
-  - `AudioTranscribeAdapter` registered in extraction pipeline for automatic attachment processing
-  - Configurable via `WHISPER_BASE_URL` and `WHISPER_MODEL` env vars
-  - Returns transcription text, timestamped segments, detected language, duration, model, and audio size
-  - 503 Service Unavailable when transcription backend not configured
-  - Health check integration via `get_system_info` (`extraction.audio.enabled`)
-  - Supports WAV, MP3, OGG, FLAC, AAC, WebM formats
-  - MCP documentation topic (`get_documentation({ topic: "audio" })`)
-
-- **Vision (Image Description)** — Ad-hoc image description via Ollama vision LLM
-  - `VisionBackend` trait + `OllamaVisionBackend` in `matric-inference` crate
-  - `POST /api/v1/vision/describe` API endpoint (base64 image, optional mime_type and prompt)
-  - MCP `describe_image` tool for agent access
-  - Configurable via `OLLAMA_VISION_MODEL` env var (e.g., `qwen3-vl:8b`, `llava`)
-  - Returns AI-generated description, model name, and decoded image size
-  - 503 Service Unavailable when vision model not configured
-  - Health check integration via `get_system_info` (`extraction.vision.available`)
-  - UAT Phase 2D with 8 test cases
-
-### Fixed
-
-- **Vision Ollama URL in Docker** — `OllamaVisionBackend` now reads `OLLAMA_BASE` env var first (matching embedding backend), fixing 500 errors in Docker containers where only `OLLAMA_BASE` is set
-
-## [2026.2.8] - 2026-02-08
-
 ### Highlights
 
-This is the largest release since the project's inception — **90 commits**, **262 files changed**,
-**+67,000 / -29,000 lines** across every layer of the stack. The headline feature is **Multi-Memory
+This is the largest release since the project's inception — **251 commits**, **350+ files changed**,
+**+90,000 / -35,000 lines** across every layer of the stack. The headline feature is **Multi-Memory
 Architecture**: fully isolated knowledge bases backed by PostgreSQL schema-per-memory isolation,
 with zero-drift cloning, per-request routing, session-scoped MCP memory selection, federated
 cross-memory search, and memory-scoped backup/restore.
 
-Alongside multi-memory, this release resolves **50 issues** discovered during two comprehensive UAT
-passes (530+ MCP test cases, 96.3% pass rate), hardens authentication and OAuth scopes, rewrites
-the database restore pipeline, adds the content extraction framework, and ships the MCP file-based
-I/O pattern.
+Alongside multi-memory, this release resolves **100+ issues** discovered during comprehensive UAT
+(530+ MCP test cases, 96.3% pass rate), upgrades PostgreSQL 16 → 18, enables SCRAM-SHA-256 auth,
+ships native uuidv7() defaults, adds agent-friendly MCP tool surface (23 core tools with
+discriminated-union pattern), hardens security with resource limits and SQL injection fixes,
+rewrites the database restore pipeline, adds comprehensive content extraction framework, and
+ships multimodal capabilities (vision, audio, video, 3D models).
 
 | What Changed | Why You Care | Learn More |
 |--------------|--------------|------------|
 | **Multi-Memory Architecture** | Create, switch, and isolate independent knowledge bases per PostgreSQL schema | [User Guide](docs/content/multi-memory.md) · [Design](docs/architecture/multi-memory-design.md) · [ADR-068](docs/adr/ADR-068-archive-isolation-routing.md) |
+| **PostgreSQL 18 + SCRAM-SHA-256** | Major database upgrade with enhanced password authentication security | [ADR-096](docs/adr/ADR-096-scram-sha256-auth.md) |
+| **MCP Agent-Friendly Tools** | 23-tool "core" mode with discriminated-union pattern (capture_knowledge, search, record_provenance, manage_tags, manage_collection, manage_concepts) | [MCP Guide](docs/content/mcp.md) · [ADR-095](docs/adr/ADR-095-mcp-tool-surface.md) |
 | **X-Fortemi-Memory Header** | Per-request memory routing with 3-step fallback (header → default cache → public) | [Architecture](docs/content/architecture.md) |
 | **MCP Session Memory** | `select_memory` / `get_active_memory` tools bind a memory to an AI agent session | [MCP Guide](docs/content/mcp.md) · [Agent Guide](docs/content/multi-memory-agent-guide.md) |
 | **Federated Search** | Search across multiple memories in a single query | [Search Guide](docs/content/search-guide.md) |
+| **Per-Archive Search** | Enable semantic and FTS search in non-default archives with schema-pinned connection pools | [Search Guide](docs/content/search-guide.md) |
 | **Memory-Scoped Backup/Restore** | Per-memory `pg_dump --schema` and `DROP SCHEMA CASCADE` restore | [Backup Guide](docs/content/backup.md) · [Operations](docs/content/operations.md) |
 | **Content Extraction Pipeline** | Document type registry (131 types), smart chunking, PDF/code/media adapters | [Document Types](docs/content/document-types-guide.md) · [Extraction Design](docs/content/extraction-pipeline-design.md) |
+| **Video Multimodal Extraction** | Scene-detection keyframe extraction + audio-visual alignment + temporal context | [Video Guide](docs/content/video-guide.md) |
+| **3D Model Understanding** | Multi-view rendering extraction via Three.js + vision model description | [3D Models Guide](docs/content/3d-models-guide.md) |
 | **Auth Middleware & OAuth Scopes** | Centralized scope enforcement, configurable token lifetimes, API key support | [Authentication](docs/content/authentication.md) · [ADR-071](docs/architecture/ADR-071-auth-middleware.md) |
 | **MCP File-Based I/O** | Replaced base64 binary tools with HTTP API upload/download for remote agents | [MCP Guide](docs/content/mcp.md) · [File Attachments](docs/content/file-attachments.md) |
 | **Database Restore Rewrite** | Thread-safe psql pipe, extension-owned object exclusion, FTS index rebuild | [Backup Guide](docs/content/backup.md) |
-| **50 UAT Issues Resolved** | Two comprehensive UAT passes with 530+ MCP test cases | [Troubleshooting](docs/content/troubleshooting.md) |
+| **Security Hardening** | SQL injection fixes, resource limits, input validation, wildcard injection prevention | [Security](docs/content/security.md) |
 
 ### Added
+
+#### Post-2026.2.8 Features
+
+- **Per-Archive Search** — Enable search in non-default archives
+  - Per-schema connection pools with `search_path` pinned per archive
+  - Cached `HybridSearchEngine` instances per schema
+  - Removes the 400 guard for non-default archives
+  - Enables semantic and FTS search in all memory archives
+
+- **HNSW Algorithm 4 Graph Topology** (#386) — Graph topology statistics using HNSW Algorithm 4 for efficient neighbor traversal
+
+- **Light Revision + Softer Licensing** — AI revision defaults to light mode with improved licensing messaging
+
+- **Live Health Probe** — `/health/live` readiness probe with dependency checks for all critical services
+
+- **Move Collection with Cycle Detection** — Move collections in hierarchy with circular reference prevention
+
+- **PKE Keyset REST API** — Full REST API endpoints for PKE keyset management
+
+- **Ad-hoc Image Description API** — `POST /api/v1/vision/describe` + MCP `describe_image` tool
+
+- **Auto-Generated OpenAPI Spec** — utoipa replaces static OpenAPI spec with auto-generation from code annotations
+
+- **EXIF Metadata Extraction** (#278) — Automatic EXIF metadata extraction on image upload
+
+- **Note-Level Provenance** (#262) — Notes can have location + time provenance for spatial-temporal context
+
+- **Provenance Creation MCP Tools** (#261) — MCP tools for recording W3C PROV provenance
 
 #### Multi-Memory Architecture (#170 Epic, #171–#181)
 
@@ -124,6 +104,62 @@ etc.) while sharing infrastructure tables (auth, jobs, migrations) in the public
 - **Archive schema version tracking** — `schema_version` column on `archive_registry` for
   auto-sync detection.
 
+#### Video Multimodal Extraction
+
+Enhanced video processing via attachment pipeline:
+- Scene-detection keyframe extraction using ffmpeg (`select='gt(scene,0.3)'`)
+- Frame-to-frame temporal context: sliding window of 3 previous descriptions in vision prompts
+- Audio-visual alignment: transcript segments matched to frame timestamps (+/- 5s window)
+- `KeyframeStrategy` enum: `Interval`, `SceneDetection`, `Hybrid` modes
+- `VideoMultimodalAdapter` wired into extraction pipeline (requires ffmpeg + vision/whisper)
+- MCP `process_video` guidance tool directs agents to attachment upload workflow
+- MCP documentation topic (`get_documentation({ topic: "video" })`)
+- `get_system_info` reports video extraction status (`extraction.video`)
+- UAT Phase 2F with 10 test cases (4 always-execute, 6 conditional on ffmpeg)
+- All video processing goes through attachment pipeline — no ad-hoc base64 API
+
+#### 3D Model Understanding
+
+Multi-view rendering extraction via attachment pipeline:
+- `Glb3DModelAdapter` with Three.js headless multi-view rendering + vision model description
+- `ExtractionStrategy::Glb3DModel` variant routes all `model/*` MIME types
+- Lightweight Node.js renderer using Three.js + headless-gl (replaces heavyweight Blender)
+- Configurable view count (default 6, min 3, max 15) from multiple camera angles
+- Composite synthesis: individual view descriptions combined into holistic summary
+- MCP `process_3d_model` guidance tool directs agents to attachment upload workflow
+- MCP documentation topic (`get_documentation({ topic: "3d-models" })`)
+- `get_system_info` reports 3D model extraction status (`extraction.3d_model`)
+- Bundled Three.js renderer at `RENDERER_URL` (default: localhost:8080) + vision backend
+- UAT Phase 2G with 10 test cases (5 always-execute, 5 conditional on renderer + vision)
+- All 3D model processing goes through attachment pipeline — no ad-hoc base64 API
+
+#### Audio Transcription
+
+Ad-hoc audio transcription via Whisper-compatible backend:
+- Wires existing `TranscriptionBackend` trait + `WhisperBackend` into API server
+- `POST /api/v1/audio/transcribe` API endpoint (base64 audio, optional mime_type and language)
+- MCP `transcribe_audio` tool for agent access
+- `AudioTranscribeAdapter` registered in extraction pipeline for automatic attachment processing
+- Configurable via `WHISPER_BASE_URL` and `WHISPER_MODEL` env vars
+- Returns transcription text, timestamped segments, detected language, duration, model, and audio size
+- 503 Service Unavailable when transcription backend not configured
+- Health check integration via `get_system_info` (`extraction.audio.enabled`)
+- Supports WAV, MP3, OGG, FLAC, AAC, WebM formats
+- MCP documentation topic (`get_documentation({ topic: "audio" })`)
+- Bundled with GPU Whisper by default in Docker bundle
+
+#### Vision (Image Description)
+
+Ad-hoc image description via Ollama vision LLM:
+- `VisionBackend` trait + `OllamaVisionBackend` in `matric-inference` crate
+- `POST /api/v1/vision/describe` API endpoint (base64 image, optional mime_type and prompt)
+- MCP `describe_image` tool for agent access
+- Configurable via `OLLAMA_VISION_MODEL` env var (e.g., `qwen3-vl:8b`, `llava`)
+- Returns AI-generated description, model name, and decoded image size
+- 503 Service Unavailable when vision model not configured
+- Health check integration via `get_system_info` (`extraction.vision.available`)
+- UAT Phase 2D with 8 test cases
+
 #### Content Extraction Pipeline (#87–#99, #101, #102)
 
 - Complete content extraction framework with pluggable adapters
@@ -151,6 +187,9 @@ etc.) while sharing infrastructure tables (auth, jobs, migrations) in the public
 
 #### MCP Server Improvements
 
+- **Agent-friendly tool surface** (#365) — 23-tool "core" mode with discriminated-union pattern
+  (capture_knowledge, search, record_provenance, manage_tags, manage_collection, manage_concepts).
+  Set `MCP_TOOL_MODE=full` for all 187 tools.
 - **File-based I/O pattern** — Replaced base64 binary tools with HTTP API upload/download.
   MCP tools now guide agents to use `POST /api/v1/attachments` multipart upload.
 - **Tool definition extraction** — `tools.js` extracted from `index.js` for maintainability
@@ -159,6 +198,7 @@ etc.) while sharing infrastructure tables (auth, jobs, migrations) in the public
 - **MCP OAuth auto-registration** — Bundle entrypoint auto-registers OAuth client credentials
   on first startup. Credentials persisted at `$PGDATA/.fortemi-mcp-credentials`.
 - **10+ tool descriptions updated** with memory scoping context and search limitation warnings
+- **Session memory sync** — MCP session state sync when setting default archive (Issue #316)
 - See: [MCP Guide](docs/content/mcp.md), [MCP Deployment](docs/content/mcp-deployment.md)
 
 #### Eventing & Streaming Infrastructure
@@ -179,8 +219,30 @@ etc.) while sharing infrastructure tables (auth, jobs, migrations) in the public
 - **Backup guide expanded** — Per-memory backup procedures and restore caveats
 - **MCP tool table expanded** — 8 → 12 memory management tools documented
 - **CLAUDE.md updated** — Multi-memory section, MAX_MEMORIES config
+- **Consolidated MCP docs** — Fixed public URLs, added OpenAPI CI export
+- **UAT suite rewrite** — Rewrote UAT suite for 23-tool core surface
 
 ### Fixed
+
+#### Post-2026.2.8 Fixes
+
+- **MCP parameter validation** (#398) — Validate required params before search URLSearchParams serialization (prevents MCP crash on missing required search params)
+- **Template tag merge** — Template instantiation now merges tags instead of override, preserving existing tags
+- **Whisper transcription bundled** — Enable Whisper transcription by default with GPU in Docker bundle
+- **MPEG-2/2.5 MP3 detection** — Detect MPEG-2/2.5 MP3 files for audio transcription (broader MP3 format support)
+- **Attachment blob refcount** — Preserve shared blobs on sibling deletion (blob refcount safety)
+- **Link similarity calibration** — Calibrate similarity thresholds by content type for better auto-linking accuracy
+- **EXIF extraction gaps** — Resolve GPS, camera, and datetime extraction gaps (improved EXIF field coverage)
+- **Temporal search null safety** — Resolve temporal search inconsistencies with null provenance
+- **Content type validation** (#253) — Validate actual content type via magic bytes (security: prevent fake content type uploads)
+- **Configurable upload size** (#257) — Make upload size limit configurable via `MATRIC_MAX_BODY_SIZE_BYTES` env var
+- **Search cache invalidation** (#247) — Invalidate search cache on note delete/purge/restore (cache consistency)
+- **Empty content support** — Accept empty content in create_note and bulk_create_notes (allow content-free notes for attachment-only)
+- **Job deduplication** — Deduplicate against running jobs, not just pending (prevent duplicate job execution)
+- **MCP numeric arguments** — Coerce numeric tool arguments to numbers before API calls (MCP parameter type safety)
+- **MCP non-JSON responses** — Handle non-JSON responses in apiRequest (graceful error handling)
+- **Binary media validation** — Enforce magic byte detection for binary media types (security: binary file validation)
+- **Vision Ollama URL in Docker** — `OllamaVisionBackend` now reads `OLLAMA_BASE` env var first (matching embedding backend), fixing 500 errors in Docker containers where only `OLLAMA_BASE` is set
 
 #### Database Restore Pipeline (Complete Rewrite)
 
@@ -241,13 +303,26 @@ The restore system was rewritten for correctness and robustness:
 - **Algorithm config** (#61, #62) — Runtime-overridable algorithm parameters
 - **Hardcoded chunking eliminated** — Chunking config now driven by document type registry
 
+### Security
+
+- **SQL injection prevention** (#215, #216, #217) — Critical SQL injection fixes across multiple endpoints
+- **Public schema protection** (#244) — Prevent DROP SCHEMA public CASCADE in archive delete and restore (critical: prevent accidental public schema deletion)
+- **Resource limits** (#218, #189) — Rate limiting, input size validation, connection pool limits
+- **Input validation** (#218) — Comprehensive input validation across all endpoints
+- **Wildcard injection prevention** (#216) — Prevent wildcard injection in pattern matching
+
 ### Changed
 
 - **Workspace version**: `2026.2.7` → `2026.2.8`
-- **Migration count**: 57 → 59 migration files
-- **MCP tool count**: ~95 → 100+ tools (memory management additions)
+- **PostgreSQL**: 16 → 18 (#396)
+- **Authentication**: SCRAM-SHA-256 password authentication enabled (#397)
+- **UUID generation**: Native uuidv7() function for UUID generation (#397)
+- **MCP tool surface**: ~95 → 23 core tools (discriminated-union) / 187 full tools (#365)
+- **Migration count**: 57 → 59+ migration files
 - **API handler count**: 91 handlers, all schema-routed
 - **Test infrastructure**: Two UAT passes (530+ MCP test cases, 96.3% pass rate)
+- **UAT test cases**: 530+ MCP tests across multiple passes
+- **Issues resolved**: 100+ issues since v2026.2.7
 
 ### Database Migrations
 
@@ -255,6 +330,9 @@ The restore system was rewritten for correctness and robustness:
 |-----------|---------|
 | `20260208000002_seed_default_archive.sql` | Seed default archive for fresh deployments |
 | `20260208100000_archive_schema_version.sql` | Add schema_version tracking to archive_registry |
+| PostgreSQL 18 upgrade | Major database engine upgrade |
+| SCRAM-SHA-256 auth | Enhanced password authentication security |
+| Native uuidv7() | Time-ordered UUID generation |
 
 Plus significant refactoring of 28 existing migrations (removed CONCURRENTLY, fixed timestamps,
 separated schema DDL from seed data).
@@ -269,29 +347,35 @@ None. Full backward compatibility maintained:
 ### Upgrade Notes
 
 1. **Database migrations run automatically** on startup via `sqlx::migrate!()`
-2. **Fresh deployments** now seed a default archive — `list_archives()` returns the public schema
-3. **MCP clients** should update tool descriptions — memory-scoping context added to 10+ tools
-4. **Backup scripts** — If using custom backup scripts, consider switching to per-memory backup
+2. **PostgreSQL 18 upgrade** — Review upgrade notes in [ADR-096](docs/adr/ADR-096-postgresql-18.md)
+3. **SCRAM-SHA-256 auth** — Existing passwords automatically upgraded on next login
+4. **Fresh deployments** now seed a default archive — `list_archives()` returns the public schema
+5. **MCP clients** should update tool descriptions — memory-scoping context added to 10+ tools
+6. **Backup scripts** — If using custom backup scripts, consider switching to per-memory backup
    (`GET /api/v1/backup/memory/:name`) for targeted exports
-5. **Docker bundle** — MCP OAuth credentials now auto-registered on first startup; manual
+7. **Docker bundle** — MCP OAuth credentials now auto-registered on first startup; manual
    registration no longer required
+8. **Whisper transcription** — Now bundled by default with GPU in Docker bundle
 
 ### Issues Resolved
 
-**50 issues closed** in this release:
+**100+ issues closed** in this release:
 
 - **Epic**: #170 (Multi-Memory Schema Isolation)
 - **Multi-Memory**: #158, #159, #169, #171–#181
-- **Auth & Security**: #135, #138, #139, #140, #152, #163
-- **MCP Server**: #134, #137, #141, #142, #149, #153, #174
+- **Auth & Security**: #135, #138, #139, #140, #152, #163, #215, #216, #217, #218, #244
+- **MCP Server**: #134, #137, #141, #142, #149, #153, #174, #316, #365, #398
 - **Backup & Restore**: #136, #166, #167, #168, #175, #176
 - **Search**: #132, #133, #144–#148, #177
 - **SKOS**: #160, #161, #165
-- **Attachments**: #150, #154, #155, #157
-- **CI/Testing**: #151, #156
+- **Attachments**: #150, #154, #155, #157, #247, #253, #257
+- **CI/Testing**: #151, #156, #319
 - **PKE**: #143, #162
 - **Jobs**: #164
 - **Documentation**: #181
+- **Database**: #396, #397
+- **Extraction**: #278, #386
+- **Provenance**: #261, #262
 
 ## [2026.2.7] - 2026-02-05
 
@@ -781,8 +865,7 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.8...HEAD
-[2026.2.8]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.8
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.7...HEAD
 [2026.2.7]: https://github.com/fortemi/fortemi/compare/v2026.2.6...v2026.2.7
 [2026.2.6]: https://github.com/fortemi/fortemi/compare/v2026.2.5...v2026.2.6
 [2026.2.5]: https://github.com/fortemi/fortemi/compare/v2026.2.4...v2026.2.5

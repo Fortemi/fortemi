@@ -251,7 +251,7 @@ delete_memory({ name: "old-project" })
 
 Search across multiple memories simultaneously with unified result ranking.
 
-**IMPORTANT LIMITATION:** Currently, per-memory search (FTS + semantic) is restricted to the default (public) memory. Non-default memories return HTTP 400 for search operations. Federated search across multiple archives is planned for a future release.
+**Search in non-default memories** uses per-schema connection pools with `search_path` pinned to the target archive. Standard search (`GET /api/v1/search`) works in any memory selected via the `X-Fortemi-Memory` header. For cross-archive queries, use federated search (`POST /api/v1/search/federated`) to search multiple memories simultaneously with unified ranking.
 
 ### Search All Memories
 
@@ -519,8 +519,8 @@ Operations **cannot** cross memory boundaries:
 
 ### Current Limitations
 
-1. **Search**: Full-text and semantic search currently only works in the default (public) archive. Non-default archives return HTTP 400 for search endpoints. Federated cross-archive search is planned for a future release.
-2. **Embedding generation**: Background jobs for embedding generation use the archive context from the job payload, but the embedding pipeline must be manually triggered per-archive.
+1. **Cross-archive note linking**: Notes cannot link across memory boundaries. Use export/import or federated search for cross-memory workflows.
+2. **Embedding generation**: Background jobs use archive context from the job payload. Embedding pipelines must be triggered per-archive.
 3. **Cross-archive operations**: No API support for copying notes between archives. Use export/import workflow instead.
 
 ## Migration from Single-Memory Deployment

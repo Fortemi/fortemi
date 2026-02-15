@@ -623,15 +623,7 @@ The multi-memory system was successfully implemented with the following architec
 
 The hybrid search handler (`search_notes`) currently rejects requests for non-public archives with a 400 error:
 
-```rust
-if archive_ctx.schema != "public" {
-    return Err(ApiError::BadRequest(
-        "Search not yet supported for non-default archives".to_string(),
-    ));
-}
-```
-
-This is a temporary limitation. The `HybridSearchEngine` operates directly on the connection pool and does not yet support schema-scoped search via `SchemaContext`. Federated search (`POST /api/v1/search/federated`) works across memories using dynamically-built schema-qualified queries, but the standard search endpoint is restricted. This will be addressed in a follow-up iteration by adding `_tx` methods to the search engine.
+~~The original guard that returned HTTP 400 for non-default archives has been removed.~~ Per-memory search now works via per-schema connection pools: each non-default memory gets a dedicated `PgPool` with `search_path` pinned to `{schema},public`, cached in `AppState::schema_engines`. This avoids any changes to `HybridSearchEngine` SQL — schema routing is handled at the connection level. Federated search (`POST /api/v1/search/federated`) provides cross-memory search using dynamically-built schema-qualified queries.
 
 ### Deviations from Original ADR
 

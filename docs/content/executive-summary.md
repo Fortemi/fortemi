@@ -69,7 +69,7 @@ Strict isolation guarantees data segregation at the database level, enabling sec
 
 **Tag-based filtering** is enforced at every database query. All operations (search, retrieval, linking) require an explicit tag context. Queries cannot accidentally cross tenant boundaries because the isolation is structural, not procedural.
 
-**Scheme isolation** (coming in future releases) will provide additional separation for enterprise deployments with hundreds or thousands of tenants, partitioning data at the PostgreSQL schema level.
+**Schema isolation** provides additional separation for enterprise deployments with hundreds or thousands of tenants, partitioning data at the PostgreSQL schema level. Each memory operates as an independent PostgreSQL schema with full search, embedding, and linking capabilities.
 
 **Public Key Encryption (PKE)** enables secure note sharing across tenant boundaries. Encrypted exports can be shared externally, decryptable only by recipients with the corresponding private key.
 

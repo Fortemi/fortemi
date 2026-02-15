@@ -38,7 +38,7 @@ Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <
 **Best for:** Multi-tenant deployments, legal data isolation, SaaS platforms
 
 **Tradeoffs:**
-- Cannot search across clients without federated search (not yet implemented)
+- Cross-memory search requires federated search (`search_memories_federated`)
 - Perfect data isolation (schema-level)
 - Simplifies backup/restore per client
 - Overhead: ~1MB per empty memory, scales with data
@@ -118,7 +118,7 @@ Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <
 | Factor | Single Memory | Multiple Memories |
 |--------|--------------|-------------------|
 | **Search speed** | Scales with total notes | Scales with per-memory notes (smaller scope = faster) |
-| **Search scope** | All notes searchable | Per-memory only (federated search planned, not implemented) |
+| **Search scope** | All notes searchable | Per-memory by default; use federated search for cross-memory queries |
 | **Data isolation** | Tags only (soft) | Schema-level (hard, PostgreSQL enforced) |
 | **Storage overhead** | Baseline | +~1MB per memory (41 tables × indexes per schema) |
 | **Backup granularity** | All or nothing | Per-memory backup/restore possible |
@@ -242,8 +242,8 @@ await search({
 
 ### Search Performance
 - **Default memory:** <100ms typical for <50k notes
-- **Non-default memory:** Returns HTTP 400 (not yet supported)
-- **Federated search:** Planned, not implemented (will query multiple memories)
+- **Non-default memory:** Uses per-schema connection pool; similar performance to default
+- **Federated search:** Queries multiple memories in parallel with unified ranking
 
 ## Decision Flow for Agents
 
@@ -295,7 +295,7 @@ START: Does user need multi-memory?
 - [ ] Limit to <50 memories for performance
 - [ ] Set `X-Fortemi-Memory` header explicitly in all HTTP API calls
 - [ ] Use `select_memory` at start of MCP sessions
-- [ ] Search only works in default memory (federated planned)
+- [ ] Use `search` for per-memory search, `search_memories_federated` for cross-memory
 - [ ] Schedule per-memory `VACUUM ANALYZE` for large memories
 - [ ] Clone memories before risky operations (deletion is irreversible)
 - [ ] Monitor memory count (`list_archives`) against MAX_MEMORIES limit
