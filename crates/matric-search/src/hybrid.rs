@@ -266,6 +266,11 @@ impl HybridSearchEngine {
         Self { db }
     }
 
+    /// Get a reference to the underlying database.
+    pub fn db(&self) -> &Database {
+        &self.db
+    }
+
     /// Get note IDs that belong to an embedding set (for FTS post-filtering, issue #125).
     async fn get_set_member_ids(&self, set_id: Uuid) -> Result<std::collections::HashSet<Uuid>> {
         let ids: Vec<Uuid> = sqlx::query_scalar(

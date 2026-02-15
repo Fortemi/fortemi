@@ -154,6 +154,55 @@ pub fn log_pool_metrics(pool: &PgPool) {
     }
 }
 
+/// Create a connection pool with `search_path` pinned to a specific schema.
+///
+/// Every connection acquired from this pool will resolve unqualified table names
+/// (e.g. `note`, `embedding`) to `{schema}` first, then `public`. This lets
+/// `HybridSearchEngine` and `Database` repositories query non-default archives
+/// without any SQL changes.
+///
+/// Pool sizes are smaller than the default pool (max 3 connections) because
+/// archive pools are created on-demand and cached — most traffic stays on `public`.
+pub async fn create_pool_for_schema(database_url: &str, schema: &str) -> Result<PgPool> {
+    use sqlx::postgres::PgConnectOptions;
+    use std::str::FromStr;
+
+    let search_path = format!("{},public", schema);
+
+    info!(
+        subsystem = "database",
+        component = "pool",
+        op = "create_schema_pool",
+        schema = schema,
+        "Creating per-schema connection pool"
+    );
+
+    let options = PgConnectOptions::from_str(database_url)
+        .map_err(Error::Database)?
+        .options([("search_path", search_path.as_str())]);
+
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .min_connections(0)
+        .acquire_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+        .idle_timeout(Duration::from_secs(300))
+        .max_lifetime(Some(Duration::from_secs(900)))
+        .connect_with(options)
+        .await
+        .map_err(Error::Database)?;
+
+    info!(
+        subsystem = "database",
+        component = "pool",
+        op = "schema_pool_established",
+        schema = schema,
+        pool_size = pool.size(),
+        "Per-schema connection pool established"
+    );
+
+    Ok(pool)
+}
+
 /// Create a new PostgreSQL connection pool with custom options (legacy API).
 pub async fn create_pool_with_options(database_url: &str, max_connections: u32) -> Result<PgPool> {
     create_pool_with_config(
