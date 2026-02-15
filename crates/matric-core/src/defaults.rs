@@ -625,9 +625,11 @@ mod tests {
 
     #[test]
     fn graph_config_effective_k_explicit() {
-        let mut config = GraphConfig::default();
-        config.adaptive_k = false;
-        config.k_neighbors = 10;
+        let config = GraphConfig {
+            adaptive_k: false,
+            k_neighbors: 10,
+            ..GraphConfig::default()
+        };
 
         // Should always return explicit k regardless of corpus size
         assert_eq!(config.effective_k(0), 10);
