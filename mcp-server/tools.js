@@ -771,6 +771,113 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "manage_embeddings",
+    description: `Manage embedding sets — curated subsets of notes for focused semantic search. Actions: list, get, create, update, delete, list_members, add_members, remove_member, refresh.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "get",
+            "create",
+            "update",
+            "delete",
+            "list_members",
+            "add_members",
+            "remove_member",
+            "refresh"
+          ],
+          "description": "Action: 'list' (all sets), 'get' (by slug), 'create'/'update'/'delete' (CRUD), 'list_members'/'add_members'/'remove_member' (membership), 'refresh' (re-embed)"
+        },
+        "slug": {
+          "type": "string",
+          "description": "Embedding set slug (required for get/update/delete/list_members/add_members/remove_member/refresh)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name (required for create, optional for update)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Set description (for create/update)"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Intended purpose of the set (for create/update)"
+        },
+        "usage_hints": {
+          "type": "string",
+          "description": "Guidance for agents on when to use this set (for create/update)"
+        },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keywords for set discovery (for create/update)"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "manual", "mixed"],
+          "description": "Membership mode: 'auto' (criteria-based), 'manual' (explicit), 'mixed' (both). Default: auto"
+        },
+        "criteria": {
+          "type": "object",
+          "properties": {
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Include notes with any of these tags"
+            },
+            "collections": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Include notes in these collection IDs"
+            },
+            "fts_query": {
+              "type": "string",
+              "description": "Full-text search query for auto-inclusion"
+            },
+            "include_all": {
+              "type": "boolean",
+              "description": "Include all notes (universal set)"
+            },
+            "exclude_archived": {
+              "type": "boolean",
+              "description": "Exclude archived notes"
+            }
+          },
+          "description": "Auto-membership criteria (for create/update with mode=auto/mixed)"
+        },
+        "note_ids": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "Note UUIDs to add (required for add_members)"
+        },
+        "note_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Note UUID to remove (required for remove_member)"
+        },
+        "added_by": {
+          "type": "string",
+          "description": "Attribution for who added members (for add_members)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results for list_members (default: 50)"
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Pagination offset for list_members"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+  },
+  {
     name: "manage_attachments",
     description: `Manage file attachments on notes. Upload, list, get metadata, download, and delete attachments. Image/audio/video attachments are automatically processed by the extraction pipeline.`,
     inputSchema: {

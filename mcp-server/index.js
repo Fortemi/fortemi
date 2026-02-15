@@ -39,7 +39,7 @@ const CORE_TOOLS = new Set([
   "list_notes", "get_note", "update_note", "delete_note", "restore_note",
   // Consolidated tools (discriminated-union pattern)
   "capture_knowledge", "search", "record_provenance",
-  "manage_tags", "manage_collection", "manage_concepts",
+  "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
   // Graph & links
   "explore_graph", "get_topology_stats", "get_note_links",
   // Export
@@ -1464,6 +1464,57 @@ function createMcpServer() {
           break;
         }
 
+        case "manage_embeddings": {
+          const meAction = args.action;
+          if (meAction === "list") {
+            result = await apiRequest("GET", "/api/v1/embedding-sets");
+          } else if (meAction === "get") {
+            result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}`);
+          } else if (meAction === "create") {
+            result = await apiRequest("POST", "/api/v1/embedding-sets", {
+              name: args.name,
+              slug: args.slug,
+              description: args.description,
+              purpose: args.purpose,
+              usage_hints: args.usage_hints,
+              keywords: args.keywords || [],
+              mode: args.mode || "auto",
+              criteria: args.criteria || {},
+            });
+          } else if (meAction === "update") {
+            const body = {};
+            if (args.name !== undefined) body.name = args.name;
+            if (args.description !== undefined) body.description = args.description;
+            if (args.purpose !== undefined) body.purpose = args.purpose;
+            if (args.usage_hints !== undefined) body.usage_hints = args.usage_hints;
+            if (args.keywords !== undefined) body.keywords = args.keywords;
+            if (args.criteria !== undefined) body.criteria = args.criteria;
+            if (args.mode !== undefined) body.mode = args.mode;
+            result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
+          } else if (meAction === "delete") {
+            await apiRequest("DELETE", `/api/v1/embedding-sets/${args.slug}`);
+            result = { success: true };
+          } else if (meAction === "list_members") {
+            const mp = new URLSearchParams();
+            if (args.limit !== undefined && args.limit !== null) mp.set("limit", args.limit);
+            if (args.offset) mp.set("offset", args.offset);
+            result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}/members?${mp}`);
+          } else if (meAction === "add_members") {
+            result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/members`, {
+              note_ids: args.note_ids,
+              added_by: args.added_by,
+            });
+          } else if (meAction === "remove_member") {
+            await apiRequest("DELETE", `/api/v1/embedding-sets/${args.slug}/members/${args.note_id}`);
+            result = { success: true };
+          } else if (meAction === "refresh") {
+            result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/refresh`);
+          } else {
+            throw new Error(`Unknown manage_embeddings action: ${meAction}. Valid: list, get, create, update, delete, list_members, add_members, remove_member, refresh`);
+          }
+          break;
+        }
+
         case "search_concepts": {
           const conceptParams = new URLSearchParams();
           if (args.q) conceptParams.set("q", args.q);
@@ -2876,6 +2927,7 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_collection\` | Organize | list, create, get, update, delete, list_notes, move_note, export |
 | \`manage_concepts\` | Browse taxonomy | search, autocomplete, get, get_full, stats, top |
 | \`manage_attachments\` | File attachments | list, upload, get, download, delete |
+| \`manage_embeddings\` | Embedding sets | list, get, create, update, delete, list_members, add_members, remove_member, refresh |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
 

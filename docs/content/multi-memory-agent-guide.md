@@ -26,7 +26,7 @@ Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <
 | Archive old project data | **YES** | - | Clone to archive memory |
 | Test/staging environment isolation | **YES** | - | Separate memories for test data |
 | Separate by time period (quarterly) | **MAYBE** | Tags if <5000 notes/quarter | Use rolling archives for >10k notes |
-| Different embedding models per domain | **YES** | - | Each memory has independent embedding config |
+| Different embedding models per domain | **NO** | Embedding Sets | Each embedding set has its own model config; no need for separate memories |
 | Team knowledge base (single team) | **NO** | Single memory + tags | Unless >50k notes |
 
 ## Segmentation Strategies
@@ -73,11 +73,11 @@ Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <
 **Tradeoffs:**
 - Same topic across domains requires federated search
 - Risk: Domains often overlap, prefer tags within single memory
-- Enables domain-specific embedding models (e.g., code-specific for `code-docs`)
+- Domain-specific embedding models can be achieved with embedding sets within a single memory
 
 **Naming convention:** `domain-{type}` or `kb-{category}`
 
-**When to use:** Only when content types have fundamentally different characteristics (different embedding models, drastically different note sizes, separate retention policies).
+**When to use:** Only when content types have fundamentally different characteristics (drastically different note sizes, separate retention policies). Note: different embedding models do NOT require separate memories — use embedding sets instead.
 
 **Warning:** Over-segmentation by domain reduces cross-domain discovery. Prefer single memory with document type metadata.
 
@@ -120,13 +120,13 @@ Max memories configurable via MAX_MEMORIES env var (default: 100, recommended: <
 | **Search speed** | Scales with total notes | Scales with per-memory notes (smaller scope = faster) |
 | **Search scope** | All notes searchable | Per-memory by default; use federated search for cross-memory queries |
 | **Data isolation** | Tags only (soft) | Schema-level (hard, PostgreSQL enforced) |
-| **Storage overhead** | Baseline | +~1MB per memory (41 tables × indexes per schema) |
+| **Storage overhead** | Baseline | +~1MB per memory (all per-memory tables + indexes cloned per schema) |
 | **Backup granularity** | All or nothing | Per-memory backup/restore possible |
 | **Cross-referencing** | Links work anywhere | Links memory-scoped only (no cross-memory links) |
 | **Migration complexity** | None | Export/import required between memories |
 | **Max recommended** | 50,000 notes | 50,000 notes per memory |
-| **Operational overhead** | Single VACUUM | Per-memory VACUUM ANALYZE needed |
-| **Embedding configs** | Shared embedding sets | Independent per-memory embedding configs |
+| **Operational overhead** | Automatic | Automatic (maintenance runs across all schemas) |
+| **Embedding configs** | Per embedding set (multiple models in one memory) | Per embedding set per memory |
 | **Tag isolation** | Shared tag namespaces | Independent tag/collection namespaces per memory |
 | **Template sharing** | Global templates | Templates memory-scoped (duplicate across memories) |
 
@@ -152,8 +152,14 @@ curl -X POST http://localhost:3000/api/v1/notes \
   -H "X-Fortemi-Memory: project-alpha" \
   -d '{"title": "Note", "content": "Content", "metadata": {}}'
 
-# Search in default memory only (other memories return 400)
-curl http://localhost:3000/api/v1/search/combined?q=query
+# Search in specific memory
+curl http://localhost:3000/api/v1/search?q=query \
+  -H "X-Fortemi-Memory: project-alpha"
+
+# Federated search across multiple memories
+curl -X POST http://localhost:3000/api/v1/search/federated \
+  -H "Content-Type: application/json" \
+  -d '{"query": "search terms", "memories": ["project-alpha", "project-beta"]}'
 
 # Clone memory (backup/snapshot)
 curl -X POST http://localhost:3000/api/v1/archives/project-alpha/clone \
@@ -199,15 +205,15 @@ await search({
 
 | Mistake | Why It's Wrong | Do This Instead |
 |---------|---------------|-----------------|
-| Creating memory per tag | Memories are heavyweight schema isolation (41 tables + indexes) | Use tags within single memory |
+| Creating memory per tag | Memories are heavyweight schema isolation (full table set + indexes per schema) | Use tags within single memory |
 | Forgetting X-Fortemi-Memory header in HTTP API | Operations go to default memory silently, no error | Always set header explicitly or use select_memory in MCP |
-| Searching non-default archive | Returns HTTP 400 "Search only available in default archive" | Use default archive for search, or wait for federated search feature |
-| Creating 100+ memories | Each has 41 tables with indexes, massive overhead | Limit to <50 memories for performance, prefer tags/collections |
-| Not vacuuming per-memory | Auto-vacuum may not reach archive schemas promptly | Schedule per-schema `VACUUM ANALYZE archive_{name}` |
+| Searching without selecting memory | Search defaults to the public schema if no memory is selected | Always select memory first via `X-Fortemi-Memory` header or `select_memory` in MCP |
+| Creating 100+ memories | Each clones the full per-memory table set with indexes, massive overhead | Limit to <50 memories for performance, prefer tags/collections |
+| Manual vacuum scheduling | Unnecessary — Fortemi handles maintenance automatically across all memory schemas | No action needed; auto-maintenance covers all schemas at normalized intervals |
 | Assuming cross-memory links work | Links are memory-scoped, no foreign keys across schemas | Export/import notes or use same memory |
 | Using memories for temporary grouping | Memories are permanent structures, expensive to delete | Use collections for temporary grouping |
 | Over-segmenting by topic | Reduces discoverability, creates knowledge silos | Use single memory with tags unless >10k notes per topic |
-| Mixing embedding models without memories | Embedding configs are global in single-memory mode | Use separate memories for different embedding models |
+| Creating memories just for different embedding models | Embedding configs are bound to embedding sets, not memories | Use multiple embedding sets within a single memory for different models |
 | Expecting auto-migration between memories | No built-in migration, must export/import | Plan memory structure upfront, migrations are manual |
 
 ## MCP Tool Quick Reference
@@ -217,16 +223,17 @@ await search({
 | `select_memory` | Set active memory for MCP session | Sets it (no active required) | No |
 | `get_active_memory` | Check current active memory | No (retrieves state) | No |
 | `capture_knowledge` | Create/update/delete notes | Yes | No |
-| `search` | Search notes (text/semantic/combined) | Yes | **YES** (only default searchable) |
+| `search` | Search notes (text/semantic/combined/federated) | Yes | No (per-schema pools enable search in all memories) |
 | `manage_tags` | Tag operations (list/add/remove/update) | Yes | No |
 | `manage_collection` | Collection operations | Yes | No |
 | `record_provenance` | Provenance tracking | Yes | No |
 | `manage_concepts` | SKOS concept operations | Yes | No |
+| `manage_embeddings` | Embedding set CRUD, membership, refresh | Yes | No |
 
 ## Performance Characteristics
 
 ### Memory Creation
-- **Time:** ~200ms (41 tables + indexes)
+- **Time:** ~200ms (clones all per-memory tables + indexes)
 - **Storage:** ~1MB empty, scales with data
 - **Limit:** 100 memories by default (MAX_MEMORIES env var)
 
@@ -260,8 +267,9 @@ START: Does user need multi-memory?
   +--> Independent projects with <30% concept overlap?
   |    +--> YES --> Strategy B: One memory per project
   |
-  +--> Need different embedding models per domain?
+  +--> Content types need different retention/chunking policies?
   |    +--> YES --> Strategy C: One memory per domain
+  |    (Note: different embedding models do NOT require separate memories — use embedding sets)
   |
   +--> Compliance requires historical immutability?
   |    +--> YES --> Strategy D: Rolling time-based archives
@@ -296,7 +304,7 @@ START: Does user need multi-memory?
 - [ ] Set `X-Fortemi-Memory` header explicitly in all HTTP API calls
 - [ ] Use `select_memory` at start of MCP sessions
 - [ ] Use `search` for per-memory search, `search_memories_federated` for cross-memory
-- [ ] Schedule per-memory `VACUUM ANALYZE` for large memories
+- [ ] Verify auto-maintenance is running (maintenance covers all schemas automatically)
 - [ ] Clone memories before risky operations (deletion is irreversible)
 - [ ] Monitor memory count (`list_archives`) against MAX_MEMORIES limit
 - [ ] Use tags/collections for organization within memories
@@ -304,7 +312,6 @@ START: Does user need multi-memory?
 
 ## Future Features (Not Yet Implemented)
 
-- **Federated search:** Cross-memory search in single query
 - **Cross-memory links:** Reference notes across schema boundaries
 - **Memory templates:** Pre-configured memories with tags/collections
 - **Auto-archival:** Scheduled cloning to time-based archives
@@ -315,6 +322,7 @@ START: Does user need multi-memory?
 **Default recommendation:** Use single memory with tags/collections unless you have:
 1. Legal/regulatory data isolation requirements (multi-tenant, client separation)
 2. >50k notes with clear segmentation boundaries (projects, time periods)
-3. Need for different embedding models per knowledge domain
+
+Note: Different embedding models do NOT require separate memories — use embedding sets within a single memory instead.
 
 **Key principle:** Memories are heavyweight. Over-segmentation reduces discoverability. When in doubt, use tags.
