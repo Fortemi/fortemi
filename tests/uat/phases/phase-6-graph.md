@@ -192,18 +192,23 @@ const response = await use_mcp_tool({
 
 **MCP Tool**: `get_note_links`
 
+> **Content Design**: The isolated note must use content that is semantically distant from ALL other notes in the corpus (ML, GPU, semiconductors, project plans, etc.). Using domain-specific jargon from an unrelated field (e.g., marine biology, culinary arts) ensures the embedding vector is dissimilar enough to stay below the 0.5 similarity threshold even in a small corpus where HNSW adaptive_k fully connects most nodes.
+
 ```javascript
-// Create isolated note first
+// Create isolated note with content semantically distant from all other UAT notes
 const isolated = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "capture_knowledge",
   arguments: {
     action: "create",
-    content: "Isolated note with unique content xyz123",
+    content: "Recipe: Sourdough Bread Scoring Patterns\n\nUse a razor-sharp lame at 45-degree angle. Score 1cm deep into the banneton-proofed dough. The grigne should open during oven spring at 230°C with steam injection. Autolyse the flour and water mixture for 60 minutes before adding levain and salt. Bulk fermentation proceeds with coil folds every 30 minutes until the dough passes the windowpane test.",
     tags: ["uat/graph", "uat/isolated"],
     revision_mode: "none"
   }
 });
+
+// Wait briefly for auto-linking pipeline
+// (Should NOT create any links for this semantically distant content)
 
 const response = await use_mcp_tool({
   server_name: "matric-memory",
@@ -222,6 +227,8 @@ const response = await use_mcp_tool({
 - [ ] Response is empty array
 - [ ] No errors or null response
 - [ ] Handles notes without links gracefully
+
+> **Note**: If this note unexpectedly receives links, the corpus may have content with overlapping vocabulary. Verify the linking threshold (`min_similarity`) and check whether any other notes mention cooking, baking, or food-related terms.
 
 ---
 

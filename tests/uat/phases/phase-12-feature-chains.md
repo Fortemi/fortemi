@@ -137,7 +137,7 @@ const result = await use_mcp_tool({
   arguments: {
     action: "text",
     query: "Project Alpha launch plan Q2",
-    tags: ["uat/chain-1"]
+    required_tags: ["uat/chain-1"]
   }
 });
 ```
@@ -181,8 +181,8 @@ const result = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "explore_graph",
   arguments: {
-    start_note_id: alpha_note_id,
-    max_depth: 2
+    note_id: alpha_note_id,
+    depth: 2
   }
 });
 ```
@@ -240,61 +240,77 @@ const result = await use_mcp_tool({
 
 ---
 
-### CHAIN-008: Record Location + Device + Note Provenance
+### CHAIN-008: Record Location + Device + Note Provenance (3-Step Chain)
 **MCP Tool**: `record_provenance`
 
+> **Critical**: Spatial search requires a 3-step provenance chain:
+> 1. Create a standalone **location** record (returns `location_id`)
+> 2. Create a **device** record (returns `device_id`)
+> 3. Create **note** provenance linking the note to the location (and optionally device)
+>
+> Skipping step 3 means the note has no spatial provenance and will NOT appear in spatial search results.
+
 ```javascript
-// Record location
+// Step 1: Create standalone location record
 const locationProv = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "record_provenance",
   arguments: {
     action: "location",
-    note_id: site_visit_note_id,
     latitude: 40.7589,
     longitude: -73.9851,
-    accuracy: 10.0,
-    label: "Downtown Office Site"
+    horizontal_accuracy_m: 10.0,
+    source: "user_manual",
+    confidence: "high"
   }
 });
+// Store: location_id = locationProv.id
 
-// Record device
+// Step 2: Create device record
 const deviceProv = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "record_provenance",
   arguments: {
     action: "device",
-    note_id: site_visit_note_id,
-    device_id: "uat-device-123",
-    device_type: "mobile",
-    os: "iOS 17.2",
-    app_version: "1.0.0"
+    device_make: "Apple",
+    device_model: "iPhone 15 Pro",
+    device_os: "iOS",
+    device_os_version: "17.2",
+    software: "Fortemi",
+    software_version: "1.0.0"
   }
 });
+// Store: device_id = deviceProv.id
 
-// Record note provenance (cross-reference)
+// Step 3: Link note to location + device via note provenance
 const noteProv = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "record_provenance",
   arguments: {
     action: "note",
     note_id: site_visit_note_id,
-    source_note_id: alpha_note_id,
-    relationship: "relates_to"
+    location_id: locationProv.id,
+    device_id: deviceProv.id,
+    capture_time_start: new Date().toISOString(),
+    time_source: "user_manual",
+    time_confidence: "high"
   }
 });
 ```
 
-**Expected**: All three provenance records created
+**Expected**: All three provenance records created and linked
 **Pass Criteria**:
-- Location record includes coordinates
-- Device record includes metadata
-- Note relationship established
+- Location record returns `id` with coordinates
+- Device record returns `id` with make/model
+- Note provenance links note to location_id and device_id
+- Note now discoverable via spatial search (CHAIN-009)
 
 ---
 
 ### CHAIN-009: Spatial Search Finds Provenance Note
 **MCP Tool**: `search`
+
+> **Prerequisite**: CHAIN-008 must have completed the full 3-step provenance chain (location → note provenance linking). Without the `record_provenance(action=note)` step, the note will NOT appear in spatial results.
 
 ```javascript
 const result = await use_mcp_tool({
@@ -302,10 +318,10 @@ const result = await use_mcp_tool({
   tool_name: "search",
   arguments: {
     action: "spatial",
-    latitude: 40.7589,
-    longitude: -73.9851,
-    radius_meters: 100,
-    tags: ["uat/chain-2"]
+    lat: 40.7589,
+    lon: -73.9851,
+    radius: 100,
+    required_tags: ["uat/chain-2"]
   }
 });
 ```
@@ -315,6 +331,8 @@ const result = await use_mcp_tool({
 - Results array contains `site_visit_note_id`
 - Distance calculation < 100 meters
 - Location metadata included
+
+> **Note**: Parameter names are `lat`/`lon`/`radius` (not `latitude`/`longitude`/`radius_meters`). Tag filtering uses `required_tags` (AND logic).
 
 ---
 
@@ -331,9 +349,9 @@ const result = await use_mcp_tool({
   tool_name: "search",
   arguments: {
     action: "temporal",
-    start_time: oneHourAgo.toISOString(),
-    end_time: oneHourFromNow.toISOString(),
-    tags: ["uat/chain-2"]
+    start: oneHourAgo.toISOString(),
+    end: oneHourFromNow.toISOString(),
+    required_tags: ["uat/chain-2"]
   }
 });
 ```
@@ -343,6 +361,8 @@ const result = await use_mcp_tool({
 - Results array contains `site_visit_note_id`
 - Timestamp falls within specified range
 - Temporal metadata accurate
+
+> **Note**: Parameter names are `start`/`end` (not `start_time`/`end_time`). Tag filtering uses `required_tags` (AND logic).
 
 ---
 
@@ -380,11 +400,31 @@ const result = await use_mcp_tool({
 
 ---
 
-### CHAIN-012: Switch Memory, Create Different Note
+### CHAIN-012: Provision Test Archive, Switch Memory, Create Note
 **MCP Tool**: `select_memory`, `capture_knowledge`
 
+> **Archive Provisioning**: The test archive must be created before it can be selected.
+> Use the HTTP API to create it (archive creation is not available as an MCP core tool).
+> If the archive already exists, the API returns 409 Conflict — this is safe to ignore.
+
 ```javascript
-// Switch to UAT test memory (or create if needed)
+// Step 0: Provision the test archive via HTTP API
+// (This is the ONLY non-MCP call in the chain — required because
+// archive creation is an admin operation not exposed via MCP tools)
+const archiveResponse = await fetch("http://localhost:3000/api/v1/archives", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    name: "uat-test-memory",
+    description: "UAT test memory for multi-memory validation"
+  })
+});
+// 201 = created, 409 = already exists — both are OK
+if (![201, 409].includes(archiveResponse.status)) {
+  throw new Error(`Failed to provision test archive: ${archiveResponse.status}`);
+}
+
+// Switch to UAT test memory
 await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "select_memory",
@@ -429,7 +469,7 @@ const defaultResults = await use_mcp_tool({
   arguments: {
     action: "text",
     query: "memory",
-    tags: ["uat/chain-3"]
+    required_tags: ["uat/chain-3"]
   }
 });
 
@@ -446,7 +486,7 @@ const testResults = await use_mcp_tool({
   arguments: {
     action: "text",
     query: "memory",
-    tags: ["uat/chain-3"]
+    required_tags: ["uat/chain-3"]
   }
 });
 ```
@@ -468,9 +508,9 @@ const result = await use_mcp_tool({
   tool_name: "search",
   arguments: {
     action: "federated",
-    query: "memory",
+    query: "memory isolation test",
     memories: ["public", "uat-test-memory"],
-    tags: ["uat/chain-3"]
+    required_tags: ["uat/chain-3"]
   }
 });
 ```
@@ -711,7 +751,7 @@ const result = await use_mcp_tool({
   arguments: {
     action: "text",
     query: "machine learning AI",
-    tags: ["uat/chain-5"]
+    required_tags: ["uat/chain-5"]
   }
 });
 ```

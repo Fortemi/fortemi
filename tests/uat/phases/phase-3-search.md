@@ -51,7 +51,7 @@ const result = await useTool('search', {
 const result = await useTool('search', {
   action: 'text',
   query: 'test',
-  tags: ['uat/capture'],
+  required_tags: ['uat/capture'],
   limit: 5
 });
 ```

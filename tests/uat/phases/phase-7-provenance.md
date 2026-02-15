@@ -118,30 +118,56 @@ const response = await use_mcp_tool({
 
 **MCP Tool**: `record_provenance`
 
+> **Prerequisite**: The `file` action requires an `attachment_id` — you must first upload a file attachment to a note using `capture_knowledge(action=upload)` to obtain an attachment UUID. File provenance links temporal metadata to an existing attachment.
+
 ```javascript
+// Step 1: Create a note for the attachment
+const fileNote = await use_mcp_tool({
+  server_name: "matric-memory",
+  tool_name: "capture_knowledge",
+  arguments: {
+    action: "create",
+    content: "Photo from site visit - test attachment target",
+    tags: ["uat/provenance", "uat/file-prov"],
+    revision_mode: "none"
+  }
+});
+
+// Step 2: Upload an attachment (returns attachment_id)
+// Note: capture_knowledge(action=upload) returns a curl command for the
+// actual file upload. In UAT, we test the provenance recording path
+// by using an attachment_id from a note that already has an attachment.
+//
+// If no attachment exists yet, skip to PROV-005 (note provenance).
+// File provenance is only meaningful for notes with actual file attachments.
+
+// Step 3: Record file provenance (requires valid attachment_id)
 const response = await use_mcp_tool({
   server_name: "matric-memory",
   tool_name: "record_provenance",
   arguments: {
     action: "file",
-    original_filename: "test-photo.jpg",
-    mime_type: "image/jpeg",
-    file_size: 1024
+    attachment_id: "<attachment_uuid_from_upload>",
+    note_id: fileNote.id,
+    capture_time_start: "2026-01-15T16:45:00Z",
+    time_source: "exif",
+    time_confidence: "medium"
   }
 });
 ```
 
 **Expected Response**:
-- File provenance record created
-- Filename, MIME type, and size stored
+- File provenance record created linking attachment to temporal metadata
 
 **Pass Criteria**:
 - [ ] Response contains `id` field
-- [ ] Filename is "test-photo.jpg"
-- [ ] MIME type is "image/jpeg"
-- [ ] File size is 1024 bytes
+- [ ] Attachment ID stored correctly
+- [ ] Time metadata recorded
+- [ ] If no attachment available, test skips gracefully with explanation
 
 **Store**: `file_provenance_id` for note linkage
+
+> **Note**: This test may be skipped if the UAT environment has no file uploads. The `file` action is specifically for recording when/how an attachment was captured (e.g., EXIF data from a photo). Use `note` action for general note provenance.
 
 ---
 
@@ -210,9 +236,11 @@ const response = await use_mcp_tool({
 
 ---
 
-### PROV-007: Create Note Provenance with File
+### PROV-007: Create Note Provenance with Time Metadata
 
 **MCP Tool**: `record_provenance`
+
+> **Note**: If PROV-004 was skipped (no attachment available), this test creates note provenance with temporal metadata only. The `note` action links a note to location, device, and/or time data — file provenance is separate.
 
 ```javascript
 const response = await use_mcp_tool({
@@ -221,7 +249,6 @@ const response = await use_mcp_tool({
   arguments: {
     action: "note",
     note_id: "<third_note_id_from_phase_1>",
-    file_provenance_id: file_provenance_id,
     capture_time_start: "2026-01-15T16:45:00Z",
     time_source: "exif",
     time_confidence: "medium"
@@ -230,14 +257,14 @@ const response = await use_mcp_tool({
 ```
 
 **Expected Response**:
-- Note provenance with file origin metadata
-- File details linked to note
+- Note provenance with temporal metadata
+- Time source and confidence recorded
 
 **Pass Criteria**:
 - [ ] Response contains provenance record ID
-- [ ] File provenance ID matches PROV-004
+- [ ] Capture time stored correctly
 - [ ] Time source is "exif"
-- [ ] File metadata accessible via note
+- [ ] Time confidence is "medium"
 
 ---
 
