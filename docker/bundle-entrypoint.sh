@@ -18,6 +18,12 @@ echo "Version: ${MATRIC_VERSION:-unknown}"
 # PostgreSQL data directory
 PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 
+# Ensure PGDATA directory exists and is owned by postgres
+# (Required for fresh volumes where the mount point may be owned by root)
+mkdir -p "$PGDATA"
+chown postgres:postgres "$PGDATA"
+chmod 700 "$PGDATA"
+
 # Check if this is a fresh install (empty data directory)
 if [ -z "$(ls -A "$PGDATA" 2>/dev/null)" ]; then
     echo ">>> Initializing PostgreSQL data directory..."

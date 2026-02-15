@@ -161,7 +161,7 @@ For local development without Docker:
 
 **Prerequisites:**
 - Rust 1.70+
-- PostgreSQL 16+ with pgvector extension
+- PostgreSQL 18+ with pgvector extension
 - Ollama (optional, for AI features)
 
 ```bash

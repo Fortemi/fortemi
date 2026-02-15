@@ -59,7 +59,7 @@ docker compose -f docker-compose.bundle.yml build
 ```
 
 This creates an all-in-one container with:
-- PostgreSQL 16 with pgvector and PostGIS
+- PostgreSQL 18 with pgvector and PostGIS
 - Matric API server (port 3000)
 - MCP server (port 3001)
 - All database migrations
@@ -68,7 +68,7 @@ This creates an all-in-one container with:
 
 | Component | Version | Port |
 |-----------|---------|------|
-| PostgreSQL | 16 | 5432 (internal) |
+| PostgreSQL | 18 | 5432 (internal) |
 | pgvector | Latest | - |
 | PostGIS | 3.x | - |
 | API Server | 2026.x | 3000 |

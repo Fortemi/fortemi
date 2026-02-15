@@ -228,7 +228,7 @@ docker run -d --name matric-test-db \
   -e POSTGRES_PASSWORD=test \
   -e POSTGRES_DB=matric_test \
   -p 5433:5432 \
-  postgres:16
+  postgres:18
 
 # Run integration tests
 DATABASE_URL=postgres://postgres:test@localhost:5433/matric_test \

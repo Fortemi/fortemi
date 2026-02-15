@@ -33,7 +33,7 @@ RUN cargo build --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --pack
     cp target/release/matric-pke /app/matric-pke
 
 # Runtime stage - based on pgvector image for PostgreSQL + pgvector
-FROM pgvector/pgvector:pg16 AS runtime
+FROM pgvector/pgvector:pg18 AS runtime
 
 ARG VERSION=dev
 ARG GIT_SHA=unknown
@@ -58,8 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     ffmpeg \
     # PostGIS for spatial/geographic queries (W3C PROV prov:atLocation)
-    postgresql-16-postgis-3 \
-    postgresql-16-postgis-3-scripts \
+    postgresql-18-postgis-3 \
+    postgresql-18-postgis-3-scripts \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \

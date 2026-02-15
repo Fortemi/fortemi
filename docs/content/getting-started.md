@@ -19,7 +19,7 @@ docker compose -f docker-compose.bundle.yml up -d
 ```
 
 This automatically:
-- Initializes PostgreSQL 16 with pgvector and PostGIS extensions
+- Initializes PostgreSQL 18 with pgvector and PostGIS extensions
 - Runs all database migrations
 - Starts the API on port 3000
 - Starts the MCP server on port 3001

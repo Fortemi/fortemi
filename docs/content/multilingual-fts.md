@@ -345,7 +345,7 @@ Multilingual indexing increases storage requirements:
 2. Install `pg_bigm` (requires compilation):
    ```bash
    # Ubuntu/Debian
-   apt-get install postgresql-16-pgdg-pg-bigm
+   apt-get install postgresql-18-pgdg-pg-bigm
    ```
 3. Enable extension:
    ```sql

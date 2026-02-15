@@ -190,7 +190,7 @@ Configure nginx to proxy to the container:
 
 ## Database
 
-- PostgreSQL 16 with pgvector (vector similarity) and PostGIS (spatial queries) extensions
+- PostgreSQL 18 with pgvector (vector similarity) and PostGIS (spatial queries) extensions
 - Connection: `postgres://matric:matric@localhost/matric`
 - Migrations: `migrations/` directory
 - Extensions must be created as superuser before migrations run (handled by entrypoint/CI)

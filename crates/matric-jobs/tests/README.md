@@ -69,7 +69,7 @@ cargo test -p matric-jobs --test worker_integration_test
 
 ### CI Environment
 Tests run automatically in Gitea Actions with proper database setup:
-- PostgreSQL 16 with pgvector
+- PostgreSQL 18 with pgvector
 - Isolated test databases via sqlx::test
 - See `.gitea/workflows/test.yml`
 

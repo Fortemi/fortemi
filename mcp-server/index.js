@@ -895,13 +895,13 @@ function createMcpServer() {
               release: health.version || process.env.MATRIC_VERSION || "unknown",
               git_sha: health.git_sha || process.env.MATRIC_GIT_SHA || "unknown",
               build_date: health.build_date || process.env.MATRIC_BUILD_DATE || "unknown",
-              postgresql: process.env.PG_VERSION || "16.x",
+              postgresql: process.env.PG_VERSION || "18.x",
               mcp_server: "1.0.0",
             },
             infrastructure: {
               database: {
                 type: "PostgreSQL",
-                version: process.env.PG_VERSION || "16.x",
+                version: process.env.PG_VERSION || "18.x",
                 extensions: {
                   pgvector: "0.8.x (HNSW vector indexing)",
                   pg_trgm: "1.6 (trigram search for emoji/symbols)",

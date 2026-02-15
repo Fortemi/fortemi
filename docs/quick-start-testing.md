@@ -46,7 +46,7 @@ docker run -d --name matric-test \
   -e POSTGRES_USER=matric \
   -e POSTGRES_PASSWORD=matric \
   -e POSTGRES_DB=matric_test \
-  pgvector/pgvector:pg16
+  pgvector/pgvector:pg18
 
 # 2. Run migrations
 for f in migrations/*.sql; do

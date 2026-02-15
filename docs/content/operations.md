@@ -5,7 +5,7 @@ This guide covers deployment, operations, and troubleshooting for Fortémi using
 ## System Overview
 
 - **Deployment:** Docker bundle (all-in-one container)
-- **Components:** PostgreSQL 16 + pgvector + PostGIS, Rust API, Node.js MCP server
+- **Components:** PostgreSQL 18 + pgvector + PostGIS, Rust API, Node.js MCP server
 - **Ports:** 3000 (API), 3001 (MCP)
 - **Data:** PostgreSQL data in Docker volume `matric-pgdata`
 

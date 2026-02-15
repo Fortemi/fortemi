@@ -15,7 +15,7 @@
       "AI revision pipeline with automatic linking, embedding, and title generation."
     ],
     "checklist": [
-      "Deploy PostgreSQL 16+ with pgvector extension.",
+      "Deploy PostgreSQL 18+ with pgvector extension.",
       "Configure inference backend (Ollama or OpenAI-compatible).",
       "Start the API server and verify the health endpoint."
     ],

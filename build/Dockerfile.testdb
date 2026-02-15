@@ -1,6 +1,6 @@
 # Fortémi Test Database Image
 #
-# PostgreSQL 16 with pgvector + PostGIS for CI/CD testing.
+# PostgreSQL 18 with pgvector + PostGIS for CI/CD testing.
 # Combines extensions needed for matric-memory migrations.
 #
 # Usage:
@@ -15,17 +15,17 @@
 # Note: pg_bigm (CJK bigram search) requires external repos and is optional.
 # The application gracefully falls back to pg_trgm when pg_bigm is unavailable.
 
-FROM pgvector/pgvector:pg16
+FROM pgvector/pgvector:pg18
 
 LABEL org.opencontainers.image.title="fortemi-testdb"
-LABEL org.opencontainers.image.description="PostgreSQL 16 with pgvector + PostGIS for Fortémi testing"
+LABEL org.opencontainers.image.description="PostgreSQL 18 with pgvector + PostGIS for Fortémi testing"
 LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
 
 # Install PostgreSQL extensions needed for full migration support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostGIS for spatial queries (prov:atLocation)
-    postgresql-16-postgis-3 \
-    postgresql-16-postgis-3-scripts \
+    postgresql-18-postgis-3 \
+    postgresql-18-postgis-3-scripts \
     # PDF text extraction for PdfTextAdapter tests
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*

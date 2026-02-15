@@ -110,7 +110,7 @@ migration tracking) lives in the `public` schema and is accessible to all memori
                           SET LOCAL search_path TO memory_research, public
                                             |
                     +-----------------------------------------------+
-                    |              PostgreSQL 16                     |
+                    |              PostgreSQL 18                     |
                     |  +----------+  +-----------+  +------------+  |
                     |  | public   |  | memory_   |  | memory_    |  |
                     |  | (shared) |  | default   |  | research   |  |

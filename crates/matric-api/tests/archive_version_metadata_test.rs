@@ -49,7 +49,7 @@ fn test_backup_metadata_with_version_fields() {
         matric_version: Some("2026.1.12".to_string()),
         matric_version_min: Some("2026.1.0".to_string()),
         matric_version_max: None,
-        pg_version: Some("PostgreSQL 16.1".to_string()),
+        pg_version: Some("PostgreSQL 18.2".to_string()),
         schema_migration_count: Some(25),
         last_migration: Some("20260203200000_embedding_model_discovery".to_string()),
     };
@@ -69,7 +69,7 @@ fn test_backup_metadata_with_version_fields() {
     assert!(json.get("matric_version_max").is_none()); // None should not be serialized
     assert_eq!(
         json.get("pg_version").unwrap().as_str().unwrap(),
-        "PostgreSQL 16.1"
+        "PostgreSQL 18.2"
     );
     assert_eq!(
         json.get("schema_migration_count")
@@ -126,7 +126,7 @@ fn test_backup_metadata_partial_version_fields() {
         matric_version: Some("2026.1.12".to_string()),
         matric_version_min: None, // Not set
         matric_version_max: None,
-        pg_version: Some("PostgreSQL 16.1".to_string()),
+        pg_version: Some("PostgreSQL 18.2".to_string()),
         schema_migration_count: None, // Not set
         last_migration: None,
     };
@@ -178,8 +178,8 @@ fn test_version_format_validation() {
 fn test_postgres_version_string_parsing() {
     // PostgreSQL version strings can have various formats
     let pg_versions = vec![
-        "PostgreSQL 16.1",
-        "PostgreSQL 16.0 on x86_64-pc-linux-gnu",
+        "PostgreSQL 18.2",
+        "PostgreSQL 18.2 on x86_64-pc-linux-gnu",
         "PostgreSQL 15.3",
     ];
 
@@ -236,7 +236,7 @@ fn test_metadata_serialization_roundtrip() {
         matric_version: Some("2026.1.12".to_string()),
         matric_version_min: Some("2026.1.0".to_string()),
         matric_version_max: Some("2027.0.0".to_string()),
-        pg_version: Some("PostgreSQL 16.1".to_string()),
+        pg_version: Some("PostgreSQL 18.2".to_string()),
         schema_migration_count: Some(30),
         last_migration: Some("20260203200000_test_migration".to_string()),
     };

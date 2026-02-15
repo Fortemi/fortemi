@@ -2,7 +2,7 @@
 
 **Research Date:** 2026-02-01
 **Purpose:** Evaluate PostgreSQL schema-based isolation patterns for implementing parallel memory archives in matric-memory
-**Stack:** Rust, sqlx 0.8.6, PostgreSQL 16 with pgvector
+**Stack:** Rust, sqlx 0.8.6, PostgreSQL 18 with pgvector
 
 ---
 

@@ -83,7 +83,7 @@ Built on peer-reviewed research and production-grade infrastructure:
 - **Sentence Embeddings** via contrastive learning (EMNLP 2019) for semantic similarity
 - **Vector Indexing** with HNSW graphs (IEEE TPAMI 2020) for efficient nearest-neighbor search
 - **Controlled Vocabulary** following W3C SKOS standard for semantic taxonomy
-- **PostgreSQL + pgvector** for unified storage and vector operations
+- **PostgreSQL 18 + pgvector** for unified storage and vector operations
 - **Matryoshka embeddings** for multi-resolution retrieval (12× storage savings)
 
 The system is implemented in Rust (API server) and Node.js (MCP server), with comprehensive OpenAPI documentation covering all 107 REST endpoints.
@@ -144,7 +144,7 @@ See [Operator's Guide](./operators-guide.md) for production deployment, monitori
 
 ### Manual Installation
 
-Build from source for development or custom deployments. Requires Rust toolchain, PostgreSQL 16+ with pgvector, and optional Ollama for local inference.
+Build from source for development or custom deployments. Requires Rust toolchain, PostgreSQL 18+ with pgvector, and optional Ollama for local inference.
 
 ```bash
 # Install dependencies

@@ -717,8 +717,8 @@ impl PgLinkRepository {
         let total_links: i64 = link_row.get("total_links");
 
         // Connected components via iterative BFS
-        // Note: pgvector/pgvector:pg16 image lacks MIN(uuid) aggregate, so we cast to text.
-        // For component detection we only need a consistent representative per group, not UUID ordering.
+        // PostgreSQL lacks MIN(uuid) aggregate even on pg18, so cast to text for grouping.
+        // UUID v7 text representation preserves chronological ordering.
         let components_row = sqlx::query(
             r#"
             WITH RECURSIVE edges AS (

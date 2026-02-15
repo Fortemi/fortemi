@@ -36,7 +36,7 @@ services:
 
   # PostgreSQL with pgvector + PostGIS
   # Uses local testdb image built from build/Dockerfile.testdb
-  # Falls back to pgvector/pgvector:pg16 if local image not available
+  # Falls back to pgvector/pgvector:pg18 if local image not available
   db:
     image: ${TESTDB_IMAGE:-matric-testdb:local}
     environment:

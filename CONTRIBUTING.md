@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Fortémi! This guide covers devel
 
 ### Prerequisites
 - Rust 1.70+
-- PostgreSQL 16+ with pgvector extension
+- PostgreSQL 18+ with pgvector extension
 - Node.js 18+ (for MCP server)
 
 ### Setup
