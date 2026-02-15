@@ -23,16 +23,18 @@ describe("Phase 11: Note Versioning", () => {
     sharedNoteId = note.id;
     cleanup.noteIds.push(note.id);
 
-    // Create v2
+    // Create v2 (revision_mode: "none" to avoid async AI revision delays)
     await client.callTool("update_note", {
       id: sharedNoteId,
       content: `# Version Test\n\nVersion 2 content with updates.`,
+      revision_mode: "none",
     });
 
-    // Create v3
+    // Create v3 (revision_mode: "none" to avoid async AI revision delays)
     await client.callTool("update_note", {
       id: sharedNoteId,
       content: `# Version Test\n\nVersion 3 content with more changes.`,
+      revision_mode: "none",
     });
 
     // Small delay for indexing

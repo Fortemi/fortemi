@@ -204,11 +204,11 @@ describe("Phase 12: Memory Archives", () => {
   });
 
   test("ARCH-015: Cannot delete default archive", async () => {
-    const archives = await client.callTool("list_archives", {});
-    const defaultArchive = archives.find((a) => a.is_default);
+    // Explicitly reset default to public to avoid dependency on prior test state
+    await client.callTool("set_default_archive", { name: "public" });
 
     const error = await client.callToolExpectError("delete_archive", {
-      name: defaultArchive.name,
+      name: "public",
     });
     assert.ok(error.error, "Should error when deleting default archive");
   });

@@ -107,7 +107,7 @@ describe("Phase 6: Semantic Links", () => {
       id: note.id,
       depth: 2,
       max_nodes: 10,
-    });
+    }, { maxRetries: 10 });
 
     assert.ok(graph, "Graph response should exist");
     assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
