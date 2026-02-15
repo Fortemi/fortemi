@@ -10,6 +10,7 @@ FROM rust:slim-bookworm AS builder
 ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
+ARG CARGO_BUILD_JOBS=8
 
 WORKDIR /app
 
@@ -27,7 +28,7 @@ ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
-RUN cargo build --release --package matric-api --package matric-crypto && \
+RUN cargo build --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto && \
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke
 

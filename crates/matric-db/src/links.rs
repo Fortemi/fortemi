@@ -717,6 +717,8 @@ impl PgLinkRepository {
         let total_links: i64 = link_row.get("total_links");
 
         // Connected components via iterative BFS
+        // Note: pgvector/pgvector:pg16 image lacks MIN(uuid) aggregate, so we cast to text.
+        // For component detection we only need a consistent representative per group, not UUID ordering.
         let components_row = sqlx::query(
             r#"
             WITH RECURSIVE edges AS (
@@ -728,7 +730,7 @@ impl PgLinkRepository {
                 SELECT DISTINCT a AS note_id FROM edges
             ),
             component_walk AS (
-                SELECT note_id, note_id AS component_root, 0 AS depth
+                SELECT note_id, note_id::text AS component_root, 0 AS depth
                 FROM all_linked
                 UNION
                 SELECT e.b, cw.component_root, cw.depth + 1

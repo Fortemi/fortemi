@@ -97,6 +97,7 @@ services:
         VERSION: ${VERSION:-dev}
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
+        CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-8}
     ports:
       - "3000:3000"
       - "3001:3001"
