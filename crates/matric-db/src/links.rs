@@ -690,10 +690,10 @@ impl PgLinkRepository {
             SELECT
                 COUNT(*) AS total_notes,
                 COUNT(*) FILTER (WHERE degree = 0) AS isolated_nodes,
-                COALESCE(AVG(degree), 0) AS avg_degree,
+                COALESCE(AVG(degree), 0)::FLOAT8 AS avg_degree,
                 COALESCE(MAX(degree), 0) AS max_degree,
                 COALESCE(MIN(degree) FILTER (WHERE degree > 0), 0) AS min_degree_linked,
-                COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY degree), 0) AS median_degree
+                COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY degree), 0)::FLOAT8 AS median_degree
             FROM note_degrees
             "#,
         )
