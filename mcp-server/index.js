@@ -326,6 +326,7 @@ function createMcpServer() {
         case "search": {
           const action = args.action;
           if (action === "text") {
+            if (!args.query) throw new Error("'query' is required for search action 'text'");
             const params = new URLSearchParams({ q: args.query });
             if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
             if (args.mode) params.set("mode", args.mode);
@@ -340,17 +341,25 @@ function createMcpServer() {
             }
             result = await apiRequest("GET", `/api/v1/search?${params}`);
           } else if (action === "spatial") {
+            if (args.lat === undefined || args.lat === null) throw new Error("'lat' is required for search action 'spatial'");
+            if (args.lon === undefined || args.lon === null) throw new Error("'lon' is required for search action 'spatial'");
             const params = new URLSearchParams();
             params.set("lat", args.lat);
             params.set("lon", args.lon);
             if (args.radius !== undefined && args.radius !== null) params.set("radius", args.radius);
             result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
           } else if (action === "temporal") {
+            if (!args.start) throw new Error("'start' is required for search action 'temporal'");
+            if (!args.end) throw new Error("'end' is required for search action 'temporal'");
             const params = new URLSearchParams();
             params.set("start", args.start);
             params.set("end", args.end);
             result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
           } else if (action === "spatial_temporal") {
+            if (args.lat === undefined || args.lat === null) throw new Error("'lat' is required for search action 'spatial_temporal'");
+            if (args.lon === undefined || args.lon === null) throw new Error("'lon' is required for search action 'spatial_temporal'");
+            if (!args.start) throw new Error("'start' is required for search action 'spatial_temporal'");
+            if (!args.end) throw new Error("'end' is required for search action 'spatial_temporal'");
             const params = new URLSearchParams();
             params.set("lat", args.lat);
             params.set("lon", args.lon);
@@ -359,6 +368,8 @@ function createMcpServer() {
             params.set("end", args.end);
             result = await apiRequest("GET", `/api/v1/memories/search?${params}`);
           } else if (action === "federated") {
+            if (!args.query) throw new Error("'query' is required for search action 'federated'");
+            if (!args.memories || !Array.isArray(args.memories) || args.memories.length === 0) throw new Error("'memories' is required for search action 'federated' (array of memory names or ['all'])");
             const body = { q: args.query, memories: args.memories };
             if (args.limit) body.limit = args.limit;
             result = await apiRequest("POST", "/api/v1/search/federated", body);

@@ -65,9 +65,19 @@ describe("Consolidated Tools", () => {
   });
 
   test("CK-003: capture_knowledge upload action returns curl command", async () => {
+    // Upload requires a note_id — create a note first
+    const tag = MCPTestClient.testTag("ck", "upload");
+    const note = await client.callTool("capture_knowledge", {
+      action: "create",
+      content: "Upload test note",
+      tags: [tag],
+    });
+    cleanup.noteIds.push(note.id);
+
     const result = await client.callTool("capture_knowledge", {
       action: "upload",
-      file_path: "/tmp/test-file.txt",
+      note_id: note.id,
+      filename: "/tmp/test-file.txt",
     });
     // Upload returns instructions with a curl command
     assert.ok(
@@ -147,6 +157,39 @@ describe("Consolidated Tools", () => {
       () => client.callTool("search", { action: "bogus" }),
       (err) => {
         assert.ok(err.message.includes("Unknown search action") || err.code, "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
+  test("SRCH-012: search text action without query returns error", async () => {
+    await assert.rejects(
+      () => client.callTool("search", { action: "text" }),
+      (err) => {
+        assert.ok(err.message.includes("query") && err.message.includes("required"),
+          `Should mention query is required, got: ${err.message}`);
+        return true;
+      }
+    );
+  });
+
+  test("SRCH-013: search federated action without query returns error", async () => {
+    await assert.rejects(
+      () => client.callTool("search", { action: "federated", memories: ["all"] }),
+      (err) => {
+        assert.ok(err.message.includes("query") && err.message.includes("required"),
+          `Should mention query is required, got: ${err.message}`);
+        return true;
+      }
+    );
+  });
+
+  test("SRCH-014: search spatial action without lat/lon returns error", async () => {
+    await assert.rejects(
+      () => client.callTool("search", { action: "spatial" }),
+      (err) => {
+        assert.ok(err.message.includes("lat") && err.message.includes("required"),
+          `Should mention lat is required, got: ${err.message}`);
         return true;
       }
     );
