@@ -4603,7 +4603,7 @@ pub struct CreateFileProvenanceRequest {
     pub capture_time_end: Option<DateTime<Utc>>,
     pub capture_timezone: Option<String>,
     pub capture_duration_seconds: Option<f32>,
-    pub time_source: Option<String>, // exif, file_mtime, user_manual, ai_estimated
+    pub time_source: Option<String>, // exif, file_mtime, user_manual, ai_estimated, device_clock
     pub time_confidence: Option<String>, // high, medium, low, unknown
     pub location_id: Option<Uuid>,
     pub device_id: Option<Uuid>,
@@ -4620,7 +4620,7 @@ pub struct CreateNoteProvenanceRequest {
     pub capture_time_start: Option<DateTime<Utc>>,
     pub capture_time_end: Option<DateTime<Utc>>,
     pub capture_timezone: Option<String>,
-    pub time_source: Option<String>, // gps, network, manual, file_metadata
+    pub time_source: Option<String>, // gps, network, manual, file_metadata, device_clock
     pub time_confidence: Option<String>, // exact, approximate, estimated
     pub location_id: Option<Uuid>,
     pub device_id: Option<Uuid>,

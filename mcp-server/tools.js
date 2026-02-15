@@ -529,7 +529,8 @@ export default [
             "gps",
             "network",
             "manual",
-            "file_metadata"
+            "file_metadata",
+            "device_clock"
           ],
           "description": "How capture time was determined"
         },
@@ -1346,7 +1347,8 @@ export default [
             "exif",
             "file_mtime",
             "user_manual",
-            "ai_estimated"
+            "ai_estimated",
+            "device_clock"
           ],
           "description": "How capture time was determined"
         },
@@ -1432,7 +1434,8 @@ export default [
             "gps",
             "network",
             "manual",
-            "file_metadata"
+            "file_metadata",
+            "device_clock"
           ],
           "description": "How time was determined"
         },
