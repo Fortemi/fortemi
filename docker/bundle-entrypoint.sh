@@ -28,17 +28,18 @@ chmod 700 "$PGDATA"
 if [ -z "$(ls -A "$PGDATA" 2>/dev/null)" ]; then
     echo ">>> Initializing PostgreSQL data directory..."
 
-    # Initialize PostgreSQL as postgres user
-    su postgres -c "initdb -D $PGDATA --auth-host=md5 --auth-local=trust"
+    # Initialize PostgreSQL as postgres user (SCRAM-SHA-256 for pg18+)
+    su postgres -c "initdb -D $PGDATA --auth-host=scram-sha-256 --auth-local=trust"
 
     # Configure PostgreSQL to listen on localhost only (internal)
     echo "listen_addresses = 'localhost'" >> "$PGDATA/postgresql.conf"
     echo "max_connections = 100" >> "$PGDATA/postgresql.conf"
+    echo "password_encryption = 'scram-sha-256'" >> "$PGDATA/postgresql.conf"
 
-    # Allow local connections
+    # Allow local connections (SCRAM-SHA-256 for network, trust for local socket)
     echo "local all all trust" > "$PGDATA/pg_hba.conf"
-    echo "host all all 127.0.0.1/32 md5" >> "$PGDATA/pg_hba.conf"
-    echo "host all all ::1/128 md5" >> "$PGDATA/pg_hba.conf"
+    echo "host all all 127.0.0.1/32 scram-sha-256" >> "$PGDATA/pg_hba.conf"
+    echo "host all all ::1/128 scram-sha-256" >> "$PGDATA/pg_hba.conf"
 
     FRESH_INSTALL=true
 else
