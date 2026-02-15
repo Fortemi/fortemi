@@ -771,6 +771,52 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "manage_attachments",
+    description: `Manage file attachments on notes. Upload, list, get metadata, download, and delete attachments. Image/audio/video attachments are automatically processed by the extraction pipeline.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "upload",
+            "get",
+            "download",
+            "delete"
+          ],
+          "description": "Action: 'list' (note's attachments), 'upload' (returns curl cmd), 'get' (metadata), 'download' (returns curl cmd), 'delete'"
+        },
+        "note_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Note UUID (required for 'list' and 'upload')"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Attachment UUID (required for 'get', 'download', 'delete')"
+        },
+        "filename": {
+          "type": "string",
+          "description": "Filename hint for upload curl command (e.g., 'photo.jpg')"
+        },
+        "content_type": {
+          "type": "string",
+          "description": "MIME type hint (e.g., 'image/jpeg'). If omitted, auto-detected from file extension."
+        },
+        "document_type_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Optional: explicit document type UUID override for upload (skips auto-classification)"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+  },
+  {
     name: "search_notes",
     description: `Search notes using hybrid, FTS, or semantic mode with tag filtering. See \`get_documentation(topic='search')\` for query syntax.`,
     inputSchema: {
@@ -4030,56 +4076,6 @@ export default [
           "description": "Content snippet for magic pattern detection (first 1000 chars recommended)"
         }
       }
-    },
-    annotations: {"readOnlyHint":true},
-  },
-  {
-    name: "describe_image",
-    description: `Generate a description of an image using vision model. Returns curl command for upload. See \`get_documentation(topic='vision')\`.`,
-    inputSchema: {
-      "type": "object",
-      "properties": {
-        "file_path": {
-          "type": "string",
-          "description": "Local path to the image file (e.g., '/tmp/photo.png')"
-        },
-        "mime_type": {
-          "type": "string",
-          "description": "Image MIME type (default: auto-detected from file). Supported: image/png, image/jpeg, image/gif, image/webp"
-        },
-        "prompt": {
-          "type": "string",
-          "description": "Custom prompt for the vision model. If omitted, uses default description prompt."
-        }
-      },
-      "required": [
-        "file_path"
-      ]
-    },
-    annotations: {"readOnlyHint":true},
-  },
-  {
-    name: "transcribe_audio",
-    description: `Transcribe audio using Whisper backend. Returns curl command for upload. See \`get_documentation(topic='audio')\`.`,
-    inputSchema: {
-      "type": "object",
-      "properties": {
-        "file_path": {
-          "type": "string",
-          "description": "Local path to the audio file (e.g., '/tmp/recording.mp3')"
-        },
-        "mime_type": {
-          "type": "string",
-          "description": "Audio MIME type (default: auto-detected from file). Supported: audio/mpeg, audio/wav, audio/ogg, audio/flac, audio/aac, audio/webm"
-        },
-        "language": {
-          "type": "string",
-          "description": "ISO 639-1 language code hint (e.g., 'en', 'es', 'zh'). If omitted, the model auto-detects the language."
-        }
-      },
-      "required": [
-        "file_path"
-      ]
     },
     annotations: {"readOnlyHint":true},
   },

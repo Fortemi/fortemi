@@ -989,43 +989,22 @@ Check which memory archive is currently active for this session.
 {}
 ```
 
-### `describe_image`
+### `manage_attachments`
 
-Generate textual description of an image using vision-capable LLM.
+Manage file attachments on notes. Upload, list, get metadata, download, and delete. Image/audio/video attachments are automatically processed by the extraction pipeline.
 
 **Parameters:**
-- `file_path` (required) - Absolute path to image file
-- `detail_level` (optional) - "brief", "standard", "detailed" (default: "standard")
-
-**Requirements:**
-- Ollama with vision-capable model (e.g., qwen3-vl:8b, llava)
-- `OLLAMA_VISION_MODEL` environment variable set
+- `action` (required) - "list", "upload", "get", "download", "delete"
+- `note_id` - Note UUID (required for list/upload)
+- `id` - Attachment UUID (required for get/download/delete)
+- `filename` - Filename hint for upload curl command
+- `content_type` - MIME type hint for upload
+- `document_type_id` - Explicit document type UUID override
 
 ```json
 {
-  "file_path": "/home/user/photos/diagram.jpg",
-  "detail_level": "detailed"
-}
-```
-
-### `transcribe_audio`
-
-Transcribe audio file to text using Whisper-compatible backend.
-
-**Parameters:**
-- `file_path` (required) - Absolute path to audio file
-- `language` (optional) - ISO 639-1 language code (e.g., "en", "es")
-- `prompt` (optional) - Context prompt for better accuracy
-
-**Requirements:**
-- Whisper-compatible API endpoint
-- `WHISPER_BASE_URL` environment variable set
-- `WHISPER_MODEL` environment variable (e.g., "Systran/faster-distil-whisper-large-v3")
-
-```json
-{
-  "file_path": "/home/user/audio/meeting.mp3",
-  "language": "en"
+  "action": "list",
+  "note_id": "019c5e67-4261-7122-b1ec-88bede99ee92"
 }
 ```
 

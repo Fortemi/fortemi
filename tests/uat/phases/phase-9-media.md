@@ -1,32 +1,31 @@
-# UAT Phase 9: Media Processing
+# UAT Phase 9: Attachments
 
 ## Purpose
-Validate media processing capabilities including image description via vision models and audio transcription via Whisper-compatible backends. Tests verify capability detection, successful processing, and error handling for missing backends or files.
+Validate file attachment management via the `manage_attachments` consolidated MCP tool. Tests verify listing, uploading (curl command generation), metadata retrieval, download command generation, and deletion. Image/audio/video attachments are automatically processed by the extraction pipeline — there are no standalone media processing MCP tools.
 
 ## Duration
 ~5 minutes
 
 ## Prerequisites
-- Phase 0 completed (system info confirms backend availability)
-- Test data available in `tests/uat/data/images/` and `tests/uat/data/audio/`
+- Phase 1 completed (notes exist for attaching files)
+- At least one note UUID stored from previous phases (`NOTE_ID`)
 
 ## Tools Tested
-- `describe_image`
-- `transcribe_audio`
+- `manage_attachments`
 - `get_system_info`
 
 > **MCP-First Requirement**: Every test in this phase MUST be executed via MCP tool calls through the matric-memory MCP server. Direct HTTP API calls are NOT permitted. Use `mcp.request({ method: "tools/call", params: { name: "tool_name", arguments: {...} }})`.
 
-> **Backend Dependency**: Media processing tools depend on external backends (Ollama vision model for image description, Whisper API for transcription). Unlike other UAT phases, media tests use conditional execution based on `get_system_info()` capabilities. Tests document expected behavior when backends are unavailable.
+> **Upload Note**: The `upload` and `download` actions return curl commands rather than performing binary transfer directly. This is by design — MCP tools exchange JSON, not binary streams. Execute the returned curl commands in a shell to complete the transfer.
 
 ---
 
 ## Test Cases
 
-### MEDIA-001: Check Media Capabilities
+### ATT-001: Check Media Capabilities
 **MCP Tool**: `get_system_info`
 
-Verify system reports media processing capabilities accurately.
+Verify system reports media processing capabilities for the extraction pipeline.
 
 ```javascript
 const systemInfo = await mcp.request({
@@ -39,205 +38,249 @@ const systemInfo = await mcp.request({
 
 console.log("Vision enabled:", systemInfo.capabilities.vision_enabled);
 console.log("Transcription enabled:", systemInfo.capabilities.transcription_enabled);
-console.log("Vision model:", systemInfo.capabilities.vision_model || "none");
-console.log("Whisper URL:", systemInfo.capabilities.whisper_base_url || "none");
 ```
 
 **Expected**:
 - Returns capabilities object with boolean flags
-- `vision_enabled` indicates Ollama vision model availability
-- `transcription_enabled` indicates Whisper backend availability
-- Model/URL fields present when respective feature is enabled
+- `vision_enabled` and `transcription_enabled` indicate backend availability
+- These capabilities affect the extraction pipeline (not standalone tools)
 
 **Pass Criteria**:
 - Response contains `capabilities` object
 - `vision_enabled` is boolean
 - `transcription_enabled` is boolean
-- Model/URL fields match backend configuration
 
 **Store**: `VISION_AVAILABLE`, `TRANSCRIPTION_AVAILABLE`
 
 ---
 
-### MEDIA-002: Describe Image (Vision Available)
-**MCP Tool**: `describe_image`
+### ATT-002: List Attachments (Empty)
+**MCP Tool**: `manage_attachments`
 
-Generate description of test image using vision model. Conditional on vision backend availability.
-
-```javascript
-const result = await mcp.request({
-  method: "tools/call",
-  params: {
-    name: "describe_image",
-    arguments: {
-      file_path: "tests/uat/data/images/jpeg-with-exif.jpg"
-    }
-  }
-});
-
-console.log("Description:", result.description);
-console.log("Model used:", result.model);
-```
-
-**Expected** (if vision available):
-- Returns description string
-- Description contains relevant image content
-- Model name matches configured vision model
-
-**Expected** (if vision unavailable):
-- Returns error indicating vision backend not configured
-- Error message is informative (not generic 500)
-
-**Pass Criteria**:
-- If `VISION_AVAILABLE`: description length > 10 chars, model field present
-- If not available: clear error message explaining missing backend
-
----
-
-### MEDIA-003: Describe Image with Prompt
-**MCP Tool**: `describe_image`
-
-Generate targeted description using custom prompt. Conditional on vision backend availability.
+List attachments on a note that has none yet.
 
 ```javascript
 const result = await mcp.request({
   method: "tools/call",
   params: {
-    name: "describe_image",
+    name: "manage_attachments",
     arguments: {
-      file_path: "tests/uat/data/images/jpeg-with-exif.jpg",
-      prompt: "What objects are visible in this image?"
+      action: "list",
+      note_id: NOTE_ID
     }
   }
 });
 
-console.log("Prompted description:", result.description);
-```
-
-**Expected** (if vision available):
-- Returns description addressing the prompt
-- Response focuses on objects as requested
-- Model respects custom prompt context
-
-**Expected** (if vision unavailable):
-- Returns error indicating vision backend not configured
-
-**Pass Criteria**:
-- If `VISION_AVAILABLE`: description references objects/items, length > 10 chars
-- If not available: clear error message
-
----
-
-### MEDIA-004: Transcribe Audio (Whisper Available)
-**MCP Tool**: `transcribe_audio`
-
-Transcribe test audio file. Conditional on Whisper backend availability.
-
-```javascript
-const result = await mcp.request({
-  method: "tools/call",
-  params: {
-    name: "transcribe_audio",
-    arguments: {
-      file_path: "tests/uat/data/audio/english-speech-5s.mp3"
-    }
-  }
-});
-
-console.log("Transcription:", result.text);
-console.log("Language:", result.language);
-console.log("Duration:", result.duration);
-```
-
-**Expected** (if transcription available):
-- Returns transcription text
-- Language detection (e.g., "en")
-- Duration in seconds
-- Text matches audio content
-
-**Expected** (if transcription unavailable):
-- Returns error indicating Whisper backend not configured
-- Error message is informative
-
-**Pass Criteria**:
-- If `TRANSCRIPTION_AVAILABLE`: text length > 0, language field present, duration > 0
-- If not available: clear error message explaining missing backend
-
----
-
-### MEDIA-005: Describe Image Missing File
-**MCP Tool**: `describe_image`
-
-**Isolation**: Required
-
-> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
-
-Attempt to describe non-existent image file.
-
-```javascript
-try {
-  await mcp.request({
-    method: "tools/call",
-    params: {
-      name: "describe_image",
-      arguments: {
-        file_path: "/nonexistent/file.jpg"
-      }
-    }
-  });
-  console.error("FAIL: Should have thrown error for missing file");
-} catch (error) {
-  console.log("Correctly rejected missing file:", error.message);
-}
+console.log("Attachments:", result);
 ```
 
 **Expected**:
-- Request fails with appropriate error
-- Error indicates file not found
-- Does not attempt to contact vision backend with invalid path
+- Returns empty array `[]`
+- No error for notes with no attachments
 
 **Pass Criteria**:
-- Request throws error
-- Error message references file path or "not found"
-- No backend connection attempt logged
+- Response is an array
+- Array length is 0
 
 ---
 
-### MEDIA-006: Transcribe Audio Missing File
-**MCP Tool**: `transcribe_audio`
+### ATT-003: Upload Attachment (Curl Command)
+**MCP Tool**: `manage_attachments`
 
-**Isolation**: Required
-
-> **STOP — ISOLATED CALL**: This test expects an error. Execute this MCP call ALONE in its own turn. Do NOT batch with other tool calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
-
-Attempt to transcribe non-existent audio file.
+Request an upload curl command for a test file.
 
 ```javascript
-try {
-  await mcp.request({
-    method: "tools/call",
-    params: {
-      name: "transcribe_audio",
-      arguments: {
-        file_path: "/nonexistent/file.mp3"
-      }
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "upload",
+      note_id: NOTE_ID,
+      filename: "test-image.jpg",
+      content_type: "image/jpeg"
     }
-  });
-  console.error("FAIL: Should have thrown error for missing file");
-} catch (error) {
-  console.log("Correctly rejected missing file:", error.message);
-}
+  }
+});
+
+console.log("Upload command:", result.curl_command);
+console.log("Upload URL:", result.upload_url);
 ```
 
 **Expected**:
-- Request fails with appropriate error
-- Error indicates file not found
-- Does not attempt to contact Whisper backend with invalid path
+- Returns object with `curl_command` string
+- Curl command includes correct endpoint URL
+- Curl command includes authentication headers (if auth enabled)
+- URL points to the note's attachment endpoint
 
 **Pass Criteria**:
-- Request throws error
-- Error message references file path or "not found"
-- No backend connection attempt logged
+- `curl_command` is a non-empty string
+- Command contains `POST` method
+- Command targets `/api/v1/notes/{note_id}/attachments`
+
+**Store**: Execute the curl command with a test file to create an attachment, then store the resulting `ATTACHMENT_ID`
+
+---
+
+### ATT-004: List Attachments (After Upload)
+**MCP Tool**: `manage_attachments`
+
+List attachments after uploading one.
+
+```javascript
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "list",
+      note_id: NOTE_ID
+    }
+  }
+});
+
+console.log("Attachment count:", result.length);
+console.log("First attachment:", result[0]);
+```
+
+**Expected**:
+- Returns array with at least 1 attachment
+- Each attachment has `id`, `filename`, `content_type`, `size` fields
+
+**Pass Criteria**:
+- Array length >= 1
+- First item has `id` (UUID format)
+- First item has `filename` field
+
+**Store**: `ATTACHMENT_ID` from first result
+
+---
+
+### ATT-005: Get Attachment Metadata
+**MCP Tool**: `manage_attachments`
+
+Retrieve metadata for a specific attachment.
+
+```javascript
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "get",
+      id: ATTACHMENT_ID
+    }
+  }
+});
+
+console.log("Attachment:", result);
+console.log("API URLs:", result._api_urls);
+```
+
+**Expected**:
+- Returns attachment metadata object
+- Includes `id`, `filename`, `content_type`, `size`, `created_at`
+- Includes `_api_urls` with download link
+
+**Pass Criteria**:
+- `id` matches `ATTACHMENT_ID`
+- `filename` is present
+- `_api_urls` object contains download URL
+
+---
+
+### ATT-006: Download Attachment (Curl Command)
+**MCP Tool**: `manage_attachments`
+
+Request a download curl command for an attachment.
+
+```javascript
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "download",
+      id: ATTACHMENT_ID
+    }
+  }
+});
+
+console.log("Download command:", result.curl_command);
+```
+
+**Expected**:
+- Returns object with `curl_command` string
+- Curl command targets the attachment download endpoint
+- Command includes authentication headers (if auth enabled)
+
+**Pass Criteria**:
+- `curl_command` is a non-empty string
+- Command contains `GET` method or no explicit method (GET is default)
+- Command targets `/api/v1/attachments/{id}/download`
+
+---
+
+### ATT-007: Delete Attachment
+**MCP Tool**: `manage_attachments`
+
+**Isolation**: Required
+
+> **STOP — ISOLATED CALL**: This test modifies state (deletes an attachment). Execute this MCP call ALONE in its own turn to avoid side effects on other calls. See [Negative Test Isolation Protocol](README.md#negative-test-isolation-protocol).
+
+Delete the test attachment.
+
+```javascript
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "delete",
+      id: ATTACHMENT_ID
+    }
+  }
+});
+
+console.log("Delete result:", result);
+```
+
+**Expected**:
+- Returns success confirmation
+- Attachment is removed from the note
+
+**Pass Criteria**:
+- `result.success` is `true`
+- `result.deleted` matches `ATTACHMENT_ID`
+
+---
+
+### ATT-008: List Attachments (After Delete)
+**MCP Tool**: `manage_attachments`
+
+Verify attachment was deleted.
+
+```javascript
+const result = await mcp.request({
+  method: "tools/call",
+  params: {
+    name: "manage_attachments",
+    arguments: {
+      action: "list",
+      note_id: NOTE_ID
+    }
+  }
+});
+
+console.log("Attachments after delete:", result.length);
+```
+
+**Expected**:
+- Returns empty array (attachment was deleted)
+
+**Pass Criteria**:
+- Array length is 0
+- Previously uploaded attachment no longer appears
 
 ---
 
@@ -245,17 +288,18 @@ try {
 
 | Test ID | Tool | Status | Notes |
 |---------|------|--------|-------|
-| MEDIA-001 | get_system_info | [ ] | Capability detection |
-| MEDIA-002 | describe_image | [ ] | Basic image description (conditional) |
-| MEDIA-003 | describe_image | [ ] | Custom prompt (conditional) |
-| MEDIA-004 | transcribe_audio | [ ] | Audio transcription (conditional) |
-| MEDIA-005 | describe_image | [ ] | Missing file error handling |
-| MEDIA-006 | transcribe_audio | [ ] | Missing file error handling |
+| ATT-001 | get_system_info | [ ] | Media capability detection |
+| ATT-002 | manage_attachments | [ ] | List (empty) |
+| ATT-003 | manage_attachments | [ ] | Upload curl command |
+| ATT-004 | manage_attachments | [ ] | List (after upload) |
+| ATT-005 | manage_attachments | [ ] | Get metadata |
+| ATT-006 | manage_attachments | [ ] | Download curl command |
+| ATT-007 | manage_attachments | [ ] | Delete attachment |
+| ATT-008 | manage_attachments | [ ] | List (after delete) |
 
 **Phase Result**: [ ] PASS / [ ] FAIL
 
 **Notes**:
-- Vision tests conditional on `capabilities.vision_enabled`
-- Transcription tests conditional on `capabilities.transcription_enabled`
-- Both features may be unavailable in minimal deployments
-- Error handling tests (MEDIA-005, MEDIA-006) always run regardless of backend availability
+- Upload/download actions return curl commands — binary transfer happens outside MCP
+- Image/audio/video files are automatically processed by the extraction pipeline after upload
+- Vision and transcription capabilities (ATT-001) affect pipeline processing, not standalone tools

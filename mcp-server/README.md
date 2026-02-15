@@ -98,11 +98,11 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 | **Export** | `export_note` | 1 |
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
-| **Media** | `describe_image`, `transcribe_audio` | 2 |
+| **Attachments** | `manage_attachments` | 1 |
 | **Observability** | `get_knowledge_health` | 1 |
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
 
-**Total:** 23 tools
+**Total:** 22 tools
 
 ### Full Mode — 187 Tools
 

@@ -48,8 +48,8 @@ const CORE_TOOLS = new Set([
   "get_documentation", "get_system_info", "health_check",
   // Multi-memory
   "select_memory", "get_active_memory",
-  // Media (when backends available)
-  "describe_image", "transcribe_audio",
+  // Attachments
+  "manage_attachments",
   // Observability
   "get_knowledge_health",
   // Bulk operations
@@ -2137,90 +2137,6 @@ function createMcpServer() {
           break;
         }
 
-        // Vision (multipart file upload — returns curl command)
-        case "describe_image": {
-          const visionUrl = `${API_BASE}/api/v1/vision/describe`;
-          const visionFile = args.file_path || "IMAGE_FILE_PATH";
-          const visionParts = [`curl -X POST`];
-          if (args.mime_type) {
-            visionParts.push(`-F "file=@${visionFile};type=${args.mime_type}"`);
-          } else {
-            visionParts.push(`-F "file=@${visionFile}"`);
-          }
-          if (args.prompt) {
-            visionParts.push(`-F "prompt=${args.prompt}"`);
-          }
-
-          // Add auth header if available
-          const visionSessionToken = tokenStorage.getStore()?.token;
-          const visionAuthToken = visionSessionToken || API_KEY;
-          if (visionAuthToken) {
-            visionParts.push(`-H "Authorization: Bearer ${visionAuthToken}"`);
-          }
-
-          // Add memory header if set
-          const visionSid = tokenStorage.getStore()?.sessionId;
-          const visionActiveMem = visionSid ? sessionMemories.get(visionSid) : null;
-          if (visionActiveMem) {
-            visionParts.push(`-H "X-Fortemi-Memory: ${visionActiveMem}"`);
-          }
-
-          visionParts.push(`"${visionUrl}"`);
-
-          result = {
-            upload_url: visionUrl,
-            method: "POST",
-            content_type: "multipart/form-data",
-            curl_command: visionParts.join(" \\\n  "),
-            instructions: "Execute the curl command to upload the image file. " +
-              "The API accepts multipart/form-data — no base64 encoding needed. " +
-              "The response JSON contains { description, model, image_size }.",
-          };
-          break;
-        }
-
-        // Audio Transcription (multipart file upload — returns curl command)
-        case "transcribe_audio": {
-          const audioUrl = `${API_BASE}/api/v1/audio/transcribe`;
-          const audioFile = args.file_path || "AUDIO_FILE_PATH";
-          const audioParts = [`curl -X POST`];
-          if (args.mime_type) {
-            audioParts.push(`-F "file=@${audioFile};type=${args.mime_type}"`);
-          } else {
-            audioParts.push(`-F "file=@${audioFile}"`);
-          }
-          if (args.language) {
-            audioParts.push(`-F "language=${args.language}"`);
-          }
-
-          // Add auth header if available
-          const audioSessionToken = tokenStorage.getStore()?.token;
-          const audioAuthToken = audioSessionToken || API_KEY;
-          if (audioAuthToken) {
-            audioParts.push(`-H "Authorization: Bearer ${audioAuthToken}"`);
-          }
-
-          // Add memory header if set
-          const audioSid = tokenStorage.getStore()?.sessionId;
-          const audioActiveMem = audioSid ? sessionMemories.get(audioSid) : null;
-          if (audioActiveMem) {
-            audioParts.push(`-H "X-Fortemi-Memory: ${audioActiveMem}"`);
-          }
-
-          audioParts.push(`"${audioUrl}"`);
-
-          result = {
-            upload_url: audioUrl,
-            method: "POST",
-            content_type: "multipart/form-data",
-            curl_command: audioParts.join(" \\\n  "),
-            instructions: "Execute the curl command to upload the audio file. " +
-              "The API accepts multipart/form-data — no base64 encoding needed. " +
-              "The response JSON contains { text, segments, language, duration_secs, model, audio_size }.",
-          };
-          break;
-        }
-
         // Video Processing (guidance tool — attachment pipeline only)
         case "process_video": {
           const steps = [];
@@ -2582,7 +2498,85 @@ function createMcpServer() {
 
 
         // ============================================================================
-        // FILE ATTACHMENTS (#14)
+        // CONSOLIDATED ATTACHMENT MANAGEMENT (core tool)
+        // ============================================================================
+        case "manage_attachments": {
+          const maAction = args.action;
+          if (maAction === "list") {
+            if (!args.note_id) throw new Error("note_id is required for 'list' action");
+            result = await apiRequest("GET", `/api/v1/notes/${args.note_id}/attachments`);
+          } else if (maAction === "upload") {
+            if (!args.note_id) throw new Error("note_id is required for 'upload' action. Create a note first with capture_knowledge action='create'.");
+            const maUploadUrl = `${PUBLIC_URL}/api/v1/notes/${args.note_id}/attachments/upload`;
+            const maFilename = args.filename || "FILE_PATH";
+            const maCurlParts = [`curl -X POST`];
+            maCurlParts.push(`-F "file=@${maFilename}"`);
+            if (args.document_type_id) {
+              maCurlParts.push(`-F "document_type_id=${args.document_type_id}"`);
+            }
+            if (args.content_type) {
+              maCurlParts.push(`-F "file=@${maFilename};type=${args.content_type}"`);
+              maCurlParts.splice(1, 1);
+            }
+            const maSessionToken = tokenStorage.getStore()?.token;
+            const maAuthToken = maSessionToken || API_KEY;
+            if (maAuthToken) {
+              maCurlParts.push(`-H "Authorization: Bearer ${maAuthToken}"`);
+            }
+            const maSid = tokenStorage.getStore()?.sessionId;
+            const maActiveMem = maSid ? sessionMemories.get(maSid) : null;
+            if (maActiveMem) {
+              maCurlParts.push(`-H "X-Fortemi-Memory: ${maActiveMem}"`);
+            }
+            maCurlParts.push(`"${maUploadUrl}"`);
+            result = {
+              upload_url: maUploadUrl,
+              method: "POST",
+              content_type: "multipart/form-data",
+              max_size: `${Math.round(MAX_UPLOAD_SIZE / (1024 * 1024))}MB`,
+              curl_command: maCurlParts.join(" \\\n  "),
+              instructions: "Execute the curl command to upload the file. Replace the filename with the actual file path. " +
+                "The API accepts multipart/form-data — no base64 encoding needed. " +
+                "The response will contain the attachment metadata (id, filename, status, etc.). " +
+                "Image/audio/video attachments are automatically processed by the extraction pipeline.",
+            };
+            if (args.filename) {
+              result.filename_hint = args.filename;
+            }
+          } else if (maAction === "get") {
+            if (!args.id) throw new Error("id is required for 'get' action");
+            result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
+            if (result && result.id) {
+              result._api_urls = {
+                download: `${PUBLIC_URL}/api/v1/attachments/${result.id}/download`,
+                download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`,
+              };
+            }
+          } else if (maAction === "download") {
+            if (!args.id) throw new Error("id is required for 'download' action");
+            const maMeta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
+            const maDownloadUrl = `${PUBLIC_URL}/api/v1/attachments/${args.id}/download`;
+            const maOutputFilename = maMeta?.filename || maMeta?.original_filename || `attachment-${args.id}`;
+            result = {
+              filename: maOutputFilename,
+              size_bytes: maMeta?.size_bytes,
+              content_type: maMeta?.content_type,
+              download_url: maDownloadUrl,
+              curl_command: `curl -o "${maOutputFilename}" "${maDownloadUrl}"`,
+              instructions: "Execute the curl_command above (or equivalent HTTP GET) to download the file.",
+            };
+          } else if (maAction === "delete") {
+            if (!args.id) throw new Error("id is required for 'delete' action");
+            await apiRequest("DELETE", `/api/v1/attachments/${args.id}`);
+            result = { success: true, deleted: args.id };
+          } else {
+            throw new Error(`Unknown manage_attachments action: ${maAction}. Valid: list, upload, get, download, delete`);
+          }
+          break;
+        }
+
+        // ============================================================================
+        // FILE ATTACHMENTS — granular tools (full mode)
         // ============================================================================
         case "upload_attachment": {
           const uploadUrl = `${PUBLIC_URL}/api/v1/notes/${args.note_id}/attachments/upload`;
@@ -2857,6 +2851,7 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_tags\` | Tag notes | list, set, tag_concept, untag_concept, get_concepts |
 | \`manage_collection\` | Organize | list, create, get, update, delete, list_notes, move_note, export |
 | \`manage_concepts\` | Browse taxonomy | search, autocomplete, get, get_full, stats, top |
+| \`manage_attachments\` | File attachments | list, upload, get, download, delete |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
 
@@ -2904,14 +2899,12 @@ These high-level tools consolidate the fine-grained tools below. Use the consoli
    - Background job monitoring
 
 7. **Vision** (optional)
-   - Ad-hoc image description via \`describe_image\`
-   - Automatic image extraction in background jobs
+   - Automatic image description via attachment extraction pipeline
    - Supports qwen3-vl, llava, and other Ollama vision models
    - See \`get_documentation({ topic: "vision" })\` for setup
 
 8. **Audio Transcription** (optional)
-   - Ad-hoc audio transcription via \`transcribe_audio\`
-   - Automatic audio extraction in background jobs
+   - Automatic audio transcription via attachment extraction pipeline
    - Uses Whisper-compatible backend (faster-whisper, OpenAI Whisper API)
    - See \`get_documentation({ topic: "audio" })\` for setup
 
@@ -4495,11 +4488,9 @@ Matric Memory includes an optional vision pipeline that uses multimodal LLMs to 
 
 ## Architecture
 
-The vision system has two modes of operation:
+Vision processing is handled automatically through the **Extraction Pipeline**: when a note has image attachments, the background job worker runs the vision adapter to generate descriptions during the extraction phase. These descriptions are stored with the note metadata and indexed for search.
 
-1. **Extraction Pipeline** (automatic): When a note has image attachments, the background job worker runs the vision adapter to generate descriptions during the extraction phase. These descriptions are stored with the note metadata and indexed for search.
-
-2. **Ad-hoc Description** (\`describe_image\` tool): Upload any image file for on-demand analysis without creating a note or attachment. Returns a curl command for multipart upload. Useful for previewing, inline analysis, and quick image understanding.
+To use vision: upload an image as an attachment to a note (via \`capture_knowledge action=upload\` or the attachment management tools), and the extraction pipeline will automatically describe it.
 
 ## Environment Configuration
 
@@ -4508,7 +4499,7 @@ The vision system has two modes of operation:
 | \`OLLAMA_VISION_MODEL\` | Yes (to enable) | *(none)* | Vision model name (e.g., \`qwen3-vl\`, \`llava\`, \`llava-llama3\`) |
 | \`OLLAMA_URL\` | No | \`http://localhost:11434\` | Ollama API endpoint |
 
-If \`OLLAMA_VISION_MODEL\` is not set, vision features are disabled gracefully — the extraction pipeline skips image description and the \`describe_image\` tool returns a 503 error.
+If \`OLLAMA_VISION_MODEL\` is not set, vision features are disabled gracefully — the extraction pipeline skips image description.
 
 ## Supported Models
 
@@ -4526,39 +4517,7 @@ Install a model:
 ollama pull qwen3-vl
 \`\`\`
 
-## Using describe_image
-
-The \`describe_image\` MCP tool accepts:
-
-- **file_path** (required): Local path to the image file
-- **mime_type** (optional): MIME type (auto-detected from file if omitted). Supported: \`image/png\`, \`image/jpeg\`, \`image/gif\`, \`image/webp\`
-- **prompt** (optional): Custom prompt for the vision model. If omitted, uses the default description prompt
-
-The tool returns a curl command for multipart file upload. Execute the command to get the description.
-
-**Example — Describe a photo:**
-\`\`\`json
-{ "file_path": "/path/to/photo.jpg" }
-\`\`\`
-
-**Example — Custom analysis prompt:**
-\`\`\`json
-{
-  "file_path": "/path/to/diagram.png",
-  "prompt": "List all text visible in this image, including signs, labels, and watermarks."
-}
-\`\`\`
-
-**Response:**
-\`\`\`json
-{
-  "description": "A landscape photograph showing...",
-  "model": "qwen3-vl",
-  "image_size": 245760
-}
-\`\`\`
-
-## Extraction Pipeline
+## How It Works
 
 When vision is enabled and a note has image attachments:
 
@@ -4604,7 +4563,7 @@ If vision shows \`"available": false\`, check that:
 
 **Large images**
 - Very large images may hit memory limits on the Ollama backend
-- Consider resizing images before uploading via \`describe_image\`
+- Consider resizing images before uploading as attachments
 - The extraction pipeline handles standard attachment sizes well`,
 
   audio: `# Audio: Transcription & Extraction
@@ -4613,11 +4572,9 @@ Matric Memory includes an optional audio transcription pipeline that uses a Whis
 
 ## Architecture
 
-The audio system has two modes of operation:
+Audio transcription is handled automatically through the **Extraction Pipeline**: when a note has audio attachments, the background job worker runs the AudioTranscribeAdapter to generate transcriptions during the extraction phase. Transcribed text is stored with the note metadata and indexed for search.
 
-1. **Extraction Pipeline** (automatic): When a note has audio attachments, the background job worker runs the AudioTranscribeAdapter to generate transcriptions during the extraction phase. Transcribed text is stored with the note metadata and indexed for search.
-
-2. **Ad-hoc Transcription** (\`transcribe_audio\` tool): Upload any audio file for on-demand transcription without creating a note or attachment. Returns a curl command for multipart upload. Useful for preview, inline analysis, and quick audio understanding.
+To use audio transcription: upload an audio file as an attachment to a note (via \`capture_knowledge action=upload\` or the attachment management tools), and the extraction pipeline will automatically transcribe it.
 
 ## Environment Configuration
 
@@ -4626,7 +4583,7 @@ The audio system has two modes of operation:
 | \`WHISPER_BASE_URL\` | Yes (to enable) | *(none)* | Whisper-compatible API endpoint (e.g., \`http://localhost:8080\`) |
 | \`WHISPER_MODEL\` | No | \`Systran/faster-distil-whisper-large-v3\` | Whisper model identifier |
 
-If \`WHISPER_BASE_URL\` is not set, audio features are disabled gracefully — the extraction pipeline skips audio transcription and the \`transcribe_audio\` tool returns a 503 error.
+If \`WHISPER_BASE_URL\` is not set, audio features are disabled gracefully — the extraction pipeline skips audio transcription.
 
 ## Supported Audio Formats
 
@@ -4639,47 +4596,7 @@ If \`WHISPER_BASE_URL\` is not set, audio features are disabled gracefully — t
 | AAC | \`audio/aac\` | .aac, .m4a |
 | WebM | \`audio/webm\` | .webm |
 
-## Using transcribe_audio
-
-The \`transcribe_audio\` MCP tool accepts:
-
-- **file_path** (required): Local filesystem path to the audio file
-- **mime_type** (optional): Audio MIME type (e.g., \`audio/mpeg\`). If omitted, auto-detected from extension
-- **language** (optional): ISO 639-1 language code hint (e.g., \`en\`, \`es\`, \`zh\`). If omitted, language is auto-detected
-
-The tool returns a curl command that uploads the file via multipart/form-data. Execute the curl command to perform the transcription.
-
-**Example — Transcribe an MP3:**
-\`\`\`json
-{
-  "file_path": "/path/to/recording.mp3",
-  "mime_type": "audio/mpeg"
-}
-\`\`\`
-
-**Example — Transcribe with language hint:**
-\`\`\`json
-{
-  "file_path": "/path/to/audio.wav",
-  "language": "es"
-}
-\`\`\`
-
-**API Response (after executing curl):**
-\`\`\`json
-{
-  "text": "Hello, this is a test recording.",
-  "segments": [
-    { "start_secs": 0.0, "end_secs": 2.5, "text": "Hello, this is a test recording." }
-  ],
-  "language": "en",
-  "duration_secs": 2.5,
-  "model": "Systran/faster-distil-whisper-large-v3",
-  "audio_size": 44100
-}
-\`\`\`
-
-## Extraction Pipeline
+## How It Works
 
 When audio transcription is enabled and a note has audio attachments:
 

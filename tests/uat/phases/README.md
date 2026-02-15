@@ -6,22 +6,21 @@ This directory contains phase-based UAT test procedures for Fortemi, designed fo
 
 ---
 
-## Tool Surface: 23 Core MCP Tools
+## Tool Surface: 22 Core MCP Tools
 
-Following the tool surface consolidation (#365), Fortemi exposes **23 core MCP tools** using a discriminated-union pattern. Six consolidated tools replace ~180 granular tools:
+Following the tool surface consolidation (#365), Fortemi exposes **22 core MCP tools** using a discriminated-union pattern. Seven consolidated tools replace ~180 granular tools:
 
 | Category | Tools | Count |
 |----------|-------|-------|
 | Notes CRUD | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
-| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts` | 6 |
+| Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments` | 7 |
 | Graph | `explore_graph`, `get_note_links` | 2 |
 | Export | `export_note` | 1 |
 | System | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | Multi-memory | `select_memory`, `get_active_memory` | 2 |
-| Media | `describe_image`, `transcribe_audio` | 2 |
 | Observability | `get_knowledge_health` | 1 |
 | Bulk ops | `bulk_reprocess_notes` | 1 |
-| **Total** | | **23** |
+| **Total** | | **22** |
 
 **Advanced features** (versioning, PKE encryption, embedding set management, SKOS taxonomy editing, OAuth admin, job queue management) are accessible via the REST API. Use `get_documentation` for API guidance.
 
@@ -52,13 +51,13 @@ The suite is NOT complete until:
 | 6 | [Graph & Links](phase-6-graph.md) | ~5 min | 8 | No |
 | 7 | [Provenance](phase-7-provenance.md) | ~5 min | 10 | No |
 | 8 | [Multi-Memory](phase-8-multi-memory.md) | ~5 min | 8 | No |
-| 9 | [Media Processing](phase-9-media.md) | ~5 min | 6 | No |
+| 9 | [Attachments](phase-9-media.md) | ~5 min | 8 | No |
 | 10 | [Export, Health & Bulk Ops](phase-10-export-health.md) | ~5 min | 8 | No |
 | 11 | [Edge Cases](phase-11-edge-cases.md) | ~5 min | 10 | No |
 | 12 | [Feature Chains (E2E)](phase-12-feature-chains.md) | ~15 min | 20 | **Yes** |
 | 13 | [Final Cleanup](phase-13-cleanup.md) | ~3 min | 5 | **Yes** |
 
-**Total Tests**: ~139
+**Total Tests**: ~141
 **Total Estimated Duration**: ~80 minutes (full suite)
 **Total Phases**: 14
 
@@ -86,14 +85,13 @@ The suite is NOT complete until:
 | `record_provenance` | 7, 12 | ~10 |
 | `select_memory` | 8, 13 | ~4 |
 | `get_active_memory` | 8 | ~3 |
-| `describe_image` | 9 | 3 |
-| `transcribe_audio` | 9 | 2 |
+| `manage_attachments` | 9 | 7 |
 | `export_note` | 10, 12 | ~3 |
 | `get_knowledge_health` | 10, 12 | ~3 |
 | `bulk_reprocess_notes` | 10, 12 | ~4 |
-| **23/23 tools** | **All phases** | **~139** |
+| **22/22 tools** | **All phases** | **~141** |
 
-**Coverage**: 23/23 core tools (100%)
+**Coverage**: 22/22 core tools (100%)
 
 ---
 
@@ -112,7 +110,7 @@ The suite is NOT complete until:
 │  Tags, concepts, collections, graph                  │
 ├──────────────────────────────────────────────────────┤
 │  CONTEXT (Phases 7-9)                                │
-│  Provenance, multi-memory, media processing          │
+│  Provenance, multi-memory, attachments               │
 ├──────────────────────────────────────────────────────┤
 │  OPERATIONS (Phase 10)                               │
 │  Export, health monitoring, bulk operations           │
@@ -180,7 +178,7 @@ cd tests/uat/data/scripts
 | Phase | Test Data Files Used |
 |-------|---------------------|
 | **7 (Provenance)** | `data/provenance/*.jpg` (GPS-tagged photos) |
-| **9 (Media)** | `data/images/jpeg-with-exif.jpg`, `data/audio/english-speech-5s.mp3` |
+| **9 (Attachments)** | Any file from `data/images/` or `data/documents/` for upload testing |
 | **11 (Edge Cases)** | `data/edge-cases/empty.txt`, `data/edge-cases/large-text-100kb.txt` |
 | **12 (Feature Chains)** | Multiple directories as needed per chain |
 
@@ -258,7 +256,6 @@ The following features are NOT covered by the 23 core MCP tools and require dire
 - **Job Queue**: Individual job creation, monitoring, queue stats
 - **Document Types**: Type registry, detection configuration
 - **Caching**: Cache control headers, performance tuning
-- **File Attachments**: Binary upload/download, processing pipeline
 
 These may be tested separately via API integration tests outside this MCP UAT suite.
 
@@ -266,6 +263,6 @@ These may be tested separately via API integration tests outside this MCP UAT su
 
 ## Version History
 
-- **2026.2.14**: Complete rewrite for 23-tool core surface (#365). Reduced from 30 phases / 545 tests to 14 phases / ~139 tests. Consolidated tools replace ~180 granular tools. Advanced features (versioning, PKE, SKOS admin, OAuth, jobs, embeddings) documented as API-only.
+- **2026.2.14**: Complete rewrite for 22-tool core surface (#365, #389, #392). 14 phases / ~141 tests. Removed standalone media tools (describe_image, transcribe_audio) — media processing is pipeline-only. Added `manage_attachments` consolidated tool. Advanced features (versioning, PKE, SKOS admin, OAuth, jobs, embeddings) documented as API-only.
 - **2026.2.19**: Previous version — 30 phases, 545 tests, 202 MCP tools
 - **2026.1.0**: Initial UAT document
