@@ -7,6 +7,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+*No changes yet.*
+
+## [2026.2.9] - 2026-02-15
+
 ### Highlights
 
 This is the largest release since the project's inception — **251 commits**, **350+ files changed**,
@@ -41,8 +45,6 @@ ships multimodal capabilities (vision, audio, video, 3D models).
 | **Security Hardening** | SQL injection fixes, resource limits, input validation, wildcard injection prevention | [Security](docs/content/security.md) |
 
 ### Added
-
-#### Post-2026.2.8 Features
 
 - **Per-Archive Search** — Enable search in non-default archives
   - Per-schema connection pools with `search_path` pinned per archive
@@ -224,8 +226,6 @@ Ad-hoc image description via Ollama vision LLM:
 
 ### Fixed
 
-#### Post-2026.2.8 Fixes
-
 - **MCP parameter validation** (#398) — Validate required params before search URLSearchParams serialization (prevents MCP crash on missing required search params)
 - **Template tag merge** — Template instantiation now merges tags instead of override, preserving existing tags
 - **Whisper transcription bundled** — Enable Whisper transcription by default with GPU in Docker bundle
@@ -313,7 +313,7 @@ The restore system was rewritten for correctness and robustness:
 
 ### Changed
 
-- **Workspace version**: `2026.2.7` → `2026.2.8`
+- **Workspace version**: `2026.2.7` → `2026.2.9`
 - **PostgreSQL**: 16 → 18 (#396)
 - **Authentication**: SCRAM-SHA-256 password authentication enabled (#397)
 - **UUID generation**: Native uuidv7() function for UUID generation (#397)
@@ -865,7 +865,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.7...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.9...HEAD
+[2026.2.9]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.9
 [2026.2.7]: https://github.com/fortemi/fortemi/compare/v2026.2.6...v2026.2.7
 [2026.2.6]: https://github.com/fortemi/fortemi/compare/v2026.2.5...v2026.2.6
 [2026.2.5]: https://github.com/fortemi/fortemi/compare/v2026.2.4...v2026.2.5

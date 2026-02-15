@@ -368,7 +368,7 @@ struct AppState {
 #[openapi(
     info(
         title = "Matric Memory API",
-        version = "2026.2.8",
+        version = "2026.2.9",
         description = "AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines"
     ),
     servers((url = "http://localhost:3000")),
@@ -15927,7 +15927,7 @@ mod tests {
             "Title must match"
         );
         assert!(
-            yaml.contains("version: '2026.2.8'") || yaml.contains("version: 2026.2.8"),
+            yaml.contains("version: '2026.2.9'") || yaml.contains("version: 2026.2.9"),
             "Version must match"
         );
 

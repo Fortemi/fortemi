@@ -1,6 +1,6 @@
 {
   "name": "@fortemi/mcp",
-  "version": "2026.2.8",
+  "version": "2026.2.9",
   "description": "MCP server for Fortémi API",
   "main": "index.js",
   "type": "module",
