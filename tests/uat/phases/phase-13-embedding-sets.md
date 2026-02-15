@@ -33,10 +33,10 @@ for (let i = 1; i <= 3; i++) {
     server_name: "matric-memory",
     tool_name: "capture_knowledge",
     arguments: {
-      title: `UAT Embed Test Note ${i}`,
-      content: `This is embedding set test note number ${i}. It contains unique content for search validation: alpha-${i}-bravo.`,
+      action: "create",
+      content: `# UAT Embed Test Note ${i}\n\nThis is embedding set test note number ${i}. It contains unique content for search validation: alpha-${i}-bravo.`,
       tags: ["uat", "uat/embed"],
-      source: "uat-phase-13"
+      revision_mode: "none"
     }
   });
   noteIds.push(result.id);

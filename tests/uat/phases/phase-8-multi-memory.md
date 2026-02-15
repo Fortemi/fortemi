@@ -209,7 +209,7 @@ const test_notes = await use_mcp_tool({
   tool_name: "list_notes",
   arguments: {
     limit: 100,
-    tag: "uat/test-archive"
+    tags: ["uat/test-archive"]
   }
 });
 
@@ -226,7 +226,7 @@ const public_notes = await use_mcp_tool({
   tool_name: "list_notes",
   arguments: {
     limit: 100,
-    tag: "uat/test-archive"
+    tags: ["uat/test-archive"]
   }
 });
 ```
