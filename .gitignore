@@ -40,3 +40,4 @@ node_modules/
 
 # Claude Code local config
 .claude/
+mcp-server/test-embed-debug.js
