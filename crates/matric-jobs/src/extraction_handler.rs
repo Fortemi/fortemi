@@ -7,10 +7,29 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use matric_core::{AttachmentStatus, ExtractionStrategy, JobType};
-use matric_db::Database;
+use matric_db::{Database, SchemaContext};
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
+
+/// Extract the target schema from a job's payload.
+///
+/// Returns the schema name for multi-memory archive support (Issue #426).
+/// Defaults to "public" for backward compatibility with jobs queued before
+/// the multi-memory feature.
+fn extract_schema(ctx: &JobContext) -> &str {
+    ctx.payload()
+        .and_then(|p| p.get("schema"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("public")
+}
+
+/// Create a SchemaContext for the given schema, returning a JobResult error on failure.
+fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
+    db.for_schema(schema)
+        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+}
 
 pub struct ExtractionHandler {
     db: Database,
@@ -67,6 +86,13 @@ impl JobHandler for ExtractionHandler {
             None
         };
 
+        // Schema context for multi-memory archive support (Issue #426)
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
         // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
         let data = if let Some(att_id) = attachment_id {
             let file_storage = match self.db.file_storage.as_ref() {
@@ -74,7 +100,17 @@ impl JobHandler for ExtractionHandler {
                 None => return JobResult::Failed("File storage not configured".into()),
             };
 
-            match file_storage.download_file(att_id).await {
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => {
+                    return JobResult::Failed(format!("Schema tx failed: {}", e))
+                }
+            };
+            let result = file_storage.download_file_tx(&mut tx, att_id).await;
+            if let Err(e) = tx.commit().await {
+                return JobResult::Failed(format!("Commit failed: {}", e));
+            }
+            match result {
                 Ok((file_data, _content_type, _filename)) => file_data,
                 Err(e) => {
                     return JobResult::Failed(format!(
@@ -118,33 +154,53 @@ impl JobHandler for ExtractionHandler {
             Ok(result) => {
                 ctx.report_progress(80, Some("Extraction complete"));
 
-                // Persist extraction results to the attachment record
+                // Persist extraction results to the attachment record (schema-aware)
                 if let Some(att_id) = attachment_id {
                     if let Some(file_storage) = self.db.file_storage.as_ref() {
-                        if let Err(e) = file_storage
-                            .update_extracted_content(
-                                att_id,
-                                result.extracted_text.as_deref(),
-                                Some(result.metadata.clone()),
-                            )
-                            .await
-                        {
-                            error!(
-                                attachment_id = %att_id,
-                                error = %e,
-                                "Failed to persist extracted content"
-                            );
-                        }
+                        match schema_ctx.begin_tx().await {
+                            Ok(mut tx) => {
+                                if let Err(e) = file_storage
+                                    .update_extracted_content_tx(
+                                        &mut tx,
+                                        att_id,
+                                        result.extracted_text.as_deref(),
+                                        Some(result.metadata.clone()),
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        attachment_id = %att_id,
+                                        error = %e,
+                                        "Failed to persist extracted content"
+                                    );
+                                }
 
-                        if let Err(e) = file_storage
-                            .update_status(att_id, AttachmentStatus::Completed, None)
-                            .await
-                        {
-                            error!(
-                                attachment_id = %att_id,
-                                error = %e,
-                                "Failed to update attachment status"
-                            );
+                                if let Err(e) = file_storage
+                                    .update_status_tx(&mut tx, att_id, AttachmentStatus::Completed, None)
+                                    .await
+                                {
+                                    error!(
+                                        attachment_id = %att_id,
+                                        error = %e,
+                                        "Failed to update attachment status"
+                                    );
+                                }
+
+                                if let Err(e) = tx.commit().await {
+                                    error!(
+                                        attachment_id = %att_id,
+                                        error = %e,
+                                        "Failed to commit extraction results"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    attachment_id = %att_id,
+                                    error = %e,
+                                    "Failed to begin schema tx for persisting results"
+                                );
+                            }
                         }
                     }
                 }

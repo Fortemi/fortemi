@@ -2394,6 +2394,13 @@ impl JobHandler for ExifExtractionHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
+        // Schema context for multi-memory archive support (Issue #426)
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
         ctx.report_progress(5, Some("Resolving attachments..."));
 
         // Get the file storage backend
@@ -2413,11 +2420,18 @@ impl JobHandler for ExifExtractionHandler {
                 Err(e) => return JobResult::Failed(format!("Invalid attachment_id: {}", e)),
             }
         } else {
-            // No explicit attachment_id — find image attachments for this note
-            let attachments = match file_storage.list_by_note(note_id).await {
+            // No explicit attachment_id — find image attachments for this note (schema-aware)
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+            let attachments = match file_storage.list_by_note_tx(&mut tx, note_id).await {
                 Ok(a) => a,
                 Err(e) => return JobResult::Failed(format!("Failed to list attachments: {}", e)),
             };
+            if let Err(e) = tx.commit().await {
+                return JobResult::Failed(format!("Commit failed: {}", e));
+            }
             match attachments.into_iter().find(|a| {
                 a.content_type.starts_with("image/")
                     && !matches!(
@@ -2438,25 +2452,47 @@ impl JobHandler for ExifExtractionHandler {
 
         ctx.report_progress(10, Some("Downloading attachment data..."));
 
-        // Update status to Processing
-        if let Err(e) = file_storage
-            .update_status(attachment_id, AttachmentStatus::Processing, None)
-            .await
+        // Update status to Processing (schema-aware)
         {
-            warn!(attachment_id = %attachment_id, error = %e, "Failed to update attachment status to Processing");
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+            if let Err(e) = file_storage
+                .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Processing, None)
+                .await
+            {
+                warn!(attachment_id = %attachment_id, error = %e, "Failed to update attachment status to Processing");
+            }
+            if let Err(e) = tx.commit().await {
+                warn!(error = %e, "Failed to commit status update");
+            }
         }
 
-        // Download the attachment bytes
-        let (data, content_type, filename) = match file_storage.download_file(attachment_id).await {
+        // Download the attachment bytes (schema-aware)
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let download_result = file_storage.download_file_tx(&mut tx, attachment_id).await;
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+        let (data, content_type, filename) = match download_result {
             Ok(result) => result,
             Err(e) => {
-                let _ = file_storage
-                    .update_status(
-                        attachment_id,
-                        AttachmentStatus::Failed,
-                        Some(&e.to_string()),
-                    )
-                    .await;
+                // Mark as failed (schema-aware)
+                if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                    let _ = file_storage
+                        .update_status_tx(
+                            &mut tx,
+                            attachment_id,
+                            AttachmentStatus::Failed,
+                            Some(&e.to_string()),
+                        )
+                        .await;
+                    let _ = tx.commit().await;
+                }
                 return JobResult::Failed(format!(
                     "Failed to download attachment {}: {}",
                     attachment_id, e
@@ -2487,12 +2523,15 @@ impl JobHandler for ExifExtractionHandler {
                     filename = %filename,
                     "No EXIF data found in image"
                 );
-                // Still mark as completed — no EXIF is a valid outcome
-                if let Err(e) = file_storage
-                    .update_status(attachment_id, AttachmentStatus::Completed, None)
-                    .await
-                {
-                    warn!(error = %e, "Failed to update attachment status to Completed");
+                // Still mark as completed — no EXIF is a valid outcome (schema-aware)
+                if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                    if let Err(e) = file_storage
+                        .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Completed, None)
+                        .await
+                    {
+                        warn!(error = %e, "Failed to update attachment status to Completed");
+                    }
+                    let _ = tx.commit().await;
                 }
                 return JobResult::Success(Some(serde_json::json!({
                     "status": "completed",
@@ -2513,6 +2552,12 @@ impl JobHandler for ExifExtractionHandler {
                     "filename": filename
                 })));
             }
+        };
+
+        // Create provenance records in a schema-scoped transaction
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
         };
 
         let mut location_id: Option<uuid::Uuid> = None;
@@ -2539,7 +2584,7 @@ impl JobHandler for ExifExtractionHandler {
                     source: "gps_exif".to_string(),
                     confidence: "high".to_string(),
                 };
-                match self.db.memory_search.create_prov_location(&req).await {
+                match self.db.memory_search.create_prov_location_tx(&mut tx, &req).await {
                     Ok(id) => {
                         info!(location_id = %id, lat, lon, "Created provenance location from EXIF GPS");
                         location_id = Some(id);
@@ -2580,7 +2625,7 @@ impl JobHandler for ExifExtractionHandler {
                 })),
                 device_name: None,
             };
-            match self.db.memory_search.create_prov_agent_device(&req).await {
+            match self.db.memory_search.create_prov_agent_device_tx(&mut tx, &req).await {
                 Ok(device) => {
                     info!(device_id = %device.id, make, model, "Created/updated provenance device from EXIF");
                     device_id = Some(device.id);
@@ -2633,7 +2678,7 @@ impl JobHandler for ExifExtractionHandler {
         let provenance_id = match self
             .db
             .memory_search
-            .create_file_provenance(&prov_req)
+            .create_file_provenance_tx(&mut tx, &prov_req)
             .await
         {
             Ok(id) => {
@@ -2648,13 +2693,13 @@ impl JobHandler for ExifExtractionHandler {
 
         ctx.report_progress(90, Some("Updating attachment metadata..."));
 
-        // Persist extracted EXIF metadata on the attachment
+        // Persist extracted EXIF metadata on the attachment (schema-aware)
         // Store the unwrapped exif content directly (without the "exif" wrapper)
         // so fields are accessible as extracted_metadata.gps.latitude, etc.
         let metadata = prepare_attachment_metadata(&exif_data, capture_time)
             .unwrap_or_else(|| exif_data.clone());
         if let Err(e) = file_storage
-            .update_extracted_content(attachment_id, None, Some(metadata))
+            .update_extracted_content_tx(&mut tx, attachment_id, None, Some(metadata))
             .await
         {
             warn!(error = %e, "Failed to update attachment extracted metadata");
@@ -2662,10 +2707,15 @@ impl JobHandler for ExifExtractionHandler {
 
         // Mark attachment as completed
         if let Err(e) = file_storage
-            .update_status(attachment_id, AttachmentStatus::Completed, None)
+            .update_status_tx(&mut tx, attachment_id, AttachmentStatus::Completed, None)
             .await
         {
             warn!(error = %e, "Failed to update attachment status to Completed");
+        }
+
+        // Commit all provenance and attachment updates
+        if let Err(e) = tx.commit().await {
+            warn!(error = %e, "Failed to commit EXIF extraction results");
         }
 
         let duration_ms = start.elapsed().as_millis() as u64;

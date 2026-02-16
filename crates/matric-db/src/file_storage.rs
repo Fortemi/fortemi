@@ -870,6 +870,96 @@ impl PgFileStorageRepository {
         Ok(())
     }
 
+    /// Transaction-aware variant of update_status.
+    pub async fn update_status_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        status: AttachmentStatus,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET status = $2::attachment_status, processing_error = $3, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(status.to_string())
+        .bind(error)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Transaction-aware variant of update_extracted_content.
+    pub async fn update_extracted_content_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        extracted_text: Option<&str>,
+        extracted_metadata: Option<serde_json::Value>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET extracted_text = $2, extracted_metadata = $3, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(extracted_text)
+        .bind(extracted_metadata)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Transaction-aware variant of set_detected_document_type.
+    pub async fn set_detected_document_type_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        detected_id: Uuid,
+        confidence: f32,
+        method: &str,
+        auto_promote: bool,
+    ) -> Result<()> {
+        if auto_promote {
+            sqlx::query(
+                r#"UPDATE attachment
+                   SET detected_document_type_id = $2,
+                       detection_confidence = $3,
+                       detection_method = $4,
+                       document_type_id = $2,
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(attachment_id)
+            .bind(detected_id)
+            .bind(confidence)
+            .bind(method)
+            .execute(&mut **tx)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"UPDATE attachment
+                   SET detected_document_type_id = $2,
+                       detection_confidence = $3,
+                       detection_method = $4,
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(attachment_id)
+            .bind(detected_id)
+            .bind(confidence)
+            .bind(method)
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        Ok(())
+    }
+
     /// Transaction-aware variant of set_document_type.
     pub async fn set_document_type_tx(
         &self,
