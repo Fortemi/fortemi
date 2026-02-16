@@ -116,7 +116,7 @@ impl LinkRepository for PgLinkRepository {
             r#"SELECT
                 l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
                 l.created_at_utc, l.metadata,
-                COALESCE(left(convert_from(nrc.content::bytea, 'UTF8'), 100), 'Linked note') as snippet
+                COALESCE(left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 100), 'Linked note') as snippet
                FROM link l
                LEFT JOIN note_revised_current nrc ON nrc.note_id = l.to_note_id
                WHERE l.from_note_id = $1
@@ -150,7 +150,7 @@ impl LinkRepository for PgLinkRepository {
             r#"SELECT
                 l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
                 l.created_at_utc, l.metadata,
-                COALESCE(left(convert_from(nrc.content::bytea, 'UTF8'), 100), 'Linked note') as snippet
+                COALESCE(left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 100), 'Linked note') as snippet
                FROM link l
                LEFT JOIN note_revised_current nrc ON nrc.note_id = l.from_note_id
                WHERE l.to_note_id = $1
@@ -445,7 +445,7 @@ impl PgLinkRepository {
             r#"SELECT
                 l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
                 l.created_at_utc, l.metadata,
-                COALESCE(left(convert_from(nrc.content::bytea, 'UTF8'), 100), 'Linked note') as snippet
+                COALESCE(left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 100), 'Linked note') as snippet
                FROM link l
                LEFT JOIN note_revised_current nrc ON nrc.note_id = l.to_note_id
                WHERE l.from_note_id = $1
@@ -484,7 +484,7 @@ impl PgLinkRepository {
             r#"SELECT
                 l.id, l.from_note_id, l.to_note_id, l.to_url, l.kind, l.score,
                 l.created_at_utc, l.metadata,
-                COALESCE(left(convert_from(nrc.content::bytea, 'UTF8'), 100), 'Linked note') as snippet
+                COALESCE(left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 100), 'Linked note') as snippet
                FROM link l
                LEFT JOIN note_revised_current nrc ON nrc.note_id = l.from_note_id
                WHERE l.to_note_id = $1
