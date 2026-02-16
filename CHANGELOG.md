@@ -425,7 +425,7 @@ None. Full backward compatibility maintained:
 
 ### Changed
 - **Repository reset** - Squashed history for clean baseline
-- **License date updated** - BSL change date set to February 5th, 2030
+- **License date updated** - BSL change date set to February 16th, 2030
 
 ## [2026.2.5] - 2026-02-05
 
@@ -606,7 +606,7 @@ None. Full backward compatibility maintained:
 ### Changed
 - **License**: Migrated from MIT/Apache-2.0 to Business Source License 1.1
   - Current: BSL 1.1 (production use requires commercial license)
-  - After January 30, 2030: Converts to AGPL-3.0 (open source)
+  - After February 16, 2030: Converts to AGPL-3.0 (open source)
   - Personal, educational, and evaluation use remains free
   - See `docs/content/licensing.md` for plain-English explanation
 

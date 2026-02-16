@@ -1,6 +1,6 @@
 # Licensing
 
-Fortemi is licensed under the **Business Source License 1.1 (BSL 1.1)** with a change date of **February 8, 2030**, after which it converts to **AGPL v3** (GNU Affero General Public License).
+Fortemi is licensed under the **Business Source License 1.1 (BSL 1.1)** with a change date of **February 16, 2030**, after which it converts to **AGPL v3** (GNU Affero General Public License).
 
 This page explains what that means in plain English.
 
@@ -9,7 +9,7 @@ This page explains what that means in plain English.
 - **Personal use is free.** Always. No license key, no time bomb, no asterisks.
 - **Small teams, students, researchers, open-source folks** — you're welcome here.
 - **Commercial/multi-user production deployments** need a license. We keep pricing fair.
-- **Fully open source on February 8, 2030.** Every version, automatically.
+- **Fully open source on February 16, 2030.** Every version, automatically.
 
 ## What You Can Do (No License Needed)
 
@@ -63,7 +63,7 @@ The line is simple: **one person on their own machine = free. Multiple users on 
 
 ### When does it become fully open source?
 
-**February 8, 2030.** On that date, every version of Fortemi — past, present, and future — automatically converts to AGPL v3. No more production restrictions for anyone.
+**February 16, 2030.** On that date, every version of Fortemi — past, present, and future — automatically converts to AGPL v3. No more production restrictions for anyone.
 
 ### Can I use this in a SaaS product?
 
@@ -75,7 +75,7 @@ The line is simple: **one person on their own machine = free. Multiple users on 
 
 ### What happens to my commercial license after 2030?
 
-**It stays valid.** But after February 8, 2030, anyone can use Fortemi for production under AGPL v3 — so you might not need to renew.
+**It stays valid.** But after February 16, 2030, anyone can use Fortemi for production under AGPL v3 — so you might not need to renew.
 
 ## Commercial Licensing
 
@@ -116,7 +116,7 @@ That's it. We'll respond within 2–3 business days with options.
 
 ## Open Source Conversion
 
-### Change Date: February 8, 2030
+### Change Date: February 16, 2030
 
 On this date, Fortemi automatically converts from BSL 1.1 to **AGPL v3**:
 
@@ -149,7 +149,7 @@ Key parameters:
 
 - **Licensor:** Fortémi Project
 - **Licensed Work:** Fortémi (all versions)
-- **Change Date:** February 8, 2030
+- **Change Date:** February 16, 2030
 - **Change License:** AGPL v3
 - **Additional Use Grant:** Non-production use is free
 
