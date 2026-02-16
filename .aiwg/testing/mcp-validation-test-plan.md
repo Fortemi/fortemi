@@ -938,7 +938,7 @@ Validation:
 #### 10.8 Import Knowledge Shard (Dry Run)
 ```
 Tool: knowledge_shard_import
-Input: {shard_base64: "[data]", dry_run: true, on_conflict: "skip"}
+Input: {file_path: "backup.shard", dry_run: true, on_conflict: "skip"}
 Validation:
 - Reports what would be imported
 - No actual changes

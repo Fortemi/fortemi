@@ -611,12 +611,11 @@ curl http://localhost:3000/api/v1/backup/knowledge-shard \
 ### Restore to Specific Memory
 
 ```bash
-# Restore to a different memory
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
+# Restore to a different memory (multipart upload)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
   -H "X-Fortemi-Memory: work-2026-restored" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"shard_base64": "..."}'
+  -F "file=@work-2026.shard"
 ```
 
 ### Full Database Backup

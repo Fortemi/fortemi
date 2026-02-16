@@ -1489,6 +1489,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/backup/knowledge-shard/import",
             post(knowledge_shard_import),
         )
+        .route(
+            "/api/v1/backup/knowledge-shard/upload",
+            post(knowledge_shard_import_upload),
+        )
         // Database backups (full pg_dump, includes embeddings)
         .route("/api/v1/backup/database", get(database_backup_download))
         .route(
@@ -10452,6 +10456,14 @@ struct ShardImportBody {
     skip_embedding_regen: bool,
 }
 
+/// Import options shared between base64 and multipart shard import handlers.
+struct ShardImportOptions {
+    include: Option<String>,
+    dry_run: bool,
+    on_conflict: ConflictStrategy,
+    skip_embedding_regen: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct ShardImportResponse {
     status: String,
@@ -10486,482 +10498,83 @@ async fn knowledge_shard_import(
     Json(body): Json<ShardImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use base64::Engine;
-    use flate2::read::GzDecoder;
-    use matric_core::CreateNoteRequest;
-    use tar::Archive;
 
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
-    let schema_for_jobs = if archive_ctx.schema != "public" {
-        Some(archive_ctx.schema.clone())
-    } else {
-        None
-    };
-
-    // Decode base64 shard
     let shard_bytes = base64::engine::general_purpose::STANDARD
         .decode(&body.shard_base64)
         .map_err(|e| ApiError::BadRequest(format!("Invalid base64 data: {}", e)))?;
 
-    // Decompress gzip
-    let decoder = GzDecoder::new(shard_bytes.as_slice());
-    let mut tar_reader = Archive::new(decoder);
-
-    // Parse included components filter
-    let include_filter: Option<Vec<String>> = body
-        .include
-        .as_ref()
-        .map(|s| s.split(',').map(|c| c.trim().to_lowercase()).collect());
-
-    let mut imported = ShardImportCounts::default();
-    let mut skipped = ShardImportCounts::default();
-    let mut errors: Vec<String> = Vec::new();
-    let mut manifest: Option<ShardManifest> = None;
-
-    // First pass: read all entries into memory for processing
-    let mut files: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
-
-    for entry_result in tar_reader
-        .entries()
-        .map_err(|e| ApiError::BadRequest(format!("Failed to read shard: {}", e)))?
-    {
-        let mut entry = entry_result
-            .map_err(|e| ApiError::BadRequest(format!("Failed to read shard entry: {}", e)))?;
-
-        let path = entry
-            .path()
-            .map_err(|e| ApiError::BadRequest(format!("Invalid path in shard: {}", e)))?;
-        let filename = path.to_string_lossy().to_string();
-
-        let mut contents = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut contents).map_err(|e| {
-            ApiError::BadRequest(format!("Failed to read entry {}: {}", filename, e))
-        })?;
-
-        files.insert(filename, contents);
-    }
-
-    // Parse manifest first
-    let mut warnings: Vec<String> = Vec::new();
-    if let Some(manifest_data) = files.get("manifest.json") {
-        match serde_json::from_slice::<ShardManifest>(manifest_data) {
-            Ok(m) => {
-                // Check for version mismatch
-                let current_version = env!("CARGO_PKG_VERSION");
-                if let Some(ref shard_version) = m.matric_version {
-                    if shard_version != current_version {
-                        warnings.push(format!(
-                            "Version mismatch: shard created with matric-memory v{}, importing with v{}",
-                            shard_version, current_version
-                        ));
-                    }
-                } else {
-                    warnings.push(
-                        "Shard created with older matric-memory version (no version info in manifest)".to_string()
-                    );
-                }
-                manifest = Some(m);
-            }
-            Err(e) => errors.push(format!("Failed to parse manifest: {}", e)),
-        }
-    }
-
-    // Helper to check if component should be imported
-    let should_import = |component: &str| -> bool {
-        match &include_filter {
-            Some(filter) => filter.contains(&component.to_lowercase()),
-            None => true, // Import all if no filter specified
-        }
-    };
-
-    // Import notes
-    if should_import("notes") {
-        if let Some(notes_data) = files.get("notes.jsonl") {
-            let notes_str = String::from_utf8_lossy(notes_data);
-            for line in notes_str.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-
-                match serde_json::from_str::<serde_json::Value>(line) {
-                    Ok(note_json) => {
-                        let content = note_json
-                            .get("original_content")
-                            .or(note_json.get("content"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-
-                        if content.is_empty() {
-                            skipped.notes += 1;
-                            continue;
-                        }
-
-                        // Check for existing note by ID
-                        let existing_id = note_json
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok());
-
-                        if let Some(id) = existing_id {
-                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-                            let exists = ctx
-                                .query(move |tx| {
-                                    Box::pin(async move { notes.exists_tx(tx, id).await })
-                                })
-                                .await
-                                .unwrap_or(false);
-                            if exists {
-                                match body.on_conflict {
-                                    ConflictStrategy::Skip => {
-                                        skipped.notes += 1;
-                                        continue;
-                                    }
-                                    ConflictStrategy::Replace => {
-                                        if !body.dry_run {
-                                            let notes = matric_db::PgNoteRepository::new(
-                                                state.db.pool.clone(),
-                                            );
-                                            let _ = ctx
-                                                .execute(move |tx| {
-                                                    Box::pin(async move {
-                                                        notes.soft_delete_tx(tx, id).await
-                                                    })
-                                                })
-                                                .await;
-                                        }
-                                    }
-                                    ConflictStrategy::Merge => {
-                                        skipped.notes += 1;
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-
-                        if !body.dry_run {
-                            let req = CreateNoteRequest {
-                                content,
-                                format: note_json
-                                    .get("format")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("markdown")
-                                    .to_string(),
-                                source: note_json
-                                    .get("source")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("shard-import")
-                                    .to_string(),
-                                collection_id: note_json
-                                    .get("collection_id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| Uuid::parse_str(s).ok()),
-                                tags: note_json.get("tags").and_then(|v| v.as_array()).map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|t| t.as_str().map(String::from))
-                                        .collect::<Vec<_>>()
-                                }),
-                                metadata: None,
-                                document_type_id: None,
-                            };
-
-                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-                            let insert_result = ctx
-                                .execute(move |tx| {
-                                    Box::pin(async move { notes.insert_tx(tx, req).await })
-                                })
-                                .await;
-
-                            match insert_result {
-                                Ok(new_id) => {
-                                    // Update status if specified
-                                    let starred = note_json
-                                        .get("starred")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false);
-                                    let archived = note_json
-                                        .get("archived")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false);
-                                    if starred || archived {
-                                        let status_req = matric_core::UpdateNoteStatusRequest {
-                                            starred: Some(starred),
-                                            archived: Some(archived),
-                                            metadata: None,
-                                        };
-                                        let notes =
-                                            matric_db::PgNoteRepository::new(state.db.pool.clone());
-                                        let _ = ctx
-                                            .execute(move |tx| {
-                                                Box::pin(async move {
-                                                    notes
-                                                        .update_status_tx(tx, new_id, status_req)
-                                                        .await
-                                                })
-                                            })
-                                            .await;
-                                    }
-
-                                    // Update revised content if available
-                                    if let Some(revised) =
-                                        note_json.get("revised_content").and_then(|v| v.as_str())
-                                    {
-                                        if !revised.is_empty() {
-                                            let notes = matric_db::PgNoteRepository::new(
-                                                state.db.pool.clone(),
-                                            );
-                                            let revised = revised.to_string();
-                                            let _ = ctx
-                                                .execute(move |tx| {
-                                                    Box::pin(async move {
-                                                        notes
-                                                            .update_revised_tx(
-                                                                tx,
-                                                                new_id,
-                                                                &revised,
-                                                                Some("Imported from shard"),
-                                                            )
-                                                            .await
-                                                    })
-                                                })
-                                                .await;
-                                        }
-                                    }
-
-                                    // Queue NLP pipeline if not skipping regen
-                                    if !body.skip_embedding_regen {
-                                        queue_nlp_pipeline(
-                                            &state.db,
-                                            new_id,
-                                            RevisionMode::None,
-                                            &state.event_bus,
-                                            schema_for_jobs.as_deref(),
-                                        )
-                                        .await;
-                                    }
-
-                                    imported.notes += 1;
-                                }
-                                Err(e) => {
-                                    errors.push(format!("Failed to import note: {}", e));
-                                }
-                            }
-                        } else {
-                            imported.notes += 1;
-                        }
-                    }
-                    Err(e) => {
-                        errors.push(format!("Invalid note JSON: {}", e));
-                    }
-                }
-            }
-        }
-    }
-
-    // Import collections
-    if should_import("collections") {
-        if let Some(collections_data) = files.get("collections.json") {
-            match serde_json::from_slice::<Vec<serde_json::Value>>(collections_data) {
-                Ok(collections) => {
-                    for coll in collections {
-                        let name = coll.get("name").and_then(|v| v.as_str());
-                        let id = coll
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok());
-
-                        if let (Some(name), Some(_id)) = (name, id) {
-                            if !body.dry_run {
-                                let collections =
-                                    matric_db::PgCollectionRepository::new(state.db.pool.clone());
-                                let name = name.to_string();
-                                let desc = coll
-                                    .get("description")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                let parent_id = coll
-                                    .get("parent_id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| Uuid::parse_str(s).ok());
-                                let res = ctx
-                                    .execute(move |tx| {
-                                        Box::pin(async move {
-                                            collections
-                                                .create_tx(tx, &name, desc.as_deref(), parent_id)
-                                                .await
-                                        })
-                                    })
-                                    .await;
-                                match res {
-                                    Ok(_) => imported.collections += 1,
-                                    Err(e) => {
-                                        errors.push(format!("Failed to import collection: {}", e))
-                                    }
-                                }
-                            } else {
-                                imported.collections += 1;
-                            }
-                        }
-                    }
-                }
-                Err(e) => errors.push(format!("Failed to parse collections: {}", e)),
-            }
-        }
-    }
-
-    // Import templates
-    if should_import("templates") {
-        if let Some(templates_data) = files.get("templates.json") {
-            match serde_json::from_slice::<Vec<serde_json::Value>>(templates_data) {
-                Ok(templates) => {
-                    for tmpl in templates {
-                        if let (Some(name), Some(content)) = (
-                            tmpl.get("name").and_then(|v| v.as_str()),
-                            tmpl.get("content").and_then(|v| v.as_str()),
-                        ) {
-                            if !body.dry_run {
-                                let req = matric_core::CreateTemplateRequest {
-                                    name: name.to_string(),
-                                    description: tmpl
-                                        .get("description")
-                                        .and_then(|v| v.as_str())
-                                        .map(String::from),
-                                    content: content.to_string(),
-                                    format: Some(
-                                        tmpl.get("format")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("markdown")
-                                            .to_string(),
-                                    ),
-                                    default_tags: tmpl
-                                        .get("default_tags")
-                                        .and_then(|v| v.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|t| t.as_str().map(String::from))
-                                                .collect::<Vec<_>>()
-                                        }),
-                                    collection_id: tmpl
-                                        .get("collection_id")
-                                        .and_then(|v| v.as_str())
-                                        .and_then(|s| Uuid::parse_str(s).ok()),
-                                };
-
-                                let templates =
-                                    matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                                let res = ctx
-                                    .execute(move |tx| {
-                                        Box::pin(async move { templates.create_tx(tx, req).await })
-                                    })
-                                    .await;
-                                match res {
-                                    Ok(_) => imported.templates += 1,
-                                    Err(e) => errors
-                                        .push(format!("Failed to import template {}: {}", name, e)),
-                                }
-                            } else {
-                                imported.templates += 1;
-                            }
-                        }
-                    }
-                }
-                Err(e) => errors.push(format!("Failed to parse templates: {}", e)),
-            }
-        }
-    }
-
-    // Import links (if embeddings are being skipped, links help preserve graph structure)
-    if should_import("links") {
-        if let Some(links_data) = files.get("links.jsonl") {
-            let links_str = String::from_utf8_lossy(links_data);
-            for line in links_str.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-
-                match serde_json::from_str::<serde_json::Value>(line) {
-                    Ok(link_json) => {
-                        let from_id = link_json
-                            .get("from_note_id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok());
-                        let to_id = link_json
-                            .get("to_note_id")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok());
-                        let kind = link_json
-                            .get("kind")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("semantic")
-                            .to_string();
-                        let score = link_json
-                            .get("score")
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.7) as f32;
-
-                        if let (Some(from_id), Some(to_id)) = (from_id, to_id) {
-                            if !body.dry_run {
-                                let metadata = link_json.get("metadata").cloned();
-                                let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
-                                let res = ctx
-                                    .execute(move |tx| {
-                                        Box::pin(async move {
-                                            links
-                                                .create_tx(
-                                                    tx, from_id, to_id, &kind, score, metadata,
-                                                )
-                                                .await
-                                        })
-                                    })
-                                    .await;
-                                match res {
-                                    Ok(_) => imported.links += 1,
-                                    Err(_) => skipped.links += 1, // Link may already exist
-                                }
-                            } else {
-                                imported.links += 1;
-                            }
-                        }
-                    }
-                    Err(e) => errors.push(format!("Invalid link JSON: {}", e)),
-                }
-            }
-        }
-    }
-
-    // Note: Embedding sets, members, and raw embeddings import would require
-    // additional repository methods. For now, we skip these as they can be
-    // regenerated from the notes.
-
-    if should_import("embedding_sets") && files.contains_key("embedding_sets.json") {
-        warnings.push(
-            "Embedding set import not yet implemented - sets will be regenerated".to_string(),
-        );
-    }
-
-    if should_import("embeddings") && files.contains_key("embeddings.jsonl") {
-        warnings.push(
-            "Direct embedding import not yet implemented - embeddings will be regenerated"
-                .to_string(),
-        );
-    }
-
-    let status = if errors.is_empty() {
-        "success".to_string()
-    } else if imported.notes > 0 || imported.collections > 0 || imported.templates > 0 {
-        "partial".to_string()
-    } else {
-        "failed".to_string()
-    };
-
-    Ok(Json(ShardImportResponse {
-        status,
-        manifest,
-        imported,
-        skipped,
-        errors,
-        warnings,
+    let opts = ShardImportOptions {
+        include: body.include,
         dry_run: body.dry_run,
-    }))
+        on_conflict: body.on_conflict,
+        skip_embedding_regen: body.skip_embedding_regen,
+    };
+
+    let result =
+        knowledge_shard_import_internal(&state, &shard_bytes, &opts, &archive_ctx.schema).await?;
+    Ok(Json(result))
+}
+
+/// Query parameters for multipart shard upload.
+#[derive(Debug, Deserialize)]
+struct ShardUploadQuery {
+    /// Components to import (comma-separated). If not specified, imports all available.
+    include: Option<String>,
+    /// Dry run - validate without importing
+    #[serde(default)]
+    dry_run: bool,
+    /// Conflict resolution strategy for notes
+    #[serde(default)]
+    on_conflict: ConflictStrategy,
+    /// Whether to skip embedding regeneration
+    #[serde(default)]
+    skip_embedding_regen: bool,
+}
+
+/// Import a knowledge shard via multipart file upload.
+/// Preferred over the JSON/base64 endpoint for large shards.
+#[utoipa::path(post, path = "/api/v1/backup/knowledge-shard/upload", tag = "Backup",
+    responses((status = 200, description = "Success")))]
+async fn knowledge_shard_import_upload(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<ShardUploadQuery>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    // Read the uploaded shard file
+    let mut shard_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to read upload: {}", e)))?
+    {
+        if field.name() == Some("file") || field.name() == Some("shard") {
+            shard_bytes = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Failed to read file data: {}", e)))?
+                    .to_vec(),
+            );
+            break;
+        }
+    }
+
+    let shard_bytes = shard_bytes.ok_or_else(|| {
+        ApiError::BadRequest("No file uploaded. Use field name 'file' or 'shard'.".to_string())
+    })?;
+
+    let opts = ShardImportOptions {
+        include: query.include,
+        dry_run: query.dry_run,
+        on_conflict: query.on_conflict,
+        skip_embedding_regen: query.skip_embedding_regen,
+    };
+
+    let result =
+        knowledge_shard_import_internal(&state, &shard_bytes, &opts, &archive_ctx.schema).await?;
+    Ok(Json(result))
 }
 
 // =============================================================================
@@ -11886,10 +11499,6 @@ async fn swap_backup(
     file.read_to_end(&mut shard_data)
         .map_err(|e| ApiError::BadRequest(format!("Cannot read shard: {}", e)))?;
 
-    // Encode as base64 for the import handler
-    let shard_base64 =
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &shard_data);
-
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
 
     // If strategy is "wipe", purge existing data first
@@ -11944,8 +11553,7 @@ async fn swap_backup(
     }
 
     // Import from shard
-    let import_body = ShardImportBody {
-        shard_base64,
+    let opts = ShardImportOptions {
         include: None,
         dry_run,
         on_conflict: ConflictStrategy::Replace,
@@ -11953,7 +11561,8 @@ async fn swap_backup(
     };
 
     // Call the shard import logic with archive schema
-    let result = knowledge_shard_import_internal(&state, import_body, &archive_ctx.schema).await?;
+    let result =
+        knowledge_shard_import_internal(&state, &shard_data, &opts, &archive_ctx.schema).await?;
 
     Ok(Json(SwapBackupResponse {
         status: result.status.clone(),
@@ -11979,11 +11588,12 @@ async fn swap_backup(
     }))
 }
 
-/// Internal shard import function (reused by both endpoints).
-/// Accepts schema parameter for archive-scoped imports (#421).
+/// Internal shard import function (reused by JSON, multipart, and swap endpoints).
+/// Accepts raw tar.gz bytes + options for archive-scoped imports (#421).
 async fn knowledge_shard_import_internal(
     state: &AppState,
-    body: ShardImportBody,
+    shard_bytes: &[u8],
+    opts: &ShardImportOptions,
     schema: &str,
 ) -> Result<ShardImportResponse, ApiError> {
     use flate2::read::GzDecoder;
@@ -11998,15 +11608,8 @@ async fn knowledge_shard_import_internal(
         None
     };
 
-    // Decode base64 shard
-    let shard_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &body.shard_base64,
-    )
-    .map_err(|e| ApiError::BadRequest(format!("Invalid base64: {}", e)))?;
-
     // Parse tar.gz
-    let decoder = GzDecoder::new(&shard_bytes[..]);
+    let decoder = GzDecoder::new(shard_bytes);
     let mut tar_reader = Archive::new(decoder);
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
@@ -12057,14 +11660,14 @@ async fn knowledge_shard_import_internal(
     let mut errors: Vec<String> = Vec::new();
 
     // Determine what to import
-    let include_str = body
+    let include_str = opts
         .include
         .as_deref()
         .unwrap_or("notes,collections,tags,templates,links");
     let components: Vec<&str> = include_str.split(',').map(|s| s.trim()).collect();
     let should_import = |c: &str| components.contains(&c) || components.contains(&"all");
 
-    let on_conflict = &body.on_conflict;
+    let on_conflict = &opts.on_conflict;
 
     // Import notes
     if should_import("notes") {
@@ -12109,7 +11712,7 @@ async fn knowledge_shard_import_internal(
                                 }
                                 ConflictStrategy::Replace => {
                                     if let Some(id) = original_id {
-                                        if !body.dry_run {
+                                        if !opts.dry_run {
                                             let notes = matric_db::PgNoteRepository::new(
                                                 state.db.pool.clone(),
                                             );
@@ -12127,7 +11730,7 @@ async fn knowledge_shard_import_internal(
                             }
                         }
 
-                        if !body.dry_run {
+                        if !opts.dry_run {
                             let req = CreateNoteRequest {
                                 content: content.to_string(),
                                 format: note_json
@@ -12208,7 +11811,7 @@ async fn knowledge_shard_import_internal(
                                                 .await;
                                         }
                                     }
-                                    if !body.skip_embedding_regen {
+                                    if !opts.skip_embedding_regen {
                                         queue_nlp_pipeline(
                                             &state.db,
                                             new_id,
@@ -12238,7 +11841,7 @@ async fn knowledge_shard_import_internal(
             if let Ok(collections) = serde_json::from_slice::<Vec<serde_json::Value>>(data) {
                 for coll in collections {
                     if let Some(name) = coll.get("name").and_then(|v| v.as_str()) {
-                        if !body.dry_run {
+                        if !opts.dry_run {
                             let collections =
                                 matric_db::PgCollectionRepository::new(state.db.pool.clone());
                             let name = name.to_string();
@@ -12281,7 +11884,7 @@ async fn knowledge_shard_import_internal(
                         tmpl.get("name").and_then(|v| v.as_str()),
                         tmpl.get("content").and_then(|v| v.as_str()),
                     ) {
-                        if !body.dry_run {
+                        if !opts.dry_run {
                             let req = matric_core::CreateTemplateRequest {
                                 name: name.to_string(),
                                 description: tmpl
@@ -12345,7 +11948,7 @@ async fn knowledge_shard_import_internal(
                             .and_then(|v| v.as_str())
                             .and_then(|s| Uuid::parse_str(s).ok()),
                     ) {
-                        if !body.dry_run {
+                        if !opts.dry_run {
                             let kind = link
                                 .get("kind")
                                 .and_then(|v| v.as_str())
@@ -12391,7 +11994,7 @@ async fn knowledge_shard_import_internal(
         skipped,
         errors,
         warnings,
-        dry_run: body.dry_run,
+        dry_run: opts.dry_run,
     })
 }
 

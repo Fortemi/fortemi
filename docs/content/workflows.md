@@ -197,7 +197,7 @@ await purge_all_notes({ confirm: true })
 
 // Load different client's memory
 await knowledge_shard_import({
-  shard_base64: clientB_backup_data,
+  file_path: "clientB-backup.shard",
   on_conflict: "replace"
 })
 
@@ -574,9 +574,9 @@ const curatedSet = await knowledge_shard({
   // Note: Could filter to specific tags/collections
 })
 
-// Recipient: Import into their system
+// Recipient: Import into their system (preview first)
 await knowledge_shard_import({
-  shard_base64: curatedSet.base64_data,
+  file_path: "curated-set.shard",
   on_conflict: "skip",  // Don't overwrite their notes
   dry_run: true  // Preview first
 })
@@ -584,7 +584,7 @@ await knowledge_shard_import({
 // Check what would be imported
 // Then do actual import
 await knowledge_shard_import({
-  shard_base64: curatedSet.base64_data,
+  file_path: "curated-set.shard",
   on_conflict: "skip",
   dry_run: false
 })

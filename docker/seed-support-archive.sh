@@ -55,24 +55,14 @@ CREATE_RESPONSE=$(curl -sf -X POST "$API_URL/api/v1/archives" \
 
 echo "  Archive created. Importing shard..."
 
-# Import the shard — use a temp file to avoid ARG_MAX limit with large shards
-TMPFILE=$(mktemp /tmp/shard-import-XXXXXX.json)
-trap "rm -f $TMPFILE" EXIT
-
-# Build JSON body with base64 shard data written to file (avoids shell arg limit)
-printf '{"shard_base64":"' > "$TMPFILE"
-base64 -w0 "$SHARD_FILE" >> "$TMPFILE"
-printf '","on_conflict":"skip"}' >> "$TMPFILE"
-
-IMPORT_RESPONSE=$(curl -sf -X POST "$API_URL/api/v1/backup/knowledge-shard/import" \
-    -H "Content-Type: application/json" \
+# Import the shard via multipart file upload (no base64 overhead)
+IMPORT_RESPONSE=$(curl -sf -X POST \
     -H "X-Fortemi-Memory: $ARCHIVE_NAME" \
-    -d @"$TMPFILE" 2>&1) || {
+    -F "file=@$SHARD_FILE" \
+    "$API_URL/api/v1/backup/knowledge-shard/upload?on_conflict=skip" 2>&1) || {
     echo "  WARNING: Shard import failed: $IMPORT_RESPONSE"
     return 0 2>/dev/null || exit 0
 }
-
-rm -f "$TMPFILE"
 
 # Parse import counts (no jq dependency — try common response field names)
 NOTES_IMPORTED=$(echo "$IMPORT_RESPONSE" | grep -oP '"notes_imported"\s*:\s*\K[0-9]+' || \

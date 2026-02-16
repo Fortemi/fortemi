@@ -139,14 +139,12 @@ pke decrypt research.shard.pke \
 
 ```bash
 # Preview what will be imported
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d "{\"shard_base64\": \"$(base64 -w0 research.shard)\", \"dry_run\": true}"
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?dry_run=true \
+  -F "file=@research.shard"
 
 # Import for real
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d "{\"shard_base64\": \"$(base64 -w0 research.shard)\"}"
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
+  -F "file=@research.shard"
 ```
 
 Carol follows the same process with her private key.
@@ -188,9 +186,8 @@ pke decrypt full-backup.shard.pke \
   --output full-backup.shard
 
 # Restore to fresh instance
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d "{\"shard_base64\": \"$(base64 -w0 full-backup.shard)\"}"
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
+  -F "file=@full-backup.shard"
 ```
 
 ---
@@ -240,12 +237,8 @@ pke decrypt /shared/team-updates/week-03.shard.pke \
   --output weekly-update.shard
 
 # Merge with existing knowledge (skip duplicates)
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"shard_base64\": \"$(base64 -w0 weekly-update.shard)\",
-    \"on_conflict\": \"skip\"
-  }"
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
+  -F "file=@weekly-update.shard"
 ```
 
 ---
@@ -410,7 +403,7 @@ knowledge_shard({ include: "notes,links" })
 
 // Import shard
 knowledge_shard_import({
-  shard_base64: "...",
+  file_path: "research.shard",
   dry_run: true,
   on_conflict: "skip"
 })
@@ -484,19 +477,18 @@ Notes with the same ID already exist.
 ```bash
 # Use conflict resolution
 knowledge_shard_import({
-  shard_base64: "...",
+  file_path: "backup.shard",
   on_conflict: "replace"  # or "skip" or "merge"
 })
 ```
 
-### Large shard upload fails
+### Large shard upload
 
-Base64 encoding increases size ~33%. For very large shards:
+The multipart upload endpoint handles shards of any size efficiently (no base64 overhead):
 
 ```bash
-# Use file upload endpoint instead
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -F "shard=@large-backup.shard"
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
+  -F "file=@large-backup.shard"
 ```
 
 ---

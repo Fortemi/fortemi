@@ -349,7 +349,7 @@ Add MCP tools for these API endpoints:
 | `backup_download` | GET /api/v1/backup/download | ❌ |
 | `backup_import` | POST /api/v1/backup/import | ❌ |
 | `knowledge_shard` | GET /api/v1/backup/knowledge-shard | ❌ |
-| `knowledge_shard_import` | POST /api/v1/backup/knowledge-shard/import | ❌ |
+| `knowledge_shard_import` | POST /api/v1/backup/knowledge-shard/upload | ❌ |
 | `database_snapshot` | POST /api/v1/backup/database/snapshot | ❌ |
 | `database_restore` | POST /api/v1/backup/database/restore | ❌ |
 | `knowledge_archive_download` | GET /api/v1/backup/knowledge-archive/:file | ❌ |

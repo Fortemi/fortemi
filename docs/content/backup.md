@@ -99,8 +99,8 @@ knowledge_shard()
 // Create shard with specific components
 knowledge_shard({ include: "notes,links" })
 
-// Restore from shard
-knowledge_shard_import({ shard_base64: "...", dry_run: true })
+// Restore from shard (file_path triggers multipart upload)
+knowledge_shard_import({ file_path: "backup.shard", dry_run: true })
 
 // Download backup as portable knowledge archive (.archive)
 knowledge_archive_download({ filename: "snapshot_database_20260117.sql.gz" })
@@ -222,12 +222,10 @@ curl http://localhost:3000/api/v1/backup/knowledge-shard \
 curl http://localhost:3000/api/v1/backup/knowledge-shard \
   -o default-memory.shard
 
-# Restore shard to different memory
-SHARD=$(base64 -w0 work-2026.shard)
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
+# Restore shard to different memory (multipart upload)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
   -H "X-Fortemi-Memory: work-2026-restored" \
-  -d "{\"shard_base64\": \"$SHARD\"}"
+  -F "file=@work-2026.shard"
 ```
 
 ## Memory-Scoped Backups
@@ -268,12 +266,10 @@ curl -X POST http://localhost:3000/api/v1/memories \
     "description": "Restored from backup"
   }'
 
-# Encode shard and restore to target memory
-SHARD=$(base64 -w0 work-notes.shard)
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
+# Restore shard to target memory (multipart upload)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
   -H "X-Fortemi-Memory: work-notes-restored" \
-  -d "{\"shard_base64\": \"$SHARD\"}"
+  -F "file=@work-notes.shard"
 ```
 
 Memory-scoped backups are useful for:
@@ -403,7 +399,7 @@ embeddings.jsonl        # Vector data (if included)
 Restore from a knowledge shard created by `knowledge_shard`.
 
 **Parameters:**
-- `shard_base64` - The shard as base64 string (from knowledge_shard.base64_data)
+- `file_path` - Path to the .tar.gz shard file on disk (required)
 - `include` - Components to import (default: all in shard)
 - `dry_run` - Validate without importing (default: false)
 - `on_conflict` - For existing notes: `skip`, `replace`, `merge` (default: skip)
@@ -615,9 +611,30 @@ tar -tzf backup.shard
 tar -xzf backup.shard -O manifest.json | jq .
 ```
 
-### POST /api/v1/backup/knowledge-shard/import
+### POST /api/v1/backup/knowledge-shard/upload
 
-Restore from a knowledge shard.
+Import a knowledge shard via multipart file upload. Preferred over the legacy JSON/base64 endpoint.
+
+**Query Parameters:**
+- `on_conflict` - `skip` (default), `replace`, or `merge`
+- `dry_run` - `true` or `false` (default)
+- `include` - Comma-separated components (default: all)
+- `skip_embedding_regen` - `true` or `false` (default)
+
+**Example:**
+```bash
+# Import shard (multipart upload)
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_conflict=skip \
+  -F "file=@backup.shard"
+
+# Dry run first
+curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?dry_run=true \
+  -F "file=@backup.shard"
+```
+
+### POST /api/v1/backup/knowledge-shard/import (Legacy)
+
+Import a knowledge shard via JSON body with base64-encoded data. Use the `/upload` endpoint above for large shards.
 
 **Request Body:**
 ```json
@@ -628,15 +645,6 @@ Restore from a knowledge shard.
   "on_conflict": "skip",
   "skip_embedding_regen": false
 }
-```
-
-**Example:**
-```bash
-# Encode shard and import
-ARCHIVE=$(base64 -w0 backup.shard)
-curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/import \
-  -H "Content-Type: application/json" \
-  -d "{\"shard_base64\": \"$ARCHIVE\", \"dry_run\": true}"
 ```
 
 **Response:**

@@ -1224,6 +1224,11 @@ function createMcpServer() {
           } else if (API_KEY) {
             shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
           }
+          const shardSid = tokenStorage.getStore()?.sessionId;
+          const shardMem = shardSid ? sessionMemories.get(shardSid) : null;
+          if (shardMem) {
+            shardCurlParts.push(`-H "X-Fortemi-Memory: ${shardMem}"`);
+          }
           shardCurlParts.push(`-H "Accept: application/gzip"`);
           shardCurlParts.push(`"${shardUrl}"`);
           result = {
@@ -1237,15 +1242,15 @@ function createMcpServer() {
 
         case "knowledge_shard_import": {
           // Return upload URL + curl command (API pointer pattern)
-          // The API requires shard_base64 in JSON body, so the curl command encodes the file
-          const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/import`;
+          // Uses multipart file upload (no base64 overhead)
           const ksiFilePath = args.file_path || "SHARD_FILE.tar.gz";
           const ksiDryRun = args.dry_run ? "true" : "false";
           const ksiConflict = args.on_conflict || "skip";
           const ksiSkipEmbed = args.skip_embedding_regen ? "true" : "false";
+          const ksiIncludeParam = args.include ? `&include=${encodeURIComponent(args.include)}` : "";
+          const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/upload?on_conflict=${ksiConflict}&dry_run=${ksiDryRun}&skip_embedding_regen=${ksiSkipEmbed}${ksiIncludeParam}`;
 
           const ksiCurlParts = [`curl -X POST`];
-          ksiCurlParts.push(`-H "Content-Type: application/json"`);
           const ksiToken = tokenStorage.getStore()?.token;
           if (ksiToken) {
             ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
@@ -1257,16 +1262,14 @@ function createMcpServer() {
           if (ksiMem) {
             ksiCurlParts.push(`-H "X-Fortemi-Memory: ${ksiMem}"`);
           }
-          // Build JSON payload with base64-encoded file content via shell substitution
-          const ksiIncludeJson = args.include ? `, "include": "${args.include}"` : "";
-          ksiCurlParts.push(`-d "{\\"shard_base64\\": \\"$(base64 -w0 ${ksiFilePath})\\", \\"dry_run\\": ${ksiDryRun}, \\"on_conflict\\": \\"${ksiConflict}\\", \\"skip_embedding_regen\\": ${ksiSkipEmbed}${ksiIncludeJson}}"`)
+          ksiCurlParts.push(`-F "file=@${ksiFilePath}"`);
           ksiCurlParts.push(`"${ksiUrl}"`);
           result = {
             upload_url: ksiUrl,
             method: "POST",
-            content_type: "application/json",
+            content_type: "multipart/form-data",
             curl_command: ksiCurlParts.join(" \\\n  "),
-            instructions: `Run the curl command to import a knowledge shard (.tar.gz). The file is base64-encoded by the shell command before sending. ` +
+            instructions: `Run the curl command to import a knowledge shard (.tar.gz) via multipart file upload. ` +
               `Use dry_run=true first to validate. The file should be from the knowledge_shard tool.`,
           };
           if (args.file_path) {
@@ -2623,9 +2626,17 @@ function createMcpServer() {
             if (!args.id) throw new Error("id is required for 'get' action");
             result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
             if (result && result.id) {
+              const maGetCurlParts = [`curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}"`];
+              const maGetToken = tokenStorage.getStore()?.token;
+              if (maGetToken) maGetCurlParts.push(`-H "Authorization: Bearer ${maGetToken}"`);
+              else if (API_KEY) maGetCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+              const maGetSid = tokenStorage.getStore()?.sessionId;
+              const maGetMem = maGetSid ? sessionMemories.get(maGetSid) : null;
+              if (maGetMem) maGetCurlParts.push(`-H "X-Fortemi-Memory: ${maGetMem}"`);
+              maGetCurlParts.push(`"${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`);
               result._api_urls = {
                 download: `${PUBLIC_URL}/api/v1/attachments/${result.id}/download`,
-                download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`,
+                download_curl: maGetCurlParts.join(" \\\n  "),
               };
             }
           } else if (maAction === "download") {
@@ -2633,12 +2644,20 @@ function createMcpServer() {
             const maMeta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
             const maDownloadUrl = `${PUBLIC_URL}/api/v1/attachments/${args.id}/download`;
             const maOutputFilename = maMeta?.filename || maMeta?.original_filename || `attachment-${args.id}`;
+            const maDlCurlParts = [`curl -o "${maOutputFilename}"`];
+            const maDlToken = tokenStorage.getStore()?.token;
+            if (maDlToken) maDlCurlParts.push(`-H "Authorization: Bearer ${maDlToken}"`);
+            else if (API_KEY) maDlCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            const maDlSid = tokenStorage.getStore()?.sessionId;
+            const maDlMem = maDlSid ? sessionMemories.get(maDlSid) : null;
+            if (maDlMem) maDlCurlParts.push(`-H "X-Fortemi-Memory: ${maDlMem}"`);
+            maDlCurlParts.push(`"${maDownloadUrl}"`);
             result = {
               filename: maOutputFilename,
               size_bytes: maMeta?.size_bytes,
               content_type: maMeta?.content_type,
               download_url: maDownloadUrl,
-              curl_command: `curl -o "${maOutputFilename}" "${maDownloadUrl}"`,
+              curl_command: maDlCurlParts.join(" \\\n  "),
               instructions: "Execute the curl_command above (or equivalent HTTP GET) to download the file.",
             };
           } else if (maAction === "delete") {
@@ -2707,9 +2726,17 @@ function createMcpServer() {
         case "get_attachment":
           result = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
           if (result && result.id) {
+            const gaGetCurlParts = [`curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}"`];
+            const gaGetToken = tokenStorage.getStore()?.token;
+            if (gaGetToken) gaGetCurlParts.push(`-H "Authorization: Bearer ${gaGetToken}"`);
+            else if (API_KEY) gaGetCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            const gaGetSid = tokenStorage.getStore()?.sessionId;
+            const gaGetMem = gaGetSid ? sessionMemories.get(gaGetSid) : null;
+            if (gaGetMem) gaGetCurlParts.push(`-H "X-Fortemi-Memory: ${gaGetMem}"`);
+            gaGetCurlParts.push(`"${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`);
             result._api_urls = {
               download: `${PUBLIC_URL}/api/v1/attachments/${result.id}/download`,
-              download_curl: `curl -o "${result.filename || result.original_filename || `attachment-${result.id}`}" "${PUBLIC_URL}/api/v1/attachments/${result.id}/download"`,
+              download_curl: gaGetCurlParts.join(" \\\n  "),
             };
           }
           break;
@@ -2718,13 +2745,20 @@ function createMcpServer() {
           const meta = await apiRequest("GET", `/api/v1/attachments/${args.id}`);
           const downloadUrl = `${PUBLIC_URL}/api/v1/attachments/${args.id}/download`;
           const outputFilename = meta?.filename || meta?.original_filename || `attachment-${args.id}`;
-
+          const daCurlParts = [`curl -o "${outputFilename}"`];
+          const daToken = tokenStorage.getStore()?.token;
+          if (daToken) daCurlParts.push(`-H "Authorization: Bearer ${daToken}"`);
+          else if (API_KEY) daCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+          const daSid = tokenStorage.getStore()?.sessionId;
+          const daMem = daSid ? sessionMemories.get(daSid) : null;
+          if (daMem) daCurlParts.push(`-H "X-Fortemi-Memory: ${daMem}"`);
+          daCurlParts.push(`"${downloadUrl}"`);
           result = {
             filename: outputFilename,
             size_bytes: meta?.size_bytes,
             content_type: meta?.content_type,
             download_url: downloadUrl,
-            curl_command: `curl -o "${outputFilename}" "${downloadUrl}"`,
+            curl_command: daCurlParts.join(" \\\n  "),
             instructions: "Execute the curl_command above (or equivalent HTTP GET) to download the file.",
           };
           break;
@@ -3123,6 +3157,9 @@ function createMcpServer() {
             const shardToken = tokenStorage.getStore()?.token;
             if (shardToken) shardCurlParts.push(`-H "Authorization: Bearer ${shardToken}"`);
             else if (API_KEY) shardCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
+            const shardSid = tokenStorage.getStore()?.sessionId;
+            const shardMem = shardSid ? sessionMemories.get(shardSid) : null;
+            if (shardMem) shardCurlParts.push(`-H "X-Fortemi-Memory: ${shardMem}"`);
             shardCurlParts.push(`-H "Accept: application/gzip"`);
             shardCurlParts.push(`"${shardUrl}"`);
             result = {
@@ -3132,27 +3169,26 @@ function createMcpServer() {
               instructions: `Run the curl command to create and download a knowledge shard (.tar.gz). Contains all notes, embeddings, links, and metadata.`,
             };
           } else if (mbAction === "import_shard") {
-            const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/import`;
             const ksiFilePath = args.file_path || "SHARD_FILE.tar.gz";
             const ksiDryRun = args.dry_run ? "true" : "false";
             const ksiConflict = args.on_conflict || "skip";
             const ksiSkipEmbed = args.skip_embedding_regen ? "true" : "false";
+            const ksiIncludeParam = args.include ? `&include=${encodeURIComponent(args.include)}` : "";
+            const ksiUrl = `${PUBLIC_URL}/api/v1/backup/knowledge-shard/upload?on_conflict=${ksiConflict}&dry_run=${ksiDryRun}&skip_embedding_regen=${ksiSkipEmbed}${ksiIncludeParam}`;
             const ksiCurlParts = [`curl -X POST`];
-            ksiCurlParts.push(`-H "Content-Type: application/json"`);
             const ksiToken = tokenStorage.getStore()?.token;
             if (ksiToken) ksiCurlParts.push(`-H "Authorization: Bearer ${ksiToken}"`);
             else if (API_KEY) ksiCurlParts.push(`-H "Authorization: Bearer ${API_KEY}"`);
             const ksiSid = tokenStorage.getStore()?.sessionId;
             const ksiMem = ksiSid ? sessionMemories.get(ksiSid) : null;
             if (ksiMem) ksiCurlParts.push(`-H "X-Fortemi-Memory: ${ksiMem}"`);
-            const ksiIncludeJson = args.include ? `, "include": "${args.include}"` : "";
-            ksiCurlParts.push(`-d "{\\"shard_base64\\": \\"$(base64 -w0 ${ksiFilePath})\\", \\"dry_run\\": ${ksiDryRun}, \\"on_conflict\\": \\"${ksiConflict}\\", \\"skip_embedding_regen\\": ${ksiSkipEmbed}${ksiIncludeJson}}"`);
+            ksiCurlParts.push(`-F "file=@${ksiFilePath}"`);
             ksiCurlParts.push(`"${ksiUrl}"`);
             result = {
               upload_url: ksiUrl,
               method: "POST",
               curl_command: ksiCurlParts.join(" \\\n  "),
-              instructions: `Run the curl command to import a knowledge shard (.tar.gz). Use dry_run=true first to validate.`,
+              instructions: `Run the curl command to import a knowledge shard (.tar.gz) via multipart upload. Use dry_run=true first to validate.`,
             };
             if (args.file_path) result.file_path_hint = args.file_path;
           } else if (mbAction === "snapshot") {

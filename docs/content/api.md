@@ -1984,13 +1984,24 @@ GET /api/v1/backup/knowledge-shard?format=json
 | format | string | Export format: `json` or `yaml` |
 | include_deleted | bool | Include soft-deleted notes |
 
-#### Import Knowledge Shard
+#### Import Knowledge Shard (Multipart Upload)
+
+```http
+POST /api/v1/backup/knowledge-shard/upload?on_conflict=skip
+Content-Type: multipart/form-data
+
+file=@backup.shard
+```
+
+**Query Parameters:** `on_conflict` (skip/replace/merge), `dry_run` (bool), `include` (csv), `skip_embedding_regen` (bool)
+
+#### Import Knowledge Shard (Legacy JSON)
 
 ```http
 POST /api/v1/backup/knowledge-shard/import
-Content-Type: multipart/form-data
+Content-Type: application/json
 
-file=@knowledge-shard.json
+{"shard_base64": "...", "on_conflict": "skip"}
 ```
 
 ### Database Backups (Full pg_dump)

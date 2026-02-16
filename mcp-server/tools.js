@@ -2730,7 +2730,7 @@ export default [
   },
   {
     name: "knowledge_shard_import",
-    description: `Import a knowledge shard into the current memory.`,
+    description: `Import a knowledge shard into the current memory via multipart file upload.`,
     inputSchema: {
       "type": "object",
       "properties": {
