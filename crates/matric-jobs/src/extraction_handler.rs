@@ -229,8 +229,40 @@ impl JobHandler for ExtractionHandler {
                 JobResult::Success(Some(result_json))
             }
             Err(e) => {
+                let error_msg = format!("Extraction failed: {}", e);
                 error!(strategy = %strategy, filename, error = %e, "Extraction failed");
-                JobResult::Failed(format!("Extraction failed: {}", e))
+
+                // Update attachment status to Failed so it doesn't stay stuck at "uploaded"
+                if let Some(att_id) = attachment_id {
+                    if let Some(file_storage) = self.db.file_storage.as_ref() {
+                        if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                            if let Err(status_err) = file_storage
+                                .update_status_tx(
+                                    &mut tx,
+                                    att_id,
+                                    AttachmentStatus::Failed,
+                                    Some(&error_msg),
+                                )
+                                .await
+                            {
+                                error!(
+                                    attachment_id = %att_id,
+                                    error = %status_err,
+                                    "Failed to update attachment status to Failed"
+                                );
+                            }
+                            if let Err(commit_err) = tx.commit().await {
+                                error!(
+                                    attachment_id = %att_id,
+                                    error = %commit_err,
+                                    "Failed to commit attachment failure status"
+                                );
+                            }
+                        }
+                    }
+                }
+
+                JobResult::Failed(error_msg)
             }
         }
     }

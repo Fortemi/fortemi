@@ -42,11 +42,11 @@ use uuid::Uuid;
 
 use matric_core::EmbeddingBackend;
 use matric_core::{
-    AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository, EventBus, ExtractionAdapter,
-    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
-    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
-    UpdateNoteStatusRequest,
+    AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest,
+    ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository,
+    EventBus, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
+    NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput, TagInput,
+    TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
@@ -4531,6 +4531,33 @@ async fn bulk_reprocess_notes(
                     note_id: Some(*note_id),
                 });
                 jobs_queued += 1;
+            }
+        }
+
+        // Queue extraction for attachments that need re-extraction (Issue #428)
+        if should_run("extraction") {
+            if let Some(file_storage) = state.db.file_storage.as_ref() {
+                let attachments = file_storage
+                    .list_by_note(*note_id)
+                    .await
+                    .unwrap_or_default();
+                for att in &attachments {
+                    if att.status != AttachmentStatus::Completed {
+                        let strategy = ExtractionStrategy::from_mime_type(&att.content_type);
+                        queue_extraction_job(
+                            &state.db,
+                            *note_id,
+                            att.id,
+                            strategy,
+                            &att.filename,
+                            &att.content_type,
+                            &state.event_bus,
+                            Some(&archive_ctx.schema),
+                        )
+                        .await;
+                        jobs_queued += 1;
+                    }
+                }
             }
         }
 
