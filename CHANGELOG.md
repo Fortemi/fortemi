@@ -9,22 +9,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 *No changes yet.*
 
-## [2026.2.9] - 2026-02-15
+## [2026.2.9] - 2026-02-16
 
 ### Highlights
 
-This is the largest release since the project's inception — **251 commits**, **350+ files changed**,
-**+90,000 / -35,000 lines** across every layer of the stack. The headline feature is **Multi-Memory
+This is the largest release since the project's inception — **290 commits**, **756 files changed**,
+**+103,000 / -154,000 lines** across every layer of the stack. The headline feature is **Multi-Memory
 Architecture**: fully isolated knowledge bases backed by PostgreSQL schema-per-memory isolation,
 with zero-drift cloning, per-request routing, session-scoped MCP memory selection, federated
 cross-memory search, and memory-scoped backup/restore.
 
 Alongside multi-memory, this release resolves **100+ issues** discovered during comprehensive UAT
 (530+ MCP test cases, 96.3% pass rate), upgrades PostgreSQL 16 → 18, enables SCRAM-SHA-256 auth,
-ships native uuidv7() defaults, adds agent-friendly MCP tool surface (23 core tools with
+ships native uuidv7() defaults, adds agent-friendly MCP tool surface (27 core tools with
 discriminated-union pattern), hardens security with resource limits and SQL injection fixes,
-rewrites the database restore pipeline, adds comprehensive content extraction framework, and
-ships multimodal capabilities (vision, audio, video, 3D models).
+rewrites the database restore pipeline, adds comprehensive content extraction framework,
+ships multimodal capabilities (vision, audio, video, 3D models), and includes a built-in
+243-note documentation archive loaded on first boot.
 
 | What Changed | Why You Care | Learn More |
 |--------------|--------------|------------|
@@ -43,8 +44,27 @@ ships multimodal capabilities (vision, audio, video, 3D models).
 | **MCP File-Based I/O** | Replaced base64 binary tools with HTTP API upload/download for remote agents | [MCP Guide](docs/content/mcp.md) · [File Attachments](docs/content/file-attachments.md) |
 | **Database Restore Rewrite** | Thread-safe psql pipe, extension-owned object exclusion, FTS index rebuild | [Backup Guide](docs/content/backup.md) |
 | **Security Hardening** | SQL injection fixes, resource limits, input validation, wildcard injection prevention | [Security](docs/content/security.md) |
+| **Multipart Shard Upload** | Upload knowledge shards via `multipart/form-data` — no base64 overhead, supports large shards | [Backup Guide](docs/content/backup.md) |
+| **Built-in Documentation Archive** | 243-note `fortemi-docs` knowledge base automatically loaded on first boot | [Getting Started](docs/content/getting-started.md) |
+| **Adaptive Tag-Boosted Linking** | Two-phase linking pipeline: tag-overlap candidates boosted before semantic scoring | [Knowledge Graph](docs/content/knowledge-graph-guide.md) |
+| **Event-Driven Job Worker** | PostgreSQL NOTIFY/LISTEN wake pattern with concurrent job processing | [Configuration](docs/content/configuration.md) |
+| **PG 18.2 TOAST Workaround** | Automatic workaround for PostgreSQL 18.2 substring/left() UTF-8 bug (#19406) | [Troubleshooting](docs/content/troubleshooting.md) |
 
 ### Added
+
+- **Multipart Shard Upload** — `POST /api/v1/backup/knowledge-shard/upload` accepts `multipart/form-data` file uploads, eliminating base64 encoding overhead and ARG_MAX limits for large shards. JSON endpoint preserved for backward compatibility.
+
+- **Built-in Documentation Archive** (#411) — On first boot, the Docker bundle automatically imports a 243-note `fortemi-docs` knowledge base containing all user guides, architecture docs, research papers, ADRs, and SDLC artifacts. Idempotent via flag file at `$PGDATA/.fortemi-docs-seeded`.
+
+- **Adaptive Tag-Boosted Linking** (#420) — Two-phase auto-linking pipeline: Phase 1 discovers tag-overlap candidates and boosts their similarity scores; Phase 2 applies standard embedding-based linking. Produces denser, more meaningful knowledge graphs.
+
+- **Event-Driven Job Worker** — PostgreSQL `NOTIFY`/`LISTEN` wake pattern replaces polling for immediate job pickup. Configurable concurrent processing via `JOB_MAX_CONCURRENT` (default: 4) with drain-loop shutdown.
+
+- **MCP Core Tools Expanded** — Added `manage_archives`, `manage_encryption`, `manage_backups`, and `manage_embeddings` to the 23-tool core surface (now 27 core tools).
+
+- **Vision and Audio Enabled by Default** — `OLLAMA_VISION_MODEL` and `WHISPER_BASE_URL` now configured by default in Docker bundle for out-of-box multimodal extraction.
+
+- **Capacity Planning** — `MAX_MEMORIES` scales with hardware: 10 (8GB), 50 (16GB), 200 (32GB), 500 (64GB+). Documentation updated with sizing guidance.
 
 - **Per-Archive Search** — Enable search in non-default archives
   - Per-schema connection pools with `search_path` pinned per archive
@@ -226,6 +246,16 @@ Ad-hoc image description via Ollama vision LLM:
 
 ### Fixed
 
+- **PG 18.2 TOAST UTF-8 bug** (#418) — Workaround for PostgreSQL bug #19406 where `substring()`/`left()` fail on TOAST-compressed text with multi-byte UTF-8 characters. Applied `left(convert_from(content::bytea, 'UTF8'), N)` pattern across 18 instances in 5 files. Revert tracked in #419 (after PG 18.3+).
+
+- **Backup multi-memory headers** (#421) — All backup and restore handlers now properly respect the `X-Fortemi-Memory` header for memory-scoped operations, including knowledge-shard export and full backup endpoints.
+
+- **Schema-qualified FTS configs** (#412) — Text search configurations now use schema-qualified names in all queries, fixing FTS failures in non-default memory archives.
+
+- **Archive AI pipeline** — AI pipeline jobs (embedding, linking, title generation, concept tagging) now execute correctly for notes in non-default memory archives.
+
+- **Orphaned job cleanup** — Archive deletion now cleans up orphaned jobs and FTS configurations, preventing stale job references.
+
 - **MCP parameter validation** (#398) — Validate required params before search URLSearchParams serialization (prevents MCP crash on missing required search params)
 - **Template tag merge** — Template instantiation now merges tags instead of override, preserving existing tags
 - **Whisper transcription bundled** — Enable Whisper transcription by default with GPU in Docker bundle
@@ -313,11 +343,11 @@ The restore system was rewritten for correctness and robustness:
 
 ### Changed
 
-- **Workspace version**: `2026.2.7` → `2026.2.9`
+- **Workspace version**: `2026.2.7` → `2026.2.9` (290 commits)
 - **PostgreSQL**: 16 → 18 (#396)
 - **Authentication**: SCRAM-SHA-256 password authentication enabled (#397)
 - **UUID generation**: Native uuidv7() function for UUID generation (#397)
-- **MCP tool surface**: ~95 → 23 core tools (discriminated-union) / 187 full tools (#365)
+- **MCP tool surface**: ~95 → 27 core tools (discriminated-union) / 187 full tools (#365)
 - **Migration count**: 57 → 59+ migration files
 - **API handler count**: 91 handlers, all schema-routed
 - **Test infrastructure**: Two UAT passes (530+ MCP test cases, 96.3% pass rate)
@@ -356,6 +386,10 @@ None. Full backward compatibility maintained:
 7. **Docker bundle** — MCP OAuth credentials now auto-registered on first startup; manual
    registration no longer required
 8. **Whisper transcription** — Now bundled by default with GPU in Docker bundle
+9. **Shard import** — New `POST /api/v1/backup/knowledge-shard/upload` multipart endpoint available;
+   existing JSON base64 endpoint remains for backward compatibility
+10. **First-boot documentation** — Fresh Docker bundle deployments automatically load the
+    `fortemi-docs` archive (243 notes of product documentation)
 
 ### Issues Resolved
 
@@ -376,6 +410,9 @@ None. Full backward compatibility maintained:
 - **Database**: #396, #397
 - **Extraction**: #278, #386
 - **Provenance**: #261, #262
+- **Linking**: #420
+- **Seed**: #411
+- **PG Compat**: #418
 
 ## [2026.2.7] - 2026-02-05
 
