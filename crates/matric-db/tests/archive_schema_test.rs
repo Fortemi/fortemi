@@ -734,3 +734,173 @@ async fn test_schema_version_tracking() {
     let _ = db.archives.drop_archive_schema(&archive1_name).await;
     let _ = db.archives.drop_archive_schema(&archive2_name).await;
 }
+
+/// Test that new archives have a default embedding set (Issue #414).
+///
+/// Without a default embedding set, store_tx() fails when trying to create
+/// embeddings, returning "No default embedding set found".
+#[tokio::test]
+async fn test_new_archive_has_default_embedding_set() {
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+
+    let archive_name = format!("test-embedding-set-{}", Uuid::now_v7());
+
+    // Create a new archive
+    let archive = db
+        .archives
+        .create_archive_schema(&archive_name, Some("Embedding set test"))
+        .await
+        .expect("Failed to create archive");
+
+    // Verify get_default_embedding_set_id() function exists in the archive schema
+    let function_exists: bool = sqlx::query_scalar(&format!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM pg_proc p
+            JOIN pg_namespace n ON p.pronamespace = n.oid
+            WHERE n.nspname = $1
+                AND p.proname = 'get_default_embedding_set_id'
+        )
+        "#
+    ))
+    .bind(&archive.schema_name)
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to check function existence");
+
+    assert!(
+        function_exists,
+        "Archive schema should have get_default_embedding_set_id() function"
+    );
+
+    // Verify the function returns a valid UUID (the default embedding set ID)
+    let default_set_id: Option<Uuid> = sqlx::query_scalar(&format!(
+        "SELECT {}.get_default_embedding_set_id()",
+        archive.schema_name
+    ))
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to call get_default_embedding_set_id()");
+
+    assert!(
+        default_set_id.is_some(),
+        "Archive should have a default embedding set"
+    );
+
+    // Verify the default embedding set row exists with expected properties
+    let (slug, name, is_system, is_active): (String, String, bool, bool) =
+        sqlx::query_as(&format!(
+            "SELECT slug, name, is_system, is_active FROM {}.embedding_set WHERE id = $1",
+            archive.schema_name
+        ))
+        .bind(default_set_id.unwrap())
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch default embedding set");
+
+    assert_eq!(slug, "default", "Default set should have slug 'default'");
+    assert_eq!(name, "Default", "Default set should have name 'Default'");
+    assert!(is_system, "Default set should be marked as system");
+    assert!(is_active, "Default set should be active");
+
+    // Cleanup
+    let _ = db.archives.drop_archive_schema(&archive_name).await;
+}
+
+/// End-to-end test: Create archive and store embeddings (Issue #414 regression test).
+/// End-to-end test: Create archive and store embeddings (Issue #414 regression test).
+///
+/// Before the fix, creating a note with embeddings in a new archive would fail with
+/// "No default embedding set found" because the default embedding set wasn't seeded.
+#[tokio::test]
+async fn test_archive_can_store_embeddings() {
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+
+    let archive_name = format!("test-embed-e2e-{}", Uuid::now_v7());
+
+    // Create a new archive
+    let archive = db
+        .archives
+        .create_archive_schema(&archive_name, Some("E2E embedding test"))
+        .await
+        .expect("Failed to create archive");
+
+    // Create a test note in the archive
+    let note_id = Uuid::now_v7();
+    let now = Utc::now();
+
+    sqlx::query(&format!(
+        "INSERT INTO {}.note (id, format, source, created_at_utc, updated_at_utc, metadata) VALUES ($1, $2, $3, $4, $4, $5)",
+        archive.schema_name
+    ))
+    .bind(note_id)
+    .bind("markdown")
+    .bind("test-embedding-source")
+    .bind(now)
+    .bind(serde_json::json!({}))
+    .execute(&pool)
+    .await
+    .expect("Failed to insert test note");
+
+    sqlx::query(&format!(
+        "INSERT INTO {}.note_original (note_id, content, hash) VALUES ($1, $2, $3)",
+        archive.schema_name
+    ))
+    .bind(note_id)
+    .bind("Test content for embedding generation")
+    .bind("testhash")
+    .execute(&pool)
+    .await
+    .expect("Failed to insert test note content");
+
+    // Test: Store embeddings via store_tx (this would fail before the fix)
+    use matric_db::Vector;
+    let chunks: Vec<(String, Vector)> = vec![
+        ("Test chunk 1".to_string(), Vector::from(vec![0.1; 768])),
+        ("Test chunk 2".to_string(), Vector::from(vec![0.2; 768])),
+    ];
+
+    let mut tx = pool.begin().await.expect("Failed to begin transaction");
+
+    // Use schema-qualified transaction
+    sqlx::query(&format!(
+        "SET LOCAL search_path TO {}, public",
+        archive.schema_name
+    ))
+    .execute(&mut *tx)
+    .await
+    .expect("Failed to set search path");
+
+    let result = db
+        .embeddings
+        .store_tx(&mut tx, note_id, chunks, "nomic-embed-text")
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Storing embeddings should succeed with default embedding set: {:?}",
+        result
+    );
+
+    tx.commit().await.expect("Failed to commit transaction");
+
+    // Verify embeddings were actually stored
+    let embedding_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}.embedding WHERE note_id = $1",
+        archive.schema_name
+    ))
+    .bind(note_id)
+    .fetch_one(&pool)
+    .await
+    .expect("Failed to count embeddings");
+
+    assert_eq!(
+        embedding_count, 2,
+        "Should have 2 embeddings (one per chunk)"
+    );
+
+    // Cleanup
+    let _ = db.archives.drop_archive_schema(&archive_name).await;
+}

@@ -14,12 +14,31 @@ use matric_core::{
     GenerationBackend, JobRepository, JobType, LinkRepository, NoteRepository, ProvRelation,
     RevisionMode, SearchHit,
 };
-use matric_db::{Chunker, ChunkerConfig, Database, SemanticChunker};
+use matric_db::{Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker};
 use matric_inference::OllamaBackend;
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
 use matric_jobs::{JobContext, JobHandler, JobResult};
+
+/// Extract the target schema from a job's payload.
+///
+/// Returns the schema name for multi-memory archive support (Issue #413).
+/// Defaults to "public" for backward compatibility with jobs queued before
+/// the multi-memory feature.
+fn extract_schema(ctx: &JobContext) -> &str {
+    ctx.payload()
+        .and_then(|p| p.get("schema"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("public")
+}
+
+/// Create a SchemaContext for the given schema, returning a JobResult error on failure.
+fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
+    db.for_schema(schema)
+        .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+}
 
 /// Maximum number of related notes to retrieve for AI context.
 /// Based on Miller's Law (7±2): cognitive limit for working memory items.
@@ -130,13 +149,11 @@ impl JobHandler for AiRevisionHandler {
             .and_then(|v| serde_json::from_value::<RevisionMode>(v.clone()).ok())
             .unwrap_or(RevisionMode::Light);
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         // Skip if mode is None (shouldn't happen as we don't queue, but safety check)
         if revision_mode == RevisionMode::None {
@@ -149,10 +166,17 @@ impl JobHandler for AiRevisionHandler {
         ctx.report_progress(10, Some("Fetching note content..."));
 
         // Get the note
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
 
         let original_content = &note.original.content;
         if original_content.trim().is_empty() {
@@ -261,13 +285,20 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             RevisionMode::None => "Original preserved",
         };
 
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
         if let Err(e) = self
             .db
             .notes
-            .update_revised(note_id, &revised, Some(revision_note))
+            .update_revised_tx(&mut tx, note_id, &revised, Some(revision_note))
             .await
         {
             return JobResult::Failed(format!("Failed to save revision: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
         // Record W3C PROV provenance for the AI revision
@@ -353,20 +384,25 @@ impl JobHandler for EmbeddingHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(10, Some("Fetching note..."));
 
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
 
         // Use revised content if available, otherwise original
         let content: &str = if !note.revised.content.is_empty() {
@@ -449,17 +485,55 @@ impl JobHandler for EmbeddingHandler {
             .and_then(|v| v.as_str())
             .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
         let store_result = if let Some(set_id) = embedding_set_id {
-            self.db
-                .embeddings
-                .store_for_set(note_id, set_id, chunk_vectors, model_name)
-                .await
+            // Delete existing embeddings for this specific set
+            if let Err(e) =
+                sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
+                    .bind(note_id)
+                    .bind(set_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(matric_core::Error::Database)
+            {
+                return JobResult::Failed(format!("Failed to delete embeddings: {}", e));
+            }
+            if !chunk_vectors.is_empty() {
+                let now = chrono::Utc::now();
+                for (i, (text, vector)) in chunk_vectors.into_iter().enumerate() {
+                    if let Err(e) = sqlx::query(
+                        "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                    )
+                    .bind(matric_db::new_v7())
+                    .bind(note_id)
+                    .bind(i as i32)
+                    .bind(&text)
+                    .bind(&vector)
+                    .bind(model_name)
+                    .bind(now)
+                    .bind(set_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(matric_core::Error::Database)
+                    {
+                        return JobResult::Failed(format!("Failed to insert embedding: {}", e));
+                    }
+                }
+            }
+            Ok(())
         } else {
             self.db
                 .embeddings
-                .store(note_id, chunk_vectors, model_name)
+                .store_tx(&mut tx, note_id, chunk_vectors, model_name)
                 .await
         };
+        if let Err(e) = tx.commit().await.map_err(matric_core::Error::Database) {
+            return JobResult::Failed(format!("Failed to commit: {}", e));
+        }
 
         if let Err(e) = store_result {
             return JobResult::Failed(format!("Failed to store embeddings: {}", e));
@@ -545,20 +619,25 @@ impl JobHandler for TitleGenerationHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(20, Some("Fetching note..."));
 
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
 
         // Skip if already has a title
         if note.note.title.is_some() {
@@ -655,8 +734,20 @@ Generate only the title, no quotes, no explanations."#,
         ctx.report_progress(80, Some("Saving title..."));
 
         // Save the title
-        if let Err(e) = self.db.notes.update_title(note_id, &title).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        if let Err(e) = self
+            .db
+            .notes
+            .update_title_tx(&mut tx, note_id, &title)
+            .await
+        {
             return JobResult::Failed(format!("Failed to save title: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
         info!(
@@ -787,11 +878,15 @@ impl LinkingHandler {
         source_vec: &pgvector::Vector,
         config: &matric_core::defaults::GraphConfig,
         note_count: usize,
+        schema_ctx: &SchemaContext,
     ) -> std::result::Result<usize, String> {
         let k = config.effective_k(note_count);
         // Fetch 3*k candidates to give the heuristic enough to work with
         let candidate_limit = (k * 3).max(15) as i64;
 
+        // NOTE: find_similar_with_vectors doesn't have a _tx variant yet.
+        // This will silently return empty for non-default archives (graceful degradation).
+        let _ = schema_ctx; // Suppress unused warning until _tx variant is available
         let candidates = match self
             .db
             .embeddings
@@ -829,12 +924,27 @@ impl LinkingHandler {
                 "k": k,
                 "rank": i + 1,
             });
-            if let Err(e) = self
-                .db
-                .links
-                .create_reciprocal(note_id, hit.note_id, "semantic", hit.score, Some(metadata))
-                .await
-            {
+            let result = {
+                let mut tx = schema_ctx
+                    .begin_tx()
+                    .await
+                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                let res = self
+                    .db
+                    .links
+                    .create_reciprocal_tx(
+                        &mut tx,
+                        note_id,
+                        hit.note_id,
+                        "semantic",
+                        hit.score,
+                        Some(metadata),
+                    )
+                    .await;
+                tx.commit().await.ok();
+                res
+            };
+            if let Err(e) = result {
                 debug!(error = %e, "Failed to create reciprocal link (may already exist)");
             } else {
                 created += 1;
@@ -844,11 +954,22 @@ impl LinkingHandler {
         // Isolated node fallback: if heuristic selected nothing but we had
         // candidates, link to single best match to prevent graph isolation.
         if created == 0 {
-            let fallback_candidates =
-                match self.db.embeddings.find_similar(source_vec, 2, true).await {
+            let fallback_candidates = {
+                let mut tx = schema_ctx
+                    .begin_tx()
+                    .await
+                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                let c = self
+                    .db
+                    .embeddings
+                    .find_similar_tx(&mut tx, source_vec, 2, true)
+                    .await;
+                tx.commit().await.ok();
+                match c {
                     Ok(c) => c,
                     Err(_) => return Ok(0),
-                };
+                }
+            };
             if let Some(best_hit) = fallback_candidates
                 .into_iter()
                 .find(|h| h.note_id != note_id && h.score >= config.min_similarity)
@@ -858,18 +979,27 @@ impl LinkingHandler {
                     "k": k,
                     "reason": "no_diverse_neighbors",
                 });
-                if let Err(e) = self
-                    .db
-                    .links
-                    .create_reciprocal(
-                        note_id,
-                        best_hit.note_id,
-                        "semantic",
-                        best_hit.score,
-                        Some(metadata),
-                    )
-                    .await
-                {
+                let result = {
+                    let mut tx = schema_ctx
+                        .begin_tx()
+                        .await
+                        .map_err(|e| format!("Schema tx failed: {}", e))?;
+                    let res = self
+                        .db
+                        .links
+                        .create_reciprocal_tx(
+                            &mut tx,
+                            note_id,
+                            best_hit.note_id,
+                            "semantic",
+                            best_hit.score,
+                            Some(metadata),
+                        )
+                        .await;
+                    tx.commit().await.ok();
+                    res
+                };
+                if let Err(e) = result {
                     debug!(error = %e, "Failed to create fallback link");
                 } else {
                     created += 1;
@@ -886,10 +1016,23 @@ impl LinkingHandler {
         note_id: uuid::Uuid,
         source_vec: &pgvector::Vector,
         link_threshold: f32,
+        schema_ctx: &SchemaContext,
     ) -> std::result::Result<usize, String> {
-        let similar = match self.db.embeddings.find_similar(source_vec, 10, true).await {
-            Ok(s) => s,
-            Err(e) => return Err(format!("Failed to find similar: {}", e)),
+        let similar = {
+            let mut tx = schema_ctx
+                .begin_tx()
+                .await
+                .map_err(|e| format!("Schema tx failed: {}", e))?;
+            let s = self
+                .db
+                .embeddings
+                .find_similar_tx(&mut tx, source_vec, 10, true)
+                .await
+                .map_err(|e| format!("Failed to find similar: {}", e))?;
+            tx.commit()
+                .await
+                .map_err(|e| format!("Commit failed: {}", e))?;
+            s
         };
 
         let mut created = 0;
@@ -899,27 +1042,41 @@ impl LinkingHandler {
             }
 
             // Forward link (new -> old)
-            if let Err(e) = self
-                .db
-                .links
-                .create(note_id, hit.note_id, "semantic", hit.score, None)
-                .await
             {
-                debug!(error = %e, "Failed to create forward link (may already exist)");
-            } else {
-                created += 1;
+                let mut tx = schema_ctx
+                    .begin_tx()
+                    .await
+                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                let res = self
+                    .db
+                    .links
+                    .create_tx(&mut tx, note_id, hit.note_id, "semantic", hit.score, None)
+                    .await;
+                tx.commit().await.ok();
+                if let Err(e) = res {
+                    debug!(error = %e, "Failed to create forward link (may already exist)");
+                } else {
+                    created += 1;
+                }
             }
 
             // Backward link (old -> new)
-            if let Err(e) = self
-                .db
-                .links
-                .create(hit.note_id, note_id, "semantic", hit.score, None)
-                .await
             {
-                debug!(error = %e, "Failed to create backward link (may already exist)");
-            } else {
-                created += 1;
+                let mut tx = schema_ctx
+                    .begin_tx()
+                    .await
+                    .map_err(|e| format!("Schema tx failed: {}", e))?;
+                let res = self
+                    .db
+                    .links
+                    .create_tx(&mut tx, hit.note_id, note_id, "semantic", hit.score, None)
+                    .await;
+                tx.commit().await.ok();
+                if let Err(e) = res {
+                    debug!(error = %e, "Failed to create backward link (may already exist)");
+                } else {
+                    created += 1;
+                }
             }
         }
 
@@ -944,6 +1101,12 @@ impl JobHandler for LinkingHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
         let mut created = 0;
         #[allow(clippy::needless_late_init)]
         let wiki_links_found;
@@ -955,10 +1118,17 @@ impl JobHandler for LinkingHandler {
         // First, parse wiki-style [[links]] from note content
         ctx.report_progress(10, Some("Parsing wiki-style links..."));
 
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
 
         // Determine content-type-aware similarity threshold (for threshold strategy).
         let link_threshold = if let Some(dt_id) = note.note.document_type_id {
@@ -1007,8 +1177,15 @@ impl JobHandler for LinkingHandler {
         ctx.report_progress(40, Some("Finding embeddings for semantic linking..."));
 
         // Get embeddings for this note
-        let embeddings = match self.db.embeddings.get_for_note(note_id).await {
-            Ok(e) => e,
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let embeddings = match self.db.embeddings.get_for_note_tx(&mut tx, note_id).await {
+            Ok(e) => {
+                tx.commit().await.ok();
+                e
+            }
             Err(e) => {
                 warn!(error = %e, "No embeddings for note, skipping semantic linking");
                 return JobResult::Success(Some(serde_json::json!({
@@ -1052,6 +1229,7 @@ impl JobHandler for LinkingHandler {
                     &embeddings[0].vector,
                     &graph_config,
                     note_count.max(100),
+                    &schema_ctx,
                 )
                 .await
             }
@@ -1061,7 +1239,7 @@ impl JobHandler for LinkingHandler {
                     threshold = link_threshold,
                     "Linking with threshold strategy"
                 );
-                self.link_by_threshold(note_id, &embeddings[0].vector, link_threshold)
+                self.link_by_threshold(note_id, &embeddings[0].vector, link_threshold, &schema_ctx)
                     .await
             }
         };
@@ -1121,29 +1299,48 @@ impl JobHandler for PurgeNoteHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(10, Some("Finding affected embedding sets..."));
 
         // Get embedding sets this note is a member of (to update stats after deletion)
-        let affected_sets = match self.db.embedding_sets.get_sets_for_note(note_id).await {
-            Ok(sets) => sets,
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let affected_sets = match self
+            .db
+            .embedding_sets
+            .get_sets_for_note_tx(&mut tx, note_id)
+            .await
+        {
+            Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "Failed to get embedding sets for note, continuing with deletion");
                 vec![]
             }
         };
+        tx.commit().await.ok();
 
         ctx.report_progress(30, Some("Verifying note exists..."));
 
         // Verify note exists before attempting deletion
-        if !self.db.notes.exists(note_id).await.unwrap_or(false) {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let exists = self
+            .db
+            .notes
+            .exists_tx(&mut tx, note_id)
+            .await
+            .unwrap_or(false);
+        tx.commit().await.ok();
+        if !exists {
             return JobResult::Failed(format!("Note {} does not exist", note_id));
         }
 
@@ -1159,8 +1356,15 @@ impl JobHandler for PurgeNoteHandler {
         // - embedding
         // - embedding_set_member
         // - job_queue (for this note)
-        if let Err(e) = self.db.notes.hard_delete(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        if let Err(e) = self.db.notes.hard_delete_tx(&mut tx, note_id).await {
             return JobResult::Failed(format!("Failed to delete note: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
         ctx.report_progress(80, Some("Updating embedding set statistics..."));
@@ -1221,18 +1425,20 @@ impl JobHandler for ContextUpdateHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(20, Some("Finding linked notes..."));
 
         // Get outgoing semantic links with high scores (limit per Miller's Law)
-        let links = match self.db.links.get_outgoing(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let links = match self.db.links.get_outgoing_tx(&mut tx, note_id).await {
             Ok(l) => l
                 .into_iter()
                 .filter(|l| l.score > matric_core::defaults::CONTEXT_LINK_THRESHOLD)
@@ -1245,6 +1451,7 @@ impl JobHandler for ContextUpdateHandler {
                 ));
             }
         };
+        tx.commit().await.ok();
 
         if links.is_empty() {
             return JobResult::Success(Some(
@@ -1255,10 +1462,15 @@ impl JobHandler for ContextUpdateHandler {
         ctx.report_progress(40, Some("Fetching linked content..."));
 
         // Get current note content
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        tx.commit().await.ok();
 
         let current_content = if !note.revised.content.is_empty() {
             &note.revised.content
@@ -1337,10 +1549,15 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
         ctx.report_progress(80, Some("Saving updated content..."));
 
         // Save the updated revision
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
         if let Err(e) = self
             .db
             .notes
-            .update_revised(
+            .update_revised_tx(
+                &mut tx,
                 note_id,
                 &updated_content,
                 Some("Added related context section"),
@@ -1348,6 +1565,9 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
             .await
         {
             return JobResult::Failed(format!("Failed to save: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
         ctx.report_progress(100, Some("Context update complete"));
@@ -1381,12 +1601,20 @@ impl ConceptTaggingHandler {
         &self,
         label: &str,
         scheme_id: uuid::Uuid,
+        schema_ctx: &SchemaContext,
     ) -> Option<uuid::Uuid> {
-        use matric_db::SkosConceptRepository;
-        use matric_db::SkosLabelRepository;
-
         // First, search for existing concept with this label
-        let results = self.db.skos.search_labels(label, 5).await.ok()?;
+        let results = {
+            let mut tx = schema_ctx.begin_tx().await.ok()?;
+            let r = self
+                .db
+                .skos
+                .search_labels_tx(&mut tx, label, 5)
+                .await
+                .ok()?;
+            tx.commit().await.ok();
+            r
+        };
 
         // Check for exact match (case-insensitive)
         let label_lower = label.to_lowercase();
@@ -1416,7 +1644,10 @@ impl ConceptTaggingHandler {
             alt_labels: vec![],
         };
 
-        self.db.skos.create_concept(req).await.ok()
+        let mut tx = schema_ctx.begin_tx().await.ok()?;
+        let id = self.db.skos.create_concept_tx(&mut tx, req).await.ok()?;
+        tx.commit().await.ok();
+        Some(id)
     }
 }
 
@@ -1431,29 +1662,30 @@ impl JobHandler for ConceptTaggingHandler {
         fields(subsystem = "jobs", component = "concept_tagging", op = "execute")
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
-        use matric_db::{SkosConceptSchemeRepository, SkosTaggingRepository};
-
         let start = Instant::now();
         let note_id = match ctx.note_id() {
             Some(id) => id,
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
         // Get the note
-        let note = match self.db.notes.fetch(note_id).await {
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+        tx.commit().await.ok();
 
         // Use revised content if available, otherwise original
         let content: &str = if !note.revised.content.is_empty() {
@@ -1471,8 +1703,16 @@ impl JobHandler for ConceptTaggingHandler {
         ctx.report_progress(20, Some("Getting default concept scheme..."));
 
         // Get or use default scheme
-        let scheme_id = match self.db.skos.list_schemes(false).await {
-            Ok(schemes) if !schemes.is_empty() => schemes[0].id,
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let scheme_id = match self.db.skos.list_schemes_tx(&mut tx, false).await {
+            Ok(schemes) if !schemes.is_empty() => {
+                let id = schemes[0].id;
+                tx.commit().await.ok();
+                id
+            }
             Ok(_) => {
                 // Create default scheme if none exists
                 let req = matric_core::CreateConceptSchemeRequest {
@@ -1487,8 +1727,11 @@ impl JobHandler for ConceptTaggingHandler {
                     rights: None,
                     version: None,
                 };
-                match self.db.skos.create_scheme(req).await {
-                    Ok(id) => id,
+                match self.db.skos.create_scheme_tx(&mut tx, req).await {
+                    Ok(id) => {
+                        tx.commit().await.ok();
+                        id
+                    }
                     Err(e) => {
                         return JobResult::Failed(format!("Failed to create default scheme: {}", e))
                     }
@@ -1575,7 +1818,10 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             let relevance = 1.0_f32 - (i as f32 * matric_core::defaults::RELEVANCE_DECAY_FACTOR); // Decreasing relevance
 
             // Check if concept already exists by searching labels
-            let concept_id = match self.get_or_create_concept(label.trim(), scheme_id).await {
+            let concept_id = match self
+                .get_or_create_concept(label.trim(), scheme_id, &schema_ctx)
+                .await
+            {
                 Some(id) => id,
                 None => {
                     warn!(label = %label, "Failed to get or create concept");
@@ -1594,7 +1840,13 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
                 created_by: None,
             };
 
-            if let Err(e) = self.db.skos.tag_note(tag_req).await {
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+            let result = self.db.skos.tag_note_tx(&mut tx, tag_req).await;
+            tx.commit().await.ok();
+            if let Err(e) = result {
                 debug!(error = %e, concept_id = %concept_id, "Failed to tag note (may already exist)");
             } else {
                 tagged_count += 1;
@@ -2335,13 +2587,11 @@ impl JobHandler for ThreeDAnalysisHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // Extract schema from payload (default to "public" for backward compatibility)
-        let _schema = ctx
-            .payload()
-            .and_then(|p| p.get("schema"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("public");
+        let schema = extract_schema(&ctx);
+        let _schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
 
         ctx.report_progress(10, Some("Fetching 3D model information..."));
 

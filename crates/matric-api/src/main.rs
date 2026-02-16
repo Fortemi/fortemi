@@ -4088,7 +4088,20 @@ async fn update_note(
             }
         }
 
-        queue_nlp_pipeline(&state.db, id, revision_mode, &state.event_bus, None).await;
+        // Determine schema for background jobs (Issue #413)
+        let schema_for_jobs = if archive_ctx.schema != "public" {
+            Some(archive_ctx.schema.as_str())
+        } else {
+            None
+        };
+        queue_nlp_pipeline(
+            &state.db,
+            id,
+            revision_mode,
+            &state.event_bus,
+            schema_for_jobs,
+        )
+        .await;
     }
 
     // Fetch and return the updated note
@@ -4516,13 +4529,19 @@ async fn bulk_reprocess_notes(
             }
         }
 
-        // Queue remaining pipeline steps
+        // Queue remaining pipeline steps with schema context (Issue #413)
         let step_types = [
             ("embedding", JobType::Embedding),
             ("title_generation", JobType::TitleGeneration),
             ("linking", JobType::Linking),
             ("concept_tagging", JobType::ConceptTagging),
         ];
+
+        let step_payload = if archive_ctx.schema != "public" {
+            Some(serde_json::json!({ "schema": &archive_ctx.schema }))
+        } else {
+            None
+        };
 
         for (step_name, job_type) in &step_types {
             if should_run(step_name) {
@@ -4533,7 +4552,7 @@ async fn bulk_reprocess_notes(
                         Some(*note_id),
                         *job_type,
                         job_type.default_priority(),
-                        None,
+                        step_payload.clone(),
                     )
                     .await
                 {
@@ -6252,7 +6271,20 @@ async fn instantiate_template(
         Some("full") => RevisionMode::Full,
         _ => RevisionMode::Light,
     };
-    queue_nlp_pipeline(&state.db, note_id, revision_mode, &state.event_bus, None).await;
+    // Determine schema for background jobs (Issue #413)
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.as_str())
+    } else {
+        None
+    };
+    queue_nlp_pipeline(
+        &state.db,
+        note_id,
+        revision_mode,
+        &state.event_bus,
+        schema_for_jobs,
+    )
+    .await;
 
     Ok((
         StatusCode::CREATED,

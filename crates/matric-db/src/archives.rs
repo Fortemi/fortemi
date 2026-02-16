@@ -268,6 +268,55 @@ impl PgArchiveRepository {
             .map_err(Error::Database)?;
         }
 
+        // Step 9: Create the get_default_embedding_set_id() function in the new schema.
+        // This function is called by store_tx() when creating embeddings.
+        sqlx::query(&format!(
+            r#"
+            CREATE OR REPLACE FUNCTION {}.get_default_embedding_set_id()
+            RETURNS UUID AS $$
+                SELECT id FROM {}.embedding_set
+                WHERE slug = 'default' AND is_active = TRUE
+                LIMIT 1;
+            $$ LANGUAGE SQL STABLE
+            "#,
+            schema_name, schema_name
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Step 10: Seed the default embedding set.
+        // This is required for store_tx() to work correctly when creating embeddings.
+        let default_set_id = new_v7();
+        let default_config_id: Uuid =
+            sqlx::query_scalar("SELECT id FROM embedding_config WHERE is_default = TRUE LIMIT 1")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO {}.embedding_set (
+                id, name, slug, description, purpose, usage_hints, keywords,
+                mode, criteria, embedding_config_id, is_system, is_active, index_status
+            ) VALUES (
+                $1, 'Default', 'default',
+                'Primary embedding set containing all notes. Used for general semantic search.',
+                'Provides semantic search across the entire knowledge base.',
+                'Use this set for general queries when you want to search all content. This is the default set used when no specific set is specified.',
+                ARRAY['all', 'general', 'default', 'everything', 'global'],
+                'auto', $2, $3, TRUE, TRUE, 'ready'
+            )
+            "#,
+            schema_name
+        ))
+        .bind(default_set_id)
+        .bind(serde_json::json!({"include_all": true, "exclude_archived": true}))
+        .bind(default_config_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
@@ -525,6 +574,64 @@ impl PgArchiveRepository {
                 "CREATE TEXT SEARCH CONFIGURATION {}.{} (COPY = public.{})",
                 schema_name, config, config
             ))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        // Ensure get_default_embedding_set_id() function exists in the archive schema
+        sqlx::query(&format!(
+            r#"
+            CREATE OR REPLACE FUNCTION {}.get_default_embedding_set_id()
+            RETURNS UUID AS $$
+                SELECT id FROM {}.embedding_set
+                WHERE slug = 'default' AND is_active = TRUE
+                LIMIT 1;
+            $$ LANGUAGE SQL STABLE
+            "#,
+            schema_name, schema_name
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        // Seed default embedding set if it doesn't exist (for archives created before embedding_set migration)
+        let has_default_set: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {}.embedding_set WHERE slug = 'default')",
+            schema_name
+        ))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        if !has_default_set {
+            let default_set_id = new_v7();
+            let default_config_id: Uuid = sqlx::query_scalar(
+                "SELECT id FROM embedding_config WHERE is_default = TRUE LIMIT 1",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+            sqlx::query(&format!(
+                r#"
+                INSERT INTO {}.embedding_set (
+                    id, name, slug, description, purpose, usage_hints, keywords,
+                    mode, criteria, embedding_config_id, is_system, is_active, index_status
+                ) VALUES (
+                    $1, 'Default', 'default',
+                    'Primary embedding set containing all notes. Used for general semantic search.',
+                    'Provides semantic search across the entire knowledge base.',
+                    'Use this set for general queries when you want to search all content. This is the default set used when no specific set is specified.',
+                    ARRAY['all', 'general', 'default', 'everything', 'global'],
+                    'auto', $2, $3, TRUE, TRUE, 'ready'
+                )
+                "#,
+                schema_name
+            ))
+            .bind(default_set_id)
+            .bind(serde_json::json!({"include_all": true, "exclude_archived": true}))
+            .bind(default_config_id)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
@@ -864,6 +971,12 @@ impl ArchiveRepository for PgArchiveRepository {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         for table in &ordered_tables {
+            // Skip embedding_set table - the new archive already has its own seeded default set.
+            // Copying would cause duplicate key violations since both have slug='default'.
+            if table == "embedding_set" {
+                continue;
+            }
+
             // Get non-generated columns to avoid "cannot insert into generated column" errors
             let columns: Vec<String> = sqlx::query_scalar(
                 r#"

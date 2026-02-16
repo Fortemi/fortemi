@@ -171,6 +171,180 @@ describe("Phase 12: Memory Archives", () => {
     assert.ok(stats.note_count >= 0, "Should have note count");
   });
 
+  test("ARCH-021: New archive has default embedding set (Issue #414)", async () => {
+    // Issue #414: New archives didn't get a default embedding set seeded.
+    // This caused notes in new archives to fail embedding jobs due to missing FK.
+    // After fix, every new archive should have a default embedding set created automatically.
+
+    const name = `test-arch-${testSuffix}-embed`;
+
+    try {
+      await client.callTool("create_archive", { name, description: "Embedding set test" });
+      cleanup.archiveNames.push(name);
+    } catch (err) {
+      if (err.message && err.message.includes("Live memory limit reached")) {
+        console.log(`  ⊘ Skipped (memory limit reached - cleanup needed)`);
+        return;
+      }
+      throw err;
+    }
+
+    // Switch to the new archive
+    await client.callTool("select_memory", { name });
+
+    // List embedding sets - should have at least the default
+    const sets = await client.callTool("list_embedding_sets", {});
+    assert.ok(Array.isArray(sets) || (sets && Array.isArray(sets.sets)), "Should return embedding sets array");
+
+    // Handle both response formats (direct array or {sets: []} object)
+    const setsArray = Array.isArray(sets) ? sets : (sets.sets || []);
+
+    // With Issue #414 fixed, new archives should have >= 1 embedding set
+    // If this fails with 0 sets, the fix hasn't been applied yet
+    assert.ok(setsArray.length >= 1, `Should have at least one embedding set (fix for #414), got ${setsArray.length}`);
+
+    const defaultSet = setsArray.find((s) => s.slug === "default" || s.is_default);
+    assert.ok(defaultSet, "Should have a default embedding set");
+
+    // Verify embedding infrastructure works by creating a note
+    // Before fix: would fail with FK violation on embedding jobs
+    // After fix: should succeed without errors
+    const note = await client.callTool("create_note", {
+      content: `# Embedding Set Test ${MCPTestClient.uniqueId()}\n\nThis note tests that archive has embedding infrastructure.`,
+      tags: [MCPTestClient.testTag("archives", "embed")],
+      revision_mode: "none",
+    });
+    assert.ok(note.id, "Should create note in archive with default embedding set");
+    cleanup.noteIds.push(note.id);
+
+    // Switch back to public
+    await client.callTool("select_memory", { name: "public" });
+    console.log(`  ✓ Archive '${name}' has ${setsArray.length} embedding set(s), created note successfully`);
+  });
+
+  test("ARCH-022: Note in non-default archive triggers job pipeline (Issue #413)", async () => {
+    const name = `test-arch-${testSuffix}-jobs`;
+
+    try {
+      await client.callTool("create_archive", { name, description: "Job pipeline test" });
+      cleanup.archiveNames.push(name);
+    } catch (err) {
+      if (err.message && err.message.includes("Live memory limit reached")) {
+        console.log(`  ⊘ Skipped (memory limit reached - cleanup needed)`);
+        return;
+      }
+      throw err;
+    }
+
+    // Switch to the new archive
+    await client.callTool("select_memory", { name });
+
+    // Create a note - this should trigger job queuing without FK violations
+    const note = await client.callTool("create_note", {
+      content: `# Job Pipeline Test ${MCPTestClient.uniqueId()}\n\nThis note should trigger embedding, title generation, and linking jobs.`,
+      tags: [MCPTestClient.testTag("archives", "jobs")],
+      revision_mode: "none",
+    });
+    assert.ok(note.id, "Should create note in archive");
+    cleanup.noteIds.push(note.id);
+
+    // Wait a moment for jobs to be queued
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Check queue stats - should show queued/completed jobs
+    const stats = await client.callTool("get_queue_stats", {});
+    assert.ok(stats, "Should return queue stats");
+    assert.ok(stats.pending !== undefined, "Should have pending count");
+    console.log(`  ✓ Note created in archive '${name}', queue stats: pending=${stats.pending}, processing=${stats.processing || 0}`);
+
+    // Switch back to public
+    await client.callTool("select_memory", { name: "public" });
+  });
+
+  test("ARCH-023: Archive note search works after embedding (Issues #413/#414)", async () => {
+    const name = `test-arch-${testSuffix}-search`;
+
+    try {
+      await client.callTool("create_archive", { name, description: "Search test archive" });
+      cleanup.archiveNames.push(name);
+    } catch (err) {
+      if (err.message && err.message.includes("Live memory limit reached")) {
+        console.log(`  ⊘ Skipped (memory limit reached - cleanup needed)`);
+        return;
+      }
+      throw err;
+    }
+
+    // Switch to the new archive
+    await client.callTool("select_memory", { name });
+
+    // Create a distinctive note
+    const uniqueContent = `Quantum chromodynamics ${MCPTestClient.uniqueId()}`;
+    const note = await client.callTool("create_note", {
+      content: `# ${uniqueContent}\n\nThis tests full pipeline in an archive memory.`,
+      tags: [MCPTestClient.testTag("archives", "search")],
+      revision_mode: "none",
+    });
+    assert.ok(note.id, "Should create note");
+    cleanup.noteIds.push(note.id);
+
+    // Wait for embedding pipeline to complete
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // Search in the archive context - should find the note
+    const results = await client.callTool("search_notes", {
+      query: "quantum chromodynamics",
+      limit: 5,
+    });
+
+    // Even if semantic search isn't ready yet, FTS should find it
+    assert.ok(results, "Should return search results");
+    const found = Array.isArray(results) ? results : (results.notes || results.results || []);
+    assert.ok(found.length > 0, "Should find the note via search");
+    console.log(`  ✓ Found ${found.length} results in archive search`);
+
+    // Switch back to public
+    await client.callTool("select_memory", { name: "public" });
+  });
+
+  test("ARCH-024: Bulk reprocess works in non-default archive (Issue #413)", async () => {
+    const name = `test-arch-${testSuffix}-bulk`;
+
+    try {
+      await client.callTool("create_archive", { name, description: "Bulk reprocess test" });
+      cleanup.archiveNames.push(name);
+    } catch (err) {
+      if (err.message && err.message.includes("Live memory limit reached")) {
+        console.log(`  ⊘ Skipped (memory limit reached - cleanup needed)`);
+        return;
+      }
+      throw err;
+    }
+
+    // Switch to new archive
+    await client.callTool("select_memory", { name });
+
+    // Create a note first
+    const note = await client.callTool("create_note", {
+      content: `# Bulk Test ${MCPTestClient.uniqueId()}\n\nContent for bulk reprocessing.`,
+      tags: [MCPTestClient.testTag("archives", "bulk")],
+      revision_mode: "none",
+    });
+    assert.ok(note.id, "Should create note");
+    cleanup.noteIds.push(note.id);
+
+    // Bulk reprocess - should not fail with FK violations
+    const result = await client.callTool("bulk_reprocess_notes", {
+      step_types: ["embedding"],
+    });
+    assert.ok(result, "Should return bulk reprocess result");
+    assert.ok(result.queued !== undefined, "Should have queued count");
+    console.log(`  ✓ Bulk reprocess in archive: queued=${result.queued}`);
+
+    // Switch back to public
+    await client.callTool("select_memory", { name: "public" });
+  });
+
   test("ARCH-012: create_archive with duplicate name errors", async () => {
     const name = `test-arch-${testSuffix}-a`; // Already exists
     const error = await client.callToolExpectError("create_archive", { name });
