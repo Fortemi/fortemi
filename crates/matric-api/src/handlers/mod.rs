@@ -12,7 +12,8 @@ pub mod vision;
 
 // Re-export job handlers for backwards compatibility
 pub use jobs::{
-    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
-    ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler,
+    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, LinkingHandler,
+    MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
     RefreshEmbeddingSetHandler, TitleGenerationHandler,
 };

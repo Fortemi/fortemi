@@ -240,9 +240,14 @@ async fn queue_nlp_pipeline(
     // Embedding and Linking are Phase 2 — queued by ConceptTaggingHandler on
     // completion (#420, #424) to ensure SKOS tags exist before embedding, so
     // vectors include tag context for better semantic search and linking.
+    //
+    // MetadataExtraction and DocumentTypeInference added in #430 for full
+    // enrichment parity between single and bulk ingest paths.
     for job_type in [
         JobType::TitleGeneration,
-        JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for embedding and linking)
+        JobType::ConceptTagging,      // SKOS auto-tagging (prerequisite for embedding and linking)
+        JobType::MetadataExtraction,  // Extract authors, dates, DOI, etc. from content (#430)
+        JobType::DocumentTypeInference, // Auto-detect document type (#430)
     ] {
         // Create payload with schema if provided
         let payload = schema.map(|s| serde_json::json!({ "schema": s }));
@@ -303,8 +308,9 @@ use handlers::{
         create_prov_location,
     },
     vision::describe_image,
-    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, EmbeddingHandler,
-    ExifExtractionHandler, LinkingHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler,
+    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, LinkingHandler,
+    MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
     RefreshEmbeddingSetHandler, TitleGenerationHandler,
 };
 
@@ -988,6 +994,15 @@ async fn main() -> anyhow::Result<()> {
                 db.clone(),
                 OllamaBackend::from_env(),
             ))
+            .await;
+        worker
+            .register_handler(MetadataExtractionHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+            ))
+            .await;
+        worker
+            .register_handler(DocumentTypeInferenceHandler::new(db.clone()))
             .await;
         worker
             .register_handler(ReEmbedAllHandler::new(db.clone()))
@@ -3789,6 +3804,18 @@ struct BulkCreateNoteItem {
     /// AI revision mode: "full" (default), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
+    /// Optional document type ID for explicit typing (auto-detected if omitted) (#430)
+    #[serde(default)]
+    document_type_id: Option<Uuid>,
+    /// Optional collection ID for folder hierarchy (#430)
+    #[serde(default)]
+    collection_id: Option<Uuid>,
+    /// Content format (default: "markdown") (#430)
+    #[serde(default)]
+    format: Option<String>,
+    /// Source identifier (default: "api_bulk") (#430)
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -3855,18 +3882,24 @@ async fn bulk_create_notes(
         }
     }
 
-    // Convert to CreateNoteRequest
+    // Convert to CreateNoteRequest — use all fields from BulkCreateNoteItem (#430)
     let requests: Vec<CreateNoteRequest> = body
         .notes
         .iter()
         .map(|item| CreateNoteRequest {
             content: item.content.clone(),
-            format: "markdown".to_string(),
-            source: "api_bulk".to_string(),
-            collection_id: None,
+            format: item
+                .format
+                .clone()
+                .unwrap_or_else(|| "markdown".to_string()),
+            source: item
+                .source
+                .clone()
+                .unwrap_or_else(|| "api_bulk".to_string()),
+            collection_id: item.collection_id,
             tags: item.tags.clone(),
             metadata: item.metadata.clone(),
-            document_type_id: None,
+            document_type_id: item.document_type_id,
         })
         .collect();
 
@@ -4506,12 +4539,14 @@ async fn bulk_reprocess_notes(
 
     let total = note_ids.len();
 
-    // Build step config outside the loop
+    // Build step config outside the loop — includes all enrichment steps (#430)
     let step_types = [
         ("embedding", JobType::Embedding),
         ("title_generation", JobType::TitleGeneration),
         ("linking", JobType::Linking),
         ("concept_tagging", JobType::ConceptTagging),
+        ("metadata_extraction", JobType::MetadataExtraction),
+        ("document_type_inference", JobType::DocumentTypeInference),
     ];
 
     let step_payload = if archive_ctx.schema != "public" {

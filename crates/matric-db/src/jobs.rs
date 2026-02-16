@@ -60,6 +60,7 @@ impl PgJobRepository {
             JobType::Extraction => "extraction",
             JobType::ThreeDAnalysis => "3d_analysis",
             JobType::DocumentTypeInference => "document_type_inference",
+            JobType::MetadataExtraction => "metadata_extraction",
         }
     }
 
@@ -86,6 +87,7 @@ impl PgJobRepository {
             "extraction" => JobType::Extraction,
             "3d_analysis" => JobType::ThreeDAnalysis,
             "document_type_inference" => JobType::DocumentTypeInference,
+            "metadata_extraction" => JobType::MetadataExtraction,
             _ => JobType::ContextUpdate, // fallback
         }
     }
@@ -634,6 +636,10 @@ mod tests {
             PgJobRepository::job_type_to_str(JobType::DocumentTypeInference),
             "document_type_inference"
         );
+        assert_eq!(
+            PgJobRepository::job_type_to_str(JobType::MetadataExtraction),
+            "metadata_extraction"
+        );
     }
 
     // Test string to JobType conversion
@@ -698,6 +704,10 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("document_type_inference"),
             JobType::DocumentTypeInference
+        );
+        assert_eq!(
+            PgJobRepository::str_to_job_type("metadata_extraction"),
+            JobType::MetadataExtraction
         );
     }
 

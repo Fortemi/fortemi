@@ -390,6 +390,18 @@ impl JobHandler for EmbeddingHandler {
             Err(e) => return e,
         };
 
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "embedding",
+                Some(matric_core::EmbeddingBackend::model_name(&self.backend)),
+            )
+            .await
+            .ok();
+
         ctx.report_progress(10, Some("Fetching note..."));
 
         let mut tx = match schema_ctx.begin_tx().await {
@@ -569,6 +581,23 @@ impl JobHandler for EmbeddingHandler {
             return JobResult::Failed(format!("Failed to store embeddings: {}", e));
         }
 
+        // Complete provenance activity (#430)
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "chunks": chunk_count,
+                "model": model_name,
+                "concept_labels_used": concept_labels.len(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete embedding provenance activity");
+            }
+        }
+
         ctx.report_progress(100, Some("Embeddings complete"));
         info!(
             note_id = %note_id,
@@ -654,6 +683,18 @@ impl JobHandler for TitleGenerationHandler {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
+
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "title_generation",
+                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+            )
+            .await
+            .ok();
 
         ctx.report_progress(20, Some("Fetching note..."));
 
@@ -778,6 +819,22 @@ Generate only the title, no quotes, no explanations."#,
         }
         if let Err(e) = tx.commit().await {
             return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+
+        // Complete provenance activity (#430)
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "title": &title,
+                "related_notes_used": related_notes.len(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete title generation provenance activity");
+            }
         }
 
         info!(
@@ -1240,6 +1297,14 @@ impl JobHandler for LinkingHandler {
             Err(e) => return e,
         };
 
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(note_id, "linking", None)
+            .await
+            .ok();
+
         let mut created = 0;
         #[allow(clippy::needless_late_init)]
         let wiki_links_found;
@@ -1398,6 +1463,24 @@ impl JobHandler for LinkingHandler {
             duration_ms = start.elapsed().as_millis() as u64,
             "Linking completed"
         );
+
+        // Complete provenance activity (#430)
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "links_created": created,
+                "wiki_links_found": wiki_links_found,
+                "wiki_links_resolved": wiki_links_resolved,
+                "strategy": graph_config.strategy.to_string(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete linking provenance activity");
+            }
+        }
 
         JobResult::Success(Some(serde_json::json!({
             "links_created": created,
@@ -1802,6 +1885,18 @@ impl JobHandler for ConceptTaggingHandler {
             Err(e) => return e,
         };
 
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "concept_tagging",
+                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+            )
+            .await
+            .ok();
+
         ctx.report_progress(10, Some("Fetching note content..."));
 
         // Get the note
@@ -1837,24 +1932,39 @@ impl JobHandler for ConceptTaggingHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        // Generate concept suggestions using AI with hierarchical paths (#425)
+        // Generate concept suggestions using AI with hierarchical paths (#425, #430).
+        // Enhanced to produce 8-15 tags across multiple dimensions for richer
+        // categorization and cross-cutting queries.
         let prompt = format!(
-            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following note content and suggest 3-7 concept tags organized as hierarchical paths.
+            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
 
 Content:
 {}
 
+REQUIRED DIMENSIONS (include at least one tag from each applicable dimension):
+1. **Domain**: Primary subject area (e.g., "science/machine-learning", "engineering/software")
+2. **Topic**: Specific topics covered (e.g., "nlp/transformers", "databases/vector-search")
+3. **Methodology**: Research/work methodology (e.g., "methodology/experimental", "methodology/survey", "methodology/case-study")
+4. **Application**: Practical applications (e.g., "application/healthcare", "application/search-engines")
+5. **Technique**: Specific techniques used (e.g., "technique/attention-mechanism", "technique/reinforcement-learning")
+6. **Content-type**: What kind of content (e.g., "content-type/research-paper", "content-type/tutorial", "content-type/documentation")
+
+OPTIONAL DIMENSIONS (include if clearly applicable):
+7. **Evaluation**: How results are evaluated (e.g., "evaluation/benchmark", "evaluation/ablation-study")
+8. **Tool/Framework**: Specific tools mentioned (e.g., "tool/pytorch", "tool/postgresql")
+9. **Era/Context**: Temporal context (e.g., "era/foundation-models", "era/pre-transformer")
+
 Guidelines:
-1. Use hierarchical paths with "/" separators (e.g., "technology/machine-learning", "programming/rust")
-2. Use 1-2 levels of hierarchy. Top level = broad domain, leaf = specific topic
-3. Use kebab-case for multi-word terms (e.g., "data-science" not "data science")
-4. Focus on the actual subject matter, not generic terms like "note" or "important"
-5. Keep each path component concise (1-3 words)
-6. Order by relevance (most relevant first)
-7. Reuse the same top-level categories when topics share a domain
+1. Use hierarchical paths with "/" separators
+2. Use 1-2 levels of hierarchy. Top level = dimension/domain, leaf = specific concept
+3. Use kebab-case for multi-word terms
+4. Focus on actual subject matter, not generic terms
+5. Order by relevance (most relevant first)
+6. Reuse top-level categories across notes for cross-cutting queries
+7. Aim for 8-15 tags total — breadth across dimensions is more valuable than depth in one
 
 Output ONLY a JSON array of tag paths, nothing else. Example:
-["science/machine-learning", "science/neural-networks", "programming/python", "data-science/preprocessing"]"#,
+["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#,
             content_preview
         );
 
@@ -1969,6 +2079,24 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         // Tags now exist, so the linker can blend SKOS tag overlap with embedding similarity.
         self.queue_phase2_jobs(note_id, schema).await;
 
+        // Complete provenance activity (#430)
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "concepts_tagged": tagged_count,
+                "concepts_suggested": concept_labels.len(),
+                "labels": &concept_labels,
+                "content_preview_chars": content_preview.len(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete concept tagging provenance activity");
+            }
+        }
+
         ctx.report_progress(100, Some("Concept tagging complete"));
         info!(
             note_id = %note_id,
@@ -1982,6 +2110,444 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             "concepts_tagged": tagged_count,
             "concepts_suggested": concept_labels.len(),
             "labels": concept_labels
+        })))
+    }
+}
+
+/// Handler for extracting rich metadata from note content using AI analysis (#430).
+///
+/// Extracts structured metadata fields from content (authors, dates, DOI, venues,
+/// institutions, etc.) and merges them into the note's JSONB metadata column.
+/// Runs in Phase 1 of the NLP pipeline alongside ConceptTagging.
+pub struct MetadataExtractionHandler {
+    db: Database,
+    backend: OllamaBackend,
+}
+
+impl MetadataExtractionHandler {
+    pub fn new(db: Database, backend: OllamaBackend) -> Self {
+        Self { db, backend }
+    }
+}
+
+#[async_trait]
+impl JobHandler for MetadataExtractionHandler {
+    fn job_type(&self) -> JobType {
+        JobType::MetadataExtraction
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "metadata_extraction", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "metadata_extraction",
+                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+            )
+            .await
+            .ok();
+
+        ctx.report_progress(10, Some("Fetching note content..."));
+
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+        tx.commit().await.ok();
+
+        // Use revised content if available, otherwise original
+        let content: &str = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        if content.trim().is_empty() {
+            return JobResult::Success(Some(
+                serde_json::json!({"fields_extracted": 0, "reason": "empty_content"}),
+            ));
+        }
+
+        ctx.report_progress(20, Some("Analyzing content for metadata..."));
+
+        let content_preview: String = content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_METADATA)
+            .collect();
+
+        // Use AI to extract structured metadata from content
+        let prompt = format!(
+            r#"You are a metadata extraction specialist. Analyze the following content and extract all available structured metadata fields.
+
+Content:
+{}
+
+Extract any of the following fields that are present or can be inferred from the content. Return ONLY valid JSON, nothing else.
+
+Fields to extract:
+- "authors": array of author names (strings)
+- "year": publication year (number)
+- "venue": publication venue/journal/conference (string)
+- "doi": DOI identifier (string)
+- "arxiv_id": arXiv paper ID (string)
+- "isbn": ISBN (string)
+- "url": source URL (string)
+- "institutions": array of affiliated institutions (strings)
+- "abstract": paper abstract or summary if present (string, max 500 chars)
+- "document_type": type of document e.g. "research_paper", "tutorial", "blog_post", "documentation", "report", "book_chapter", "thesis" (string)
+- "language": primary language of the content (string, ISO 639-1 code)
+- "keywords": array of key terms/phrases from the content (strings, 5-15 items)
+- "references_count": number of references/citations mentioned (number)
+- "methodology": research methodology used if applicable (string)
+- "domain": primary domain/field (string)
+- "sub_domain": specific sub-field (string)
+
+Only include fields where you have reasonable confidence. Omit fields you cannot determine.
+
+Example output:
+{{"authors": ["John Smith", "Jane Doe"], "year": 2024, "venue": "NeurIPS", "domain": "machine-learning", "keywords": ["transformers", "attention", "NLP"]}}"#,
+            content_preview
+        );
+
+        let ai_response = match self.backend.generate(&prompt).await {
+            Ok(r) => r.trim().to_string(),
+            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
+        };
+
+        ctx.report_progress(60, Some("Parsing extracted metadata..."));
+
+        // Parse the AI response as JSON object
+        let extracted: serde_json::Value = match serde_json::from_str(&ai_response) {
+            Ok(v) => v,
+            Err(_) => {
+                let cleaned = ai_response
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                match serde_json::from_str(cleaned) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                    }
+                }
+            }
+        };
+
+        let fields_extracted = if let Some(obj) = extracted.as_object() {
+            obj.len()
+        } else {
+            0
+        };
+
+        if fields_extracted == 0 {
+            return JobResult::Success(Some(serde_json::json!({
+                "fields_extracted": 0,
+                "reason": "no_metadata_found"
+            })));
+        }
+
+        ctx.report_progress(80, Some("Merging metadata into note..."));
+
+        // Merge extracted metadata into existing note metadata
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+
+        // Get existing metadata and merge
+        let existing_metadata = note.note.metadata.clone();
+        let mut merged: serde_json::Map<String, serde_json::Value> =
+            if let Some(obj) = existing_metadata.as_object() {
+                obj.clone()
+            } else {
+                serde_json::Map::new()
+            };
+
+        // Merge AI-extracted fields under an "ai_extracted" namespace to avoid
+        // overwriting user-provided metadata
+        if let Some(extracted_obj) = extracted.as_object() {
+            let mut ai_fields = serde_json::Map::new();
+            for (key, value) in extracted_obj {
+                ai_fields.insert(key.clone(), value.clone());
+            }
+            merged.insert(
+                "ai_extracted".to_string(),
+                serde_json::Value::Object(ai_fields),
+            );
+        }
+
+        // Also promote certain high-value fields to top level if not already set
+        if let Some(extracted_obj) = extracted.as_object() {
+            for key in &[
+                "authors",
+                "year",
+                "venue",
+                "doi",
+                "arxiv_id",
+                "domain",
+                "language",
+                "document_type",
+            ] {
+                if !merged.contains_key(*key) {
+                    if let Some(val) = extracted_obj.get(*key) {
+                        merged.insert(key.to_string(), val.clone());
+                    }
+                }
+            }
+        }
+
+        let merged_value = serde_json::Value::Object(merged);
+        if let Err(e) = sqlx::query("UPDATE note SET metadata = $1 WHERE id = $2")
+            .bind(&merged_value)
+            .bind(note_id)
+            .execute(&mut *tx)
+            .await
+        {
+            return JobResult::Failed(format!("Failed to update metadata: {}", e));
+        }
+
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+
+        // Complete provenance activity
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "fields_extracted": fields_extracted,
+                "content_preview_chars": content_preview.len(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete metadata extraction provenance activity");
+            }
+        }
+
+        ctx.report_progress(100, Some("Metadata extraction complete"));
+        info!(
+            note_id = %note_id,
+            fields_extracted = fields_extracted,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Metadata extraction completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "fields_extracted": fields_extracted,
+            "extracted_keys": extracted.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()
+        })))
+    }
+}
+
+/// Handler for auto-detecting document type during ingest (#430).
+///
+/// Uses filename patterns, MIME type, and content analysis to classify
+/// notes into document types from the registry. Runs in Phase 1 of the
+/// NLP pipeline.
+pub struct DocumentTypeInferenceHandler {
+    db: Database,
+}
+
+impl DocumentTypeInferenceHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl JobHandler for DocumentTypeInferenceHandler {
+    fn job_type(&self) -> JobType {
+        JobType::DocumentTypeInference
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "document_type_inference", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(note_id, "document_type_inference", None)
+            .await
+            .ok();
+
+        ctx.report_progress(10, Some("Fetching note..."));
+
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+        tx.commit().await.ok();
+
+        // Skip if document type already assigned
+        if note.note.document_type_id.is_some() {
+            return JobResult::Success(Some(serde_json::json!({
+                "skipped": true,
+                "reason": "document_type_already_assigned"
+            })));
+        }
+
+        let content: &str = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        if content.trim().is_empty() {
+            return JobResult::Success(Some(
+                serde_json::json!({"detected": false, "reason": "empty_content"}),
+            ));
+        }
+
+        ctx.report_progress(30, Some("Detecting document type..."));
+
+        // Extract filename hint from metadata if available
+        let filename_hint = note
+            .note
+            .metadata
+            .get("source_file")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Use the document type detection system
+        let content_preview: String = content.chars().take(1000).collect();
+        let detection = self
+            .db
+            .document_types
+            .detect(
+                filename_hint.as_deref(),
+                Some(&content_preview),
+                None, // no MIME type for notes
+            )
+            .await;
+
+        let (doc_type_id, detection_method, confidence) = match detection {
+            Ok(Some(result)) => {
+                ctx.report_progress(60, Some(&format!("Detected: {}", result.document_type.name)));
+                (
+                    result.document_type.id,
+                    result.detection_method,
+                    result.confidence,
+                )
+            }
+            Ok(None) => {
+                if let Some(act_id) = activity_id {
+                    let _ = self
+                        .db
+                        .provenance
+                        .complete_activity(
+                            act_id,
+                            None,
+                            Some(serde_json::json!({"detected": false})),
+                        )
+                        .await;
+                }
+                return JobResult::Success(Some(serde_json::json!({
+                    "detected": false,
+                    "reason": "no_match"
+                })));
+            }
+            Err(e) => {
+                return JobResult::Failed(format!("Document type detection failed: {}", e));
+            }
+        };
+
+        ctx.report_progress(80, Some("Assigning document type..."));
+
+        // Update note with detected document type
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        if let Err(e) = sqlx::query("UPDATE note SET document_type_id = $1 WHERE id = $2")
+            .bind(doc_type_id)
+            .bind(note_id)
+            .execute(&mut *tx)
+            .await
+        {
+            return JobResult::Failed(format!("Failed to assign document type: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+
+        // Complete provenance activity
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "document_type_id": doc_type_id.to_string(),
+                "detection_method": detection_method,
+                "confidence": confidence,
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete document type inference provenance activity");
+            }
+        }
+
+        ctx.report_progress(100, Some("Document type inference complete"));
+        info!(
+            note_id = %note_id,
+            document_type_id = %doc_type_id,
+            detection_method = %detection_method,
+            confidence = confidence,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Document type inference completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "detected": true,
+            "document_type_id": doc_type_id.to_string(),
+            "detection_method": detection_method,
+            "confidence": confidence,
         })))
     }
 }

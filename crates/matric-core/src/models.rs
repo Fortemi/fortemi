@@ -1817,6 +1817,8 @@ pub enum JobType {
     ThreeDAnalysis,
     /// Classify attachment into a semantic document type using AI
     DocumentTypeInference,
+    /// Extract rich metadata from note content using AI analysis
+    MetadataExtraction,
 }
 
 impl JobType {
@@ -1856,6 +1858,8 @@ impl JobType {
             JobType::ThreeDAnalysis => 4,
             // Document type inference - low priority, runs after content extraction
             JobType::DocumentTypeInference => 2,
+            // Metadata extraction - runs in Phase 1 alongside tagging
+            JobType::MetadataExtraction => 4,
         }
     }
 }

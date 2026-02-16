@@ -511,7 +511,11 @@ pub const PREVIEW_CONTEXT_SNIPPET: usize = 150;
 pub const PREVIEW_LABEL: usize = 100;
 
 /// Characters of content preview for concept tagging analysis.
-pub const PREVIEW_TAGGING: usize = 2000;
+/// Increased from 2000 to 8000 to support richer multi-dimensional tagging (#430).
+pub const PREVIEW_TAGGING: usize = 8000;
+
+/// Characters of content preview for metadata extraction analysis.
+pub const PREVIEW_METADATA: usize = 8000;
 
 /// Characters of content preview for linked note context.
 pub const PREVIEW_LINKED_NOTE: usize = 200;
