@@ -241,5 +241,5 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## Related Projects
 
-- [HotM](https://github.com/jmagly/hotm) - Knowledge management frontend
+- [HotM](https://github.com/Fortemi/hotm) - Knowledge management frontend
 
