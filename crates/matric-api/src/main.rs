@@ -4505,38 +4505,81 @@ async fn bulk_reprocess_notes(
     };
 
     let total = note_ids.len();
-    let mut jobs_queued: usize = 0;
+
+    // Build step config outside the loop
+    let step_types = [
+        ("embedding", JobType::Embedding),
+        ("title_generation", JobType::TitleGeneration),
+        ("linking", JobType::Linking),
+        ("concept_tagging", JobType::ConceptTagging),
+    ];
+
+    let step_payload = if archive_ctx.schema != "public" {
+        Some(serde_json::json!({ "schema": &archive_ctx.schema }))
+    } else {
+        None
+    };
+
+    // Collect all job specs, then queue in parallel (Issue #429).
+    // Previously this was a sequential loop with 2 SQL queries per job,
+    // causing O(notes × steps) serial round-trips. Now all jobs are
+    // queued concurrently, limited only by the connection pool size.
+    let mut job_specs: Vec<(Uuid, JobType, i32, Option<serde_json::Value>)> = Vec::new();
 
     for note_id in &note_ids {
-        // Queue AI revision if requested and mode != None
         if revision_mode != RevisionMode::None && should_run("ai_revision") {
             let payload = serde_json::json!({
                 "revision_mode": revision_mode,
                 "schema": &archive_ctx.schema,
             });
-            if let Ok(Some(job_id)) = state
-                .db
-                .jobs
-                .queue_deduplicated(
-                    Some(*note_id),
-                    JobType::AiRevision,
-                    JobType::AiRevision.default_priority(),
-                    Some(payload),
-                )
-                .await
-            {
-                state.event_bus.emit(ServerEvent::JobQueued {
-                    job_id,
-                    job_type: format!("{:?}", JobType::AiRevision),
-                    note_id: Some(*note_id),
-                });
-                jobs_queued += 1;
-            }
+            job_specs.push((
+                *note_id,
+                JobType::AiRevision,
+                JobType::AiRevision.default_priority(),
+                Some(payload),
+            ));
         }
 
-        // Queue extraction for attachments that need re-extraction (Issue #428)
-        if should_run("extraction") {
-            if let Some(file_storage) = state.db.file_storage.as_ref() {
+        for (step_name, job_type) in &step_types {
+            if should_run(step_name) {
+                job_specs.push((
+                    *note_id,
+                    *job_type,
+                    job_type.default_priority(),
+                    step_payload.clone(),
+                ));
+            }
+        }
+    }
+
+    // Queue all pipeline jobs in parallel
+    let results = futures::future::join_all(job_specs.iter().map(
+        |(note_id, job_type, priority, payload)| {
+            state
+                .db
+                .jobs
+                .queue_deduplicated(Some(*note_id), *job_type, *priority, payload.clone())
+        },
+    ))
+    .await;
+
+    // Count successes and emit events
+    let mut jobs_queued: usize = 0;
+    for (spec, result) in job_specs.iter().zip(results.iter()) {
+        if let Ok(Some(job_id)) = result {
+            state.event_bus.emit(ServerEvent::JobQueued {
+                job_id: *job_id,
+                job_type: format!("{:?}", spec.1),
+                note_id: Some(spec.0),
+            });
+            jobs_queued += 1;
+        }
+    }
+
+    // Queue extraction separately — requires attachment lookups per note (Issue #428)
+    if should_run("extraction") {
+        if let Some(file_storage) = state.db.file_storage.as_ref() {
+            for note_id in &note_ids {
                 let attachments = file_storage
                     .list_by_note(*note_id)
                     .await
@@ -4557,43 +4600,6 @@ async fn bulk_reprocess_notes(
                         .await;
                         jobs_queued += 1;
                     }
-                }
-            }
-        }
-
-        // Queue remaining pipeline steps with schema context (Issue #413)
-        let step_types = [
-            ("embedding", JobType::Embedding),
-            ("title_generation", JobType::TitleGeneration),
-            ("linking", JobType::Linking),
-            ("concept_tagging", JobType::ConceptTagging),
-        ];
-
-        let step_payload = if archive_ctx.schema != "public" {
-            Some(serde_json::json!({ "schema": &archive_ctx.schema }))
-        } else {
-            None
-        };
-
-        for (step_name, job_type) in &step_types {
-            if should_run(step_name) {
-                if let Ok(Some(job_id)) = state
-                    .db
-                    .jobs
-                    .queue_deduplicated(
-                        Some(*note_id),
-                        *job_type,
-                        job_type.default_priority(),
-                        step_payload.clone(),
-                    )
-                    .await
-                {
-                    state.event_bus.emit(ServerEvent::JobQueued {
-                        job_id,
-                        job_type: format!("{:?}", job_type),
-                        note_id: Some(*note_id),
-                    });
-                    jobs_queued += 1;
                 }
             }
         }
