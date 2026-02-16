@@ -245,14 +245,4 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## License
 
-Fortemi is licensed under the [Business Source License 1.1](BSL-LICENSE) (BSL-1.1).
-
-**Free forever for personal use.** Use Fortemi for yourself — your notes, your research, your side projects, your learning. No license key, no time limit, no strings attached. Students, hobbyists, solo researchers, open-source contributors: this is for you.
-
-**Small team or startup?** We want to work with you. If you're a team of 10 or fewer, [reach out](https://github.com/fortemi/fortemi/issues) — we'll find something that works for your budget.
-
-**Larger deployments** (multi-user servers, SaaS, enterprise) need a commercial license. [Let's talk](https://github.com/fortemi/fortemi/issues) — we respond within 2–3 days.
-
-**Fully open source in 2030.** On February 8, 2030 the license automatically converts to AGPL v3. Every version, past and future.
-
-See [docs/content/licensing.md](docs/content/licensing.md) for the full FAQ and plain-English explanation.
+[BSL-1.1](BSL-LICENSE) — Free for personal use, converts to AGPL v3 on Feb 8, 2030. See [licensing FAQ](docs/content/licensing.md).
