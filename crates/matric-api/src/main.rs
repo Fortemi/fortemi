@@ -9154,20 +9154,6 @@ async fn backup_export(
         filter = Some("starred".to_string());
     }
 
-    let list_req = ListNotesRequest {
-        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT), // Large limit for export
-        offset: None,
-        filter,
-        sort_by: Some("created_at".to_string()),
-        sort_order: Some("asc".to_string()),
-        collection_id: None,
-        tags,
-        created_after: query.created_after,
-        created_before: query.created_before,
-        updated_after: None,
-        updated_before: None,
-    };
-
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
@@ -9176,32 +9162,58 @@ async fn backup_export(
     let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
 
-    // Fetch all notes
-    let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+    // Fetch all notes (paginated — list_tx caps at 100 per page)
     let mut exported_notes = Vec::new();
+    let page_size = 100;
+    let mut offset: i64 = 0;
 
-    for note in notes_response.notes {
-        // Fetch full note with content
-        if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
-            let note_tags = tags_repo
-                .get_for_note_tx(&mut tx, note.id)
-                .await
-                .unwrap_or_default();
-            exported_notes.push(serde_json::json!({
-                "id": full_note.note.id,
-                "title": full_note.note.title,
-                "original_content": full_note.original.content,
-                "revised_content": full_note.revised.content,
-                "format": full_note.note.format,
-                "source": full_note.note.source,
-                "starred": full_note.note.starred,
-                "archived": full_note.note.archived,
-                "collection_id": full_note.note.collection_id,
-                "created_at": full_note.note.created_at_utc,
-                "updated_at": full_note.note.updated_at_utc,
-                "tags": note_tags,
-            }));
+    loop {
+        let list_req = ListNotesRequest {
+            limit: Some(page_size),
+            offset: Some(offset),
+            filter: filter.clone(),
+            sort_by: Some("created_at".to_string()),
+            sort_order: Some("asc".to_string()),
+            collection_id: None,
+            tags: tags.clone(),
+            created_after: query.created_after,
+            created_before: query.created_before,
+            updated_after: None,
+            updated_before: None,
+        };
+        let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+
+        if notes_response.notes.is_empty() {
+            break;
         }
+
+        for note in &notes_response.notes {
+            if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+                let note_tags = tags_repo
+                    .get_for_note_tx(&mut tx, note.id)
+                    .await
+                    .unwrap_or_default();
+                exported_notes.push(serde_json::json!({
+                    "id": full_note.note.id,
+                    "title": full_note.note.title,
+                    "original_content": full_note.original.content,
+                    "revised_content": full_note.revised.content,
+                    "format": full_note.note.format,
+                    "source": full_note.note.source,
+                    "starred": full_note.note.starred,
+                    "archived": full_note.note.archived,
+                    "collection_id": full_note.note.collection_id,
+                    "created_at": full_note.note.created_at_utc,
+                    "updated_at": full_note.note.updated_at_utc,
+                    "tags": note_tags,
+                }));
+            }
+        }
+
+        if (notes_response.notes.len() as i64) < page_size {
+            break;
+        }
+        offset += page_size;
     }
 
     // Fetch collections
@@ -9292,20 +9304,6 @@ async fn backup_download(
         filter = Some("starred".to_string());
     }
 
-    let list_req = ListNotesRequest {
-        limit: Some(matric_core::defaults::INTERNAL_FETCH_LIMIT),
-        offset: None,
-        filter,
-        sort_by: Some("created_at".to_string()),
-        sort_order: Some("asc".to_string()),
-        collection_id: None,
-        tags,
-        created_after: query.created_after,
-        created_before: query.created_before,
-        updated_after: None,
-        updated_before: None,
-    };
-
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
@@ -9314,31 +9312,58 @@ async fn backup_download(
     let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
 
-    // Fetch all notes
-    let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+    // Fetch all notes (paginated — list_tx caps at 100 per page)
     let mut exported_notes = Vec::new();
+    let page_size = 100;
+    let mut offset: i64 = 0;
 
-    for note in notes_response.notes {
-        if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
-            let note_tags = tags_repo
-                .get_for_note_tx(&mut tx, note.id)
-                .await
-                .unwrap_or_default();
-            exported_notes.push(serde_json::json!({
-                "id": full_note.note.id,
-                "title": full_note.note.title,
-                "original_content": full_note.original.content,
-                "revised_content": full_note.revised.content,
-                "format": full_note.note.format,
-                "source": full_note.note.source,
-                "starred": full_note.note.starred,
-                "archived": full_note.note.archived,
-                "collection_id": full_note.note.collection_id,
-                "created_at": full_note.note.created_at_utc,
-                "updated_at": full_note.note.updated_at_utc,
-                "tags": note_tags,
-            }));
+    loop {
+        let list_req = ListNotesRequest {
+            limit: Some(page_size),
+            offset: Some(offset),
+            filter: filter.clone(),
+            sort_by: Some("created_at".to_string()),
+            sort_order: Some("asc".to_string()),
+            collection_id: None,
+            tags: tags.clone(),
+            created_after: query.created_after,
+            created_before: query.created_before,
+            updated_after: None,
+            updated_before: None,
+        };
+        let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+
+        if notes_response.notes.is_empty() {
+            break;
         }
+
+        for note in &notes_response.notes {
+            if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+                let note_tags = tags_repo
+                    .get_for_note_tx(&mut tx, note.id)
+                    .await
+                    .unwrap_or_default();
+                exported_notes.push(serde_json::json!({
+                    "id": full_note.note.id,
+                    "title": full_note.note.title,
+                    "original_content": full_note.original.content,
+                    "revised_content": full_note.revised.content,
+                    "format": full_note.note.format,
+                    "source": full_note.note.source,
+                    "starred": full_note.note.starred,
+                    "archived": full_note.note.archived,
+                    "collection_id": full_note.note.collection_id,
+                    "created_at": full_note.note.created_at_utc,
+                    "updated_at": full_note.note.updated_at_utc,
+                    "tags": note_tags,
+                }));
+            }
+        }
+
+        if (notes_response.notes.len() as i64) < page_size {
+            break;
+        }
+        offset += page_size;
     }
 
     // Fetch collections
@@ -10102,40 +10127,56 @@ async fn knowledge_shard(
             Ok(())
         };
 
-        // Export notes
+        // Export notes (paginated to handle archives larger than the DB list limit)
         if components.contains(&"notes") {
             let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
             let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
-            let list_req = ListNotesRequest {
-                limit: Some(100000),
-                ..Default::default()
-            };
-            let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
             let mut notes_json = Vec::new();
+            let page_size = 100;
+            let mut offset = 0;
 
-            for note in &notes_response.notes {
-                if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
-                    let note_tags = tags_repo
-                        .get_for_note_tx(&mut tx, note.id)
-                        .await
-                        .unwrap_or_default();
-                    let note_obj = serde_json::json!({
-                        "id": full_note.note.id,
-                        "title": full_note.note.title,
-                        "original_content": full_note.original.content,
-                        "revised_content": full_note.revised.content,
-                        "format": full_note.note.format,
-                        "source": full_note.note.source,
-                        "starred": full_note.note.starred,
-                        "archived": full_note.note.archived,
-                        "collection_id": full_note.note.collection_id,
-                        "created_at": full_note.note.created_at_utc,
-                        "updated_at": full_note.note.updated_at_utc,
-                        "tags": note_tags,
-                    });
-                    notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
+            loop {
+                let list_req = ListNotesRequest {
+                    limit: Some(page_size),
+                    offset: Some(offset),
+                    ..Default::default()
+                };
+                let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
+
+                if notes_response.notes.is_empty() {
+                    break;
                 }
+
+                for note in &notes_response.notes {
+                    if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+                        let note_tags = tags_repo
+                            .get_for_note_tx(&mut tx, note.id)
+                            .await
+                            .unwrap_or_default();
+                        let note_obj = serde_json::json!({
+                            "id": full_note.note.id,
+                            "title": full_note.note.title,
+                            "original_content": full_note.original.content,
+                            "revised_content": full_note.revised.content,
+                            "format": full_note.note.format,
+                            "source": full_note.note.source,
+                            "starred": full_note.note.starred,
+                            "archived": full_note.note.archived,
+                            "collection_id": full_note.note.collection_id,
+                            "created_at": full_note.note.created_at_utc,
+                            "updated_at": full_note.note.updated_at_utc,
+                            "tags": note_tags,
+                        });
+                        notes_json.push(serde_json::to_string(&note_obj).unwrap_or_default());
+                    }
+                }
+
+                if (notes_response.notes.len() as i64) < page_size {
+                    break;
+                }
+                offset += page_size;
             }
+
             counts.notes = notes_json.len();
             let notes_data = notes_json.join("\n").into_bytes();
             add_json_file("notes.jsonl", &notes_data).map_err(|e| {

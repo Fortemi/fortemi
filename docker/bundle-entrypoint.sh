@@ -246,6 +246,13 @@ CREDS
     fi
 fi
 
+# --- Seed Support Archive (background, non-blocking) ---
+if [ "${DISABLE_SUPPORT_MEMORY:-false}" != "true" ]; then
+    echo ">>> Seeding support archive (background)..."
+    /app/seed-support-archive.sh &
+    SEED_PID=$!
+fi
+
 # --- Start MCP Server ---
 echo ">>> Starting MCP Server..."
 cd /app/mcp-server

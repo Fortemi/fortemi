@@ -106,9 +106,13 @@ RUN npm install --production && \
 
 WORKDIR /app
 
-# Copy entrypoint script
+# Copy seed data for support archive (fortemi-docs)
+COPY docker/seed-data /app/seed-data
+
+# Copy entrypoint and seed scripts
 COPY docker/bundle-entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY docker/seed-support-archive.sh /app/seed-support-archive.sh
+RUN chmod +x /app/entrypoint.sh /app/seed-support-archive.sh
 
 # Version environment variables
 ENV MATRIC_VERSION=${VERSION}

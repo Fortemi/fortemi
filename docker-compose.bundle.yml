@@ -146,6 +146,10 @@ services:
       # - WORKER_ENABLED=true
       # - LOG_FORMAT=json
 
+      # ── Support Memory Archive ──────────────────────────────────────────
+      - DISABLE_SUPPORT_MEMORY=${DISABLE_SUPPORT_MEMORY:-false}
+      - MAX_MEMORIES=${MAX_MEMORIES:-10}
+
       # ── Backup ─────────────────────────────────────────────────────────
       - BACKUP_DEST=${BACKUP_DEST:-/var/backups/matric-memory}
 
