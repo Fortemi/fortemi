@@ -1,6 +1,6 @@
 # ADR-072: Inference Provider Abstraction & Model Slug Routing
 
-**Status:** Accepted (Phase 1), Proposed (Phase 2)
+**Status:** Accepted (Phase 1 + Phase 2), Proposed (Phase 3)
 **Date:** 2026-02-16
 **Deciders:** roctinam
 **Supersedes:** ADR-001 (extends, does not replace)
@@ -418,16 +418,20 @@ If an external provider is unavailable:
 - [x] MCP `capture_knowledge` and `bulk_reprocess_notes` accept `model` param
 - [x] Provenance records capture actual model used
 
-### Phase 2 (Proposed — Separate Issue)
+### Phase 2 (Complete — Issue #432)
 
-- [ ] `ProviderRegistry` type in `matric-inference`
-- [ ] Provider slug parsing (`provider:model` format)
-- [ ] OpenAI provider integration (already implemented behind `openai` feature flag)
-- [ ] OpenRouter support (OpenAI-compatible, reuses `OpenAIBackend`)
-- [ ] Provider configuration via env vars
-- [ ] Model discovery aggregates across providers
-- [ ] Provider health monitoring
-- [ ] MCP tools accept provider-qualified slugs
+- [x] `ProviderRegistry` type in `matric-inference` (`crates/matric-inference/src/provider.rs`)
+- [x] Provider slug parsing (`provider:model` format) with Ollama colon-in-slug handling
+- [x] OpenAI provider auto-registration via `OPENAI_API_KEY` env var
+- [x] OpenRouter support via `OPENROUTER_API_KEY` (OpenAI-compatible, reuses `OpenAIBackend`)
+- [x] Provider configuration via env vars (`from_env()`)
+- [x] Model discovery returns `providers` array with capability and health info
+- [x] Provider health tracking (`Healthy`/`Unknown`/`Unhealthy`)
+- [x] MCP tools accept provider-qualified slugs (updated descriptions)
+- [x] `resolve_gen_override()` — unified backend resolution for job handlers
+- [x] All 5 generation handlers wired through `ProviderRegistry`
+- [x] `AppState.provider_registry` for HTTP handler access
+- [x] 29 unit tests covering slug parsing, provider management, and resolution
 
 ### Phase 3 (Future)
 
@@ -439,12 +443,14 @@ If an external provider is unavailable:
 
 ## References
 
-- ADR-001: Trait-Based Backend Abstraction (foundational trait hierarchy)
+- ADR-001: Trait-Based Backend Abstraction (foundational trait hierarchy, superseded)
 - ADR-002: Feature Flags & Optional Backends (compile-time gating)
 - Issue #431: Allow model slug selection on all LLM operations
+- Issue #432: Multi-provider inference with provider slug routing
 - `crates/matric-core/src/traits.rs` — `EmbeddingBackend`, `GenerationBackend`, `InferenceBackend`
+- `crates/matric-inference/src/provider.rs` — `ProviderRegistry`, `ProviderConfig`, slug parsing
 - `crates/matric-inference/src/ollama.rs` — `OllamaBackend` implementation
 - `crates/matric-inference/src/openai/backend.rs` — `OpenAIBackend` implementation
 - `crates/matric-inference/src/selector.rs` — `ModelSelector` (task-based selection)
-- `crates/matric-api/src/handlers/jobs.rs` — `extract_model_override()`, `backend_with_gen_override()`
-- `crates/matric-api/src/handlers/models.rs` — `GET /api/v1/models` endpoint
+- `crates/matric-api/src/handlers/jobs.rs` — `resolve_gen_backend()`, handler wiring
+- `crates/matric-api/src/handlers/models.rs` — `GET /api/v1/models` with provider info

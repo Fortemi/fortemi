@@ -3,6 +3,7 @@
 //! Ported from HOTM's enhanced NLP pipeline for contextual note enhancement.
 //! Supports multiple revision modes to control AI enhancement aggressiveness.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use matric_core::{
     RevisionMode, SearchHit,
 };
 use matric_db::{Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker};
-use matric_inference::OllamaBackend;
+use matric_inference::{OllamaBackend, ProviderRegistry};
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
@@ -53,17 +54,18 @@ fn extract_model_override(ctx: &JobContext) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Create an OllamaBackend with an optional generation model override.
+/// Resolve an optional model override to a generation backend via the provider registry.
 ///
-/// If `model_override` is `Some`, creates a fresh backend from env config
-/// with the generation model swapped. Otherwise returns `None`, indicating
-/// the caller should use its default backend.
-fn backend_with_gen_override(model_override: Option<&str>) -> Option<OllamaBackend> {
-    model_override.map(|m| {
-        let mut b = OllamaBackend::from_env();
-        b.set_gen_model(m.to_string());
-        b
-    })
+/// Supports provider-qualified slugs (e.g., `"openai:gpt-4o"`, `"qwen3:32b"`).
+/// Returns `Ok(None)` if no override is needed (caller uses default backend).
+/// Returns `Ok(Some(boxed_backend))` for any override — local or external.
+fn resolve_gen_backend(
+    registry: &ProviderRegistry,
+    model_override: Option<&str>,
+) -> Result<Option<Box<dyn GenerationBackend>>, JobResult> {
+    registry
+        .resolve_gen_override(model_override)
+        .map_err(|e| JobResult::Failed(format!("Model resolution error: {}", e)))
 }
 
 /// Maximum number of related notes to retrieve for AI context.
@@ -80,11 +82,16 @@ const MAX_PROMPT_SNIPPETS: usize = 5;
 pub struct AiRevisionHandler {
     db: Database,
     backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl AiRevisionHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
-        Self { db, backend }
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
     }
 
     /// Get related notes for contextual enhancement (similarity > 50%).
@@ -190,9 +197,15 @@ impl JobHandler for AiRevisionHandler {
             })));
         }
 
-        // Use model override if specified, otherwise fall back to default backend
-        let overridden = backend_with_gen_override(model_override.as_deref());
-        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
+        // Resolve model override via provider registry (supports provider-qualified slugs)
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -647,11 +660,16 @@ impl JobHandler for EmbeddingHandler {
 pub struct TitleGenerationHandler {
     db: Database,
     backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl TitleGenerationHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
-        Self { db, backend }
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
     }
 
     /// Get related notes for title context.
@@ -716,9 +734,15 @@ impl JobHandler for TitleGenerationHandler {
             Err(e) => return e,
         };
 
-        // Use model override if specified, otherwise fall back to default backend
-        let overridden = backend_with_gen_override(model_override.as_deref());
-        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
+        // Resolve model override via provider registry (supports provider-qualified slugs)
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
 
         // Start provenance activity (#430)
         let activity_id = self
@@ -1658,11 +1682,16 @@ impl JobHandler for PurgeNoteHandler {
 pub struct ContextUpdateHandler {
     db: Database,
     backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl ContextUpdateHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
-        Self { db, backend }
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
     }
 }
 
@@ -1690,8 +1719,14 @@ impl JobHandler for ContextUpdateHandler {
             Err(e) => return e,
         };
 
-        let overridden = backend_with_gen_override(model_override.as_deref());
-        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
 
         ctx.report_progress(20, Some("Finding linked notes..."));
 
@@ -1851,11 +1886,16 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
 pub struct ConceptTaggingHandler {
     db: Database,
     backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl ConceptTaggingHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
-        Self { db, backend }
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
     }
 
     /// Queue Phase 2 jobs (Embedding + Linking) after concept tagging completes.
@@ -1926,8 +1966,14 @@ impl JobHandler for ConceptTaggingHandler {
             Err(e) => return e,
         };
 
-        let overridden = backend_with_gen_override(model_override.as_deref());
-        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
 
         // Start provenance activity (#430)
         let activity_id = self
@@ -2166,11 +2212,16 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 pub struct MetadataExtractionHandler {
     db: Database,
     backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl MetadataExtractionHandler {
-    pub fn new(db: Database, backend: OllamaBackend) -> Self {
-        Self { db, backend }
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
     }
 }
 
@@ -2198,8 +2249,14 @@ impl JobHandler for MetadataExtractionHandler {
             Err(e) => return e,
         };
 
-        let overridden = backend_with_gen_override(model_override.as_deref());
-        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
 
         // Start provenance activity
         let activity_id = self

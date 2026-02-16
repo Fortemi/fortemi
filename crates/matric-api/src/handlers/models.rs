@@ -1,7 +1,8 @@
 //! Model discovery HTTP handler.
 //!
 //! Returns available LLM models with capability metadata so clients
-//! can choose the right model for each operation.
+//! can choose the right model for each operation. Includes registered
+//! provider information for multi-provider routing (#432).
 
 use axum::extract::State;
 use axum::Json;
@@ -10,13 +11,15 @@ use tracing::warn;
 
 use crate::{ApiError, AppState};
 use matric_inference::discovery::ModelDiscovery;
-use matric_inference::OllamaBackend;
+use matric_inference::{OllamaBackend, ProviderHealth};
 
 /// A single model entry with capability metadata.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ModelInfo {
     /// Model slug used in API parameters (e.g. "qwen3:8b", "nomic-embed-text").
     pub slug: String,
+    /// Provider this model belongs to (e.g. "ollama", "openai").
+    pub provider: String,
     /// What this model can be used for: "language", "embedding", "vision", "transcription".
     pub capabilities: Vec<String>,
     /// If this model is the configured default for a capability, lists those capabilities.
@@ -36,6 +39,19 @@ pub struct ModelInfo {
     pub family: Option<String>,
 }
 
+/// Summary of a registered inference provider.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ProviderInfo {
+    /// Provider identifier (e.g. "ollama", "openai", "openrouter").
+    pub id: String,
+    /// Capabilities supported by this provider.
+    pub capabilities: Vec<String>,
+    /// Whether this is the default provider.
+    pub is_default: bool,
+    /// Current health status: "healthy", "unknown", or "unhealthy".
+    pub health: String,
+}
+
 /// Response from the model discovery endpoint.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ListModelsResponse {
@@ -43,6 +59,8 @@ pub struct ListModelsResponse {
     pub models: Vec<ModelInfo>,
     /// Currently configured default model slugs.
     pub defaults: ModelDefaults,
+    /// Registered inference providers.
+    pub providers: Vec<ProviderInfo>,
 }
 
 /// Default model slugs from server configuration.
@@ -87,7 +105,8 @@ fn is_likely_embedding_model(name: &str) -> bool {
 ///
 /// Queries Ollama for language, embedding, and vision models, and the Whisper
 /// backend for transcription models. Each model includes capability metadata
-/// indicating what operations it can be used for.
+/// indicating what operations it can be used for. Also returns registered
+/// provider information for multi-provider slug routing.
 #[utoipa::path(get, path = "/api/v1/models", tag = "Models",
     responses(
         (status = 200, description = "Available models", body = ListModelsResponse),
@@ -150,6 +169,7 @@ pub async fn list_models(
 
                 models.push(ModelInfo {
                     slug: m.name,
+                    provider: "ollama".to_string(),
                     capabilities,
                     default_for,
                     parameter_size: m.parameter_size,
@@ -185,6 +205,7 @@ pub async fn list_models(
                                 let is_default = id == whisper_model;
                                 models.push(ModelInfo {
                                     slug: id.to_string(),
+                                    provider: "whisper".to_string(),
                                     capabilities: vec!["transcription".to_string()],
                                     default_for: if is_default {
                                         vec!["transcription".to_string()]
@@ -205,6 +226,7 @@ pub async fn list_models(
                 // Fall back to just listing the configured model
                 models.push(ModelInfo {
                     slug: whisper_model.clone(),
+                    provider: "whisper".to_string(),
                     capabilities: vec!["transcription".to_string()],
                     default_for: vec!["transcription".to_string()],
                     parameter_size: None,
@@ -216,6 +238,28 @@ pub async fn list_models(
         }
     }
 
+    // Build provider info from the registry
+    let providers: Vec<ProviderInfo> = state
+        .provider_registry
+        .provider_ids()
+        .into_iter()
+        .filter_map(|id| {
+            state
+                .provider_registry
+                .get_provider(id)
+                .map(|p| ProviderInfo {
+                    id: p.id.clone(),
+                    capabilities: p.capabilities.iter().map(|c| c.to_string()).collect(),
+                    is_default: p.is_default,
+                    health: match p.health {
+                        ProviderHealth::Healthy => "healthy".to_string(),
+                        ProviderHealth::Unknown => "unknown".to_string(),
+                        ProviderHealth::Unhealthy => "unhealthy".to_string(),
+                    },
+                })
+        })
+        .collect();
+
     Ok(Json(ListModelsResponse {
         models,
         defaults: ModelDefaults {
@@ -224,5 +268,6 @@ pub async fn list_models(
             vision: default_vision,
             transcription: default_transcription,
         },
+        providers,
     }))
 }

@@ -43,6 +43,7 @@ pub mod latency;
 pub mod link_types;
 pub mod model_config;
 pub mod profiles;
+pub mod provider;
 pub mod refinement;
 pub mod selector;
 pub mod thinking;
@@ -99,6 +100,9 @@ pub use model_config::{
     is_model_restricted, validate_model, ModelRestriction, ModelValidationError, RestrictionType,
 };
 pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
+pub use provider::{
+    ParsedSlug, ProviderCapability, ProviderConfig, ProviderHealth, ProviderRegistry,
+};
 pub use refinement::{
     parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
     reflexion_prompt, self_critique_prompt, Episode, EpisodeOutcome, ReActStep, ReActTrace,

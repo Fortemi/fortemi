@@ -375,6 +375,8 @@ struct AppState {
     build_date: String,
     /// Extraction strategies that are actually registered and available.
     extraction_strategies: Vec<String>,
+    /// Provider registry for multi-provider inference routing (#432).
+    provider_registry: std::sync::Arc<matric_inference::ProviderRegistry>,
     /// Cached per-schema search engines for non-default archives.
     schema_engines:
         Arc<tokio::sync::RwLock<std::collections::HashMap<String, Arc<HybridSearchEngine>>>>,
@@ -858,6 +860,10 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Build shared provider registry for multi-provider inference routing (#432).
+    // Created before the worker so it's available to both job handlers and AppState.
+    let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
+
     let mut active_extraction_strategies: Vec<String> = Vec::new();
     let _worker_handle = if worker_enabled {
         info!("Starting job worker...");
@@ -983,6 +989,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(AiRevisionHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                provider_registry.clone(),
             ))
             .await;
         worker
@@ -992,6 +999,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(TitleGenerationHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                provider_registry.clone(),
             ))
             .await;
         worker
@@ -1001,6 +1009,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(ContextUpdateHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                provider_registry.clone(),
             ))
             .await;
         worker
@@ -1010,12 +1019,14 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(ConceptTaggingHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                provider_registry.clone(),
             ))
             .await;
         worker
             .register_handler(MetadataExtractionHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                provider_registry.clone(),
             ))
             .await;
         worker
@@ -1145,6 +1156,7 @@ async fn main() -> anyhow::Result<()> {
         git_sha: std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
         build_date: std::env::var("MATRIC_BUILD_DATE").unwrap_or_else(|_| "unknown".to_string()),
         extraction_strategies: active_extraction_strategies,
+        provider_registry: provider_registry.clone(),
         schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         database_url: database_url.clone(),
     };
@@ -14367,6 +14379,7 @@ mod tests {
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
+            provider_registry: std::sync::Arc::new(matric_inference::ProviderRegistry::from_env()),
             schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             database_url: String::new(),
         };
@@ -15092,6 +15105,7 @@ mod tests {
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
+            provider_registry: std::sync::Arc::new(matric_inference::ProviderRegistry::from_env()),
             schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             database_url: String::new(),
         };
@@ -15389,6 +15403,7 @@ mod tests {
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
+            provider_registry: std::sync::Arc::new(matric_inference::ProviderRegistry::from_env()),
             schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             database_url: String::new(),
         };

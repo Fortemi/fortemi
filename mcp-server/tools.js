@@ -309,7 +309,7 @@ export default [
         },
         "model": {
           "type": "string",
-          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default. Use get_available_models to discover available slugs."
+          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3:8b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
         }
       },
       "required": [
@@ -1851,7 +1851,7 @@ export default [
   },
   {
     name: "get_available_models",
-    description: `List available LLM models with capability metadata. Returns all models from Ollama (language, embedding, vision) and Whisper (transcription) backends, including which model is the default for each capability. Use this to discover available model slugs before passing them to capture_knowledge or bulk_reprocess_notes.`,
+    description: `List available LLM models with capability metadata. Returns all models from configured providers (Ollama, OpenAI, OpenRouter) and Whisper (transcription), including which model is the default for each capability. Also returns registered providers and their health status. Model slugs can be provider-qualified (e.g. "openai:gpt-4o", "openrouter:anthropic/claude-sonnet-4-20250514") — bare slugs route to the default provider (Ollama).`,
     inputSchema: {
       "type": "object",
       "properties": {}
@@ -4883,7 +4883,7 @@ When called without note_ids, processes all notes in the current archive (up to 
         },
         "model": {
           "type": "string",
-          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default. Use get_available_models to discover available slugs."
+          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3:8b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
         }
       }
     },
