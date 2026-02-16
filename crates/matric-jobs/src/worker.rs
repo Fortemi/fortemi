@@ -38,6 +38,36 @@ impl Default for WorkerConfig {
 }
 
 impl WorkerConfig {
+    /// Create config from environment variables (with defaults).
+    ///
+    /// | Variable | Default | Description |
+    /// |----------|---------|-------------|
+    /// | `JOB_WORKER_ENABLED` | `true` | Enable/disable job processing |
+    /// | `JOB_MAX_CONCURRENT` | `4` | Max concurrent jobs |
+    /// | `JOB_POLL_INTERVAL_MS` | `500` | Polling interval when queue is empty |
+    pub fn from_env() -> Self {
+        let enabled = std::env::var("JOB_WORKER_ENABLED")
+            .map(|v| v != "false" && v != "0")
+            .unwrap_or(true);
+
+        let max_concurrent_jobs = std::env::var("JOB_MAX_CONCURRENT")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(matric_core::defaults::JOB_MAX_CONCURRENT)
+            .max(1);
+
+        let poll_interval_ms = std::env::var("JOB_POLL_INTERVAL_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_POLL_INTERVAL_MS);
+
+        Self {
+            poll_interval_ms,
+            max_concurrent_jobs,
+            enabled,
+        }
+    }
+
     /// Create a new config with custom poll interval.
     pub fn with_poll_interval(mut self, ms: u64) -> Self {
         self.poll_interval_ms = ms;
@@ -161,7 +191,10 @@ impl JobWorker {
         }
     }
 
-    /// Run the worker loop.
+    /// Run the worker loop with concurrent job processing (Issue #416).
+    ///
+    /// Claims up to `max_concurrent_jobs` at a time and processes them concurrently.
+    /// Only sleeps when the queue is empty (backpressure-aware polling).
     #[instrument(skip(self, shutdown_rx))]
     async fn run(&self, shutdown_rx: &mut mpsc::Receiver<()>) {
         if !self.config.enabled {
@@ -178,51 +211,107 @@ impl JobWorker {
         let _ = self.event_tx.send(WorkerEvent::WorkerStarted);
 
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
+        let max_concurrent = self.config.max_concurrent_jobs;
 
         loop {
-            tokio::select! {
-                _ = shutdown_rx.recv() => {
-                    info!("Job worker received shutdown signal");
-                    break;
-                }
-                _ = self.process_next_job() => {
-                    // Job processed or no job available
+            // Check for shutdown before claiming jobs
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Job worker received shutdown signal");
+                break;
+            }
+
+            // Claim up to max_concurrent jobs
+            let mut claimed = 0;
+            let mut tasks = tokio::task::JoinSet::new();
+
+            for _ in 0..max_concurrent {
+                match self.claim_job().await {
+                    Some(job) => {
+                        claimed += 1;
+                        let worker = self.clone_refs();
+                        tasks.spawn(async move {
+                            worker.execute_job(job).await;
+                        });
+                    }
+                    None => break,
                 }
             }
 
-            sleep(poll_interval).await;
+            if claimed == 0 {
+                // Queue empty — sleep before polling again
+                tokio::select! {
+                    _ = shutdown_rx.recv() => {
+                        info!("Job worker received shutdown signal");
+                        break;
+                    }
+                    _ = sleep(poll_interval) => {}
+                }
+            } else {
+                debug!(claimed, "Processing concurrent job batch");
+                // Wait for all claimed jobs to complete
+                while let Some(result) = tasks.join_next().await {
+                    if let Err(e) = result {
+                        error!(error = ?e, "Job task panicked");
+                    }
+                }
+                // No sleep — immediately try to claim more jobs
+            }
         }
 
         let _ = self.event_tx.send(WorkerEvent::WorkerStopped);
         info!("Job worker stopped");
     }
 
-    /// Process the next available job.
-    #[instrument(
-        skip(self),
-        fields(subsystem = "jobs", component = "worker", op = "process_next")
-    )]
-    async fn process_next_job(&self) -> bool {
-        let start = Instant::now();
-
-        // Only claim jobs this worker has handlers for
+    /// Claim the next available job without processing it.
+    async fn claim_job(&self) -> Option<matric_core::Job> {
         let job_types: Vec<JobType> = {
             let handlers = self.handlers.read().await;
             handlers.keys().copied().collect()
         };
 
-        let job = match self.db.jobs.claim_next_for_types(&job_types).await {
-            Ok(Some(job)) => job,
-            Ok(None) => {
-                debug!("No jobs available");
-                return false;
-            }
+        match self.db.jobs.claim_next_for_types(&job_types).await {
+            Ok(Some(job)) => Some(job),
+            Ok(None) => None,
             Err(e) => {
                 error!(error = ?e, "Failed to claim job");
-                return false;
+                None
             }
-        };
+        }
+    }
 
+    /// Clone references needed for spawned job tasks.
+    fn clone_refs(&self) -> JobWorkerRef {
+        JobWorkerRef {
+            db: self.db.clone(),
+            handlers: self.handlers.clone(),
+            event_tx: self.event_tx.clone(),
+        }
+    }
+
+    /// Get a receiver for worker events.
+    pub fn events(&self) -> broadcast::Receiver<WorkerEvent> {
+        self.event_tx.subscribe()
+    }
+
+    /// Get the pending job count.
+    pub async fn pending_count(&self) -> Result<i64> {
+        self.db.jobs.pending_count().await
+    }
+}
+
+/// Lightweight reference bundle for executing a single job in a spawned task.
+///
+/// This avoids requiring `Arc<JobWorker>` to be `Send + Sync` for `JoinSet::spawn`.
+struct JobWorkerRef {
+    db: Database,
+    handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
+    event_tx: broadcast::Sender<WorkerEvent>,
+}
+
+impl JobWorkerRef {
+    /// Execute a single claimed job.
+    async fn execute_job(self, job: matric_core::Job) {
+        let start = Instant::now();
         let job_id = job.id;
         let job_type = job.job_type;
 
@@ -240,7 +329,6 @@ impl JobWorker {
 
         let result = match handler {
             Some(handler) => {
-                // Create context with progress callback
                 let event_tx = self.event_tx.clone();
                 let ctx = JobContext::new(job).with_progress_callback(move |percent, message| {
                     let _ = event_tx.send(WorkerEvent::JobProgress {
@@ -250,7 +338,6 @@ impl JobWorker {
                     });
                 });
 
-                // Execute the handler with timeout
                 let job_timeout = Duration::from_secs(matric_core::defaults::JOB_TIMEOUT_SECS);
                 match tokio::time::timeout(job_timeout, handler.execute(ctx)).await {
                     Ok(result) => result,
@@ -274,7 +361,6 @@ impl JobWorker {
             }
         };
 
-        // Update job status based on result
         match result {
             JobResult::Success(result_data) => {
                 if let Err(e) = self.db.jobs.complete(job_id, result_data).await {
@@ -310,18 +396,6 @@ impl JobWorker {
                 }
             }
         }
-
-        true
-    }
-
-    /// Get a receiver for worker events.
-    pub fn events(&self) -> broadcast::Receiver<WorkerEvent> {
-        self.event_tx.subscribe()
-    }
-
-    /// Get the pending job count.
-    pub async fn pending_count(&self) -> Result<i64> {
-        self.db.jobs.pending_count().await
     }
 }
 

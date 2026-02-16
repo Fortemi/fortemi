@@ -950,7 +950,7 @@ async fn main() -> anyhow::Result<()> {
 
         let worker = JobWorker::new(
             db.clone(),
-            WorkerConfig::default(),
+            WorkerConfig::from_env(),
             Some(extraction_registry),
         );
 
