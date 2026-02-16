@@ -7327,7 +7327,7 @@ async fn federated_search(
             SELECT
                 n.id AS note_id,
                 ts_rank_cd(nrc.tsv, websearch_to_tsquery('public.matric_english', $1)) AS score,
-                substring(nrc.content for 200) AS snippet,
+                left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                 n.title,
                 COALESCE(
                     (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),

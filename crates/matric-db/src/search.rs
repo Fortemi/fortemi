@@ -4,6 +4,14 @@
 //! - `websearch_to_tsquery()` for OR/NOT/phrase operators
 //! - `matric_english` for English content (default)
 //! - `matric_simple` for CJK and other scripts (no stemming)
+//!
+//! ## PG 18.2 Bug Workaround (#418)
+//!
+//! All snippet extraction uses `left(convert_from(content::bytea, 'UTF8'), N)`
+//! instead of `substring(content for N)` to work around PostgreSQL Bug #19406.
+//! The `substring()`/`left()` functions fail with "invalid byte sequence for
+//! encoding UTF8" on TOAST-compressed text containing multi-byte characters.
+//! Fixed upstream Feb 2026 — revert to `substring()` after upgrading to PG 18.3+.
 
 use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
@@ -57,7 +65,7 @@ impl PgFtsSearch {
                        websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -161,7 +169,7 @@ impl PgFtsSearch {
                        websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -256,7 +264,7 @@ impl PgFtsSearch {
                        websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -413,7 +421,7 @@ impl PgFtsSearch {
                        similarity(nrc.content, $1),
                        similarity(COALESCE(n.title, ''), $1)
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -495,7 +503,7 @@ impl PgFtsSearch {
                        to_tsvector('public.matric_simple', nrc.content),
                        websearch_to_tsquery('public.matric_simple', $1)
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -603,7 +611,7 @@ impl PgFtsSearch {
                        bigm_similarity(nrc.content, $1),
                        bigm_similarity(COALESCE(n.title, ''), $1)
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -704,7 +712,7 @@ impl PgFtsSearch {
                        websearch_to_tsquery('public.matric_english', $1),
                        32
                    ) AS score,
-                   substring(nrc.content for 200) AS snippet,
+                   left(convert_from(nrc.content::bytea, 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
