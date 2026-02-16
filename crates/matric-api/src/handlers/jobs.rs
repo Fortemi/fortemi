@@ -1777,60 +1777,6 @@ impl ConceptTaggingHandler {
             warn!(%note_id, error = %e, "Failed to queue phase-2 linking job");
         }
     }
-
-    /// Get or create a concept by preferred label.
-    async fn get_or_create_concept(
-        &self,
-        label: &str,
-        scheme_id: uuid::Uuid,
-        schema_ctx: &SchemaContext,
-    ) -> Option<uuid::Uuid> {
-        // First, search for existing concept with this label
-        let results = {
-            let mut tx = schema_ctx.begin_tx().await.ok()?;
-            let r = self
-                .db
-                .skos
-                .search_labels_tx(&mut tx, label, 5)
-                .await
-                .ok()?;
-            tx.commit().await.ok();
-            r
-        };
-
-        // Check for exact match (case-insensitive)
-        let label_lower = label.to_lowercase();
-        for concept in &results {
-            if let Some(pref) = &concept.pref_label {
-                if pref.to_lowercase() == label_lower {
-                    return Some(concept.concept.id);
-                }
-            }
-        }
-
-        // No exact match found - create new concept
-        let req = matric_core::CreateConceptRequest {
-            scheme_id,
-            notation: None, // Auto-generated
-            pref_label: label.to_string(),
-            language: "en".to_string(),
-            status: matric_core::TagStatus::Candidate,
-            facet_type: None,
-            facet_source: None,
-            facet_domain: None,
-            facet_scope: None,
-            definition: Some("Auto-created by AI concept tagging".to_string()),
-            scope_note: None,
-            broader_ids: vec![],
-            related_ids: vec![],
-            alt_labels: vec![],
-        };
-
-        let mut tx = schema_ctx.begin_tx().await.ok()?;
-        let id = self.db.skos.create_concept_tx(&mut tx, req).await.ok()?;
-        tx.commit().await.ok();
-        Some(id)
-    }
 }
 
 #[async_trait]
@@ -1883,47 +1829,7 @@ impl JobHandler for ConceptTaggingHandler {
             ));
         }
 
-        ctx.report_progress(20, Some("Getting default concept scheme..."));
-
-        // Get or use default scheme
-        let mut tx = match schema_ctx.begin_tx().await {
-            Ok(t) => t,
-            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
-        };
-        let scheme_id = match self.db.skos.list_schemes_tx(&mut tx, false).await {
-            Ok(schemes) if !schemes.is_empty() => {
-                let id = schemes[0].id;
-                tx.commit().await.ok();
-                id
-            }
-            Ok(_) => {
-                // Create default scheme if none exists
-                let req = matric_core::CreateConceptSchemeRequest {
-                    notation: "default".to_string(),
-                    title: "Default Concept Scheme".to_string(),
-                    uri: None,
-                    description: Some(
-                        "Auto-created default scheme for AI-generated concepts".to_string(),
-                    ),
-                    creator: None,
-                    publisher: None,
-                    rights: None,
-                    version: None,
-                };
-                match self.db.skos.create_scheme_tx(&mut tx, req).await {
-                    Ok(id) => {
-                        tx.commit().await.ok();
-                        id
-                    }
-                    Err(e) => {
-                        return JobResult::Failed(format!("Failed to create default scheme: {}", e))
-                    }
-                }
-            }
-            Err(e) => return JobResult::Failed(format!("Failed to get schemes: {}", e)),
-        };
-
-        ctx.report_progress(30, Some("Analyzing content for concepts..."));
+        ctx.report_progress(20, Some("Analyzing content for concepts..."));
 
         // Take content preview for analysis
         let content_preview: String = content
@@ -1931,22 +1837,24 @@ impl JobHandler for ConceptTaggingHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        // Generate concept suggestions using AI
+        // Generate concept suggestions using AI with hierarchical paths (#425)
         let prompt = format!(
-            r#"You are a knowledge organization specialist. Analyze the following note content and suggest 3-7 specific SKOS-style concept labels that describe its main topics.
+            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following note content and suggest 3-7 concept tags organized as hierarchical paths.
 
 Content:
 {}
 
 Guidelines:
-1. Use specific, descriptive terms (not generic words like "note", "important", "todo")
-2. Use noun phrases or compound terms (e.g., "machine learning", "database optimization", "rust programming")
-3. Focus on the actual subject matter and key concepts
-4. Keep labels concise (1-4 words each)
-5. Order by relevance (most relevant first)
+1. Use hierarchical paths with "/" separators (e.g., "technology/machine-learning", "programming/rust")
+2. Use 1-2 levels of hierarchy. Top level = broad domain, leaf = specific topic
+3. Use kebab-case for multi-word terms (e.g., "data-science" not "data science")
+4. Focus on the actual subject matter, not generic terms like "note" or "important"
+5. Keep each path component concise (1-3 words)
+6. Order by relevance (most relevant first)
+7. Reuse the same top-level categories when topics share a domain
 
-Output ONLY a JSON array of concept labels, nothing else. Example:
-["machine learning", "neural networks", "python programming", "data preprocessing"]"#,
+Output ONLY a JSON array of tag paths, nothing else. Example:
+["science/machine-learning", "science/neural-networks", "programming/python", "data-science/preprocessing"]"#,
             content_preview
         );
 
@@ -1991,9 +1899,11 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             })));
         }
 
-        ctx.report_progress(60, Some("Creating/matching concepts..."));
+        ctx.report_progress(60, Some("Resolving SKOS concepts..."));
 
-        // Get or create concepts and tag the note
+        // Resolve or create hierarchical SKOS concepts and tag the note (#425).
+        // Uses resolve_or_create_tag_tx which handles scheme resolution, hierarchy
+        // wiring (broader/narrower), and notation-based deduplication.
         let mut tagged_count = 0;
         let total = concept_labels.len();
 
@@ -2004,24 +1914,30 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             }
 
             let is_primary = i == 0; // First concept is primary
-            let relevance = 1.0_f32 - (i as f32 * matric_core::defaults::RELEVANCE_DECAY_FACTOR); // Decreasing relevance
+            let relevance = 1.0_f32 - (i as f32 * matric_core::defaults::RELEVANCE_DECAY_FACTOR);
 
-            // Check if concept already exists by searching labels
-            let concept_id = match self
-                .get_or_create_concept(label.trim(), scheme_id, &schema_ctx)
-                .await
-            {
-                Some(id) => id,
-                None => {
-                    warn!(label = %label, "Failed to get or create concept");
+            // Parse label as hierarchical tag path (e.g., "science/machine-learning")
+            let tag_input = matric_core::TagInput::parse(label.trim());
+
+            // Resolve or create the concept hierarchy in a single transaction
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+
+            let resolved = match self.db.skos.resolve_or_create_tag_tx(&mut tx, &tag_input).await {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(label = %label, error = %e, "Failed to resolve concept");
+                    tx.commit().await.ok();
                     continue;
                 }
             };
 
-            // Tag the note with this concept
+            // Tag the note with the leaf concept
             let tag_req = matric_core::TagNoteRequest {
                 note_id,
-                concept_id,
+                concept_id: resolved.concept_id,
                 source: "ai_auto".to_string(),
                 confidence: Some(matric_core::defaults::AI_TAGGING_CONFIDENCE),
                 relevance_score: relevance,
@@ -2029,14 +1945,10 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
                 created_by: None,
             };
 
-            let mut tx = match schema_ctx.begin_tx().await {
-                Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
-            };
             let result = self.db.skos.tag_note_tx(&mut tx, tag_req).await;
             tx.commit().await.ok();
             if let Err(e) = result {
-                debug!(error = %e, concept_id = %concept_id, "Failed to tag note (may already exist)");
+                debug!(error = %e, concept_id = %resolved.concept_id, "Failed to tag note (may already exist)");
             } else {
                 tagged_count += 1;
             }
