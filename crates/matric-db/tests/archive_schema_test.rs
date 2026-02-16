@@ -762,7 +762,7 @@ async fn test_new_archive_has_default_embedding_set() {
             WHERE n.nspname = $1
                 AND p.proname = 'get_default_embedding_set_id'
         )
-        "#
+        "#,
     )
     .bind(&archive.schema_name)
     .fetch_one(&pool)
