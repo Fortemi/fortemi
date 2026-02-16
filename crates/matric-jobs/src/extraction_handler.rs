@@ -102,9 +102,7 @@ impl JobHandler for ExtractionHandler {
 
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
-                Err(e) => {
-                    return JobResult::Failed(format!("Schema tx failed: {}", e))
-                }
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
             };
             let result = file_storage.download_file_tx(&mut tx, att_id).await;
             if let Err(e) = tx.commit().await {
@@ -176,7 +174,12 @@ impl JobHandler for ExtractionHandler {
                                 }
 
                                 if let Err(e) = file_storage
-                                    .update_status_tx(&mut tx, att_id, AttachmentStatus::Completed, None)
+                                    .update_status_tx(
+                                        &mut tx,
+                                        att_id,
+                                        AttachmentStatus::Completed,
+                                        None,
+                                    )
                                     .await
                                 {
                                     error!(

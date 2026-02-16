@@ -1925,7 +1925,12 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                 Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
             };
 
-            let resolved = match self.db.skos.resolve_or_create_tag_tx(&mut tx, &tag_input).await {
+            let resolved = match self
+                .db
+                .skos
+                .resolve_or_create_tag_tx(&mut tx, &tag_input)
+                .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     warn!(label = %label, error = %e, "Failed to resolve concept");
@@ -2545,7 +2550,12 @@ impl JobHandler for ExifExtractionHandler {
                     source: "gps_exif".to_string(),
                     confidence: "high".to_string(),
                 };
-                match self.db.memory_search.create_prov_location_tx(&mut tx, &req).await {
+                match self
+                    .db
+                    .memory_search
+                    .create_prov_location_tx(&mut tx, &req)
+                    .await
+                {
                     Ok(id) => {
                         info!(location_id = %id, lat, lon, "Created provenance location from EXIF GPS");
                         location_id = Some(id);
@@ -2586,7 +2596,12 @@ impl JobHandler for ExifExtractionHandler {
                 })),
                 device_name: None,
             };
-            match self.db.memory_search.create_prov_agent_device_tx(&mut tx, &req).await {
+            match self
+                .db
+                .memory_search
+                .create_prov_agent_device_tx(&mut tx, &req)
+                .await
+            {
                 Ok(device) => {
                     info!(device_id = %device.id, make, model, "Created/updated provenance device from EXIF");
                     device_id = Some(device.id);
