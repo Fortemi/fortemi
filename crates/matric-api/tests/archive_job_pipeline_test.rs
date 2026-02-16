@@ -637,13 +637,11 @@ async fn test_archive_drop_cleans_up_orphaned_jobs() {
     }
 
     // Verify jobs exist
-    let job_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1",
-    )
-    .bind(note_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("Failed to count jobs");
+    let job_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM job_queue WHERE note_id = $1")
+        .bind(note_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("Failed to count jobs");
     assert!(
         job_count >= 3,
         "Should have at least 3 queued jobs, got {}",
@@ -657,13 +655,12 @@ async fn test_archive_drop_cleans_up_orphaned_jobs() {
         .expect("Failed to drop archive");
 
     // Verify jobs are cleaned up
-    let remaining_jobs: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1",
-    )
-    .bind(note_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("Failed to count remaining jobs");
+    let remaining_jobs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM job_queue WHERE note_id = $1")
+            .bind(note_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("Failed to count remaining jobs");
     assert_eq!(
         remaining_jobs, 0,
         "All jobs for deleted archive should be cleaned up, but {} remain",
