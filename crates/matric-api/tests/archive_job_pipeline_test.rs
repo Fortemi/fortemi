@@ -595,3 +595,78 @@ async fn test_job_queue_without_fk_constraint() {
 
     cleanup_archive(&db, &archive_name).await;
 }
+
+/// Test 8: Verify that dropping an archive cleans up orphaned jobs in job_queue (Issue #415).
+#[tokio::test]
+async fn test_archive_drop_cleans_up_orphaned_jobs() {
+    let db = Database::connect(&database_url())
+        .await
+        .expect("Failed to connect to database");
+
+    let archive_name = format!("test_job_cleanup_{}", Uuid::now_v7());
+    let schema = create_test_archive(&db, &archive_name).await;
+
+    // Create a note in the archive schema
+    let ctx = db
+        .for_schema(&schema)
+        .expect("Failed to create schema context");
+    let notes = PgNoteRepository::new(db.pool.clone());
+
+    let req = CreateNoteRequest {
+        content: "Test note for job cleanup".to_string(),
+        format: "markdown".to_string(),
+        source: "test".to_string(),
+        collection_id: None,
+        tags: Some(vec!["test".to_string()]),
+        metadata: None,
+        document_type_id: None,
+    };
+
+    let note_id = ctx
+        .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req).await }))
+        .await
+        .expect("Failed to create note");
+
+    // Queue several jobs for this note
+    let payload = serde_json::json!({"schema": schema});
+    for job_type in [JobType::Embedding, JobType::Linking, JobType::AiRevision] {
+        db.jobs
+            .queue(Some(note_id), job_type, 5, Some(payload.clone()))
+            .await
+            .expect("Failed to queue job");
+    }
+
+    // Verify jobs exist
+    let job_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1",
+    )
+    .bind(note_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("Failed to count jobs");
+    assert!(
+        job_count >= 3,
+        "Should have at least 3 queued jobs, got {}",
+        job_count
+    );
+
+    // Drop the archive — should clean up orphaned jobs
+    db.archives
+        .drop_archive_schema(&archive_name)
+        .await
+        .expect("Failed to drop archive");
+
+    // Verify jobs are cleaned up
+    let remaining_jobs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1",
+    )
+    .bind(note_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("Failed to count remaining jobs");
+    assert_eq!(
+        remaining_jobs, 0,
+        "All jobs for deleted archive should be cleaned up, but {} remain",
+        remaining_jobs
+    );
+}

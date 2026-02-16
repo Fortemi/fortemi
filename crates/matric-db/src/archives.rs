@@ -168,21 +168,6 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Step 4: Discover custom text search configurations in public schema.
-        // Custom configs (e.g., matric_english) must exist in the memory's
-        // schema for search_path resolution during full-text search queries.
-        let ts_configs: Vec<String> = sqlx::query_scalar(
-            r#"
-            SELECT c.cfgname::text
-            FROM pg_ts_config c
-            JOIN pg_namespace n ON n.oid = c.cfgnamespace
-            WHERE n.nspname = 'public'
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
         // Execute all DDL in a single transaction for atomicity.
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
@@ -257,18 +242,7 @@ impl PgArchiveRepository {
                 .map_err(Error::Database)?;
         }
 
-        // Step 8: Clone text search configurations.
-        for config in &ts_configs {
-            sqlx::query(&format!(
-                "CREATE TEXT SEARCH CONFIGURATION {}.{} (COPY = public.{})",
-                schema_name, config, config
-            ))
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
-        }
-
-        // Step 9: Create the get_default_embedding_set_id() function in the new schema.
+        // Step 8: Create the get_default_embedding_set_id() function in the new schema.
         // This function is called by store_tx() when creating embeddings.
         sqlx::query(&format!(
             r#"
@@ -549,19 +523,15 @@ impl PgArchiveRepository {
                 .map_err(Error::Database)?;
         }
 
-        // Clone any missing text search configs
-        let ts_configs: Vec<String> = sqlx::query_scalar(
+        // Drop any archive-local text search configs that may exist from prior versions.
+        // All FTS queries use public.-qualified config names, so archive-local copies are
+        // unnecessary and actively harmful (Issue #412: UTF-8 truncation in FTS).
+        let stale_ts_configs: Vec<String> = sqlx::query_scalar(
             r#"
             SELECT c.cfgname::text
             FROM pg_ts_config c
             JOIN pg_namespace n ON n.oid = c.cfgnamespace
-            WHERE n.nspname = 'public'
-                AND NOT EXISTS (
-                    SELECT 1 FROM pg_ts_config ac
-                    JOIN pg_namespace an ON an.oid = ac.cfgnamespace
-                    WHERE an.nspname = $1
-                        AND ac.cfgname = c.cfgname
-                )
+            WHERE n.nspname = $1
             "#,
         )
         .bind(schema_name)
@@ -569,10 +539,10 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        for config in &ts_configs {
+        for config in &stale_ts_configs {
             sqlx::query(&format!(
-                "CREATE TEXT SEARCH CONFIGURATION {}.{} (COPY = public.{})",
-                schema_name, config, config
+                "DROP TEXT SEARCH CONFIGURATION IF EXISTS {}.{} CASCADE",
+                schema_name, config
             ))
             .execute(&mut *tx)
             .await
@@ -727,6 +697,17 @@ impl ArchiveRepository for PgArchiveRepository {
                 "Cannot drop the default archive or public schema".to_string(),
             ));
         }
+
+        // Clean up orphaned jobs BEFORE dropping schema (Issue #415).
+        // job_queue and job_history are shared tables not affected by DROP SCHEMA CASCADE.
+        // Delete jobs referencing notes in this archive to prevent queue pollution.
+        sqlx::query(&format!(
+            "DELETE FROM job_queue WHERE note_id IN (SELECT id FROM {}.note)",
+            archive.schema_name
+        ))
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
 
         // Drop the PostgreSQL schema (CASCADE will drop all tables)
         sqlx::query(&format!(
