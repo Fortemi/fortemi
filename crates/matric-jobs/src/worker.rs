@@ -19,7 +19,11 @@ use crate::DEFAULT_POLL_INTERVAL_MS;
 /// Configuration for the job worker.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    /// Polling interval in milliseconds.
+    /// Safety-net poll interval in milliseconds (Issue #417).
+    ///
+    /// The worker is primarily event-driven (wakes instantly on job enqueue).
+    /// This interval is a safety net for edge cases: crash recovery, external
+    /// SQL inserts, or race conditions between notify and claim.
     pub poll_interval_ms: u64,
     /// Maximum number of concurrent jobs.
     pub max_concurrent_jobs: usize,
@@ -44,7 +48,7 @@ impl WorkerConfig {
     /// |----------|---------|-------------|
     /// | `JOB_WORKER_ENABLED` | `true` | Enable/disable job processing |
     /// | `JOB_MAX_CONCURRENT` | `4` | Max concurrent jobs |
-    /// | `JOB_POLL_INTERVAL_MS` | `500` | Polling interval when queue is empty |
+    /// | `JOB_POLL_INTERVAL_MS` | `60000` | Safety-net poll interval (ms) |
     pub fn from_env() -> Self {
         let enabled = std::env::var("JOB_WORKER_ENABLED")
             .map(|v| v != "false" && v != "0")
@@ -191,10 +195,16 @@ impl JobWorker {
         }
     }
 
-    /// Run the worker loop with concurrent job processing (Issue #416).
+    /// Run the event-driven worker loop (Issue #417, builds on #416).
     ///
-    /// Claims up to `max_concurrent_jobs` at a time and processes them concurrently.
-    /// Only sleeps when the queue is empty (backpressure-aware polling).
+    /// The worker sleeps until one of:
+    /// - A job is enqueued (instant wake via `Notify`)
+    /// - The safety-net poll interval expires (catches edge cases)
+    /// - A shutdown signal is received
+    ///
+    /// On wake, it drains all available jobs in concurrent batches before
+    /// going back to sleep. This eliminates idle polling and reduces latency
+    /// from 0-500ms to <1ms for new jobs.
     #[instrument(skip(self, shutdown_rx))]
     async fn run(&self, shutdown_rx: &mut mpsc::Receiver<()>) {
         if !self.config.enabled {
@@ -202,59 +212,71 @@ impl JobWorker {
             return;
         }
 
+        let job_notify = self.db.jobs.job_notify();
+        let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
+        let max_concurrent = self.config.max_concurrent_jobs;
+
         info!(
-            poll_interval_ms = self.config.poll_interval_ms,
-            max_concurrent = self.config.max_concurrent_jobs,
-            "Job worker started"
+            safety_net_interval_ms = self.config.poll_interval_ms,
+            max_concurrent, "Job worker started (event-driven)"
         );
 
         let _ = self.event_tx.send(WorkerEvent::WorkerStarted);
 
-        let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
-        let max_concurrent = self.config.max_concurrent_jobs;
-
         loop {
-            // Check for shutdown before claiming jobs
-            if shutdown_rx.try_recv().is_ok() {
-                info!("Job worker received shutdown signal");
-                break;
-            }
-
-            // Claim up to max_concurrent jobs
-            let mut claimed = 0;
-            let mut tasks = tokio::task::JoinSet::new();
-
-            for _ in 0..max_concurrent {
-                match self.claim_job().await {
-                    Some(job) => {
-                        claimed += 1;
-                        let worker = self.clone_refs();
-                        tasks.spawn(async move {
-                            worker.execute_job(job).await;
-                        });
-                    }
-                    None => break,
+            // Wait for a wake signal: job enqueue, safety-net timeout, or shutdown
+            tokio::select! {
+                _ = shutdown_rx.recv() => {
+                    info!("Job worker received shutdown signal");
+                    break;
+                }
+                _ = job_notify.notified() => {
+                    debug!("Worker woke: job enqueue notification");
+                }
+                _ = sleep(poll_interval) => {
+                    debug!("Worker woke: safety-net poll");
                 }
             }
 
-            if claimed == 0 {
-                // Queue empty — sleep before polling again
-                tokio::select! {
-                    _ = shutdown_rx.recv() => {
-                        info!("Job worker received shutdown signal");
-                        break;
-                    }
-                    _ = sleep(poll_interval) => {}
+            // Drain loop: process all available jobs before sleeping again
+            loop {
+                // Check for shutdown between drain iterations
+                if shutdown_rx.try_recv().is_ok() {
+                    info!("Job worker received shutdown signal during drain");
+                    let _ = self.event_tx.send(WorkerEvent::WorkerStopped);
+                    info!("Job worker stopped");
+                    return;
                 }
-            } else {
+
+                // Claim up to max_concurrent jobs
+                let mut claimed = 0;
+                let mut tasks = tokio::task::JoinSet::new();
+
+                for _ in 0..max_concurrent {
+                    match self.claim_job().await {
+                        Some(job) => {
+                            claimed += 1;
+                            let worker = self.clone_refs();
+                            tasks.spawn(async move {
+                                worker.execute_job(job).await;
+                            });
+                        }
+                        None => break,
+                    }
+                }
+
+                if claimed == 0 {
+                    // Queue drained — go back to sleep
+                    break;
+                }
+
                 debug!(claimed, "Processing concurrent job batch");
-                // Wait for all claimed jobs to complete
                 while let Some(result) = tasks.join_next().await {
                     if let Err(e) = result {
                         error!(error = ?e, "Job task panicked");
                     }
                 }
-                // No sleep — immediately try to claim more jobs
+                // Loop to claim more jobs (drain continues)
             }
         }
 
@@ -479,7 +501,7 @@ mod tests {
     #[test]
     fn test_worker_config_default_values() {
         let config = WorkerConfig::default();
-        assert_eq!(config.poll_interval_ms, 500); // DEFAULT_POLL_INTERVAL_MS
+        assert_eq!(config.poll_interval_ms, 60_000); // DEFAULT_POLL_INTERVAL_MS (safety-net)
         assert_eq!(config.max_concurrent_jobs, 4);
         assert!(config.enabled);
     }
@@ -510,7 +532,7 @@ mod tests {
         let config = WorkerConfig::default().with_max_concurrent(16);
         assert_eq!(config.max_concurrent_jobs, 16);
         // Ensure other defaults preserved
-        assert_eq!(config.poll_interval_ms, 500);
+        assert_eq!(config.poll_interval_ms, 60_000);
         assert!(config.enabled);
     }
 

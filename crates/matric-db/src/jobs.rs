@@ -1,9 +1,12 @@
 //! Job repository implementation.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use matric_core::{new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result};
@@ -11,12 +14,27 @@ use matric_core::{new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueSt
 /// PostgreSQL implementation of JobRepository.
 pub struct PgJobRepository {
     pool: Pool<Postgres>,
+    /// Notify handle for event-driven worker wake (Issue #417).
+    notify: Arc<Notify>,
 }
 
 impl PgJobRepository {
-    /// Create a new PgJobRepository with the given connection pool.
+    /// Create a new PgJobRepository with the given connection pool and notify handle.
     pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Create a new PgJobRepository sharing an existing notify handle.
+    pub fn with_notify(pool: Pool<Postgres>, notify: Arc<Notify>) -> Self {
+        Self { pool, notify }
+    }
+
+    /// Get the job notification handle for event-driven waking.
+    pub fn job_notify(&self) -> Arc<Notify> {
+        self.notify.clone()
     }
 
     /// Convert JobType to string for database.
@@ -155,6 +173,7 @@ impl JobRepository for PgJobRepository {
         .await
         .map_err(Error::Database)?;
 
+        self.notify.notify_waiters();
         Ok(job_id)
     }
 
@@ -203,9 +222,13 @@ impl JobRepository for PgJobRepository {
             .await
             .map_err(Error::Database)?;
 
+            if result.is_some() {
+                self.notify.notify_waiters();
+            }
             Ok(result)
         } else {
             // No note_id — can't deduplicate, just queue normally
+            // (notify happens inside queue())
             let job_id = self.queue(note_id, job_type, priority, payload).await?;
             Ok(Some(job_id))
         }

@@ -138,6 +138,8 @@ pub use skos_tags::{
 pub struct Database {
     /// The underlying connection pool.
     pub pool: sqlx::Pool<sqlx::Postgres>,
+    /// Shared notify handle for event-driven job worker wake (Issue #417).
+    job_notify: std::sync::Arc<tokio::sync::Notify>,
     /// Note repository for CRUD operations.
     pub notes: PgNoteRepository,
     /// Embedding repository for vector storage.
@@ -191,6 +193,7 @@ impl Database {
     /// Create a new Database instance from a connection pool.
     pub fn new(pool: sqlx::Pool<sqlx::Postgres>) -> Self {
         let skos = PgSkosRepository::new(pool.clone());
+        let job_notify = std::sync::Arc::new(tokio::sync::Notify::new());
         Self {
             notes: PgNoteRepository::new(pool.clone()),
             embeddings: PgEmbeddingRepository::new(pool.clone()),
@@ -200,7 +203,8 @@ impl Database {
             skos: skos.clone(),
             collections: PgCollectionRepository::new(pool.clone()),
             document_types: PgDocumentTypeRepository::new(pool.clone()),
-            jobs: PgJobRepository::new(pool.clone()),
+            jobs: PgJobRepository::with_notify(pool.clone(), job_notify.clone()),
+            job_notify,
             search: PgFtsSearch::new(pool.clone()),
             provenance: PgProvenanceRepository::new(pool.clone()),
             oauth: PgOAuthRepository::new(pool.clone()),
@@ -338,6 +342,7 @@ impl Clone for Database {
         let skos = PgSkosRepository::new(self.pool.clone());
         Self {
             pool: self.pool.clone(),
+            job_notify: self.job_notify.clone(),
             notes: PgNoteRepository::new(self.pool.clone()),
             embeddings: PgEmbeddingRepository::new(self.pool.clone()),
             embedding_sets: PgEmbeddingSetRepository::new(self.pool.clone()),
@@ -346,7 +351,7 @@ impl Clone for Database {
             skos: skos.clone(),
             collections: PgCollectionRepository::new(self.pool.clone()),
             document_types: PgDocumentTypeRepository::new(self.pool.clone()),
-            jobs: PgJobRepository::new(self.pool.clone()),
+            jobs: PgJobRepository::with_notify(self.pool.clone(), self.job_notify.clone()),
             search: PgFtsSearch::new(self.pool.clone()),
             provenance: PgProvenanceRepository::new(self.pool.clone()),
             oauth: PgOAuthRepository::new(self.pool.clone()),

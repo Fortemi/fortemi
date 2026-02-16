@@ -125,8 +125,12 @@ pub const AUTO_EMBED_BATCH_SIZE: usize = 10;
 /// Default auto-embed priority (1=highest, 10=lowest).
 pub const AUTO_EMBED_PRIORITY: i32 = 5;
 
-/// Default job worker poll interval in milliseconds.
-pub const JOB_POLL_INTERVAL_MS: u64 = 500;
+/// Default job worker safety-net poll interval in milliseconds.
+///
+/// With event-driven waking (Issue #417), the worker sleeps until notified.
+/// This interval is only a safety net for edge cases (crash recovery, external
+/// SQL inserts, race conditions between notify and claim).
+pub const JOB_POLL_INTERVAL_MS: u64 = 60_000;
 
 /// Default maximum concurrent jobs per worker.
 pub const JOB_MAX_CONCURRENT: usize = 4;
