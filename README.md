@@ -243,6 +243,3 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 - [HotM](https://github.com/jmagly/hotm) - Knowledge management frontend
 
-## License
-
-[BSL-1.1](BSL-LICENSE) — Free for personal use, converts to AGPL v3 on Feb 8, 2030. See [licensing FAQ](docs/content/licensing.md).
