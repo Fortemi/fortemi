@@ -55,20 +55,30 @@ CREATE_RESPONSE=$(curl -sf -X POST "$API_URL/api/v1/archives" \
 
 echo "  Archive created. Importing shard..."
 
-# Import the shard into the new archive
-SHARD_B64=$(base64 -w0 "$SHARD_FILE")
+# Import the shard — use a temp file to avoid ARG_MAX limit with large shards
+TMPFILE=$(mktemp /tmp/shard-import-XXXXXX.json)
+trap "rm -f $TMPFILE" EXIT
+
+# Build JSON body with base64 shard data written to file (avoids shell arg limit)
+printf '{"shard_base64":"' > "$TMPFILE"
+base64 -w0 "$SHARD_FILE" >> "$TMPFILE"
+printf '","on_conflict":"skip"}' >> "$TMPFILE"
 
 IMPORT_RESPONSE=$(curl -sf -X POST "$API_URL/api/v1/backup/knowledge-shard/import" \
     -H "Content-Type: application/json" \
     -H "X-Fortemi-Memory: $ARCHIVE_NAME" \
-    -d "{\"shard_base64\":\"$SHARD_B64\",\"on_conflict\":\"skip\"}" 2>&1) || {
+    -d @"$TMPFILE" 2>&1) || {
     echo "  WARNING: Shard import failed: $IMPORT_RESPONSE"
     return 0 2>/dev/null || exit 0
 }
 
-# Parse import counts (no jq dependency)
-NOTES_IMPORTED=$(echo "$IMPORT_RESPONSE" | grep -o '"notes_imported":[0-9]*' | grep -o '[0-9]*' || echo "?")
-LINKS_IMPORTED=$(echo "$IMPORT_RESPONSE" | grep -o '"links_imported":[0-9]*' | grep -o '[0-9]*' || echo "?")
+rm -f "$TMPFILE"
+
+# Parse import counts (no jq dependency — try common response field names)
+NOTES_IMPORTED=$(echo "$IMPORT_RESPONSE" | grep -oP '"notes_imported"\s*:\s*\K[0-9]+' || \
+    echo "$IMPORT_RESPONSE" | grep -oP '"notes"\s*:\s*\K[0-9]+' || echo "?")
+LINKS_IMPORTED=$(echo "$IMPORT_RESPONSE" | grep -oP '"links_imported"\s*:\s*\K[0-9]+' || \
+    echo "$IMPORT_RESPONSE" | grep -oP '"links"\s*:\s*\K[0-9]+' || echo "?")
 
 echo "  Shard imported: $NOTES_IMPORTED notes, $LINKS_IMPORTED links"
 
