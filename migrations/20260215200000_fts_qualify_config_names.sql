@@ -69,7 +69,7 @@ DECLARE
     schema_name TEXT;
 BEGIN
     FOR archive_rec IN
-        SELECT name FROM archive_registry WHERE status = 'active'
+        SELECT name FROM archive_registry
     LOOP
         schema_name := 'archive_' || replace(archive_rec.name, '-', '_');
 

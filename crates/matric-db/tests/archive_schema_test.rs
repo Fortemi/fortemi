@@ -754,7 +754,7 @@ async fn test_new_archive_has_default_embedding_set() {
         .expect("Failed to create archive");
 
     // Verify get_default_embedding_set_id() function exists in the archive schema
-    let function_exists: bool = sqlx::query_scalar(&format!(
+    let function_exists: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS(
             SELECT 1 FROM pg_proc p
@@ -763,7 +763,7 @@ async fn test_new_archive_has_default_embedding_set() {
                 AND p.proname = 'get_default_embedding_set_id'
         )
         "#
-    ))
+    )
     .bind(&archive.schema_name)
     .fetch_one(&pool)
     .await
