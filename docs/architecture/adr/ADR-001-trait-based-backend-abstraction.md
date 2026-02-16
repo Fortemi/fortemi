@@ -1,9 +1,10 @@
 # ADR-001: Trait-Based Backend Abstraction
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-072](ADR-072-inference-provider-abstraction.md)
 **Date:** 2026-01-22
 **Deciders:** roctinam
 **Source:** ARCH-010-openai-backend.md
+**Retired:** 2026-02-16 — ADR-072 formalizes the actual implementation pattern and extends it with provider slug routing.
 
 ## Context
 

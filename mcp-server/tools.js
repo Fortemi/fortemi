@@ -306,6 +306,10 @@ export default [
         "metadata": {
           "type": "object",
           "description": "Arbitrary key-value metadata (e.g., { source: 'meeting' })"
+        },
+        "model": {
+          "type": "string",
+          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default. Use get_available_models to discover available slugs."
         }
       },
       "required": [
@@ -1839,6 +1843,15 @@ export default [
   {
     name: "get_system_info",
     description: `Get system capabilities, version, and enabled features.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {}
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "get_available_models",
+    description: `List available LLM models with capability metadata. Returns all models from Ollama (language, embedding, vision) and Whisper (transcription) backends, including which model is the default for each capability. Use this to discover available model slugs before passing them to capture_knowledge or bulk_reprocess_notes.`,
     inputSchema: {
       "type": "object",
       "properties": {}
@@ -4867,6 +4880,10 @@ When called without note_ids, processes all notes in the current archive (up to 
           "type": "integer",
           "default": 500,
           "description": "Maximum notes to process (safety limit, max 5000)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default. Use get_available_models to discover available slugs."
         }
       }
     },

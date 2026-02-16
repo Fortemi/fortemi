@@ -8,6 +8,7 @@ use axum::Json;
 use serde::Serialize;
 
 use crate::{ApiError, AppState};
+use matric_inference::OllamaVisionBackend;
 
 /// Response from image description.
 #[derive(Debug, Serialize)]
@@ -28,6 +29,7 @@ pub struct DescribeImageResponse {
 /// # Multipart Fields
 /// - `file`: Image file (required)
 /// - `prompt`: Custom description prompt (optional)
+/// - `model`: Vision model slug override (optional, e.g. "llava:13b")
 ///
 /// # Returns
 /// - 200 OK with description, model name, and image size
@@ -39,7 +41,7 @@ pub async fn describe_image(
     State(state): State<AppState>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<DescribeImageResponse>, ApiError> {
-    let backend = state.vision_backend.as_ref().ok_or_else(|| {
+    let default_backend = state.vision_backend.as_ref().ok_or_else(|| {
         ApiError::ServiceUnavailable(
             "Vision model not configured. Set OLLAMA_VISION_MODEL environment variable.".into(),
         )
@@ -48,6 +50,7 @@ pub async fn describe_image(
     let mut file_data: Option<Vec<u8>> = None;
     let mut content_type: Option<String> = None;
     let mut prompt: Option<String> = None;
+    let mut model_override: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -74,6 +77,15 @@ pub async fn describe_image(
                         .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?,
                 );
             }
+            Some("model") => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                if !val.trim().is_empty() {
+                    model_override = Some(val.trim().to_string());
+                }
+            }
             _ => {} // ignore unknown fields
         }
     }
@@ -86,6 +98,18 @@ pub async fn describe_image(
     }
 
     let mime_type = content_type.as_deref().unwrap_or("image/png");
+
+    // Use model override if specified, otherwise fall back to configured default
+    let overridden_backend = model_override.map(|m| {
+        let base_url = std::env::var("OLLAMA_BASE")
+            .or_else(|_| std::env::var("OLLAMA_URL"))
+            .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string());
+        OllamaVisionBackend::new(base_url, m)
+    });
+    let backend: &dyn matric_inference::VisionBackend = match &overridden_backend {
+        Some(b) => b,
+        None => default_backend.as_ref(),
+    };
 
     let description = backend
         .describe_image(&image_bytes, mime_type, prompt.as_deref())

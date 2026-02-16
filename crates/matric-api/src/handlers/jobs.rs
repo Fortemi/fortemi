@@ -40,6 +40,32 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
 }
 
+/// Extract an optional model override from a job's payload.
+///
+/// When present, the job handler should use this model slug instead of the
+/// globally configured default. Returns `None` if no override is specified,
+/// meaning the handler should use its default backend.
+fn extract_model_override(ctx: &JobContext) -> Option<String> {
+    ctx.payload()
+        .and_then(|p| p.get("model"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Create an OllamaBackend with an optional generation model override.
+///
+/// If `model_override` is `Some`, creates a fresh backend from env config
+/// with the generation model swapped. Otherwise returns `None`, indicating
+/// the caller should use its default backend.
+fn backend_with_gen_override(model_override: Option<&str>) -> Option<OllamaBackend> {
+    model_override.map(|m| {
+        let mut b = OllamaBackend::from_env();
+        b.set_gen_model(m.to_string());
+        b
+    })
+}
+
 /// Maximum number of related notes to retrieve for AI context.
 /// Based on Miller's Law (7±2): cognitive limit for working memory items.
 /// We use 7 as the default, which is the center of the 5-9 range.
@@ -150,6 +176,7 @@ impl JobHandler for AiRevisionHandler {
             .unwrap_or(RevisionMode::Light);
 
         let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
@@ -162,6 +189,10 @@ impl JobHandler for AiRevisionHandler {
                 "reason": "revision_mode is none"
             })));
         }
+
+        // Use model override if specified, otherwise fall back to default backend
+        let overridden = backend_with_gen_override(model_override.as_deref());
+        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -190,7 +221,7 @@ impl JobHandler for AiRevisionHandler {
             .start_activity(
                 note_id,
                 "ai_revision",
-                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+                Some(matric_core::GenerationBackend::model_name(backend)),
             )
             .await
             .ok();
@@ -267,7 +298,7 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             RevisionMode::None => unreachable!(), // Already handled above
         };
 
-        let revised = match self.backend.generate(&prompt).await {
+        let revised = match backend.generate(&prompt).await {
             Ok(r) => clean_enhanced_content(r.trim(), &prompt),
             Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
         };
@@ -679,10 +710,15 @@ impl JobHandler for TitleGenerationHandler {
         };
 
         let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
+
+        // Use model override if specified, otherwise fall back to default backend
+        let overridden = backend_with_gen_override(model_override.as_deref());
+        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
 
         // Start provenance activity (#430)
         let activity_id = self
@@ -691,7 +727,7 @@ impl JobHandler for TitleGenerationHandler {
             .start_activity(
                 note_id,
                 "title_generation",
-                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+                Some(matric_core::GenerationBackend::model_name(backend)),
             )
             .await
             .ok();
@@ -780,7 +816,7 @@ Generate only the title, no quotes, no explanations."#,
             content_preview, related_context
         );
 
-        let title = match self.backend.generate(&prompt).await {
+        let title = match backend.generate(&prompt).await {
             Ok(t) => {
                 let cleaned = t
                     .trim()
@@ -1648,10 +1684,14 @@ impl JobHandler for ContextUpdateHandler {
         };
 
         let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
+
+        let overridden = backend_with_gen_override(model_override.as_deref());
+        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
 
         ctx.report_progress(20, Some("Finding linked notes..."));
 
@@ -1759,7 +1799,7 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
             current_content, linked_context
         );
 
-        let updated_content = match self.backend.generate(&prompt).await {
+        let updated_content = match backend.generate(&prompt).await {
             Ok(c) => clean_enhanced_content(c.trim(), &prompt),
             Err(e) => return JobResult::Failed(format!("Generation failed: {}", e)),
         };
@@ -1880,10 +1920,14 @@ impl JobHandler for ConceptTaggingHandler {
         };
 
         let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
+
+        let overridden = backend_with_gen_override(model_override.as_deref());
+        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
 
         // Start provenance activity (#430)
         let activity_id = self
@@ -1892,7 +1936,7 @@ impl JobHandler for ConceptTaggingHandler {
             .start_activity(
                 note_id,
                 "concept_tagging",
-                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+                Some(matric_core::GenerationBackend::model_name(backend)),
             )
             .await
             .ok();
@@ -1968,7 +2012,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             content_preview
         );
 
-        let ai_response = match self.backend.generate(&prompt).await {
+        let ai_response = match backend.generate(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 // Still queue linking even if AI tagging fails — linking works with pure embeddings
@@ -2148,10 +2192,14 @@ impl JobHandler for MetadataExtractionHandler {
         };
 
         let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
+
+        let overridden = backend_with_gen_override(model_override.as_deref());
+        let backend: &OllamaBackend = overridden.as_ref().unwrap_or(&self.backend);
 
         // Start provenance activity
         let activity_id = self
@@ -2160,7 +2208,7 @@ impl JobHandler for MetadataExtractionHandler {
             .start_activity(
                 note_id,
                 "metadata_extraction",
-                Some(matric_core::GenerationBackend::model_name(&self.backend)),
+                Some(matric_core::GenerationBackend::model_name(backend)),
             )
             .await
             .ok();
@@ -2231,7 +2279,7 @@ Example output:
             content_preview
         );
 
-        let ai_response = match self.backend.generate(&prompt).await {
+        let ai_response = match backend.generate(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
         };
@@ -2389,7 +2437,11 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
     #[instrument(
         skip(self, ctx),
-        fields(subsystem = "jobs", component = "document_type_inference", op = "execute")
+        fields(
+            subsystem = "jobs",
+            component = "document_type_inference",
+            op = "execute"
+        )
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
@@ -2468,7 +2520,10 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         let (doc_type_id, detection_method, confidence) = match detection {
             Ok(Some(result)) => {
-                ctx.report_progress(60, Some(&format!("Detected: {}", result.document_type.name)));
+                ctx.report_progress(
+                    60,
+                    Some(&format!("Detected: {}", result.document_type.name)),
+                );
                 (
                     result.document_type.id,
                     result.detection_method,

@@ -46,7 +46,7 @@ const CORE_TOOLS = new Set([
   // Export
   "export_note",
   // System & docs
-  "get_documentation", "get_system_info", "health_check",
+  "get_documentation", "get_system_info", "get_available_models", "health_check",
   // Multi-memory
   "select_memory", "get_active_memory",
   // Attachments
@@ -221,6 +221,7 @@ function createMcpServer() {
               revision_mode: args.revision_mode,
               collection_id: args.collection_id,
               metadata: args.metadata,
+              model: args.model,
             });
           } else if (action === "bulk_create") {
             const bulkRes = await apiRequest("POST", "/api/v1/notes/bulk", {
@@ -981,6 +982,11 @@ function createMcpServer() {
             storage: memoryInfo.storage || {},
             components: health.components || {},
           };
+          break;
+        }
+
+        case "get_available_models": {
+          result = await apiRequest("GET", "/api/v1/models");
           break;
         }
 
@@ -2475,6 +2481,7 @@ function createMcpServer() {
           if (args.note_ids) body.note_ids = args.note_ids;
           if (args.steps) body.steps = args.steps;
           if (args.limit) body.limit = args.limit;
+          if (args.model) body.model = args.model;
           result = await apiRequest("POST", `/api/v1/notes/reprocess`, body);
           break;
         }
@@ -3428,7 +3435,7 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 - **SKOS**: \`search_concepts\`, \`get_concept\`, \`get_concept_full\`, \`autocomplete_concepts\`, \`get_governance_stats\`, \`export_skos_turtle\`
 - **Versioning**: \`list_note_versions\`, \`get_note_version\`, \`diff_note_versions\`
 - **Health**: \`get_knowledge_health\`, \`get_orphan_tags\`, \`get_stale_notes\`, \`get_unlinked_notes\`, \`get_tag_cooccurrence\`
-- **System**: \`health_check\`, \`get_system_info\`, \`memory_info\`, \`list_jobs\`, \`get_job\`, \`get_queue_stats\`, \`get_pending_jobs_count\`, \`get_rate_limit_status\`, \`get_extraction_stats\`
+- **System**: \`health_check\`, \`get_system_info\`, \`get_available_models\`, \`memory_info\`, \`list_jobs\`, \`get_job\`, \`get_queue_stats\`, \`get_pending_jobs_count\`, \`get_rate_limit_status\`, \`get_extraction_stats\`
 - **Config**: \`list_embedding_configs\`, \`get_embedding_config\`, \`get_default_embedding_config\`, \`list_document_types\`, \`get_document_type\`, \`detect_document_type\`
 - **Export**: \`export_note\`, \`export_all_notes\`, \`export_collection\`, \`list_backups\`, \`get_backup_info\`, \`get_backup_metadata\`, \`memory_backup_download\`
 - **API Keys**: \`list_api_keys\`

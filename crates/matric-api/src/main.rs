@@ -203,6 +203,7 @@ async fn queue_nlp_pipeline(
     revision_mode: RevisionMode,
     event_bus: &EventBus,
     schema: Option<&str>,
+    model: Option<&str>,
 ) {
     // Queue AI revision with mode and schema in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
@@ -211,6 +212,9 @@ async fn queue_nlp_pipeline(
         });
         if let Some(s) = schema {
             payload["schema"] = serde_json::json!(s);
+        }
+        if let Some(m) = model {
+            payload["model"] = serde_json::json!(m);
         }
         match db
             .jobs
@@ -245,12 +249,23 @@ async fn queue_nlp_pipeline(
     // enrichment parity between single and bulk ingest paths.
     for job_type in [
         JobType::TitleGeneration,
-        JobType::ConceptTagging,      // SKOS auto-tagging (prerequisite for embedding and linking)
-        JobType::MetadataExtraction,  // Extract authors, dates, DOI, etc. from content (#430)
+        JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for embedding and linking)
+        JobType::MetadataExtraction, // Extract authors, dates, DOI, etc. from content (#430)
         JobType::DocumentTypeInference, // Auto-detect document type (#430)
     ] {
-        // Create payload with schema if provided
-        let payload = schema.map(|s| serde_json::json!({ "schema": s }));
+        // Create payload with schema and optional model override
+        let mut payload = serde_json::Map::new();
+        if let Some(s) = schema {
+            payload.insert("schema".to_string(), serde_json::json!(s));
+        }
+        if let Some(m) = model {
+            payload.insert("model".to_string(), serde_json::json!(m));
+        }
+        let payload = if payload.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(payload))
+        };
 
         match db
             .jobs
@@ -298,6 +313,7 @@ use handlers::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
     },
+    models::list_models,
     pke::{
         create_keyset, delete_keyset, export_keyset, get_active_keyset, import_keyset,
         list_keysets, pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients,
@@ -308,10 +324,9 @@ use handlers::{
         create_prov_location,
     },
     vision::describe_image,
-    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler,
-    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, LinkingHandler,
-    MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
-    RefreshEmbeddingSetHandler, TitleGenerationHandler,
+    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, DocumentTypeInferenceHandler,
+    EmbeddingHandler, ExifExtractionHandler, LinkingHandler, MetadataExtractionHandler,
+    PurgeNoteHandler, ReEmbedAllHandler, RefreshEmbeddingSetHandler, TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -428,6 +443,8 @@ struct AppState {
         handlers::document_types::list_document_types, handlers::document_types::get_document_type,
         handlers::document_types::create_document_type, handlers::document_types::update_document_type,
         handlers::document_types::delete_document_type, handlers::document_types::detect_document_type,
+        // handlers::models
+        handlers::models::list_models,
         // handlers::vision
         handlers::vision::describe_image,
         // handlers::audio
@@ -1223,6 +1240,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/jobs/stats", get(queue_stats))
         // Extraction Analytics
         .route("/api/v1/extraction/stats", get(extraction_stats))
+        // Model discovery
+        .route("/api/v1/models", get(list_models))
         // Vision (ad-hoc image description)
         .route(
             "/api/v1/vision/describe",
@@ -3635,6 +3654,10 @@ struct CreateNoteBody {
     metadata: Option<serde_json::Value>,
     /// Optional document type ID for explicit typing (auto-detected if omitted)
     document_type_id: Option<Uuid>,
+    /// Optional language model slug for AI operations (e.g. "qwen3:8b").
+    /// If omitted, uses the globally configured default.
+    #[serde(default)]
+    model: Option<String>,
 }
 
 #[utoipa::path(
@@ -3767,6 +3790,7 @@ async fn create_note(
         revision_mode,
         &state.event_bus,
         schema_for_jobs,
+        body.model.as_deref(),
     )
     .await;
 
@@ -3975,6 +3999,7 @@ async fn bulk_create_notes(
             revision_mode,
             &state.event_bus,
             schema_for_jobs,
+            None,
         )
         .await;
     }
@@ -4027,6 +4052,10 @@ struct UpdateNoteBody {
     metadata: Option<serde_json::Value>,
     /// Replace all tags on this note (full replacement, not merge)
     tags: Option<Vec<String>>,
+    /// Optional language model slug for AI operations (e.g. "qwen3:8b").
+    /// If omitted, uses the globally configured default.
+    #[serde(default)]
+    model: Option<String>,
 }
 
 #[utoipa::path(
@@ -4138,6 +4167,7 @@ async fn update_note(
             revision_mode,
             &state.event_bus,
             schema_for_jobs,
+            body.model.as_deref(),
         )
         .await;
     }
@@ -4336,6 +4366,7 @@ async fn restore_note(
         revision_mode,
         &state.event_bus,
         schema_for_jobs,
+        None,
     )
     .await;
 
@@ -4351,6 +4382,9 @@ struct ReprocessNoteBody {
     revision_mode: Option<String>,
     /// Specific pipeline steps to run. If omitted or contains "all", runs all steps.
     steps: Option<Vec<String>>,
+    /// Optional language model slug for AI operations (e.g. "qwen3:8b").
+    /// If omitted, uses the globally configured default.
+    model: Option<String>,
 }
 
 /// Manually trigger NLP pipeline steps for a note.
@@ -4400,11 +4434,15 @@ async fn reprocess_note(
                 .unwrap_or(false)
     };
 
+    let model_override = body.as_ref().and_then(|b| b.model.as_deref());
     let mut jobs_queued = Vec::new();
 
     // Queue AI revision if requested and mode != None
     if revision_mode != RevisionMode::None && should_run("ai_revision") {
-        let payload = serde_json::json!({ "revision_mode": revision_mode });
+        let mut payload = serde_json::json!({ "revision_mode": revision_mode });
+        if let Some(m) = model_override {
+            payload["model"] = serde_json::json!(m);
+        }
         if let Ok(Some(job_id)) = state
             .db
             .jobs
@@ -4435,10 +4473,11 @@ async fn reprocess_note(
 
     for (step_name, job_type) in &step_types {
         if should_run(step_name) {
+            let payload = model_override.map(|m| serde_json::json!({ "model": m }));
             if let Ok(Some(job_id)) = state
                 .db
                 .jobs
-                .queue_deduplicated(Some(id), *job_type, job_type.default_priority(), None)
+                .queue_deduplicated(Some(id), *job_type, job_type.default_priority(), payload)
                 .await
             {
                 state.event_bus.emit(ServerEvent::JobQueued {
@@ -4469,6 +4508,9 @@ struct BulkReprocessBody {
     steps: Option<Vec<String>>,
     /// Maximum number of notes to process (safety limit). Default: 500
     limit: Option<i64>,
+    /// Optional language model slug for AI operations (e.g. "qwen3:8b").
+    /// If omitted, uses the globally configured default.
+    model: Option<String>,
 }
 
 /// Bulk reprocess notes through the NLP pipeline.
@@ -4549,10 +4591,21 @@ async fn bulk_reprocess_notes(
         ("document_type_inference", JobType::DocumentTypeInference),
     ];
 
-    let step_payload = if archive_ctx.schema != "public" {
-        Some(serde_json::json!({ "schema": &archive_ctx.schema }))
-    } else {
-        None
+    let model_override = body.as_ref().and_then(|b| b.model.as_deref());
+
+    let step_payload = {
+        let mut p = serde_json::Map::new();
+        if archive_ctx.schema != "public" {
+            p.insert("schema".to_string(), serde_json::json!(&archive_ctx.schema));
+        }
+        if let Some(m) = model_override {
+            p.insert("model".to_string(), serde_json::json!(m));
+        }
+        if p.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(p))
+        }
     };
 
     // Collect all job specs, then queue in parallel (Issue #429).
@@ -4563,10 +4616,13 @@ async fn bulk_reprocess_notes(
 
     for note_id in &note_ids {
         if revision_mode != RevisionMode::None && should_run("ai_revision") {
-            let payload = serde_json::json!({
+            let mut payload = serde_json::json!({
                 "revision_mode": revision_mode,
                 "schema": &archive_ctx.schema,
             });
+            if let Some(m) = model_override {
+                payload["model"] = serde_json::json!(m);
+            }
             job_specs.push((
                 *note_id,
                 JobType::AiRevision,
@@ -6354,6 +6410,7 @@ async fn instantiate_template(
         revision_mode,
         &state.event_bus,
         schema_for_jobs,
+        None,
     )
     .await;
 
@@ -9741,6 +9798,7 @@ async fn backup_import(
                         RevisionMode::None,
                         &state.event_bus,
                         schema_for_jobs.as_deref(),
+                        None,
                     )
                     .await;
 
@@ -11886,6 +11944,7 @@ async fn knowledge_shard_import_internal(
                                             RevisionMode::None,
                                             &state.event_bus,
                                             schema_for_jobs.as_deref(),
+                                            None,
                                         )
                                         .await;
                                     }
