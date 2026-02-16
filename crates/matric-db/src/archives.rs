@@ -10,6 +10,77 @@ use uuid::Uuid;
 
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
 
+/// FTS generated columns and functional indexes that use custom text search
+/// configurations from the `public` schema (e.g., `matric_english`, `matric_simple`).
+///
+/// PostgreSQL's `LIKE ... INCLUDING ALL` uses `pg_get_expr()` to deparse generated
+/// column expressions, which strips the schema qualifier for objects in the default
+/// search_path. This causes FTS tokenization failures in non-default schemas when
+/// multi-byte UTF-8 characters are processed (Issue #412).
+///
+/// After each `LIKE ... INCLUDING ALL`, we must drop and recreate these columns/indexes
+/// with explicitly schema-qualified config names (`public.matric_english`, etc.).
+///
+/// Built-in configs like `english` (in `pg_catalog`) are unaffected since `pg_catalog`
+/// is always in the search_path.
+struct FtsFixDefinition {
+    table: &'static str,
+    /// Generated column to drop and recreate (if any).
+    generated_column: Option<FtsGeneratedColumn>,
+    /// Functional indexes to drop and recreate.
+    indexes: &'static [FtsIndex],
+}
+
+struct FtsGeneratedColumn {
+    column_name: &'static str,
+    expression: &'static str,
+    gin_index_name: &'static str,
+}
+
+struct FtsIndex {
+    index_name: &'static str,
+    definition: &'static str,
+}
+
+const FTS_FIX_DEFINITIONS: &[FtsFixDefinition] = &[
+    FtsFixDefinition {
+        table: "note_revised_current",
+        generated_column: Some(FtsGeneratedColumn {
+            column_name: "tsv",
+            expression: "to_tsvector('public.matric_english', content)",
+            gin_index_name: "idx_note_revised_tsv",
+        }),
+        indexes: &[FtsIndex {
+            index_name: "idx_note_revised_tsv_simple",
+            definition: "USING gin (to_tsvector('public.matric_simple', content))",
+        }],
+    },
+    FtsFixDefinition {
+        table: "note_original",
+        generated_column: None,
+        indexes: &[FtsIndex {
+            index_name: "idx_note_original_fts",
+            definition: "USING gin (to_tsvector('public.matric_english', content))",
+        }],
+    },
+    FtsFixDefinition {
+        table: "note",
+        generated_column: None,
+        indexes: &[FtsIndex {
+            index_name: "idx_note_title_tsv_simple",
+            definition: "USING gin (to_tsvector('public.matric_simple', COALESCE(title, '')))",
+        }],
+    },
+    FtsFixDefinition {
+        table: "skos_concept_label",
+        generated_column: None,
+        indexes: &[FtsIndex {
+            index_name: "idx_skos_label_tsv_simple",
+            definition: "USING gin (to_tsvector('public.matric_simple', value))",
+        }],
+    },
+];
+
 /// Tables shared across all memories (deny list).
 ///
 /// These tables contain global system data and are NOT cloned per-memory.
@@ -66,6 +137,91 @@ impl PgArchiveRepository {
             .collect::<String>()
             .to_lowercase();
         format!("archive_{}", sanitized)
+    }
+
+    /// Fix FTS generated columns and functional indexes after `LIKE ... INCLUDING ALL`.
+    ///
+    /// `pg_get_expr()` strips the `public.` schema qualifier when deparsing generated
+    /// column expressions, so `to_tsvector('public.matric_english', content)` becomes
+    /// `to_tsvector('matric_english'::regconfig, content)` in the archive. This causes
+    /// FTS tokenization to fail on multi-byte UTF-8 characters (Issue #412).
+    ///
+    /// This method drops and recreates the affected columns/indexes with explicitly
+    /// qualified config names. Must be called within the same transaction as `LIKE`.
+    async fn fix_fts_schema_qualification(
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        schema_name: &str,
+    ) -> Result<()> {
+        for def in FTS_FIX_DEFINITIONS {
+            // Check if the table exists in this schema
+            let exists: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = $1 AND table_name = $2
+                )
+                "#,
+            )
+            .bind(schema_name)
+            .bind(def.table)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+
+            if !exists {
+                continue;
+            }
+
+            // Fix generated column (drop + recreate with qualified config)
+            if let Some(gen_col) = &def.generated_column {
+                // Dropping the column cascades to dependent indexes
+                sqlx::query(&format!(
+                    "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
+                    schema_name, def.table, gen_col.column_name
+                ))
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+                sqlx::query(&format!(
+                    "ALTER TABLE {}.{} ADD COLUMN {} tsvector GENERATED ALWAYS AS ({}) STORED",
+                    schema_name, def.table, gen_col.column_name, gen_col.expression
+                ))
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+                // Rebuild GIN index on the stored column
+                sqlx::query(&format!(
+                    "CREATE INDEX {} ON {}.{} USING gin ({})",
+                    gen_col.gin_index_name, schema_name, def.table, gen_col.column_name
+                ))
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+            }
+
+            // Fix functional indexes
+            for idx in def.indexes {
+                sqlx::query(&format!(
+                    "DROP INDEX IF EXISTS {}.{}",
+                    schema_name, idx.index_name
+                ))
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+
+                sqlx::query(&format!(
+                    "CREATE INDEX {} ON {}.{} {}",
+                    idx.index_name, schema_name, def.table, idx.definition
+                ))
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Create all necessary tables in the archive schema by dynamically cloning
@@ -183,6 +339,12 @@ impl PgArchiveRepository {
             .await
             .map_err(Error::Database)?;
         }
+
+        // Step 5b: Fix FTS generated columns and functional indexes.
+        // LIKE ... INCLUDING ALL strips the 'public.' schema qualifier from
+        // generated column expressions (pg_get_expr behavior), causing FTS to
+        // fail on multi-byte UTF-8 in non-default schemas (Issue #412).
+        Self::fix_fts_schema_qualification(&mut tx, schema_name).await?;
 
         // Step 6: Add foreign key constraints.
         // Per-memory table references point to new schema; shared table
@@ -414,6 +576,10 @@ impl PgArchiveRepository {
             .await
             .map_err(Error::Database)?;
         }
+
+        // Fix FTS generated columns and functional indexes for newly created tables.
+        // LIKE ... INCLUDING ALL strips the 'public.' qualifier (Issue #412).
+        Self::fix_fts_schema_qualification(&mut tx, schema_name).await?;
 
         // Add FKs for the new tables only
         let fk_rows = sqlx::query(

@@ -158,6 +158,44 @@ mod text_search_config {
         );
     }
 
+    /// Verify archives.rs FTS fix uses schema-qualified config names (Issue #412)
+    #[test]
+    fn test_archives_fts_fix_uses_qualified_configs() {
+        let archives_source = include_str!("../src/archives.rs");
+
+        // The FTS_FIX_DEFINITIONS must use 'public.matric_english' and 'public.matric_simple'
+        assert!(
+            archives_source.contains("to_tsvector('public.matric_english'"),
+            "archives.rs FTS fix must use 'public.matric_english' in generated column expression"
+        );
+        assert!(
+            archives_source.contains("to_tsvector('public.matric_simple'"),
+            "archives.rs FTS fix must use 'public.matric_simple' in functional index definitions"
+        );
+
+        // No unqualified matric_english/matric_simple in FTS definitions
+        // (exclude comments and string literals that explain the problem)
+        let lines: Vec<&str> = archives_source
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//") && !l.trim_start().starts_with("///"))
+            .collect();
+        let code_only = lines.join("\n");
+
+        let unqualified_english = code_only.matches("'matric_english'").count();
+        assert_eq!(
+            unqualified_english, 0,
+            "archives.rs code should not have unqualified 'matric_english', found {}",
+            unqualified_english
+        );
+
+        let unqualified_simple = code_only.matches("'matric_simple'").count();
+        assert_eq!(
+            unqualified_simple, 0,
+            "archives.rs code should not have unqualified 'matric_simple', found {}",
+            unqualified_simple
+        );
+    }
+
     /// Verify websearch_to_tsquery is used for boolean operator support (#364)
     #[test]
     fn test_websearch_to_tsquery_migration() {
