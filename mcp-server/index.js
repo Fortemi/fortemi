@@ -5481,6 +5481,7 @@ if (MCP_TRANSPORT === "http") {
 
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => newSessionId, // Use our pre-generated ID
+        enableJsonResponse: true, // Respond with application/json for single-response requests (#422)
       });
 
       // Store in pendingTransports IMMEDIATELY to prevent race conditions
