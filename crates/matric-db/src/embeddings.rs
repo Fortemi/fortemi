@@ -235,6 +235,40 @@ impl PgEmbeddingRepository {
         Ok(embeddings)
     }
 
+    /// List all embeddings within a transaction (for schema-scoped backup).
+    pub async fn list_all_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Embedding>> {
+        let rows = sqlx::query(
+            "SELECT id, note_id, chunk_index, text, vector, model
+             FROM embedding
+             ORDER BY note_id, chunk_index
+             LIMIT $1 OFFSET $2",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let embeddings = rows
+            .into_iter()
+            .map(|row| Embedding {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                chunk_index: row.get("chunk_index"),
+                text: row.get("text"),
+                vector: row.get("vector"),
+                model: row.get("model"),
+            })
+            .collect();
+
+        Ok(embeddings)
+    }
+
     /// Count total embeddings.
     pub async fn count(&self) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) as count FROM embedding")

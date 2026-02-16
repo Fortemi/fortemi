@@ -1171,6 +1171,41 @@ impl PgEmbeddingSetRepository {
         Ok(members)
     }
 
+    /// Export all embedding set members within a transaction (for schema-scoped backup).
+    pub async fn list_all_members_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<EmbeddingSetMember>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT embedding_set_id, note_id, membership_type, added_at, added_by
+            FROM embedding_set_member
+            ORDER BY embedding_set_id, added_at
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let members = rows
+            .into_iter()
+            .map(|row| EmbeddingSetMember {
+                embedding_set_id: row.get("embedding_set_id"),
+                note_id: row.get("note_id"),
+                membership_type: row.get("membership_type"),
+                added_at: row.get("added_at"),
+                added_by: row.get("added_by"),
+            })
+            .collect();
+
+        Ok(members)
+    }
+
     /// Count total embedding set members.
     pub async fn count_members(&self) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) as count FROM embedding_set_member")

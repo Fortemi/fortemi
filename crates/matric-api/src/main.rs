@@ -9987,15 +9987,16 @@ struct ShardCounts {
 }
 
 /// Create a knowledge shard (portable tar.gz export) with selected components.
+/// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/knowledge-shard", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn knowledge_shard(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ShardExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
-    use matric_core::NoteRepository;
     use sha2::{Digest, Sha256};
 
     use tar::Builder;
@@ -10008,6 +10009,10 @@ async fn knowledge_shard(
 
     let mut counts = ShardCounts::default();
     let mut checksums: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // Schema-scoped transaction for the entire export
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
 
     // Create tar.gz in memory
     let mut shard_data = Vec::new();
@@ -10035,19 +10040,19 @@ async fn knowledge_shard(
 
         // Export notes
         if components.contains(&"notes") {
+            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
             let list_req = ListNotesRequest {
                 limit: Some(100000),
                 ..Default::default()
             };
-            let notes_response = state.db.notes.list(list_req).await?;
+            let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
             let mut notes_json = Vec::new();
 
             for note in &notes_response.notes {
-                if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-                    let note_tags = state
-                        .db
-                        .tags
-                        .get_for_note(note.id)
+                if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+                    let note_tags = tags_repo
+                        .get_for_note_tx(&mut tx, note.id)
                         .await
                         .unwrap_or_default();
                     let note_obj = serde_json::json!({
@@ -10076,7 +10081,11 @@ async fn knowledge_shard(
 
         // Export collections
         if components.contains(&"collections") {
-            let collections = state.db.collections.list(None).await.unwrap_or_default();
+            let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+            let collections = collections_repo
+                .list_tx(&mut tx, None)
+                .await
+                .unwrap_or_default();
             counts.collections = collections.len();
             let collections_json: Vec<serde_json::Value> = collections
                 .iter()
@@ -10098,7 +10107,8 @@ async fn knowledge_shard(
 
         // Export tags
         if components.contains(&"tags") {
-            let tags = state.db.tags.list().await.unwrap_or_default();
+            let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+            let tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
             counts.tags = tags.len();
             let tags_json: Vec<serde_json::Value> = tags
                 .iter()
@@ -10116,13 +10126,8 @@ async fn knowledge_shard(
 
         // Export templates
         if components.contains(&"templates") {
-            let templates = {
-                let ctx = state.db.for_schema("public")?;
-                let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
-                    .await
-            }
-            .unwrap_or_default();
+            let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+            let templates = templates_repo.list_tx(&mut tx).await.unwrap_or_default();
             counts.templates = templates.len();
             let templates_json: Vec<serde_json::Value> = templates
                 .iter()
@@ -10147,7 +10152,11 @@ async fn knowledge_shard(
 
         // Export links
         if components.contains(&"links") {
-            let links = state.db.links.list_all(100000, 0).await.unwrap_or_default();
+            let links_repo = matric_db::PgLinkRepository::new(state.db.pool.clone());
+            let links = links_repo
+                .list_all_tx(&mut tx, 100000, 0)
+                .await
+                .unwrap_or_default();
             counts.links = links.len();
             let mut links_jsonl = Vec::new();
             for link in &links {
@@ -10170,8 +10179,9 @@ async fn knowledge_shard(
 
         // Export embedding sets
         if components.contains(&"embedding_sets") {
+            let sets_repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
             // Export set definitions
-            let sets = state.db.embedding_sets.list().await.unwrap_or_default();
+            let sets = sets_repo.list_tx(&mut tx).await.unwrap_or_default();
             counts.embedding_sets = sets.len();
             let sets_json: Vec<serde_json::Value> = sets
                 .iter()
@@ -10197,10 +10207,8 @@ async fn knowledge_shard(
             })?;
 
             // Export set members
-            let members = state
-                .db
-                .embedding_sets
-                .list_all_members(100000, 0)
+            let members = sets_repo
+                .list_all_members_tx(&mut tx, 100000, 0)
                 .await
                 .unwrap_or_default();
             counts.embedding_set_members = members.len();
@@ -10221,12 +10229,7 @@ async fn knowledge_shard(
             })?;
 
             // Export embedding configs
-            let configs = state
-                .db
-                .embedding_sets
-                .list_configs()
-                .await
-                .unwrap_or_default();
+            let configs = sets_repo.list_configs_tx(&mut tx).await.unwrap_or_default();
             counts.embedding_configs = configs.len();
             let configs_json: Vec<serde_json::Value> = configs
                 .iter()
@@ -10251,10 +10254,9 @@ async fn knowledge_shard(
 
         // Export embeddings (optional, can be large)
         if components.contains(&"embeddings") {
-            let embeddings = state
-                .db
-                .embeddings
-                .list_all(100000, 0)
+            let emb_repo = matric_db::PgEmbeddingRepository::new(state.db.pool.clone());
+            let embeddings = emb_repo
+                .list_all_tx(&mut tx, 100000, 0)
                 .await
                 .unwrap_or_default();
             counts.embeddings = embeddings.len();
@@ -10303,6 +10305,9 @@ async fn knowledge_shard(
         tar.finish()
             .map_err(|e| ApiError::BadRequest(format!("Failed to finalize shard: {}", e)))?;
     }
+
+    // Commit the read-only transaction
+    tx.commit().await.map_err(matric_db::Error::Database)?;
 
     // Generate filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
