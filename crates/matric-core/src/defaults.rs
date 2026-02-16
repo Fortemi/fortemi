@@ -410,6 +410,10 @@ pub struct GraphConfig {
     pub extend_candidates: bool,
     /// Whether to fill remaining slots from pruned candidates (Algorithm 4 option).
     pub keep_pruned: bool,
+    /// Weight for SKOS tag overlap in blended linking score (0.0-1.0).
+    /// Blended score = (embedding_sim * (1 - tag_boost_weight)) + (tag_overlap * tag_boost_weight).
+    /// Set to 0.0 to disable tag-based linking boost.
+    pub tag_boost_weight: f32,
 }
 
 impl Default for GraphConfig {
@@ -423,6 +427,7 @@ impl Default for GraphConfig {
             min_similarity: 0.5,
             extend_candidates: false,
             keep_pruned: true,
+            tag_boost_weight: 0.3,
         }
     }
 }
@@ -465,6 +470,12 @@ impl GraphConfig {
 
         if let Ok(val) = std::env::var("GRAPH_KEEP_PRUNED") {
             config.keep_pruned = val != "false" && val != "0";
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_TAG_BOOST_WEIGHT") {
+            if let Ok(w) = val.parse::<f32>() {
+                config.tag_boost_weight = w.clamp(0.0, 1.0);
+            }
         }
 
         config

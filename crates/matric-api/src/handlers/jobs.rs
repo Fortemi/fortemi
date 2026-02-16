@@ -818,6 +818,73 @@ impl LinkingHandler {
         dot / (norm_a * norm_b)
     }
 
+    /// Compute tag overlap score between two sets of SKOS concept IDs.
+    ///
+    /// Returns shared_count / max(count_a, count_b), or 0.0 if both sets are empty.
+    fn tag_overlap_score(
+        tags_a: &std::collections::HashSet<uuid::Uuid>,
+        tags_b: &std::collections::HashSet<uuid::Uuid>,
+    ) -> f32 {
+        let max_count = tags_a.len().max(tags_b.len());
+        if max_count == 0 {
+            return 0.0;
+        }
+        let shared = tags_a.intersection(tags_b).count();
+        shared as f32 / max_count as f32
+    }
+
+    /// Fetch SKOS concepts for source + candidates and compute blended scores.
+    ///
+    /// Blended score = (embedding_sim * (1 - tag_weight)) + (tag_overlap * tag_weight).
+    /// Updates SearchHit scores in-place and re-sorts by blended score descending.
+    async fn apply_tag_boost(
+        &self,
+        source_id: uuid::Uuid,
+        candidates: &mut [(matric_core::SearchHit, pgvector::Vector)],
+        tag_weight: f32,
+    ) {
+        if tag_weight <= 0.0 || candidates.is_empty() {
+            return;
+        }
+
+        // Collect all note IDs (source + candidates)
+        let mut note_ids: Vec<uuid::Uuid> = candidates.iter().map(|(h, _)| h.note_id).collect();
+        note_ids.push(source_id);
+
+        // Bulk fetch concept IDs
+        let concept_map = match self.db.skos.get_concept_ids_bulk(&note_ids).await {
+            Ok(m) => m,
+            Err(e) => {
+                debug!(error = %e, "Failed to fetch concepts for tag boost, using pure embedding similarity");
+                return;
+            }
+        };
+
+        let empty_set = std::collections::HashSet::new();
+        let source_concepts = concept_map.get(&source_id).unwrap_or(&empty_set);
+
+        // If source has no tags, tag_overlap will be 0 for all candidates.
+        // Skip blending to avoid needlessly penalizing embedding scores.
+        if source_concepts.is_empty() {
+            return;
+        }
+
+        let embed_weight = 1.0 - tag_weight;
+
+        for (hit, _) in candidates.iter_mut() {
+            let candidate_concepts = concept_map.get(&hit.note_id).unwrap_or(&empty_set);
+            let overlap = Self::tag_overlap_score(source_concepts, candidate_concepts);
+            hit.score = (hit.score * embed_weight) + (overlap * tag_weight);
+        }
+
+        // Re-sort by blended score (descending)
+        candidates.sort_by(|a, b| {
+            b.0.score
+                .partial_cmp(&a.0.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
     /// HNSW Algorithm 4: SELECT-NEIGHBORS-HEURISTIC (Malkov & Yashunin 2018).
     ///
     /// Selects up to `m` neighbors from candidates by accepting a candidate only
@@ -898,7 +965,7 @@ impl LinkingHandler {
         };
 
         // Filter self and below minimum similarity
-        let filtered: Vec<_> = candidates
+        let mut filtered: Vec<_> = candidates
             .into_iter()
             .filter(|(hit, _)| hit.note_id != note_id && hit.score >= config.min_similarity)
             .collect();
@@ -907,6 +974,10 @@ impl LinkingHandler {
             debug!(note_id = %note_id, "No candidates above min_similarity");
             return Ok(0);
         }
+
+        // Apply tag-based boost: blend embedding similarity with SKOS tag overlap (#420)
+        self.apply_tag_boost(note_id, &mut filtered, config.tag_boost_weight)
+            .await;
 
         // Run Algorithm 4: diverse neighbor selection
         let selected = Self::select_neighbors_heuristic(
@@ -923,6 +994,7 @@ impl LinkingHandler {
                 "strategy": "hnsw_heuristic",
                 "k": k,
                 "rank": i + 1,
+                "tag_boost_weight": config.tag_boost_weight,
             });
             let result = {
                 let mut tx = schema_ctx
@@ -1016,6 +1088,7 @@ impl LinkingHandler {
         note_id: uuid::Uuid,
         source_vec: &pgvector::Vector,
         link_threshold: f32,
+        tag_boost_weight: f32,
         schema_ctx: &SchemaContext,
     ) -> std::result::Result<usize, String> {
         let similar = {
@@ -1035,8 +1108,38 @@ impl LinkingHandler {
             s
         };
 
+        // Apply tag-based score boost (#420)
+        let boosted = if tag_boost_weight > 0.0 {
+            let mut note_ids: Vec<uuid::Uuid> = similar.iter().map(|h| h.note_id).collect();
+            note_ids.push(note_id);
+            let concept_map = self.db.skos.get_concept_ids_bulk(&note_ids).await.ok();
+            if let Some(ref cmap) = concept_map {
+                let empty_set = std::collections::HashSet::new();
+                let source_concepts = cmap.get(&note_id).unwrap_or(&empty_set);
+                if !source_concepts.is_empty() {
+                    let embed_weight = 1.0 - tag_boost_weight;
+                    similar
+                        .into_iter()
+                        .map(|mut h| {
+                            let candidate_concepts = cmap.get(&h.note_id).unwrap_or(&empty_set);
+                            let overlap =
+                                Self::tag_overlap_score(source_concepts, candidate_concepts);
+                            h.score = (h.score * embed_weight) + (overlap * tag_boost_weight);
+                            h
+                        })
+                        .collect()
+                } else {
+                    similar
+                }
+            } else {
+                similar
+            }
+        } else {
+            similar
+        };
+
         let mut created = 0;
-        for hit in similar {
+        for hit in boosted {
             if hit.note_id == note_id || hit.score < link_threshold {
                 continue;
             }
@@ -1239,8 +1342,14 @@ impl JobHandler for LinkingHandler {
                     threshold = link_threshold,
                     "Linking with threshold strategy"
                 );
-                self.link_by_threshold(note_id, &embeddings[0].vector, link_threshold, &schema_ctx)
-                    .await
+                self.link_by_threshold(
+                    note_id,
+                    &embeddings[0].vector,
+                    link_threshold,
+                    graph_config.tag_boost_weight,
+                    &schema_ctx,
+                )
+                .await
             }
         };
 
@@ -1596,6 +1705,30 @@ impl ConceptTaggingHandler {
         Self { db, backend }
     }
 
+    /// Queue a Linking job as Phase 2 of the NLP pipeline (#420).
+    /// Called on all exit paths to ensure linking runs even if tagging
+    /// produces no tags (embedding-only linking still works).
+    async fn queue_linking_job(&self, note_id: uuid::Uuid, schema: &str) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::Linking,
+                JobType::Linking.default_priority(),
+                payload,
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue phase-2 linking job");
+        }
+    }
+
     /// Get or create a concept by preferred label.
     async fn get_or_create_concept(
         &self,
@@ -1695,6 +1828,7 @@ impl JobHandler for ConceptTaggingHandler {
         };
 
         if content.trim().is_empty() {
+            self.queue_linking_job(note_id, schema).await;
             return JobResult::Success(Some(
                 serde_json::json!({"concepts": 0, "reason": "empty_content"}),
             ));
@@ -1769,7 +1903,11 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
 
         let ai_response = match self.backend.generate(&prompt).await {
             Ok(r) => r.trim().to_string(),
-            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
+            Err(e) => {
+                // Still queue linking even if AI tagging fails — linking works with pure embeddings
+                self.queue_linking_job(note_id, schema).await;
+                return JobResult::Failed(format!("AI generation failed: {}", e));
+            }
         };
 
         ctx.report_progress(50, Some("Parsing concept suggestions..."));
@@ -1789,6 +1927,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
                     Ok(labels) => labels,
                     Err(e) => {
                         warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
+                        self.queue_linking_job(note_id, schema).await;
                         return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }
@@ -1796,6 +1935,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
         };
 
         if concept_labels.is_empty() {
+            self.queue_linking_job(note_id, schema).await;
             return JobResult::Success(Some(serde_json::json!({
                 "concepts": 0,
                 "reason": "no_concepts_suggested"
@@ -1856,6 +1996,12 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             let progress = 60 + ((i + 1) * 30 / total) as i32;
             ctx.report_progress(progress, Some(&format!("Tagged with: {}", label)));
         }
+
+        ctx.report_progress(95, Some("Queuing phase-2 linking job..."));
+
+        // Queue Linking as Phase 2 of the NLP pipeline (#420).
+        // Tags now exist, so the linker can blend SKOS tag overlap with embedding similarity.
+        self.queue_linking_job(note_id, schema).await;
 
         ctx.report_progress(100, Some("Concept tagging complete"));
         info!(

@@ -2121,6 +2121,43 @@ impl SkosTaggingRepository for PgSkosRepository {
 }
 
 // =============================================================================
+// LINKING SUPPORT (bulk tag overlap queries)
+// =============================================================================
+
+impl PgSkosRepository {
+    /// Fetch SKOS concept IDs for multiple notes in a single query.
+    ///
+    /// Returns a map from note_id to the set of concept_ids tagged on that note.
+    /// Notes with no tags are omitted from the result.
+    pub async fn get_concept_ids_bulk(
+        &self,
+        note_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, std::collections::HashSet<Uuid>>> {
+        if note_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            "SELECT note_id, concept_id FROM note_skos_concept WHERE note_id = ANY($1::uuid[])",
+        )
+        .bind(note_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        let mut map: std::collections::HashMap<Uuid, std::collections::HashSet<Uuid>> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let note_id: Uuid = row.get("note_id");
+            let concept_id: Uuid = row.get("concept_id");
+            map.entry(note_id).or_default().insert(concept_id);
+        }
+
+        Ok(map)
+    }
+}
+
+// =============================================================================
 // GOVERNANCE IMPLEMENTATION
 // =============================================================================
 
