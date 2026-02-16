@@ -44,9 +44,9 @@ use matric_core::EmbeddingBackend;
 use matric_core::{
     AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
     CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository, EventBus, ExtractionAdapter,
-    ExtractionStrategy, JobRepository, JobType, LinkRepository, ListNotesRequest, NoteRepository,
-    OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
-    TokenRequest, UpdateNoteStatusRequest,
+    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
+    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
+    UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
@@ -5703,8 +5703,6 @@ async fn remove_skos_collection_member(
 // COLLECTION HANDLERS
 // =============================================================================
 
-use matric_db::CollectionRepository;
-
 #[derive(Debug, Deserialize)]
 struct ListCollectionsQuery {
     parent_id: Option<Uuid>,
@@ -9135,14 +9133,14 @@ struct BackupExportResponse {
 }
 
 /// Export all notes as a JSON export.
+/// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/export", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn backup_export(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<BackupExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::NoteRepository;
-
     // Build list request with filters
     let tags = query.tags.map(|t| {
         t.split(',')
@@ -9170,17 +9168,23 @@ async fn backup_export(
         updated_before: None,
     };
 
+    // Schema-scoped transaction for the entire export
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+
     // Fetch all notes
-    let notes_response = state.db.notes.list(list_req).await?;
+    let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
     let mut exported_notes = Vec::new();
 
     for note in notes_response.notes {
         // Fetch full note with content
-        if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-            let note_tags = state
-                .db
-                .tags
-                .get_for_note(note.id)
+        if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+            let note_tags = tags_repo
+                .get_for_note_tx(&mut tx, note.id)
                 .await
                 .unwrap_or_default();
             exported_notes.push(serde_json::json!({
@@ -9201,7 +9205,10 @@ async fn backup_export(
     }
 
     // Fetch collections
-    let collections = state.db.collections.list(None).await.unwrap_or_default();
+    let collections = collections_repo
+        .list_tx(&mut tx, None)
+        .await
+        .unwrap_or_default();
     let collections_json: Vec<serde_json::Value> = collections
         .iter()
         .map(|c| {
@@ -9217,17 +9224,12 @@ async fn backup_export(
         .collect();
 
     // Fetch all tags (extract names)
-    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
     let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
 
     // Fetch templates
-    let templates = {
-        let ctx = state.db.for_schema("public")?;
-        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
-            .await
-    }
-    .unwrap_or_default();
+    let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let templates = templates_repo.list_tx(&mut tx).await.unwrap_or_default();
     let templates_json: Vec<serde_json::Value> = templates
         .iter()
         .map(|t| {
@@ -9244,6 +9246,8 @@ async fn backup_export(
             })
         })
         .collect();
+
+    tx.commit().await.map_err(matric_db::Error::Database)?;
 
     let response = BackupExportResponse {
         manifest: BackupExportManifest {
@@ -9267,14 +9271,14 @@ async fn backup_export(
 }
 
 /// Download backup as a file attachment.
+/// Respects X-Fortemi-Memory header for archive-scoped exports (#421).
 #[utoipa::path(get, path = "/api/v1/backup/download", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn backup_download(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<BackupExportQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::NoteRepository;
-
     // Build list request with filters (same as backup_export)
     let tags = query.tags.map(|t| {
         t.split(',')
@@ -9302,16 +9306,22 @@ async fn backup_download(
         updated_before: None,
     };
 
+    // Schema-scoped transaction for the entire export
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+
     // Fetch all notes
-    let notes_response = state.db.notes.list(list_req).await?;
+    let notes_response = notes_repo.list_tx(&mut tx, list_req).await?;
     let mut exported_notes = Vec::new();
 
     for note in notes_response.notes {
-        if let Ok(full_note) = state.db.notes.fetch(note.id).await {
-            let note_tags = state
-                .db
-                .tags
-                .get_for_note(note.id)
+        if let Ok(full_note) = notes_repo.fetch_tx(&mut tx, note.id).await {
+            let note_tags = tags_repo
+                .get_for_note_tx(&mut tx, note.id)
                 .await
                 .unwrap_or_default();
             exported_notes.push(serde_json::json!({
@@ -9332,7 +9342,10 @@ async fn backup_download(
     }
 
     // Fetch collections
-    let collections = state.db.collections.list(None).await.unwrap_or_default();
+    let collections = collections_repo
+        .list_tx(&mut tx, None)
+        .await
+        .unwrap_or_default();
     let collections_json: Vec<serde_json::Value> = collections
         .iter()
         .map(|c| {
@@ -9348,17 +9361,12 @@ async fn backup_download(
         .collect();
 
     // Fetch all tags
-    let all_tags = state.db.tags.list().await.unwrap_or_default();
+    let all_tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
     let tag_names: Vec<String> = all_tags.iter().map(|t| t.name.clone()).collect();
 
     // Fetch templates
-    let templates = {
-        let ctx = state.db.for_schema("public")?;
-        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
-            .await
-    }
-    .unwrap_or_default();
+    let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let templates = templates_repo.list_tx(&mut tx).await.unwrap_or_default();
     let templates_json: Vec<serde_json::Value> = templates
         .iter()
         .map(|t| {
@@ -9375,6 +9383,8 @@ async fn backup_download(
             })
         })
         .collect();
+
+    tx.commit().await.map_err(matric_db::Error::Database)?;
 
     let response = BackupExportResponse {
         manifest: BackupExportManifest {
@@ -9487,14 +9497,23 @@ struct ImportCounts {
 }
 
 /// Import a knowledge shard.
+/// Respects X-Fortemi-Memory header for archive-scoped imports (#421).
 #[utoipa::path(post, path = "/api/v1/backup/import", tag = "Backup",
     request_body = BackupImportBody,
     responses((status = 200, description = "Success")))]
 async fn backup_import(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<BackupImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use matric_core::{CreateNoteRequest, NoteRepository};
+    use matric_core::CreateNoteRequest;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.clone())
+    } else {
+        None
+    };
 
     let mut imported = ImportCounts::default();
     let mut skipped = ImportCounts::default();
@@ -9523,7 +9542,12 @@ async fn backup_import(
 
         // Check if note exists (by ID)
         if let Some(id) = note_data.id {
-            if state.db.notes.exists(id).await.unwrap_or(false) {
+            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            let exists = ctx
+                .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
+                .await
+                .unwrap_or(false);
+            if exists {
                 match body.on_conflict {
                     ConflictStrategy::Skip => {
                         skipped.notes += 1;
@@ -9532,7 +9556,12 @@ async fn backup_import(
                     ConflictStrategy::Replace => {
                         // Delete existing and re-create
                         if !body.dry_run {
-                            let _ = state.db.notes.soft_delete(id).await;
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            let _ = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move { notes.soft_delete_tx(tx, id).await })
+                                })
+                                .await;
                         }
                     }
                     ConflictStrategy::Merge => {
@@ -9562,7 +9591,12 @@ async fn backup_import(
                 document_type_id: None,
             };
 
-            match state.db.notes.insert(req).await {
+            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            let insert_result = ctx
+                .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req).await }))
+                .await;
+
+            match insert_result {
                 Ok(new_id) => {
                     // Update status if specified
                     if note_data.starred.unwrap_or(false) || note_data.archived.unwrap_or(false) {
@@ -9571,16 +9605,34 @@ async fn backup_import(
                             archived: note_data.archived,
                             metadata: None,
                         };
-                        let _ = state.db.notes.update_status(new_id, status_req).await;
+                        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                        let _ = ctx
+                            .execute(move |tx| {
+                                Box::pin(async move {
+                                    notes.update_status_tx(tx, new_id, status_req).await
+                                })
+                            })
+                            .await;
                     }
 
                     // If revised content exists, update it
                     if let Some(revised) = &note_data.revised_content {
                         if !revised.is_empty() {
-                            let _ = state
-                                .db
-                                .notes
-                                .update_revised(new_id, revised, Some("Imported from backup"))
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            let revised = revised.clone();
+                            let _ = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move {
+                                        notes
+                                            .update_revised_tx(
+                                                tx,
+                                                new_id,
+                                                &revised,
+                                                Some("Imported from backup"),
+                                            )
+                                            .await
+                                    })
+                                })
                                 .await;
                         }
                     }
@@ -9591,7 +9643,7 @@ async fn backup_import(
                         new_id,
                         RevisionMode::None,
                         &state.event_bus,
-                        None,
+                        schema_for_jobs.as_deref(),
                     )
                     .await;
 
@@ -9614,7 +9666,19 @@ async fn backup_import(
         ) {
             if !body.dry_run {
                 let description = coll.get("description").and_then(|v| v.as_str());
-                match state.db.collections.create(name, description, None).await {
+                let collections = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+                let name = name.to_string();
+                let desc = description.map(String::from);
+                let res = ctx
+                    .execute(move |tx| {
+                        Box::pin(async move {
+                            collections
+                                .create_tx(tx, &name, desc.as_deref(), None)
+                                .await
+                        })
+                    })
+                    .await;
+                match res {
                     Ok(_) => imported.collections += 1,
                     Err(_) => skipped.collections += 1,
                 }
@@ -9646,14 +9710,10 @@ async fn backup_import(
                     default_tags: None,
                     collection_id: None,
                 };
-                let res = {
-                    let ctx = state.db.for_schema("public")?;
-                    let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                    ctx.execute(move |tx| {
-                        Box::pin(async move { templates.create_tx(tx, req).await })
-                    })
-                    .await
-                };
+                let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                let res = ctx
+                    .execute(move |tx| Box::pin(async move { templates.create_tx(tx, req).await }))
+                    .await;
                 match res {
                     Ok(_) => imported.templates += 1,
                     Err(_) => skipped.templates += 1,
@@ -9701,10 +9761,12 @@ struct BackupTriggerResponse {
 /// This replaces the previous shell-script-based approach. The backup is created
 /// as a compressed .sql.gz file in the backup directory, using the same format
 /// as `database_backup_snapshot` but with the `auto_` prefix.
+/// Respects X-Fortemi-Memory header for note count metadata (#421).
 #[utoipa::path(post, path = "/api/v1/backup/trigger", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn backup_trigger(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     body: Option<Json<BackupTriggerBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     let body = body.map(|b| b.0).unwrap_or(BackupTriggerBody {
@@ -9731,17 +9793,19 @@ async fn backup_trigger(
         }));
     }
 
-    // Get note count for metadata
-    let note_count = state
-        .db
-        .notes
-        .list(ListNotesRequest {
+    // Get note count for metadata (schema-scoped)
+    let note_count = {
+        let ctx = state.db.for_schema(&archive_ctx.schema)?;
+        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let list_req = ListNotesRequest {
             limit: Some(1),
             ..Default::default()
-        })
-        .await
-        .map(|r| r.total)
-        .ok();
+        };
+        ctx.query(move |tx| Box::pin(async move { notes.list_tx(tx, list_req).await }))
+            .await
+            .map(|r| r.total)
+            .ok()
+    };
 
     // Run pg_dump
     let output = std::process::Command::new("pg_dump")
@@ -10372,16 +10436,25 @@ struct ShardImportCounts {
 }
 
 /// Import a full knowledge shard from tar.gz.
+/// Respects X-Fortemi-Memory header for archive-scoped imports (#421).
 #[utoipa::path(post, path = "/api/v1/backup/knowledge-shard/import", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn knowledge_shard_import(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<ShardImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     use base64::Engine;
     use flate2::read::GzDecoder;
     use matric_core::CreateNoteRequest;
     use tar::Archive;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let schema_for_jobs = if archive_ctx.schema != "public" {
+        Some(archive_ctx.schema.clone())
+    } else {
+        None
+    };
 
     // Decode base64 shard
     let shard_bytes = base64::engine::general_purpose::STANDARD
@@ -10489,7 +10562,14 @@ async fn knowledge_shard_import(
                             .and_then(|s| Uuid::parse_str(s).ok());
 
                         if let Some(id) = existing_id {
-                            if state.db.notes.exists(id).await.unwrap_or(false) {
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            let exists = ctx
+                                .query(move |tx| {
+                                    Box::pin(async move { notes.exists_tx(tx, id).await })
+                                })
+                                .await
+                                .unwrap_or(false);
+                            if exists {
                                 match body.on_conflict {
                                     ConflictStrategy::Skip => {
                                         skipped.notes += 1;
@@ -10497,7 +10577,16 @@ async fn knowledge_shard_import(
                                     }
                                     ConflictStrategy::Replace => {
                                         if !body.dry_run {
-                                            let _ = state.db.notes.soft_delete(id).await;
+                                            let notes = matric_db::PgNoteRepository::new(
+                                                state.db.pool.clone(),
+                                            );
+                                            let _ = ctx
+                                                .execute(move |tx| {
+                                                    Box::pin(async move {
+                                                        notes.soft_delete_tx(tx, id).await
+                                                    })
+                                                })
+                                                .await;
                                         }
                                     }
                                     ConflictStrategy::Merge => {
@@ -10534,7 +10623,14 @@ async fn knowledge_shard_import(
                                 document_type_id: None,
                             };
 
-                            match state.db.notes.insert(req).await {
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            let insert_result = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move { notes.insert_tx(tx, req).await })
+                                })
+                                .await;
+
+                            match insert_result {
                                 Ok(new_id) => {
                                     // Update status if specified
                                     let starred = note_json
@@ -10551,8 +10647,17 @@ async fn knowledge_shard_import(
                                             archived: Some(archived),
                                             metadata: None,
                                         };
-                                        let _ =
-                                            state.db.notes.update_status(new_id, status_req).await;
+                                        let notes =
+                                            matric_db::PgNoteRepository::new(state.db.pool.clone());
+                                        let _ = ctx
+                                            .execute(move |tx| {
+                                                Box::pin(async move {
+                                                    notes
+                                                        .update_status_tx(tx, new_id, status_req)
+                                                        .await
+                                                })
+                                            })
+                                            .await;
                                     }
 
                                     // Update revised content if available
@@ -10560,14 +10665,23 @@ async fn knowledge_shard_import(
                                         note_json.get("revised_content").and_then(|v| v.as_str())
                                     {
                                         if !revised.is_empty() {
-                                            let _ = state
-                                                .db
-                                                .notes
-                                                .update_revised(
-                                                    new_id,
-                                                    revised,
-                                                    Some("Imported from shard"),
-                                                )
+                                            let notes = matric_db::PgNoteRepository::new(
+                                                state.db.pool.clone(),
+                                            );
+                                            let revised = revised.to_string();
+                                            let _ = ctx
+                                                .execute(move |tx| {
+                                                    Box::pin(async move {
+                                                        notes
+                                                            .update_revised_tx(
+                                                                tx,
+                                                                new_id,
+                                                                &revised,
+                                                                Some("Imported from shard"),
+                                                            )
+                                                            .await
+                                                    })
+                                                })
                                                 .await;
                                         }
                                     }
@@ -10579,7 +10693,7 @@ async fn knowledge_shard_import(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
-                                            None,
+                                            schema_for_jobs.as_deref(),
                                         )
                                         .await;
                                     }
@@ -10616,23 +10730,31 @@ async fn knowledge_shard_import(
 
                         if let (Some(name), Some(_id)) = (name, id) {
                             if !body.dry_run {
-                                match state
-                                    .db
-                                    .collections
-                                    .create(
-                                        name,
-                                        coll.get("description").and_then(|v| v.as_str()),
-                                        coll.get("parent_id")
-                                            .and_then(|v| v.as_str())
-                                            .and_then(|s| Uuid::parse_str(s).ok()),
-                                    )
-                                    .await
-                                {
+                                let collections =
+                                    matric_db::PgCollectionRepository::new(state.db.pool.clone());
+                                let name = name.to_string();
+                                let desc = coll
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                let parent_id = coll
+                                    .get("parent_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|s| Uuid::parse_str(s).ok());
+                                let res = ctx
+                                    .execute(move |tx| {
+                                        Box::pin(async move {
+                                            collections
+                                                .create_tx(tx, &name, desc.as_deref(), parent_id)
+                                                .await
+                                        })
+                                    })
+                                    .await;
+                                match res {
                                     Ok(_) => imported.collections += 1,
-                                    Err(e) => errors.push(format!(
-                                        "Failed to import collection {}: {}",
-                                        name, e
-                                    )),
+                                    Err(e) => {
+                                        errors.push(format!("Failed to import collection: {}", e))
+                                    }
                                 }
                             } else {
                                 imported.collections += 1;
@@ -10683,15 +10805,13 @@ async fn knowledge_shard_import(
                                         .and_then(|s| Uuid::parse_str(s).ok()),
                                 };
 
-                                let res = {
-                                    let ctx = state.db.for_schema("public")?;
-                                    let templates =
-                                        matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                                    ctx.execute(move |tx| {
+                                let templates =
+                                    matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                                let res = ctx
+                                    .execute(move |tx| {
                                         Box::pin(async move { templates.create_tx(tx, req).await })
                                     })
-                                    .await
-                                };
+                                    .await;
                                 match res {
                                     Ok(_) => imported.templates += 1,
                                     Err(e) => errors
@@ -10730,7 +10850,8 @@ async fn knowledge_shard_import(
                         let kind = link_json
                             .get("kind")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("semantic");
+                            .unwrap_or("semantic")
+                            .to_string();
                         let score = link_json
                             .get("score")
                             .and_then(|v| v.as_f64())
@@ -10739,12 +10860,19 @@ async fn knowledge_shard_import(
                         if let (Some(from_id), Some(to_id)) = (from_id, to_id) {
                             if !body.dry_run {
                                 let metadata = link_json.get("metadata").cloned();
-                                match state
-                                    .db
-                                    .links
-                                    .create(from_id, to_id, kind, score, metadata)
-                                    .await
-                                {
+                                let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+                                let res = ctx
+                                    .execute(move |tx| {
+                                        Box::pin(async move {
+                                            links
+                                                .create_tx(
+                                                    tx, from_id, to_id, &kind, score, metadata,
+                                                )
+                                                .await
+                                        })
+                                    })
+                                    .await;
+                                match res {
                                     Ok(_) => imported.links += 1,
                                     Err(_) => skipped.links += 1, // Link may already exist
                                 }
@@ -11672,10 +11800,12 @@ struct SwapBackupResponse {
 }
 
 /// Swap to a different backup (restore from shard file on disk).
+/// Respects X-Fortemi-Memory header for archive-scoped swaps (#421).
 #[utoipa::path(post, path = "/api/v1/backup/swap", tag = "Backup",
     responses((status = 200, description = "Success")))]
 async fn swap_backup(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Json(req): Json<SwapBackupRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     use std::fs::File;
@@ -11719,6 +11849,8 @@ async fn swap_backup(
     let shard_base64 =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &shard_data);
 
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
     // If strategy is "wipe", purge existing data first
     if strategy == "wipe" && !dry_run {
         // Purge all notes (which cascades to tags, embeddings, links)
@@ -11727,32 +11859,46 @@ async fn swap_backup(
             filter: Some("all".to_string()), // Include archived
             ..Default::default()
         };
-        let notes = state.db.notes.list(list_req).await?;
+        let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let notes = ctx
+            .query(move |tx| Box::pin(async move { notes_repo.list_tx(tx, list_req).await }))
+            .await?;
         for note in notes.notes {
-            let _ = state.db.notes.hard_delete(note.id).await;
+            let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            let id = note.id;
+            let _ = ctx
+                .execute(move |tx| Box::pin(async move { notes_repo.hard_delete_tx(tx, id).await }))
+                .await;
         }
 
         // Purge collections
-        for coll in state.db.collections.list(None).await.unwrap_or_default() {
-            let _ = state.db.collections.delete(coll.id).await;
+        let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+        let collections = ctx
+            .query(move |tx| Box::pin(async move { collections_repo.list_tx(tx, None).await }))
+            .await
+            .unwrap_or_default();
+        for coll in collections {
+            let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+            let id = coll.id;
+            let _ = ctx
+                .execute(move |tx| {
+                    Box::pin(async move { collections_repo.delete_tx(tx, id).await })
+                })
+                .await;
         }
 
         // Purge templates
-        let templates: Vec<matric_core::NoteTemplate> = {
-            let ctx = state.db.for_schema("public")?;
-            let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-            ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
-                .await
-        }
-        .unwrap_or_default();
+        let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+        let templates: Vec<matric_core::NoteTemplate> = ctx
+            .query(move |tx| Box::pin(async move { templates_repo.list_tx(tx).await }))
+            .await
+            .unwrap_or_default();
         for tmpl in templates {
-            let _ = {
-                let ctx = state.db.for_schema("public")?;
-                let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                let id = tmpl.id;
-                ctx.execute(move |tx| Box::pin(async move { templates.delete_tx(tx, id).await }))
-                    .await
-            };
+            let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+            let id = tmpl.id;
+            let _ = ctx
+                .execute(move |tx| Box::pin(async move { templates_repo.delete_tx(tx, id).await }))
+                .await;
         }
     }
 
@@ -11765,8 +11911,8 @@ async fn swap_backup(
         skip_embedding_regen: false,
     };
 
-    // Call the shard import logic
-    let result = knowledge_shard_import_internal(&state, import_body).await?;
+    // Call the shard import logic with archive schema
+    let result = knowledge_shard_import_internal(&state, import_body, &archive_ctx.schema).await?;
 
     Ok(Json(SwapBackupResponse {
         status: result.status.clone(),
@@ -11793,14 +11939,23 @@ async fn swap_backup(
 }
 
 /// Internal shard import function (reused by both endpoints).
+/// Accepts schema parameter for archive-scoped imports (#421).
 async fn knowledge_shard_import_internal(
     state: &AppState,
     body: ShardImportBody,
+    schema: &str,
 ) -> Result<ShardImportResponse, ApiError> {
     use flate2::read::GzDecoder;
     use std::collections::HashMap;
     use std::io::Read;
     use tar::Archive;
+
+    let ctx = state.db.for_schema(schema)?;
+    let schema_for_jobs = if schema != "public" {
+        Some(schema.to_string())
+    } else {
+        None
+    };
 
     // Decode base64 shard
     let shard_bytes = base64::Engine::decode(
@@ -11895,7 +12050,12 @@ async fn knowledge_shard_import_internal(
 
                         // Check if note exists
                         let exists = if let Some(id) = original_id {
-                            state.db.notes.fetch(id).await.is_ok()
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            ctx.query(move |tx| {
+                                Box::pin(async move { notes.fetch_tx(tx, id).await })
+                            })
+                            .await
+                            .is_ok()
                         } else {
                             false
                         };
@@ -11909,7 +12069,16 @@ async fn knowledge_shard_import_internal(
                                 ConflictStrategy::Replace => {
                                     if let Some(id) = original_id {
                                         if !body.dry_run {
-                                            let _ = state.db.notes.hard_delete(id).await;
+                                            let notes = matric_db::PgNoteRepository::new(
+                                                state.db.pool.clone(),
+                                            );
+                                            let _ = ctx
+                                                .execute(move |tx| {
+                                                    Box::pin(async move {
+                                                        notes.hard_delete_tx(tx, id).await
+                                                    })
+                                                })
+                                                .await;
                                         }
                                     }
                                 }
@@ -11943,7 +12112,14 @@ async fn knowledge_shard_import_internal(
                                 document_type_id: None,
                             };
 
-                            match state.db.notes.insert(req).await {
+                            let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+                            let insert_result = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move { notes.insert_tx(tx, req).await })
+                                })
+                                .await;
+
+                            match insert_result {
                                 Ok(new_id) => {
                                     // Update starred status if present
                                     if let Some(starred) =
@@ -11954,18 +12130,40 @@ async fn knowledge_shard_import_internal(
                                             archived: None,
                                             metadata: None,
                                         };
-                                        let _ =
-                                            state.db.notes.update_status(new_id, status_req).await;
+                                        let notes =
+                                            matric_db::PgNoteRepository::new(state.db.pool.clone());
+                                        let _ = ctx
+                                            .execute(move |tx| {
+                                                Box::pin(async move {
+                                                    notes
+                                                        .update_status_tx(tx, new_id, status_req)
+                                                        .await
+                                                })
+                                            })
+                                            .await;
                                     }
                                     // Update revised content if available
                                     if let Some(revised) =
                                         note_json.get("revised_content").and_then(|v| v.as_str())
                                     {
                                         if !revised.is_empty() {
-                                            let _ = state
-                                                .db
-                                                .notes
-                                                .update_revised(new_id, revised, Some("Imported"))
+                                            let notes = matric_db::PgNoteRepository::new(
+                                                state.db.pool.clone(),
+                                            );
+                                            let revised = revised.to_string();
+                                            let _ = ctx
+                                                .execute(move |tx| {
+                                                    Box::pin(async move {
+                                                        notes
+                                                            .update_revised_tx(
+                                                                tx,
+                                                                new_id,
+                                                                &revised,
+                                                                Some("Imported"),
+                                                            )
+                                                            .await
+                                                    })
+                                                })
                                                 .await;
                                         }
                                     }
@@ -11975,7 +12173,7 @@ async fn knowledge_shard_import_internal(
                                             new_id,
                                             RevisionMode::None,
                                             &state.event_bus,
-                                            None,
+                                            schema_for_jobs.as_deref(),
                                         )
                                         .await;
                                     }
@@ -12000,18 +12198,27 @@ async fn knowledge_shard_import_internal(
                 for coll in collections {
                     if let Some(name) = coll.get("name").and_then(|v| v.as_str()) {
                         if !body.dry_run {
-                            match state
-                                .db
-                                .collections
-                                .create(
-                                    name,
-                                    coll.get("description").and_then(|v| v.as_str()),
-                                    coll.get("parent_id")
-                                        .and_then(|v| v.as_str())
-                                        .and_then(|s| Uuid::parse_str(s).ok()),
-                                )
-                                .await
-                            {
+                            let collections =
+                                matric_db::PgCollectionRepository::new(state.db.pool.clone());
+                            let name = name.to_string();
+                            let desc = coll
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            let parent_id = coll
+                                .get("parent_id")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| Uuid::parse_str(s).ok());
+                            let res = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move {
+                                        collections
+                                            .create_tx(tx, &name, desc.as_deref(), parent_id)
+                                            .await
+                                    })
+                                })
+                                .await;
+                            match res {
                                 Ok(_) => imported.collections += 1,
                                 Err(_) => skipped.collections += 1,
                             }
@@ -12060,15 +12267,13 @@ async fn knowledge_shard_import_internal(
                                     .and_then(|v| v.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok()),
                             };
-                            let res = {
-                                let ctx = state.db.for_schema("public")?;
-                                let templates =
-                                    matric_db::PgTemplateRepository::new(state.db.pool.clone());
-                                ctx.execute(move |tx| {
+                            let templates =
+                                matric_db::PgTemplateRepository::new(state.db.pool.clone());
+                            let res = ctx
+                                .execute(move |tx| {
                                     Box::pin(async move { templates.create_tx(tx, req).await })
                                 })
-                                .await
-                            };
+                                .await;
                             match res {
                                 Ok(_) => imported.templates += 1,
                                 Err(_) => skipped.templates += 1,
@@ -12103,15 +12308,21 @@ async fn knowledge_shard_import_internal(
                             let kind = link
                                 .get("kind")
                                 .and_then(|v| v.as_str())
-                                .unwrap_or("semantic");
+                                .unwrap_or("semantic")
+                                .to_string();
                             let score =
                                 link.get("score").and_then(|v| v.as_f64()).unwrap_or(0.7) as f32;
-                            match state
-                                .db
-                                .links
-                                .create(from_id, to_id, kind, score, None)
-                                .await
-                            {
+                            let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+                            let res = ctx
+                                .execute(move |tx| {
+                                    Box::pin(async move {
+                                        links
+                                            .create_tx(tx, from_id, to_id, &kind, score, None)
+                                            .await
+                                    })
+                                })
+                                .await;
+                            match res {
                                 Ok(_) => imported.links += 1,
                                 Err(_) => skipped.links += 1,
                             }
@@ -13723,30 +13934,43 @@ struct HardwareRecommendations {
 }
 
 /// Get detailed memory/storage info for hardware planning.
+/// Respects X-Fortemi-Memory header for archive-scoped info (#421).
 #[utoipa::path(get, path = "/api/v1/memory/info", tag = "System",
     responses((status = 200, description = "Success")))]
-async fn memory_info(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+async fn memory_info(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Schema-scoped transaction for all queries
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+
+    let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let links_repo = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let collections_repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+    let tags_repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let templates_repo = matric_db::PgTemplateRepository::new(state.db.pool.clone());
+    let sets_repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+
     // Get summary counts
     let notes_req = ListNotesRequest {
         limit: Some(1),
         ..Default::default()
     };
-    let notes_resp = state.db.notes.list(notes_req).await?;
+    let notes_resp = notes_repo.list_tx(&mut tx, notes_req).await?;
 
-    let _links = state.db.links.list_all(1, 0).await.unwrap_or_default();
-    let link_count = state.db.links.count().await.unwrap_or(0);
-    let collections = state.db.collections.list(None).await.unwrap_or_default();
-    let tags = state.db.tags.list().await.unwrap_or_default();
-    let templates: Vec<matric_core::NoteTemplate> = {
-        let ctx = state.db.for_schema("public")?;
-        let templates = matric_db::PgTemplateRepository::new(state.db.pool.clone());
-        ctx.query(move |tx| Box::pin(async move { templates.list_tx(tx).await }))
-            .await
-    }
-    .unwrap_or_default();
+    let link_count = links_repo.count_tx(&mut tx).await.unwrap_or(0);
+    let collections = collections_repo
+        .list_tx(&mut tx, None)
+        .await
+        .unwrap_or_default();
+    let tags = tags_repo.list_tx(&mut tx).await.unwrap_or_default();
+    let templates = templates_repo.list_tx(&mut tx).await.unwrap_or_default();
 
     // Get embedding set info
-    let embedding_sets = state.db.embedding_sets.list().await.unwrap_or_default();
+    let embedding_sets = sets_repo.list_tx(&mut tx).await.unwrap_or_default();
+
+    tx.commit().await.map_err(matric_db::Error::Database)?;
     let mut set_infos = Vec::new();
 
     for set in &embedding_sets {
