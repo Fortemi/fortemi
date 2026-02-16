@@ -237,12 +237,12 @@ async fn queue_nlp_pipeline(
     }
 
     // Queue Phase 1 pipeline jobs (always run these).
-    // Linking is Phase 2 — queued by ConceptTaggingHandler on completion (#420)
-    // to ensure SKOS tags exist before the linker runs for tag-based score boosting.
+    // Embedding and Linking are Phase 2 — queued by ConceptTaggingHandler on
+    // completion (#420, #424) to ensure SKOS tags exist before embedding, so
+    // vectors include tag context for better semantic search and linking.
     for job_type in [
-        JobType::Embedding,
         JobType::TitleGeneration,
-        JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for linking)
+        JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for embedding and linking)
     ] {
         // Create payload with schema if provided
         let payload = schema.map(|s| serde_json::json!({ "schema": s }));

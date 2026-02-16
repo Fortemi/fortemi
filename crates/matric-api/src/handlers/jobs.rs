@@ -400,20 +400,50 @@ impl JobHandler for EmbeddingHandler {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
+
+        // Fetch SKOS concept labels for embedding enrichment (#424).
+        // Tags are available because ConceptTagging runs before Embedding in the pipeline.
+        let concept_labels: Vec<String> = sqlx::query_scalar(
+            "SELECT l.value FROM note_skos_concept nc \
+             JOIN skos_concept_label l ON nc.concept_id = l.concept_id \
+             WHERE nc.note_id = $1 AND l.label_type = 'pref_label' \
+             ORDER BY nc.is_primary DESC, nc.relevance_score DESC",
+        )
+        .bind(note_id)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap_or_default();
+
         if let Err(e) = tx.commit().await {
             return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
         // Use revised content if available, otherwise original
-        let content: &str = if !note.revised.content.is_empty() {
+        let base_content: &str = if !note.revised.content.is_empty() {
             &note.revised.content
         } else {
             &note.original.content
         };
 
-        if content.trim().is_empty() {
+        if base_content.trim().is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
+
+        // Build enriched content: title + tags + content (#424).
+        // Including tags in the embedding input produces vectors that capture
+        // semantic context from SKOS concepts, improving search and linking quality.
+        let title = note.note.title.as_deref().unwrap_or("");
+        let content = {
+            let mut parts = Vec::new();
+            if !title.is_empty() {
+                parts.push(title.to_string());
+            }
+            if !concept_labels.is_empty() {
+                parts.push(format!("Tags: {}", concept_labels.join(", ")));
+            }
+            parts.push(base_content.to_string());
+            parts.join("\n\n")
+        };
 
         ctx.report_progress(30, Some("Chunking content..."));
 
@@ -456,7 +486,7 @@ impl JobHandler for EmbeddingHandler {
         };
 
         let chunker = SemanticChunker::new(chunker_config);
-        let semantic_chunks = chunker.chunk(content);
+        let semantic_chunks = chunker.chunk(&content);
         let chunks: Vec<String> = semantic_chunks.into_iter().map(|c| c.text).collect();
         if chunks.is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
@@ -1705,15 +1735,34 @@ impl ConceptTaggingHandler {
         Self { db, backend }
     }
 
-    /// Queue a Linking job as Phase 2 of the NLP pipeline (#420).
-    /// Called on all exit paths to ensure linking runs even if tagging
-    /// produces no tags (embedding-only linking still works).
-    async fn queue_linking_job(&self, note_id: uuid::Uuid, schema: &str) {
+    /// Queue Phase 2 jobs (Embedding + Linking) after concept tagging completes.
+    ///
+    /// Called on ALL exit paths so downstream jobs run even if tagging produces
+    /// no tags. Pipeline order: ConceptTagging → Embedding → Linking (#420, #424).
+    ///
+    /// Embedding is queued here (not in Phase 1) so embedding vectors include
+    /// tag context for better semantic search and linking quality.
+    async fn queue_phase2_jobs(&self, note_id: uuid::Uuid, schema: &str) {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
         } else {
             None
         };
+        // Queue Embedding — runs after tagging so vectors include tag context (#424)
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::Embedding,
+                JobType::Embedding.default_priority(),
+                payload.clone(),
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue phase-2 embedding job");
+        }
+        // Queue Linking — tag-boosted similarity scoring (#420)
         if let Err(e) = self
             .db
             .jobs
@@ -1828,7 +1877,7 @@ impl JobHandler for ConceptTaggingHandler {
         };
 
         if content.trim().is_empty() {
-            self.queue_linking_job(note_id, schema).await;
+            self.queue_phase2_jobs(note_id, schema).await;
             return JobResult::Success(Some(
                 serde_json::json!({"concepts": 0, "reason": "empty_content"}),
             ));
@@ -1905,7 +1954,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 // Still queue linking even if AI tagging fails — linking works with pure embeddings
-                self.queue_linking_job(note_id, schema).await;
+                self.queue_phase2_jobs(note_id, schema).await;
                 return JobResult::Failed(format!("AI generation failed: {}", e));
             }
         };
@@ -1927,7 +1976,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
                     Ok(labels) => labels,
                     Err(e) => {
                         warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
-                        self.queue_linking_job(note_id, schema).await;
+                        self.queue_phase2_jobs(note_id, schema).await;
                         return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }
@@ -1935,7 +1984,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
         };
 
         if concept_labels.is_empty() {
-            self.queue_linking_job(note_id, schema).await;
+            self.queue_phase2_jobs(note_id, schema).await;
             return JobResult::Success(Some(serde_json::json!({
                 "concepts": 0,
                 "reason": "no_concepts_suggested"
@@ -2001,7 +2050,7 @@ Output ONLY a JSON array of concept labels, nothing else. Example:
 
         // Queue Linking as Phase 2 of the NLP pipeline (#420).
         // Tags now exist, so the linker can blend SKOS tag overlap with embedding similarity.
-        self.queue_linking_job(note_id, schema).await;
+        self.queue_phase2_jobs(note_id, schema).await;
 
         ctx.report_progress(100, Some("Concept tagging complete"));
         info!(
