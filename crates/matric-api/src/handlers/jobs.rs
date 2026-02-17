@@ -116,19 +116,26 @@ fn chunk_for_extraction(content: &str) -> Vec<String> {
 }
 
 /// Merge multiple JSON array results from chunked extraction, deduplicating by string value.
-fn merge_json_arrays(results: Vec<String>) -> std::result::Result<Vec<String>, serde_json::Error> {
+/// Skips chunks that fail to parse rather than failing the entire merge.
+fn merge_json_arrays(results: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut merged = Vec::new();
     for raw in results {
-        let items: Vec<String> = parse_json_lenient(&raw)?;
-        for item in items {
-            let key = item.to_lowercase();
-            if seen.insert(key) {
-                merged.push(item);
+        match parse_json_lenient::<Vec<String>>(&raw) {
+            Ok(items) => {
+                for item in items {
+                    let key = item.to_lowercase();
+                    if seen.insert(key) {
+                        merged.push(item);
+                    }
+                }
+            }
+            Err(e) => {
+                info!(error = %e, "Skipping unparseable chunk result in merge");
             }
         }
     }
-    Ok(merged)
+    merged
 }
 
 /// Maximum number of related notes to retrieve for AI context.
@@ -2317,35 +2324,23 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             }
             ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
 
-            // Try fast model first (chunked for large content)
+            // Try fast model first (chunked for large content).
+            // Resilient: skip failed/unparseable chunks rather than discarding everything.
             let llm_concepts: Vec<String> = if use_fast {
                 let chunks = chunk_for_extraction(&content_preview);
                 let mut chunk_results = Vec::new();
-                let mut fast_failed = false;
 
                 for (i, chunk) in chunks.iter().enumerate() {
                     let prompt = make_prompt(chunk, &concept_labels);
                     match backend.generate_json(&prompt).await {
                         Ok(r) => chunk_results.push(r.trim().to_string()),
                         Err(e) => {
-                            info!(chunk = i, error = %e, "Fast model failed on chunk, escalating");
-                            fast_failed = true;
-                            break;
+                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model failed on chunk, skipping");
                         }
                     }
                 }
 
-                if !fast_failed {
-                    match merge_json_arrays(chunk_results) {
-                        Ok(merged) => merged,
-                        Err(e) => {
-                            info!(error = %e, "Fast model output unparseable, escalating to standard model");
-                            Vec::new()
-                        }
-                    }
-                } else {
-                    Vec::new()
-                }
+                merge_json_arrays(chunk_results)
             } else {
                 Vec::new()
             };
@@ -2751,36 +2746,36 @@ impl JobHandler for ReferenceExtractionHandler {
 
             let use_fast = overridden.is_none() && self.fast_backend.is_some();
 
-            // Try fast model with chunking first
+            // Try fast model with chunking first.
+            // Resilient: skip failed/unparseable chunks rather than discarding everything.
             let fast_result: Option<Vec<RefEntity>> = if use_fast {
                 let fast = self.fast_backend.as_ref().unwrap();
                 let chunks = chunk_for_extraction(&content_preview);
                 let mut all_results = Vec::new();
-                let mut failed = false;
+                let mut succeeded = 0usize;
 
                 for (i, chunk) in chunks.iter().enumerate() {
                     let prompt = make_ref_prompt(chunk);
                     match fast.generate_json(&prompt).await {
                         Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
-                            Ok(parsed) => all_results.extend(parsed),
+                            Ok(parsed) => {
+                                all_results.extend(parsed);
+                                succeeded += 1;
+                            }
                             Err(e) => {
-                                info!(chunk = i, error = %e, "Fast model ref parse failed, escalating");
-                                failed = true;
-                                break;
+                                info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model ref parse failed, skipping chunk");
                             }
                         },
                         Err(e) => {
-                            info!(chunk = i, error = %e, "Fast model ref extraction failed, escalating");
-                            failed = true;
-                            break;
+                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model ref extraction failed, skipping chunk");
                         }
                     }
                 }
 
-                if failed {
-                    None
-                } else {
+                if succeeded > 0 {
                     Some(all_results)
+                } else {
+                    None
                 }
             } else {
                 None
