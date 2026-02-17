@@ -108,29 +108,12 @@ echo "  Listening on: ${HOST:-0.0.0.0}:${PORT:-3000}"
 cleanup() {
     echo "Shutting down..."
     kill $MCP_PID 2>/dev/null || true
-    kill $GLINER_PID 2>/dev/null || true
     kill $RENDERER_PID 2>/dev/null || true
     kill $API_PID 2>/dev/null || true
     su postgres -c "pg_ctl -D $PGDATA stop -m fast" 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
-
-# --- Start GLiNER NER sidecar (CPU-only, zero-shot entity extraction) ---
-GLINER_PORT="${GLINER_PORT:-8090}"
-if [ -f /app/gliner/app.py ] && [ -n "${GLINER_BASE_URL:-}" ]; then
-    echo ">>> Starting GLiNER NER server..."
-    PYTHONPATH=/app/gliner/site-packages \
-    GLINER_MODEL="${GLINER_MODEL:-urchade/gliner_large-v2.1}" \
-    GLINER_PORT="$GLINER_PORT" \
-    GLINER_THRESHOLD="${GLINER_THRESHOLD:-0.3}" \
-    python3 /app/gliner/app.py > /var/log/matric/gliner.log 2>&1 &
-    GLINER_PID=$!
-    echo "  GLiNER started (PID: $GLINER_PID) on port $GLINER_PORT"
-else
-    echo ">>> GLiNER disabled (GLINER_BASE_URL empty or app not found)"
-    GLINER_PID=""
-fi
 
 # --- Start Three.js 3D Renderer (for GLB extraction) ---
 echo ">>> Starting Three.js 3D Renderer..."
@@ -298,7 +281,6 @@ echo "========================================"
 echo "=== Matric Memory Bundle Ready ==="
 echo "  API:      http://0.0.0.0:${PORT:-3000}"
 echo "  MCP:      http://0.0.0.0:${MCP_PORT:-3001}"
-echo "  GLiNER:   http://localhost:${GLINER_PORT:-8090} (NER)"
 echo "  Renderer: http://localhost:${RENDERER_PORT:-8080} (3D models)"
 echo "  MCP Client ID: ${MCP_CLIENT_ID:-NOT SET}"
 echo "========================================"

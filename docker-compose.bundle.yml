@@ -88,16 +88,14 @@ services:
       retries: 3
       start_period: 120s
 
-  # GLiNER NER sidecar (for API-only deployments without the bundle)
-  # In the bundle image, GLiNER is embedded — this sidecar is NOT needed.
-  # Activate with: docker compose --profile gliner-sidecar up -d
+  # GLiNER NER sidecar (zero-shot entity extraction, CPU-only)
+  # Runs as a separate container; matric connects via GLINER_BASE_URL=http://gliner:8090
+  # Set GLINER_BASE_URL= (empty) in .env to disable NER entirely.
   gliner:
     image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-main}
     build:
       context: build/gliner
       dockerfile: Dockerfile
-    profiles:
-      - gliner-sidecar
     volumes:
       - gliner-models:/root/.cache/huggingface/hub
     environment:
@@ -131,6 +129,9 @@ services:
       whisper:
         condition: service_healthy
         required: false  # GPU whisper is optional - matric starts without it
+      gliner:
+        condition: service_healthy
+        required: false  # GLiNER is optional - matric starts without it (NER disabled)
     environment:
       # ── PostgreSQL ──────────────────────────────────────────────────────
       - POSTGRES_USER=matric
@@ -229,8 +230,8 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
-      # GLiNER NER (embedded in bundle, set to empty to disable)
-      - GLINER_BASE_URL=${GLINER_BASE_URL:-http://localhost:8090}
+      # GLiNER NER (sidecar container, set to empty to disable)
+      - GLINER_BASE_URL=${GLINER_BASE_URL:-http://gliner:8090}
       # Target concepts per note. GLiNER runs first; if it produces fewer than
       # this, fast/standard LLM supplements. Higher = richer taxonomy, slower.
       - EXTRACTION_TARGET_CONCEPTS=${EXTRACTION_TARGET_CONCEPTS:-15}

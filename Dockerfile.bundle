@@ -32,21 +32,6 @@ RUN cargo build --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --pack
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke
 
-# GLiNER build stage - install Python deps and pre-download model
-FROM python:3.11-slim AS gliner-builder
-
-WORKDIR /gliner
-
-COPY build/gliner/requirements.txt .
-RUN pip install --no-cache-dir --target /gliner/site-packages -r requirements.txt
-
-# Pre-download the model at build time (avoids first-request delay)
-ARG GLINER_MODEL=urchade/gliner_large-v2.1
-ENV PYTHONPATH=/gliner/site-packages
-RUN python -c "from gliner import GLiNER; GLiNER.from_pretrained('${GLINER_MODEL}')"
-
-COPY build/gliner/app.py .
-
 # Runtime stage - based on pgvector image for PostgreSQL + pgvector
 FROM pgvector/pgvector:pg18 AS runtime
 
@@ -120,11 +105,6 @@ RUN npm install --production && \
     npm install pngjs canvas --production
 
 WORKDIR /app
-
-# Copy GLiNER NER sidecar (embedded, CPU-only, zero-shot entity extraction)
-COPY --from=gliner-builder /gliner/site-packages /app/gliner/site-packages
-COPY --from=gliner-builder /gliner/app.py /app/gliner/app.py
-COPY --from=gliner-builder /root/.cache/huggingface /root/.cache/huggingface
 
 # Copy seed data for support archive (fortemi-docs)
 COPY docker/seed-data /app/seed-data
@@ -225,14 +205,6 @@ ENV MATRIC_API_URL=http://localhost:3000
 # Register a client via POST /oauth/register then set these
 # ENV MCP_CLIENT_ID=mm_xxx
 # ENV MCP_CLIENT_SECRET=xxx
-
-# =============================================================================
-# GLiNER NER (embedded, CPU-only)
-# =============================================================================
-ENV GLINER_BASE_URL=http://localhost:8090
-ENV GLINER_MODEL=urchade/gliner_large-v2.1
-ENV GLINER_PORT=8090
-ENV GLINER_THRESHOLD=0.3
 
 # Expose API and MCP ports
 EXPOSE 3000 3001
