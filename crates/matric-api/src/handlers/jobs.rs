@@ -2294,9 +2294,15 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             )
         };
 
-        // ── Step 2: LLM supplement if GLiNER insufficient ──────────────────
+        // ── Step 2: Fast LLM supplement if GLiNER insufficient ────────────
         // Only call LLM if we haven't reached the target concept count.
+        // Escalation thresholds:
+        //   - Fast model: fires when count < target (e.g., <15)
+        //   - Standard model: fires ONLY when count < target/2 (e.g., <8)
+        //     This prevents the slow 20B model from running when GLiNER/fast
+        //     already produced a reasonable number of concepts.
         let needs_supplement = concept_labels.len() < self.target_concepts;
+        let standard_escalation_threshold = self.target_concepts.div_ceil(2);
 
         if needs_supplement {
             let gliner_count = concept_labels.len();
@@ -2305,11 +2311,11 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     note_id = %note_id,
                     gliner_count,
                     target = self.target_concepts,
-                    "GLiNER insufficient, supplementing with LLM"
+                    "GLiNER insufficient, supplementing with fast LLM"
                 );
                 extraction_method = "gliner+llm";
             }
-            ctx.report_progress(30, Some("Running LLM concept extraction..."));
+            ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
 
             // Try fast model first (chunked for large content)
             let llm_concepts: Vec<String> = if use_fast {
@@ -2355,8 +2361,16 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                 }
             }
 
-            // Escalation: if fast model failed/insufficient or not available, standard model
-            if concept_labels.len() < self.target_concepts {
+            // Escalation to standard (20B) model: ONLY when we have very few concepts.
+            // If GLiNER/fast produced a reasonable count (>= target/2), accept what we
+            // have rather than burning 60+s on the slow model.
+            if concept_labels.len() < standard_escalation_threshold {
+                info!(
+                    note_id = %note_id,
+                    count = concept_labels.len(),
+                    threshold = standard_escalation_threshold,
+                    "Below escalation threshold, using standard model"
+                );
                 let existing_snapshot: Vec<String> = concept_labels.clone();
                 let prompt = make_prompt(&content_preview, &existing_snapshot);
                 let gen_backend: &dyn GenerationBackend = match &overridden {
@@ -2402,6 +2416,13 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                         extraction_method = "llm_standard";
                     }
                 }
+            } else {
+                info!(
+                    note_id = %note_id,
+                    count = concept_labels.len(),
+                    threshold = standard_escalation_threshold,
+                    "Above escalation threshold, skipping standard model"
+                );
             }
         }
 
