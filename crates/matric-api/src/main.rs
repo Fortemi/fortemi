@@ -1044,13 +1044,13 @@ async fn main() -> anyhow::Result<()> {
                 db.clone(),
                 OllamaBackend::from_env(),
                 OllamaBackend::fast_from_env(),
-                ner_backend.clone(),
                 provider_registry.clone(),
             ))
             .await;
         worker
             .register_handler(ReferenceExtractionHandler::new(
                 db.clone(),
+                OllamaBackend::from_env(),
                 ner_backend.clone(),
             ))
             .await;

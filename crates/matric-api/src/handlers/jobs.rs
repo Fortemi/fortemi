@@ -1994,10 +1994,6 @@ pub struct ConceptTaggingHandler {
     backend: OllamaBackend,
     /// Fast model backend for simple documents (#439). None if MATRIC_FAST_GEN_MODEL not set.
     fast_backend: Option<OllamaBackend>,
-    /// When GLiNER is unavailable (None), this handler runs a combined prompt
-    /// producing both concept tags AND reference entities in a single LLM call (#440).
-    /// When GLiNER is available (Some), only concept tags are produced here.
-    ner_backend: Option<Arc<dyn NerBackend>>,
     registry: Arc<ProviderRegistry>,
 }
 
@@ -2006,14 +2002,12 @@ impl ConceptTaggingHandler {
         db: Database,
         backend: OllamaBackend,
         fast_backend: Option<OllamaBackend>,
-        ner_backend: Option<Arc<dyn NerBackend>>,
         registry: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             db,
             backend,
             fast_backend,
-            ner_backend,
             registry,
         }
     }
@@ -2122,72 +2116,23 @@ impl JobHandler for ConceptTaggingHandler {
             (_, false) => &self.backend,
         };
 
-        // When GLiNER is unavailable, run a combined prompt that produces both
-        // concept tags AND reference entities in a single LLM call (#440).
-        // This halves LLM work per document when GLiNER is down.
-        let combined_mode = self.ner_backend.is_none();
-        let activity_name = if combined_mode {
-            "concept_tagging_combined"
-        } else {
-            "concept_tagging"
-        };
-
         // Start provenance activity (#430)
         let activity_id = self
             .db
             .provenance
             .start_activity(
                 note_id,
-                activity_name,
+                "concept_tagging",
                 Some(matric_core::GenerationBackend::model_name(backend)),
             )
             .await
             .ok();
 
-        // Build prompt: concepts-only when GLiNER handles NER, combined otherwise (#440).
-        let prompt = if combined_mode {
-            format!(
-                r#"You are a knowledge organization specialist. Analyze the following content and produce TWO types of output:
-
-1. **Concept tags**: 8-15 hierarchical SKOS concept paths across multiple dimensions
-2. **Named references**: Specific named entities explicitly mentioned in the text
-
-Content:
-{}
-
-=== CONCEPT TAG DIMENSIONS ===
-
-REQUIRED (include at least one from each applicable dimension):
-1. **Domain**: Primary subject area (e.g., "science/machine-learning", "engineering/software")
-2. **Topic**: Specific topics covered (e.g., "nlp/transformers", "databases/vector-search")
-3. **Methodology**: Research methodology (e.g., "methodology/experimental", "methodology/survey")
-4. **Application**: Practical applications (e.g., "application/healthcare", "application/search-engines")
-5. **Technique**: Specific techniques (e.g., "technique/attention-mechanism", "technique/reinforcement-learning")
-6. **Content-type**: Content kind (e.g., "content-type/research-paper", "content-type/tutorial")
-
-OPTIONAL (include if applicable):
-7. **Evaluation**: Evaluation methods (e.g., "evaluation/benchmark", "evaluation/ablation-study")
-8. **Tool/Framework**: Tools mentioned (e.g., "tool/pytorch", "tool/postgresql")
-9. **Era/Context**: Temporal context (e.g., "era/foundation-models", "era/pre-transformer")
-
-=== NAMED REFERENCE CATEGORIES ===
-
-Body entities: organization, person, tool, dataset, standard, venue, product, language
-Bibliographic provenance: author, cited-source, sponsor, publisher, affiliation
-
-=== RULES ===
-
-Concepts: Use hierarchical "/" paths, kebab-case, 1-2 levels, 8-15 tags total.
-References: Only include entities EXPLICITLY mentioned. Use kebab-case for "name". Include "label" as human-readable form. Skip generic references ("the company", "researchers"). Include each entity once.
-
-Output ONLY a JSON object with this exact structure:
-{{"concepts": ["science/machine-learning", "nlp/transformers"], "references": [{{"category": "organization", "name": "google-deepmind", "label": "Google DeepMind"}}]}}"#,
-                content_preview
-            )
-        } else {
-            // Concepts-only prompt (GLiNER handles reference extraction separately)
-            format!(
-                r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
+        // Generate concept suggestions using AI with hierarchical paths (#425, #430).
+        // Enhanced to produce 8-15 tags across multiple dimensions for richer
+        // categorization and cross-cutting queries.
+        let prompt = format!(
+            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
 
 Content:
 {}
@@ -2216,9 +2161,8 @@ Guidelines:
 
 Output ONLY a JSON array of tag paths, nothing else. Example:
 ["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#,
-                content_preview
-            )
-        };
+            content_preview
+        );
 
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
@@ -2243,98 +2187,41 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             }
         };
 
-        ctx.report_progress(50, Some("Parsing AI response..."));
+        ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
-        // Parse response: combined JSON object or concepts-only array (#440).
-        #[derive(serde::Deserialize)]
-        struct CombinedResponse {
-            concepts: Vec<String>,
-            #[serde(default)]
-            references: Vec<CombinedRefEntity>,
-        }
-        #[derive(serde::Deserialize)]
-        struct CombinedRefEntity {
-            category: String,
-            name: String,
-            #[allow(dead_code)]
-            label: String,
-        }
-
-        /// Try to parse AI response with markdown cleanup fallback.
-        fn try_parse_json<T: serde::de::DeserializeOwned>(
-            raw: &str,
-        ) -> std::result::Result<T, serde_json::Error> {
-            match serde_json::from_str(raw) {
-                Ok(v) => Ok(v),
-                Err(_) => {
-                    let cleaned = raw
-                        .trim()
-                        .trim_start_matches("```json")
-                        .trim_start_matches("```")
-                        .trim_end_matches("```")
-                        .trim();
-                    serde_json::from_str(cleaned)
-                }
-            }
-        }
-
-        let (concept_labels, combined_refs): (Vec<String>, Vec<CombinedRefEntity>) =
-            if combined_mode {
-                match try_parse_json::<CombinedResponse>(&ai_response) {
-                    Ok(resp) => (resp.concepts, resp.references),
+        // Parse the AI response as JSON array.
+        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
+        // Fallback cleanup retained for non-Ollama backends.
+        let concept_labels: Vec<String> = match serde_json::from_str(&ai_response) {
+            Ok(labels) => labels,
+            Err(_) => {
+                let cleaned = ai_response
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                match serde_json::from_str(cleaned) {
+                    Ok(labels) => labels,
                     Err(e) => {
                         // Escalate to standard model on fast model parse failure (#439)
                         if use_fast {
                             info!("Fast model output unparseable, escalating to standard model");
                             match self.backend.generate_json(&prompt).await {
-                                Ok(r) => match try_parse_json::<CombinedResponse>(r.trim()) {
-                                    Ok(resp) => (resp.concepts, resp.references),
-                                    Err(e2) => {
-                                        warn!(error = %e2, "Standard model also failed");
-                                        self.queue_phase2_jobs(note_id, schema).await;
-                                        return JobResult::Failed(format!(
-                                            "Failed to parse AI response: {}",
-                                            e2
-                                        ));
+                                Ok(r) => {
+                                    let r = r.trim().to_string();
+                                    match serde_json::from_str(&r) {
+                                        Ok(labels) => labels,
+                                        Err(e2) => {
+                                            warn!(error = %e2, "Standard model also failed to produce parseable output");
+                                            self.queue_phase2_jobs(note_id, schema).await;
+                                            return JobResult::Failed(format!(
+                                                "Failed to parse AI response: {}",
+                                                e2
+                                            ));
+                                        }
                                     }
-                                },
-                                Err(e2) => {
-                                    self.queue_phase2_jobs(note_id, schema).await;
-                                    return JobResult::Failed(format!(
-                                        "AI generation failed (escalated): {}",
-                                        e2
-                                    ));
                                 }
-                            }
-                        } else {
-                            warn!(error = %e, response = %ai_response, "Failed to parse combined AI response");
-                            self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!(
-                                "Failed to parse AI response: {}",
-                                e
-                            ));
-                        }
-                    }
-                }
-            } else {
-                // Concepts-only mode — parse as plain array
-                match try_parse_json::<Vec<String>>(&ai_response) {
-                    Ok(labels) => (labels, Vec::new()),
-                    Err(e) => {
-                        if use_fast {
-                            info!("Fast model output unparseable, escalating to standard model");
-                            match self.backend.generate_json(&prompt).await {
-                                Ok(r) => match try_parse_json::<Vec<String>>(r.trim()) {
-                                    Ok(labels) => (labels, Vec::new()),
-                                    Err(e2) => {
-                                        warn!(error = %e2, "Standard model also failed");
-                                        self.queue_phase2_jobs(note_id, schema).await;
-                                        return JobResult::Failed(format!(
-                                            "Failed to parse AI response: {}",
-                                            e2
-                                        ));
-                                    }
-                                },
                                 Err(e2) => {
                                     self.queue_phase2_jobs(note_id, schema).await;
                                     return JobResult::Failed(format!(
@@ -2353,9 +2240,10 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                         }
                     }
                 }
-            };
+            }
+        };
 
-        if concept_labels.is_empty() && combined_refs.is_empty() {
+        if concept_labels.is_empty() {
             self.queue_phase2_jobs(note_id, schema).await;
             return JobResult::Success(Some(serde_json::json!({
                 "concepts": 0,
@@ -2363,21 +2251,27 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             })));
         }
 
-        ctx.report_progress(55, Some("Resolving SKOS concepts..."));
+        ctx.report_progress(60, Some("Resolving SKOS concepts..."));
 
         // Resolve or create hierarchical SKOS concepts and tag the note (#425).
+        // Uses resolve_or_create_tag_tx which handles scheme resolution, hierarchy
+        // wiring (broader/narrower), and notation-based deduplication.
         let mut tagged_count = 0;
-        let total_items = concept_labels.len() + combined_refs.len();
+        let total = concept_labels.len();
 
         for (i, label) in concept_labels.iter().enumerate() {
+            // Skip empty or too-short labels
             if label.trim().len() < 2 {
                 continue;
             }
 
-            let is_primary = i == 0;
+            let is_primary = i == 0; // First concept is primary
             let relevance = 1.0_f32 - (i as f32 * matric_core::defaults::RELEVANCE_DECAY_FACTOR);
+
+            // Parse label as hierarchical tag path (e.g., "science/machine-learning")
             let tag_input = matric_core::TagInput::parse(label.trim());
 
+            // Resolve or create the concept hierarchy in a single transaction
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
@@ -2397,6 +2291,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                 }
             };
 
+            // Tag the note with the leaf concept
             let tag_req = matric_core::TagNoteRequest {
                 note_id,
                 concept_id: resolved.concept_id,
@@ -2415,104 +2310,25 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                 tagged_count += 1;
             }
 
-            let progress = 55 + ((i + 1) * 25 / total_items) as i32;
+            // Update progress
+            let progress = 60 + ((i + 1) * 30 / total) as i32;
             ctx.report_progress(progress, Some(&format!("Tagged with: {}", label)));
         }
 
-        // Process reference entities from combined prompt (#440).
-        // Same logic as ReferenceExtractionHandler: resolve as SKOS concepts with
-        // source "ai_reference" and promote to approved status.
-        let mut ref_tagged_count = 0;
-        let mut ref_labels: Vec<String> = Vec::new();
-
-        if combined_mode && !combined_refs.is_empty() {
-            ctx.report_progress(80, Some("Resolving reference entities..."));
-
-            for (i, entity) in combined_refs.iter().enumerate() {
-                if entity.name.trim().is_empty() || entity.category.trim().is_empty() {
-                    continue;
-                }
-
-                let tag_path = format!("{}/{}", entity.category.trim(), entity.name.trim());
-                if tag_path.len() < 4 {
-                    continue;
-                }
-
-                let relevance = 0.8_f32 - (i as f32 * 0.02);
-                let tag_input = matric_core::TagInput::parse(&tag_path);
-
-                let mut tx = match schema_ctx.begin_tx().await {
-                    Ok(t) => t,
-                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
-                };
-
-                let resolved = match self
-                    .db
-                    .skos
-                    .resolve_or_create_tag_tx(&mut tx, &tag_input)
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        warn!(tag_path = %tag_path, error = %e, "Failed to resolve reference concept");
-                        tx.commit().await.ok();
-                        continue;
-                    }
-                };
-
-                let tag_req = matric_core::TagNoteRequest {
-                    note_id,
-                    concept_id: resolved.concept_id,
-                    source: "ai_reference".to_string(),
-                    confidence: Some(matric_core::defaults::AI_TAGGING_CONFIDENCE),
-                    relevance_score: relevance,
-                    is_primary: false,
-                    created_by: None,
-                };
-
-                let tag_result = self.db.skos.tag_note_tx(&mut tx, tag_req).await;
-
-                // Promote reference concepts to approved (same as ReferenceExtractionHandler)
-                if tag_result.is_ok() {
-                    let _ = sqlx::query(
-                        "UPDATE skos_concept SET status = 'approved'::concept_status, promoted_at = NOW() \
-                         WHERE id = $1 AND status = 'candidate'::concept_status",
-                    )
-                    .bind(resolved.concept_id)
-                    .execute(&mut *tx)
-                    .await;
-                }
-
-                tx.commit().await.ok();
-                if let Err(e) = tag_result {
-                    debug!(error = %e, concept_id = %resolved.concept_id, "Failed to tag note with reference (may already exist)");
-                } else {
-                    ref_tagged_count += 1;
-                    ref_labels.push(tag_path);
-                }
-
-                let progress = 80 + ((i + 1) * 10 / combined_refs.len()) as i32;
-                ctx.report_progress(progress, Some(&format!("Referenced: {}", entity.name)));
-            }
-        }
-
         ctx.report_progress(95, Some("Queuing phase-2 linking job..."));
+
+        // Queue Linking as Phase 2 of the NLP pipeline (#420).
+        // Tags now exist, so the linker can blend SKOS tag overlap with embedding similarity.
         self.queue_phase2_jobs(note_id, schema).await;
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
-            let mut prov_metadata = serde_json::json!({
+            let prov_metadata = serde_json::json!({
                 "concepts_tagged": tagged_count,
                 "concepts_suggested": concept_labels.len(),
                 "labels": &concept_labels,
                 "content_preview_chars": content_preview.len(),
             });
-            if combined_mode {
-                prov_metadata["references_tagged"] = serde_json::json!(ref_tagged_count);
-                prov_metadata["references_found"] = serde_json::json!(combined_refs.len());
-                prov_metadata["reference_labels"] = serde_json::json!(&ref_labels);
-                prov_metadata["mode"] = serde_json::json!("combined");
-            }
             if let Err(e) = self
                 .db
                 .provenance
@@ -2528,25 +2344,15 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             note_id = %note_id,
             result_count = tagged_count,
             concepts_suggested = concept_labels.len(),
-            references_tagged = ref_tagged_count,
-            combined = combined_mode,
             duration_ms = start.elapsed().as_millis() as u64,
             "Concept tagging completed"
         );
 
-        let mut result = serde_json::json!({
+        JobResult::Success(Some(serde_json::json!({
             "concepts_tagged": tagged_count,
             "concepts_suggested": concept_labels.len(),
-            "labels": concept_labels,
-        });
-        if combined_mode {
-            result["references_tagged"] = serde_json::json!(ref_tagged_count);
-            result["references_found"] = serde_json::json!(combined_refs.len());
-            result["reference_labels"] = serde_json::json!(ref_labels);
-            result["mode"] = serde_json::json!("combined");
-        }
-
-        JobResult::Success(Some(result))
+            "labels": concept_labels
+        })))
     }
 }
 
@@ -2561,16 +2367,24 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 /// Does NOT queue downstream jobs — ConceptTagging owns the Phase 2 chain.
 pub struct ReferenceExtractionHandler {
     db: Database,
-    /// GLiNER NER backend for entity extraction (#437).
-    /// When available (Some), uses GLiNER (CPU, <300ms) for extraction.
-    /// When unavailable (None), this handler is a no-op — ConceptTaggingHandler
-    /// runs a combined prompt that handles both concepts and references (#440).
+    backend: OllamaBackend,
+    /// Optional GLiNER NER backend for fast entity extraction (#437).
+    /// When available, uses GLiNER (CPU, <300ms) instead of LLM (GPU, 10-24s).
+    /// Falls back to LLM when GLiNER is unavailable.
     ner_backend: Option<Arc<dyn NerBackend>>,
 }
 
 impl ReferenceExtractionHandler {
-    pub fn new(db: Database, ner_backend: Option<Arc<dyn NerBackend>>) -> Self {
-        Self { db, ner_backend }
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        ner_backend: Option<Arc<dyn NerBackend>>,
+    ) -> Self {
+        Self {
+            db,
+            backend,
+            ner_backend,
+        }
     }
 }
 
@@ -2591,31 +2405,17 @@ impl JobHandler for ReferenceExtractionHandler {
             None => return JobResult::Failed("No note_id provided".into()),
         };
 
-        // When GLiNER is unavailable, ConceptTaggingHandler runs a combined prompt
-        // that handles both concepts and references in one LLM call (#440).
-        // This handler becomes a no-op to avoid a redundant LLM call.
-        if self.ner_backend.is_none() {
-            info!(
-                note_id = %note_id,
-                duration_ms = start.elapsed().as_millis() as u64,
-                "Reference extraction skipped — handled by combined concept tagging prompt"
-            );
-            return JobResult::Success(Some(serde_json::json!({
-                "references": 0,
-                "reason": "handled_by_concept_tagging",
-                "mode": "combined"
-            })));
-        }
-
         let schema = extract_schema(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
 
-        // GLiNER is available (guaranteed by early return above).
-        let ner = self.ner_backend.as_ref().unwrap();
-        let prov_model = ner.model_name().to_string();
+        // Determine provenance model name: GLiNER if available, otherwise LLM.
+        let prov_model = match &self.ner_backend {
+            Some(ner) => ner.model_name().to_string(),
+            None => matric_core::GenerationBackend::model_name(&self.backend).to_string(),
+        };
 
         // Start provenance activity
         let activity_id = self
@@ -2685,10 +2485,10 @@ impl JobHandler for ReferenceExtractionHandler {
             "affiliation",
         ];
 
-        // GLiNER extraction (ner is already bound above).
-        let (entities, extraction_method) =
+        // Try GLiNER first if available, fall back to LLM prompt.
+        let (entities, extraction_method) = if let Some(ner) = &self.ner_backend {
             match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
-                Ok(result) => {
+                Ok(result) if !result.entities.is_empty() => {
                     info!(
                         note_id = %note_id,
                         entities = result.entities.len(),
@@ -2717,11 +2517,64 @@ impl JobHandler for ReferenceExtractionHandler {
                         .collect();
                     (mapped, "gliner")
                 }
+                Ok(_) => {
+                    info!(note_id = %note_id, "GLiNER returned no entities, falling back to LLM");
+                    (Vec::new(), "gliner_empty")
+                }
                 Err(e) => {
-                    warn!(error = %e, "GLiNER extraction failed");
+                    warn!(error = %e, "GLiNER extraction failed, falling back to LLM");
                     (Vec::new(), "gliner_failed")
                 }
-            };
+            }
+        } else {
+            (Vec::new(), "no_gliner")
+        };
+
+        // LLM fallback when GLiNER is unavailable, failed, or returned empty.
+        let (entities, extraction_method) = if entities.is_empty() {
+            ctx.report_progress(30, Some("Extracting references via LLM..."));
+
+            let prompt = format!(
+                "Extract specific named references from this text. For each reference, provide:\n\
+                 - category: one of [organization, person, tool, dataset, standard, venue, product, language, author, cited-source, sponsor, publisher, affiliation]\n\
+                 - name: lowercase slug (e.g., \"google-deepmind\")\n\
+                 - label: original text as it appears\n\n\
+                 Return a JSON array of objects. If no references found, return [].\n\n\
+                 Text:\n{content_preview}"
+            );
+
+            match self.backend.generate_json(&prompt).await {
+                Ok(json_str) => match serde_json::from_str::<Vec<RefEntity>>(&json_str) {
+                    Ok(parsed) => {
+                        info!(
+                            note_id = %note_id,
+                            entities = parsed.len(),
+                            "LLM reference extraction succeeded"
+                        );
+                        ctx.report_progress(50, Some("Parsing LLM entities..."));
+                        (parsed, "llm")
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to parse LLM reference response");
+                        return JobResult::Success(Some(serde_json::json!({
+                            "references": 0,
+                            "reason": "parse_error",
+                            "extraction_method": extraction_method,
+                        })));
+                    }
+                },
+                Err(e) => {
+                    warn!(error = %e, "LLM reference extraction failed");
+                    return JobResult::Success(Some(serde_json::json!({
+                        "references": 0,
+                        "reason": "llm_error",
+                        "extraction_method": "llm_failed",
+                    })));
+                }
+            }
+        } else {
+            (entities, extraction_method)
+        };
 
         if entities.is_empty() {
             return JobResult::Success(Some(serde_json::json!({
