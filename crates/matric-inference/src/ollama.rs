@@ -226,6 +226,75 @@ impl OllamaBackend {
             info!("New embedding model uses asymmetric prefixes (query/passage)");
         }
     }
+
+    /// Internal generation method shared by all generate variants.
+    async fn generate_internal(
+        &self,
+        system: &str,
+        prompt: &str,
+        format: Option<serde_json::Value>,
+    ) -> Result<String> {
+        let start = Instant::now();
+        let use_raw_mode = requires_raw_mode(&self.gen_model);
+
+        debug!(
+            raw_mode = use_raw_mode,
+            json_format = format.is_some(),
+            "Starting generation"
+        );
+
+        let request = GenerateRequest {
+            model: self.gen_model.clone(),
+            prompt: prompt.to_string(),
+            stream: false,
+            system: if system.is_empty() {
+                None
+            } else {
+                Some(system.to_string())
+            },
+            raw: if use_raw_mode { Some(true) } else { None },
+            format,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/generate", self.base_url))
+            .timeout(Duration::from_secs(self.gen_timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(format!(
+                "Ollama returned {}: {}",
+                status, body
+            )));
+        }
+
+        let result: GenerateResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        debug!(
+            response_len = result.response.len(),
+            duration_ms = elapsed,
+            "Generation complete"
+        );
+        if elapsed > 30000 {
+            warn!(
+                duration_ms = elapsed,
+                prompt_len = prompt.len(),
+                slow = true,
+                "Slow generation operation"
+            );
+        }
+        Ok(result.response)
+    }
 }
 
 impl Default for OllamaBackend {
@@ -254,6 +323,9 @@ struct GenerateRequest {
     system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     raw: Option<bool>,
+    /// Ollama format enforcement. Set to `"json"` for guaranteed valid JSON output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -335,61 +407,17 @@ impl GenerationBackend for OllamaBackend {
 
     #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate", model = %self.gen_model, prompt_len = prompt.len()))]
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
-        let start = Instant::now();
-        let use_raw_mode = requires_raw_mode(&self.gen_model);
+        self.generate_internal(system, prompt, None).await
+    }
 
-        debug!(raw_mode = use_raw_mode, "Starting generation");
+    async fn generate_json(&self, prompt: &str) -> Result<String> {
+        self.generate_json_with_system("", prompt).await
+    }
 
-        let request = GenerateRequest {
-            model: self.gen_model.clone(),
-            prompt: prompt.to_string(),
-            stream: false,
-            system: if system.is_empty() {
-                None
-            } else {
-                Some(system.to_string())
-            },
-            raw: if use_raw_mode { Some(true) } else { None },
-        };
-
-        let response = self
-            .client
-            .post(format!("{}/api/generate", self.base_url))
-            .timeout(Duration::from_secs(self.gen_timeout_secs))
-            .json(&request)
-            .send()
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate_json", model = %self.gen_model, prompt_len = prompt.len()))]
+    async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        self.generate_internal(system, prompt, Some(serde_json::json!("json")))
             .await
-            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(format!(
-                "Ollama returned {}: {}",
-                status, body
-            )));
-        }
-
-        let result: GenerateResponse = response
-            .json()
-            .await
-            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
-
-        let elapsed = start.elapsed().as_millis() as u64;
-        debug!(
-            response_len = result.response.len(),
-            duration_ms = elapsed,
-            "Generation complete"
-        );
-        if elapsed > 30000 {
-            warn!(
-                duration_ms = elapsed,
-                prompt_len = prompt.len(),
-                slow = true,
-                "Slow generation operation"
-            );
-        }
-        Ok(result.response)
     }
 
     fn model_name(&self) -> &str {
@@ -564,12 +592,14 @@ mod tests {
             stream: false,
             system: Some("Be helpful".to_string()),
             raw: None,
+            format: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("llama3"));
         assert!(json.contains("Hello"));
         assert!(json.contains("Be helpful"));
         assert!(!json.contains("raw")); // Should not serialize None
+        assert!(!json.contains("format")); // Should not serialize None
     }
 
     #[test]
@@ -580,6 +610,7 @@ mod tests {
             stream: false,
             system: None,
             raw: Some(true),
+            format: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("deepseek-r1:14b"));
@@ -594,9 +625,38 @@ mod tests {
             stream: false,
             system: None,
             raw: None,
+            format: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("system")); // Should skip serializing None
+    }
+
+    #[test]
+    fn test_generate_request_with_json_format() {
+        let request = GenerateRequest {
+            model: "llama3".to_string(),
+            prompt: "Output JSON".to_string(),
+            stream: false,
+            system: None,
+            raw: None,
+            format: Some(serde_json::json!("json")),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"format\":\"json\""));
+    }
+
+    #[test]
+    fn test_generate_request_without_format() {
+        let request = GenerateRequest {
+            model: "llama3".to_string(),
+            prompt: "Hello".to_string(),
+            stream: false,
+            system: None,
+            raw: None,
+            format: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(!json.contains("format")); // Should not serialize None
     }
 
     #[test]

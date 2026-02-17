@@ -2086,7 +2086,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             content_preview
         );
 
-        let ai_response = match backend.generate(&prompt).await {
+        let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 // Still queue linking even if AI tagging fails — linking works with pure embeddings
@@ -2097,11 +2097,12 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 
         ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
-        // Parse the AI response as JSON array
+        // Parse the AI response as JSON array.
+        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
+        // Fallback cleanup retained for non-Ollama backends.
         let concept_labels: Vec<String> = match serde_json::from_str(&ai_response) {
             Ok(labels) => labels,
             Err(_) => {
-                // Try to extract labels if response isn't clean JSON
                 let cleaned = ai_response
                     .trim()
                     .trim_start_matches("```json")
@@ -2368,7 +2369,7 @@ If no named references found, output: []"#,
             content_preview
         );
 
-        let ai_response = match backend.generate(&prompt).await {
+        let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 return JobResult::Failed(format!("AI generation failed: {}", e));
@@ -2377,7 +2378,8 @@ If no named references found, output: []"#,
 
         ctx.report_progress(50, Some("Parsing reference entities..."));
 
-        // Parse the AI response as JSON array of reference objects
+        // Parse the AI response as JSON array of reference objects.
+        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
         #[derive(serde::Deserialize)]
         struct RefEntity {
             category: String,
@@ -2389,7 +2391,6 @@ If no named references found, output: []"#,
         let entities: Vec<RefEntity> = match serde_json::from_str(&ai_response) {
             Ok(refs) => refs,
             Err(_) => {
-                // Try to extract if response isn't clean JSON
                 let cleaned = ai_response
                     .trim()
                     .trim_start_matches("```json")
@@ -2755,7 +2756,7 @@ Output ONLY a JSON array (no markdown, no explanation):
 If no meaningful related pairs exist, output an empty array: []"#
         );
 
-        let ai_response = match backend.generate(&prompt).await {
+        let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 self.queue_phase3_jobs(note_id, schema).await;
@@ -2765,7 +2766,8 @@ If no meaningful related pairs exist, output an empty array: []"#
 
         ctx.report_progress(60, Some("Parsing related pairs..."));
 
-        // Parse the AI response
+        // Parse the AI response.
+        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
         let pairs: Vec<RelatedPair> = match serde_json::from_str(&ai_response) {
             Ok(p) => p,
             Err(_) => {
@@ -3035,14 +3037,15 @@ Example output:
             content_preview
         );
 
-        let ai_response = match backend.generate(&prompt).await {
+        let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
         };
 
         ctx.report_progress(60, Some("Parsing extracted metadata..."));
 
-        // Parse the AI response as JSON object
+        // Parse the AI response as JSON object.
+        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
         let extracted: serde_json::Value = match serde_json::from_str(&ai_response) {
             Ok(v) => v,
             Err(_) => {

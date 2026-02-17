@@ -359,6 +359,22 @@ pub trait GenerationBackend: Send + Sync {
     /// Generate text with system context.
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String>;
 
+    /// Generate text with JSON format enforcement.
+    ///
+    /// Backends that support constrained decoding (e.g., Ollama `format: "json"`)
+    /// will guarantee valid JSON output. The default implementation falls back to
+    /// `generate()` without format enforcement.
+    async fn generate_json(&self, prompt: &str) -> Result<String> {
+        self.generate(prompt).await
+    }
+
+    /// Generate text with system context and JSON format enforcement.
+    ///
+    /// See [`generate_json`] for details on format enforcement.
+    async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        self.generate_with_system(system, prompt).await
+    }
+
     /// Get the model name being used.
     fn model_name(&self) -> &str;
 }
