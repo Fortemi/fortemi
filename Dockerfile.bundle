@@ -33,7 +33,7 @@ RUN cargo build --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --pack
     cp target/release/matric-pke /app/matric-pke
 
 # GLiNER build stage - install Python deps and pre-download model
-FROM python:3.12-slim AS gliner-builder
+FROM python:3.11-slim AS gliner-builder
 
 WORKDIR /gliner
 
