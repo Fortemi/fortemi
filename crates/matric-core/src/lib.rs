@@ -29,7 +29,7 @@ pub mod uuid_utils;
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use embedding_provider::*;
 pub use error::{Error, Result};
-pub use events::{EventActor, EventBus, EventContext, EventEnvelope, ServerEvent};
+pub use events::{EventActor, EventBus, EventContext, EventEnvelope, EventPriority, ServerEvent};
 pub use exif::{DeviceInfo, ExifMetadata, GpsCoordinates};
 pub use fair::{DublinCoreExport, FairScore, JsonLdContext, JsonLdExport};
 pub use file_safety::{

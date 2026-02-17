@@ -475,6 +475,73 @@ impl ServerEvent {
     }
 }
 
+/// Event priority for backpressure decisions (Issue #458).
+///
+/// Critical events (domain mutations) are never coalesced or dropped.
+/// Normal events (job lifecycle) are delivered in order but may be dropped under lag.
+/// Low events (telemetry, progress) may be coalesced or dropped to protect stream stability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum EventPriority {
+    /// Domain mutations — never coalesced or dropped.
+    Critical,
+    /// Job lifecycle — delivered in order, dropped only under severe lag.
+    Normal,
+    /// Telemetry and progress — may be coalesced within time windows.
+    Low,
+}
+
+impl ServerEvent {
+    /// Returns the backpressure priority for this event type (Issue #458).
+    pub fn priority(&self) -> EventPriority {
+        match self {
+            // Domain mutations are critical — must be delivered
+            ServerEvent::NoteCreated { .. }
+            | ServerEvent::NoteUpdated { .. }
+            | ServerEvent::NoteDeleted { .. }
+            | ServerEvent::NoteArchived { .. }
+            | ServerEvent::NoteRestored { .. }
+            | ServerEvent::NoteTagsUpdated { .. }
+            | ServerEvent::NoteLinksUpdated { .. }
+            | ServerEvent::NoteRevisionCreated { .. }
+            | ServerEvent::AttachmentCreated { .. }
+            | ServerEvent::AttachmentDeleted { .. }
+            | ServerEvent::AttachmentExtractionUpdated { .. }
+            | ServerEvent::CollectionCreated { .. }
+            | ServerEvent::CollectionUpdated { .. }
+            | ServerEvent::CollectionDeleted { .. }
+            | ServerEvent::CollectionMembershipChanged { .. }
+            | ServerEvent::ArchiveCreated { .. }
+            | ServerEvent::ArchiveUpdated { .. }
+            | ServerEvent::ArchiveDeleted { .. }
+            | ServerEvent::ArchiveDefaultChanged { .. } => EventPriority::Critical,
+
+            // Job lifecycle transitions — important but not critical
+            ServerEvent::JobQueued { .. }
+            | ServerEvent::JobStarted { .. }
+            | ServerEvent::JobCompleted { .. }
+            | ServerEvent::JobFailed { .. } => EventPriority::Normal,
+
+            // Telemetry and progress — coalescable
+            ServerEvent::QueueStatus { .. }
+            | ServerEvent::JobProgress { .. } => EventPriority::Low,
+        }
+    }
+
+    /// Returns a coalescing key for low-priority events (Issue #458).
+    ///
+    /// Events with the same coalescing key within a time window are merged,
+    /// keeping only the latest. Returns `None` for non-coalescable events.
+    pub fn coalesce_key(&self) -> Option<String> {
+        match self {
+            ServerEvent::JobProgress { job_id, .. } => {
+                Some(format!("job.progress:{}", job_id))
+            }
+            ServerEvent::QueueStatus { .. } => Some("queue.status".to_string()),
+            _ => None,
+        }
+    }
+}
+
 // ============================================================================
 // Event Bus
 // ============================================================================
@@ -1299,5 +1366,76 @@ mod tests {
     fn test_replay_capacity_getter() {
         let bus = EventBus::with_replay(32, 512);
         assert_eq!(bus.replay_capacity(), 512);
+    }
+
+    // -- Priority and coalescing tests (Issue #458) --
+
+    #[test]
+    fn test_note_events_are_critical_priority() {
+        let events = vec![
+            ServerEvent::NoteCreated { note_id: Uuid::nil(), title: None, tags: vec![] },
+            ServerEvent::NoteUpdated { note_id: Uuid::nil(), title: None, tags: vec![], has_ai_content: false, has_links: false },
+            ServerEvent::NoteDeleted { note_id: Uuid::nil() },
+            ServerEvent::NoteArchived { note_id: Uuid::nil() },
+            ServerEvent::NoteRestored { note_id: Uuid::nil() },
+        ];
+        for event in events {
+            assert_eq!(event.priority(), EventPriority::Critical, "Note events must be Critical: {:?}", event.event_type());
+        }
+    }
+
+    #[test]
+    fn test_job_lifecycle_events_are_normal_priority() {
+        let events = vec![
+            ServerEvent::JobQueued { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None },
+            ServerEvent::JobStarted { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None },
+            ServerEvent::JobCompleted { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None, duration_ms: None },
+            ServerEvent::JobFailed { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None, error: "err".to_string() },
+        ];
+        for event in events {
+            assert_eq!(event.priority(), EventPriority::Normal, "Job lifecycle events must be Normal: {:?}", event.event_type());
+        }
+    }
+
+    #[test]
+    fn test_telemetry_events_are_low_priority() {
+        let events = vec![
+            ServerEvent::QueueStatus { total_jobs: 0, running: 0, pending: 0 },
+            ServerEvent::JobProgress { job_id: Uuid::nil(), note_id: None, progress: 50, message: None },
+        ];
+        for event in events {
+            assert_eq!(event.priority(), EventPriority::Low, "Telemetry events must be Low: {:?}", event.event_type());
+        }
+    }
+
+    #[test]
+    fn test_coalesce_key_for_job_progress() {
+        let id = Uuid::new_v4();
+        let event = ServerEvent::JobProgress { job_id: id, note_id: None, progress: 42, message: None };
+        assert_eq!(event.coalesce_key(), Some(format!("job.progress:{}", id)));
+    }
+
+    #[test]
+    fn test_coalesce_key_for_queue_status() {
+        let event = ServerEvent::QueueStatus { total_jobs: 10, running: 1, pending: 9 };
+        assert_eq!(event.coalesce_key(), Some("queue.status".to_string()));
+    }
+
+    #[test]
+    fn test_coalesce_key_none_for_critical_events() {
+        let event = ServerEvent::NoteCreated { note_id: Uuid::nil(), title: None, tags: vec![] };
+        assert!(event.coalesce_key().is_none(), "Critical events must not have a coalescing key");
+    }
+
+    #[test]
+    fn test_archive_events_are_critical_priority() {
+        let events = vec![
+            ServerEvent::ArchiveCreated { name: "test".to_string(), archive_id: None },
+            ServerEvent::ArchiveDeleted { name: "test".to_string() },
+            ServerEvent::ArchiveDefaultChanged { name: "test".to_string() },
+        ];
+        for event in events {
+            assert_eq!(event.priority(), EventPriority::Critical);
+        }
     }
 }

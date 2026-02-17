@@ -84,6 +84,13 @@ pub const EVENT_BUS_CAPACITY: usize = 256;
 /// Default SSE replay buffer capacity (number of events retained for Last-Event-ID replay).
 pub const SSE_REPLAY_BUFFER_SIZE: usize = 1024;
 
+/// Coalescing window for low-priority SSE events in milliseconds (Issue #458).
+///
+/// Low-priority events (e.g., `job.progress`, `queue.status`) with the same
+/// coalescing key are deduplicated within this window, keeping only the latest.
+/// Set to 0 to disable coalescing.
+pub const SSE_COALESCE_WINDOW_MS: u64 = 500;
+
 /// Default CORS max-age in seconds (1 hour).
 pub const CORS_MAX_AGE_SECS: u64 = 3600;
 

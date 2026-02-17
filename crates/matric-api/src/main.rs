@@ -2213,35 +2213,78 @@ async fn sse_events(
             .map(|frame| Ok::<_, std::convert::Infallible>(frame)),
     );
 
+    // --- Coalescing and backpressure state (Issue #458) ---
+    let coalesce_window = std::time::Duration::from_millis(
+        std::env::var("SSE_COALESCE_WINDOW_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(matric_core::defaults::SSE_COALESCE_WINDOW_MS),
+    );
+    // Track last emission time per coalescing key for low-priority events.
+    let coalesce_state: Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+        Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let coalesce_state_clone = coalesce_state.clone();
+
     let live_stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
-        move |result: Result<EventEnvelope, _>| match result {
-            Ok(envelope) => {
-                // Dedup: skip events already delivered via replay (Issue #456)
-                if let Some(watermark) = dedup_watermark {
-                    if envelope.event_id <= watermark {
+        move |result| {
+            match result {
+                Ok(envelope) => {
+                    // Dedup: skip events already delivered via replay (Issue #456)
+                    if let Some(watermark) = dedup_watermark {
+                        if envelope.event_id <= watermark {
+                            return None;
+                        }
+                    }
+
+                    // Apply all filters: memory + type + entity (Issues #452, #457)
+                    if !envelope_matches_filters(
+                        &envelope,
+                        &memory_filter,
+                        &type_filters,
+                        &entity_id_filter,
+                    ) {
                         return None;
                     }
-                }
 
-                // Apply all filters: memory + type + entity (Issues #452, #457)
-                if !envelope_matches_filters(
-                    &envelope,
-                    &memory_filter,
-                    &type_filters,
-                    &entity_id_filter,
-                ) {
-                    return None;
-                }
+                    // Coalescing: debounce low-priority events (Issue #458)
+                    if !coalesce_window.is_zero() {
+                        if let Some(key) = envelope.payload.coalesce_key() {
+                            let mut state = coalesce_state_clone.lock().unwrap();
+                            let now = std::time::Instant::now();
+                            if let Some(last) = state.get(&key) {
+                                if now.duration_since(*last) < coalesce_window {
+                                    // Within coalescing window — skip this event
+                                    return None;
+                                }
+                            }
+                            state.insert(key, now);
+                        }
+                    }
 
-                match serde_json::to_string(&envelope) {
-                    Ok(json) => Some(Ok(Event::default()
-                        .event(envelope.event_type.clone())
-                        .id(envelope.event_id.to_string())
-                        .data(json))),
-                    Err(_) => None,
+                    match serde_json::to_string(&envelope) {
+                        Ok(json) => Some(Ok(Event::default()
+                            .event(envelope.event_type.clone())
+                            .id(envelope.event_id.to_string())
+                            .data(json))),
+                        Err(_) => None,
+                    }
+                }
+                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                    // Backpressure: receiver fell behind (Issue #458)
+                    tracing::warn!(
+                        lagged_count = n,
+                        "SSE stream lagged — {} events dropped for slow consumer",
+                        n
+                    );
+                    let data = serde_json::json!({
+                        "dropped_count": n,
+                        "reason": "Consumer too slow. Events were dropped. Consider using type filters to reduce stream volume.",
+                    });
+                    Some(Ok(Event::default()
+                        .event("events.lagged")
+                        .data(data.to_string())))
                 }
             }
-            Err(_) => None, // Skip lagged/closed errors
         },
     );
 
