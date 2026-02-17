@@ -2650,7 +2650,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     let start = std::time::Instant::now();
 
     // Run all checks concurrently
-    let (db_result, redis_result, vision_result, transcription_result) = tokio::join!(
+    let (db_result, redis_result, vision_result, transcription_result, ner_result) = tokio::join!(
         // PostgreSQL: SELECT 1 with 5s timeout
         async {
             match tokio::time::timeout(
@@ -2693,6 +2693,17 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
                 None => ("not_configured", None),
             }
         },
+        // GLiNER NER backend (optional)
+        async {
+            match &state.ner_backend {
+                Some(backend) => match backend.health_check().await {
+                    Ok(true) => ("ok", None),
+                    Ok(false) => ("error", Some("unhealthy".to_string())),
+                    Err(e) => ("error", Some(format!("{e}"))),
+                },
+                None => ("not_configured", None),
+            }
+        },
     );
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -2706,6 +2717,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     } else if redis_result.0 == "error"
         || (vision_result.0 == "error")
         || (transcription_result.0 == "error")
+        || (ner_result.0 == "error")
     {
         ("degraded", StatusCode::OK)
     } else {
@@ -2725,6 +2737,9 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         "transcription": {
             "status": transcription_result.0,
         },
+        "ner": {
+            "status": ner_result.0,
+        },
     });
 
     // Add error details where present
@@ -2739,6 +2754,9 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     }
     if let Some(err) = &transcription_result.1 {
         services["transcription"]["error"] = serde_json::Value::String(err.clone());
+    }
+    if let Some(err) = &ner_result.1 {
+        services["ner"]["error"] = serde_json::Value::String(err.clone());
     }
 
     let body = serde_json::json!({
