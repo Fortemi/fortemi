@@ -455,12 +455,15 @@ impl PgArchiveRepository {
 
         // Step 11: Seed the default SKOS concept scheme.
         // Required for ConceptTaggingHandler in the NLP pipeline (get_default_scheme_id_tx).
+        // Uses ON CONFLICT DO NOTHING because archive cloning copies data from the source
+        // archive, which already contains the default scheme.
         let default_scheme_id = new_v7();
         sqlx::query(&format!(
             r#"
             INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
             VALUES ($1, 'default', 'https://matric.io/schemes/default', 'Default Tags',
                     'Default concept scheme for general-purpose tagging', TRUE)
+            ON CONFLICT (uri) DO NOTHING
             "#,
             schema_name
         ))
