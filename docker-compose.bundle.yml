@@ -88,14 +88,16 @@ services:
       retries: 3
       start_period: 120s
 
-  # GLiNER NER sidecar (CPU-only, optional)
-  # Activate with: docker compose -f docker-compose.bundle.yml --profile gliner up -d
+  # GLiNER NER sidecar (CPU-only, zero-shot named entity recognition)
+  # Enabled by default — provides fast entity extraction (100-200x faster than LLM).
+  # Extraction cascade: GLiNER → fast model (granite4:3b) → standard model (failover).
+  # To disable: set GLINER_BASE_URL= (empty) in .env
   gliner:
     build:
       context: build/gliner
       dockerfile: Dockerfile
-    profiles:
-      - gliner
+    volumes:
+      - gliner-models:/root/.cache/huggingface/hub
     environment:
       - GLINER_MODEL=${GLINER_MODEL:-urchade/gliner_large-v2.1}
       - GLINER_PORT=8090
@@ -127,6 +129,9 @@ services:
       whisper:
         condition: service_healthy
         required: false  # GPU whisper is optional - matric starts without it
+      gliner:
+        condition: service_healthy
+        required: false  # GLiNER is optional - matric starts without it, falls back to LLM
     environment:
       # ── PostgreSQL ──────────────────────────────────────────────────────
       - POSTGRES_USER=matric
@@ -224,8 +229,8 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
-      # GLiNER NER sidecar (optional, activate with --profile gliner)
-      - GLINER_BASE_URL=${GLINER_BASE_URL:-}
+      # GLiNER NER sidecar (enabled by default, set to empty to disable)
+      - GLINER_BASE_URL=${GLINER_BASE_URL:-http://gliner:8090}
 
       # ── Inference: OpenAI (alternative) ────────────────────────────────
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -262,4 +267,6 @@ volumes:
   matric-redis:
     driver: local
   whisper-models:
+    driver: local
+  gliner-models:
     driver: local
