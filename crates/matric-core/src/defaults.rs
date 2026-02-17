@@ -113,15 +113,19 @@ pub const EMBED_TIMEOUT_SECS: u64 = 30;
 pub const GEN_TIMEOUT_SECS: u64 = 120;
 
 /// Default fast generation model for extraction pipeline.
-/// granite4:3b: 244 tok/s, 98K context, good JSON compliance.
-pub const FAST_GEN_MODEL: &str = "granite4:3b";
+/// qwen3:8b: 144 tok/s, 40K context, strong JSON instruction following.
+/// Override with MATRIC_FAST_GEN_MODEL env var (set empty to disable).
+pub const FAST_GEN_MODEL: &str = "qwen3:8b";
 
 /// Timeout for fast model generation requests in seconds.
-pub const FAST_GEN_TIMEOUT_SECS: u64 = 30;
+pub const FAST_GEN_TIMEOUT_SECS: u64 = 60;
 
-/// Maximum characters per chunk for fast model extraction.
-/// Tuned for 3B models with 32K+ context — leaves room for prompt + output.
-pub const EXTRACTION_CHUNK_SIZE: usize = 3000;
+/// Fallback chunk size for extraction when no model profile is available.
+/// Actual chunk size is computed from the model's context window at runtime.
+pub const EXTRACTION_CHUNK_SIZE_FALLBACK: usize = 6000;
+
+/// Minimum chunk size for extraction (below this, don't bother chunking).
+pub const EXTRACTION_CHUNK_SIZE_MIN: usize = 500;
 
 // =============================================================================
 // JOB PROCESSING

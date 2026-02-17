@@ -97,12 +97,53 @@ fn parse_json_lenient<T: serde::de::DeserializeOwned>(
     Err(direct_err)
 }
 
-/// Chunk content for fast-model extraction if it exceeds the extraction chunk size.
+/// Compute extraction chunk size from a model's context window.
+///
+/// Larger models can handle more content per chunk with better quality.
+/// The chunk size is tuned for extraction quality, not just context capacity:
+/// - 3B models: ~3750 chars — focused extraction per chunk
+/// - 8B models: ~10000 chars — most notes fit in single chunk
+/// - 14B+ models: ~17500 chars — handles large documents directly
+///
+/// Returns the fallback constant if no profile is available.
+fn extraction_chunk_size(backend: Option<&OllamaBackend>) -> usize {
+    if let Some(b) = backend {
+        if let Some(profile) = b.gen_model_profile() {
+            // Budget based on model size: ~1250 chars per billion parameters.
+            // This accounts for quality, not just capacity — smaller models
+            // extract better from focused chunks.
+            let param_billions = profile
+                .name
+                .split(':')
+                .next_back()
+                .and_then(|s| s.trim_end_matches('b').parse::<f64>().ok())
+                .unwrap_or(3.0);
+            let quality_budget = (param_billions * 1250.0) as usize;
+
+            // Also cap at ~25% of context window in chars (~4 chars/token)
+            let context_budget = profile.native_context;
+
+            let size = quality_budget
+                .min(context_budget)
+                .max(matric_core::defaults::EXTRACTION_CHUNK_SIZE_MIN);
+
+            info!(
+                model = %profile.name,
+                context_tokens = profile.native_context,
+                chunk_chars = size,
+                "Computed extraction chunk size from model profile"
+            );
+            return size;
+        }
+    }
+    matric_core::defaults::EXTRACTION_CHUNK_SIZE_FALLBACK
+}
+
+/// Chunk content for fast-model extraction if it exceeds the given chunk size.
 ///
 /// Returns a single chunk for small content, multiple for large content.
 /// Uses `SemanticChunker` for natural boundary splitting with overlap.
-fn chunk_for_extraction(content: &str) -> Vec<String> {
-    let max_chars = matric_core::defaults::EXTRACTION_CHUNK_SIZE;
+fn chunk_for_extraction(content: &str, max_chars: usize) -> Vec<String> {
     if content.len() <= max_chars {
         return vec![content.to_string()];
     }
@@ -2325,9 +2366,11 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
 
             // Try fast model first (chunked for large content).
+            // Chunk size adapts to model context window — larger models = fewer chunks.
             // Resilient: skip failed/unparseable chunks rather than discarding everything.
             let llm_concepts: Vec<String> = if use_fast {
-                let chunks = chunk_for_extraction(&content_preview);
+                let chunk_size = extraction_chunk_size(self.fast_backend.as_ref());
+                let chunks = chunk_for_extraction(&content_preview, chunk_size);
                 let mut chunk_results = Vec::new();
 
                 for (i, chunk) in chunks.iter().enumerate() {
@@ -2750,7 +2793,8 @@ impl JobHandler for ReferenceExtractionHandler {
             // Resilient: skip failed/unparseable chunks rather than discarding everything.
             let fast_result: Option<Vec<RefEntity>> = if use_fast {
                 let fast = self.fast_backend.as_ref().unwrap();
-                let chunks = chunk_for_extraction(&content_preview);
+                let chunk_size = extraction_chunk_size(Some(fast));
+                let chunks = chunk_for_extraction(&content_preview, chunk_size);
                 let mut all_results = Vec::new();
                 let mut succeeded = 0usize;
 
@@ -5131,16 +5175,18 @@ Quick note about the meeting discussion and action items."#;
     #[test]
     fn test_chunk_for_extraction_small() {
         let small = "Short note about PostgreSQL migration.";
-        let chunks = chunk_for_extraction(small);
+        let chunk_size = matric_core::defaults::EXTRACTION_CHUNK_SIZE_FALLBACK;
+        let chunks = chunk_for_extraction(small, chunk_size);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], small);
     }
 
     #[test]
     fn test_chunk_for_extraction_large() {
-        // Content larger than EXTRACTION_CHUNK_SIZE should be split
-        let large = "a ".repeat(matric_core::defaults::EXTRACTION_CHUNK_SIZE);
-        let chunks = chunk_for_extraction(&large);
+        // Content larger than chunk size should be split
+        let chunk_size = 3000; // Use small chunk size to force splitting
+        let large = "a ".repeat(chunk_size + 1000);
+        let chunks = chunk_for_extraction(&large, chunk_size);
         assert!(
             chunks.len() > 1,
             "Large content should produce multiple chunks"
@@ -5148,11 +5194,18 @@ Quick note about the meeting discussion and action items."#;
         // Each chunk should not exceed the max size (with some tolerance for overlap)
         for chunk in &chunks {
             assert!(
-                chunk.len() <= matric_core::defaults::EXTRACTION_CHUNK_SIZE + 500,
+                chunk.len() <= chunk_size + 500,
                 "Chunk too large: {} chars",
                 chunk.len()
             );
         }
+    }
+
+    #[test]
+    fn test_extraction_chunk_size_fallback() {
+        // Without a backend, should return the fallback constant
+        let size = extraction_chunk_size(None);
+        assert_eq!(size, matric_core::defaults::EXTRACTION_CHUNK_SIZE_FALLBACK);
     }
 
     #[test]
@@ -5161,7 +5214,7 @@ Quick note about the meeting discussion and action items."#;
             r#"["science/ml", "tool/pytorch"]"#.to_string(),
             r#"["science/ml", "tool/tensorflow"]"#.to_string(),
         ];
-        let merged = merge_json_arrays(results).unwrap();
+        let merged = merge_json_arrays(results);
         assert_eq!(merged.len(), 3);
         assert!(merged.contains(&"science/ml".to_string()));
         assert!(merged.contains(&"tool/pytorch".to_string()));
@@ -5171,7 +5224,7 @@ Quick note about the meeting discussion and action items."#;
     #[test]
     fn test_merge_json_arrays_empty() {
         let results = vec![r#"[]"#.to_string(), r#"[]"#.to_string()];
-        let merged = merge_json_arrays(results).unwrap();
+        let merged = merge_json_arrays(results);
         assert!(merged.is_empty());
     }
 
@@ -5181,7 +5234,7 @@ Quick note about the meeting discussion and action items."#;
             r#"["Science/ML"]"#.to_string(),
             r#"["science/ml"]"#.to_string(),
         ];
-        let merged = merge_json_arrays(results).unwrap();
+        let merged = merge_json_arrays(results);
         // Should deduplicate case-insensitively, keeping the first occurrence
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0], "Science/ML");

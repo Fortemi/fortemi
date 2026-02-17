@@ -199,12 +199,13 @@ services:
       # Set OLLAMA_NUM_PARALLEL on your Ollama server to match.
       - JOB_MAX_CONCURRENT=${JOB_MAX_CONCURRENT:-4}
       # Fast model for extraction pipeline (concept tagging, references, titles).
-      # Default: granite4:3b (244 tok/s, 98K ctx). Set to empty to disable.
-      # Large documents are chunked automatically for the fast model.
-      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-granite4:3b}
-      # Timeout for fast model requests (seconds). Lower than standard since fast
-      # models should respond quickly; slow responses trigger escalation.
-      - MATRIC_FAST_GEN_TIMEOUT_SECS=${MATRIC_FAST_GEN_TIMEOUT_SECS:-30}
+      # Default: qwen3:8b (144 tok/s, 40K ctx, strong JSON). Set to empty to disable.
+      # Chunk size adapts automatically to model context window via profiles.
+      # For 3B models (e.g., granite4:3b): smaller chunks, more passes.
+      # For 8B+ models: most notes process in a single pass (no chunking).
+      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-qwen3:8b}
+      # Timeout for fast model requests (seconds).
+      - MATRIC_FAST_GEN_TIMEOUT_SECS=${MATRIC_FAST_GEN_TIMEOUT_SECS:-60}
 
       # ── Inference: Ollama (default) ────────────────────────────────────
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-ollama}
