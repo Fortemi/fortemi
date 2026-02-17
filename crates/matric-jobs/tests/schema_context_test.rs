@@ -29,6 +29,7 @@ fn test_job_context_extract_schema_from_payload() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -67,6 +68,7 @@ fn test_job_context_schema_defaults_to_public() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -100,6 +102,7 @@ fn test_job_context_schema_defaults_when_no_payload() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -147,6 +150,7 @@ fn test_schema_field_for_all_job_types() {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -186,6 +190,7 @@ fn test_backward_compatibility_no_schema_field() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -223,6 +228,7 @@ fn test_invalid_schema_value_fallback() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -260,6 +266,7 @@ fn test_empty_schema_string() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -297,6 +304,7 @@ fn test_schema_with_special_characters() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);

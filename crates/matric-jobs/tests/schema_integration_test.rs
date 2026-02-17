@@ -35,6 +35,7 @@ fn create_job_with_schema(job_type: JobType, schema: Option<&str>) -> Job {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     }
 }
 
@@ -132,6 +133,7 @@ async fn test_empty_schema_defaults_to_public() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);
@@ -196,6 +198,7 @@ async fn test_backward_compatibility_old_payloads() {
         created_at: chrono::Utc::now(),
         started_at: None,
         completed_at: None,
+        cost_tier: None,
     };
 
     let ctx = JobContext::new(job);

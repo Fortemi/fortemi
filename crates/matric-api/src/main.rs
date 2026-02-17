@@ -125,6 +125,7 @@ async fn queue_extraction_job(
             JobType::Extraction,
             JobType::Extraction.default_priority(),
             Some(payload),
+            None,
         )
         .await
     {
@@ -174,6 +175,7 @@ async fn queue_exif_extraction_job(
             JobType::ExifExtraction,
             JobType::ExifExtraction.default_priority(),
             Some(payload),
+            None,
         )
         .await
     {
@@ -223,6 +225,7 @@ async fn queue_nlp_pipeline(
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
+                None, // AiRevision is tier-agnostic
             )
             .await
         {
@@ -240,20 +243,33 @@ async fn queue_nlp_pipeline(
         }
     }
 
-    // Queue Phase 1 pipeline jobs (always run these).
+    // Queue Phase 1 pipeline jobs with cost tiers for tiered atomic execution.
     // Phase 2 (RelatedConceptInference) is queued by ConceptTaggingHandler on
     // completion. Phase 3 (Embedding + Linking) is queued by RelatedConceptHandler.
     // Pipeline: ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435).
     //
     // MetadataExtraction and DocumentTypeInference added in #430 for full
     // enrichment parity between single and bulk ingest paths.
-    for job_type in [
-        JobType::TitleGeneration,
-        JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for embedding and linking)
-        JobType::ReferenceExtraction, // Named entity references (organizations, tools, people, etc.)
-        JobType::MetadataExtraction,  // Extract authors, dates, DOI, etc. from content (#430)
-        JobType::DocumentTypeInference, // Auto-detect document type (#430)
-    ] {
+    let tiered_jobs: &[(JobType, Option<i16>)] = &[
+        (
+            JobType::TitleGeneration,
+            Some(matric_core::cost_tier::FAST_GPU),
+        ), // Starts at tier-1
+        (
+            JobType::ConceptTagging,
+            Some(matric_core::cost_tier::CPU_NER),
+        ), // Starts at tier-0 (GLiNER)
+        (
+            JobType::ReferenceExtraction,
+            Some(matric_core::cost_tier::CPU_NER),
+        ), // Starts at tier-0 (GLiNER)
+        (
+            JobType::MetadataExtraction,
+            Some(matric_core::cost_tier::FAST_GPU),
+        ), // Fast model
+        (JobType::DocumentTypeInference, None), // Tier-agnostic
+    ];
+    for &(job_type, cost_tier) in tiered_jobs {
         // Create payload with schema and optional model override
         let mut payload = serde_json::Map::new();
         if let Some(s) = schema {
@@ -275,6 +291,7 @@ async fn queue_nlp_pipeline(
                 job_type,
                 job_type.default_priority(),
                 payload,
+                cost_tier,
             )
             .await
         {
@@ -997,7 +1014,9 @@ async fn main() -> anyhow::Result<()> {
             db.clone(),
             WorkerConfig::from_env(),
             Some(extraction_registry),
-        );
+        )
+        .with_fast_backend(OllamaBackend::fast_from_env())
+        .with_standard_backend(Some(OllamaBackend::from_env()));
 
         // Register handlers - create separate backend instances.
         // Cascaded model routing (#439): create fast backend if MATRIC_FAST_GEN_MODEL is set.
@@ -4343,6 +4362,7 @@ async fn purge_note(
             JobType::PurgeNote,
             JobType::PurgeNote.default_priority(),
             None,
+            None,
         )
         .await?;
 
@@ -4528,6 +4548,7 @@ async fn reprocess_note(
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
+                None,
             )
             .await
         {
@@ -4559,7 +4580,13 @@ async fn reprocess_note(
             if let Ok(Some(job_id)) = state
                 .db
                 .jobs
-                .queue_deduplicated(Some(id), *job_type, job_type.default_priority(), payload)
+                .queue_deduplicated(
+                    Some(id),
+                    *job_type,
+                    job_type.default_priority(),
+                    payload,
+                    None,
+                )
                 .await
             {
                 state.event_bus.emit(ServerEvent::JobQueued {
@@ -4733,10 +4760,13 @@ async fn bulk_reprocess_notes(
     // Queue all pipeline jobs in parallel
     let results = futures::future::join_all(job_specs.iter().map(
         |(note_id, job_type, priority, payload)| {
-            state
-                .db
-                .jobs
-                .queue_deduplicated(Some(*note_id), *job_type, *priority, payload.clone())
+            state.db.jobs.queue_deduplicated(
+                Some(*note_id),
+                *job_type,
+                *priority,
+                payload.clone(),
+                None,
+            )
         },
     ))
     .await;
@@ -7940,6 +7970,7 @@ async fn add_embedding_set_members(
                     matric_core::JobType::Embedding,
                     matric_core::JobType::Embedding.default_priority(),
                     Some(payload),
+                    None,
                 )
                 .await;
         }
@@ -8019,6 +8050,7 @@ async fn refresh_embedding_set(
                 matric_core::JobType::RefreshEmbeddingSet,
                 matric_core::JobType::RefreshEmbeddingSet.default_priority(),
                 Some(serde_json::json!({ "set_slug": slug })),
+                None,
             )
             .await?;
         return Ok(Json(serde_json::json!({
@@ -8172,7 +8204,7 @@ async fn create_job(
         let maybe_id = state
             .db
             .jobs
-            .queue_deduplicated(body.note_id, job_type, priority, body.payload)
+            .queue_deduplicated(body.note_id, job_type, priority, body.payload, None)
             .await?;
 
         match maybe_id {
@@ -8202,7 +8234,7 @@ async fn create_job(
         let job_id = state
             .db
             .jobs
-            .queue(body.note_id, job_type, priority, body.payload)
+            .queue(body.note_id, job_type, priority, body.payload, None)
             .await?;
 
         state.event_bus.emit(ServerEvent::JobQueued {

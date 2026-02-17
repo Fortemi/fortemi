@@ -72,7 +72,7 @@ async fn test_archive_job_queue_no_fk_violation() {
 
     let job_id = db
         .jobs
-        .queue(Some(note_id), JobType::Embedding, 5, Some(payload))
+        .queue(Some(note_id), JobType::Embedding, 5, Some(payload), None)
         .await
         .expect("Failed to queue job - FK constraint may still exist");
 
@@ -295,7 +295,13 @@ async fn test_archive_job_payload_contains_schema() {
 
     let job_id = db
         .jobs
-        .queue(Some(note_id), JobType::Linking, 5, Some(payload.clone()))
+        .queue(
+            Some(note_id),
+            JobType::Linking,
+            5,
+            Some(payload.clone()),
+            None,
+        )
         .await
         .expect("Failed to queue job");
 
@@ -486,13 +492,19 @@ async fn test_multiple_archives_independent_job_queues() {
 
     let job1_id = db
         .jobs
-        .queue(Some(note1_id), JobType::TitleGeneration, 5, Some(payload1))
+        .queue(
+            Some(note1_id),
+            JobType::TitleGeneration,
+            5,
+            Some(payload1),
+            None,
+        )
         .await
         .expect("Failed to queue job1");
 
     let job2_id = db
         .jobs
-        .queue(Some(note2_id), JobType::AiRevision, 5, Some(payload2))
+        .queue(Some(note2_id), JobType::AiRevision, 5, Some(payload2), None)
         .await
         .expect("Failed to queue job2");
 
@@ -584,7 +596,7 @@ async fn test_job_queue_without_fk_constraint() {
     let payload = serde_json::json!({"schema": schema});
     let result = db
         .jobs
-        .queue(Some(note_id), JobType::Embedding, 5, Some(payload))
+        .queue(Some(note_id), JobType::Embedding, 5, Some(payload), None)
         .await;
 
     assert!(
@@ -631,7 +643,7 @@ async fn test_archive_drop_cleans_up_orphaned_jobs() {
     let payload = serde_json::json!({"schema": schema});
     for job_type in [JobType::Embedding, JobType::Linking, JobType::AiRevision] {
         db.jobs
-            .queue(Some(note_id), job_type, 5, Some(payload.clone()))
+            .queue(Some(note_id), job_type, 5, Some(payload.clone()), None)
             .await
             .expect("Failed to queue job");
     }

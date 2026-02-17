@@ -1894,6 +1894,30 @@ impl JobType {
     }
 }
 
+/// Tier groups for the worker drain loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TierGroup {
+    /// CPU-only and agnostic jobs (cost_tier IS NULL OR cost_tier = 0).
+    CpuAndAgnostic,
+    /// Fast GPU jobs (cost_tier = 1).
+    FastGpu,
+    /// Standard GPU jobs (cost_tier = 2).
+    StandardGpu,
+}
+
+/// Cost tier constants for tiered atomic job architecture.
+///
+/// Each job step uses exactly one model/algorithm. The worker processes
+/// all jobs of the same tier together, with model warmup between tier switches.
+pub mod cost_tier {
+    /// CPU/NER tier: GLiNER concept extraction, GLiNER reference NER (<300ms).
+    pub const CPU_NER: i16 = 0;
+    /// Fast GPU tier: qwen3:8b concept tagging, title generation (5-15s).
+    pub const FAST_GPU: i16 = 1;
+    /// Standard GPU tier: gpt-oss:20b fallback extraction (60-105s).
+    pub const STANDARD_GPU: i16 = 2;
+}
+
 /// A job in the processing queue.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Job {
@@ -1912,6 +1936,8 @@ pub struct Job {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    /// Cost tier for tiered job scheduling. None = agnostic (legacy/backward compat).
+    pub cost_tier: Option<i16>,
 }
 
 /// Queue statistics summary.

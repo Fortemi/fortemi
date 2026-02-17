@@ -126,6 +126,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job.clone());
@@ -155,6 +156,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -182,6 +184,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job.clone());
@@ -208,6 +211,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -233,6 +237,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -257,6 +262,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -284,6 +290,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -310,6 +317,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job);
@@ -338,6 +346,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let progress_log = Arc::new(Mutex::new(Vec::new()));
@@ -404,6 +413,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         let progress_log = Arc::new(Mutex::new(Vec::new()));
@@ -455,6 +465,7 @@ mod tests {
                 created_at: chrono::Utc::now(),
                 started_at: None,
                 completed_at: None,
+                cost_tier: None,
             };
 
             let ctx = JobContext::new(job);
@@ -510,6 +521,7 @@ mod tests {
             created_at,
             started_at: Some(started_at),
             completed_at: None,
+            cost_tier: None,
         };
 
         let ctx = JobContext::new(job.clone());

@@ -9,7 +9,9 @@ use sqlx::{Pool, Postgres, Row};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-use matric_core::{new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result};
+use matric_core::{
+    new_v7, Error, Job, JobRepository, JobStatus, JobType, QueueStats, Result, TierGroup,
+};
 
 /// PostgreSQL implementation of JobRepository.
 pub struct PgJobRepository {
@@ -138,6 +140,7 @@ impl PgJobRepository {
             created_at: row.get("created_at"),
             started_at: row.get("started_at"),
             completed_at: row.get("completed_at"),
+            cost_tier: row.get("cost_tier"),
         }
     }
 }
@@ -150,6 +153,7 @@ impl JobRepository for PgJobRepository {
         job_type: JobType,
         priority: i32,
         payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
     ) -> Result<Uuid> {
         let job_id = new_v7();
         let now = Utc::now();
@@ -165,8 +169,8 @@ impl JobRepository for PgJobRepository {
                 .flatten();
 
         sqlx::query(
-            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at)
-             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7)",
+            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
+             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8)",
         )
         .bind(job_id)
         .bind(note_id)
@@ -175,6 +179,7 @@ impl JobRepository for PgJobRepository {
         .bind(&payload)
         .bind(estimated_duration)
         .bind(now)
+        .bind(cost_tier)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -189,6 +194,7 @@ impl JobRepository for PgJobRepository {
         job_type: JobType,
         priority: i32,
         payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
     ) -> Result<Option<Uuid>> {
         let job_type_str = Self::job_type_to_str(job_type);
 
@@ -208,8 +214,8 @@ impl JobRepository for PgJobRepository {
                     .flatten();
 
             let result = sqlx::query_scalar::<_, Uuid>(
-                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at)
-                 SELECT $1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7
+                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
+                 SELECT $1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8
                  WHERE NOT EXISTS (
                      SELECT 1 FROM job_queue
                      WHERE note_id = $2 AND job_type = $3::job_type
@@ -224,6 +230,7 @@ impl JobRepository for PgJobRepository {
             .bind(&payload)
             .bind(estimated_duration)
             .bind(now)
+            .bind(cost_tier)
             .fetch_optional(&self.pool)
             .await
             .map_err(Error::Database)?;
@@ -235,7 +242,9 @@ impl JobRepository for PgJobRepository {
         } else {
             // No note_id — can't deduplicate, just queue normally
             // (notify happens inside queue())
-            let job_id = self.queue(note_id, job_type, priority, payload).await?;
+            let job_id = self
+                .queue(note_id, job_type, priority, payload, cost_tier)
+                .await?;
             Ok(Some(job_id))
         }
     }
@@ -267,7 +276,7 @@ impl JobRepository for PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at",
+                       created_at, started_at, completed_at, cost_tier",
         )
         .bind(now)
         .bind(&type_strings)
@@ -276,6 +285,63 @@ impl JobRepository for PgJobRepository {
         .map_err(Error::Database)?;
 
         Ok(row.map(Self::parse_job_row))
+    }
+
+    async fn claim_next_for_tier(
+        &self,
+        tier_group: TierGroup,
+        job_types: &[JobType],
+    ) -> Result<Option<Job>> {
+        let now = Utc::now();
+        let type_strings: Vec<String> = job_types
+            .iter()
+            .map(|jt| Self::job_type_to_str(*jt).to_string())
+            .collect();
+
+        // Build tier filter clause based on group.
+        let tier_clause = match tier_group {
+            TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
+            TierGroup::FastGpu => "cost_tier = 1",
+            TierGroup::StandardGpu => "cost_tier = 2",
+        };
+
+        let query = format!(
+            "UPDATE job_queue
+             SET status = 'running'::job_status, started_at = $1
+             WHERE id = (
+                 SELECT id FROM job_queue
+                 WHERE status = 'pending'::job_status
+                   AND {tier_clause}
+                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
+                 ORDER BY priority DESC, created_at ASC
+                 LIMIT 1
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
+                       error_message, progress_percent, progress_message, retry_count, max_retries,
+                       created_at, started_at, completed_at, cost_tier"
+        );
+
+        let row = sqlx::query(&query)
+            .bind(now)
+            .bind(&type_strings)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(row.map(Self::parse_job_row))
+    }
+
+    async fn pending_count_for_tier(&self, tier: i16) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM job_queue WHERE status = 'pending'::job_status AND cost_tier = $1",
+        )
+        .bind(tier)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(count.0)
     }
 
     async fn update_progress(
@@ -416,7 +482,7 @@ impl JobRepository for PgJobRepository {
         let row = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at
+                    created_at, started_at, completed_at, cost_tier
              FROM job_queue WHERE id = $1",
         )
         .bind(job_id)
@@ -431,7 +497,7 @@ impl JobRepository for PgJobRepository {
         let rows = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at
+                    created_at, started_at, completed_at, cost_tier
              FROM job_queue WHERE note_id = $1
              ORDER BY created_at DESC",
         )
@@ -457,7 +523,7 @@ impl JobRepository for PgJobRepository {
         let rows = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at
+                    created_at, started_at, completed_at, cost_tier
              FROM job_queue
              ORDER BY created_at DESC
              LIMIT $1",
@@ -503,7 +569,7 @@ impl JobRepository for PgJobRepository {
         let query = format!(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at
+                    created_at, started_at, completed_at, cost_tier
              FROM job_queue
              {}
              ORDER BY created_at DESC

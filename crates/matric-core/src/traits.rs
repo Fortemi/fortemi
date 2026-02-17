@@ -270,6 +270,7 @@ pub trait JobRepository: Send + Sync {
         job_type: JobType,
         priority: i32,
         payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
     ) -> Result<Uuid>;
 
     /// Queue a job with deduplication (skip if same type+note pending).
@@ -279,6 +280,7 @@ pub trait JobRepository: Send + Sync {
         job_type: JobType,
         priority: i32,
         payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
     ) -> Result<Option<Uuid>>;
 
     /// Claim the next pending job for processing.
@@ -287,6 +289,21 @@ pub trait JobRepository: Send + Sync {
     /// Claim the next pending job whose type is in `job_types`.
     /// An empty slice means "claim any type" (same as `claim_next`).
     async fn claim_next_for_types(&self, job_types: &[JobType]) -> Result<Option<Job>>;
+
+    /// Claim the next pending job for a specific cost tier group.
+    ///
+    /// Tier groups:
+    /// - `CpuAndAgnostic`: cost_tier IS NULL OR cost_tier = 0
+    /// - `FastGpu`: cost_tier = 1
+    /// - `StandardGpu`: cost_tier = 2
+    async fn claim_next_for_tier(
+        &self,
+        tier_group: TierGroup,
+        job_types: &[JobType],
+    ) -> Result<Option<Job>>;
+
+    /// Count pending jobs for a specific cost tier.
+    async fn pending_count_for_tier(&self, tier: i16) -> Result<i64>;
 
     /// Update job progress.
     async fn update_progress(
@@ -926,6 +943,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         };
 
         // Should not panic
@@ -951,6 +969,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: Some(Utc::now()),
             completed_at: None,
+            cost_tier: None,
         };
 
         notifier.on_job_started(&job).await;
@@ -975,6 +994,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: Some(Utc::now()),
             completed_at: None,
+            cost_tier: None,
         };
 
         notifier.on_job_progress(&job).await;
@@ -999,6 +1019,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: Some(Utc::now()),
             completed_at: Some(Utc::now()),
+            cost_tier: None,
         };
 
         notifier.on_job_completed(&job).await;
@@ -1023,6 +1044,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: Some(Utc::now()),
             completed_at: Some(Utc::now()),
+            cost_tier: None,
         };
 
         notifier.on_job_failed(&job).await;

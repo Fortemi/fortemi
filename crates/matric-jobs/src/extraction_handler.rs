@@ -301,6 +301,7 @@ mod tests {
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
+            cost_tier: None,
         }
     }
 

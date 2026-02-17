@@ -9,8 +9,9 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
-use matric_core::{JobRepository, JobType, Result};
+use matric_core::{cost_tier, JobRepository, JobType, Result, TierGroup};
 use matric_db::Database;
+use matric_inference::OllamaBackend;
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
@@ -145,6 +146,10 @@ pub struct JobWorker {
     handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
     event_tx: broadcast::Sender<WorkerEvent>,
     extraction_registry: Option<Arc<ExtractionRegistry>>,
+    /// Fast GPU model backend for tier-1 warmup. None if fast model is disabled.
+    fast_backend: Option<Arc<OllamaBackend>>,
+    /// Standard GPU model backend for tier-2 warmup.
+    standard_backend: Option<Arc<OllamaBackend>>,
 }
 
 impl JobWorker {
@@ -161,7 +166,21 @@ impl JobWorker {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
             extraction_registry: extraction_registry.map(Arc::new),
+            fast_backend: None,
+            standard_backend: None,
         }
+    }
+
+    /// Set the fast GPU model backend for tier-1 warmup.
+    pub fn with_fast_backend(mut self, backend: Option<OllamaBackend>) -> Self {
+        self.fast_backend = backend.map(Arc::new);
+        self
+    }
+
+    /// Set the standard GPU model backend for tier-2 warmup.
+    pub fn with_standard_backend(mut self, backend: Option<OllamaBackend>) -> Self {
+        self.standard_backend = backend.map(Arc::new);
+        self
     }
 
     /// Register a handler for a job type.
@@ -238,7 +257,9 @@ impl JobWorker {
                 }
             }
 
-            // Drain loop: process all available jobs before sleeping again
+            // Tiered drain loop: process jobs by cost tier to avoid VRAM contention.
+            // Each tier is fully drained before moving to the next. Model warmup
+            // happens between tier switches so only one generation model is loaded.
             loop {
                 // Check for shutdown between drain iterations
                 if shutdown_rx.try_recv().is_ok() {
@@ -248,35 +269,61 @@ impl JobWorker {
                     return;
                 }
 
-                // Claim up to max_concurrent jobs
-                let mut claimed = 0;
-                let mut tasks = tokio::task::JoinSet::new();
+                let mut any_processed = false;
 
-                for _ in 0..max_concurrent {
-                    match self.claim_job().await {
-                        Some(job) => {
-                            claimed += 1;
-                            let worker = self.clone_refs();
-                            tasks.spawn(async move {
-                                worker.execute_job(job).await;
-                            });
+                // Phase 1: Drain tier NULL + tier 0 (CPU/agnostic jobs — no GPU needed)
+                let drained = self
+                    .drain_tier(TierGroup::CpuAndAgnostic, max_concurrent)
+                    .await;
+                if drained > 0 {
+                    any_processed = true;
+                }
+
+                // Phase 2: Drain tier 1 (fast GPU) with warmup
+                let tier1_pending = self
+                    .db
+                    .jobs
+                    .pending_count_for_tier(cost_tier::FAST_GPU)
+                    .await
+                    .unwrap_or(0);
+                if tier1_pending > 0 {
+                    if let Some(ref fast) = self.fast_backend {
+                        if let Err(e) = fast.warmup().await {
+                            warn!(error = %e, "Fast model warmup failed, proceeding anyway");
                         }
-                        None => break,
+                    }
+                    let drained = self.drain_tier(TierGroup::FastGpu, max_concurrent).await;
+                    if drained > 0 {
+                        any_processed = true;
                     }
                 }
 
-                if claimed == 0 {
-                    // Queue drained — go back to sleep
+                // Phase 3: Drain tier 2 (standard GPU) with warmup
+                let tier2_pending = self
+                    .db
+                    .jobs
+                    .pending_count_for_tier(cost_tier::STANDARD_GPU)
+                    .await
+                    .unwrap_or(0);
+                if tier2_pending > 0 {
+                    if let Some(ref standard) = self.standard_backend {
+                        if let Err(e) = standard.warmup().await {
+                            warn!(error = %e, "Standard model warmup failed, proceeding anyway");
+                        }
+                    }
+                    let drained = self
+                        .drain_tier(TierGroup::StandardGpu, max_concurrent)
+                        .await;
+                    if drained > 0 {
+                        any_processed = true;
+                    }
+                }
+
+                if !any_processed {
+                    // All tiers drained — go back to sleep
                     break;
                 }
-
-                debug!(claimed, "Processing concurrent job batch");
-                while let Some(result) = tasks.join_next().await {
-                    if let Err(e) = result {
-                        error!(error = ?e, "Job task panicked");
-                    }
-                }
-                // Loop to claim more jobs (drain continues)
+                // Loop back: chained tier escalations may have queued new jobs
             }
         }
 
@@ -284,18 +331,60 @@ impl JobWorker {
         info!("Job worker stopped");
     }
 
-    /// Claim the next available job without processing it.
-    async fn claim_job(&self) -> Option<matric_core::Job> {
+    /// Drain all jobs for a specific tier group, returning the count processed.
+    async fn drain_tier(&self, tier_group: TierGroup, max_concurrent: usize) -> usize {
+        let mut total_drained = 0;
+
+        loop {
+            let mut claimed = 0;
+            let mut tasks = tokio::task::JoinSet::new();
+
+            for _ in 0..max_concurrent {
+                match self.claim_job_for_tier(tier_group).await {
+                    Some(job) => {
+                        claimed += 1;
+                        let worker = self.clone_refs();
+                        tasks.spawn(async move {
+                            worker.execute_job(job).await;
+                        });
+                    }
+                    None => break,
+                }
+            }
+
+            if claimed == 0 {
+                break;
+            }
+
+            debug!(tier = ?tier_group, claimed, "Processing tiered job batch");
+            while let Some(result) = tasks.join_next().await {
+                if let Err(e) = result {
+                    error!(error = ?e, "Job task panicked");
+                }
+            }
+            total_drained += claimed;
+        }
+
+        total_drained
+    }
+
+    /// Claim the next available job for a specific tier group.
+    async fn claim_job_for_tier(&self, tier_group: TierGroup) -> Option<matric_core::Job> {
         let job_types: Vec<JobType> = {
             let handlers = self.handlers.read().await;
             handlers.keys().copied().collect()
         };
 
-        match self.db.jobs.claim_next_for_types(&job_types).await {
+        match self
+            .db
+            .jobs
+            .claim_next_for_tier(tier_group, &job_types)
+            .await
+        {
             Ok(Some(job)) => Some(job),
             Ok(None) => None,
             Err(e) => {
-                error!(error = ?e, "Failed to claim job");
+                error!(error = ?e, tier = ?tier_group, "Failed to claim job for tier");
                 None
             }
         }

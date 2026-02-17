@@ -54,7 +54,7 @@ async fn create_test_job(
     priority: i32,
 ) -> Uuid {
     db.jobs
-        .queue(note_id, job_type, priority, None)
+        .queue(note_id, job_type, priority, None, None)
         .await
         .expect("Failed to create test job")
 }
@@ -432,7 +432,7 @@ async fn test_worker_broadcasts_failed_event() {
     // Create a job with max_retries = 0 for faster test
     let job_id = db
         .jobs
-        .queue(None, JobType::ReEmbedAll, 10, None)
+        .queue(None, JobType::ReEmbedAll, 10, None, None)
         .await
         .unwrap();
 
@@ -701,7 +701,7 @@ async fn test_worker_with_job_payload() {
 
     let job_id = db
         .jobs
-        .queue(None, JobType::AiRevision, 10, Some(payload.clone()))
+        .queue(None, JobType::AiRevision, 10, Some(payload.clone()), None)
         .await
         .unwrap();
 

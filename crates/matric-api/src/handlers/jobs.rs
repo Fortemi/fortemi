@@ -831,6 +831,29 @@ impl TitleGenerationHandler {
         }
     }
 
+    /// Queue a tier-2 escalation job for title generation.
+    async fn queue_tier_escalation(&self, note_id: uuid::Uuid, schema: &str) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::TitleGeneration,
+                JobType::TitleGeneration.default_priority(),
+                payload,
+                Some(matric_core::cost_tier::STANDARD_GPU),
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue title generation tier-2 escalation");
+        }
+    }
+
     /// Get related notes for title context.
     ///
     /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2).
@@ -928,15 +951,23 @@ impl JobHandler for TitleGenerationHandler {
             return JobResult::Failed("Note has no content".into());
         }
 
-        // Fast-first model routing: always try fast model when available,
-        // escalate to standard on failure. No chunking needed — title uses
-        // PREVIEW_EMBEDDING (500 chars) which is always within fast model capacity.
+        // Tiered model routing based on cost_tier:
+        // None = legacy inline cascade (try fast → fall back to standard)
+        // Some(1) = fast model only (queue tier-2 on failure)
+        // Some(2) = standard model only
         let use_fast = overridden.is_none() && self.fast_backend.is_some();
+        let is_tiered = ctx.job.cost_tier.is_some();
 
-        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
-            (Some(b), _) => b.as_ref(),
-            (_, true) => self.fast_backend.as_ref().unwrap(),
-            (_, false) => &self.backend,
+        let backend: &dyn GenerationBackend = match ctx.job.cost_tier {
+            Some(matric_core::cost_tier::FAST_GPU) if self.fast_backend.is_some() => {
+                self.fast_backend.as_ref().unwrap()
+            }
+            Some(matric_core::cost_tier::STANDARD_GPU) => &self.backend,
+            _ => match (&overridden, use_fast) {
+                (Some(b), _) => b.as_ref(),
+                (_, true) => self.fast_backend.as_ref().unwrap(),
+                (_, false) => &self.backend,
+            },
         };
 
         // Start provenance activity (#430)
@@ -1023,25 +1054,45 @@ Generate only the title, no quotes, no explanations."#,
         let title = match backend.generate(&prompt).await {
             Ok(t) => {
                 let t = clean_title(t);
-                // Escalate to standard if fast model produced invalid title
-                if use_fast && (t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH) {
-                    info!("Fast model produced invalid title, escalating to standard model");
-                    match self.backend.generate(&prompt).await {
-                        Ok(t2) => clean_title(t2),
-                        Err(e2) => {
-                            return JobResult::Failed(format!(
-                                "Title generation failed (escalated): {}",
-                                e2
-                            ))
+                if t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH {
+                    if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
+                        // Tiered mode: queue tier-2 escalation instead of inline fallback
+                        info!("Tier-1 fast model produced invalid title, chaining to tier-2");
+                        self.queue_tier_escalation(note_id, schema).await;
+                        return JobResult::Success(Some(serde_json::json!({
+                            "escalated": true,
+                            "reason": "invalid_fast_title"
+                        })));
+                    } else if use_fast {
+                        // Legacy inline escalation
+                        info!("Fast model produced invalid title, escalating to standard model");
+                        match self.backend.generate(&prompt).await {
+                            Ok(t2) => clean_title(t2),
+                            Err(e2) => {
+                                return JobResult::Failed(format!(
+                                    "Title generation failed (escalated): {}",
+                                    e2
+                                ))
+                            }
                         }
+                    } else {
+                        t
                     }
                 } else {
                     t
                 }
             }
             Err(e) => {
-                // Escalate to standard model on fast model failure
-                if use_fast {
+                if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
+                    // Tiered mode: queue tier-2 escalation instead of inline fallback
+                    info!("Tier-1 fast model failed for title, chaining to tier-2");
+                    self.queue_tier_escalation(note_id, schema).await;
+                    return JobResult::Success(Some(serde_json::json!({
+                        "escalated": true,
+                        "reason": "fast_model_failed"
+                    })));
+                } else if use_fast {
+                    // Legacy inline escalation
                     info!("Fast model failed for title, escalating to standard model");
                     match self.backend.generate(&prompt).await {
                         Ok(t) => clean_title(t),
@@ -2132,6 +2183,7 @@ impl ConceptTaggingHandler {
         } else {
             None
         };
+        // RelatedConceptInference starts at tier-1 (fast GPU).
         if let Err(e) = self
             .db
             .jobs
@@ -2140,10 +2192,477 @@ impl ConceptTaggingHandler {
                 JobType::RelatedConceptInference,
                 JobType::RelatedConceptInference.default_priority(),
                 payload,
+                Some(matric_core::cost_tier::FAST_GPU),
             )
             .await
         {
             warn!(%note_id, error = %e, "Failed to queue phase-2 related concept inference job");
+        }
+    }
+
+    /// Extract prior concepts from job payload (set by tier escalation chaining).
+    fn extract_prior_concepts(ctx: &JobContext) -> Vec<String> {
+        ctx.payload()
+            .and_then(|p| p.get("prior_concepts"))
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    /// Build the LLM prompt for concept extraction.
+    fn make_concept_prompt(text: &str, existing: &[String], target: usize) -> String {
+        let count_hint = if !existing.is_empty() {
+            let needed = target.saturating_sub(existing.len());
+            format!("We already have {} concepts from entity extraction. Suggest {} MORE distinct concepts that cover different dimensions. Do NOT repeat: {:?}\n\n",
+                existing.len(), needed, existing)
+        } else {
+            String::new()
+        };
+        format!(
+            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest concept tags organized as hierarchical paths across MULTIPLE dimensions.
+
+{count_hint}Content:
+{text}
+
+REQUIRED DIMENSIONS (include at least one tag from each applicable dimension):
+1. **Domain**: Primary subject area (e.g., "science/machine-learning", "engineering/software")
+2. **Topic**: Specific topics covered (e.g., "nlp/transformers", "databases/vector-search")
+3. **Methodology**: Research/work methodology (e.g., "methodology/experimental", "methodology/survey", "methodology/case-study")
+4. **Application**: Practical applications (e.g., "application/healthcare", "application/search-engines")
+5. **Technique**: Specific techniques used (e.g., "technique/attention-mechanism", "technique/reinforcement-learning")
+6. **Content-type**: What kind of content (e.g., "content-type/research-paper", "content-type/tutorial", "content-type/documentation")
+
+OPTIONAL DIMENSIONS (include if clearly applicable):
+7. **Evaluation**: How results are evaluated (e.g., "evaluation/benchmark", "evaluation/ablation-study")
+8. **Tool/Framework**: Specific tools mentioned (e.g., "tool/pytorch", "tool/postgresql")
+9. **Era/Context**: Temporal context (e.g., "era/foundation-models", "era/pre-transformer")
+
+Guidelines:
+1. Use hierarchical paths with "/" separators
+2. Use 1-2 levels of hierarchy. Top level = dimension/domain, leaf = specific concept
+3. Use kebab-case for multi-word terms
+4. Focus on actual subject matter, not generic terms
+5. Order by relevance (most relevant first)
+6. Reuse top-level categories across notes for cross-cutting queries
+7. Aim for {target} tags total — breadth across dimensions is more valuable than depth in one
+
+Output ONLY a JSON array of tag paths, nothing else. Example:
+["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#
+        )
+    }
+
+    /// Tier-0: GLiNER NER only. Chains to tier-1 if insufficient concepts.
+    async fn execute_ner(
+        &self,
+        ctx: &JobContext,
+        note_id: uuid::Uuid,
+        schema: &str,
+        content_preview: &str,
+    ) -> (Vec<String>, &'static str, bool) {
+        const CONCEPT_ENTITY_TYPES: &[&str] = &[
+            "domain",
+            "topic",
+            "technique",
+            "methodology",
+            "application",
+            "tool",
+            "framework",
+            "concept",
+            "technology",
+        ];
+
+        let mut concept_labels: Vec<String> = Vec::new();
+
+        if let Some(ner) = &self.ner_backend {
+            match ner
+                .extract(content_preview, CONCEPT_ENTITY_TYPES, None)
+                .await
+            {
+                Ok(result) if !result.entities.is_empty() => {
+                    ctx.report_progress(25, Some("Mapping GLiNER entities to concepts..."));
+                    let mut seen = HashSet::new();
+                    for ent in &result.entities {
+                        let slug = ent.text.trim().to_lowercase().replace(' ', "-");
+                        if slug.len() < 2 {
+                            continue;
+                        }
+                        let path = format!("{}/{}", ent.label, slug);
+                        if seen.insert(path.clone()) {
+                            concept_labels.push(path);
+                        }
+                    }
+                    info!(
+                        note_id = %note_id,
+                        gliner_concepts = concept_labels.len(),
+                        target = self.target_concepts,
+                        "Tier-0 GLiNER produced {} concepts (target: {})",
+                        concept_labels.len(),
+                        self.target_concepts
+                    );
+                }
+                Ok(_) => {
+                    info!(note_id = %note_id, "Tier-0 GLiNER returned no entities");
+                }
+                Err(e) => {
+                    warn!(error = %e, "Tier-0 GLiNER concept extraction failed");
+                }
+            }
+        }
+
+        // Chain to tier-1 if below target
+        let escalating = concept_labels.len() < self.target_concepts;
+        if escalating {
+            self.queue_escalation(
+                note_id,
+                schema,
+                matric_core::cost_tier::FAST_GPU,
+                &concept_labels,
+                matric_core::cost_tier::CPU_NER,
+            )
+            .await;
+        }
+
+        (concept_labels, "gliner", escalating)
+    }
+
+    /// Tier-1: Fast model extraction with chunking. Merges prior results. Chains to tier-2 if insufficient.
+    async fn execute_fast(
+        &self,
+        ctx: &JobContext,
+        note_id: uuid::Uuid,
+        schema: &str,
+        content_preview: &str,
+        overridden: Option<&dyn GenerationBackend>,
+    ) -> (Vec<String>, &'static str, bool) {
+        let mut concept_labels = Self::extract_prior_concepts(ctx);
+        let prior_count = concept_labels.len();
+
+        let backend: &dyn GenerationBackend = match overridden {
+            Some(b) => b,
+            None => match &self.fast_backend {
+                Some(fb) => fb,
+                None => {
+                    // No fast backend — escalate directly to tier-2
+                    self.queue_escalation(
+                        note_id,
+                        schema,
+                        matric_core::cost_tier::STANDARD_GPU,
+                        &concept_labels,
+                        matric_core::cost_tier::FAST_GPU,
+                    )
+                    .await;
+                    return (concept_labels, "fast_unavailable", true);
+                }
+            },
+        };
+
+        ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
+
+        let chunk_size = extraction_chunk_size(self.fast_backend.as_ref());
+        let chunks = chunk_for_extraction(content_preview, chunk_size);
+        let mut chunk_results: Vec<String> = Vec::new();
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let prompt = Self::make_concept_prompt(chunk, &concept_labels, self.target_concepts);
+            match backend.generate_json(&prompt).await {
+                Ok(r) => chunk_results.push(r.trim().to_string()),
+                Err(e) => {
+                    info!(chunk = i, chunks = chunks.len(), error = %e, "Tier-1 fast model failed on chunk, skipping");
+                }
+            }
+        }
+
+        let llm_concepts: Vec<String> = merge_json_arrays(chunk_results);
+
+        // Merge with prior results (deduplicate)
+        if !llm_concepts.is_empty() {
+            let mut seen: HashSet<String> =
+                concept_labels.iter().map(|l| l.to_lowercase()).collect();
+            for label in llm_concepts {
+                if seen.insert(label.to_lowercase()) {
+                    concept_labels.push(label);
+                }
+            }
+        }
+
+        // Chain to tier-2 if still below half target (standard escalation threshold)
+        let standard_threshold = self.target_concepts.div_ceil(2);
+        let escalating = concept_labels.len() < standard_threshold;
+        if escalating {
+            info!(
+                note_id = %note_id,
+                count = concept_labels.len(),
+                threshold = standard_threshold,
+                "Tier-1 below escalation threshold, chaining to tier-2"
+            );
+            self.queue_escalation(
+                note_id,
+                schema,
+                matric_core::cost_tier::STANDARD_GPU,
+                &concept_labels,
+                matric_core::cost_tier::FAST_GPU,
+            )
+            .await;
+        }
+
+        let method = if prior_count > 0 {
+            "gliner+fast"
+        } else {
+            "fast"
+        };
+        (concept_labels, method, escalating)
+    }
+
+    /// Tier-2: Standard model extraction. Merges prior results. No further escalation.
+    async fn execute_standard(
+        &self,
+        ctx: &JobContext,
+        _note_id: uuid::Uuid,
+        _schema: &str,
+        content_preview: &str,
+        overridden: Option<&dyn GenerationBackend>,
+    ) -> (Vec<String>, &'static str, bool) {
+        let mut concept_labels = Self::extract_prior_concepts(ctx);
+        let prior_count = concept_labels.len();
+
+        let backend: &dyn GenerationBackend = match overridden {
+            Some(b) => b,
+            None => &self.backend,
+        };
+
+        ctx.report_progress(30, Some("Running standard model concept extraction..."));
+
+        let existing_snapshot: Vec<String> = concept_labels.clone();
+        let prompt =
+            Self::make_concept_prompt(content_preview, &existing_snapshot, self.target_concepts);
+
+        match backend.generate_json(&prompt).await {
+            Ok(r) => {
+                let ai_response = r.trim().to_string();
+                let parsed: Vec<String> = match parse_json_lenient(&ai_response) {
+                    Ok(labels) => labels,
+                    Err(_) => {
+                        let cleaned = ai_response
+                            .trim()
+                            .trim_start_matches("```json")
+                            .trim_start_matches("```")
+                            .trim_end_matches("```")
+                            .trim();
+                        parse_json_lenient(cleaned).unwrap_or_default()
+                    }
+                };
+                let mut seen: HashSet<String> =
+                    concept_labels.iter().map(|l| l.to_lowercase()).collect();
+                for label in parsed {
+                    if seen.insert(label.to_lowercase()) {
+                        concept_labels.push(label);
+                    }
+                }
+            }
+            Err(e) => {
+                if concept_labels.is_empty() {
+                    warn!(error = %e, "Tier-2 standard model failed with no prior concepts");
+                } else {
+                    warn!(error = %e, "Tier-2 standard model failed, proceeding with {} prior concepts", concept_labels.len());
+                }
+            }
+        }
+
+        let method = if prior_count > 0 {
+            "gliner+fast+standard"
+        } else {
+            "standard"
+        };
+        // Terminal tier — no further escalation
+        (concept_labels, method, false)
+    }
+
+    /// Legacy inline cascade (backward compat for in-flight jobs with cost_tier=NULL).
+    async fn execute_legacy_cascade(
+        &self,
+        ctx: &JobContext,
+        note_id: uuid::Uuid,
+        _schema: &str,
+        content_preview: &str,
+        overridden: &Option<Box<dyn GenerationBackend>>,
+    ) -> (Vec<String>, &'static str, bool) {
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
+        let backend: &dyn GenerationBackend = match (overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
+        };
+
+        const CONCEPT_ENTITY_TYPES: &[&str] = &[
+            "domain",
+            "topic",
+            "technique",
+            "methodology",
+            "application",
+            "tool",
+            "framework",
+            "concept",
+            "technology",
+        ];
+
+        let mut concept_labels: Vec<String> = Vec::new();
+        let mut extraction_method = "llm";
+
+        if let Some(ner) = &self.ner_backend {
+            match ner
+                .extract(content_preview, CONCEPT_ENTITY_TYPES, None)
+                .await
+            {
+                Ok(result) if !result.entities.is_empty() => {
+                    ctx.report_progress(25, Some("Mapping GLiNER entities to concepts..."));
+                    let mut seen = HashSet::new();
+                    for ent in &result.entities {
+                        let slug = ent.text.trim().to_lowercase().replace(' ', "-");
+                        if slug.len() < 2 {
+                            continue;
+                        }
+                        let path = format!("{}/{}", ent.label, slug);
+                        if seen.insert(path.clone()) {
+                            concept_labels.push(path);
+                        }
+                    }
+                    extraction_method = "gliner";
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(error = %e, "GLiNER concept extraction failed, falling back to LLM");
+                }
+            }
+        }
+
+        let target = self.target_concepts;
+        let needs_supplement = concept_labels.len() < target;
+        let standard_escalation_threshold = target.div_ceil(2);
+
+        if needs_supplement {
+            let gliner_count = concept_labels.len();
+            if gliner_count > 0 {
+                extraction_method = "gliner+llm";
+            }
+            ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
+
+            let llm_concepts: Vec<String> = if use_fast {
+                let chunk_size = extraction_chunk_size(self.fast_backend.as_ref());
+                let chunks = chunk_for_extraction(content_preview, chunk_size);
+                let mut chunk_results = Vec::new();
+                for (i, chunk) in chunks.iter().enumerate() {
+                    let prompt = Self::make_concept_prompt(chunk, &concept_labels, target);
+                    match backend.generate_json(&prompt).await {
+                        Ok(r) => chunk_results.push(r.trim().to_string()),
+                        Err(e) => {
+                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model failed on chunk, skipping");
+                        }
+                    }
+                }
+                merge_json_arrays(chunk_results)
+            } else {
+                Vec::new()
+            };
+
+            if !llm_concepts.is_empty() {
+                let mut seen: HashSet<String> =
+                    concept_labels.iter().map(|l| l.to_lowercase()).collect();
+                for label in llm_concepts {
+                    if seen.insert(label.to_lowercase()) {
+                        concept_labels.push(label);
+                    }
+                }
+            }
+
+            if concept_labels.len() < standard_escalation_threshold {
+                info!(
+                    note_id = %note_id,
+                    count = concept_labels.len(),
+                    threshold = standard_escalation_threshold,
+                    "Below escalation threshold, using standard model"
+                );
+                let existing_snapshot: Vec<String> = concept_labels.clone();
+                let prompt = Self::make_concept_prompt(content_preview, &existing_snapshot, target);
+                let gen_backend: &dyn GenerationBackend = match overridden {
+                    Some(b) => b.as_ref(),
+                    None => &self.backend,
+                };
+
+                match gen_backend.generate_json(&prompt).await {
+                    Ok(r) => {
+                        let ai_response = r.trim().to_string();
+                        let parsed: Vec<String> = match parse_json_lenient(&ai_response) {
+                            Ok(labels) => labels,
+                            Err(_) => {
+                                let cleaned = ai_response
+                                    .trim()
+                                    .trim_start_matches("```json")
+                                    .trim_start_matches("```")
+                                    .trim_end_matches("```")
+                                    .trim();
+                                parse_json_lenient(cleaned).unwrap_or_default()
+                            }
+                        };
+                        let mut seen: HashSet<String> =
+                            concept_labels.iter().map(|l| l.to_lowercase()).collect();
+                        for label in parsed {
+                            if seen.insert(label.to_lowercase()) {
+                                concept_labels.push(label);
+                            }
+                        }
+                        if gliner_count == 0 && extraction_method == "llm" {
+                            extraction_method = "llm_standard";
+                        }
+                    }
+                    Err(e) => {
+                        if concept_labels.is_empty() {
+                            warn!(error = %e, "Legacy cascade: all models failed");
+                        } else {
+                            warn!(error = %e, "Standard model failed but proceeding with {} concepts", concept_labels.len());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Legacy cascade is self-contained — no further escalation
+        (concept_labels, extraction_method, false)
+    }
+
+    /// Queue a tier-escalation job for concept tagging with prior results in payload.
+    async fn queue_escalation(
+        &self,
+        note_id: uuid::Uuid,
+        schema: &str,
+        next_tier: i16,
+        prior_concepts: &[String],
+        prior_tier: i16,
+    ) {
+        let mut payload = serde_json::json!({
+            "prior_concepts": prior_concepts,
+            "prior_tier": prior_tier,
+            "prior_count": prior_concepts.len(),
+        });
+        if schema != "public" {
+            payload["schema"] = serde_json::json!(schema);
+        }
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::ConceptTagging,
+                JobType::ConceptTagging.default_priority(),
+                Some(payload),
+                Some(next_tier),
+            )
+            .await
+        {
+            warn!(
+                %note_id,
+                next_tier,
+                error = %e,
+                "Failed to queue concept tagging tier escalation"
+            );
         }
     }
 }
@@ -2176,6 +2695,25 @@ impl JobHandler for ConceptTaggingHandler {
             Ok(b) => b,
             Err(e) => return e,
         };
+
+        // Early exit: tier-0 with no NER backend — skip note fetch and escalate directly
+        if ctx.job.cost_tier == Some(matric_core::cost_tier::CPU_NER) && self.ner_backend.is_none()
+        {
+            info!(note_id = %note_id, "Tier-0 requested but no NER backend — escalating to tier-1");
+            self.queue_escalation(
+                note_id,
+                schema,
+                matric_core::cost_tier::FAST_GPU,
+                &[],
+                matric_core::cost_tier::CPU_NER,
+            )
+            .await;
+            return JobResult::Success(Some(serde_json::json!({
+                "concepts": 0,
+                "escalating": true,
+                "reason": "no_ner_backend"
+            })));
+        }
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -2212,265 +2750,74 @@ impl JobHandler for ConceptTaggingHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        // Model routing: GLiNER → fast model → standard model (escalation cascade).
-        // GLiNER provides near-instant entity extraction; if it doesn't produce enough
-        // concepts (< target_concepts), LLM inference supplements the gap.
-        let use_fast = overridden.is_none() && self.fast_backend.is_some();
-
-        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
-            (Some(b), _) => b.as_ref(),
-            (_, true) => self.fast_backend.as_ref().unwrap(),
-            (_, false) => &self.backend,
+        // Dispatch based on cost_tier for tiered atomic execution.
+        // None = legacy inline cascade (backward compat for in-flight jobs).
+        // Some(0) = GLiNER only, chain to tier-1 if insufficient.
+        // Some(1) = Fast model, merge prior results, chain to tier-2 if insufficient.
+        // Some(2) = Standard model, merge prior results.
+        let (concept_labels, extraction_method, escalating) = match ctx.job.cost_tier {
+            Some(matric_core::cost_tier::CPU_NER) => {
+                self.execute_ner(&ctx, note_id, schema, &content_preview)
+                    .await
+            }
+            Some(matric_core::cost_tier::FAST_GPU) => {
+                self.execute_fast(
+                    &ctx,
+                    note_id,
+                    schema,
+                    &content_preview,
+                    overridden.as_deref(),
+                )
+                .await
+            }
+            Some(matric_core::cost_tier::STANDARD_GPU) => {
+                self.execute_standard(
+                    &ctx,
+                    note_id,
+                    schema,
+                    &content_preview,
+                    overridden.as_deref(),
+                )
+                .await
+            }
+            _ => {
+                // Legacy inline cascade (cost_tier = NULL or unknown).
+                self.execute_legacy_cascade(&ctx, note_id, schema, &content_preview, &overridden)
+                    .await
+            }
         };
 
         // Start provenance activity (#430)
+        let prov_model = match ctx.job.cost_tier {
+            Some(matric_core::cost_tier::CPU_NER) => self
+                .ner_backend
+                .as_ref()
+                .map(|n| n.model_name().to_string())
+                .unwrap_or_else(|| "gliner".to_string()),
+            Some(matric_core::cost_tier::FAST_GPU) => self
+                .fast_backend
+                .as_ref()
+                .map(|b| matric_core::GenerationBackend::model_name(b).to_string())
+                .unwrap_or_else(|| "fast".to_string()),
+            _ => matric_core::GenerationBackend::model_name(&self.backend).to_string(),
+        };
         let activity_id = self
             .db
             .provenance
-            .start_activity(
-                note_id,
-                "concept_tagging",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
+            .start_activity(note_id, "concept_tagging", Some(&prov_model))
             .await
             .ok();
-
-        // Entity type labels for GLiNER concept extraction.
-        const CONCEPT_ENTITY_TYPES: &[&str] = &[
-            "domain",
-            "topic",
-            "technique",
-            "methodology",
-            "application",
-            "tool",
-            "framework",
-            "concept",
-            "technology",
-        ];
-
-        // ── Step 1: GLiNER pass (fastest, <300ms) ──────────────────────────
-        let mut concept_labels: Vec<String> = Vec::new();
-        let mut extraction_method = "llm";
-
-        if let Some(ner) = &self.ner_backend {
-            match ner
-                .extract(&content_preview, CONCEPT_ENTITY_TYPES, None)
-                .await
-            {
-                Ok(result) if !result.entities.is_empty() => {
-                    info!(
-                        note_id = %note_id,
-                        entities = result.entities.len(),
-                        model = %result.model,
-                        "GLiNER concept extraction succeeded"
-                    );
-                    ctx.report_progress(25, Some("Mapping GLiNER entities to concepts..."));
-
-                    // Map GLiNER entities to hierarchical concept paths: label/kebab-text
-                    let mut seen = HashSet::new();
-                    for ent in &result.entities {
-                        let slug = ent.text.trim().to_lowercase().replace(' ', "-");
-                        if slug.len() < 2 {
-                            continue;
-                        }
-                        let path = format!("{}/{}", ent.label, slug);
-                        if seen.insert(path.clone()) {
-                            concept_labels.push(path);
-                        }
-                    }
-                    extraction_method = "gliner";
-                    info!(
-                        note_id = %note_id,
-                        gliner_concepts = concept_labels.len(),
-                        target = self.target_concepts,
-                        "GLiNER produced {} concepts (target: {})",
-                        concept_labels.len(),
-                        self.target_concepts
-                    );
-                }
-                Ok(_) => {
-                    info!(note_id = %note_id, "GLiNER returned no entities for concept tagging");
-                }
-                Err(e) => {
-                    warn!(error = %e, "GLiNER concept extraction failed, falling back to LLM");
-                }
-            }
-        }
-
-        // Build LLM prompt for concept extraction.
-        // When supplementing GLiNER, we tell the LLM how many more concepts we need
-        // and which ones to skip. `existing` is passed by value to avoid borrowing issues.
-        let target = self.target_concepts;
-        let make_prompt = |text: &str, existing: &[String]| {
-            let count_hint = if !existing.is_empty() {
-                let needed = target.saturating_sub(existing.len());
-                format!("We already have {} concepts from entity extraction. Suggest {} MORE distinct concepts that cover different dimensions. Do NOT repeat: {:?}\n\n",
-                    existing.len(), needed, existing)
-            } else {
-                String::new()
-            };
-            format!(
-                r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest concept tags organized as hierarchical paths across MULTIPLE dimensions.
-
-{count_hint}Content:
-{text}
-
-REQUIRED DIMENSIONS (include at least one tag from each applicable dimension):
-1. **Domain**: Primary subject area (e.g., "science/machine-learning", "engineering/software")
-2. **Topic**: Specific topics covered (e.g., "nlp/transformers", "databases/vector-search")
-3. **Methodology**: Research/work methodology (e.g., "methodology/experimental", "methodology/survey", "methodology/case-study")
-4. **Application**: Practical applications (e.g., "application/healthcare", "application/search-engines")
-5. **Technique**: Specific techniques used (e.g., "technique/attention-mechanism", "technique/reinforcement-learning")
-6. **Content-type**: What kind of content (e.g., "content-type/research-paper", "content-type/tutorial", "content-type/documentation")
-
-OPTIONAL DIMENSIONS (include if clearly applicable):
-7. **Evaluation**: How results are evaluated (e.g., "evaluation/benchmark", "evaluation/ablation-study")
-8. **Tool/Framework**: Specific tools mentioned (e.g., "tool/pytorch", "tool/postgresql")
-9. **Era/Context**: Temporal context (e.g., "era/foundation-models", "era/pre-transformer")
-
-Guidelines:
-1. Use hierarchical paths with "/" separators
-2. Use 1-2 levels of hierarchy. Top level = dimension/domain, leaf = specific concept
-3. Use kebab-case for multi-word terms
-4. Focus on actual subject matter, not generic terms
-5. Order by relevance (most relevant first)
-6. Reuse top-level categories across notes for cross-cutting queries
-7. Aim for {target} tags total — breadth across dimensions is more valuable than depth in one
-
-Output ONLY a JSON array of tag paths, nothing else. Example:
-["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#
-            )
-        };
-
-        // ── Step 2: Fast LLM supplement if GLiNER insufficient ────────────
-        // Only call LLM if we haven't reached the target concept count.
-        // Escalation thresholds:
-        //   - Fast model: fires when count < target (e.g., <15)
-        //   - Standard model: fires ONLY when count < target/2 (e.g., <8)
-        //     This prevents the slow 20B model from running when GLiNER/fast
-        //     already produced a reasonable number of concepts.
-        let needs_supplement = concept_labels.len() < self.target_concepts;
-        let standard_escalation_threshold = self.target_concepts.div_ceil(2);
-
-        if needs_supplement {
-            let gliner_count = concept_labels.len();
-            if gliner_count > 0 {
-                info!(
-                    note_id = %note_id,
-                    gliner_count,
-                    target = self.target_concepts,
-                    "GLiNER insufficient, supplementing with fast LLM"
-                );
-                extraction_method = "gliner+llm";
-            }
-            ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
-
-            // Try fast model first (chunked for large content).
-            // Chunk size adapts to model context window — larger models = fewer chunks.
-            // Resilient: skip failed/unparseable chunks rather than discarding everything.
-            let llm_concepts: Vec<String> = if use_fast {
-                let chunk_size = extraction_chunk_size(self.fast_backend.as_ref());
-                let chunks = chunk_for_extraction(&content_preview, chunk_size);
-                let mut chunk_results = Vec::new();
-
-                for (i, chunk) in chunks.iter().enumerate() {
-                    let prompt = make_prompt(chunk, &concept_labels);
-                    match backend.generate_json(&prompt).await {
-                        Ok(r) => chunk_results.push(r.trim().to_string()),
-                        Err(e) => {
-                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model failed on chunk, skipping");
-                        }
-                    }
-                }
-
-                merge_json_arrays(chunk_results)
-            } else {
-                Vec::new()
-            };
-
-            // Merge fast model results with GLiNER results (deduplicate)
-            if !llm_concepts.is_empty() {
-                let mut seen: HashSet<String> =
-                    concept_labels.iter().map(|l| l.to_lowercase()).collect();
-                for label in llm_concepts {
-                    if seen.insert(label.to_lowercase()) {
-                        concept_labels.push(label);
-                    }
-                }
-            }
-
-            // Escalation to standard (20B) model: ONLY when we have very few concepts.
-            // If GLiNER/fast produced a reasonable count (>= target/2), accept what we
-            // have rather than burning 60+s on the slow model.
-            if concept_labels.len() < standard_escalation_threshold {
-                info!(
-                    note_id = %note_id,
-                    count = concept_labels.len(),
-                    threshold = standard_escalation_threshold,
-                    "Below escalation threshold, using standard model"
-                );
-                let existing_snapshot: Vec<String> = concept_labels.clone();
-                let prompt = make_prompt(&content_preview, &existing_snapshot);
-                let gen_backend: &dyn GenerationBackend = match &overridden {
-                    Some(b) => b.as_ref(),
-                    None => &self.backend,
-                };
-
-                let ai_response = match gen_backend.generate_json(&prompt).await {
-                    Ok(r) => r.trim().to_string(),
-                    Err(e) => {
-                        if concept_labels.is_empty() {
-                            self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!("AI generation failed: {}", e));
-                        }
-                        // Have some concepts from GLiNER/fast, proceed with what we have
-                        warn!(error = %e, "Standard model failed but proceeding with {} concepts", concept_labels.len());
-                        String::new()
-                    }
-                };
-
-                if !ai_response.is_empty() {
-                    let parsed: Vec<String> = match parse_json_lenient(&ai_response) {
-                        Ok(labels) => labels,
-                        Err(_) => {
-                            let cleaned = ai_response
-                                .trim()
-                                .trim_start_matches("```json")
-                                .trim_start_matches("```")
-                                .trim_end_matches("```")
-                                .trim();
-                            parse_json_lenient(cleaned).unwrap_or_default()
-                        }
-                    };
-                    // Merge standard model results (deduplicate)
-                    let mut seen: HashSet<String> =
-                        concept_labels.iter().map(|l| l.to_lowercase()).collect();
-                    for label in parsed {
-                        if seen.insert(label.to_lowercase()) {
-                            concept_labels.push(label);
-                        }
-                    }
-                    if gliner_count == 0 && extraction_method == "llm" {
-                        extraction_method = "llm_standard";
-                    }
-                }
-            } else {
-                info!(
-                    note_id = %note_id,
-                    count = concept_labels.len(),
-                    threshold = standard_escalation_threshold,
-                    "Above escalation threshold, skipping standard model"
-                );
-            }
-        }
 
         ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
         if concept_labels.is_empty() {
-            self.queue_phase2_jobs(note_id, schema).await;
+            if !escalating {
+                self.queue_phase2_jobs(note_id, schema).await;
+            }
             return JobResult::Success(Some(serde_json::json!({
                 "concepts": 0,
-                "reason": "no_concepts_suggested"
+                "reason": "no_concepts_suggested",
+                "escalating": escalating,
             })));
         }
 
@@ -2538,11 +2885,14 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             ctx.report_progress(progress, Some(&format!("Tagged with: {}", label)));
         }
 
-        ctx.report_progress(95, Some("Queuing phase-2 linking job..."));
-
-        // Queue Linking as Phase 2 of the NLP pipeline (#420).
-        // Tags now exist, so the linker can blend SKOS tag overlap with embedding similarity.
-        self.queue_phase2_jobs(note_id, schema).await;
+        // Queue Phase 2 only if this tier is NOT escalating to a higher tier.
+        // When escalating, the higher-tier job will queue phase-2 after it completes.
+        if !escalating {
+            ctx.report_progress(95, Some("Queuing phase-2 related concept inference..."));
+            self.queue_phase2_jobs(note_id, schema).await;
+        } else {
+            ctx.report_progress(95, Some("Escalating to higher tier — phase-2 deferred"));
+        }
 
         // Complete provenance activity (#430)
         if let Some(act_id) = activity_id {
@@ -2618,6 +2968,29 @@ impl ReferenceExtractionHandler {
             fast_backend,
             ner_backend,
             registry,
+        }
+    }
+
+    /// Queue a tier-escalation job for reference extraction.
+    async fn queue_ref_tier_escalation(&self, note_id: uuid::Uuid, schema: &str, next_tier: i16) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::ReferenceExtraction,
+                JobType::ReferenceExtraction.default_priority(),
+                payload,
+                Some(next_tier),
+            )
+            .await
+        {
+            warn!(%note_id, next_tier, error = %e, "Failed to queue reference extraction tier escalation");
         }
     }
 }
@@ -2719,8 +3092,23 @@ impl JobHandler for ReferenceExtractionHandler {
             "affiliation",
         ];
 
-        // Try GLiNER first if available, fall back to LLM prompt.
-        let (entities, extraction_method) = if let Some(ner) = &self.ner_backend {
+        // Tiered dispatch for entity extraction.
+        // Tier 0: GLiNER only → if empty, chain to tier-1
+        // Tier 1: Fast LLM only → if fail, chain to tier-2
+        // Tier 2: Standard LLM only
+        // None: Legacy cascade (GLiNER → fast → standard inline)
+        let is_tiered = ctx.job.cost_tier.is_some();
+
+        // Tier 0: GLiNER extraction
+        let (entities, extraction_method) = if ctx.job.cost_tier
+            == Some(matric_core::cost_tier::STANDARD_GPU)
+        {
+            // Tier-2: skip GLiNER, go directly to standard LLM below
+            (Vec::new(), "tier2_standard")
+        } else if ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
+            // Tier-1: skip GLiNER, go directly to fast LLM below
+            (Vec::new(), "tier1_fast")
+        } else if let Some(ner) = &self.ner_backend {
             match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
                 Ok(result) if !result.entities.is_empty() => {
                     info!(
@@ -2753,14 +3141,51 @@ impl JobHandler for ReferenceExtractionHandler {
                 }
                 Ok(_) => {
                     info!(note_id = %note_id, "GLiNER returned no entities, falling back to LLM");
+                    if is_tiered {
+                        // Tier-0: chain to tier-1 on empty results
+                        self.queue_ref_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::FAST_GPU,
+                        )
+                        .await;
+                        return JobResult::Success(Some(serde_json::json!({
+                            "references": 0,
+                            "escalated": true,
+                            "reason": "gliner_empty"
+                        })));
+                    }
                     (Vec::new(), "gliner_empty")
                 }
                 Err(e) => {
                     warn!(error = %e, "GLiNER extraction failed, falling back to LLM");
+                    if is_tiered {
+                        self.queue_ref_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::FAST_GPU,
+                        )
+                        .await;
+                        return JobResult::Success(Some(serde_json::json!({
+                            "references": 0,
+                            "escalated": true,
+                            "reason": "gliner_failed"
+                        })));
+                    }
                     (Vec::new(), "gliner_failed")
                 }
             }
         } else {
+            if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::CPU_NER) {
+                // Tier-0 but no GLiNER backend — chain to tier-1
+                self.queue_ref_tier_escalation(note_id, schema, matric_core::cost_tier::FAST_GPU)
+                    .await;
+                return JobResult::Success(Some(serde_json::json!({
+                    "references": 0,
+                    "escalated": true,
+                    "reason": "no_gliner"
+                })));
+            }
             (Vec::new(), "no_gliner")
         };
 
@@ -2787,7 +3212,11 @@ impl JobHandler for ReferenceExtractionHandler {
                 )
             };
 
-            let use_fast = overridden.is_none() && self.fast_backend.is_some();
+            // Tiered model selection: tier-1 = fast only, tier-2 = standard only, None = cascade.
+            let use_fast = overridden.is_none()
+                && self.fast_backend.is_some()
+                && ctx.job.cost_tier != Some(matric_core::cost_tier::STANDARD_GPU);
+            let skip_standard = ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU);
 
             // Try fast model with chunking first.
             // Resilient: skip failed/unparseable chunks rather than discarding everything.
@@ -2833,6 +3262,20 @@ impl JobHandler for ReferenceExtractionHandler {
                 );
                 ctx.report_progress(50, Some("Parsing LLM entities..."));
                 (parsed, "llm_fast")
+            } else if skip_standard {
+                // Tier-1: fast model failed/unavailable — chain to tier-2
+                info!(note_id = %note_id, "Tier-1 fast model failed for references, chaining to tier-2");
+                self.queue_ref_tier_escalation(
+                    note_id,
+                    schema,
+                    matric_core::cost_tier::STANDARD_GPU,
+                )
+                .await;
+                return JobResult::Success(Some(serde_json::json!({
+                    "references": 0,
+                    "escalated": true,
+                    "reason": "fast_model_failed"
+                })));
             } else {
                 // Standard model fallback (no chunking — uses full preview)
                 let gen_backend: &dyn GenerationBackend = match &overridden {
@@ -3042,6 +3485,7 @@ impl RelatedConceptHandler {
         } else {
             None
         };
+        // Embedding and Linking are tier-agnostic (NULL).
         if let Err(e) = self
             .db
             .jobs
@@ -3050,6 +3494,7 @@ impl RelatedConceptHandler {
                 JobType::Embedding,
                 JobType::Embedding.default_priority(),
                 payload.clone(),
+                None,
             )
             .await
         {
@@ -3063,10 +3508,34 @@ impl RelatedConceptHandler {
                 JobType::Linking,
                 JobType::Linking.default_priority(),
                 payload,
+                None,
             )
             .await
         {
             warn!(%note_id, error = %e, "Failed to queue phase-3 linking job");
+        }
+    }
+
+    /// Queue a tier-2 escalation job for related concept inference.
+    async fn queue_related_tier_escalation(&self, note_id: uuid::Uuid, schema: &str) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::RelatedConceptInference,
+                JobType::RelatedConceptInference.default_priority(),
+                payload,
+                Some(matric_core::cost_tier::STANDARD_GPU),
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue related concept tier-2 escalation");
         }
     }
 }
@@ -3112,13 +3581,19 @@ impl JobHandler for RelatedConceptHandler {
             Err(e) => return e,
         };
 
-        // Fast-first routing: use fast model when available, no chunking needed
-        // (concept labels are small). Escalation handled at generation call site.
+        // Tiered model routing based on cost_tier.
         let use_fast = overridden.is_none() && self.fast_backend.is_some();
-        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
-            (Some(b), _) => b.as_ref(),
-            (_, true) => self.fast_backend.as_ref().unwrap(),
-            (_, false) => &self.backend,
+        let is_tiered = ctx.job.cost_tier.is_some();
+        let backend: &dyn GenerationBackend = match ctx.job.cost_tier {
+            Some(matric_core::cost_tier::FAST_GPU) if self.fast_backend.is_some() => {
+                self.fast_backend.as_ref().unwrap()
+            }
+            Some(matric_core::cost_tier::STANDARD_GPU) => &self.backend,
+            _ => match (&overridden, use_fast) {
+                (Some(b), _) => b.as_ref(),
+                (_, true) => self.fast_backend.as_ref().unwrap(),
+                (_, false) => &self.backend,
+            },
         };
 
         ctx.report_progress(10, Some("Fetching note concepts..."));
@@ -3242,8 +3717,18 @@ If no meaningful related pairs exist, output an empty array: []"#
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
-                // Escalate to standard model on fast model failure
-                if use_fast {
+                if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
+                    // Tiered mode: chain to tier-2 instead of inline fallback.
+                    // Do NOT queue phase-3 here — the tier-2 job will do it after completion.
+                    info!("Tier-1 fast model failed for related concepts, chaining to tier-2");
+                    self.queue_related_tier_escalation(note_id, schema).await;
+                    return JobResult::Success(Some(serde_json::json!({
+                        "relations_created": 0,
+                        "escalated": true,
+                        "reason": "fast_model_failed"
+                    })));
+                } else if use_fast {
+                    // Legacy inline escalation
                     info!("Fast model failed for related concepts, escalating to standard model");
                     match self.backend.generate_json(&prompt).await {
                         Ok(r) => r.trim().to_string(),
@@ -4033,7 +4518,7 @@ impl JobHandler for ReEmbedAllHandler {
             match self
                 .db
                 .jobs
-                .queue(Some(*note_id), JobType::Embedding, 5, None)
+                .queue(Some(*note_id), JobType::Embedding, 5, None, None)
                 .await
             {
                 Ok(_) => queued += 1,
@@ -4259,6 +4744,7 @@ impl JobHandler for RefreshEmbeddingSetHandler {
                     JobType::Embedding,
                     JobType::Embedding.default_priority(),
                     Some(payload),
+                    None,
                 )
                 .await
             {

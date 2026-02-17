@@ -166,6 +166,37 @@ impl OllamaBackend {
         Some(backend)
     }
 
+    /// Warmup the generation model by preloading it into VRAM.
+    ///
+    /// Sends an empty generate request with `keep_alive` to tell Ollama to load
+    /// the model into memory without producing output. This eliminates cold-start
+    /// latency for the first real request.
+    pub async fn warmup(&self) -> matric_core::Result<()> {
+        let url = format!("{}/api/generate", self.base_url);
+        let body = serde_json::json!({
+            "model": self.gen_model,
+            "prompt": "",
+            "keep_alive": "10m"
+        });
+        info!(model = %self.gen_model, "Warming up generation model");
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.client.post(&url).json(&body).send(),
+        )
+        .await
+        .map_err(|_| {
+            matric_core::Error::Internal(format!(
+                "Warmup timed out after 30s for model {}",
+                self.gen_model
+            ))
+        })?
+        .map_err(|e| matric_core::Error::Internal(format!("Warmup failed: {}", e)))?;
+        // Consume the response body to release the connection
+        let _ = resp.bytes().await;
+        debug!(model = %self.gen_model, "Model warmup complete");
+        Ok(())
+    }
+
     /// Get the model registry.
     pub fn registry(&self) -> &ModelRegistry {
         &self.registry
