@@ -276,6 +276,8 @@ impl OllamaBackend {
                 Some(system.to_string())
             },
             raw: if use_raw_mode { Some(true) } else { None },
+            // Disable thinking for JSON mode — reasoning output breaks JSON parsing.
+            think: if format.is_some() { Some(false) } else { None },
             format,
         };
 
@@ -349,6 +351,10 @@ struct GenerateRequest {
     /// Ollama format enforcement. Set to `"json"` for guaranteed valid JSON output.
     #[serde(skip_serializing_if = "Option::is_none")]
     format: Option<serde_json::Value>,
+    /// Disable thinking/reasoning for models that support it (e.g., gpt-oss, qwen3).
+    /// When `false`, suppresses chain-of-thought reasoning in the response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -616,6 +622,7 @@ mod tests {
             system: Some("Be helpful".to_string()),
             raw: None,
             format: None,
+            think: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("llama3"));
@@ -623,6 +630,7 @@ mod tests {
         assert!(json.contains("Be helpful"));
         assert!(!json.contains("raw")); // Should not serialize None
         assert!(!json.contains("format")); // Should not serialize None
+        assert!(!json.contains("think")); // Should not serialize None
     }
 
     #[test]
@@ -634,6 +642,7 @@ mod tests {
             system: None,
             raw: Some(true),
             format: None,
+            think: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("deepseek-r1:14b"));
@@ -649,6 +658,7 @@ mod tests {
             system: None,
             raw: None,
             format: None,
+            think: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("system")); // Should skip serializing None
@@ -663,9 +673,11 @@ mod tests {
             system: None,
             raw: None,
             format: Some(serde_json::json!("json")),
+            think: Some(false),
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("\"format\":\"json\""));
+        assert!(json.contains("\"think\":false"));
     }
 
     #[test]
@@ -677,9 +689,11 @@ mod tests {
             system: None,
             raw: None,
             format: None,
+            think: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("format")); // Should not serialize None
+        assert!(!json.contains("think")); // Should not serialize None
     }
 
     #[test]
