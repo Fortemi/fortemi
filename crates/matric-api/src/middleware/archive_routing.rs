@@ -21,6 +21,9 @@ pub struct ArchiveContext {
     /// Used by handlers to determine routing behavior.
     #[allow(dead_code)]
     pub is_default: bool,
+    /// Human-readable archive name for event scoping (Issue #452).
+    /// None for the fallback public schema when no default is configured.
+    pub name: Option<String>,
 }
 
 impl Default for ArchiveContext {
@@ -28,6 +31,7 @@ impl Default for ArchiveContext {
         Self {
             schema: "public".to_string(),
             is_default: false,
+            name: None,
         }
     }
 }
@@ -111,6 +115,7 @@ async fn refresh_and_get(state: &AppState) -> ArchiveContext {
     let ctx = ArchiveContext {
         schema: archive_info.schema_name,
         is_default: archive_info.is_default,
+        name: Some(archive_info.name),
     };
 
     cache.archive = Some(ctx.clone());
@@ -188,6 +193,7 @@ pub async fn archive_routing_middleware(
                 let ctx = ArchiveContext {
                     schema: info.schema_name,
                     is_default: false,
+                    name: Some(name.clone()),
                 };
                 req.extensions_mut().insert(ctx);
                 return next.run(req).await;
@@ -258,6 +264,7 @@ mod tests {
         cache.archive = Some(ArchiveContext {
             schema: "archive_test".to_string(),
             is_default: true,
+            name: Some("test".to_string()),
         });
         cache.last_refresh = Utc::now();
 

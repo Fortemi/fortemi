@@ -42,12 +42,12 @@ use uuid::Uuid;
 
 use matric_core::EmbeddingBackend;
 use matric_core::{
-    AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest,
-    ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository,
-    EventBus, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
-    EventEnvelope, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
-    TagInput,
-    TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata,
+    BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
+    DocumentTypeRepository, EventBus, EventContext, ExtractionAdapter, ExtractionStrategy,
+    JobRepository, JobType, ListNotesRequest, EventEnvelope, NoteRepository, OAuthError,
+    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
+    UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
@@ -1924,33 +1924,147 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
     tracing::info!(active = count, "WebSocket connection closed");
 }
 
-/// SSE event stream handler (Issue #43).
+/// Build an [`EventContext`] from the current request's archive context.
+///
+/// Used by handlers to attach memory scope to emitted events (Issue #452).
+fn event_context_for(archive_ctx: &ArchiveContext) -> EventContext {
+    EventContext {
+        memory: archive_ctx.name.clone(),
+        ..Default::default()
+    }
+}
+
+/// SSE query parameters for browser EventSource auth and memory scoping.
+///
+/// Browser `EventSource` cannot set custom headers, so token and memory
+/// selection are accepted as query parameters (Issue #452).
+#[derive(Debug, Deserialize)]
+struct SseQuery {
+    /// Bearer token (`mm_at_*` or `mm_key_*`) for auth when headers are unavailable.
+    token: Option<String>,
+    /// Memory/archive name for scoping events. Falls back to `X-Fortemi-Memory` header.
+    memory: Option<String>,
+}
+
+/// SSE event stream handler (Issues #43, #452).
 ///
 /// Clients connect to `/api/v1/events` and receive Server-Sent Events.
+///
+/// ## Auth
+/// - Query param: `?token=mm_at_xxx` or `?token=mm_key_xxx`
+/// - Header: `Authorization: Bearer mm_at_xxx`
+/// - When `REQUIRE_AUTH=true`, one of the above is required.
+///
+/// ## Memory Scoping
+/// - Query param: `?memory=my-archive`
+/// - Header: `X-Fortemi-Memory: my-archive`
+/// - Without explicit memory: all events are delivered (admin/monitoring view).
+/// - With explicit memory: only events for that memory + system events are delivered.
 async fn sse_events(
     State(state): State<AppState>,
-) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    Query(params): Query<SseQuery>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    headers: HeaderMap,
+) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
+    // --- Auth (Issue #452) ---
+    // Priority: query param token > Authorization header
+    let token_str = params
+        .token
+        .as_deref()
+        .or_else(|| {
+            headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer "))
+        })
+        .map(|s| s.trim());
+
+    if let Some(tok) = token_str {
+        let valid = if tok.starts_with("mm_at_") {
+            state
+                .db
+                .oauth
+                .validate_access_token(tok)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+        } else if tok.starts_with("mm_key_") {
+            state
+                .db
+                .oauth
+                .validate_api_key(tok)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+        } else {
+            false
+        };
+        if !valid {
+            return Err(ApiError::Unauthorized(
+                "Invalid or expired token".to_string(),
+            ));
+        }
+    } else if state.require_auth {
+        return Err(ApiError::Unauthorized(
+            "Authentication required. Use ?token= query parameter or Authorization header."
+                .to_string(),
+        ));
+    }
+
+    // --- Memory scope resolution (Issue #452) ---
+    // Priority: query param > X-Fortemi-Memory header (via middleware) > none (all events)
+    let memory_filter: Option<String> = if let Some(ref name) = params.memory {
+        // Validate requested memory exists
+        state
+            .db
+            .archives
+            .get_archive_by_name(name)
+            .await?
+            .ok_or_else(|| ApiError::NotFound(format!("Memory '{}' not found", name)))?;
+        Some(name.clone())
+    } else if !archive_ctx.is_default {
+        // Explicitly selected via X-Fortemi-Memory header
+        archive_ctx.name.clone()
+    } else {
+        None // Default — deliver all events (admin/monitoring view)
+    };
+
+    // --- Subscribe and filter ---
     let rx = state.event_bus.subscribe();
 
     use tokio_stream::StreamExt as _;
     let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
-        |result: Result<EventEnvelope, _>| match result {
-            Ok(envelope) => match serde_json::to_string(&envelope) {
-                Ok(json) => Some(Ok(Event::default()
-                    .event(envelope.event_type.clone())
-                    .id(envelope.event_id.to_string())
-                    .data(json))),
-                Err(_) => None,
-            },
+        move |result: Result<EventEnvelope, _>| match result {
+            Ok(envelope) => {
+                // Memory scope filtering: skip events from other memories
+                if let Some(ref filter) = memory_filter {
+                    if let Some(ref event_memory) = envelope.memory {
+                        if event_memory != filter {
+                            return None; // Different memory — filtered out
+                        }
+                    }
+                    // System events (memory=None) always pass through
+                }
+
+                match serde_json::to_string(&envelope) {
+                    Ok(json) => Some(Ok(Event::default()
+                        .event(envelope.event_type.clone())
+                        .id(envelope.event_id.to_string())
+                        .data(json))),
+                    Err(_) => None,
+                }
+            }
             Err(_) => None, // Skip lagged/closed errors
         },
     );
 
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(std::time::Duration::from_secs(15))
             .text("keepalive"),
-    )
+    ))
 }
 
 // =============================================================================
@@ -2581,7 +2695,7 @@ fn is_public_route(path: &str) -> bool {
     if path.starts_with("/swagger-ui") || path.starts_with("/api-docs") {
         return true;
     }
-    // SSE and WebSocket endpoints (they have their own auth)
+    // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452)
     if path == "/api/v1/events" || path == "/api/v1/ws" {
         return true;
     }
@@ -3892,18 +4006,21 @@ async fn create_note(
     )
     .await;
 
-    // Emit NoteCreated event (Issue #453)
+    // Emit NoteCreated event (Issue #453, scoped via #452)
     let tags_for_event = state
         .db
         .tags
         .get_for_note(note_id)
         .await
         .unwrap_or_default();
-    state.event_bus.emit(ServerEvent::NoteCreated {
-        note_id,
-        title: None, // Title not yet generated
-        tags: tags_for_event,
-    });
+    state.event_bus.emit_with_context(
+        ServerEvent::NoteCreated {
+            note_id,
+            title: None, // Title not yet generated
+            tags: tags_for_event,
+        },
+        event_context_for(&archive_ctx),
+    );
 
     // Invalidate search cache so new note appears in search results (#341)
     state.search_cache.invalidate_all().await;
@@ -4274,14 +4391,17 @@ async fn update_note(
         .query(move |tx| Box::pin(async move { notes.fetch_tx(tx, id).await }))
         .await?;
 
-    // Emit NoteUpdated event (Issue #41)
-    state.event_bus.emit(ServerEvent::NoteUpdated {
-        note_id: id,
-        title: note.note.title.clone(),
-        tags: note.tags.clone(),
-        has_ai_content: note.revised.ai_generated_at.is_some(),
-        has_links: !note.links.is_empty(),
-    });
+    // Emit NoteUpdated event (Issue #41, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::NoteUpdated {
+            note_id: id,
+            title: note.note.title.clone(),
+            tags: note.tags.clone(),
+            has_ai_content: note.revised.ai_generated_at.is_some(),
+            has_links: !note.links.is_empty(),
+        },
+        event_context_for(&archive_ctx),
+    );
 
     // Invalidate search cache so updated content appears in search results (#341)
     state.search_cache.invalidate_all().await;
@@ -4312,8 +4432,10 @@ async fn delete_note(
     ctx.execute(move |tx| Box::pin(async move { notes.soft_delete_tx(tx, id).await }))
         .await?;
 
-    // Emit NoteDeleted event (Issue #453)
-    state.event_bus.emit(ServerEvent::NoteDeleted { note_id: id });
+    // Emit NoteDeleted event (Issue #453, scoped via #452)
+    state
+        .event_bus
+        .emit_with_context(ServerEvent::NoteDeleted { note_id: id }, event_context_for(&archive_ctx));
 
     // Invalidate search cache so deleted notes don't appear in results (#247)
     state.search_cache.invalidate_all().await;
@@ -4416,14 +4538,15 @@ async fn update_note_status(
     ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
         .await?;
 
-    // Emit archive/restore events (Issue #453)
+    // Emit archive/restore events (Issue #453, scoped via #452)
+    let evt_ctx = event_context_for(&archive_ctx);
     match archived_value {
         Some(true) => state
             .event_bus
-            .emit(ServerEvent::NoteArchived { note_id: id }),
+            .emit_with_context(ServerEvent::NoteArchived { note_id: id }, evt_ctx),
         Some(false) => state
             .event_bus
-            .emit(ServerEvent::NoteRestored { note_id: id }),
+            .emit_with_context(ServerEvent::NoteRestored { note_id: id }, evt_ctx),
         None => {}
     }
 
@@ -4457,10 +4580,10 @@ async fn restore_note(
     ctx.execute(move |tx| Box::pin(async move { notes.restore_tx(tx, id).await }))
         .await?;
 
-    // Emit NoteRestored event (Issue #453)
+    // Emit NoteRestored event (Issue #453, scoped via #452)
     state
         .event_bus
-        .emit(ServerEvent::NoteRestored { note_id: id });
+        .emit_with_context(ServerEvent::NoteRestored { note_id: id }, event_context_for(&archive_ctx));
 
     // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
@@ -6018,11 +6141,14 @@ async fn create_collection(
         })
         .await?;
 
-    // Emit CollectionCreated event (Issue #454)
-    state.event_bus.emit(ServerEvent::CollectionCreated {
-        collection_id: collection.id,
-        name: collection.name.clone(),
-    });
+    // Emit CollectionCreated event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::CollectionCreated {
+            collection_id: collection.id,
+            name: collection.name.clone(),
+        },
+        event_context_for(&archive_ctx),
+    );
 
     Ok((StatusCode::CREATED, Json(collection)))
 }
@@ -6070,11 +6196,14 @@ async fn update_collection(
     })
     .await?;
 
-    // Emit CollectionUpdated event (Issue #454)
-    state.event_bus.emit(ServerEvent::CollectionUpdated {
-        collection_id: id,
-        name: collection_name,
-    });
+    // Emit CollectionUpdated event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::CollectionUpdated {
+            collection_id: id,
+            name: collection_name,
+        },
+        event_context_for(&archive_ctx),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -6117,10 +6246,11 @@ async fn delete_collection(
         _ => ApiError::from(err),
     })?;
 
-    // Emit CollectionDeleted event (Issue #454)
-    state
-        .event_bus
-        .emit(ServerEvent::CollectionDeleted { collection_id: id });
+    // Emit CollectionDeleted event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::CollectionDeleted { collection_id: id },
+        event_context_for(&archive_ctx),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -6268,13 +6398,14 @@ async fn move_note_to_collection(
     })
     .await?;
 
-    // Emit CollectionMembershipChanged event (Issue #454)
-    state
-        .event_bus
-        .emit(ServerEvent::CollectionMembershipChanged {
+    // Emit CollectionMembershipChanged event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::CollectionMembershipChanged {
             collection_id,
             note_id,
-        });
+        },
+        event_context_for(&archive_ctx),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -11001,12 +11132,15 @@ async fn upload_attachment(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    // Emit AttachmentCreated event (Issue #454)
-    state.event_bus.emit(ServerEvent::AttachmentCreated {
-        attachment_id: attachment.id,
-        note_id: id,
-        filename: Some(body.filename.clone()),
-    });
+    // Emit AttachmentCreated event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::AttachmentCreated {
+            attachment_id: attachment.id,
+            note_id: id,
+            filename: Some(body.filename.clone()),
+        },
+        event_context_for(&archive_ctx),
+    );
 
     // Queue background extraction job for the uploaded attachment
     queue_extraction_job(
@@ -11155,12 +11289,15 @@ async fn upload_attachment_multipart(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    // Emit AttachmentCreated event (Issue #454)
-    state.event_bus.emit(ServerEvent::AttachmentCreated {
-        attachment_id: attachment.id,
-        note_id: id,
-        filename: Some(filename.clone()),
-    });
+    // Emit AttachmentCreated event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::AttachmentCreated {
+            attachment_id: attachment.id,
+            note_id: id,
+            filename: Some(filename.clone()),
+        },
+        event_context_for(&archive_ctx),
+    );
 
     // Queue background extraction job for the uploaded attachment
     queue_extraction_job(
@@ -11278,11 +11415,14 @@ async fn delete_attachment(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    // Emit AttachmentDeleted event (Issue #454)
-    state.event_bus.emit(ServerEvent::AttachmentDeleted {
-        attachment_id,
-        note_id: None,
-    });
+    // Emit AttachmentDeleted event (Issue #454, scoped via #452)
+    state.event_bus.emit_with_context(
+        ServerEvent::AttachmentDeleted {
+            attachment_id,
+            note_id: None,
+        },
+        event_context_for(&archive_ctx),
+    );
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -15045,7 +15185,7 @@ mod tests {
     /// and return (worker_tx, event_bus_rx) for sending WorkerEvents and receiving ServerEvents.
     async fn spawn_bridge() -> (
         tokio::sync::broadcast::Sender<WorkerEvent>,
-        tokio::sync::broadcast::Receiver<ServerEvent>,
+        tokio::sync::broadcast::Receiver<EventEnvelope>,
         Arc<EventBus>,
     ) {
         let database_url = std::env::var("DATABASE_URL")
@@ -15080,12 +15220,12 @@ mod tests {
             })
             .unwrap();
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
             .await
             .expect("timeout")
             .expect("recv error");
 
-        match event {
+        match envelope.payload {
             ServerEvent::JobStarted {
                 job_id, job_type, ..
             } => {
@@ -15108,12 +15248,12 @@ mod tests {
             })
             .unwrap();
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
             .await
             .expect("timeout")
             .expect("recv error");
 
-        match event {
+        match envelope.payload {
             ServerEvent::JobProgress {
                 progress, message, ..
             } => {
@@ -15135,12 +15275,12 @@ mod tests {
             })
             .unwrap();
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
             .await
             .expect("timeout")
             .expect("recv error");
 
-        match event {
+        match envelope.payload {
             ServerEvent::JobCompleted {
                 job_id, job_type, ..
             } => {
@@ -15163,12 +15303,12 @@ mod tests {
             })
             .unwrap();
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
             .await
             .expect("timeout")
             .expect("recv error");
 
-        match event {
+        match envelope.payload {
             ServerEvent::JobFailed {
                 job_id,
                 job_type,
@@ -15199,13 +15339,13 @@ mod tests {
             })
             .unwrap();
 
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
+        let envelope = tokio::time::timeout(std::time::Duration::from_secs(3), server_rx.recv())
             .await
             .expect("timeout")
             .expect("recv error");
 
         // The first event we see should be JobStarted, NOT anything from WorkerStarted/Stopped
-        assert!(matches!(event, ServerEvent::JobStarted { .. }));
+        assert!(matches!(envelope.payload, ServerEvent::JobStarted { .. }));
     }
 
     #[tokio::test]
