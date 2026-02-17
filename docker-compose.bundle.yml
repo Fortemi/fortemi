@@ -194,9 +194,13 @@ services:
       # Max concurrent jobs per worker (Phase 1 jobs run in parallel).
       # Set OLLAMA_NUM_PARALLEL on your Ollama server to match.
       - JOB_MAX_CONCURRENT=${JOB_MAX_CONCURRENT:-4}
-      # Fast model for simple documents (#439). Set to a small model (e.g., qwen2.5:3b)
-      # for 5-10x speedup on short notes. Leave empty to always use the standard model.
-      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-}
+      # Fast model for extraction pipeline (concept tagging, references, titles).
+      # Default: granite4:3b (244 tok/s, 98K ctx). Set to empty to disable.
+      # Large documents are chunked automatically for the fast model.
+      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-granite4:3b}
+      # Timeout for fast model requests (seconds). Lower than standard since fast
+      # models should respond quickly; slow responses trigger escalation.
+      - MATRIC_FAST_GEN_TIMEOUT_SECS=${MATRIC_FAST_GEN_TIMEOUT_SECS:-30}
 
       # ── Inference: Ollama (default) ────────────────────────────────────
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-ollama}

@@ -504,6 +504,26 @@ pub fn known_model_capabilities(model_name: &str) -> Option<ModelCapabilities> {
             );
         }
 
+        // Granite4: Fast extraction model (3B, 244 tok/s, 98K context)
+        "granite4:3b" => {
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::TitleGeneration,
+                78.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::SemanticUnderstanding,
+                75.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::FormatCompliance,
+                85.0,
+            ));
+            caps.add_rating(
+                CapabilityRating::from_score(Capability::FastInference, 95.0).with_latency(180),
+            );
+            caps.add_rating(CapabilityRating::from_score(Capability::LongContext, 98.0));
+        }
+
         // Cogito: Good all-around
         "cogito:8b" => {
             caps.add_rating(CapabilityRating::from_score(

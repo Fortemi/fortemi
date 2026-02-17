@@ -112,6 +112,17 @@ pub const EMBED_TIMEOUT_SECS: u64 = 30;
 /// Timeout for generation requests in seconds.
 pub const GEN_TIMEOUT_SECS: u64 = 120;
 
+/// Default fast generation model for extraction pipeline.
+/// granite4:3b: 244 tok/s, 98K context, good JSON compliance.
+pub const FAST_GEN_MODEL: &str = "granite4:3b";
+
+/// Timeout for fast model generation requests in seconds.
+pub const FAST_GEN_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum characters per chunk for fast model extraction.
+/// Tuned for 3B models with 32K+ context — leaves room for prompt + output.
+pub const EXTRACTION_CHUNK_SIZE: usize = 3000;
+
 // =============================================================================
 // JOB PROCESSING
 // =============================================================================

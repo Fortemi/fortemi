@@ -3,6 +3,7 @@
 //! Ported from HOTM's enhanced NLP pipeline for contextual note enhancement.
 //! Supports multiple revision modes to control AI enhancement aggressiveness.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -96,52 +97,38 @@ fn parse_json_lenient<T: serde::de::DeserializeOwned>(
     Err(direct_err)
 }
 
-/// Document complexity classification for cascaded model routing (#439).
+/// Chunk content for fast-model extraction if it exceeds the extraction chunk size.
 ///
-/// Simple documents route to the fast model (e.g., 3B) for 5-10x speedup.
-/// Complex documents go directly to the standard model (e.g., 20B).
-#[derive(Debug, PartialEq)]
-enum ContentComplexity {
-    Simple,
-    Complex,
+/// Returns a single chunk for small content, multiple for large content.
+/// Uses `SemanticChunker` for natural boundary splitting with overlap.
+fn chunk_for_extraction(content: &str) -> Vec<String> {
+    let max_chars = matric_core::defaults::EXTRACTION_CHUNK_SIZE;
+    if content.len() <= max_chars {
+        return vec![content.to_string()];
+    }
+    let config = ChunkerConfig {
+        max_chunk_size: max_chars,
+        min_chunk_size: (max_chars / 10).max(100),
+        overlap: 200,
+    };
+    let chunker = SemanticChunker::new(config);
+    chunker.chunk(content).into_iter().map(|c| c.text).collect()
 }
 
-/// Classify content complexity for model routing (#439).
-///
-/// Routes to fast model when ALL of:
-/// - Content < 2,000 chars
-/// - No code blocks
-/// - No academic citations
-///
-/// Routes to standard model when ANY of:
-/// - Content > 5,000 chars
-/// - Contains code blocks or technical markup
-/// - Contains academic citation patterns
-fn classify_complexity(content: &str) -> ContentComplexity {
-    let len = content.len();
-
-    // Long documents → Complex
-    if len > 5_000 {
-        return ContentComplexity::Complex;
+/// Merge multiple JSON array results from chunked extraction, deduplicating by string value.
+fn merge_json_arrays(results: Vec<String>) -> std::result::Result<Vec<String>, serde_json::Error> {
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for raw in results {
+        let items: Vec<String> = parse_json_lenient(&raw)?;
+        for item in items {
+            let key = item.to_lowercase();
+            if seen.insert(key) {
+                merged.push(item);
+            }
+        }
     }
-
-    // Code blocks → Complex
-    if content.contains("```") {
-        return ContentComplexity::Complex;
-    }
-
-    // Academic citations → Complex
-    if content.contains("arXiv:") || content.contains("doi.org/") || content.contains("10.1") {
-        return ContentComplexity::Complex;
-    }
-
-    // Short, simple content → Simple
-    if len < 2_000 {
-        return ContentComplexity::Simple;
-    }
-
-    // Medium-length without complexity signals → Complex (conservative)
-    ContentComplexity::Complex
+    Ok(merged)
 }
 
 /// Maximum number of related notes to retrieve for AI context.
@@ -893,10 +880,10 @@ impl JobHandler for TitleGenerationHandler {
             return JobResult::Failed("Note has no content".into());
         }
 
-        // Cascaded model routing (#439): route simple content to fast model
-        let use_fast = overridden.is_none()
-            && self.fast_backend.is_some()
-            && classify_complexity(content) == ContentComplexity::Simple;
+        // Fast-first model routing: always try fast model when available,
+        // escalate to standard on failure. No chunking needed — title uses
+        // PREVIEW_EMBEDDING (500 chars) which is always within fast model capacity.
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -971,22 +958,56 @@ Generate only the title, no quotes, no explanations."#,
             content_preview, related_context
         );
 
+        let clean_title = |raw: String| -> String {
+            let cleaned = raw
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .replace('\n', " ");
+            cleaned
+                .chars()
+                .take(matric_core::defaults::TITLE_MAX_LENGTH)
+                .collect::<String>()
+                .trim()
+                .to_string()
+        };
+
         let title = match backend.generate(&prompt).await {
             Ok(t) => {
-                let cleaned = t
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .replace('\n', " ");
-                // Take first 80 chars max
-                cleaned
-                    .chars()
-                    .take(matric_core::defaults::TITLE_MAX_LENGTH)
-                    .collect::<String>()
-                    .trim()
-                    .to_string()
+                let t = clean_title(t);
+                // Escalate to standard if fast model produced invalid title
+                if use_fast && (t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH) {
+                    info!("Fast model produced invalid title, escalating to standard model");
+                    match self.backend.generate(&prompt).await {
+                        Ok(t2) => clean_title(t2),
+                        Err(e2) => {
+                            return JobResult::Failed(format!(
+                                "Title generation failed (escalated): {}",
+                                e2
+                            ))
+                        }
+                    }
+                } else {
+                    t
+                }
             }
-            Err(e) => return JobResult::Failed(format!("Title generation failed: {}", e)),
+            Err(e) => {
+                // Escalate to standard model on fast model failure
+                if use_fast {
+                    info!("Fast model failed for title, escalating to standard model");
+                    match self.backend.generate(&prompt).await {
+                        Ok(t) => clean_title(t),
+                        Err(e2) => {
+                            return JobResult::Failed(format!(
+                                "Title generation failed (escalated): {}",
+                                e2
+                            ))
+                        }
+                    }
+                } else {
+                    return JobResult::Failed(format!("Title generation failed: {}", e));
+                }
+            }
         };
 
         if title.is_empty() || title.len() < matric_core::defaults::TITLE_MIN_LENGTH {
@@ -2130,10 +2151,10 @@ impl JobHandler for ConceptTaggingHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        // Cascaded model routing (#439): route simple content to fast model
-        let use_fast = overridden.is_none()
-            && self.fast_backend.is_some()
-            && classify_complexity(&content_preview) == ContentComplexity::Simple;
+        // Fast-first model routing: always try fast model when available.
+        // Large content gets chunked for the fast model; standard model
+        // processes the full preview without chunking on escalation.
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -2153,11 +2174,10 @@ impl JobHandler for ConceptTaggingHandler {
             .await
             .ok();
 
-        // Generate concept suggestions using AI with hierarchical paths (#425, #430).
-        // Enhanced to produce 8-15 tags across multiple dimensions for richer
-        // categorization and cross-cutting queries.
-        let prompt = format!(
-            r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
+        // Build prompt template (content placeholder filled per-chunk or for full preview)
+        let make_prompt = |text: &str| {
+            format!(
+                r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
 
 Content:
 {}
@@ -2186,77 +2206,74 @@ Guidelines:
 
 Output ONLY a JSON array of tag paths, nothing else. Example:
 ["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#,
-            content_preview
-        );
+                text
+            )
+        };
 
-        let ai_response = match backend.generate_json(&prompt).await {
-            Ok(r) => r.trim().to_string(),
-            Err(e) => {
-                // Escalate to standard model on fast model failure (#439)
-                if use_fast {
-                    info!("Fast model failed, escalating to standard model");
-                    match self.backend.generate_json(&prompt).await {
-                        Ok(r) => r.trim().to_string(),
-                        Err(e2) => {
-                            self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!(
-                                "AI generation failed (escalated): {}",
-                                e2
-                            ));
-                        }
+        // Fast model: chunk large content and merge results; small content processes directly.
+        // Standard model: always uses full preview without chunking.
+        let concept_labels: Vec<String> = if use_fast {
+            let chunks = chunk_for_extraction(&content_preview);
+            let mut chunk_results = Vec::new();
+            let mut fast_failed = false;
+
+            for (i, chunk) in chunks.iter().enumerate() {
+                let prompt = make_prompt(chunk);
+                match backend.generate_json(&prompt).await {
+                    Ok(r) => chunk_results.push(r.trim().to_string()),
+                    Err(e) => {
+                        info!(chunk = i, error = %e, "Fast model failed on chunk, escalating");
+                        fast_failed = true;
+                        break;
                     }
-                } else {
+                }
+            }
+
+            if !fast_failed {
+                // Try merging chunk results
+                match merge_json_arrays(chunk_results) {
+                    Ok(merged) => merged,
+                    Err(e) => {
+                        info!(error = %e, "Fast model output unparseable, escalating to standard model");
+                        Vec::new() // Empty triggers escalation below
+                    }
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new() // Placeholder, standard model path below
+        };
+
+        // Escalation: if fast model failed or not used, run standard model on full preview
+        let concept_labels = if !use_fast || concept_labels.is_empty() {
+            let prompt = make_prompt(&content_preview);
+            let gen_backend: &dyn GenerationBackend = match &overridden {
+                Some(b) => b.as_ref(),
+                None if use_fast => &self.backend, // Escalation to standard
+                None => &self.backend,
+            };
+
+            let ai_response = match gen_backend.generate_json(&prompt).await {
+                Ok(r) => r.trim().to_string(),
+                Err(e) => {
                     self.queue_phase2_jobs(note_id, schema).await;
                     return JobResult::Failed(format!("AI generation failed: {}", e));
                 }
-            }
-        };
+            };
 
-        ctx.report_progress(50, Some("Parsing concept suggestions..."));
-
-        // Parse the AI response as JSON array.
-        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
-        // Uses lenient parsing to handle object-wrapped arrays (e.g. {"tags": [...]}).
-        // Fallback cleanup retained for non-Ollama backends.
-        let concept_labels: Vec<String> = match parse_json_lenient(&ai_response) {
-            Ok(labels) => labels,
-            Err(_) => {
-                let cleaned = ai_response
-                    .trim()
-                    .trim_start_matches("```json")
-                    .trim_start_matches("```")
-                    .trim_end_matches("```")
-                    .trim();
-                match parse_json_lenient(cleaned) {
-                    Ok(labels) => labels,
-                    Err(e) => {
-                        // Escalate to standard model on fast model parse failure (#439)
-                        if use_fast {
-                            info!("Fast model output unparseable, escalating to standard model");
-                            match self.backend.generate_json(&prompt).await {
-                                Ok(r) => {
-                                    let r = r.trim().to_string();
-                                    match parse_json_lenient(&r) {
-                                        Ok(labels) => labels,
-                                        Err(e2) => {
-                                            warn!(error = %e2, "Standard model also failed to produce parseable output");
-                                            self.queue_phase2_jobs(note_id, schema).await;
-                                            return JobResult::Failed(format!(
-                                                "Failed to parse AI response: {}",
-                                                e2
-                                            ));
-                                        }
-                                    }
-                                }
-                                Err(e2) => {
-                                    self.queue_phase2_jobs(note_id, schema).await;
-                                    return JobResult::Failed(format!(
-                                        "AI generation failed (escalated): {}",
-                                        e2
-                                    ));
-                                }
-                            }
-                        } else {
+            match parse_json_lenient(&ai_response) {
+                Ok(labels) => labels,
+                Err(_) => {
+                    let cleaned = ai_response
+                        .trim()
+                        .trim_start_matches("```json")
+                        .trim_start_matches("```")
+                        .trim_end_matches("```")
+                        .trim();
+                    match parse_json_lenient(cleaned) {
+                        Ok(labels) => labels,
+                        Err(e) => {
                             warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
                             self.queue_phase2_jobs(note_id, schema).await;
                             return JobResult::Failed(format!(
@@ -2267,7 +2284,11 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     }
                 }
             }
+        } else {
+            concept_labels
         };
+
+        ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
         if concept_labels.is_empty() {
             self.queue_phase2_jobs(note_id, schema).await;
@@ -2394,22 +2415,29 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 pub struct ReferenceExtractionHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Fast model backend for extraction pipeline. None if explicitly disabled.
+    fast_backend: Option<OllamaBackend>,
     /// Optional GLiNER NER backend for fast entity extraction (#437).
     /// When available, uses GLiNER (CPU, <300ms) instead of LLM (GPU, 10-24s).
     /// Falls back to LLM when GLiNER is unavailable.
     ner_backend: Option<Arc<dyn NerBackend>>,
+    registry: Arc<ProviderRegistry>,
 }
 
 impl ReferenceExtractionHandler {
     pub fn new(
         db: Database,
         backend: OllamaBackend,
+        fast_backend: Option<OllamaBackend>,
         ner_backend: Option<Arc<dyn NerBackend>>,
+        registry: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             db,
             backend,
+            fast_backend,
             ner_backend,
+            registry,
         }
     }
 }
@@ -2556,46 +2584,109 @@ impl JobHandler for ReferenceExtractionHandler {
             (Vec::new(), "no_gliner")
         };
 
+        // Resolve model override via provider registry
+        let model_override = extract_model_override(&ctx);
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+
         // LLM fallback when GLiNER is unavailable, failed, or returned empty.
+        // Fast-first with chunking: try fast model → escalate to standard on failure.
         let (entities, extraction_method) = if entities.is_empty() {
             ctx.report_progress(30, Some("Extracting references via LLM..."));
 
-            let prompt = format!(
-                "Extract specific named references from this text. For each reference, provide:\n\
-                 - category: one of [organization, person, tool, dataset, standard, venue, product, language, author, cited-source, sponsor, publisher, affiliation]\n\
-                 - name: lowercase slug (e.g., \"google-deepmind\")\n\
-                 - label: original text as it appears\n\n\
-                 Return a JSON array of objects. If no references found, return [].\n\n\
-                 Text:\n{content_preview}"
-            );
+            let make_ref_prompt = |text: &str| {
+                format!(
+                    "Extract specific named references from this text. For each reference, provide:\n\
+                     - category: one of [organization, person, tool, dataset, standard, venue, product, language, author, cited-source, sponsor, publisher, affiliation]\n\
+                     - name: lowercase slug (e.g., \"google-deepmind\")\n\
+                     - label: original text as it appears\n\n\
+                     Return a JSON array of objects. If no references found, return [].\n\n\
+                     Text:\n{text}"
+                )
+            };
 
-            match self.backend.generate_json(&prompt).await {
-                Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
-                    Ok(parsed) => {
-                        info!(
-                            note_id = %note_id,
-                            entities = parsed.len(),
-                            "LLM reference extraction succeeded"
-                        );
-                        ctx.report_progress(50, Some("Parsing LLM entities..."));
-                        (parsed, "llm")
+            let use_fast = overridden.is_none() && self.fast_backend.is_some();
+
+            // Try fast model with chunking first
+            let fast_result: Option<Vec<RefEntity>> = if use_fast {
+                let fast = self.fast_backend.as_ref().unwrap();
+                let chunks = chunk_for_extraction(&content_preview);
+                let mut all_results = Vec::new();
+                let mut failed = false;
+
+                for (i, chunk) in chunks.iter().enumerate() {
+                    let prompt = make_ref_prompt(chunk);
+                    match fast.generate_json(&prompt).await {
+                        Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
+                            Ok(parsed) => all_results.extend(parsed),
+                            Err(e) => {
+                                info!(chunk = i, error = %e, "Fast model ref parse failed, escalating");
+                                failed = true;
+                                break;
+                            }
+                        },
+                        Err(e) => {
+                            info!(chunk = i, error = %e, "Fast model ref extraction failed, escalating");
+                            failed = true;
+                            break;
+                        }
                     }
+                }
+
+                if failed {
+                    None
+                } else {
+                    Some(all_results)
+                }
+            } else {
+                None
+            };
+
+            if let Some(parsed) = fast_result {
+                info!(
+                    note_id = %note_id,
+                    entities = parsed.len(),
+                    "Fast LLM reference extraction succeeded"
+                );
+                ctx.report_progress(50, Some("Parsing LLM entities..."));
+                (parsed, "llm_fast")
+            } else {
+                // Standard model fallback (no chunking — uses full preview)
+                let gen_backend: &dyn GenerationBackend = match &overridden {
+                    Some(b) => b.as_ref(),
+                    None => &self.backend,
+                };
+                let prompt = make_ref_prompt(&content_preview);
+                match gen_backend.generate_json(&prompt).await {
+                    Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
+                        Ok(parsed) => {
+                            info!(
+                                note_id = %note_id,
+                                entities = parsed.len(),
+                                "LLM reference extraction succeeded"
+                            );
+                            ctx.report_progress(50, Some("Parsing LLM entities..."));
+                            (parsed, "llm")
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to parse LLM reference response");
+                            return JobResult::Success(Some(serde_json::json!({
+                                "references": 0,
+                                "reason": "parse_error",
+                                "extraction_method": extraction_method,
+                            })));
+                        }
+                    },
                     Err(e) => {
-                        warn!(error = %e, "Failed to parse LLM reference response");
+                        warn!(error = %e, "LLM reference extraction failed");
                         return JobResult::Success(Some(serde_json::json!({
                             "references": 0,
-                            "reason": "parse_error",
-                            "extraction_method": extraction_method,
+                            "reason": "llm_error",
+                            "extraction_method": "llm_failed",
                         })));
                     }
-                },
-                Err(e) => {
-                    warn!(error = %e, "LLM reference extraction failed");
-                    return JobResult::Success(Some(serde_json::json!({
-                        "references": 0,
-                        "reason": "llm_error",
-                        "extraction_method": "llm_failed",
-                    })));
                 }
             }
         } else {
@@ -2740,14 +2831,22 @@ impl JobHandler for ReferenceExtractionHandler {
 pub struct RelatedConceptHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Fast model backend for extraction pipeline.
+    fast_backend: Option<OllamaBackend>,
     registry: Arc<ProviderRegistry>,
 }
 
 impl RelatedConceptHandler {
-    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        fast_backend: Option<OllamaBackend>,
+        registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             db,
             backend,
+            fast_backend,
             registry,
         }
     }
@@ -2831,9 +2930,14 @@ impl JobHandler for RelatedConceptHandler {
             Ok(b) => b,
             Err(e) => return e,
         };
-        let backend: &dyn GenerationBackend = match &overridden {
-            Some(b) => b.as_ref(),
-            None => &self.backend,
+
+        // Fast-first routing: use fast model when available, no chunking needed
+        // (concept labels are small). Escalation handled at generation call site.
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
+        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
         };
 
         ctx.report_progress(10, Some("Fetching note concepts..."));
@@ -2957,8 +3061,23 @@ If no meaningful related pairs exist, output an empty array: []"#
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
-                self.queue_phase3_jobs(note_id, schema).await;
-                return JobResult::Failed(format!("AI generation failed: {}", e));
+                // Escalate to standard model on fast model failure
+                if use_fast {
+                    info!("Fast model failed for related concepts, escalating to standard model");
+                    match self.backend.generate_json(&prompt).await {
+                        Ok(r) => r.trim().to_string(),
+                        Err(e2) => {
+                            self.queue_phase3_jobs(note_id, schema).await;
+                            return JobResult::Failed(format!(
+                                "AI generation failed (escalated): {}",
+                                e2
+                            ));
+                        }
+                    }
+                } else {
+                    self.queue_phase3_jobs(note_id, schema).await;
+                    return JobResult::Failed(format!("AI generation failed: {}", e));
+                }
             }
         };
 
@@ -2978,9 +3097,40 @@ If no meaningful related pairs exist, output an empty array: []"#
                 match parse_json_lenient(cleaned) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
-                        self.queue_phase3_jobs(note_id, schema).await;
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        // Escalate to standard model on fast model parse failure
+                        if use_fast {
+                            info!("Fast model output unparseable for related concepts, escalating");
+                            match self.backend.generate_json(&prompt).await {
+                                Ok(r) => {
+                                    let r = r.trim().to_string();
+                                    match parse_json_lenient(&r) {
+                                        Ok(p) => p,
+                                        Err(e2) => {
+                                            warn!(error = %e2, "Standard model also failed");
+                                            self.queue_phase3_jobs(note_id, schema).await;
+                                            return JobResult::Failed(format!(
+                                                "Failed to parse AI response: {}",
+                                                e2
+                                            ));
+                                        }
+                                    }
+                                }
+                                Err(e2) => {
+                                    self.queue_phase3_jobs(note_id, schema).await;
+                                    return JobResult::Failed(format!(
+                                        "AI generation failed (escalated): {}",
+                                        e2
+                                    ));
+                                }
+                            }
+                        } else {
+                            warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
+                            self.queue_phase3_jobs(note_id, schema).await;
+                            return JobResult::Failed(format!(
+                                "Failed to parse AI response: {}",
+                                e
+                            ));
+                        }
                     }
                 }
             }
@@ -3193,10 +3343,8 @@ impl JobHandler for MetadataExtractionHandler {
             .take(matric_core::defaults::PREVIEW_METADATA)
             .collect();
 
-        // Cascaded model routing (#439): route simple content to fast model
-        let use_fast = overridden.is_none()
-            && self.fast_backend.is_some()
-            && classify_complexity(&content_preview) == ContentComplexity::Simple;
+        // Fast-first model routing: always try fast model when available
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -4844,50 +4992,61 @@ Quick note about the meeting discussion and action items."#;
     }
 
     #[test]
-    fn test_classify_complexity_simple() {
-        assert_eq!(
-            classify_complexity("Meeting with Sarah about PostgreSQL migration"),
-            ContentComplexity::Simple
-        );
-        assert_eq!(
-            classify_complexity("Grocery list: milk, eggs, bread"),
-            ContentComplexity::Simple
-        );
-        // Short content without complexity signals
-        let short = "a".repeat(1999);
-        assert_eq!(classify_complexity(&short), ContentComplexity::Simple);
+    fn test_chunk_for_extraction_small() {
+        let small = "Short note about PostgreSQL migration.";
+        let chunks = chunk_for_extraction(small);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], small);
     }
 
     #[test]
-    fn test_classify_complexity_complex_long() {
-        let long = "a".repeat(5001);
-        assert_eq!(classify_complexity(&long), ContentComplexity::Complex);
+    fn test_chunk_for_extraction_large() {
+        // Content larger than EXTRACTION_CHUNK_SIZE should be split
+        let large = "a ".repeat(matric_core::defaults::EXTRACTION_CHUNK_SIZE);
+        let chunks = chunk_for_extraction(&large);
+        assert!(
+            chunks.len() > 1,
+            "Large content should produce multiple chunks"
+        );
+        // Each chunk should not exceed the max size (with some tolerance for overlap)
+        for chunk in &chunks {
+            assert!(
+                chunk.len() <= matric_core::defaults::EXTRACTION_CHUNK_SIZE + 500,
+                "Chunk too large: {} chars",
+                chunk.len()
+            );
+        }
     }
 
     #[test]
-    fn test_classify_complexity_complex_code() {
-        assert_eq!(
-            classify_complexity("Here is some code:\n```python\ndef hello():\n    pass\n```"),
-            ContentComplexity::Complex
-        );
+    fn test_merge_json_arrays_dedup() {
+        let results = vec![
+            r#"["science/ml", "tool/pytorch"]"#.to_string(),
+            r#"["science/ml", "tool/tensorflow"]"#.to_string(),
+        ];
+        let merged = merge_json_arrays(results).unwrap();
+        assert_eq!(merged.len(), 3);
+        assert!(merged.contains(&"science/ml".to_string()));
+        assert!(merged.contains(&"tool/pytorch".to_string()));
+        assert!(merged.contains(&"tool/tensorflow".to_string()));
     }
 
     #[test]
-    fn test_classify_complexity_complex_citations() {
-        assert_eq!(
-            classify_complexity("As described in arXiv:2307.09702"),
-            ContentComplexity::Complex
-        );
-        assert_eq!(
-            classify_complexity("See https://doi.org/10.1234/foo"),
-            ContentComplexity::Complex
-        );
+    fn test_merge_json_arrays_empty() {
+        let results = vec![r#"[]"#.to_string(), r#"[]"#.to_string()];
+        let merged = merge_json_arrays(results).unwrap();
+        assert!(merged.is_empty());
     }
 
     #[test]
-    fn test_classify_complexity_medium_is_complex() {
-        // Medium-length (2000-5000 chars) without signals → Complex (conservative)
-        let medium = "a".repeat(3000);
-        assert_eq!(classify_complexity(&medium), ContentComplexity::Complex);
+    fn test_merge_json_arrays_case_insensitive_dedup() {
+        let results = vec![
+            r#"["Science/ML"]"#.to_string(),
+            r#"["science/ml"]"#.to_string(),
+        ];
+        let merged = merge_json_arrays(results).unwrap();
+        // Should deduplicate case-insensitively, keeping the first occurrence
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0], "Science/ML");
     }
 }

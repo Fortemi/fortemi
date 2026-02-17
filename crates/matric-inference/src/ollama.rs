@@ -138,13 +138,32 @@ impl OllamaBackend {
         Self::with_config(base_url, embed_model, gen_model, dimension)
     }
 
-    /// Create a fast generation backend from `MATRIC_FAST_GEN_MODEL` if set.
-    /// Returns `None` if the env var is not set or empty.
+    /// Create a fast generation backend for the extraction pipeline.
+    ///
+    /// Model resolution: `MATRIC_FAST_GEN_MODEL` env var → default `granite4:3b`.
+    /// Set `MATRIC_FAST_GEN_MODEL=""` (empty) to explicitly disable.
+    /// Timeout: `MATRIC_FAST_GEN_TIMEOUT_SECS` env var → default 30s.
     pub fn fast_from_env() -> Option<Self> {
-        std::env::var("MATRIC_FAST_GEN_MODEL")
+        let model = match std::env::var("MATRIC_FAST_GEN_MODEL") {
+            Ok(val) if val.is_empty() => return None, // Explicitly disabled
+            Ok(val) => val,
+            Err(_) => matric_core::defaults::FAST_GEN_MODEL.to_string(), // Default
+        };
+
+        let mut backend = Self::from_env_with_gen_model(model);
+
+        // Override generation timeout with fast-specific value
+        let fast_timeout = std::env::var("MATRIC_FAST_GEN_TIMEOUT_SECS")
             .ok()
-            .filter(|s| !s.is_empty())
-            .map(Self::from_env_with_gen_model)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(matric_core::defaults::FAST_GEN_TIMEOUT_SECS);
+        backend.gen_timeout_secs = fast_timeout;
+
+        info!(
+            "Fast model backend: model={}, timeout={}s",
+            backend.gen_model, backend.gen_timeout_secs
+        );
+        Some(backend)
     }
 
     /// Get the model registry.
