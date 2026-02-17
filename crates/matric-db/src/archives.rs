@@ -453,6 +453,22 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
+        // Step 11: Seed the default SKOS concept scheme.
+        // Required for ConceptTaggingHandler in the NLP pipeline (get_default_scheme_id_tx).
+        let default_scheme_id = new_v7();
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
+            VALUES ($1, 'default', 'https://matric.io/schemes/default', 'Default Tags',
+                    'Default concept scheme for general-purpose tagging', TRUE)
+            "#,
+            schema_name
+        ))
+        .bind(default_scheme_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
@@ -768,6 +784,31 @@ impl PgArchiveRepository {
             .bind(default_set_id)
             .bind(serde_json::json!({"include_all": true, "exclude_archived": true}))
             .bind(default_config_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        }
+
+        // Seed default SKOS concept scheme if it doesn't exist (for archives created before this fix)
+        let has_default_scheme: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {}.skos_concept_scheme WHERE notation = 'default' AND is_system = TRUE)",
+            schema_name
+        ))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        if !has_default_scheme {
+            let default_scheme_id = new_v7();
+            sqlx::query(&format!(
+                r#"
+                INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
+                VALUES ($1, 'default', 'https://matric.io/schemes/default', 'Default Tags',
+                        'Default concept scheme for general-purpose tagging', TRUE)
+                "#,
+                schema_name
+            ))
+            .bind(default_scheme_id)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
