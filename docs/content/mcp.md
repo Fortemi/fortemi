@@ -63,16 +63,16 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**23 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**29 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~78% token reduction** compared to full mode (23 vs 187 tools)
+- **~85% token reduction** compared to full mode (29 vs 194 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**187 granular tools** exposing every API endpoint individually:
+**194 granular tools** exposing every API endpoint individually:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 23 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 29 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -164,13 +164,18 @@ Restore a soft-deleted note with all original metadata, tags, and content.
 
 ### `capture_knowledge`
 
-Unified tool for creating notes and uploading content with full AI enhancement pipeline.
+Unified tool for creating notes and uploading content. Each note automatically enters the **two-phase NLP pipeline**:
+
+- **Phase 1** (parallel): AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, document type inference
+- **Phase 2** (after tagging): Tag-enriched embedding generation, tag-boosted semantic linking
+
+Set `revision_mode: "none"` to skip AI revision but still get auto-tagging, embeddings, and linking.
 
 **Actions:**
 
 #### `create` - Create a single note
 
-Creates a note with AI revision, embedding generation, title generation, and automatic semantic linking.
+Creates a note and triggers the full NLP pipeline. No manual tagging needed — the system generates SKOS concept tags automatically.
 
 **Revision Modes:**
 
@@ -527,7 +532,7 @@ Associate spatial-temporal provenance with a note.
 
 ### `manage_tags`
 
-Unified tag management including listing, setting, and SKOS concept tagging.
+Tag curation and review. Since the NLP pipeline automatically generates SKOS concept tags for every note, this tool is primarily for **reviewing auto-tags, making corrections, and adding organizational tags** that can't be inferred from content (project names, status markers, scope).
 
 **Actions:**
 
@@ -749,7 +754,7 @@ Export collection with all notes, metadata, and structure.
 
 ### `manage_concepts`
 
-W3C SKOS-compliant hierarchical tagging system operations.
+SKOS vocabulary governance, exploration, and scheme management. The concept vocabulary grows automatically as the NLP pipeline tags notes — this tool is for **searching, reviewing, and curating** that vocabulary, as well as managing concept schemes (taxonomies).
 
 **Actions:**
 
@@ -842,6 +847,81 @@ Root concepts without broader relations.
 {
   "action": "top",
   "scheme_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+#### `list_schemes` - List all concept schemes
+
+**Parameters:**
+- `action: "list_schemes"`
+
+```json
+{
+  "action": "list_schemes"
+}
+```
+
+#### `create_scheme` - Create a new concept scheme
+
+**Parameters:**
+- `action: "create_scheme"`
+- `notation` (required) - Short code (e.g., "topics", "domains")
+- `title` (required) - Human-readable title
+- `description` (optional) - Purpose and scope
+- `uri` (optional) - Canonical URI
+
+```json
+{
+  "action": "create_scheme",
+  "notation": "domains",
+  "title": "Knowledge Domains",
+  "description": "Top-level domain taxonomy"
+}
+```
+
+#### `get_scheme` - Get scheme details
+
+**Parameters:**
+- `action: "get_scheme"`
+- `scheme_id` (required) - UUID of the concept scheme
+
+```json
+{
+  "action": "get_scheme",
+  "scheme_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+#### `update_scheme` - Update scheme metadata
+
+**Parameters:**
+- `action: "update_scheme"`
+- `scheme_id` (required) - UUID of the concept scheme
+- `title` (optional) - New title
+- `description` (optional) - New description
+- `is_active` (optional) - Whether the scheme is active
+
+```json
+{
+  "action": "update_scheme",
+  "scheme_id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Updated Domain Taxonomy",
+  "description": "Revised domain classification"
+}
+```
+
+#### `delete_scheme` - Delete a concept scheme
+
+**Parameters:**
+- `action: "delete_scheme"`
+- `scheme_id` (required) - UUID of the concept scheme
+- `force` (optional) - Delete even if scheme has concepts (default: false)
+
+```json
+{
+  "action": "delete_scheme",
+  "scheme_id": "550e8400-e29b-41d4-a716-446655440000",
+  "force": true
 }
 ```
 
@@ -1024,6 +1104,67 @@ Get overall knowledge base health metrics and diagnostics.
 {}
 ```
 
+### `manage_jobs`
+
+Monitor and manage background processing jobs — queue status, individual job details, and extraction pipeline analytics.
+
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `list` | List jobs with status/type/note filters |
+| `get` | Get single job details by ID |
+| `create` | Queue a single processing job |
+| `stats` | Queue statistics (pending, running, completed, failed) |
+| `pending_count` | Quick count of pending jobs |
+| `extraction_stats` | Extraction pipeline analytics |
+
+**Parameters (varies by action):**
+- `action` (required) - The action to perform
+- `id` (uuid) - Job UUID (for `get`)
+- `note_id` (uuid) - Note UUID (for `create`, optional filter for `list`)
+- `job_type` (string) - Job type (for `create`, optional filter for `list`)
+- `status` (enum) - pending/running/completed/failed (for `list`)
+- `priority` (integer) - Higher = sooner (for `create`)
+- `payload` (object) - Job payload (for `create`)
+- `deduplicate` (boolean) - Skip duplicate pending jobs (for `create`, default: true)
+- `model` (string) - Provider-qualified model slug (for `create`)
+- `limit`/`offset` (integers) - Pagination (for `list`)
+
+```json
+// Check queue health
+{ "action": "stats" }
+
+// List failed jobs
+{ "action": "list", "status": "failed", "limit": 10 }
+
+// Queue an embedding job
+{ "action": "create", "note_id": "550e8400-...", "job_type": "embedding" }
+
+// Quick pending count
+{ "action": "pending_count" }
+```
+
+### `manage_inference`
+
+Discover available LLM models, providers, and embedding configurations. Read-only — inference configuration is managed via env vars and TOML.
+
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `list_models` | All models from all providers with capabilities and health |
+| `get_embedding_config` | Current default embedding model configuration |
+| `list_embedding_configs` | All embedding configurations |
+
+```json
+// List all available models
+{ "action": "list_models" }
+
+// Check current embedding config
+{ "action": "get_embedding_config" }
+```
+
 ### `bulk_reprocess_notes`
 
 Re-run pipeline steps (embedding, linking, revision) on multiple notes.
@@ -1062,27 +1203,33 @@ These operate on the global memory registry, not the active memory context.
 ### Capture and Organize Knowledge
 
 ```javascript
-// Create a research note with AI enhancement
+// Create a research note — the NLP pipeline handles the rest
 const note = await capture_knowledge({
   action: "create",
   content: "# Transformer Architecture\n\nKey innovation: self-attention...",
-  tags: ["research", "ai", "transformers"],
+  tags: ["research"],  // Optional user tag for filtering
   revision_mode: "light"
 })
+// The pipeline automatically:
+// - Generates a descriptive title
+// - Tags with 8-15 SKOS concepts (domain/ai, topic/transformers, etc.)
+// - Extracts metadata (authors, year, methodology)
+// - Generates tag-enriched embeddings
+// - Creates semantic links to related notes
 
-// Move to collection
+// Move to collection (manual organization)
 await manage_collection({
   action: "move_note",
   note_id: note.id,
   collection_id: "research-collection-uuid"
 })
 
-// Tag with SKOS concept
+// Review auto-generated concept tags (optional)
 await manage_tags({
-  action: "tag_concept",
-  note_id: note.id,
-  concept_id: "machine-learning-concept-uuid"
+  action: "get_concepts",
+  note_id: note.id
 })
+// Only use tag_concept/untag_concept if the auto-tags need correction
 ```
 
 ### Search Across Types
@@ -1165,7 +1312,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 187 granular tools instead of the 23 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools instead of the 29 core consolidated tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control

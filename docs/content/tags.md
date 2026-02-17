@@ -88,14 +88,18 @@ facet_domain: computer-science
 
 ## Overview
 
-The SKOS (Simple Knowledge Organization System) tagging system replaces the legacy flat tag system with a rich, semantically-aware hierarchical structure. Key features include:
+The SKOS (Simple Knowledge Organization System) tagging system provides a rich, semantically-aware hierarchical structure. **Tagging is primarily automatic** — the NLP pipeline generates SKOS concept tags for every note during ingestion. Manual tools exist for curation, governance, and corrections rather than day-to-day creation.
 
+Key features include:
+
+- **Automatic AI Tagging**: Notes are automatically tagged with 8-15 hierarchical concepts across 6 required dimensions during the NLP pipeline — no manual tagging needed
 - **W3C SKOS Compliance**: Full support for concept schemes, concepts, labels, semantic relations, and mapping relations
-- **Automatic AI Tagging**: Notes are automatically tagged with relevant concepts during the NLP pipeline
+- **Tag-Enriched Embeddings**: SKOS tags are embedded into vectors alongside content, making semantic search and linking more accurate
+- **Tag-Boosted Linking**: Semantic links blend embedding similarity with SKOS tag overlap for higher-quality connections
 - **Hierarchical Relationships**: Broader/narrower/related semantic relations for concept organization
 - **PMEST Faceted Classification**: Built-in facets for type, source, domain, status, and scope
 - **Anti-pattern Detection**: Automatic warnings for poor tagging practices
-- **MCP Tools**: Full MCP integration for agentic access
+- **MCP Tools**: Curation and governance via `manage_tags` and `manage_concepts` tools
 
 ## Architecture
 
@@ -386,108 +390,176 @@ Use collections when you want to group concepts thematically without implying a 
 
 ## MCP Tools
 
-The following MCP tools are available for AI agents:
+In core mode (default), SKOS operations are accessed through two consolidated tools focused on **curation and governance** rather than creation:
 
-### Scheme Management
-- `list_concept_schemes` - List all concept schemes
-- `create_concept_scheme` - Create a new scheme
+### `manage_tags` — Tag Curation
 
-### Concept Management
-- `search_concepts` - Search for concepts
-- `create_concept` - Create a new concept
-- `get_concept_full` - Get concept with all details
-- `update_concept` - Update concept properties
-- `delete_concept` - Delete an unused concept
+Since tags are auto-generated, this tool is primarily for reviewing and adjusting tags:
 
-### Hierarchy
-- `add_broader` - Add a broader relation
-- `add_narrower` - Add a narrower relation
-- `add_related` - Add a related relation
-- `get_broader` - Get broader concepts
-- `get_narrower` - Get narrower concepts
-- `get_related` - Get related concepts
+| Action | Purpose |
+|--------|---------|
+| `list` | List all tags with usage counts — find orphans or sprawl |
+| `set` | Replace a note's user tags (organizational tags, not AI concepts) |
+| `tag_concept` | Manually tag a note with a specific SKOS concept (override/addition) |
+| `untag_concept` | Remove an incorrect auto-generated concept tag |
+| `get_concepts` | Review what concepts the AI assigned to a note |
 
-### Tagging
-- `tag_note_concept` - Tag a note with a concept
-- `untag_note_concept` - Remove a concept from a note
-- `get_note_concepts` - Get all concepts for a note
+### `manage_concepts` — Vocabulary Governance & Scheme Management
 
-### Governance
-- `get_governance_stats` - Get usage and quality statistics
+The concept vocabulary grows automatically as the AI tags notes. This tool manages that vocabulary and its concept schemes:
+
+| Action | Purpose |
+|--------|---------|
+| `search` | Find concepts in the vocabulary |
+| `autocomplete` | Type-ahead concept search |
+| `get` / `get_full` | Inspect a concept and its relations |
+| `stats` | Governance statistics (orphans, candidates needing review) |
+| `top` | View top-level concepts in a scheme |
+| `list_schemes` | List all concept schemes |
+| `create_scheme` | Create a new concept scheme (taxonomy) |
+| `get_scheme` | Get scheme details |
+| `update_scheme` | Update scheme metadata |
+| `delete_scheme` | Delete a concept scheme |
+
+### Full Mode Tools
+
+With `MCP_TOOL_MODE=full`, granular tools are available for advanced vocabulary management including concept CRUD, hierarchy manipulation (broader/narrower/related), collection management, and scheme administration. See [MCP Reference](./mcp.md) for details.
 
 ## Automatic Tagging Pipeline
 
-Notes are automatically tagged with SKOS concepts as part of the NLP processing pipeline. When a note is created or updated, the system:
+**Tagging is fully automatic.** When a note is created or revised, the NLP pipeline generates SKOS concept tags without any manual intervention. The system:
 
-1. **Queues the `ConceptTagging` job** - Added to the job queue with priority 4
-2. **Analyzes content** - Uses AI to identify 3-7 relevant concepts
-3. **Matches or creates concepts** - Searches for existing concepts; creates new ones as candidates
-4. **Tags the note** - Associates concepts with relevance scores
+1. **Queues the `ConceptTagging` job** as part of the Phase 1 NLP pipeline
+2. **Analyzes content with AI** to identify 8-15 hierarchical concept tags across 6 required and 3 optional dimensions
+3. **Matches or creates concepts** - Reuses existing concepts where possible; creates new ones as candidates with proper broader/narrower wiring
+4. **Tags the note** with relevance scores and marks the first tag as primary
+5. **Triggers Phase 2 jobs** - After tagging completes, the system queues Embedding and Linking jobs that use the tags for enrichment
 
-### Job Types and Priorities
+### AI Tagging Dimensions
 
-| Job Type | Priority | Description |
-|----------|----------|-------------|
-| AiRevision | 8 | Content enhancement |
-| Embedding | 5 | Vector generation |
-| **ConceptTagging** | **4** | SKOS tagging |
-| Linking | 3 | Semantic linking |
-| TitleGeneration | 2 | Title generation |
-| ContextUpdate | 1 | Context enrichment |
+The concept tagging AI generates tags across these dimensions:
+
+| Dimension | Required | Example |
+|-----------|----------|---------|
+| **Domain** | Yes | `science/machine-learning` |
+| **Topic** | Yes | `nlp/transformers` |
+| **Methodology** | Yes | `methodology/experimental` |
+| **Application** | Yes | `application/healthcare` |
+| **Technique** | Yes | `technique/attention-mechanism` |
+| **Content-type** | Yes | `content-type/research-paper` |
+| **Evaluation** | No | `evaluation/benchmark` |
+| **Tool/Framework** | No | `tool/pytorch` |
+| **Era/Context** | No | `era/modern-ai` |
+
+### Two-Phase NLP Pipeline
+
+Concept tagging is part of a coordinated two-phase pipeline:
+
+**Phase 1** (runs in parallel):
+- AI Revision (content enhancement)
+- Title Generation
+- **Concept Tagging** (prerequisite for Phase 2)
+- Metadata Extraction
+- Document Type Inference
+
+**Phase 2** (after concept tagging completes):
+- **Embedding** — tags are embedded into vectors alongside content, producing semantically richer embeddings
+- **Linking** — semantic links blend embedding similarity with SKOS tag overlap for higher-quality connections
+
+This ordering ensures that embeddings and links incorporate tag context, significantly improving search relevance and connection quality.
 
 ### Tagging Sources
 
 Concept tags are attributed to their source:
 
-- `api` - Manually added via API
-- `ai_auto` - Automatically generated by AI
+- `ai_auto` - Automatically generated by the NLP pipeline (the primary source)
+- `api` - Manually added via API for corrections or additions
 - `import` - Imported from external source
 - `user` - Added by user interface
 
+### When to Manually Tag
+
+Because tagging is automatic, manual tagging is typically used for:
+
+- **Corrections**: Remove an incorrect auto-tag or add a missing one
+- **Organizational tags**: Apply project/client tags not inferable from content (e.g., `project/alpha`)
+- **Status tracking**: Tags like `status/reviewed` or `scope/confidential` that reflect decisions, not content
+- **Governance**: Promoting candidate concepts to "controlled" status after review
+
 ## Usage Examples
 
-### Creating a Concept Hierarchy
+### Reviewing Auto-Generated Tags
+
+After creating a note, the NLP pipeline automatically generates concept tags. Review them:
 
 ```bash
-# Create a top-level concept
+# Check what concepts the AI assigned
+curl "http://localhost:3000/api/v1/notes/{id}/concepts"
+```
+
+The response shows each concept with its source (`ai_auto`), relevance score, and whether it's the primary tag.
+
+### Correcting Auto-Tags
+
+```bash
+# Remove an incorrect auto-tag
+curl -X DELETE "http://localhost:3000/api/v1/notes/{id}/concepts/{concept_id}"
+
+# Add a missing concept tag manually
+curl -X POST "http://localhost:3000/api/v1/notes/{id}/concepts" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "concept_id": "existing-concept-uuid"
+  }'
+```
+
+### Curating the Concept Vocabulary
+
+As the AI creates concepts, periodically review and promote quality ones:
+
+```bash
+# Find candidate concepts (auto-created, not yet reviewed)
+curl "http://localhost:3000/api/v1/concepts?status=candidate"
+
+# Promote a quality concept to controlled status
+curl -X PATCH "http://localhost:3000/api/v1/concepts/{id}" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "controlled"}'
+
+# Check governance statistics
+curl "http://localhost:3000/api/v1/concepts/governance/stats"
+```
+
+### Creating Concepts Manually (Advanced)
+
+Manual concept creation is useful for organizational structures the AI can't infer:
+
+```bash
+# Create a project-specific concept hierarchy
 curl -X POST http://localhost:3000/api/v1/concepts \
   -H "Content-Type: application/json" \
   -d '{
     "scheme_id": "...",
-    "pref_label": "Programming Languages",
+    "pref_label": "Project Alpha",
     "status": "controlled"
   }'
-
-# Create a child concept
-curl -X POST http://localhost:3000/api/v1/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "scheme_id": "...",
-    "pref_label": "Rust",
-    "broader_ids": ["programming-languages-id"]
-  }'
 ```
 
-### Searching Concepts
+### Re-running Concept Tagging
+
+After model upgrades or to regenerate tags with a different model:
 
 ```bash
-# Autocomplete search
-curl "http://localhost:3000/api/v1/concepts/autocomplete?q=rust&limit=5"
-
-# Full search with filters
-curl "http://localhost:3000/api/v1/concepts?query=programming&status=controlled"
-```
-
-### Manually Queueing Concept Tagging
-
-```bash
-# Re-run concept tagging for a note
+# Re-tag a single note
 curl -X POST http://localhost:3000/api/v1/jobs \
   -H "Content-Type: application/json" \
   -d '{
     "note_id": "...",
     "job_type": "concept_tagging"
   }'
+
+# Bulk re-tag with a specific model
+# Via MCP: bulk_reprocess_notes with steps: ["concept_tagging"]
 ```
 
 ## PMEST Facets
@@ -513,12 +585,23 @@ The SKOS system completely replaces the legacy flat tag system. No migration is 
 
 ## Best Practices
 
-### For AI Agents
+### Let the AI Tag, Then Curate
 
-1. **Use specific labels**: Prefer "Rust programming" over "programming"
-2. **Check for existing concepts**: Search before creating duplicates
-3. **Set appropriate status**: Use "candidate" for auto-created concepts
-4. **Add alt_labels**: Include common synonyms for better matching
+The most effective workflow is:
+
+1. **Create notes without worrying about tags** — the NLP pipeline handles concept tagging automatically
+2. **Review auto-tags periodically** — check `GET /api/v1/concepts?status=candidate` for new concepts
+3. **Promote quality concepts** — move good candidates to "controlled" status
+4. **Merge duplicates** — consolidate synonym sprawl using broader/narrower relations
+5. **Add organizational tags manually** — project identifiers, status markers, and scope tags that aren't inferable from content
+
+### For AI Agents Using MCP
+
+1. **Don't manually tag notes after creation** — the pipeline does this automatically
+2. **Use `manage_tags` → `get_concepts`** to review what the system assigned
+3. **Only use `tag_concept`/`untag_concept`** for corrections, not routine tagging
+4. **Use `manage_concepts` → `stats`** to monitor vocabulary health
+5. **Use `manage_concepts` → `search`** before creating new concepts — they may already exist
 
 ### For Manual Curation
 
@@ -526,6 +609,7 @@ The SKOS system completely replaces the legacy flat tag system. No migration is 
 2. **Build hierarchy**: Connect related concepts with broader/narrower
 3. **Add scope notes**: Document concept boundaries for disambiguation
 4. **Monitor anti-patterns**: Address over-nesting and meta-tag warnings
+5. **Add alt_labels**: Include common synonyms for better matching across content
 
 ## Strict Tag Filtering
 

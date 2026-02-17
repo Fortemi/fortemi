@@ -3,19 +3,21 @@
 /**
  * Consolidated Tools Tests
  *
- * Tests the 11 discriminated-union consolidated tools that form the
+ * Tests the 13 discriminated-union consolidated tools that form the
  * agent-friendly core surface (issue #365, #441):
  *   - capture_knowledge (create, bulk_create, from_template, upload)
  *   - search (text, spatial, temporal, spatial_temporal, federated)
  *   - record_provenance (location, named_location, device, file, note)
  *   - manage_tags (list, set, tag_concept, untag_concept, get_concepts)
  *   - manage_collection (list, create, get, update, delete, list_notes, move_note, export)
- *   - manage_concepts (search, autocomplete, get, get_full, stats, top)
+ *   - manage_concepts (search, autocomplete, get, get_full, stats, top, list_schemes, create_scheme, get_scheme, update_scheme, delete_scheme)
  *   - manage_attachments (list, upload, get, download, delete)
  *   - manage_embeddings (list, get, create, update, delete, list_members, add_members, remove_member, refresh)
  *   - manage_archives (list, create, get, update, delete, set_default, stats, clone)
  *   - manage_encryption (generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, keyset ops)
  *   - manage_backups (export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory)
+ *   - manage_jobs (list, get, create, stats, pending_count, extraction_stats)
+ *   - manage_inference (list_models, get_embedding_config, list_embedding_configs)
  */
 
 import { strict as assert } from "node:assert";
@@ -24,7 +26,7 @@ import { MCPTestClient } from "./helpers/mcp-client.js";
 
 describe("Consolidated Tools", () => {
   let client;
-  const cleanup = { noteIds: [], collectionIds: [], archiveNames: [], keysetNames: [] };
+  const cleanup = { noteIds: [], collectionIds: [], archiveNames: [], keysetNames: [], schemeIds: [] };
 
   before(async () => {
     client = new MCPTestClient();
@@ -48,6 +50,9 @@ describe("Consolidated Tools", () => {
     }
     for (const name of cleanup.keysetNames) {
       try { await client.callTool("manage_encryption", { action: "delete_keyset", name }); } catch {}
+    }
+    for (const id of cleanup.schemeIds) {
+      try { await client.callTool("manage_concepts", { action: "delete_scheme", scheme_id: id, force: true }); } catch {}
     }
     await client.close();
   });
@@ -370,6 +375,63 @@ describe("Consolidated Tools", () => {
         return true;
       }
     );
+  });
+
+  test("MCO-005: manage_concepts list_schemes returns schemes", async () => {
+    const result = await client.callTool("manage_concepts", { action: "list_schemes" });
+    assert.ok(Array.isArray(result), "Should return array of schemes");
+    // Default scheme should always exist
+    const defaultScheme = result.find(s => s.notation === "default");
+    assert.ok(defaultScheme, "Default scheme should exist");
+    assert.strictEqual(defaultScheme.is_system, true, "Default scheme should be system");
+  });
+
+  test("MCO-006: manage_concepts create_scheme + get_scheme + update_scheme + delete_scheme lifecycle", async () => {
+    const testId = MCPTestClient.uniqueId().slice(0, 8);
+    const notation = `test-${testId}`;
+
+    // Create
+    const created = await client.callTool("manage_concepts", {
+      action: "create_scheme",
+      notation,
+      title: `Test Scheme ${testId}`,
+      description: "Scheme created by consolidated tools test",
+    });
+    assert.ok(created.id, "Should return created scheme ID");
+    cleanup.schemeIds.push(created.id);
+
+    // Get
+    const fetched = await client.callTool("manage_concepts", {
+      action: "get_scheme",
+      scheme_id: created.id,
+    });
+    assert.strictEqual(fetched.notation, notation, "Notation should match");
+    assert.strictEqual(fetched.title, `Test Scheme ${testId}`, "Title should match");
+
+    // Update
+    const updated = await client.callTool("manage_concepts", {
+      action: "update_scheme",
+      scheme_id: created.id,
+      title: `Updated Scheme ${testId}`,
+      description: "Updated description",
+    });
+    assert.ok(updated.success || updated.title, "Update should succeed");
+
+    // Verify update
+    const refetched = await client.callTool("manage_concepts", {
+      action: "get_scheme",
+      scheme_id: created.id,
+    });
+    assert.strictEqual(refetched.title, `Updated Scheme ${testId}`, "Title should be updated");
+
+    // Delete
+    const deleted = await client.callTool("manage_concepts", {
+      action: "delete_scheme",
+      scheme_id: created.id,
+      force: true,
+    });
+    assert.ok(deleted.success, "Delete should succeed");
+    cleanup.schemeIds = cleanup.schemeIds.filter(id => id !== created.id);
   });
 
   // === record_provenance ===
@@ -745,15 +807,113 @@ describe("Consolidated Tools", () => {
     );
   });
 
+  // === manage_jobs ===
+
+  test("MJ-001: manage_jobs stats action returns queue statistics", async () => {
+    const result = await client.callTool("manage_jobs", { action: "stats" });
+    assert.ok(result !== undefined, "Should return queue stats");
+  });
+
+  test("MJ-002: manage_jobs list action returns jobs", async () => {
+    const result = await client.callTool("manage_jobs", { action: "list", limit: 5 });
+    assert.ok(Array.isArray(result), "Should return array of jobs");
+  });
+
+  test("MJ-003: manage_jobs list with status filter", async () => {
+    const result = await client.callTool("manage_jobs", {
+      action: "list",
+      status: "completed",
+      limit: 3,
+    });
+    assert.ok(Array.isArray(result), "Should return filtered jobs");
+  });
+
+  test("MJ-004: manage_jobs pending_count action returns count", async () => {
+    const result = await client.callTool("manage_jobs", { action: "pending_count" });
+    assert.ok(result !== undefined, "Should return pending count");
+  });
+
+  test("MJ-005: manage_jobs extraction_stats action returns stats", async () => {
+    const result = await client.callTool("manage_jobs", { action: "extraction_stats" });
+    assert.ok(result !== undefined, "Should return extraction stats");
+  });
+
+  test("MJ-006: manage_jobs create action queues a job", async () => {
+    // Create a test note first
+    const note = await client.callTool("capture_knowledge", {
+      action: "create",
+      content: "Test note for manage_jobs UAT",
+      revision_mode: "none",
+    });
+    const noteId = note.id;
+    cleanup.noteIds.push(noteId);
+
+    const result = await client.callTool("manage_jobs", {
+      action: "create",
+      note_id: noteId,
+      job_type: "embedding",
+      deduplicate: true,
+    });
+    assert.ok(result, "Should return job creation result");
+  });
+
+  test("MJ-007: manage_jobs get action retrieves job details", async () => {
+    // Get a recent job from list
+    const jobs = await client.callTool("manage_jobs", { action: "list", limit: 1 });
+    if (Array.isArray(jobs) && jobs.length > 0) {
+      const job = await client.callTool("manage_jobs", { action: "get", id: jobs[0].id });
+      assert.ok(job, "Should return job details");
+      assert.ok(job.id, "Job should have id");
+    }
+  });
+
+  test("MJ-008: manage_jobs rejects invalid action", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_jobs", { action: "nope" }),
+      (err) => {
+        assert.ok(err.message.includes("Unknown manage_jobs action"), "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
+  // === manage_inference ===
+
+  test("MI-001: manage_inference list_models action returns models", async () => {
+    const result = await client.callTool("manage_inference", { action: "list_models" });
+    assert.ok(result !== undefined, "Should return model information");
+  });
+
+  test("MI-002: manage_inference get_embedding_config action returns config", async () => {
+    const result = await client.callTool("manage_inference", { action: "get_embedding_config" });
+    assert.ok(result !== undefined, "Should return embedding config");
+  });
+
+  test("MI-003: manage_inference list_embedding_configs action returns configs", async () => {
+    const result = await client.callTool("manage_inference", { action: "list_embedding_configs" });
+    assert.ok(result !== undefined, "Should return embedding configs list");
+  });
+
+  test("MI-004: manage_inference rejects invalid action", async () => {
+    await assert.rejects(
+      () => client.callTool("manage_inference", { action: "nope" }),
+      (err) => {
+        assert.ok(err.message.includes("Unknown manage_inference action"), "Should mention unknown action");
+        return true;
+      }
+    );
+  });
+
   // === Tool schema validation ===
 
-  test("SCHEMA-001: All 11 consolidated tools have action enum in schema", async () => {
+  test("SCHEMA-001: All 13 consolidated tools have action enum in schema", async () => {
     const tools = await client.listTools();
     const consolidated = [
       "capture_knowledge", "search", "record_provenance",
       "manage_tags", "manage_collection", "manage_concepts",
       "manage_attachments", "manage_embeddings",
       "manage_archives", "manage_encryption", "manage_backups",
+      "manage_jobs", "manage_inference",
     ];
 
     for (const name of consolidated) {

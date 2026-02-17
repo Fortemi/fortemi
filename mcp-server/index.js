@@ -31,7 +31,7 @@ const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://f
 const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤27 tools) or "full" (all)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (≤29 tools) or "full" (all)
 
 // Core tool surface — high-level agent-friendly tools (issue #365)
 const CORE_TOOLS = new Set([
@@ -46,13 +46,15 @@ const CORE_TOOLS = new Set([
   // Export
   "export_note",
   // System & docs
-  "get_documentation", "get_system_info", "get_available_models", "health_check",
+  "get_documentation", "get_system_info", "health_check",
   // Multi-memory
   "select_memory", "get_active_memory",
   // Attachments
   "manage_attachments",
   // Observability
   "get_knowledge_health",
+  // Jobs & inference
+  "manage_jobs", "manage_inference",
   // Bulk operations
   "bulk_reprocess_notes",
 ]);
@@ -991,6 +993,59 @@ function createMcpServer() {
         }
 
         // ============================================================================
+        // MANAGE JOBS (consolidated)
+        // ============================================================================
+        case "manage_jobs": {
+          const mjAction = args.action;
+          if (mjAction === "list") {
+            const jobParams = new URLSearchParams();
+            if (args.status) jobParams.set("status", args.status);
+            if (args.job_type) jobParams.set("job_type", args.job_type);
+            if (args.note_id) jobParams.set("note_id", args.note_id);
+            if (args.limit !== undefined && args.limit !== null) jobParams.set("limit", args.limit);
+            if (args.offset) jobParams.set("offset", args.offset);
+            result = await apiRequest("GET", `/api/v1/jobs?${jobParams}`);
+          } else if (mjAction === "get") {
+            result = await apiRequest("GET", `/api/v1/jobs/${args.id}`);
+          } else if (mjAction === "create") {
+            result = await apiRequest("POST", "/api/v1/jobs", {
+              note_id: args.note_id,
+              job_type: args.job_type,
+              priority: toNum(args.priority),
+              payload: args.payload || null,
+              deduplicate: args.deduplicate !== undefined ? args.deduplicate : true,
+              model: args.model || null,
+            });
+          } else if (mjAction === "stats") {
+            result = await apiRequest("GET", "/api/v1/jobs/stats");
+          } else if (mjAction === "pending_count") {
+            result = await apiRequest("GET", "/api/v1/jobs/pending");
+          } else if (mjAction === "extraction_stats") {
+            result = await apiRequest("GET", "/api/v1/extraction/stats");
+          } else {
+            throw new Error(`Unknown manage_jobs action: ${mjAction}. Valid: list, get, create, stats, pending_count, extraction_stats`);
+          }
+          break;
+        }
+
+        // ============================================================================
+        // MANAGE INFERENCE (consolidated)
+        // ============================================================================
+        case "manage_inference": {
+          const miAction = args.action;
+          if (miAction === "list_models") {
+            result = await apiRequest("GET", "/api/v1/models");
+          } else if (miAction === "get_embedding_config") {
+            result = await apiRequest("GET", "/api/v1/embedding-configs/default");
+          } else if (miAction === "list_embedding_configs") {
+            result = await apiRequest("GET", "/api/v1/embedding-configs");
+          } else {
+            throw new Error(`Unknown manage_inference action: ${miAction}. Valid: list_models, get_embedding_config, list_embedding_configs`);
+          }
+          break;
+        }
+
+        // ============================================================================
         // EMBEDDING SETS
         // ============================================================================
         case "list_embedding_sets":
@@ -1468,8 +1523,39 @@ function createMcpServer() {
               if (args.limit !== undefined && args.limit !== null) p.set("limit", args.limit);
               result = await apiRequest("GET", `/api/v1/concepts?${p}`);
             }
+          } else if (mcaAction === "list_schemes") {
+            result = await apiRequest("GET", "/api/v1/concepts/schemes");
+          } else if (mcaAction === "create_scheme") {
+            result = await apiRequest("POST", "/api/v1/concepts/schemes", {
+              notation: args.notation,
+              title: args.title,
+              description: args.description,
+              uri: args.uri,
+              creator: args.creator,
+              publisher: args.publisher,
+              rights: args.rights,
+              version: args.version,
+            });
+          } else if (mcaAction === "get_scheme") {
+            result = await apiRequest("GET", `/api/v1/concepts/schemes/${args.scheme_id}`);
+          } else if (mcaAction === "update_scheme") {
+            const schemeUpdate = {};
+            if (args.title !== undefined) schemeUpdate.title = args.title;
+            if (args.description !== undefined) schemeUpdate.description = args.description;
+            if (args.creator !== undefined) schemeUpdate.creator = args.creator;
+            if (args.publisher !== undefined) schemeUpdate.publisher = args.publisher;
+            if (args.rights !== undefined) schemeUpdate.rights = args.rights;
+            if (args.version !== undefined) schemeUpdate.version = args.version;
+            if (args.is_active !== undefined) schemeUpdate.is_active = args.is_active;
+            result = await apiRequest("PATCH", `/api/v1/concepts/schemes/${args.scheme_id}`, schemeUpdate);
+            if (!result || (typeof result === "object" && Object.keys(result).length === 0)) {
+              result = { success: true };
+            }
+          } else if (mcaAction === "delete_scheme") {
+            await apiRequest("DELETE", `/api/v1/concepts/schemes/${args.scheme_id}${args.force ? "?force=true" : ""}`);
+            result = { success: true };
           } else {
-            throw new Error(`Unknown manage_concepts action: ${mcaAction}. Valid: search, autocomplete, get, get_full, stats, top`);
+            throw new Error(`Unknown manage_concepts action: ${mcaAction}. Valid: search, autocomplete, get, get_full, stats, top, list_schemes, create_scheme, get_scheme, update_scheme, delete_scheme`);
           }
           break;
         }
@@ -3320,8 +3406,19 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_archives\` | Memory archives | list, create, get, update, delete, set_default, stats, clone |
 | \`manage_encryption\` | PKE encryption | generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list/create/get_active/set_active/export/import/delete_keyset |
 | \`manage_backups\` | Backup & restore | export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory |
+| \`manage_jobs\` | Job queue monitoring | list, get, create, stats, pending_count, extraction_stats |
+| \`manage_inference\` | Model & provider discovery | list_models, get_embedding_config, list_embedding_configs |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
+
+## Automation Pipeline
+
+When you create a note via \`capture_knowledge\`, the system runs a **two-phase NLP pipeline** automatically:
+
+**Phase 1** (parallel): AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, document type inference
+**Phase 2** (after tagging): Tag-enriched embedding generation, tag-boosted semantic linking
+
+**You don't need to manually tag, embed, or link notes.** The SKOS tools (\`manage_concepts\`, \`manage_tags\`) are for curation and governance — reviewing auto-tags, promoting concepts, correcting errors.
 
 ## Core Capabilities
 
@@ -3329,7 +3426,9 @@ These high-level tools consolidate the fine-grained tools below. Use the consoli
    - Full revision mode: Contextual expansion using related notes
    - Light revision mode: Formatting without invented details
    - Automatic title generation
-   - Semantic link creation
+   - Automatic metadata extraction (authors, DOI, year, etc.)
+   - Automatic SKOS concept tagging (8-15 hierarchical tags per note)
+   - Tag-enriched semantic linking
 
 2. **Hybrid Search**
    - Full-text search (exact keywords, operators: OR, NOT, phrase)
@@ -3340,16 +3439,18 @@ These high-level tools consolidate the fine-grained tools below. Use the consoli
    - Embedding sets for focused search contexts
 
 3. **Knowledge Graph**
-   - Automatic semantic linking (>70% similarity)
+   - Automatic tag-boosted semantic linking (embedding similarity + SKOS tag overlap)
+   - HNSW Algorithm 4 for diverse neighbor selection
    - Bidirectional backlinks (\`get_note_links\`, \`get_note_backlinks\`)
    - Graph exploration with \`explore_graph\`
    - W3C PROV provenance tracking (\`get_note_provenance\`)
 
-4. **SKOS Hierarchical Tags**
+4. **SKOS Hierarchical Tags** (Automatic)
+   - Auto-generated by NLP pipeline across 6 dimensions (domain, topic, methodology, application, technique, content-type)
    - W3C compliant concept schemes and collections
-   - Broader/narrower/related relations
+   - Broader/narrower/related relations wired automatically
    - Governance workflows and anti-pattern detection
-   - RDF/Turtle export (\`export_skos_turtle\`)
+   - \`manage_concepts\` and \`manage_tags\` for curation, not creation
 
 5. **Organization**
    - Collections (nested folders)
@@ -3615,148 +3716,99 @@ search_with_dedup({ query: "neural networks", mode: "hybrid" })
 
   concepts: `# SKOS Hierarchical Tagging
 
-**Consolidated tools**: Use \`manage_concepts\` for browsing (search, autocomplete, get, get_full, stats, top) and \`manage_tags\` for tagging notes (list, set, tag_concept, untag_concept, get_concepts).
+## Tagging is Automatic
 
-W3C SKOS-compliant concept taxonomy system for organizing knowledge with semantic relationships.
+**You do not need to manually tag notes.** The NLP pipeline automatically generates 8-15 SKOS concept tags for every note across 6 required dimensions (domain, topic, methodology, application, technique, content-type) and 3 optional dimensions.
+
+The \`manage_concepts\` and \`manage_tags\` tools are for **curation and governance** — reviewing auto-tags, promoting concepts, correcting errors — not routine tag creation.
+
+**Consolidated tools**: Use \`manage_concepts\` for browsing (search, autocomplete, get, get_full, stats, top) and \`manage_tags\` for reviewing/adjusting note tags (list, set, tag_concept, untag_concept, get_concepts).
 
 ## Key Concepts
 
 - **Concept Scheme**: A vocabulary/namespace identified by UUID (use \`list_concept_schemes\` to get IDs)
 - **Concept**: A tag with semantic meaning, labels, and status
 - **Relations**: broader (parent), narrower (child), related (associative)
+- **Auto-tagging**: AI generates concepts automatically during the NLP pipeline
+
+## How Auto-Tagging Works
+
+1. Note is created via \`capture_knowledge\` or REST API
+2. NLP pipeline queues ConceptTagging job (Phase 1)
+3. AI analyzes content and generates 8-15 hierarchical concept tags
+4. Concepts are matched to existing vocabulary or created as candidates
+5. Tags are associated with relevance scores (first tag marked as primary)
+6. After tagging, Phase 2 jobs (embedding, linking) use tags for enrichment
 
 ## Concept Status
 
 | Status | Meaning | Use Case |
 |--------|---------|----------|
-| \`candidate\` | Auto-created from hashtags, needs review | Initial import, user tags |
-| \`approved\` | Reviewed and approved for use | Production vocabulary |
+| \`candidate\` | Auto-created by AI, needs review | Most auto-generated concepts |
+| \`controlled\` | Reviewed and approved for use | Curated vocabulary |
 | \`deprecated\` | Replaced by newer concept | Legacy terms |
-| \`obsolete\` | No longer valid, retained for history | Archived terms |
 
-**Lifecycle**: candidate → approved → deprecated → obsolete
+**Lifecycle**: candidate → controlled → deprecated
 
-## Scheme Management
-
-**Important**: \`scheme_id\` must be a valid UUID, not a string like "main".
+## Reviewing Auto-Generated Tags
 
 \`\`\`
-// List schemes to get UUIDs
-list_concept_schemes()
-// Returns: [{ id: "550e8400-...", label: "Main" }, ...]
+// Check what concepts the AI assigned to a note
+manage_tags({ action: "get_concepts", note_id: "uuid" })
 
-// Create new scheme
-create_concept_scheme({ label: "Projects", description: "Project taxonomy" })
+// Search the auto-generated vocabulary
+manage_concepts({ action: "search", query: "machine learning" })
 
-// Get scheme details
-get_concept_scheme({ scheme_id: "550e8400-..." })
+// Get governance stats (orphans, candidates needing review)
+manage_concepts({ action: "stats" })
 \`\`\`
 
-## Working with Concepts
+## Correcting Auto-Tags
 
 \`\`\`
-// Search concepts (q is optional - omit to list all)
-search_concepts({ scheme_id: "uuid", q: "machine", status: ["approved"] })
+// Remove an incorrect auto-tag
+manage_tags({ action: "untag_concept", note_id: "uuid", concept_id: "uuid" })
 
-// Get concept with all relations
-get_concept_full({ concept_id: "uuid" })
-// Returns: concept + labels + broader + narrower + related
-
-// Get top-level concepts (no parents)
-get_top_concepts({ scheme_id: "uuid" })
-
-// Autocomplete for UIs
-autocomplete_concepts({ scheme_id: "uuid", prefix: "mach", limit: 10 })
-\`\`\`
-
-## Creating and Updating Concepts
-
-\`\`\`
-// Create with hierarchy
-create_concept({
-  scheme_id: "550e8400-...",  // UUID required
-  pref_label: "Machine Learning",
-  alt_labels: ["ML", "Statistical Learning"],
-  definition: "A field of AI...",
-  broader: ["parent-concept-uuid"],
-  status: "approved"
-})
-
-// Update concept (including labels)
-update_concept({
-  concept_id: "uuid",
-  pref_label: "Updated Label",
-  status: "deprecated",
-  replaced_by: "new-concept-uuid"  // For deprecation
-})
-\`\`\`
-
-## Tagging Notes with Concepts
-
-\`\`\`
-// Tag note with concept
-tag_note_concept({ note_id: "uuid", concept_id: "uuid" })
-
-// Remove concept from note
-untag_note_concept({ note_id: "uuid", concept_id: "uuid" })
-
-// List note's concepts
-get_note_concepts({ note_id: "uuid" })
+// Add a missing concept tag
+manage_tags({ action: "tag_concept", note_id: "uuid", concept_id: "uuid" })
 \`\`\`
 
 ## Governance Workflow
 
 \`\`\`
-// Get taxonomy health stats
-get_governance_stats({ scheme_id: "uuid" })
-// Returns: { candidate: 12, approved: 45, deprecated: 3, orphans: 2 }
+// Review candidate concepts
+manage_concepts({ action: "search", status: "candidate" })
 
-// Review candidates
-search_concepts({ scheme_id: "uuid", status: ["candidate"] })
+// Get taxonomy health
+manage_concepts({ action: "stats" })
 
-// Approve concept
-update_concept({ concept_id: "uuid", status: "approved" })
-
-// Deprecate with replacement
-update_concept({
-  concept_id: "old-uuid",
-  status: "deprecated",
-  replaced_by: "new-uuid"
-})
+// Browse top-level concepts
+manage_concepts({ action: "top", scheme_id: "uuid" })
 \`\`\`
+
+## When to Manually Create Concepts
+
+Only create concepts manually for organizational structures the AI can't infer:
+- Project identifiers (\`project/alpha\`)
+- Client namespaces (\`client/acme\`)
+- Status workflows (\`status/reviewed\`)
+
+The AI handles domain, topic, methodology, and content-type classification automatically.
 
 ## list_tags vs SKOS Concepts
 
-- **\`list_tags\`**: Simple string tags from hashtags - fast, flat, no hierarchy
-- **SKOS Concepts**: Rich vocabulary with hierarchy, status, and relations
+- **User tags** (\`manage_tags\` → \`set\`): Simple string tags for organizational purposes (project names, status)
+- **SKOS Concepts** (\`manage_tags\` → \`tag_concept\`): Rich vocabulary with hierarchy, status, and relations — primarily auto-generated
 
-Both coexist. Notes can have both inline hashtags AND SKOS concept associations.
-
-## Removing Relations
-
-\`\`\`
-// Remove broader (parent) relation
-remove_broader({ concept_id: "child-uuid", broader_id: "parent-uuid" })
-
-// Remove narrower (child) relation
-remove_narrower({ concept_id: "parent-uuid", narrower_id: "child-uuid" })
-
-// Remove related (associative) relation
-remove_related({ concept_id: "uuid-a", related_id: "uuid-b" })
-\`\`\`
-
-## SKOS Collections & Export
-
-For concept groupings (cross-hierarchy), see \`get_documentation({ topic: "skos_collections" })\`.
-For RDF/Turtle export, use \`export_skos_turtle({ scheme_id: "uuid" })\`.
+Both coexist. Notes typically have auto-generated SKOS concepts plus optional user-applied organizational tags.
 
 ## Best Practices
 
-1. **Use UUIDs for scheme_id** - Never hardcode strings like "main"
-2. **Define concepts clearly** - Add definition and alt_labels
-3. **Review candidates regularly** - Use \`get_governance_stats\`
-4. **Deprecate, don't delete** - Preserve history with replacement links
-5. **Build shallow hierarchies** - 3-4 levels max for usability
+1. **Don't manually tag content categories** - The AI handles domain/topic/methodology tagging
+2. **Review candidates regularly** - Use \`manage_concepts({ action: "stats" })\`
+3. **Deprecate, don't delete** - Preserve history with replacement links
+4. **Build shallow hierarchies** - 3-4 levels max for usability
+5. **Use organizational tags for what AI can't infer** - Project names, status, scope
 6. **Use collections for cross-cutting groups** - See \`skos_collections\` topic`,
 
   chunking: `# Document Chunking
