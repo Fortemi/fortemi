@@ -79,25 +79,21 @@ fn parse_json_lenient<T: serde::de::DeserializeOwned>(
     raw: &str,
 ) -> std::result::Result<T, serde_json::Error> {
     // Try direct parse first
-    match serde_json::from_str::<T>(raw) {
+    let direct_err = match serde_json::from_str::<T>(raw) {
         Ok(v) => return Ok(v),
-        Err(direct_err) => {
-            // If that failed, check if it's an object wrapping a single array value
-            if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw)
-            {
-                // Find the first (and ideally only) array value in the object
-                for (_key, value) in &obj {
-                    if value.is_array() {
-                        let arr_str = value.to_string();
-                        if let Ok(v) = serde_json::from_str::<T>(&arr_str) {
-                            return Ok(v);
-                        }
-                    }
+        Err(e) => e,
+    };
+    // If that failed, check if it's an object wrapping a single array value
+    if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw) {
+        for (_key, value) in &obj {
+            if value.is_array() {
+                if let Ok(v) = serde_json::from_str::<T>(&value.to_string()) {
+                    return Ok(v);
                 }
             }
-            Err(direct_err)
         }
     }
+    Err(direct_err)
 }
 
 /// Document complexity classification for cascaded model routing (#439).
