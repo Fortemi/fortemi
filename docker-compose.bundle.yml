@@ -170,6 +170,11 @@ services:
       - MCP_CLIENT_ID=${MCP_CLIENT_ID}
       - MCP_CLIENT_SECRET=${MCP_CLIENT_SECRET}
 
+      # ── Job Worker ─────────────────────────────────────────────────────
+      # Max concurrent jobs per worker (Phase 1 jobs run in parallel).
+      # Set OLLAMA_NUM_PARALLEL on your Ollama server to match.
+      - JOB_MAX_CONCURRENT=${JOB_MAX_CONCURRENT:-4}
+
       # ── Inference: Ollama (default) ────────────────────────────────────
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-ollama}
       - OLLAMA_BASE=${OLLAMA_BASE:-http://host.docker.internal:11434}
