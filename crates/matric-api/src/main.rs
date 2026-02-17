@@ -1944,6 +1944,39 @@ fn event_context_for(archive_ctx: &ArchiveContext) -> EventContext {
     }
 }
 
+/// Wrapper stream that increments the disconnect counter when dropped (Issue #459).
+///
+/// When an SSE client disconnects, Axum drops the response stream. This
+/// wrapper's `Drop` impl records the disconnection for metrics tracking.
+struct SseDisconnectStream<S> {
+    inner: std::pin::Pin<Box<S>>,
+    event_bus: Arc<EventBus>,
+}
+
+impl<S: futures::Stream + Unpin> futures::Stream for SseDisconnectStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
+    }
+}
+
+impl<S> Drop for SseDisconnectStream<S> {
+    fn drop(&mut self) {
+        self.event_bus
+            .metrics
+            .disconnections_total
+            .fetch_add(1, Ordering::Relaxed);
+        tracing::info!(
+            active_connections = self.event_bus.metrics.snapshot().active_connections,
+            "SSE client disconnected"
+        );
+    }
+}
+
 /// Check whether an event envelope passes all active SSE filters (Issue #457).
 ///
 /// Applies memory scope, event type prefix, and entity ID filters.
@@ -2180,6 +2213,7 @@ async fn sse_events(
                         last_event_id = %last_id,
                         "SSE replay: delivered buffered events"
                     );
+                    state.event_bus.metrics.replays_success.fetch_add(1, Ordering::Relaxed);
                     (frames, Some(watermark))
                 }
                 None => {
@@ -2194,6 +2228,7 @@ async fn sse_events(
                         "last_known_id": last_id.to_string(),
                         "buffer_capacity": state.event_bus.replay_capacity(),
                     });
+                    state.event_bus.metrics.replays_expired.fetch_add(1, Ordering::Relaxed);
                     let frame = Event::default()
                         .event("resync_required")
                         .data(resync_data.to_string());
@@ -2224,6 +2259,18 @@ async fn sse_events(
     let coalesce_state: Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> =
         Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let coalesce_state_clone = coalesce_state.clone();
+    let metrics_ref = state.event_bus.clone();
+
+    // --- Connection tracking (Issue #459) ---
+    state.event_bus.metrics.connections_total.fetch_add(1, Ordering::Relaxed);
+    let disconnect_bus = state.event_bus.clone();
+    tracing::info!(
+        memory = ?memory_filter,
+        types = ?params.types,
+        entity_id = ?params.entity_id,
+        active_connections = state.event_bus.metrics.snapshot().active_connections,
+        "SSE client connected"
+    );
 
     let live_stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
         move |result| {
@@ -2254,6 +2301,7 @@ async fn sse_events(
                             if let Some(last) = state.get(&key) {
                                 if now.duration_since(*last) < coalesce_window {
                                     // Within coalescing window — skip this event
+                                    metrics_ref.metrics.events_coalesced.fetch_add(1, Ordering::Relaxed);
                                     return None;
                                 }
                             }
@@ -2261,6 +2309,7 @@ async fn sse_events(
                         }
                     }
 
+                    metrics_ref.metrics.events_delivered.fetch_add(1, Ordering::Relaxed);
                     match serde_json::to_string(&envelope) {
                         Ok(json) => Some(Ok(Event::default()
                             .event(envelope.event_type.clone())
@@ -2271,6 +2320,7 @@ async fn sse_events(
                 }
                 Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
                     // Backpressure: receiver fell behind (Issue #458)
+                    metrics_ref.metrics.events_lagged.fetch_add(n, Ordering::Relaxed);
                     tracing::warn!(
                         lagged_count = n,
                         "SSE stream lagged — {} events dropped for slow consumer",
@@ -2291,7 +2341,13 @@ async fn sse_events(
     // Replay first, then seamlessly transition to live stream
     let combined = replay_stream.chain(live_stream);
 
-    Ok(Sse::new(combined).keep_alive(
+    // Wrap in a stream that tracks disconnection when dropped (Issue #459)
+    let tracked_stream = SseDisconnectStream {
+        inner: Box::pin(combined),
+        event_bus: disconnect_bus,
+    };
+
+    Ok(Sse::new(tracked_stream).keep_alive(
         KeepAlive::new()
             .interval(std::time::Duration::from_secs(15))
             .text("keepalive"),
@@ -2990,6 +3046,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
         },
+        "sse": state.event_bus.metrics.snapshot(),
     }))
 }
 

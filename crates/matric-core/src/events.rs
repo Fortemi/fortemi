@@ -14,6 +14,7 @@
 //! Architecture: See ADR-037 (unified-event-bus)
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
@@ -543,6 +544,66 @@ impl ServerEvent {
 }
 
 // ============================================================================
+// SSE Metrics (Issue #459)
+// ============================================================================
+
+/// Atomic counters for SSE subsystem observability (Issue #459).
+///
+/// All counters are monotonically increasing and lock-free. Expose via
+/// `/health` endpoint or Prometheus scrape. Counters reset on process restart.
+#[derive(Debug, Default)]
+pub struct SseMetrics {
+    /// Total SSE connections opened since startup.
+    pub connections_total: AtomicU64,
+    /// Total SSE connections closed (disconnect) since startup.
+    pub disconnections_total: AtomicU64,
+    /// Total events emitted to the broadcast bus.
+    pub events_emitted: AtomicU64,
+    /// Total events delivered to SSE clients (after filtering).
+    pub events_delivered: AtomicU64,
+    /// Total events coalesced (skipped due to debounce window).
+    pub events_coalesced: AtomicU64,
+    /// Total events dropped due to slow consumers (broadcast lag).
+    pub events_lagged: AtomicU64,
+    /// Total successful Last-Event-ID replays.
+    pub replays_success: AtomicU64,
+    /// Total expired/failed Last-Event-ID replays.
+    pub replays_expired: AtomicU64,
+}
+
+impl SseMetrics {
+    /// Returns a snapshot of all metrics as a serializable struct.
+    pub fn snapshot(&self) -> SseMetricsSnapshot {
+        SseMetricsSnapshot {
+            connections_total: self.connections_total.load(Ordering::Relaxed),
+            disconnections_total: self.disconnections_total.load(Ordering::Relaxed),
+            active_connections: self.connections_total.load(Ordering::Relaxed)
+                .saturating_sub(self.disconnections_total.load(Ordering::Relaxed)),
+            events_emitted: self.events_emitted.load(Ordering::Relaxed),
+            events_delivered: self.events_delivered.load(Ordering::Relaxed),
+            events_coalesced: self.events_coalesced.load(Ordering::Relaxed),
+            events_lagged: self.events_lagged.load(Ordering::Relaxed),
+            replays_success: self.replays_success.load(Ordering::Relaxed),
+            replays_expired: self.replays_expired.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Serializable snapshot of SSE metrics for health endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct SseMetricsSnapshot {
+    pub connections_total: u64,
+    pub disconnections_total: u64,
+    pub active_connections: u64,
+    pub events_emitted: u64,
+    pub events_delivered: u64,
+    pub events_coalesced: u64,
+    pub events_lagged: u64,
+    pub replays_success: u64,
+    pub replays_expired: u64,
+}
+
+// ============================================================================
 // Event Bus
 // ============================================================================
 
@@ -564,6 +625,8 @@ pub struct EventBus {
     replay_buffer: Mutex<VecDeque<EventEnvelope>>,
     /// Maximum events retained in the replay buffer.
     replay_capacity: usize,
+    /// SSE subsystem metrics (Issue #459).
+    pub metrics: SseMetrics,
 }
 
 impl EventBus {
@@ -582,6 +645,7 @@ impl EventBus {
             tx,
             replay_buffer: Mutex::new(VecDeque::with_capacity(replay_capacity)),
             replay_capacity,
+            metrics: SseMetrics::default(),
         }
     }
 
@@ -600,6 +664,7 @@ impl EventBus {
             subscriber_count,
             "EventBus emit"
         );
+        self.metrics.events_emitted.fetch_add(1, Ordering::Relaxed);
         self.push_to_replay(&envelope);
         let _ = self.tx.send(envelope);
     }
@@ -618,6 +683,7 @@ impl EventBus {
             ?envelope.memory,
             "EventBus emit (with context)"
         );
+        self.metrics.events_emitted.fetch_add(1, Ordering::Relaxed);
         self.push_to_replay(&envelope);
         let _ = self.tx.send(envelope);
     }
