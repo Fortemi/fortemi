@@ -1944,6 +1944,50 @@ fn event_context_for(archive_ctx: &ArchiveContext) -> EventContext {
     }
 }
 
+/// Check whether an event envelope passes all active SSE filters (Issue #457).
+///
+/// Applies memory scope, event type prefix, and entity ID filters.
+/// Returns `true` if the envelope should be delivered to this client.
+fn envelope_matches_filters(
+    envelope: &EventEnvelope,
+    memory_filter: &Option<String>,
+    type_filters: &Option<Vec<String>>,
+    entity_id_filter: &Option<String>,
+) -> bool {
+    // Memory scope: skip events from other memories (Issue #452)
+    if let Some(ref filter) = memory_filter {
+        if let Some(ref event_memory) = envelope.memory {
+            if event_memory != filter {
+                return false;
+            }
+        }
+    }
+
+    // Type filter: prefix matching against event_type (Issue #457)
+    // e.g., filter "note" matches "note.created", "note.updated"
+    // e.g., filter "note.created" matches only "note.created"
+    if let Some(ref filters) = type_filters {
+        let event_type_lower = envelope.event_type.to_lowercase();
+        let matches = filters.iter().any(|prefix| {
+            event_type_lower == *prefix
+                || event_type_lower.starts_with(&format!("{}.", prefix))
+        });
+        if !matches {
+            return false;
+        }
+    }
+
+    // Entity ID filter: exact match on entity_id (Issue #457)
+    if let Some(ref filter_eid) = entity_id_filter {
+        match &envelope.entity_id {
+            Some(eid) if eid == filter_eid => {}
+            _ => return false,
+        }
+    }
+
+    true
+}
+
 /// SSE query parameters for browser EventSource auth and memory scoping.
 ///
 /// Browser `EventSource` cannot set custom headers, so token and memory
@@ -1954,9 +1998,16 @@ struct SseQuery {
     token: Option<String>,
     /// Memory/archive name for scoping events. Falls back to `X-Fortemi-Memory` header.
     memory: Option<String>,
+    /// Comma-separated event type filter (Issue #457).
+    /// Matches against namespaced types, e.g., `?types=note.created,note.updated`.
+    /// Prefix matching supported: `?types=note` matches all note.* events.
+    types: Option<String>,
+    /// Filter by entity ID (Issue #457).
+    /// Only events for this specific entity are delivered, e.g., `?entity_id=<uuid>`.
+    entity_id: Option<String>,
 }
 
-/// SSE event stream handler (Issues #43, #452, #456).
+/// SSE event stream handler (Issues #43, #452, #456, #457).
 ///
 /// Clients connect to `/api/v1/events` and receive Server-Sent Events.
 ///
@@ -1970,6 +2021,16 @@ struct SseQuery {
 /// - Header: `X-Fortemi-Memory: my-archive`
 /// - Without explicit memory: all events are delivered (admin/monitoring view).
 /// - With explicit memory: only events for that memory + system events are delivered.
+///
+/// ## Type Filtering (Issue #457)
+/// - Query param: `?types=note.created,note.updated` — comma-separated list.
+/// - Prefix matching: `?types=note` matches `note.created`, `note.updated`, etc.
+/// - Without types filter: all event types are delivered.
+///
+/// ## Entity Filtering (Issue #457)
+/// - Query param: `?entity_id=<uuid>` — only events for this entity.
+/// - Matches against `envelope.entity_id`.
+/// - Without entity_id filter: events for all entities are delivered.
 ///
 /// ## Replay (Issue #456)
 /// - Browser EventSource auto-sends `Last-Event-ID` on reconnect.
@@ -2047,6 +2108,39 @@ async fn sse_events(
         None // Default — deliver all events (admin/monitoring view)
     };
 
+    // --- Type filter parsing (Issue #457) ---
+    // Parse comma-separated type prefixes into a Vec for matching.
+    // e.g., "note.created,collection" → ["note.created", "collection"]
+    // "note" matches "note.created", "note.updated", etc. via starts_with.
+    let type_filters: Option<Vec<String>> = params.types.as_ref().map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+
+    // Validate: if types param was provided but parsed to empty, return error
+    if let Some(ref filters) = type_filters {
+        if filters.is_empty() {
+            return Err(ApiError::BadRequest(
+                "Invalid 'types' filter: must contain at least one non-empty event type".to_string(),
+            ));
+        }
+    }
+
+    // --- Entity ID filter parsing (Issue #457) ---
+    let entity_id_filter: Option<String> = if let Some(ref eid) = params.entity_id {
+        let trimmed = eid.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::BadRequest(
+                "Invalid 'entity_id' filter: must be a non-empty identifier".to_string(),
+            ));
+        }
+        Some(trimmed.to_string())
+    } else {
+        None
+    };
+
     // --- Last-Event-ID replay (Issue #456) ---
     // Subscribe to live stream FIRST so we don't miss events during replay lookup.
     let rx = state.event_bus.subscribe();
@@ -2061,18 +2155,16 @@ async fn sse_events(
             match state.event_bus.replay_since(last_id) {
                 Some(events) => {
                     let watermark = events.last().map(|e| e.event_id).unwrap_or(last_id);
-                    // Apply memory filter and convert to SSE frames
+                    // Apply memory + type + entity filters and convert to SSE frames
                     let frames: Vec<Event> = events
                         .into_iter()
                         .filter(|envelope| {
-                            if let Some(ref filter) = memory_filter {
-                                match &envelope.memory {
-                                    Some(mem) if mem != filter => false,
-                                    _ => true,
-                                }
-                            } else {
-                                true
-                            }
+                            envelope_matches_filters(
+                                envelope,
+                                &memory_filter,
+                                &type_filters,
+                                &entity_id_filter,
+                            )
                         })
                         .filter_map(|envelope| {
                             serde_json::to_string(&envelope).ok().map(|json| {
@@ -2131,13 +2223,14 @@ async fn sse_events(
                     }
                 }
 
-                // Memory scope filtering: skip events from other memories (Issue #452)
-                if let Some(ref filter) = memory_filter {
-                    if let Some(ref event_memory) = envelope.memory {
-                        if event_memory != filter {
-                            return None;
-                        }
-                    }
+                // Apply all filters: memory + type + entity (Issues #452, #457)
+                if !envelope_matches_filters(
+                    &envelope,
+                    &memory_filter,
+                    &type_filters,
+                    &entity_id_filter,
+                ) {
+                    return None;
                 }
 
                 match serde_json::to_string(&envelope) {
@@ -14814,6 +14907,7 @@ mod tests {
                 get(list_webhook_deliveries),
             )
             .route("/api/v1/webhooks/:id/test", post(test_webhook))
+            .layer(Extension(ArchiveContext::default()))
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -15045,6 +15139,147 @@ mod tests {
             }
             assert!(collected.contains("queue.status"));
         }
+    }
+
+    // -- SSE Filter Unit Tests (Issue #457) --
+
+    fn make_test_envelope(event_type: &str, memory: Option<&str>, entity_id: Option<&str>) -> EventEnvelope {
+        EventEnvelope {
+            event_id: Uuid::new_v4(),
+            event_type: event_type.to_string(),
+            occurred_at: chrono::Utc::now(),
+            memory: memory.map(|s| s.to_string()),
+            tenant_id: None,
+            actor: matric_core::EventActor::system(),
+            entity_type: None,
+            entity_id: entity_id.map(|s| s.to_string()),
+            correlation_id: None,
+            causation_id: None,
+            payload_version: 1,
+            payload: ServerEvent::QueueStatus {
+                total_jobs: 0,
+                running: 0,
+                pending: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn test_filter_no_filters_passes_everything() {
+        let envelope = make_test_envelope("note.created", Some("main"), Some("abc-123"));
+        assert!(envelope_matches_filters(&envelope, &None, &None, &None));
+    }
+
+    #[test]
+    fn test_filter_memory_matches() {
+        let envelope = make_test_envelope("note.created", Some("main"), None);
+        let memory = Some("main".to_string());
+        assert!(envelope_matches_filters(&envelope, &memory, &None, &None));
+    }
+
+    #[test]
+    fn test_filter_memory_rejects_different() {
+        let envelope = make_test_envelope("note.created", Some("research"), None);
+        let memory = Some("main".to_string());
+        assert!(!envelope_matches_filters(&envelope, &memory, &None, &None));
+    }
+
+    #[test]
+    fn test_filter_memory_passes_unscoped_events() {
+        // Events with no memory scope (system events) pass through memory filters
+        let envelope = make_test_envelope("system.health", None, None);
+        let memory = Some("main".to_string());
+        assert!(envelope_matches_filters(&envelope, &memory, &None, &None));
+    }
+
+    #[test]
+    fn test_filter_type_exact_match() {
+        let envelope = make_test_envelope("note.created", None, None);
+        let types = Some(vec!["note.created".to_string()]);
+        assert!(envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_type_prefix_match() {
+        let envelope = make_test_envelope("note.created", None, None);
+        let types = Some(vec!["note".to_string()]);
+        assert!(envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_type_prefix_no_false_positive() {
+        // "not" should NOT match "note.created" — prefix must match up to a dot boundary
+        let envelope = make_test_envelope("note.created", None, None);
+        let types = Some(vec!["not".to_string()]);
+        assert!(!envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_type_multiple_types() {
+        let envelope = make_test_envelope("collection.deleted", None, None);
+        let types = Some(vec!["note".to_string(), "collection".to_string()]);
+        assert!(envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_type_rejects_non_matching() {
+        let envelope = make_test_envelope("archive.created", None, None);
+        let types = Some(vec!["note".to_string()]);
+        assert!(!envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_type_case_insensitive() {
+        let envelope = make_test_envelope("Note.Created", None, None);
+        let types = Some(vec!["note".to_string()]);
+        assert!(envelope_matches_filters(&envelope, &None, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_entity_id_exact_match() {
+        let envelope = make_test_envelope("note.updated", None, Some("abc-123"));
+        let eid = Some("abc-123".to_string());
+        assert!(envelope_matches_filters(&envelope, &None, &None, &eid));
+    }
+
+    #[test]
+    fn test_filter_entity_id_rejects_different() {
+        let envelope = make_test_envelope("note.updated", None, Some("abc-123"));
+        let eid = Some("xyz-789".to_string());
+        assert!(!envelope_matches_filters(&envelope, &None, &None, &eid));
+    }
+
+    #[test]
+    fn test_filter_entity_id_rejects_unscoped_event() {
+        // Event without entity_id doesn't match entity filter
+        let envelope = make_test_envelope("system.health", None, None);
+        let eid = Some("abc-123".to_string());
+        assert!(!envelope_matches_filters(&envelope, &None, &None, &eid));
+    }
+
+    #[test]
+    fn test_filter_combined_memory_and_type() {
+        let envelope = make_test_envelope("note.created", Some("main"), None);
+        let memory = Some("main".to_string());
+        let types = Some(vec!["note".to_string()]);
+        assert!(envelope_matches_filters(&envelope, &memory, &types, &None));
+
+        // Wrong memory
+        let wrong_memory = Some("other".to_string());
+        assert!(!envelope_matches_filters(&envelope, &wrong_memory, &types, &None));
+    }
+
+    #[test]
+    fn test_filter_combined_all_three() {
+        let envelope = make_test_envelope("note.updated", Some("research"), Some("note-42"));
+        let memory = Some("research".to_string());
+        let types = Some(vec!["note".to_string()]);
+        let eid = Some("note-42".to_string());
+        assert!(envelope_matches_filters(&envelope, &memory, &types, &eid));
+
+        // Wrong entity
+        let wrong_eid = Some("note-99".to_string());
+        assert!(!envelope_matches_filters(&envelope, &memory, &types, &wrong_eid));
     }
 
     // -- Webhook API Tests --
