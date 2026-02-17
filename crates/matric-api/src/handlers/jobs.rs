@@ -75,13 +75,16 @@ fn resolve_gen_backend(
 /// value (e.g. `{"tags": [...]}` or `{"references": [...]}`), unwrap the array
 /// and parse that instead. Models frequently wrap bare arrays in an object even
 /// when the prompt asks for a plain array.
-fn parse_json_lenient<T: serde::de::DeserializeOwned>(raw: &str) -> std::result::Result<T, serde_json::Error> {
+fn parse_json_lenient<T: serde::de::DeserializeOwned>(
+    raw: &str,
+) -> std::result::Result<T, serde_json::Error> {
     // Try direct parse first
     match serde_json::from_str::<T>(raw) {
         Ok(v) => return Ok(v),
         Err(direct_err) => {
             // If that failed, check if it's an object wrapping a single array value
-            if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw) {
+            if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw)
+            {
                 // Find the first (and ideally only) array value in the object
                 for (_key, value) in &obj {
                     if value.is_array() {
