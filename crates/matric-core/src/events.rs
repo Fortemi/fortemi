@@ -236,6 +236,102 @@ pub enum ServerEvent {
         has_ai_content: bool,
         has_links: bool,
     },
+
+    // -- Note lifecycle events (Issue #453) --
+    /// A new note was created.
+    NoteCreated {
+        note_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        tags: Vec<String>,
+    },
+    /// A note was soft-deleted.
+    NoteDeleted {
+        note_id: Uuid,
+    },
+    /// A note was archived.
+    NoteArchived {
+        note_id: Uuid,
+    },
+    /// A note was restored from archive or soft-deletion.
+    NoteRestored {
+        note_id: Uuid,
+    },
+    /// Tags on a note were changed (added, removed, or replaced).
+    NoteTagsUpdated {
+        note_id: Uuid,
+        tags: Vec<String>,
+    },
+    /// Semantic links on a note were updated (by background linking job).
+    NoteLinksUpdated {
+        note_id: Uuid,
+    },
+    /// An AI revision was created for a note.
+    NoteRevisionCreated {
+        note_id: Uuid,
+    },
+
+    // -- Attachment events (Issue #454) --
+    /// A file attachment was uploaded to a note.
+    AttachmentCreated {
+        attachment_id: Uuid,
+        note_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+    },
+    /// A file attachment was deleted.
+    AttachmentDeleted {
+        attachment_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        note_id: Option<Uuid>,
+    },
+    /// Extraction metadata for an attachment was updated (content, document type, EXIF).
+    AttachmentExtractionUpdated {
+        attachment_id: Uuid,
+        note_id: Uuid,
+    },
+
+    // -- Collection events (Issue #454) --
+    /// A collection was created.
+    CollectionCreated {
+        collection_id: Uuid,
+        name: String,
+    },
+    /// A collection was updated (name or description changed).
+    CollectionUpdated {
+        collection_id: Uuid,
+        name: String,
+    },
+    /// A collection was deleted.
+    CollectionDeleted {
+        collection_id: Uuid,
+    },
+    /// A note was moved into or out of a collection.
+    CollectionMembershipChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collection_id: Option<Uuid>,
+        note_id: Uuid,
+    },
+
+    // -- Archive events (Issue #455) --
+    /// A memory archive was created.
+    ArchiveCreated {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        archive_id: Option<Uuid>,
+    },
+    /// A memory archive was updated.
+    ArchiveUpdated {
+        name: String,
+    },
+    /// A memory archive was deleted.
+    ArchiveDeleted {
+        name: String,
+    },
+    /// The default memory archive was changed.
+    ArchiveDefaultChanged {
+        name: String,
+    },
 }
 
 impl ServerEvent {
@@ -249,6 +345,24 @@ impl ServerEvent {
             ServerEvent::JobCompleted { .. } => "JobCompleted",
             ServerEvent::JobFailed { .. } => "JobFailed",
             ServerEvent::NoteUpdated { .. } => "NoteUpdated",
+            ServerEvent::NoteCreated { .. } => "NoteCreated",
+            ServerEvent::NoteDeleted { .. } => "NoteDeleted",
+            ServerEvent::NoteArchived { .. } => "NoteArchived",
+            ServerEvent::NoteRestored { .. } => "NoteRestored",
+            ServerEvent::NoteTagsUpdated { .. } => "NoteTagsUpdated",
+            ServerEvent::NoteLinksUpdated { .. } => "NoteLinksUpdated",
+            ServerEvent::NoteRevisionCreated { .. } => "NoteRevisionCreated",
+            ServerEvent::AttachmentCreated { .. } => "AttachmentCreated",
+            ServerEvent::AttachmentDeleted { .. } => "AttachmentDeleted",
+            ServerEvent::AttachmentExtractionUpdated { .. } => "AttachmentExtractionUpdated",
+            ServerEvent::CollectionCreated { .. } => "CollectionCreated",
+            ServerEvent::CollectionUpdated { .. } => "CollectionUpdated",
+            ServerEvent::CollectionDeleted { .. } => "CollectionDeleted",
+            ServerEvent::CollectionMembershipChanged { .. } => "CollectionMembershipChanged",
+            ServerEvent::ArchiveCreated { .. } => "ArchiveCreated",
+            ServerEvent::ArchiveUpdated { .. } => "ArchiveUpdated",
+            ServerEvent::ArchiveDeleted { .. } => "ArchiveDeleted",
+            ServerEvent::ArchiveDefaultChanged { .. } => "ArchiveDefaultChanged",
         }
     }
 
@@ -262,6 +376,24 @@ impl ServerEvent {
             ServerEvent::JobCompleted { .. } => "job.completed",
             ServerEvent::JobFailed { .. } => "job.failed",
             ServerEvent::NoteUpdated { .. } => "note.updated",
+            ServerEvent::NoteCreated { .. } => "note.created",
+            ServerEvent::NoteDeleted { .. } => "note.deleted",
+            ServerEvent::NoteArchived { .. } => "note.archived",
+            ServerEvent::NoteRestored { .. } => "note.restored",
+            ServerEvent::NoteTagsUpdated { .. } => "note.tags.updated",
+            ServerEvent::NoteLinksUpdated { .. } => "note.links.updated",
+            ServerEvent::NoteRevisionCreated { .. } => "note.revision.created",
+            ServerEvent::AttachmentCreated { .. } => "attachment.created",
+            ServerEvent::AttachmentDeleted { .. } => "attachment.deleted",
+            ServerEvent::AttachmentExtractionUpdated { .. } => "attachment.extraction.updated",
+            ServerEvent::CollectionCreated { .. } => "collection.created",
+            ServerEvent::CollectionUpdated { .. } => "collection.updated",
+            ServerEvent::CollectionDeleted { .. } => "collection.deleted",
+            ServerEvent::CollectionMembershipChanged { .. } => "collection.membership.changed",
+            ServerEvent::ArchiveCreated { .. } => "archive.created",
+            ServerEvent::ArchiveUpdated { .. } => "archive.updated",
+            ServerEvent::ArchiveDeleted { .. } => "archive.deleted",
+            ServerEvent::ArchiveDefaultChanged { .. } => "archive.default.changed",
         }
     }
 
@@ -274,7 +406,25 @@ impl ServerEvent {
             | ServerEvent::JobProgress { .. }
             | ServerEvent::JobCompleted { .. }
             | ServerEvent::JobFailed { .. } => Some("job"),
-            ServerEvent::NoteUpdated { .. } => Some("note"),
+            ServerEvent::NoteUpdated { .. }
+            | ServerEvent::NoteCreated { .. }
+            | ServerEvent::NoteDeleted { .. }
+            | ServerEvent::NoteArchived { .. }
+            | ServerEvent::NoteRestored { .. }
+            | ServerEvent::NoteTagsUpdated { .. }
+            | ServerEvent::NoteLinksUpdated { .. }
+            | ServerEvent::NoteRevisionCreated { .. } => Some("note"),
+            ServerEvent::AttachmentCreated { .. }
+            | ServerEvent::AttachmentDeleted { .. }
+            | ServerEvent::AttachmentExtractionUpdated { .. } => Some("attachment"),
+            ServerEvent::CollectionCreated { .. }
+            | ServerEvent::CollectionUpdated { .. }
+            | ServerEvent::CollectionDeleted { .. }
+            | ServerEvent::CollectionMembershipChanged { .. } => Some("collection"),
+            ServerEvent::ArchiveCreated { .. }
+            | ServerEvent::ArchiveUpdated { .. }
+            | ServerEvent::ArchiveDeleted { .. }
+            | ServerEvent::ArchiveDefaultChanged { .. } => Some("archive"),
         }
     }
 
@@ -287,7 +437,37 @@ impl ServerEvent {
             | ServerEvent::JobProgress { job_id, .. }
             | ServerEvent::JobCompleted { job_id, .. }
             | ServerEvent::JobFailed { job_id, .. } => Some(*job_id),
-            ServerEvent::NoteUpdated { note_id, .. } => Some(*note_id),
+            ServerEvent::NoteUpdated { note_id, .. }
+            | ServerEvent::NoteCreated { note_id, .. }
+            | ServerEvent::NoteDeleted { note_id, .. }
+            | ServerEvent::NoteArchived { note_id, .. }
+            | ServerEvent::NoteRestored { note_id, .. }
+            | ServerEvent::NoteTagsUpdated { note_id, .. }
+            | ServerEvent::NoteLinksUpdated { note_id, .. }
+            | ServerEvent::NoteRevisionCreated { note_id, .. } => Some(*note_id),
+            ServerEvent::AttachmentCreated {
+                attachment_id, ..
+            }
+            | ServerEvent::AttachmentDeleted {
+                attachment_id, ..
+            }
+            | ServerEvent::AttachmentExtractionUpdated {
+                attachment_id, ..
+            } => Some(*attachment_id),
+            ServerEvent::CollectionCreated {
+                collection_id, ..
+            }
+            | ServerEvent::CollectionUpdated {
+                collection_id, ..
+            }
+            | ServerEvent::CollectionDeleted {
+                collection_id, ..
+            } => Some(*collection_id),
+            ServerEvent::CollectionMembershipChanged { note_id, .. } => Some(*note_id),
+            ServerEvent::ArchiveCreated { archive_id, .. } => *archive_id,
+            ServerEvent::ArchiveUpdated { .. }
+            | ServerEvent::ArchiveDeleted { .. }
+            | ServerEvent::ArchiveDefaultChanged { .. } => None,
         }
     }
 }

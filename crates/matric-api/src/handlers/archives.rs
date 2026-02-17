@@ -14,7 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::{ApiError, AppState};
-use matric_core::{ArchiveInfo, ArchiveRepository};
+use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 // =============================================================================
 // REQUEST/RESPONSE TYPES
@@ -164,6 +164,12 @@ pub async fn create_archive(
         .create_archive_schema(&req.name, req.description.as_deref())
         .await?;
 
+    // Emit ArchiveCreated event (Issue #455)
+    state.event_bus.emit(ServerEvent::ArchiveCreated {
+        name: archive.name.clone(),
+        archive_id: Some(archive.id),
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
@@ -205,6 +211,12 @@ pub async fn update_archive(
         .archives
         .update_archive_metadata(&name, req.description.as_deref())
         .await?;
+
+    // Emit ArchiveUpdated event (Issue #455)
+    state
+        .event_bus
+        .emit(ServerEvent::ArchiveUpdated { name: name.clone() });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -242,6 +254,12 @@ pub async fn delete_archive(
     }
 
     state.db.archives.drop_archive_schema(&name).await?;
+
+    // Emit ArchiveDeleted event (Issue #455)
+    state
+        .event_bus
+        .emit(ServerEvent::ArchiveDeleted { name: name.clone() });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -269,6 +287,11 @@ pub async fn set_default_archive(
 
     // Invalidate default archive cache to force refresh on next request (Issue #107)
     state.default_archive_cache.write().await.invalidate();
+
+    // Emit ArchiveDefaultChanged event (Issue #455)
+    state
+        .event_bus
+        .emit(ServerEvent::ArchiveDefaultChanged { name: name.clone() });
 
     Ok(StatusCode::NO_CONTENT)
 }

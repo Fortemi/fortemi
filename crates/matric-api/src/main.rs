@@ -3892,19 +3892,17 @@ async fn create_note(
     )
     .await;
 
-    // Emit NoteUpdated event (Issue #41)
+    // Emit NoteCreated event (Issue #453)
     let tags_for_event = state
         .db
         .tags
         .get_for_note(note_id)
         .await
         .unwrap_or_default();
-    state.event_bus.emit(ServerEvent::NoteUpdated {
+    state.event_bus.emit(ServerEvent::NoteCreated {
         note_id,
         title: None, // Title not yet generated
         tags: tags_for_event,
-        has_ai_content: false, // AI revision queued but not yet complete
-        has_links: false,
     });
 
     // Invalidate search cache so new note appears in search results (#341)
@@ -4314,6 +4312,9 @@ async fn delete_note(
     ctx.execute(move |tx| Box::pin(async move { notes.soft_delete_tx(tx, id).await }))
         .await?;
 
+    // Emit NoteDeleted event (Issue #453)
+    state.event_bus.emit(ServerEvent::NoteDeleted { note_id: id });
+
     // Invalidate search cache so deleted notes don't appear in results (#247)
     state.search_cache.invalidate_all().await;
 
@@ -4404,6 +4405,7 @@ async fn update_note_status(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateStatusBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let archived_value = body.archived;
     let req = UpdateNoteStatusRequest {
         starred: body.starred,
         archived: body.archived,
@@ -4413,6 +4415,17 @@ async fn update_note_status(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { notes.update_status_tx(tx, id, req).await }))
         .await?;
+
+    // Emit archive/restore events (Issue #453)
+    match archived_value {
+        Some(true) => state
+            .event_bus
+            .emit(ServerEvent::NoteArchived { note_id: id }),
+        Some(false) => state
+            .event_bus
+            .emit(ServerEvent::NoteRestored { note_id: id }),
+        None => {}
+    }
 
     // Invalidate search cache so status changes are reflected (#341)
     state.search_cache.invalidate_all().await;
@@ -4443,6 +4456,11 @@ async fn restore_note(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { notes.restore_tx(tx, id).await }))
         .await?;
+
+    // Emit NoteRestored event (Issue #453)
+    state
+        .event_bus
+        .emit(ServerEvent::NoteRestored { note_id: id });
 
     // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
@@ -5999,6 +6017,13 @@ async fn create_collection(
             })
         })
         .await?;
+
+    // Emit CollectionCreated event (Issue #454)
+    state.event_bus.emit(ServerEvent::CollectionCreated {
+        collection_id: collection.id,
+        name: collection.name.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(collection)))
 }
 
@@ -6034,6 +6059,7 @@ async fn update_collection(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateCollectionBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let collection_name = body.name.clone();
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| {
@@ -6043,6 +6069,13 @@ async fn update_collection(
         })
     })
     .await?;
+
+    // Emit CollectionUpdated event (Issue #454)
+    state.event_bus.emit(ServerEvent::CollectionUpdated {
+        collection_id: id,
+        name: collection_name,
+    });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -6083,6 +6116,12 @@ async fn delete_collection(
         }
         _ => ApiError::from(err),
     })?;
+
+    // Emit CollectionDeleted event (Issue #454)
+    state
+        .event_bus
+        .emit(ServerEvent::CollectionDeleted { collection_id: id });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -6228,6 +6267,15 @@ async fn move_note_to_collection(
         Box::pin(async move { repo.move_note_tx(tx, note_id, collection_id).await })
     })
     .await?;
+
+    // Emit CollectionMembershipChanged event (Issue #454)
+    state
+        .event_bus
+        .emit(ServerEvent::CollectionMembershipChanged {
+            collection_id,
+            note_id,
+        });
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -10953,6 +11001,13 @@ async fn upload_attachment(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
+    // Emit AttachmentCreated event (Issue #454)
+    state.event_bus.emit(ServerEvent::AttachmentCreated {
+        attachment_id: attachment.id,
+        note_id: id,
+        filename: Some(body.filename.clone()),
+    });
+
     // Queue background extraction job for the uploaded attachment
     queue_extraction_job(
         &state.db,
@@ -11100,6 +11155,13 @@ async fn upload_attachment_multipart(
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
+    // Emit AttachmentCreated event (Issue #454)
+    state.event_bus.emit(ServerEvent::AttachmentCreated {
+        attachment_id: attachment.id,
+        note_id: id,
+        filename: Some(filename.clone()),
+    });
+
     // Queue background extraction job for the uploaded attachment
     queue_extraction_job(
         &state.db,
@@ -11215,6 +11277,12 @@ async fn delete_attachment(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    // Emit AttachmentDeleted event (Issue #454)
+    state.event_bus.emit(ServerEvent::AttachmentDeleted {
+        attachment_id,
+        note_id: None,
+    });
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -15325,14 +15393,14 @@ mod tests {
         // Collect events
         let events = collector.await.unwrap();
 
-        // Assert: at least one NoteUpdated event with matching note_id
-        let note_updated = events.iter().find(|e| {
-            e["payload"]["type"] == "NoteUpdated"
+        // Assert: at least one NoteCreated event with matching note_id (Issue #453)
+        let note_created = events.iter().find(|e| {
+            e["payload"]["type"] == "NoteCreated"
                 && e["payload"]["note_id"].as_str() == Some(&note_id.to_string())
         });
         assert!(
-            note_updated.is_some(),
-            "Expected NoteUpdated event for note_id={}, got events: {:?}",
+            note_created.is_some(),
+            "Expected NoteCreated event for note_id={}, got events: {:?}",
             note_id,
             events
         );
@@ -15388,7 +15456,9 @@ mod tests {
         let events = collector.await.unwrap();
 
         // Assert all expected event types present (check payload.type for domain event type)
-        let has_note_updated = events.iter().any(|e| e["payload"]["type"] == "NoteUpdated");
+        let has_note_updated = events.iter().any(|e| {
+            e["payload"]["type"] == "NoteUpdated" || e["payload"]["type"] == "NoteCreated"
+        });
         let has_job_started = events.iter().any(|e| e["payload"]["type"] == "JobStarted");
         let has_job_progress = events.iter().any(|e| e["payload"]["type"] == "JobProgress");
         let has_job_completed = events.iter().any(|e| e["payload"]["type"] == "JobCompleted");
