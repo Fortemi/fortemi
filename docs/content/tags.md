@@ -451,22 +451,39 @@ The concept tagging AI generates tags across these dimensions:
 | **Tool/Framework** | No | `tool/pytorch` |
 | **Era/Context** | No | `era/modern-ai` |
 
-### Two-Phase NLP Pipeline
+### NLP Pipeline
 
-Concept tagging is part of a coordinated two-phase pipeline:
+Concept tagging is part of a coordinated pipeline:
 
 **Phase 1** (runs in parallel):
 - AI Revision (content enhancement)
 - Title Generation
-- **Concept Tagging** (prerequisite for Phase 2)
+- **Concept Tagging** (prerequisite for subsequent phases)
 - Metadata Extraction
 - Document Type Inference
 
 **Phase 2** (after concept tagging completes):
-- **Embedding** — tags are embedded into vectors alongside content, producing semantically richer embeddings
+- **Related Concept Inference** — identifies cross-dimensional associative relationships between the note's concepts and creates `skos:related` edges (see [Automatic Related Concept Detection](#automatic-related-concept-detection) below)
+- **Embedding** — concept labels and their relationships (broader, narrower, related) are embedded into vectors alongside content, producing semantically richer embeddings
+
+**Phase 3** (after embedding completes):
 - **Linking** — semantic links blend embedding similarity with SKOS tag overlap for higher-quality connections
 
-This ordering ensures that embeddings and links incorporate tag context, significantly improving search relevance and connection quality.
+This ordering ensures that concept relationships are established before embeddings are generated, so the full concept graph context informs both embeddings and linking.
+
+### Automatic Related Concept Detection
+
+After concept tagging completes, the `RelatedConceptInference` pipeline step uses the LLM to identify associative relationships between the concepts tagged on a note.
+
+**What it does:**
+- Queries the leaf concepts (non-root) tagged on the note
+- Asks the LLM to identify cross-dimensional associations (e.g., `technique/attention-mechanism` related to `domain/machine-learning`)
+- Creates `skos:related` edges between associated concepts with a confidence score
+- The `skos:related` relation is symmetric — the reciprocal edge is created automatically by a database trigger
+
+**When it runs:** After `ConceptTagging` completes, before embedding generation. Skips notes with fewer than 3 leaf concepts (insufficient signal for meaningful inference).
+
+**How to identify inferred relations:** Relations created by this step have `created_by: "related_concept_inference"`. They are standard `skos:related` edges and can be queried and managed through the normal concepts API.
 
 ### Tagging Sources
 

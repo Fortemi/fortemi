@@ -61,6 +61,7 @@ impl PgJobRepository {
             JobType::ThreeDAnalysis => "3d_analysis",
             JobType::DocumentTypeInference => "document_type_inference",
             JobType::MetadataExtraction => "metadata_extraction",
+            JobType::RelatedConceptInference => "related_concept_inference",
         }
     }
 
@@ -88,6 +89,7 @@ impl PgJobRepository {
             "3d_analysis" => JobType::ThreeDAnalysis,
             "document_type_inference" => JobType::DocumentTypeInference,
             "metadata_extraction" => JobType::MetadataExtraction,
+            "related_concept_inference" => JobType::RelatedConceptInference,
             _ => JobType::ContextUpdate, // fallback
         }
     }

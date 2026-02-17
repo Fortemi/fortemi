@@ -6,21 +6,24 @@ This guide explains how Fortémi automatically constructs and traverses knowledg
 
 ### Automatic Link Creation
 
-When you create a note, Fortémi's two-phase NLP pipeline automatically constructs the knowledge graph:
+When you create a note, Fortémi's NLP pipeline automatically constructs the knowledge graph across three phases:
 
 **Phase 1** (parallel):
 1. **AI concept tagging** — Generates 8-15 SKOS concept tags across 6 dimensions (domain, topic, methodology, application, technique, content-type)
 
 **Phase 2** (after tagging completes):
-2. **Tag-enriched embeddings** — Converts content + SKOS concept labels into vectors, producing semantically richer embeddings than content alone
-3. **Tag-boosted similarity** — Blends embedding cosine similarity with SKOS tag overlap using a configurable weight formula:
+2. **Related concept inference** — Uses the LLM to identify cross-dimensional associative relationships (e.g., `technique/attention-mechanism` related to `domain/machine-learning`) and creates `skos:related` edges with confidence scores. Skips notes with fewer than 3 leaf concepts.
+3. **Tag-enriched embeddings** — Converts content + SKOS concept labels and their hierarchical relationships (broader, narrower, related) into vectors, producing semantically richer embeddings than content alone
+
+**Phase 3** (after embedding completes):
+4. **Tag-boosted similarity** — Blends embedding cosine similarity with SKOS tag overlap using a configurable weight formula:
    ```
    final_score = (embedding_sim × (1 - tag_weight)) + (tag_overlap × tag_weight)
    ```
-4. **HNSW diverse neighbor selection** — Uses Algorithm 4 (Malkov & Yashunin 2018) to select up to k neighbors that are closer to the source than to already-selected neighbors, preventing star topology on clustered data
-5. **Creates reciprocal links** — Bidirectional links with metadata (strategy, k, rank, tag_weight)
+5. **HNSW diverse neighbor selection** — Uses Algorithm 4 (Malkov & Yashunin 2018) to select up to k neighbors that are closer to the source than to already-selected neighbors, preventing star topology on clustered data
+6. **Creates reciprocal links** — Bidirectional links with metadata (strategy, k, rank, tag_weight)
 
-This two-phase ordering is critical: tags inform embeddings, and both tags and embeddings inform linking. The result is significantly higher-quality connections than pure embedding similarity alone.
+This ordering is critical: concept relationships are inferred before embeddings are generated, so embeddings incorporate the full concept graph context. Tags, relationships, and embeddings all inform linking. The result is significantly higher-quality connections than pure embedding similarity alone.
 
 ### Link Types
 
@@ -195,8 +198,10 @@ Understanding how the knowledge graph builds itself helps you get the most from 
 1. **Create a note** via API or MCP `capture_knowledge`
 2. **Phase 1 NLP jobs run in parallel**: AI revision, title generation, concept tagging, metadata extraction, document type inference
 3. **Concept tagging completes** — the note now has 8-15 hierarchical SKOS tags
-4. **Phase 2 NLP jobs are queued**: tag-enriched embedding generation and tag-boosted linking
-5. **The knowledge graph grows** — new connections appear automatically
+4. **Related concept inference runs** — the LLM identifies associative relationships between the note's concepts and creates `skos:related` edges
+5. **Tag-enriched embedding is queued** — embedding generation uses concept labels and their relationships (broader, narrower, related) for richer vectors
+6. **Tag-boosted linking is queued** — new connections appear using both embeddings and tag overlap
+7. **The knowledge graph grows** — new connections appear automatically
 
 You don't need to trigger any of these steps manually. The entire pipeline runs in the background via the job queue.
 

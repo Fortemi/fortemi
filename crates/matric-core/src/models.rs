@@ -1819,6 +1819,8 @@ pub enum JobType {
     DocumentTypeInference,
     /// Extract rich metadata from note content using AI analysis
     MetadataExtraction,
+    /// Infer SKOS related (associative) concept relationships using AI
+    RelatedConceptInference,
 }
 
 impl JobType {
@@ -1860,6 +1862,8 @@ impl JobType {
             JobType::DocumentTypeInference => 2,
             // Metadata extraction - runs in Phase 1 alongside tagging
             JobType::MetadataExtraction => 4,
+            // Related concept inference - Phase 2, queued by ConceptTagging
+            JobType::RelatedConceptInference => 4,
         }
     }
 }
@@ -3137,6 +3141,10 @@ mod tests {
             (JobType::PurgeNote, "purge_note"),
             (JobType::ConceptTagging, "concept_tagging"),
             (JobType::ReEmbedAll, "re_embed_all"),
+            (
+                JobType::RelatedConceptInference,
+                "related_concept_inference",
+            ),
         ];
 
         for (job_type, expected) in types {
@@ -3161,6 +3169,7 @@ mod tests {
             JobType::PurgeNote,
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
+            JobType::RelatedConceptInference,
         ];
 
         for job_type in types {
@@ -3181,6 +3190,7 @@ mod tests {
             JobType::BuildSetIndex,
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
+            JobType::RelatedConceptInference,
         ];
 
         for job_type in types {

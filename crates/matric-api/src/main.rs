@@ -241,9 +241,9 @@ async fn queue_nlp_pipeline(
     }
 
     // Queue Phase 1 pipeline jobs (always run these).
-    // Embedding and Linking are Phase 2 — queued by ConceptTaggingHandler on
-    // completion (#420, #424) to ensure SKOS tags exist before embedding, so
-    // vectors include tag context for better semantic search and linking.
+    // Phase 2 (RelatedConceptInference) is queued by ConceptTaggingHandler on
+    // completion. Phase 3 (Embedding + Linking) is queued by RelatedConceptHandler.
+    // Pipeline: ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435).
     //
     // MetadataExtraction and DocumentTypeInference added in #430 for full
     // enrichment parity between single and bulk ingest paths.
@@ -326,7 +326,8 @@ use handlers::{
     vision::describe_image,
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, DocumentTypeInferenceHandler,
     EmbeddingHandler, ExifExtractionHandler, LinkingHandler, MetadataExtractionHandler,
-    PurgeNoteHandler, ReEmbedAllHandler, RefreshEmbeddingSetHandler, TitleGenerationHandler,
+    PurgeNoteHandler, ReEmbedAllHandler, RefreshEmbeddingSetHandler, RelatedConceptHandler,
+    TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1017,6 +1018,13 @@ async fn main() -> anyhow::Result<()> {
             .await;
         worker
             .register_handler(ConceptTaggingHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+                provider_registry.clone(),
+            ))
+            .await;
+        worker
+            .register_handler(RelatedConceptHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
                 provider_registry.clone(),
@@ -4481,6 +4489,10 @@ async fn reprocess_note(
         ("title_generation", JobType::TitleGeneration),
         ("linking", JobType::Linking),
         ("concept_tagging", JobType::ConceptTagging),
+        (
+            "related_concept_inference",
+            JobType::RelatedConceptInference,
+        ),
     ];
 
     for (step_name, job_type) in &step_types {
@@ -4593,12 +4605,16 @@ async fn bulk_reprocess_notes(
 
     let total = note_ids.len();
 
-    // Build step config outside the loop — includes all enrichment steps (#430)
+    // Build step config outside the loop — includes all enrichment steps (#430, #435)
     let step_types = [
         ("embedding", JobType::Embedding),
         ("title_generation", JobType::TitleGeneration),
         ("linking", JobType::Linking),
         ("concept_tagging", JobType::ConceptTagging),
+        (
+            "related_concept_inference",
+            JobType::RelatedConceptInference,
+        ),
         ("metadata_extraction", JobType::MetadataExtraction),
         ("document_type_inference", JobType::DocumentTypeInference),
     ];
@@ -8067,6 +8083,7 @@ async fn create_job(
         "context_update" => JobType::ContextUpdate,
         "title_generation" => JobType::TitleGeneration,
         "concept_tagging" => JobType::ConceptTagging,
+        "related_concept_inference" => JobType::RelatedConceptInference,
         "re_embed_all" => JobType::ReEmbedAll,
         "extraction" => JobType::Extraction,
         "exif_extraction" => JobType::ExifExtraction,

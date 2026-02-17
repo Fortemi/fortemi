@@ -11,11 +11,13 @@ use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
     AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
-    CreateProvLocationRequest, DocumentTypeRepository, EmbeddingBackend, EmbeddingRepository,
-    GenerationBackend, JobRepository, JobType, LinkRepository, NoteRepository, ProvRelation,
-    RevisionMode, SearchHit,
+    CreateProvLocationRequest, CreateSemanticRelationRequest, DocumentTypeRepository,
+    EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobRepository, JobType,
+    LinkRepository, NoteRepository, ProvRelation, RevisionMode, SearchHit, SkosSemanticRelation,
 };
-use matric_db::{Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker};
+use matric_db::{
+    Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
+};
 use matric_inference::{OllamaBackend, ProviderRegistry};
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
@@ -470,6 +472,29 @@ impl JobHandler for EmbeddingHandler {
         .await
         .unwrap_or_default();
 
+        // Fetch concept relationships for structured embedding context (#435).
+        // Includes broader (parent), narrower (child), and related (associative)
+        // relationships so the embedding captures the full semantic graph.
+        let concept_relations: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT COALESCE(sl.value, sc.notation) as source_label, \
+                    sre.relation_type::text as rel_type, \
+                    COALESCE(tl.value, tc.notation) as target_label \
+             FROM note_skos_concept nc \
+             JOIN skos_concept sc ON nc.concept_id = sc.id \
+             JOIN skos_semantic_relation_edge sre ON sre.subject_id = sc.id \
+             JOIN skos_concept tc ON sre.object_id = tc.id \
+             LEFT JOIN skos_concept_label sl ON sc.id = sl.concept_id \
+                 AND sl.label_type = 'pref_label' AND sl.language = 'en' \
+             LEFT JOIN skos_concept_label tl ON tc.id = tl.concept_id \
+                 AND tl.label_type = 'pref_label' AND tl.language = 'en' \
+             WHERE nc.note_id = $1 \
+             ORDER BY sre.relation_type, sl.value",
+        )
+        .bind(note_id)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap_or_default();
+
         if let Err(e) = tx.commit().await {
             return JobResult::Failed(format!("Commit failed: {}", e));
         }
@@ -485,9 +510,10 @@ impl JobHandler for EmbeddingHandler {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
 
-        // Build enriched content: title + tags + content (#424).
-        // Including tags in the embedding input produces vectors that capture
-        // semantic context from SKOS concepts, improving search and linking quality.
+        // Build enriched content: title + tags + relationships + content (#424, #435).
+        // Including tags and their relationships in the embedding input produces
+        // vectors that capture the full semantic context from SKOS concepts,
+        // improving search and linking quality.
         let title = note.note.title.as_deref().unwrap_or("");
         let content = {
             let mut parts = Vec::new();
@@ -496,6 +522,21 @@ impl JobHandler for EmbeddingHandler {
             }
             if !concept_labels.is_empty() {
                 parts.push(format!("Tags: {}", concept_labels.join(", ")));
+            }
+            // Add structured relationship context so the embedder can distinguish
+            // hierarchical (broader/narrower) from associative (related) links.
+            if !concept_relations.is_empty() {
+                let mut rel_lines = Vec::new();
+                for (source, rel_type, target) in &concept_relations {
+                    let arrow = match rel_type.as_str() {
+                        "broader" => "is broader than",
+                        "narrower" => "is narrower than",
+                        "related" => "is related to",
+                        _ => "→",
+                    };
+                    rel_lines.push(format!("{} {} {}", source, arrow, target));
+                }
+                parts.push(format!("Concept relationships: {}", rel_lines.join("; ")));
             }
             parts.push(base_content.to_string());
             parts.join("\n\n")
@@ -631,6 +672,7 @@ impl JobHandler for EmbeddingHandler {
                 "chunks": chunk_count,
                 "model": model_name,
                 "concept_labels_used": concept_labels.len(),
+                "concept_relations_used": concept_relations.len(),
             });
             if let Err(e) = self
                 .db
@@ -1898,46 +1940,31 @@ impl ConceptTaggingHandler {
         }
     }
 
-    /// Queue Phase 2 jobs (Embedding + Linking) after concept tagging completes.
+    /// Queue Phase 2 (RelatedConceptInference) after concept tagging completes.
     ///
     /// Called on ALL exit paths so downstream jobs run even if tagging produces
-    /// no tags. Pipeline order: ConceptTagging → Embedding → Linking (#420, #424).
+    /// no tags. Pipeline order: ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435).
     ///
-    /// Embedding is queued here (not in Phase 1) so embedding vectors include
-    /// tag context for better semantic search and linking quality.
+    /// RelatedConceptInference infers associative (skos:related) relationships
+    /// between the concepts just tagged, then queues Embedding + Linking.
     async fn queue_phase2_jobs(&self, note_id: uuid::Uuid, schema: &str) {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
         } else {
             None
         };
-        // Queue Embedding — runs after tagging so vectors include tag context (#424)
         if let Err(e) = self
             .db
             .jobs
             .queue_deduplicated(
                 Some(note_id),
-                JobType::Embedding,
-                JobType::Embedding.default_priority(),
-                payload.clone(),
-            )
-            .await
-        {
-            warn!(%note_id, error = %e, "Failed to queue phase-2 embedding job");
-        }
-        // Queue Linking — tag-boosted similarity scoring (#420)
-        if let Err(e) = self
-            .db
-            .jobs
-            .queue_deduplicated(
-                Some(note_id),
-                JobType::Linking,
-                JobType::Linking.default_priority(),
+                JobType::RelatedConceptInference,
+                JobType::RelatedConceptInference.default_priority(),
                 payload,
             )
             .await
         {
-            warn!(%note_id, error = %e, "Failed to queue phase-2 linking job");
+            warn!(%note_id, error = %e, "Failed to queue phase-2 related concept inference job");
         }
     }
 }
@@ -2200,6 +2227,379 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             "concepts_tagged": tagged_count,
             "concepts_suggested": concept_labels.len(),
             "labels": concept_labels
+        })))
+    }
+}
+
+/// Handler for inferring SKOS related (associative) concept relationships (#435).
+///
+/// Runs as Phase 2 in the NLP pipeline, after ConceptTagging creates hierarchical
+/// concepts. Analyzes concepts tagged on a note and uses LLM to identify
+/// cross-dimensional associative relationships (e.g., "attention-mechanism" related
+/// to "machine-learning"). Creates `skos:related` edges with confidence scores.
+///
+/// Pipeline: ConceptTagging → RelatedConceptInference → Embedding → Linking
+pub struct RelatedConceptHandler {
+    db: Database,
+    backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
+}
+
+impl RelatedConceptHandler {
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
+    }
+
+    /// Queue Phase 3 jobs (Embedding + Linking) after related concept inference completes.
+    ///
+    /// Called on ALL exit paths so downstream jobs run even if inference produces
+    /// no relations. Pipeline order: ConceptTagging → RelatedConceptInference → Embedding → Linking (#435).
+    async fn queue_phase3_jobs(&self, note_id: uuid::Uuid, schema: &str) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::Embedding,
+                JobType::Embedding.default_priority(),
+                payload.clone(),
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue phase-3 embedding job");
+        }
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::Linking,
+                JobType::Linking.default_priority(),
+                payload,
+            )
+            .await
+        {
+            warn!(%note_id, error = %e, "Failed to queue phase-3 linking job");
+        }
+    }
+}
+
+/// A single related concept pair inferred by the LLM.
+#[derive(Debug, serde::Deserialize)]
+struct RelatedPair {
+    concept_a: String,
+    concept_b: String,
+    confidence: f32,
+}
+
+#[async_trait]
+impl JobHandler for RelatedConceptHandler {
+    fn job_type(&self) -> JobType {
+        JobType::RelatedConceptInference
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(
+            subsystem = "jobs",
+            component = "related_concept_inference",
+            op = "execute"
+        )
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
+
+        ctx.report_progress(10, Some("Fetching note concepts..."));
+
+        // Query concepts tagged on this note with their dimension context.
+        // We need notation (used as identifier), label (human-readable), and
+        // the broader parent notation to identify which dimension each concept belongs to.
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => {
+                self.queue_phase3_jobs(note_id, schema).await;
+                return JobResult::Failed(format!("Schema tx failed: {}", e));
+            }
+        };
+
+        #[derive(Debug)]
+        struct ConceptInfo {
+            id: uuid::Uuid,
+            notation: String,
+            label: String,
+            broader_notation: Option<String>,
+            depth: i32,
+        }
+
+        let rows: Vec<ConceptInfo> =
+            sqlx::query_as::<_, (uuid::Uuid, String, String, Option<String>, i32)>(
+                r#"SELECT c.id, c.notation, COALESCE(l.value, c.notation) as label,
+                      bc.notation as broader_notation, c.depth
+               FROM note_skos_concept nc
+               JOIN skos_concept c ON nc.concept_id = c.id
+               LEFT JOIN skos_concept_label l ON c.id = l.concept_id
+                   AND l.label_type = 'pref_label' AND l.language = 'en'
+               LEFT JOIN skos_semantic_relation_edge sre
+                   ON sre.subject_id = c.id AND sre.relation_type = 'broader'
+               LEFT JOIN skos_concept bc ON sre.object_id = bc.id AND bc.depth = 0
+               WHERE nc.note_id = $1
+               ORDER BY nc.relevance_score DESC"#,
+            )
+            .bind(note_id)
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(
+                |(id, notation, label, broader_notation, depth)| ConceptInfo {
+                    id,
+                    notation,
+                    label,
+                    broader_notation,
+                    depth,
+                },
+            )
+            .collect();
+
+        // Also fetch existing related relations to avoid duplicates
+        let existing_related: Vec<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            r#"SELECT sre.subject_id, sre.object_id
+               FROM skos_semantic_relation_edge sre
+               WHERE sre.relation_type = 'related'
+                 AND sre.subject_id = ANY($1)"#,
+        )
+        .bind(rows.iter().map(|r| r.id).collect::<Vec<_>>())
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap_or_default();
+
+        tx.commit().await.ok();
+
+        // Filter out root-level dimension concepts (depth=0) — only relate leaf/intermediate concepts
+        let concepts: Vec<&ConceptInfo> = rows.iter().filter(|c| c.depth > 0).collect();
+
+        // Need at least 3 concepts for meaningful cross-dimensional pairs
+        if concepts.len() < 3 {
+            self.queue_phase3_jobs(note_id, schema).await;
+            return JobResult::Success(Some(serde_json::json!({
+                "relations_created": 0,
+                "reason": if rows.is_empty() { "no_concepts" } else { "too_few_leaf_concepts" },
+                "total_concepts": rows.len(),
+                "leaf_concepts": concepts.len()
+            })));
+        }
+
+        ctx.report_progress(30, Some("Inferring related concept pairs..."));
+
+        // Build a set of existing related pairs for deduplication
+        let existing_set: std::collections::HashSet<(uuid::Uuid, uuid::Uuid)> = existing_related
+            .into_iter()
+            .flat_map(|(a, b)| [(a, b), (b, a)])
+            .collect();
+
+        // Build LLM prompt listing concepts with dimension context
+        let concept_list: String = concepts
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let dimension = c.broader_notation.as_deref().unwrap_or("unknown");
+                format!("{}. {} (dimension: {})", i + 1, c.label, dimension)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let prompt = format!(
+            r#"You are a knowledge organization specialist. Given SKOS concepts tagged on a document, identify pairs that are semantically RELATED (associative, non-hierarchical).
+
+Rules:
+- Do NOT pair concepts that already have broader/narrower relationships
+- Focus on cross-dimensional associations (e.g., a technique related to a domain)
+- Only suggest pairs with genuine semantic association
+- Confidence: 0.7+ for strong associations, 0.5-0.7 for moderate
+- Use the exact concept labels from the list below
+
+Concepts:
+{concept_list}
+
+Output ONLY a JSON array (no markdown, no explanation):
+[{{"concept_a": "label-a", "concept_b": "label-b", "confidence": 0.85}}]
+
+If no meaningful related pairs exist, output an empty array: []"#
+        );
+
+        let ai_response = match backend.generate(&prompt).await {
+            Ok(r) => r.trim().to_string(),
+            Err(e) => {
+                self.queue_phase3_jobs(note_id, schema).await;
+                return JobResult::Failed(format!("AI generation failed: {}", e));
+            }
+        };
+
+        ctx.report_progress(60, Some("Parsing related pairs..."));
+
+        // Parse the AI response
+        let pairs: Vec<RelatedPair> = match serde_json::from_str(&ai_response) {
+            Ok(p) => p,
+            Err(_) => {
+                let cleaned = ai_response
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                match serde_json::from_str(cleaned) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
+                        self.queue_phase3_jobs(note_id, schema).await;
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                    }
+                }
+            }
+        };
+
+        if pairs.is_empty() {
+            self.queue_phase3_jobs(note_id, schema).await;
+            return JobResult::Success(Some(serde_json::json!({
+                "relations_created": 0,
+                "reason": "no_pairs_suggested",
+                "concepts_analyzed": concepts.len()
+            })));
+        }
+
+        ctx.report_progress(70, Some("Creating related relations..."));
+
+        // Build a lookup from label → concept info
+        let label_to_concept: std::collections::HashMap<String, &ConceptInfo> = concepts
+            .iter()
+            .flat_map(|c| {
+                // Match by both label and notation for robustness
+                let mut entries = vec![(c.label.to_lowercase(), *c)];
+                entries.push((c.notation.to_lowercase(), *c));
+                entries
+            })
+            .collect();
+
+        let mut relations_created = 0u32;
+        let total_pairs = pairs.len();
+
+        for (i, pair) in pairs.iter().enumerate() {
+            // Clamp confidence to valid range
+            let confidence = pair.confidence.clamp(0.0, 1.0);
+            if confidence < 0.5 {
+                debug!(concept_a = %pair.concept_a, concept_b = %pair.concept_b, confidence, "Skipping low-confidence pair");
+                continue;
+            }
+
+            // Look up concepts by label
+            let concept_a = label_to_concept.get(&pair.concept_a.to_lowercase());
+            let concept_b = label_to_concept.get(&pair.concept_b.to_lowercase());
+
+            let (a, b) = match (concept_a, concept_b) {
+                (Some(a), Some(b)) => (a, b),
+                _ => {
+                    debug!(
+                        concept_a = %pair.concept_a,
+                        concept_b = %pair.concept_b,
+                        "Skipping pair: concept not found in note's tagged concepts"
+                    );
+                    continue;
+                }
+            };
+
+            // Skip self-relations
+            if a.id == b.id {
+                continue;
+            }
+
+            // Skip if relation already exists
+            if existing_set.contains(&(a.id, b.id)) {
+                debug!(a_notation = %a.notation, b_notation = %b.notation, "Skipping existing related pair");
+                continue;
+            }
+
+            // Create the related relation (is_inferred=false triggers reciprocal via trigger)
+            match self
+                .db
+                .skos
+                .create_semantic_relation(CreateSemanticRelationRequest {
+                    subject_id: a.id,
+                    object_id: b.id,
+                    relation_type: SkosSemanticRelation::Related,
+                    inference_score: Some(confidence),
+                    is_inferred: false,
+                    created_by: Some("related_concept_inference".to_string()),
+                })
+                .await
+            {
+                Ok(_) => {
+                    relations_created += 1;
+                    debug!(
+                        a_notation = %a.notation,
+                        b_notation = %b.notation,
+                        confidence,
+                        "Created related concept relation"
+                    );
+                }
+                Err(e) => {
+                    // Unique constraint violation means it already exists — not an error
+                    debug!(error = %e, a = %a.notation, b = %b.notation, "Failed to create related relation (may already exist)");
+                }
+            }
+
+            let progress = 70 + ((i + 1) * 25 / total_pairs) as i32;
+            ctx.report_progress(
+                progress,
+                Some(&format!("Related: {} ↔ {}", a.label, b.label)),
+            );
+        }
+
+        ctx.report_progress(98, Some("Queuing embedding and linking..."));
+        self.queue_phase3_jobs(note_id, schema).await;
+
+        ctx.report_progress(100, Some("Related concept inference complete"));
+        info!(
+            note_id = %note_id,
+            relations_created,
+            pairs_suggested = total_pairs,
+            concepts_analyzed = concepts.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Related concept inference completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "relations_created": relations_created,
+            "pairs_suggested": total_pairs,
+            "concepts_analyzed": concepts.len()
         })))
     }
 }

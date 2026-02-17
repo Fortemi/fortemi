@@ -208,6 +208,18 @@ Route different operations to different backends. This is useful for:
 - Using local Ollama for embeddings (privacy) and API for generation (quality)
 - Leveraging the strengths of different backends for different tasks
 
+**Generation vs. embedding operations:**
+
+| Operation | Backend type |
+|-----------|-------------|
+| AI revision, title generation | Generation |
+| Concept tagging | Generation |
+| Related concept inference | Generation |
+| Metadata extraction, context update | Generation |
+| Embedding generation | Embedding |
+
+Related concept inference runs as a pipeline step after concept tagging and uses the same generation backend. If you route `generation` to a specific backend (e.g., `openai`), related concept inference uses that backend as well.
+
 ### Example: Hybrid Configuration
 
 ```toml
@@ -324,7 +336,7 @@ chain = ["openai", "ollama"]  # Generation falls back to Ollama if API is down
 
 ## Provider-Qualified Model Slugs
 
-All LLM-backed operations (AI revision, title generation, concept tagging, metadata extraction, context update) support **per-operation model override** using provider-qualified slugs.
+All LLM-backed operations (AI revision, title generation, concept tagging, related concept inference, metadata extraction, context update) support **per-operation model override** using provider-qualified slugs.
 
 ### Slug Format
 
