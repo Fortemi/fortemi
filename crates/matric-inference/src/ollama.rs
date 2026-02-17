@@ -9,6 +9,8 @@ use tracing::{debug, info, instrument, warn};
 use matric_core::{EmbeddingBackend, Error, GenerationBackend, InferenceBackend, Result, Vector};
 
 use crate::embedding_models::{EmbeddingModelProfile, EmbeddingModelRegistry};
+// requires_raw_mode is tested below but no longer used in generate_internal (switched to chat API).
+#[cfg(test)]
 use crate::model_config::requires_raw_mode;
 use crate::profiles::{ModelProfile, ModelRegistry};
 
@@ -251,6 +253,10 @@ impl OllamaBackend {
     }
 
     /// Internal generation method shared by all generate variants.
+    ///
+    /// Uses the `/api/chat` endpoint which properly separates thinking/reasoning
+    /// from the final response content. This is essential for thinking models
+    /// (e.g., gpt-oss, qwen3) where `/api/generate` leaks reasoning into the response.
     async fn generate_internal(
         &self,
         system: &str,
@@ -258,32 +264,36 @@ impl OllamaBackend {
         format: Option<serde_json::Value>,
     ) -> Result<String> {
         let start = Instant::now();
-        let use_raw_mode = requires_raw_mode(&self.gen_model);
 
         debug!(
-            raw_mode = use_raw_mode,
             json_format = format.is_some(),
-            "Starting generation"
+            "Starting generation via chat API"
         );
 
-        let request = GenerateRequest {
+        let mut messages = Vec::new();
+        if !system.is_empty() {
+            messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        });
+
+        let think = if format.is_some() { Some(false) } else { None };
+        let request = ChatRequest {
             model: self.gen_model.clone(),
-            prompt: prompt.to_string(),
+            messages,
             stream: false,
-            system: if system.is_empty() {
-                None
-            } else {
-                Some(system.to_string())
-            },
-            raw: if use_raw_mode { Some(true) } else { None },
-            // Disable thinking for JSON mode — reasoning output breaks JSON parsing.
-            think: if format.is_some() { Some(false) } else { None },
             format,
+            think,
         };
 
         let response = self
             .client
-            .post(format!("{}/api/generate", self.base_url))
+            .post(format!("{}/api/chat", self.base_url))
             .timeout(Duration::from_secs(self.gen_timeout_secs))
             .json(&request)
             .send()
@@ -299,14 +309,15 @@ impl OllamaBackend {
             )));
         }
 
-        let result: GenerateResponse = response
+        let result: ChatResponse = response
             .json()
             .await
             .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
 
+        let content = result.message.content;
         let elapsed = start.elapsed().as_millis() as u64;
         debug!(
-            response_len = result.response.len(),
+            response_len = content.len(),
             duration_ms = elapsed,
             "Generation complete"
         );
@@ -318,7 +329,7 @@ impl OllamaBackend {
                 "Slow generation operation"
             );
         }
-        Ok(result.response)
+        Ok(content)
     }
 }
 
@@ -339,15 +350,19 @@ struct EmbeddingResponse {
     embeddings: Vec<Vec<f32>>,
 }
 
+/// Chat API message for `/api/chat`.
+#[derive(Serialize, Deserialize, Clone)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+/// Request payload for the Ollama `/api/chat` endpoint.
 #[derive(Serialize)]
-struct GenerateRequest {
+struct ChatRequest {
     model: String,
-    prompt: String,
+    messages: Vec<ChatMessage>,
     stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    raw: Option<bool>,
     /// Ollama format enforcement. Set to `"json"` for guaranteed valid JSON output.
     #[serde(skip_serializing_if = "Option::is_none")]
     format: Option<serde_json::Value>,
@@ -357,9 +372,10 @@ struct GenerateRequest {
     think: Option<bool>,
 }
 
+/// Response from the Ollama `/api/chat` endpoint.
 #[derive(Deserialize)]
-struct GenerateResponse {
-    response: String,
+struct ChatResponse {
+    message: ChatMessage,
 }
 
 #[async_trait]
@@ -614,13 +630,20 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_request_serialization() {
-        let request = GenerateRequest {
+    fn test_chat_request_serialization() {
+        let request = ChatRequest {
             model: "llama3".to_string(),
-            prompt: "Hello".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "Be helpful".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                },
+            ],
             stream: false,
-            system: Some("Be helpful".to_string()),
-            raw: None,
             format: None,
             think: None,
         };
@@ -628,50 +651,21 @@ mod tests {
         assert!(json.contains("llama3"));
         assert!(json.contains("Hello"));
         assert!(json.contains("Be helpful"));
-        assert!(!json.contains("raw")); // Should not serialize None
+        assert!(json.contains("\"role\":\"system\""));
+        assert!(json.contains("\"role\":\"user\""));
         assert!(!json.contains("format")); // Should not serialize None
         assert!(!json.contains("think")); // Should not serialize None
     }
 
     #[test]
-    fn test_generate_request_with_raw_mode() {
-        let request = GenerateRequest {
-            model: "deepseek-r1:14b".to_string(),
-            prompt: "Think about this".to_string(),
-            stream: false,
-            system: None,
-            raw: Some(true),
-            format: None,
-            think: None,
-        };
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("deepseek-r1:14b"));
-        assert!(json.contains("\"raw\":true"));
-    }
-
-    #[test]
-    fn test_generate_request_without_system() {
-        let request = GenerateRequest {
+    fn test_chat_request_with_json_format() {
+        let request = ChatRequest {
             model: "llama3".to_string(),
-            prompt: "Hello".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Output JSON".to_string(),
+            }],
             stream: false,
-            system: None,
-            raw: None,
-            format: None,
-            think: None,
-        };
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(!json.contains("system")); // Should skip serializing None
-    }
-
-    #[test]
-    fn test_generate_request_with_json_format() {
-        let request = GenerateRequest {
-            model: "llama3".to_string(),
-            prompt: "Output JSON".to_string(),
-            stream: false,
-            system: None,
-            raw: None,
             format: Some(serde_json::json!("json")),
             think: Some(false),
         };
@@ -681,13 +675,14 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_request_without_format() {
-        let request = GenerateRequest {
+    fn test_chat_request_without_format() {
+        let request = ChatRequest {
             model: "llama3".to_string(),
-            prompt: "Hello".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
             stream: false,
-            system: None,
-            raw: None,
             format: None,
             think: None,
         };
@@ -697,10 +692,11 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_response_deserialization() {
-        let json = r#"{"response": "Hello there!"}"#;
-        let response: GenerateResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.response, "Hello there!");
+    fn test_chat_response_deserialization() {
+        let json = r#"{"message": {"role": "assistant", "content": "Hello there!"}, "done": true}"#;
+        let response: ChatResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.message.content, "Hello there!");
+        assert_eq!(response.message.role, "assistant");
     }
 
     // ==========================================================================
