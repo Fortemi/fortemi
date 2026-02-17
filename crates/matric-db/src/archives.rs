@@ -1161,6 +1161,17 @@ impl ArchiveRepository for PgArchiveRepository {
         // Copy data in a single transaction
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
+        // Delete the seeded default concept scheme so the source's scheme (with its UUIDs)
+        // gets copied instead. Cloned concepts reference source scheme UUIDs via FK, so we
+        // must preserve the source's IDs rather than using the freshly-seeded ones.
+        sqlx::query(&format!(
+            "DELETE FROM {}.skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+            new_archive.schema_name
+        ))
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
         for table in &ordered_tables {
             // Skip embedding_set table - the new archive already has its own seeded default set.
             // Copying would cause duplicate key violations since both have slug='default'.
