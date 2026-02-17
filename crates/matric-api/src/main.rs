@@ -14993,6 +14993,7 @@ mod tests {
         };
 
         let router = Router::new()
+            .route("/health", get(health_check))
             .route("/api/v1/ws", get(ws_handler))
             .route("/api/v1/events", get(sse_events))
             .route("/api/v1/webhooks", post(create_webhook).get(list_webhooks))
@@ -15380,6 +15381,235 @@ mod tests {
         // Wrong entity
         let wrong_eid = Some("note-99".to_string());
         assert!(!envelope_matches_filters(&envelope, &memory, &types, &wrong_eid));
+    }
+
+    // -- SSE Contract and Integration Tests (Issue #460) --
+
+    #[tokio::test]
+    async fn test_sse_envelope_contract_required_fields() {
+        // Verify every emitted SSE frame contains a valid EventEnvelope
+        // with all required contract fields (Issue #460).
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let mut response = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        let bus_clone = bus.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            bus_clone.emit(ServerEvent::NoteCreated {
+                note_id: Uuid::nil(),
+                title: Some("Contract Test".to_string()),
+                tags: vec!["test".to_string()],
+            });
+        });
+
+        let mut collected = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_secs(3), response.chunk()).await {
+                Ok(Ok(Some(chunk))) => {
+                    collected.push_str(&String::from_utf8_lossy(&chunk));
+                    if collected.contains("note.created") {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // Extract the JSON data payload from the SSE frame
+        let data_line = collected
+            .lines()
+            .find(|l| l.starts_with("data: ") && l.contains("event_id"))
+            .expect("Expected data: line with envelope");
+        let json_str = data_line.strip_prefix("data: ").unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(json_str).unwrap();
+
+        // Contract: required fields must be present and correctly typed
+        assert!(envelope["event_id"].is_string(), "event_id must be a UUID string");
+        assert_eq!(envelope["event_type"].as_str(), Some("note.created"));
+        assert!(envelope["occurred_at"].is_string(), "occurred_at must be an ISO timestamp");
+        assert!(envelope["payload_version"].is_number(), "payload_version must be a number");
+        assert!(envelope["actor"].is_object(), "actor must be an object");
+        assert!(envelope["actor"]["kind"].is_string(), "actor.kind must be a string");
+        assert!(envelope["payload"].is_object(), "payload must contain the event data");
+
+        // Verify the event_id line matches the id: line
+        let id_line = collected
+            .lines()
+            .find(|l| l.starts_with("id: "))
+            .expect("Expected id: line");
+        let sse_id = id_line.strip_prefix("id: ").unwrap();
+        assert_eq!(envelope["event_id"].as_str().unwrap(), sse_id);
+    }
+
+    #[tokio::test]
+    async fn test_sse_type_filter_only_receives_matching() {
+        // Client with ?types=job should only receive job.* events (Issue #460).
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let mut response = client
+            .get(format!("{}/api/v1/events?types=job", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        let bus_clone = bus.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            // Emit a note event (should be filtered out)
+            bus_clone.emit(ServerEvent::NoteCreated {
+                note_id: Uuid::nil(),
+                title: Some("Filtered Out".to_string()),
+                tags: vec![],
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            // Emit a job event (should be delivered)
+            bus_clone.emit(ServerEvent::JobFailed {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+                error: "type_filter_test".to_string(),
+            });
+        });
+
+        let mut collected = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(std::time::Duration::from_secs(3), response.chunk()).await {
+                Ok(Ok(Some(chunk))) => {
+                    collected.push_str(&String::from_utf8_lossy(&chunk));
+                    if collected.contains("type_filter_test") {
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        assert!(collected.contains("event: job.failed"), "Job event should be delivered");
+        assert!(!collected.contains("note.created"), "Note event should be filtered out");
+    }
+
+    #[tokio::test]
+    async fn test_sse_invalid_type_filter_returns_400() {
+        // Empty types filter should return 400 (Issue #460).
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("{}/api/v1/events?types=", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        // Empty types string with comma parsing should produce empty vec → 400
+        // Actually, empty string "" splits to [""] which filters to empty → 400
+        assert_eq!(response.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn test_sse_health_metrics_snapshot() {
+        // Verify /health returns SSE metrics (Issue #460).
+        let (base_url, _bus, _conns) = spawn_eventing_test_server().await;
+
+        // First establish an SSE connection to increment metrics
+        let client = reqwest::Client::new();
+        let _sse_response = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Check health endpoint for SSE metrics
+        let health_response = client
+            .get(format!("{}/health", base_url))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(health_response.status(), 200);
+        let health: serde_json::Value = health_response.json().await.unwrap();
+        assert!(health["sse"].is_object(), "/health must include 'sse' metrics");
+        assert!(health["sse"]["connections_total"].is_number());
+        assert!(health["sse"]["active_connections"].is_number());
+        assert!(health["sse"]["events_emitted"].is_number());
+        assert!(health["sse"]["events_delivered"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_sse_cross_client_convergence() {
+        // Two independent clients both receive the same event (Issue #460).
+        let (base_url, bus, _conns) = spawn_eventing_test_server().await;
+        let client = reqwest::Client::new();
+
+        let mut resp_a = client.get(format!("{}/api/v1/events", base_url)).send().await.unwrap();
+        let mut resp_b = client.get(format!("{}/api/v1/events", base_url)).send().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let unique_marker = Uuid::new_v4().to_string();
+        bus.emit(ServerEvent::JobFailed {
+            job_id: Uuid::nil(),
+            job_type: "Convergence".to_string(),
+            note_id: None,
+            error: unique_marker.clone(),
+        });
+
+        // Both clients should receive the same unique event
+        for (label, resp) in [("A", &mut resp_a), ("B", &mut resp_b)] {
+            let mut collected = String::new();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while tokio::time::Instant::now() < deadline {
+                match tokio::time::timeout(std::time::Duration::from_secs(3), resp.chunk()).await {
+                    Ok(Ok(Some(chunk))) => {
+                        collected.push_str(&String::from_utf8_lossy(&chunk));
+                        if collected.contains(&unique_marker) {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            assert!(
+                collected.contains(&unique_marker),
+                "Client {} should have received the convergence event",
+                label
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sse_events_emitted_counter() {
+        // Verify events_emitted counter increments on emit (Issue #460).
+        let bus = EventBus::new(32);
+        let before = bus.metrics.events_emitted.load(Ordering::Relaxed);
+        bus.emit(ServerEvent::QueueStatus { total_jobs: 1, running: 0, pending: 1 });
+        bus.emit(ServerEvent::QueueStatus { total_jobs: 2, running: 0, pending: 2 });
+        let after = bus.metrics.events_emitted.load(Ordering::Relaxed);
+        assert_eq!(after - before, 2);
+    }
+
+    #[tokio::test]
+    async fn test_sse_event_id_monotonic_ordering() {
+        // Verify event IDs (UUIDv7) are monotonically increasing (Issue #460).
+        let bus = EventBus::new(32);
+        let mut rx = bus.subscribe();
+
+        bus.emit(ServerEvent::QueueStatus { total_jobs: 1, running: 0, pending: 1 });
+        bus.emit(ServerEvent::QueueStatus { total_jobs: 2, running: 0, pending: 2 });
+        bus.emit(ServerEvent::QueueStatus { total_jobs: 3, running: 0, pending: 3 });
+
+        let e1 = rx.recv().await.unwrap();
+        let e2 = rx.recv().await.unwrap();
+        let e3 = rx.recv().await.unwrap();
+
+        assert!(e1.event_id < e2.event_id, "Event IDs must be monotonically increasing");
+        assert!(e2.event_id < e3.event_id, "Event IDs must be monotonically increasing");
     }
 
     // -- Webhook API Tests --
