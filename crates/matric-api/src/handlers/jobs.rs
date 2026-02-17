@@ -2040,7 +2040,13 @@ pub struct ConceptTaggingHandler {
     backend: OllamaBackend,
     /// Fast model backend for simple documents (#439). None if MATRIC_FAST_GEN_MODEL not set.
     fast_backend: Option<OllamaBackend>,
+    /// Optional GLiNER NER backend for fast concept extraction.
+    /// When available, GLiNER runs first as the fastest path (<300ms).
+    /// If GLiNER produces fewer than `target_concepts`, fast/standard LLM supplements.
+    ner_backend: Option<Arc<dyn NerBackend>>,
     registry: Arc<ProviderRegistry>,
+    /// Target number of concepts per note. Configurable via EXTRACTION_TARGET_CONCEPTS.
+    target_concepts: usize,
 }
 
 impl ConceptTaggingHandler {
@@ -2048,13 +2054,20 @@ impl ConceptTaggingHandler {
         db: Database,
         backend: OllamaBackend,
         fast_backend: Option<OllamaBackend>,
+        ner_backend: Option<Arc<dyn NerBackend>>,
         registry: Arc<ProviderRegistry>,
     ) -> Self {
+        let target_concepts = std::env::var(matric_core::defaults::ENV_EXTRACTION_TARGET_CONCEPTS)
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(matric_core::defaults::EXTRACTION_TARGET_CONCEPTS);
         Self {
             db,
             backend,
             fast_backend,
+            ner_backend,
             registry,
+            target_concepts,
         }
     }
 
@@ -2151,9 +2164,9 @@ impl JobHandler for ConceptTaggingHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        // Fast-first model routing: always try fast model when available.
-        // Large content gets chunked for the fast model; standard model
-        // processes the full preview without chunking on escalation.
+        // Model routing: GLiNER → fast model → standard model (escalation cascade).
+        // GLiNER provides near-instant entity extraction; if it doesn't produce enough
+        // concepts (< target_concepts), LLM inference supplements the gap.
         let use_fast = overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
@@ -2174,13 +2187,85 @@ impl JobHandler for ConceptTaggingHandler {
             .await
             .ok();
 
-        // Build prompt template (content placeholder filled per-chunk or for full preview)
-        let make_prompt = |text: &str| {
-            format!(
-                r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest 8-15 concept tags organized as hierarchical paths across MULTIPLE dimensions.
+        // Entity type labels for GLiNER concept extraction.
+        const CONCEPT_ENTITY_TYPES: &[&str] = &[
+            "domain",
+            "topic",
+            "technique",
+            "methodology",
+            "application",
+            "tool",
+            "framework",
+            "concept",
+            "technology",
+        ];
 
-Content:
-{}
+        // ── Step 1: GLiNER pass (fastest, <300ms) ──────────────────────────
+        let mut concept_labels: Vec<String> = Vec::new();
+        let mut extraction_method = "llm";
+
+        if let Some(ner) = &self.ner_backend {
+            match ner
+                .extract(&content_preview, CONCEPT_ENTITY_TYPES, None)
+                .await
+            {
+                Ok(result) if !result.entities.is_empty() => {
+                    info!(
+                        note_id = %note_id,
+                        entities = result.entities.len(),
+                        model = %result.model,
+                        "GLiNER concept extraction succeeded"
+                    );
+                    ctx.report_progress(25, Some("Mapping GLiNER entities to concepts..."));
+
+                    // Map GLiNER entities to hierarchical concept paths: label/kebab-text
+                    let mut seen = HashSet::new();
+                    for ent in &result.entities {
+                        let slug = ent.text.trim().to_lowercase().replace(' ', "-");
+                        if slug.len() < 2 {
+                            continue;
+                        }
+                        let path = format!("{}/{}", ent.label, slug);
+                        if seen.insert(path.clone()) {
+                            concept_labels.push(path);
+                        }
+                    }
+                    extraction_method = "gliner";
+                    info!(
+                        note_id = %note_id,
+                        gliner_concepts = concept_labels.len(),
+                        target = self.target_concepts,
+                        "GLiNER produced {} concepts (target: {})",
+                        concept_labels.len(),
+                        self.target_concepts
+                    );
+                }
+                Ok(_) => {
+                    info!(note_id = %note_id, "GLiNER returned no entities for concept tagging");
+                }
+                Err(e) => {
+                    warn!(error = %e, "GLiNER concept extraction failed, falling back to LLM");
+                }
+            }
+        }
+
+        // Build LLM prompt for concept extraction.
+        // When supplementing GLiNER, we tell the LLM how many more concepts we need
+        // and which ones to skip. `existing` is passed by value to avoid borrowing issues.
+        let target = self.target_concepts;
+        let make_prompt = |text: &str, existing: &[String]| {
+            let count_hint = if !existing.is_empty() {
+                let needed = target.saturating_sub(existing.len());
+                format!("We already have {} concepts from entity extraction. Suggest {} MORE distinct concepts that cover different dimensions. Do NOT repeat: {:?}\n\n",
+                    existing.len(), needed, existing)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest concept tags organized as hierarchical paths across MULTIPLE dimensions.
+
+{count_hint}Content:
+{text}
 
 REQUIRED DIMENSIONS (include at least one tag from each applicable dimension):
 1. **Domain**: Primary subject area (e.g., "science/machine-learning", "engineering/software")
@@ -2202,91 +2287,123 @@ Guidelines:
 4. Focus on actual subject matter, not generic terms
 5. Order by relevance (most relevant first)
 6. Reuse top-level categories across notes for cross-cutting queries
-7. Aim for 8-15 tags total — breadth across dimensions is more valuable than depth in one
+7. Aim for {target} tags total — breadth across dimensions is more valuable than depth in one
 
 Output ONLY a JSON array of tag paths, nothing else. Example:
-["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#,
-                text
+["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#
             )
         };
 
-        // Fast model: chunk large content and merge results; small content processes directly.
-        // Standard model: always uses full preview without chunking.
-        let concept_labels: Vec<String> = if use_fast {
-            let chunks = chunk_for_extraction(&content_preview);
-            let mut chunk_results = Vec::new();
-            let mut fast_failed = false;
+        // ── Step 2: LLM supplement if GLiNER insufficient ──────────────────
+        // Only call LLM if we haven't reached the target concept count.
+        let needs_supplement = concept_labels.len() < self.target_concepts;
 
-            for (i, chunk) in chunks.iter().enumerate() {
-                let prompt = make_prompt(chunk);
-                match backend.generate_json(&prompt).await {
-                    Ok(r) => chunk_results.push(r.trim().to_string()),
-                    Err(e) => {
-                        info!(chunk = i, error = %e, "Fast model failed on chunk, escalating");
-                        fast_failed = true;
-                        break;
-                    }
-                }
+        if needs_supplement {
+            let gliner_count = concept_labels.len();
+            if gliner_count > 0 {
+                info!(
+                    note_id = %note_id,
+                    gliner_count,
+                    target = self.target_concepts,
+                    "GLiNER insufficient, supplementing with LLM"
+                );
+                extraction_method = "gliner+llm";
             }
+            ctx.report_progress(30, Some("Running LLM concept extraction..."));
 
-            if !fast_failed {
-                // Try merging chunk results
-                match merge_json_arrays(chunk_results) {
-                    Ok(merged) => merged,
-                    Err(e) => {
-                        info!(error = %e, "Fast model output unparseable, escalating to standard model");
-                        Vec::new() // Empty triggers escalation below
-                    }
-                }
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new() // Placeholder, standard model path below
-        };
+            // Try fast model first (chunked for large content)
+            let llm_concepts: Vec<String> = if use_fast {
+                let chunks = chunk_for_extraction(&content_preview);
+                let mut chunk_results = Vec::new();
+                let mut fast_failed = false;
 
-        // Escalation: if fast model failed or not used, run standard model on full preview
-        let concept_labels = if !use_fast || concept_labels.is_empty() {
-            let prompt = make_prompt(&content_preview);
-            let gen_backend: &dyn GenerationBackend = match &overridden {
-                Some(b) => b.as_ref(),
-                None if use_fast => &self.backend, // Escalation to standard
-                None => &self.backend,
-            };
-
-            let ai_response = match gen_backend.generate_json(&prompt).await {
-                Ok(r) => r.trim().to_string(),
-                Err(e) => {
-                    self.queue_phase2_jobs(note_id, schema).await;
-                    return JobResult::Failed(format!("AI generation failed: {}", e));
-                }
-            };
-
-            match parse_json_lenient(&ai_response) {
-                Ok(labels) => labels,
-                Err(_) => {
-                    let cleaned = ai_response
-                        .trim()
-                        .trim_start_matches("```json")
-                        .trim_start_matches("```")
-                        .trim_end_matches("```")
-                        .trim();
-                    match parse_json_lenient(cleaned) {
-                        Ok(labels) => labels,
+                for (i, chunk) in chunks.iter().enumerate() {
+                    let prompt = make_prompt(chunk, &concept_labels);
+                    match backend.generate_json(&prompt).await {
+                        Ok(r) => chunk_results.push(r.trim().to_string()),
                         Err(e) => {
-                            warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
-                            self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!(
-                                "Failed to parse AI response: {}",
-                                e
-                            ));
+                            info!(chunk = i, error = %e, "Fast model failed on chunk, escalating");
+                            fast_failed = true;
+                            break;
                         }
                     }
                 }
+
+                if !fast_failed {
+                    match merge_json_arrays(chunk_results) {
+                        Ok(merged) => merged,
+                        Err(e) => {
+                            info!(error = %e, "Fast model output unparseable, escalating to standard model");
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Merge fast model results with GLiNER results (deduplicate)
+            if !llm_concepts.is_empty() {
+                let mut seen: HashSet<String> =
+                    concept_labels.iter().map(|l| l.to_lowercase()).collect();
+                for label in llm_concepts {
+                    if seen.insert(label.to_lowercase()) {
+                        concept_labels.push(label);
+                    }
+                }
             }
-        } else {
-            concept_labels
-        };
+
+            // Escalation: if fast model failed/insufficient or not available, standard model
+            if concept_labels.len() < self.target_concepts {
+                let existing_snapshot: Vec<String> = concept_labels.clone();
+                let prompt = make_prompt(&content_preview, &existing_snapshot);
+                let gen_backend: &dyn GenerationBackend = match &overridden {
+                    Some(b) => b.as_ref(),
+                    None => &self.backend,
+                };
+
+                let ai_response = match gen_backend.generate_json(&prompt).await {
+                    Ok(r) => r.trim().to_string(),
+                    Err(e) => {
+                        if concept_labels.is_empty() {
+                            self.queue_phase2_jobs(note_id, schema).await;
+                            return JobResult::Failed(format!("AI generation failed: {}", e));
+                        }
+                        // Have some concepts from GLiNER/fast, proceed with what we have
+                        warn!(error = %e, "Standard model failed but proceeding with {} concepts", concept_labels.len());
+                        String::new()
+                    }
+                };
+
+                if !ai_response.is_empty() {
+                    let parsed: Vec<String> = match parse_json_lenient(&ai_response) {
+                        Ok(labels) => labels,
+                        Err(_) => {
+                            let cleaned = ai_response
+                                .trim()
+                                .trim_start_matches("```json")
+                                .trim_start_matches("```")
+                                .trim_end_matches("```")
+                                .trim();
+                            parse_json_lenient(cleaned).unwrap_or_default()
+                        }
+                    };
+                    // Merge standard model results (deduplicate)
+                    let mut seen: HashSet<String> =
+                        concept_labels.iter().map(|l| l.to_lowercase()).collect();
+                    for label in parsed {
+                        if seen.insert(label.to_lowercase()) {
+                            concept_labels.push(label);
+                        }
+                    }
+                    if gliner_count == 0 && extraction_method == "llm" {
+                        extraction_method = "llm_standard";
+                    }
+                }
+            }
+        }
 
         ctx.report_progress(50, Some("Parsing concept suggestions..."));
 
@@ -2373,6 +2490,8 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             let prov_metadata = serde_json::json!({
                 "concepts_tagged": tagged_count,
                 "concepts_suggested": concept_labels.len(),
+                "extraction_method": extraction_method,
+                "target_concepts": self.target_concepts,
                 "labels": &concept_labels,
                 "content_preview_chars": content_preview.len(),
             });
@@ -2391,6 +2510,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             note_id = %note_id,
             result_count = tagged_count,
             concepts_suggested = concept_labels.len(),
+            extraction_method,
             duration_ms = start.elapsed().as_millis() as u64,
             "Concept tagging completed"
         );
@@ -2398,6 +2518,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         JobResult::Success(Some(serde_json::json!({
             "concepts_tagged": tagged_count,
             "concepts_suggested": concept_labels.len(),
+            "extraction_method": extraction_method,
             "labels": concept_labels
         })))
     }

@@ -231,6 +231,9 @@ services:
       - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
       # GLiNER NER sidecar (enabled by default, set to empty to disable)
       - GLINER_BASE_URL=${GLINER_BASE_URL:-http://gliner:8090}
+      # Target concepts per note. GLiNER runs first; if it produces fewer than
+      # this, fast/standard LLM supplements. Higher = richer taxonomy, slower.
+      - EXTRACTION_TARGET_CONCEPTS=${EXTRACTION_TARGET_CONCEPTS:-15}
 
       # ── Inference: OpenAI (alternative) ────────────────────────────────
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
