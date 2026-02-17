@@ -29,6 +29,8 @@ on:
       # This prevents race conditions where ci-builder uses stale image
       - 'build/Dockerfile.builder'
       - 'build/scripts/**'
+      # GLiNER sidecar built by build-gliner.yaml
+      - 'build/gliner/**'
 
 env:
   CARGO_TERM_COLOR: always
@@ -463,8 +465,7 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
           push_with_retry ${IMAGE}:bundle-main
 
-          # GLiNER sidecar image is built separately (rarely changes).
-          # Rebuild manually: docker build -f build/gliner/Dockerfile build/gliner -t ${IMAGE}:gliner && docker push ${IMAGE}:gliner
+          # GLiNER sidecar image is built by build-gliner.yaml (triggers on build/gliner/** changes or workflow_dispatch)
 
   # Release image - pushes on version tags only
   publish-release:

@@ -1,0 +1,133 @@
+name: Build GLiNER Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'build/gliner/**'
+  workflow_dispatch:
+
+env:
+  GHCR_REGISTRY: ghcr.io
+  GITEA_REGISTRY: git.integrolabs.net
+  GLINER_IMAGE: fortemi/fortemi
+
+jobs:
+  build-gliner:
+    name: Build and Push GLiNER Image
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registries
+        run: |
+          echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build GLiNER image
+        run: |
+          GHCR_IMAGE="${GHCR_REGISTRY}/${GLINER_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          echo "Building GLiNER NER sidecar image..."
+          docker build --no-cache \
+            -f build/gliner/Dockerfile \
+            -t ${GHCR_IMAGE}:gliner \
+            -t ${GHCR_IMAGE}:gliner-${SHORT_SHA} \
+            -t ${GHCR_IMAGE}:gliner-latest \
+            -t ${GITEA_IMAGE}:gliner \
+            -t ${GITEA_IMAGE}:gliner-${SHORT_SHA} \
+            -t ${GITEA_IMAGE}:gliner-main \
+            -t ${GITEA_IMAGE}:gliner-latest \
+            build/gliner
+
+      - name: Test GLiNER image
+        run: |
+          IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
+
+          echo "Testing GLiNER image..."
+
+          # Start container
+          docker run -d --name gliner-verify \
+            -e GLINER_PORT=8090 \
+            ${IMAGE}:gliner
+
+          # Wait for health check
+          HEALTHY=false
+          for i in {1..60}; do
+            if docker exec gliner-verify curl -sf http://localhost:8090/health >/dev/null 2>&1; then
+              echo "GLiNER is healthy!"
+              HEALTHY=true
+              break
+            fi
+            echo "Waiting for GLiNER... ($i/60)"
+            sleep 2
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+            echo "ERROR: GLiNER failed to become healthy"
+            docker logs gliner-verify 2>&1 | tail -30
+            docker stop gliner-verify && docker rm gliner-verify
+            exit 1
+          fi
+
+          # Verify NER endpoint works
+          RESPONSE=$(docker exec gliner-verify curl -sf -X POST http://localhost:8090/extract \
+            -H "Content-Type: application/json" \
+            -d '{"text":"Albert Einstein was born in Ulm, Germany.","labels":["person","location"]}')
+
+          if echo "$RESPONSE" | grep -q "entities"; then
+            echo "NER extraction: OK"
+          else
+            echo "ERROR: NER extraction failed"
+            echo "Response: $RESPONSE"
+            docker stop gliner-verify && docker rm gliner-verify
+            exit 1
+          fi
+
+          # Cleanup
+          docker stop gliner-verify && docker rm gliner-verify
+          echo "All GLiNER tests passed!"
+
+      - name: Push images
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          GHCR_IMAGE="${GHCR_REGISTRY}/${GLINER_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
+
+          echo "Pushing to Gitea Registry..."
+          push_with_retry ${GITEA_IMAGE}:gliner
+          push_with_retry ${GITEA_IMAGE}:gliner-${SHORT_SHA}
+          push_with_retry ${GITEA_IMAGE}:gliner-main
+          push_with_retry ${GITEA_IMAGE}:gliner-latest
+
+          echo "Pushing to GitHub Container Registry..."
+          push_with_retry ${GHCR_IMAGE}:gliner
+          push_with_retry ${GHCR_IMAGE}:gliner-${SHORT_SHA}
+          push_with_retry ${GHCR_IMAGE}:gliner-latest
+
+          echo "Published GLiNER images:"
+          echo "  Gitea:  ${GITEA_IMAGE}:gliner, :gliner-main, :gliner-latest, :gliner-${SHORT_SHA}"
+          echo "  GitHub: ${GHCR_IMAGE}:gliner, :gliner-latest, :gliner-${SHORT_SHA}"
