@@ -45,7 +45,8 @@ use matric_core::{
     AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest, DocumentTypeRepository,
     EventBus, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType, ListNotesRequest,
-    NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput, TagInput,
+    EventEnvelope, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
+    TagInput,
     TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_db::{Database, FilesystemBackend};
@@ -1868,8 +1869,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
             tokio::select! {
                 event = event_rx.recv() => {
                     match event {
-                        Ok(evt) => {
-                            if let Ok(json) = serde_json::to_string(&evt) {
+                        Ok(envelope) => {
+                            // Send payload only for HotM WebSocket backward compatibility
+                            if let Ok(json) = serde_json::to_string(&envelope.payload) {
                                 if sender.send(Message::Text(json)).await.is_err() {
                                     break;
                                 }
@@ -1932,17 +1934,15 @@ async fn sse_events(
 
     use tokio_stream::StreamExt as _;
     let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
-        |result: Result<ServerEvent, _>| {
-            match result {
-                Ok(event) => {
-                    let event_type = event.event_type().to_string();
-                    match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().event(event_type).data(json))),
-                        Err(_) => None,
-                    }
-                }
-                Err(_) => None, // Skip lagged/closed errors
-            }
+        |result: Result<EventEnvelope, _>| match result {
+            Ok(envelope) => match serde_json::to_string(&envelope) {
+                Ok(json) => Some(Ok(Event::default()
+                    .event(envelope.event_type.clone())
+                    .id(envelope.event_id.to_string())
+                    .data(json))),
+                Err(_) => None,
+            },
+            Err(_) => None, // Skip lagged/closed errors
         },
     );
 
@@ -1972,8 +1972,9 @@ async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
     let mut rx = event_bus.subscribe();
     loop {
         match rx.recv().await {
-            Ok(event) => {
-                let event_type = event.event_type();
+            Ok(envelope) => {
+                // Use legacy event type for webhook filtering (backward compat)
+                let event_type = envelope.payload.event_type();
                 let webhooks = match db.webhooks.list_active_for_event(event_type).await {
                     Ok(w) => w,
                     Err(e) => {
@@ -1986,7 +1987,8 @@ async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
                     continue;
                 }
 
-                let payload = match serde_json::to_value(&event) {
+                // Send full envelope as webhook payload
+                let payload = match serde_json::to_value(&envelope) {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
@@ -2076,7 +2078,7 @@ async fn telemetry_mirror(event_bus: Arc<EventBus>) {
     let mut rx = event_bus.subscribe();
     loop {
         match rx.recv().await {
-            Ok(event) => match &event {
+            Ok(envelope) => match &envelope.payload {
                 ServerEvent::JobStarted {
                     job_id, job_type, ..
                 } => {
@@ -14688,7 +14690,7 @@ mod tests {
             match tokio::time::timeout(std::time::Duration::from_secs(3), response.chunk()).await {
                 Ok(Ok(Some(chunk))) => {
                     collected.push_str(&String::from_utf8_lossy(&chunk));
-                    if collected.contains("JobFailed") {
+                    if collected.contains("job.failed") {
                         break;
                     }
                 }
@@ -14696,7 +14698,7 @@ mod tests {
             }
         }
 
-        assert!(collected.contains("event: JobFailed"));
+        assert!(collected.contains("event: job.failed"));
         assert!(collected.contains("test error"));
     }
 
@@ -14731,14 +14733,14 @@ mod tests {
                 match tokio::time::timeout(std::time::Duration::from_secs(3), resp.chunk()).await {
                     Ok(Ok(Some(chunk))) => {
                         collected.push_str(&String::from_utf8_lossy(&chunk));
-                        if collected.contains("QueueStatus") {
+                        if collected.contains("queue.status") {
                             break;
                         }
                     }
                     _ => break,
                 }
             }
-            assert!(collected.contains("QueueStatus"));
+            assert!(collected.contains("queue.status"));
         }
     }
 
@@ -15325,7 +15327,8 @@ mod tests {
 
         // Assert: at least one NoteUpdated event with matching note_id
         let note_updated = events.iter().find(|e| {
-            e["type"] == "NoteUpdated" && e["note_id"].as_str() == Some(&note_id.to_string())
+            e["payload"]["type"] == "NoteUpdated"
+                && e["payload"]["note_id"].as_str() == Some(&note_id.to_string())
         });
         assert!(
             note_updated.is_some(),
@@ -15384,12 +15387,12 @@ mod tests {
         // Collect events
         let events = collector.await.unwrap();
 
-        // Assert all expected event types present
-        let has_note_updated = events.iter().any(|e| e["type"] == "NoteUpdated");
-        let has_job_started = events.iter().any(|e| e["type"] == "JobStarted");
-        let has_job_progress = events.iter().any(|e| e["type"] == "JobProgress");
-        let has_job_completed = events.iter().any(|e| e["type"] == "JobCompleted");
-        let has_job_queued = events.iter().any(|e| e["type"] == "JobQueued");
+        // Assert all expected event types present (check payload.type for domain event type)
+        let has_note_updated = events.iter().any(|e| e["payload"]["type"] == "NoteUpdated");
+        let has_job_started = events.iter().any(|e| e["payload"]["type"] == "JobStarted");
+        let has_job_progress = events.iter().any(|e| e["payload"]["type"] == "JobProgress");
+        let has_job_completed = events.iter().any(|e| e["payload"]["type"] == "JobCompleted");
+        let has_job_queued = events.iter().any(|e| e["payload"]["type"] == "JobQueued");
 
         assert!(
             has_job_queued,
@@ -15418,8 +15421,11 @@ mod tests {
         );
 
         // Assert job_id matches in bridge-emitted events
-        let started = events.iter().find(|e| e["type"] == "JobStarted").unwrap();
-        assert_eq!(started["job_id"], job_id.to_string());
+        let started = events
+            .iter()
+            .find(|e| e["payload"]["type"] == "JobStarted")
+            .unwrap();
+        assert_eq!(started["payload"]["job_id"], job_id.to_string());
     }
 
     /// Test C: Failure path — JobFailed event propagated through bridge to SSE.
@@ -15459,7 +15465,7 @@ mod tests {
         let events = collector.await.unwrap();
 
         // Assert JobFailed event appeared with correct error message
-        let job_failed = events.iter().find(|e| e["type"] == "JobFailed");
+        let job_failed = events.iter().find(|e| e["payload"]["type"] == "JobFailed");
         assert!(
             job_failed.is_some(),
             "Missing JobFailed event. Events: {:?}",
@@ -15467,9 +15473,9 @@ mod tests {
         );
 
         let failed = job_failed.unwrap();
-        assert_eq!(failed["job_id"], job_id.to_string());
-        assert_eq!(failed["error"], "test inference timeout");
-        assert_eq!(failed["job_type"], "Embedding");
+        assert_eq!(failed["payload"]["job_id"], job_id.to_string());
+        assert_eq!(failed["payload"]["error"], "test inference timeout");
+        assert_eq!(failed["payload"]["job_type"], "Embedding");
     }
 
     // =========================================================================
