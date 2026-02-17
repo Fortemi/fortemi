@@ -986,7 +986,13 @@ async fn main() -> anyhow::Result<()> {
             Some(extraction_registry),
         );
 
-        // Register handlers - create separate backend instances
+        // Register handlers - create separate backend instances.
+        // Cascaded model routing (#439): create fast backend if MATRIC_FAST_GEN_MODEL is set.
+        let fast_backend_model = std::env::var("MATRIC_FAST_GEN_MODEL").ok().filter(|s| !s.is_empty());
+        if let Some(ref model) = fast_backend_model {
+            info!(model = %model, "Fast generation model configured for cascaded routing");
+        }
+
         worker
             .register_handler(AiRevisionHandler::new(
                 db.clone(),
@@ -1001,6 +1007,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(TitleGenerationHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                OllamaBackend::fast_from_env(),
                 provider_registry.clone(),
             ))
             .await;
@@ -1021,6 +1028,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(ConceptTaggingHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                OllamaBackend::fast_from_env(),
                 provider_registry.clone(),
             ))
             .await;
@@ -1042,6 +1050,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(MetadataExtractionHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                OllamaBackend::fast_from_env(),
                 provider_registry.clone(),
             ))
             .await;

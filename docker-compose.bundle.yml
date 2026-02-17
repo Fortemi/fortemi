@@ -174,6 +174,9 @@ services:
       # Max concurrent jobs per worker (Phase 1 jobs run in parallel).
       # Set OLLAMA_NUM_PARALLEL on your Ollama server to match.
       - JOB_MAX_CONCURRENT=${JOB_MAX_CONCURRENT:-4}
+      # Fast model for simple documents (#439). Set to a small model (e.g., qwen2.5:3b)
+      # for 5-10x speedup on short notes. Leave empty to always use the standard model.
+      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-}
 
       # ── Inference: Ollama (default) ────────────────────────────────────
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-ollama}

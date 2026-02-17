@@ -122,6 +122,29 @@ impl OllamaBackend {
         Self::with_config(base_url, embed_model, gen_model, dimension)
     }
 
+    /// Create from environment variables with a specific generation model override.
+    pub fn from_env_with_gen_model(gen_model: String) -> Self {
+        let base_url =
+            std::env::var("OLLAMA_BASE").unwrap_or_else(|_| DEFAULT_OLLAMA_URL.to_string());
+        let embed_model =
+            std::env::var("OLLAMA_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.to_string());
+        let dimension = std::env::var("OLLAMA_EMBED_DIM")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_DIMENSION);
+
+        Self::with_config(base_url, embed_model, gen_model, dimension)
+    }
+
+    /// Create a fast generation backend from `MATRIC_FAST_GEN_MODEL` if set.
+    /// Returns `None` if the env var is not set or empty.
+    pub fn fast_from_env() -> Option<Self> {
+        std::env::var("MATRIC_FAST_GEN_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(Self::from_env_with_gen_model)
+    }
+
     /// Get the model registry.
     pub fn registry(&self) -> &ModelRegistry {
         &self.registry

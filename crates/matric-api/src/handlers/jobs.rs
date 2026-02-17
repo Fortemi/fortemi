@@ -71,6 +71,57 @@ fn resolve_gen_backend(
         .map_err(|e| JobResult::Failed(format!("Model resolution error: {}", e)))
 }
 
+/// Document complexity classification for cascaded model routing (#439).
+///
+/// Simple documents route to the fast model (e.g., 3B) for 5-10x speedup.
+/// Complex documents go directly to the standard model (e.g., 20B).
+#[derive(Debug, PartialEq)]
+enum ContentComplexity {
+    Simple,
+    Complex,
+}
+
+/// Classify content complexity for model routing (#439).
+///
+/// Routes to fast model when ALL of:
+/// - Content < 2,000 chars
+/// - No code blocks
+/// - No academic citations
+///
+/// Routes to standard model when ANY of:
+/// - Content > 5,000 chars
+/// - Contains code blocks or technical markup
+/// - Contains academic citation patterns
+fn classify_complexity(content: &str) -> ContentComplexity {
+    let len = content.len();
+
+    // Long documents → Complex
+    if len > 5_000 {
+        return ContentComplexity::Complex;
+    }
+
+    // Code blocks → Complex
+    if content.contains("```") {
+        return ContentComplexity::Complex;
+    }
+
+    // Academic citations → Complex
+    if content.contains("arXiv:")
+        || content.contains("doi.org/")
+        || content.contains("10.1")
+    {
+        return ContentComplexity::Complex;
+    }
+
+    // Short, simple content → Simple
+    if len < 2_000 {
+        return ContentComplexity::Simple;
+    }
+
+    // Medium-length without complexity signals → Complex (conservative)
+    ContentComplexity::Complex
+}
+
 /// Maximum number of related notes to retrieve for AI context.
 /// Based on Miller's Law (7±2): cognitive limit for working memory items.
 /// We use 7 as the default, which is the center of the 5-9 range.
@@ -703,14 +754,22 @@ impl JobHandler for EmbeddingHandler {
 pub struct TitleGenerationHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Fast model backend for simple documents (#439).
+    fast_backend: Option<OllamaBackend>,
     registry: Arc<ProviderRegistry>,
 }
 
 impl TitleGenerationHandler {
-    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        fast_backend: Option<OllamaBackend>,
+        registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             db,
             backend,
+            fast_backend,
             registry,
         }
     }
@@ -782,22 +841,6 @@ impl JobHandler for TitleGenerationHandler {
             Ok(b) => b,
             Err(e) => return e,
         };
-        let backend: &dyn GenerationBackend = match &overridden {
-            Some(b) => b.as_ref(),
-            None => &self.backend,
-        };
-
-        // Start provenance activity (#430)
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "title_generation",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
 
         ctx.report_progress(20, Some("Fetching note..."));
 
@@ -827,6 +870,29 @@ impl JobHandler for TitleGenerationHandler {
         if content.trim().is_empty() {
             return JobResult::Failed("Note has no content".into());
         }
+
+        // Cascaded model routing (#439): route simple content to fast model
+        let use_fast = overridden.is_none()
+            && self.fast_backend.is_some()
+            && classify_complexity(content) == ContentComplexity::Simple;
+
+        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
+        };
+
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "title_generation",
+                Some(matric_core::GenerationBackend::model_name(backend)),
+            )
+            .await
+            .ok();
 
         ctx.report_progress(40, Some("Finding related notes..."));
 
@@ -1929,14 +1995,22 @@ Keep it concise (2-3 sentences). Output the full note with the new section added
 pub struct ConceptTaggingHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Fast model backend for simple documents (#439). None if MATRIC_FAST_GEN_MODEL not set.
+    fast_backend: Option<OllamaBackend>,
     registry: Arc<ProviderRegistry>,
 }
 
 impl ConceptTaggingHandler {
-    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        fast_backend: Option<OllamaBackend>,
+        registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             db,
             backend,
+            fast_backend,
             registry,
         }
     }
@@ -1998,22 +2072,6 @@ impl JobHandler for ConceptTaggingHandler {
             Ok(b) => b,
             Err(e) => return e,
         };
-        let backend: &dyn GenerationBackend = match &overridden {
-            Some(b) => b.as_ref(),
-            None => &self.backend,
-        };
-
-        // Start provenance activity (#430)
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "concept_tagging",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -2049,6 +2107,29 @@ impl JobHandler for ConceptTaggingHandler {
             .chars()
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
+
+        // Cascaded model routing (#439): route simple content to fast model
+        let use_fast = overridden.is_none()
+            && self.fast_backend.is_some()
+            && classify_complexity(&content_preview) == ContentComplexity::Simple;
+
+        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
+        };
+
+        // Start provenance activity (#430)
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "concept_tagging",
+                Some(matric_core::GenerationBackend::model_name(backend)),
+            )
+            .await
+            .ok();
 
         // Generate concept suggestions using AI with hierarchical paths (#425, #430).
         // Enhanced to produce 8-15 tags across multiple dimensions for richer
@@ -2089,9 +2170,20 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
-                // Still queue linking even if AI tagging fails — linking works with pure embeddings
-                self.queue_phase2_jobs(note_id, schema).await;
-                return JobResult::Failed(format!("AI generation failed: {}", e));
+                // Escalate to standard model on fast model failure (#439)
+                if use_fast {
+                    info!("Fast model failed, escalating to standard model");
+                    match self.backend.generate_json(&prompt).await {
+                        Ok(r) => r.trim().to_string(),
+                        Err(e2) => {
+                            self.queue_phase2_jobs(note_id, schema).await;
+                            return JobResult::Failed(format!("AI generation failed (escalated): {}", e2));
+                        }
+                    }
+                } else {
+                    self.queue_phase2_jobs(note_id, schema).await;
+                    return JobResult::Failed(format!("AI generation failed: {}", e));
+                }
             }
         };
 
@@ -2112,9 +2204,31 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                 match serde_json::from_str(cleaned) {
                     Ok(labels) => labels,
                     Err(e) => {
-                        warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
-                        self.queue_phase2_jobs(note_id, schema).await;
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        // Escalate to standard model on fast model parse failure (#439)
+                        if use_fast {
+                            info!("Fast model output unparseable, escalating to standard model");
+                            match self.backend.generate_json(&prompt).await {
+                                Ok(r) => {
+                                    let r = r.trim().to_string();
+                                    match serde_json::from_str(&r) {
+                                        Ok(labels) => labels,
+                                        Err(e2) => {
+                                            warn!(error = %e2, "Standard model also failed to produce parseable output");
+                                            self.queue_phase2_jobs(note_id, schema).await;
+                                            return JobResult::Failed(format!("Failed to parse AI response: {}", e2));
+                                        }
+                                    }
+                                }
+                                Err(e2) => {
+                                    self.queue_phase2_jobs(note_id, schema).await;
+                                    return JobResult::Failed(format!("AI generation failed (escalated): {}", e2));
+                                }
+                            }
+                        } else {
+                            warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
+                            self.queue_phase2_jobs(note_id, schema).await;
+                            return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        }
                     }
                 }
             }
@@ -2922,14 +3036,22 @@ If no meaningful related pairs exist, output an empty array: []"#
 pub struct MetadataExtractionHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Fast model backend for simple documents (#439).
+    fast_backend: Option<OllamaBackend>,
     registry: Arc<ProviderRegistry>,
 }
 
 impl MetadataExtractionHandler {
-    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        fast_backend: Option<OllamaBackend>,
+        registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             db,
             backend,
+            fast_backend,
             registry,
         }
     }
@@ -2963,22 +3085,6 @@ impl JobHandler for MetadataExtractionHandler {
             Ok(b) => b,
             Err(e) => return e,
         };
-        let backend: &dyn GenerationBackend = match &overridden {
-            Some(b) => b.as_ref(),
-            None => &self.backend,
-        };
-
-        // Start provenance activity
-        let activity_id = self
-            .db
-            .provenance
-            .start_activity(
-                note_id,
-                "metadata_extraction",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
-            .await
-            .ok();
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
@@ -3011,6 +3117,29 @@ impl JobHandler for MetadataExtractionHandler {
             .chars()
             .take(matric_core::defaults::PREVIEW_METADATA)
             .collect();
+
+        // Cascaded model routing (#439): route simple content to fast model
+        let use_fast = overridden.is_none()
+            && self.fast_backend.is_some()
+            && classify_complexity(&content_preview) == ContentComplexity::Simple;
+
+        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
+        };
+
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "metadata_extraction",
+                Some(matric_core::GenerationBackend::model_name(backend)),
+            )
+            .await
+            .ok();
 
         // Use AI to extract structured metadata from content
         let prompt = format!(
@@ -3048,7 +3177,17 @@ Example output:
 
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
-            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
+            Err(e) => {
+                if use_fast {
+                    info!("Fast model failed for metadata extraction, escalating to standard model");
+                    match self.backend.generate_json(&prompt).await {
+                        Ok(r) => r.trim().to_string(),
+                        Err(e2) => return JobResult::Failed(format!("AI generation failed (escalated): {}", e2)),
+                    }
+                } else {
+                    return JobResult::Failed(format!("AI generation failed: {}", e));
+                }
+            }
         };
 
         ctx.report_progress(60, Some("Parsing extracted metadata..."));
@@ -3067,8 +3206,22 @@ Example output:
                 match serde_json::from_str(cleaned) {
                     Ok(v) => v,
                     Err(e) => {
-                        warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        if use_fast {
+                            info!("Fast model output unparseable for metadata, escalating");
+                            match self.backend.generate_json(&prompt).await {
+                                Ok(r) => match serde_json::from_str(r.trim()) {
+                                    Ok(v) => v,
+                                    Err(e2) => {
+                                        warn!(error = %e2, "Standard model also failed");
+                                        return JobResult::Failed(format!("Failed to parse AI response: {}", e2));
+                                    }
+                                },
+                                Err(e2) => return JobResult::Failed(format!("AI generation failed (escalated): {}", e2)),
+                            }
+                        } else {
+                            warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
+                            return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                        }
                     }
                 }
             }
@@ -4595,5 +4748,53 @@ Quick note about the meeting discussion and action items."#;
             LinkingHandler::parse_wiki_links("Empty [[]] should be filtered"),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn test_classify_complexity_simple() {
+        assert_eq!(
+            classify_complexity("Meeting with Sarah about PostgreSQL migration"),
+            ContentComplexity::Simple
+        );
+        assert_eq!(
+            classify_complexity("Grocery list: milk, eggs, bread"),
+            ContentComplexity::Simple
+        );
+        // Short content without complexity signals
+        let short = "a".repeat(1999);
+        assert_eq!(classify_complexity(&short), ContentComplexity::Simple);
+    }
+
+    #[test]
+    fn test_classify_complexity_complex_long() {
+        let long = "a".repeat(5001);
+        assert_eq!(classify_complexity(&long), ContentComplexity::Complex);
+    }
+
+    #[test]
+    fn test_classify_complexity_complex_code() {
+        assert_eq!(
+            classify_complexity("Here is some code:\n```python\ndef hello():\n    pass\n```"),
+            ContentComplexity::Complex
+        );
+    }
+
+    #[test]
+    fn test_classify_complexity_complex_citations() {
+        assert_eq!(
+            classify_complexity("As described in arXiv:2307.09702"),
+            ContentComplexity::Complex
+        );
+        assert_eq!(
+            classify_complexity("See https://doi.org/10.1234/foo"),
+            ContentComplexity::Complex
+        );
+    }
+
+    #[test]
+    fn test_classify_complexity_medium_is_complex() {
+        // Medium-length (2000-5000 chars) without signals → Complex (conservative)
+        let medium = "a".repeat(3000);
+        assert_eq!(classify_complexity(&medium), ContentComplexity::Complex);
     }
 }
