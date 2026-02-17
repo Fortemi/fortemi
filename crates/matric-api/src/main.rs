@@ -250,7 +250,8 @@ async fn queue_nlp_pipeline(
     for job_type in [
         JobType::TitleGeneration,
         JobType::ConceptTagging, // SKOS auto-tagging (prerequisite for embedding and linking)
-        JobType::MetadataExtraction, // Extract authors, dates, DOI, etc. from content (#430)
+        JobType::ReferenceExtraction, // Named entity references (organizations, tools, people, etc.)
+        JobType::MetadataExtraction,  // Extract authors, dates, DOI, etc. from content (#430)
         JobType::DocumentTypeInference, // Auto-detect document type (#430)
     ] {
         // Create payload with schema and optional model override
@@ -326,8 +327,8 @@ use handlers::{
     vision::describe_image,
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, DocumentTypeInferenceHandler,
     EmbeddingHandler, ExifExtractionHandler, LinkingHandler, MetadataExtractionHandler,
-    PurgeNoteHandler, ReEmbedAllHandler, RefreshEmbeddingSetHandler, RelatedConceptHandler,
-    TitleGenerationHandler,
+    PurgeNoteHandler, ReEmbedAllHandler, ReferenceExtractionHandler, RefreshEmbeddingSetHandler,
+    RelatedConceptHandler, TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1018,6 +1019,13 @@ async fn main() -> anyhow::Result<()> {
             .await;
         worker
             .register_handler(ConceptTaggingHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+                provider_registry.clone(),
+            ))
+            .await;
+        worker
+            .register_handler(ReferenceExtractionHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
                 provider_registry.clone(),
@@ -4489,6 +4497,7 @@ async fn reprocess_note(
         ("title_generation", JobType::TitleGeneration),
         ("linking", JobType::Linking),
         ("concept_tagging", JobType::ConceptTagging),
+        ("reference_extraction", JobType::ReferenceExtraction),
         (
             "related_concept_inference",
             JobType::RelatedConceptInference,
@@ -4611,6 +4620,7 @@ async fn bulk_reprocess_notes(
         ("title_generation", JobType::TitleGeneration),
         ("linking", JobType::Linking),
         ("concept_tagging", JobType::ConceptTagging),
+        ("reference_extraction", JobType::ReferenceExtraction),
         (
             "related_concept_inference",
             JobType::RelatedConceptInference,
@@ -8083,6 +8093,7 @@ async fn create_job(
         "context_update" => JobType::ContextUpdate,
         "title_generation" => JobType::TitleGeneration,
         "concept_tagging" => JobType::ConceptTagging,
+        "reference_extraction" => JobType::ReferenceExtraction,
         "related_concept_inference" => JobType::RelatedConceptInference,
         "re_embed_all" => JobType::ReEmbedAll,
         "extraction" => JobType::Extraction,

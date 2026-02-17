@@ -1821,6 +1821,8 @@ pub enum JobType {
     MetadataExtraction,
     /// Infer SKOS related (associative) concept relationships using AI
     RelatedConceptInference,
+    /// Extract named entity references (companies, people, tools, etc.) from content
+    ReferenceExtraction,
 }
 
 impl JobType {
@@ -1864,6 +1866,8 @@ impl JobType {
             JobType::MetadataExtraction => 4,
             // Related concept inference - Phase 2, queued by ConceptTagging
             JobType::RelatedConceptInference => 4,
+            // Reference extraction - Phase 1 peer alongside ConceptTagging
+            JobType::ReferenceExtraction => 4,
         }
     }
 }
@@ -3170,6 +3174,7 @@ mod tests {
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
             JobType::RelatedConceptInference,
+            JobType::ReferenceExtraction,
         ];
 
         for job_type in types {
@@ -3191,6 +3196,7 @@ mod tests {
             JobType::ConceptTagging,
             JobType::ReEmbedAll,
             JobType::RelatedConceptInference,
+            JobType::ReferenceExtraction,
         ];
 
         for job_type in types {

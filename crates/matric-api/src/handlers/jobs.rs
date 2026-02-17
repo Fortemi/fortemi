@@ -23,6 +23,7 @@ use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
 use matric_jobs::{JobContext, JobHandler, JobResult};
+use sqlx;
 
 /// Extract the target schema from a job's payload.
 ///
@@ -2227,6 +2228,304 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             "concepts_tagged": tagged_count,
             "concepts_suggested": concept_labels.len(),
             "labels": concept_labels
+        })))
+    }
+}
+
+/// Handler for extracting named entity references from note content.
+///
+/// Runs in Phase 1 alongside ConceptTagging (parallel, not serial). Extracts
+/// specific named references (companies, people, tools, datasets, venues, etc.)
+/// and creates SKOS concepts in entity-specific dimensions. Unlike thematic
+/// concept tags, reference concepts are immediately promoted to `approved` status
+/// since even a single mention of a named entity is meaningful.
+///
+/// Does NOT queue downstream jobs — ConceptTagging owns the Phase 2 chain.
+pub struct ReferenceExtractionHandler {
+    db: Database,
+    backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
+}
+
+impl ReferenceExtractionHandler {
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
+    }
+}
+
+#[async_trait]
+impl JobHandler for ReferenceExtractionHandler {
+    fn job_type(&self) -> JobType {
+        JobType::ReferenceExtraction
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "reference_extraction", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
+
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "reference_extraction",
+                Some(matric_core::GenerationBackend::model_name(backend)),
+            )
+            .await
+            .ok();
+
+        ctx.report_progress(10, Some("Fetching note content..."));
+
+        // Get the note
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+        tx.commit().await.ok();
+
+        // Use revised content if available, otherwise original
+        let content: &str = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        if content.trim().is_empty() {
+            return JobResult::Success(Some(
+                serde_json::json!({"references": 0, "reason": "empty_content"}),
+            ));
+        }
+
+        ctx.report_progress(20, Some("Analyzing content for named references..."));
+
+        // Take content preview for analysis
+        let content_preview: String = content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_TAGGING)
+            .collect();
+
+        let prompt = format!(
+            r#"Extract specific named references from this content. For each, provide the category and a kebab-case identifier.
+
+Only include entities EXPLICITLY mentioned in the text — do not infer or guess.
+
+Content:
+{}
+
+Categories:
+- organization: Companies, research labs, universities, standards bodies, government agencies
+- person: Named individuals (authors, researchers, historical figures)
+- tool: Software, frameworks, libraries, platforms, databases
+- dataset: Named datasets, benchmarks, corpora, evaluation suites
+- standard: Protocols, specifications, RFCs, file formats
+- venue: Journals, conferences, publishers, media outlets
+- product: Commercial products or services
+- language: Programming languages
+
+Rules:
+1. Use kebab-case for the name field (e.g., "google-deepmind", not "Google DeepMind")
+2. Use the most specific common name (e.g., "pytorch" not "facebook-pytorch")
+3. Skip generic references (e.g., "the company", "researchers")
+4. Include each entity only once even if mentioned multiple times
+5. The label field should be the human-readable form as written in the text
+
+Output ONLY a JSON array (no markdown, no explanation):
+[{{"category": "organization", "name": "google-deepmind", "label": "Google DeepMind"}}]
+
+If no named references found, output: []"#,
+            content_preview
+        );
+
+        let ai_response = match backend.generate(&prompt).await {
+            Ok(r) => r.trim().to_string(),
+            Err(e) => {
+                return JobResult::Failed(format!("AI generation failed: {}", e));
+            }
+        };
+
+        ctx.report_progress(50, Some("Parsing reference entities..."));
+
+        // Parse the AI response as JSON array of reference objects
+        #[derive(serde::Deserialize)]
+        struct RefEntity {
+            category: String,
+            name: String,
+            #[allow(dead_code)]
+            label: String,
+        }
+
+        let entities: Vec<RefEntity> = match serde_json::from_str(&ai_response) {
+            Ok(refs) => refs,
+            Err(_) => {
+                // Try to extract if response isn't clean JSON
+                let cleaned = ai_response
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                match serde_json::from_str(cleaned) {
+                    Ok(refs) => refs,
+                    Err(e) => {
+                        warn!(error = %e, response = %ai_response, "Failed to parse AI reference extraction response");
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                    }
+                }
+            }
+        };
+
+        if entities.is_empty() {
+            return JobResult::Success(Some(serde_json::json!({
+                "references": 0,
+                "reason": "no_references_found"
+            })));
+        }
+
+        ctx.report_progress(60, Some("Resolving reference concepts..."));
+
+        let mut tagged_count = 0;
+        let total = entities.len();
+        let mut labels: Vec<String> = Vec::new();
+
+        for (i, entity) in entities.iter().enumerate() {
+            // Skip empty or invalid entries
+            if entity.name.trim().is_empty() || entity.category.trim().is_empty() {
+                continue;
+            }
+
+            // Build tag path: "{category}/{name}" (e.g., "organization/google-deepmind")
+            let tag_path = format!("{}/{}", entity.category.trim(), entity.name.trim());
+
+            if tag_path.len() < 4 {
+                continue;
+            }
+
+            let is_primary = false; // Reference entities are not primary concepts
+            let relevance = 0.8_f32 - (i as f32 * 0.02); // Slight decay but high baseline
+
+            // Parse label as hierarchical tag path
+            let tag_input = matric_core::TagInput::parse(&tag_path);
+
+            // Resolve or create the concept hierarchy in a single transaction
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+
+            let resolved = match self
+                .db
+                .skos
+                .resolve_or_create_tag_tx(&mut tx, &tag_input)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(tag_path = %tag_path, error = %e, "Failed to resolve reference concept");
+                    tx.commit().await.ok();
+                    continue;
+                }
+            };
+
+            // Tag the note with the leaf concept
+            let tag_req = matric_core::TagNoteRequest {
+                note_id,
+                concept_id: resolved.concept_id,
+                source: "ai_reference".to_string(),
+                confidence: Some(matric_core::defaults::AI_TAGGING_CONFIDENCE),
+                relevance_score: relevance,
+                is_primary,
+                created_by: None,
+            };
+
+            let tag_result = self.db.skos.tag_note_tx(&mut tx, tag_req).await;
+
+            // Immediately promote to approved if still a candidate
+            if tag_result.is_ok() {
+                let _ = sqlx::query(
+                    "UPDATE skos_concept SET status = 'approved'::concept_status, promoted_at = NOW() \
+                     WHERE id = $1 AND status = 'candidate'::concept_status"
+                )
+                .bind(resolved.concept_id)
+                .execute(&mut *tx)
+                .await;
+            }
+
+            tx.commit().await.ok();
+            if let Err(e) = tag_result {
+                debug!(error = %e, concept_id = %resolved.concept_id, "Failed to tag note with reference (may already exist)");
+            } else {
+                tagged_count += 1;
+                labels.push(tag_path);
+            }
+
+            // Update progress
+            let progress = 60 + ((i + 1) * 30 / total) as i32;
+            ctx.report_progress(progress, Some(&format!("Referenced: {}", entity.name)));
+        }
+
+        // Complete provenance activity
+        if let Some(act_id) = activity_id {
+            let prov_metadata = serde_json::json!({
+                "references_tagged": tagged_count,
+                "references_found": entities.len(),
+                "labels": &labels,
+                "content_preview_chars": content_preview.len(),
+            });
+            if let Err(e) = self
+                .db
+                .provenance
+                .complete_activity(act_id, None, Some(prov_metadata))
+                .await
+            {
+                warn!(error = %e, "Failed to complete reference extraction provenance activity");
+            }
+        }
+
+        ctx.report_progress(100, Some("Reference extraction complete"));
+        info!(
+            note_id = %note_id,
+            result_count = tagged_count,
+            references_found = entities.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Reference extraction completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "references_tagged": tagged_count,
+            "references_found": entities.len(),
+            "labels": labels
         })))
     }
 }

@@ -62,6 +62,7 @@ impl PgJobRepository {
             JobType::DocumentTypeInference => "document_type_inference",
             JobType::MetadataExtraction => "metadata_extraction",
             JobType::RelatedConceptInference => "related_concept_inference",
+            JobType::ReferenceExtraction => "reference_extraction",
         }
     }
 
@@ -90,6 +91,7 @@ impl PgJobRepository {
             "document_type_inference" => JobType::DocumentTypeInference,
             "metadata_extraction" => JobType::MetadataExtraction,
             "related_concept_inference" => JobType::RelatedConceptInference,
+            "reference_extraction" => JobType::ReferenceExtraction,
             _ => JobType::ContextUpdate, // fallback
         }
     }
@@ -642,6 +644,10 @@ mod tests {
             PgJobRepository::job_type_to_str(JobType::MetadataExtraction),
             "metadata_extraction"
         );
+        assert_eq!(
+            PgJobRepository::job_type_to_str(JobType::ReferenceExtraction),
+            "reference_extraction"
+        );
     }
 
     // Test string to JobType conversion
@@ -710,6 +716,10 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("metadata_extraction"),
             JobType::MetadataExtraction
+        );
+        assert_eq!(
+            PgJobRepository::str_to_job_type("reference_extraction"),
+            JobType::ReferenceExtraction
         );
     }
 
@@ -836,6 +846,7 @@ mod tests {
             JobType::Extraction,
             JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
+            JobType::ReferenceExtraction,
         ];
 
         for job_type in types {
@@ -882,6 +893,7 @@ mod tests {
             JobType::Extraction,
             JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
+            JobType::ReferenceExtraction,
         ];
 
         let strings: Vec<&str> = types
