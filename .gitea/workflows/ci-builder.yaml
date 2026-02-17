@@ -463,6 +463,19 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
           push_with_retry ${IMAGE}:bundle-main
 
+          # Build GLiNER NER sidecar image (CPU-only, ~1.5GB with model)
+          docker build --no-cache \
+            -f build/gliner/Dockerfile \
+            build/gliner \
+            -t ${IMAGE}:gliner
+
+          docker tag ${IMAGE}:gliner ${IMAGE}:gliner-${SHORT_SHA}
+          docker tag ${IMAGE}:gliner ${IMAGE}:gliner-main
+
+          push_with_retry ${IMAGE}:gliner
+          push_with_retry ${IMAGE}:gliner-${SHORT_SHA}
+          push_with_retry ${IMAGE}:gliner-main
+
   # Release image - pushes on version tags only
   publish-release:
     name: Publish Release Image
@@ -530,9 +543,21 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${VERSION}
           push_with_retry ${IMAGE}:bundle-latest
 
+          # Build GLiNER NER sidecar image (CPU-only, ~1.5GB with model)
+          docker build --no-cache \
+            -f build/gliner/Dockerfile \
+            build/gliner \
+            -t ${IMAGE}:gliner-${VERSION}
+
+          docker tag ${IMAGE}:gliner-${VERSION} ${IMAGE}:gliner-latest
+
+          push_with_retry ${IMAGE}:gliner-${VERSION}
+          push_with_retry ${IMAGE}:gliner-latest
+
           echo "Published release images:"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
           echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+          echo "  GLiNER:   ${IMAGE}:gliner-${VERSION}, ${IMAGE}:gliner-latest"
 
   # Create Gitea release on tag push
   create-release:
@@ -652,9 +677,21 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${VERSION}
           push_with_retry ${IMAGE}:bundle-latest
 
+          # Build GLiNER NER sidecar image (CPU-only, ~1.5GB with model)
+          docker build --no-cache \
+            -f build/gliner/Dockerfile \
+            build/gliner \
+            -t ${IMAGE}:gliner-${VERSION}
+
+          docker tag ${IMAGE}:gliner-${VERSION} ${IMAGE}:gliner-latest
+
+          push_with_retry ${IMAGE}:gliner-${VERSION}
+          push_with_retry ${IMAGE}:gliner-latest
+
           echo "Published to GitHub Container Registry:"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
           echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+          echo "  GLiNER:   ${IMAGE}:gliner-${VERSION}, ${IMAGE}:gliner-latest"
 
   # Create GitHub Release with changelog
   create-github-release:

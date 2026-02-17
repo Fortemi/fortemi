@@ -93,6 +93,7 @@ services:
   # Extraction cascade: GLiNER → fast model (granite4:3b) → standard model (failover).
   # To disable: set GLINER_BASE_URL= (empty) in .env
   gliner:
+    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-main}
     build:
       context: build/gliner
       dockerfile: Dockerfile
