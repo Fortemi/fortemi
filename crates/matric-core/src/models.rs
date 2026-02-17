@@ -63,7 +63,29 @@ pub struct NoteFull {
     pub original: NoteOriginal,
     pub revised: NoteRevised,
     pub tags: Vec<String>,
+    /// SKOS concepts with full metadata (confidence, relevance, source).
+    /// This is the rich superset; `tags` contains the flattened string union
+    /// of legacy flat tags + SKOS concept notations for search/filter compatibility.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub concepts: Vec<NoteConceptSummary>,
     pub links: Vec<Link>,
+}
+
+/// Lightweight SKOS concept summary for note responses.
+/// Preserves the richness of the SKOS tagging data while being
+/// suitable for inclusion in note detail responses.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct NoteConceptSummary {
+    pub concept_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pref_label: Option<String>,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    pub relevance_score: f32,
+    pub is_primary: bool,
 }
 
 /// A revision version entry from note_revision table (AI-enhanced content track).

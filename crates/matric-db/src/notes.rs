@@ -9,9 +9,9 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use matric_core::{
-    new_v7, CreateNoteRequest, Error, Link, ListNotesRequest, ListNotesResponse, NoteFull,
-    NoteMeta, NoteOriginal, NoteRepository, NoteRevised, NoteSummary, Result, StrictFilter,
-    UpdateNoteStatusRequest,
+    new_v7, CreateNoteRequest, Error, Link, ListNotesRequest, ListNotesResponse,
+    NoteConceptSummary, NoteFull, NoteMeta, NoteOriginal, NoteRepository, NoteRevised, NoteSummary,
+    Result, StrictFilter, UpdateNoteStatusRequest,
 };
 
 use crate::hashtag_extraction::extract_inline_hashtags;
@@ -737,7 +737,7 @@ impl PgNoteRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Fetch tags
+        // Fetch flat tags (user-created/legacy)
         let tags: Vec<String> = sqlx::query("SELECT tag_name FROM note_tag WHERE note_id = $1")
             .bind(id)
             .fetch_all(&mut **tx)
@@ -745,6 +745,38 @@ impl PgNoteRepository {
             .map_err(Error::Database)?
             .into_iter()
             .map(|r| r.get("tag_name"))
+            .collect();
+
+        // Fetch SKOS concepts with full metadata — separate from flat tags.
+        // Concepts are a different search/classification vector: they enrich
+        // embeddings and provide semantic structure, but are not merged into tags.
+        let concept_rows = sqlx::query(
+            r#"SELECT c.id as concept_id, c.notation, nc.source, nc.confidence,
+                      nc.relevance_score, nc.is_primary,
+                      l.value as pref_label
+               FROM note_skos_concept nc
+               JOIN skos_concept c ON nc.concept_id = c.id
+               LEFT JOIN skos_concept_label l ON c.id = l.concept_id
+                   AND l.label_type = 'pref_label' AND l.language = 'en'
+               WHERE nc.note_id = $1
+               ORDER BY nc.is_primary DESC, nc.relevance_score DESC"#,
+        )
+        .bind(id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        let concepts: Vec<NoteConceptSummary> = concept_rows
+            .iter()
+            .map(|r| NoteConceptSummary {
+                concept_id: r.get("concept_id"),
+                notation: r.get("notation"),
+                pref_label: r.get("pref_label"),
+                source: r.get("source"),
+                confidence: r.get("confidence"),
+                relevance_score: r.get("relevance_score"),
+                is_primary: r.get("is_primary"),
+            })
             .collect();
 
         // Fetch links
@@ -813,6 +845,7 @@ impl PgNoteRepository {
                 model: revised_row.get("model"),
             },
             tags,
+            concepts,
             links,
         })
     }
