@@ -71,6 +71,32 @@ fn resolve_gen_backend(
         .map_err(|e| JobResult::Failed(format!("Model resolution error: {}", e)))
 }
 
+/// Try to parse a JSON string as `T`. If it's an object wrapping a single array
+/// value (e.g. `{"tags": [...]}` or `{"references": [...]}`), unwrap the array
+/// and parse that instead. Models frequently wrap bare arrays in an object even
+/// when the prompt asks for a plain array.
+fn parse_json_lenient<T: serde::de::DeserializeOwned>(raw: &str) -> std::result::Result<T, serde_json::Error> {
+    // Try direct parse first
+    match serde_json::from_str::<T>(raw) {
+        Ok(v) => return Ok(v),
+        Err(direct_err) => {
+            // If that failed, check if it's an object wrapping a single array value
+            if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw) {
+                // Find the first (and ideally only) array value in the object
+                for (_key, value) in &obj {
+                    if value.is_array() {
+                        let arr_str = value.to_string();
+                        if let Ok(v) = serde_json::from_str::<T>(&arr_str) {
+                            return Ok(v);
+                        }
+                    }
+                }
+            }
+            Err(direct_err)
+        }
+    }
+}
+
 /// Document complexity classification for cascaded model routing (#439).
 ///
 /// Simple documents route to the fast model (e.g., 3B) for 5-10x speedup.
@@ -2191,8 +2217,9 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 
         // Parse the AI response as JSON array.
         // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
+        // Uses lenient parsing to handle object-wrapped arrays (e.g. {"tags": [...]}).
         // Fallback cleanup retained for non-Ollama backends.
-        let concept_labels: Vec<String> = match serde_json::from_str(&ai_response) {
+        let concept_labels: Vec<String> = match parse_json_lenient(&ai_response) {
             Ok(labels) => labels,
             Err(_) => {
                 let cleaned = ai_response
@@ -2201,7 +2228,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     .trim_start_matches("```")
                     .trim_end_matches("```")
                     .trim();
-                match serde_json::from_str(cleaned) {
+                match parse_json_lenient(cleaned) {
                     Ok(labels) => labels,
                     Err(e) => {
                         // Escalate to standard model on fast model parse failure (#439)
@@ -2210,7 +2237,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                             match self.backend.generate_json(&prompt).await {
                                 Ok(r) => {
                                     let r = r.trim().to_string();
-                                    match serde_json::from_str(&r) {
+                                    match parse_json_lenient(&r) {
                                         Ok(labels) => labels,
                                         Err(e2) => {
                                             warn!(error = %e2, "Standard model also failed to produce parseable output");
@@ -2544,7 +2571,7 @@ impl JobHandler for ReferenceExtractionHandler {
             );
 
             match self.backend.generate_json(&prompt).await {
-                Ok(json_str) => match serde_json::from_str::<Vec<RefEntity>>(&json_str) {
+                Ok(json_str) => match parse_json_lenient::<Vec<RefEntity>>(&json_str) {
                     Ok(parsed) => {
                         info!(
                             note_id = %note_id,
@@ -2940,7 +2967,7 @@ If no meaningful related pairs exist, output an empty array: []"#
 
         // Parse the AI response.
         // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
-        let pairs: Vec<RelatedPair> = match serde_json::from_str(&ai_response) {
+        let pairs: Vec<RelatedPair> = match parse_json_lenient(&ai_response) {
             Ok(p) => p,
             Err(_) => {
                 let cleaned = ai_response
@@ -2949,7 +2976,7 @@ If no meaningful related pairs exist, output an empty array: []"#
                     .trim_start_matches("```")
                     .trim_end_matches("```")
                     .trim();
-                match serde_json::from_str(cleaned) {
+                match parse_json_lenient(cleaned) {
                     Ok(p) => p,
                     Err(e) => {
                         warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
