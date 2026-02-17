@@ -2345,9 +2345,9 @@ Only include entities EXPLICITLY mentioned in the text — do not infer or guess
 Content:
 {}
 
-Categories:
+Categories (body entities):
 - organization: Companies, research labs, universities, standards bodies, government agencies
-- person: Named individuals (authors, researchers, historical figures)
+- person: Named individuals mentioned in the body text
 - tool: Software, frameworks, libraries, platforms, databases
 - dataset: Named datasets, benchmarks, corpora, evaluation suites
 - standard: Protocols, specifications, RFCs, file formats
@@ -2355,12 +2355,21 @@ Categories:
 - product: Commercial products or services
 - language: Programming languages
 
+Categories (bibliographic provenance):
+- author: Named authors, contributors, or editors from bylines, headers, or frontmatter
+- cited-source: Papers, articles, books, or datasets referenced in bibliography/references sections or inline citations
+- sponsor: Funding bodies, grants, or organizations acknowledged as funders
+- publisher: Publishing platform, journal, or hosting service
+- affiliation: Institutional affiliations of authors (universities, labs, companies)
+
 Rules:
 1. Use kebab-case for the name field (e.g., "google-deepmind", not "Google DeepMind")
 2. Use the most specific common name (e.g., "pytorch" not "facebook-pytorch")
 3. Skip generic references (e.g., "the company", "researchers")
 4. Include each entity only once even if mentioned multiple times
 5. The label field should be the human-readable form as written in the text
+6. For cited-source, use a short kebab-case title (e.g., "attention-is-all-you-need")
+7. Distinguish roles: a person in a byline is "author", the same person mentioned in body text is "person"
 
 Output ONLY a JSON array (no markdown, no explanation):
 [{{"category": "organization", "name": "google-deepmind", "label": "Google DeepMind"}}]
