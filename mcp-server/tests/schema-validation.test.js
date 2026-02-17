@@ -713,6 +713,7 @@ const CORE_TOOLS = new Set([
   "select_memory", "get_active_memory",
   "manage_attachments",
   "get_knowledge_health",
+  "manage_jobs", "manage_inference",
   "bulk_reprocess_notes",
 ]);
 
@@ -724,21 +725,22 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 27 tools", () => {
-    assert.equal(CORE_TOOLS.size, 27, `Expected 27 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 29 tools", () => {
+    assert.equal(CORE_TOOLS.size, 29, `Expected 29 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 27, `Expected 27 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 29, `Expected 29 filtered tools, got ${coreTools.length}`);
   });
 
-  test("CORE-004: All 11 consolidated tools have action enum", () => {
+  test("CORE-004: All 13 consolidated tools have action enum", () => {
     const consolidated = [
       "capture_knowledge", "search", "record_provenance",
       "manage_tags", "manage_collection", "manage_concepts",
       "manage_attachments", "manage_embeddings",
       "manage_archives", "manage_encryption", "manage_backups",
+      "manage_jobs", "manage_inference",
     ];
     for (const name of consolidated) {
       const tool = tools.find(t => t.name === name);

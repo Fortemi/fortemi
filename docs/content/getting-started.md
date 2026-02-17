@@ -44,7 +44,16 @@ The interactive API documentation is available at http://localhost:3000/docs. Th
 
 ## Step 2: Create Your First Notes
 
-Let's create three notes covering different topics. These will demonstrate Fortemi's search and auto-linking capabilities.
+Let's create three notes covering different topics. These will demonstrate Fortemi's search, auto-tagging, and auto-linking capabilities.
+
+When you create a note, Fortemi's NLP pipeline automatically:
+- **Generates a title** from the content
+- **Tags with SKOS concepts** (8-15 hierarchical tags covering domain, topic, methodology, etc.)
+- **Extracts metadata** (authors, year, language, etc.)
+- **Generates embeddings** for semantic search
+- **Creates semantic links** to related notes
+
+All of this happens in the background — you just write content.
 
 ### Note 1: Rust Ownership
 
@@ -312,22 +321,20 @@ curl -X POST http://localhost:3000/api/v1/collections/{collection_id}/notes \
 
 Collections support nested hierarchies and can have their own tags and metadata.
 
-### SKOS Semantic Taxonomy
+### SKOS Semantic Taxonomy (Automatic)
 
-For advanced knowledge organization, Fortemi implements W3C SKOS (Simple Knowledge Organization System):
+Fortemi implements W3C SKOS (Simple Knowledge Organization System) with **automatic concept tagging**. When you created the notes above, the NLP pipeline already generated SKOS concept tags for each one. Check what was auto-generated:
 
 ```bash
-# Create a concept for "memory safety"
-curl -X POST http://localhost:3000/api/v1/concepts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "pref_label": "Memory Safety",
-    "alt_labels": ["memory security", "safe memory access"],
-    "definition": "Techniques preventing unauthorized memory access and corruption"
-  }'
+# View auto-generated concept tags for a note
+curl "http://localhost:3000/api/v1/notes/{id}/concepts"
 ```
 
-SKOS concepts support broader/narrower relationships and multilingual labels. See the [Tags Guide](./tags.md) for SKOS integration details.
+You'll see concepts like `domain/programming`, `topic/memory-management`, `technique/ownership-model` — all created automatically with proper broader/narrower hierarchies.
+
+The SKOS management tools are primarily for **curation** — reviewing auto-generated concepts, promoting candidates to "controlled" status, and merging duplicates. Manual concept creation is only needed for organizational structures the AI can't infer (like project names or client identifiers).
+
+See the [Tags Guide](./tags.md) for SKOS curation workflows and governance.
 
 ## Step 6: Explore Version History
 

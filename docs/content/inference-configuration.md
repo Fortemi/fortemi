@@ -5,7 +5,9 @@ The Fortémi inference configuration system provides a flexible way to select an
 ## Supported Backends
 
 - **Ollama** (default): Local inference server
-- **OpenAI**: OpenAI-compatible API endpoints (OpenAI, Azure, LocalAI, vLLM, etc.)
+- **OpenAI**: OpenAI API
+- **OpenRouter**: Multi-provider API gateway (Anthropic, Google, Meta, etc.)
+- **OpenAI-compatible**: Any OpenAI-compatible endpoint (Azure, LocalAI, vLLM, etc.)
 
 ## Configuration Methods
 
@@ -319,6 +321,89 @@ generation = "openai"   # API for generation
 enabled = true
 chain = ["openai", "ollama"]  # Generation falls back to Ollama if API is down
 ```
+
+## Provider-Qualified Model Slugs
+
+All LLM-backed operations (AI revision, title generation, concept tagging, metadata extraction, context update) support **per-operation model override** using provider-qualified slugs.
+
+### Slug Format
+
+```
+[provider:]model_slug
+
+Examples:
+  "qwen3:8b"                                        → default provider (Ollama)
+  "ollama:qwen3:8b"                                  → explicit Ollama
+  "openai:gpt-4o"                                    → OpenAI
+  "openai:gpt-4.1-mini"                              → OpenAI budget tier
+  "openrouter:anthropic/claude-sonnet-4-20250514"     → OpenRouter
+```
+
+Bare slugs (no provider prefix) always route to the default provider (Ollama) for backward compatibility.
+
+### Auto-Discovery
+
+The `ProviderRegistry` automatically discovers available providers from environment variables:
+
+| Environment Variable | Provider |
+|---------------------|----------|
+| *(always available)* | Ollama (default, local) |
+| `OPENAI_API_KEY` | OpenAI |
+| `OPENROUTER_API_KEY` | OpenRouter |
+
+No additional configuration needed — set the API key and the provider becomes available.
+
+### Usage Examples
+
+```bash
+# Use OpenAI for AI revision
+curl -X POST http://localhost:3000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "note_id": "...",
+    "job_type": "ai_revision",
+    "model_override": "openai:gpt-4o"
+  }'
+
+# Use OpenRouter for concept tagging
+curl -X POST http://localhost:3000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "note_id": "...",
+    "job_type": "concept_tagging",
+    "model_override": "openrouter:anthropic/claude-sonnet-4-20250514"
+  }'
+
+# Bulk reprocess with a specific model
+# Via MCP: bulk_reprocess_notes with model_override: "openai:gpt-4o-mini"
+```
+
+### Model Discovery
+
+List all available models across all providers:
+
+```bash
+curl http://localhost:3000/api/v1/models
+```
+
+Returns models grouped by provider with health status:
+
+```json
+{
+  "models": [
+    { "slug": "qwen3:8b", "provider": "ollama", "type": "generation" },
+    { "slug": "gpt-4o", "provider": "openai", "type": "generation" }
+  ],
+  "providers": [
+    { "id": "ollama", "is_default": true, "health": "healthy" },
+    { "id": "openai", "is_default": false, "health": "healthy" }
+  ]
+}
+```
+
+### Security
+
+API keys are **never exposed** in job payloads, API responses, or logs. The `ProviderRegistry` resolves keys from environment variables at job execution time.
 
 ## Troubleshooting
 
