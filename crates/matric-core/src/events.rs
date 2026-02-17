@@ -13,6 +13,9 @@
 //!
 //! Architecture: See ADR-037 (unified-event-bus)
 
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -482,24 +485,45 @@ impl ServerEvent {
 /// wrapped in [`EventEnvelope`] with metadata before broadcast. Slow receivers
 /// that fall behind will receive a `Lagged` error and miss events — this is by
 /// design for real-time streams where freshness matters more than completeness.
+///
+/// ## Replay Buffer (Issue #456)
+///
+/// The bus retains the last N events in a bounded ring buffer for SSE
+/// `Last-Event-ID` replay. Clients that reconnect with a valid event ID
+/// receive all events since that ID before joining the live stream.
 pub struct EventBus {
     tx: broadcast::Sender<EventEnvelope>,
+    /// Bounded ring buffer for SSE Last-Event-ID replay (Issue #456).
+    replay_buffer: Mutex<VecDeque<EventEnvelope>>,
+    /// Maximum events retained in the replay buffer.
+    replay_capacity: usize,
 }
 
 impl EventBus {
-    /// Create a new event bus with the given buffer capacity.
+    /// Create a new event bus with the given broadcast capacity and default replay buffer.
     ///
-    /// Recommended: 256 for production, 32 for tests.
+    /// Recommended: 256 broadcast for production, 32 for tests.
+    /// Replay buffer defaults to [`crate::defaults::SSE_REPLAY_BUFFER_SIZE`].
     pub fn new(capacity: usize) -> Self {
-        let (tx, _) = broadcast::channel(capacity);
-        Self { tx }
+        Self::with_replay(capacity, crate::defaults::SSE_REPLAY_BUFFER_SIZE)
+    }
+
+    /// Create a new event bus with explicit broadcast and replay capacities.
+    pub fn with_replay(broadcast_capacity: usize, replay_capacity: usize) -> Self {
+        let (tx, _) = broadcast::channel(broadcast_capacity);
+        Self {
+            tx,
+            replay_buffer: Mutex::new(VecDeque::with_capacity(replay_capacity)),
+            replay_capacity,
+        }
     }
 
     /// Emit an event to all subscribers (system actor, no memory scope).
     ///
     /// The event is automatically wrapped in an [`EventEnvelope`] with a
     /// system actor and UUIDv7 event ID. If there are no active subscribers,
-    /// the event is silently dropped.
+    /// the event is silently dropped. The event is also retained in the replay
+    /// buffer for `Last-Event-ID` reconnection support.
     pub fn emit(&self, event: ServerEvent) {
         let envelope = EventEnvelope::new(event);
         let subscriber_count = self.tx.receiver_count();
@@ -509,6 +533,7 @@ impl EventBus {
             subscriber_count,
             "EventBus emit"
         );
+        self.push_to_replay(&envelope);
         let _ = self.tx.send(envelope);
     }
 
@@ -526,6 +551,7 @@ impl EventBus {
             ?envelope.memory,
             "EventBus emit (with context)"
         );
+        self.push_to_replay(&envelope);
         let _ = self.tx.send(envelope);
     }
 
@@ -537,6 +563,48 @@ impl EventBus {
     /// Returns the number of active subscribers.
     pub fn subscriber_count(&self) -> usize {
         self.tx.receiver_count()
+    }
+
+    /// Replay events since the given event ID (exclusive).
+    ///
+    /// Returns events emitted after `last_event_id`, in chronological order.
+    /// Returns `None` if the ID is not found in the replay buffer (expired cursor).
+    /// Returns `Some(vec![])` if the ID is found but no newer events exist.
+    pub fn replay_since(&self, last_event_id: Uuid) -> Option<Vec<EventEnvelope>> {
+        let buffer = self.replay_buffer.lock().unwrap();
+
+        // Find the position of the requested event ID
+        let pos = buffer.iter().position(|e| e.event_id == last_event_id);
+
+        match pos {
+            Some(idx) => {
+                // Return everything after the found position
+                Some(buffer.iter().skip(idx + 1).cloned().collect())
+            }
+            None => {
+                // Event ID not found — cursor expired
+                None
+            }
+        }
+    }
+
+    /// Returns the number of events currently in the replay buffer.
+    pub fn replay_buffer_len(&self) -> usize {
+        self.replay_buffer.lock().unwrap().len()
+    }
+
+    /// Returns the replay buffer capacity.
+    pub fn replay_capacity(&self) -> usize {
+        self.replay_capacity
+    }
+
+    /// Push an event to the replay buffer, evicting the oldest if at capacity.
+    fn push_to_replay(&self, envelope: &EventEnvelope) {
+        let mut buffer = self.replay_buffer.lock().unwrap();
+        if buffer.len() >= self.replay_capacity {
+            buffer.pop_front();
+        }
+        buffer.push_back(envelope.clone());
     }
 }
 
@@ -1102,5 +1170,134 @@ mod tests {
         assert_eq!(agent.kind, "agent");
         assert!(agent.id.is_none());
         assert_eq!(agent.name.as_deref(), Some("mcp-server"));
+    }
+
+    // =========================================================================
+    // Replay buffer tests (Issue #456)
+    // =========================================================================
+
+    #[test]
+    fn test_replay_buffer_stores_events() {
+        let bus = EventBus::with_replay(32, 10);
+        assert_eq!(bus.replay_buffer_len(), 0);
+
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 1,
+            running: 0,
+            pending: 1,
+        });
+
+        assert_eq!(bus.replay_buffer_len(), 1);
+    }
+
+    #[test]
+    fn test_replay_buffer_capacity_eviction() {
+        let bus = EventBus::with_replay(32, 3);
+
+        for i in 0..5 {
+            bus.emit(ServerEvent::QueueStatus {
+                total_jobs: i,
+                running: 0,
+                pending: i,
+            });
+        }
+
+        // Buffer capacity is 3, so only the last 3 events should remain
+        assert_eq!(bus.replay_buffer_len(), 3);
+    }
+
+    #[test]
+    fn test_replay_since_returns_subsequent_events() {
+        let bus = EventBus::with_replay(32, 100);
+
+        // Emit 5 events
+        let mut event_ids = Vec::new();
+        for i in 0..5 {
+            bus.emit(ServerEvent::QueueStatus {
+                total_jobs: i,
+                running: 0,
+                pending: i,
+            });
+        }
+
+        // Capture the event IDs from the buffer
+        let all = bus.replay_since(Uuid::nil()); // nil won't be found
+        assert!(all.is_none(), "Unknown ID should return None");
+
+        // Get the actual buffer contents via replay_since on a known event
+        let buf = bus.replay_buffer.lock().unwrap();
+        for e in buf.iter() {
+            event_ids.push(e.event_id);
+        }
+        drop(buf);
+
+        // Replay since the second event — should get events 3, 4, 5
+        let replayed = bus.replay_since(event_ids[1]).unwrap();
+        assert_eq!(replayed.len(), 3);
+
+        // Replay since the last event — should get empty
+        let replayed = bus.replay_since(*event_ids.last().unwrap()).unwrap();
+        assert!(replayed.is_empty());
+
+        // Replay since the first event — should get events 2-5
+        let replayed = bus.replay_since(event_ids[0]).unwrap();
+        assert_eq!(replayed.len(), 4);
+    }
+
+    #[test]
+    fn test_replay_since_expired_cursor() {
+        let bus = EventBus::with_replay(32, 3);
+
+        // Emit 5 events (buffer capacity 3, so first 2 are evicted)
+        let mut first_id = Uuid::nil();
+        for i in 0..5 {
+            if i == 0 {
+                // Capture the first event's ID before it's evicted
+                let envelope = EventEnvelope::new(ServerEvent::QueueStatus {
+                    total_jobs: i,
+                    running: 0,
+                    pending: i,
+                });
+                first_id = envelope.event_id;
+                bus.push_to_replay(&envelope);
+                let _ = bus.tx.send(envelope);
+            } else {
+                bus.emit(ServerEvent::QueueStatus {
+                    total_jobs: i,
+                    running: 0,
+                    pending: i,
+                });
+            }
+        }
+
+        // The first event has been evicted — replay should return None
+        assert!(bus.replay_since(first_id).is_none());
+    }
+
+    #[test]
+    fn test_replay_with_context_stores_memory_scope() {
+        let bus = EventBus::with_replay(32, 10);
+
+        bus.emit_with_context(
+            ServerEvent::NoteCreated {
+                note_id: Uuid::nil(),
+                title: None,
+                tags: vec![],
+            },
+            EventContext {
+                memory: Some("research".to_string()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(bus.replay_buffer_len(), 1);
+        let buf = bus.replay_buffer.lock().unwrap();
+        assert_eq!(buf[0].memory.as_deref(), Some("research"));
+    }
+
+    #[test]
+    fn test_replay_capacity_getter() {
+        let bus = EventBus::with_replay(32, 512);
+        assert_eq!(bus.replay_capacity(), 512);
     }
 }

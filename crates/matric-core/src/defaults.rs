@@ -81,6 +81,9 @@ pub const RATE_LIMIT_PERIOD_SECS: u64 = 60;
 /// Default event bus broadcast channel capacity.
 pub const EVENT_BUS_CAPACITY: usize = 256;
 
+/// Default SSE replay buffer capacity (number of events retained for Last-Event-ID replay).
+pub const SSE_REPLAY_BUFFER_SIZE: usize = 1024;
+
 /// Default CORS max-age in seconds (1 hour).
 pub const CORS_MAX_AGE_SECS: u64 = 3600;
 

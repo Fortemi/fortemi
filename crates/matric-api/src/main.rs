@@ -845,8 +845,18 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(matric_core::defaults::EVENT_BUS_CAPACITY);
 
-    // Create the event bus (Issue #38)
-    let event_bus = Arc::new(EventBus::new(event_bus_capacity));
+    // Read SSE replay buffer size (Issue #456)
+    let replay_buffer_size = std::env::var("SSE_REPLAY_BUFFER_SIZE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(matric_core::defaults::SSE_REPLAY_BUFFER_SIZE);
+
+    // Create the event bus (Issue #38, replay #456)
+    let event_bus = Arc::new(EventBus::with_replay(event_bus_capacity, replay_buffer_size));
+    info!(
+        broadcast_capacity = event_bus_capacity,
+        replay_buffer_size, "Event bus initialized"
+    );
 
     // Create vision backend (shared between worker extraction pipeline and API describe endpoint).
     let vision_backend: Option<Arc<dyn VisionBackend>> =
@@ -1946,20 +1956,26 @@ struct SseQuery {
     memory: Option<String>,
 }
 
-/// SSE event stream handler (Issues #43, #452).
+/// SSE event stream handler (Issues #43, #452, #456).
 ///
 /// Clients connect to `/api/v1/events` and receive Server-Sent Events.
 ///
-/// ## Auth
+/// ## Auth (Issue #452)
 /// - Query param: `?token=mm_at_xxx` or `?token=mm_key_xxx`
 /// - Header: `Authorization: Bearer mm_at_xxx`
 /// - When `REQUIRE_AUTH=true`, one of the above is required.
 ///
-/// ## Memory Scoping
+/// ## Memory Scoping (Issue #452)
 /// - Query param: `?memory=my-archive`
 /// - Header: `X-Fortemi-Memory: my-archive`
 /// - Without explicit memory: all events are delivered (admin/monitoring view).
 /// - With explicit memory: only events for that memory + system events are delivered.
+///
+/// ## Replay (Issue #456)
+/// - Browser EventSource auto-sends `Last-Event-ID` on reconnect.
+/// - Events since that ID are replayed from the in-memory ring buffer.
+/// - If the ID is expired (outside replay window), a `resync_required` event is sent.
+/// - Delivery semantics: at-least-once. Clients should deduplicate by `event_id`.
 async fn sse_events(
     State(state): State<AppState>,
     Query(params): Query<SseQuery>,
@@ -2031,21 +2047,97 @@ async fn sse_events(
         None // Default — deliver all events (admin/monitoring view)
     };
 
-    // --- Subscribe and filter ---
+    // --- Last-Event-ID replay (Issue #456) ---
+    // Subscribe to live stream FIRST so we don't miss events during replay lookup.
     let rx = state.event_bus.subscribe();
 
+    let last_event_id = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let (replay_frames, dedup_watermark): (Vec<Event>, Option<Uuid>) =
+        if let Some(last_id) = last_event_id {
+            match state.event_bus.replay_since(last_id) {
+                Some(events) => {
+                    let watermark = events.last().map(|e| e.event_id).unwrap_or(last_id);
+                    // Apply memory filter and convert to SSE frames
+                    let frames: Vec<Event> = events
+                        .into_iter()
+                        .filter(|envelope| {
+                            if let Some(ref filter) = memory_filter {
+                                match &envelope.memory {
+                                    Some(mem) if mem != filter => false,
+                                    _ => true,
+                                }
+                            } else {
+                                true
+                            }
+                        })
+                        .filter_map(|envelope| {
+                            serde_json::to_string(&envelope).ok().map(|json| {
+                                Event::default()
+                                    .event(envelope.event_type.clone())
+                                    .id(envelope.event_id.to_string())
+                                    .data(json)
+                            })
+                        })
+                        .collect();
+                    tracing::info!(
+                        replayed = frames.len(),
+                        last_event_id = %last_id,
+                        "SSE replay: delivered buffered events"
+                    );
+                    (frames, Some(watermark))
+                }
+                None => {
+                    // Expired cursor — send resync hint
+                    tracing::warn!(
+                        last_event_id = %last_id,
+                        buffer_len = state.event_bus.replay_buffer_len(),
+                        "SSE replay: cursor expired, sending resync_required"
+                    );
+                    let resync_data = serde_json::json!({
+                        "reason": "Replay cursor expired. Event ID not found in replay buffer. Perform full state refresh.",
+                        "last_known_id": last_id.to_string(),
+                        "buffer_capacity": state.event_bus.replay_capacity(),
+                    });
+                    let frame = Event::default()
+                        .event("resync_required")
+                        .data(resync_data.to_string());
+                    (vec![frame], None) // No dedup — client needs full refresh
+                }
+            }
+        } else {
+            (vec![], None) // No replay requested
+        };
+
+    // --- Build combined stream: replay frames + live events ---
     use tokio_stream::StreamExt as _;
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
+
+    let replay_stream = futures::stream::iter(
+        replay_frames
+            .into_iter()
+            .map(|frame| Ok::<_, std::convert::Infallible>(frame)),
+    );
+
+    let live_stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
         move |result: Result<EventEnvelope, _>| match result {
             Ok(envelope) => {
-                // Memory scope filtering: skip events from other memories
+                // Dedup: skip events already delivered via replay (Issue #456)
+                if let Some(watermark) = dedup_watermark {
+                    if envelope.event_id <= watermark {
+                        return None;
+                    }
+                }
+
+                // Memory scope filtering: skip events from other memories (Issue #452)
                 if let Some(ref filter) = memory_filter {
                     if let Some(ref event_memory) = envelope.memory {
                         if event_memory != filter {
-                            return None; // Different memory — filtered out
+                            return None;
                         }
                     }
-                    // System events (memory=None) always pass through
                 }
 
                 match serde_json::to_string(&envelope) {
@@ -2060,7 +2152,10 @@ async fn sse_events(
         },
     );
 
-    Ok(Sse::new(stream).keep_alive(
+    // Replay first, then seamlessly transition to live stream
+    let combined = replay_stream.chain(live_stream);
+
+    Ok(Sse::new(combined).keep_alive(
         KeepAlive::new()
             .interval(std::time::Duration::from_secs(15))
             .text("keepalive"),
