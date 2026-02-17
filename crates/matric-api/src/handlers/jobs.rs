@@ -18,7 +18,7 @@ use matric_core::{
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
 };
-use matric_inference::{OllamaBackend, ProviderRegistry};
+use matric_inference::{NerBackend, OllamaBackend, ProviderRegistry};
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
@@ -106,10 +106,7 @@ fn classify_complexity(content: &str) -> ContentComplexity {
     }
 
     // Academic citations → Complex
-    if content.contains("arXiv:")
-        || content.contains("doi.org/")
-        || content.contains("10.1")
-    {
+    if content.contains("arXiv:") || content.contains("doi.org/") || content.contains("10.1") {
         return ContentComplexity::Complex;
     }
 
@@ -2177,7 +2174,10 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                         Ok(r) => r.trim().to_string(),
                         Err(e2) => {
                             self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!("AI generation failed (escalated): {}", e2));
+                            return JobResult::Failed(format!(
+                                "AI generation failed (escalated): {}",
+                                e2
+                            ));
                         }
                     }
                 } else {
@@ -2215,19 +2215,28 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                                         Err(e2) => {
                                             warn!(error = %e2, "Standard model also failed to produce parseable output");
                                             self.queue_phase2_jobs(note_id, schema).await;
-                                            return JobResult::Failed(format!("Failed to parse AI response: {}", e2));
+                                            return JobResult::Failed(format!(
+                                                "Failed to parse AI response: {}",
+                                                e2
+                                            ));
                                         }
                                     }
                                 }
                                 Err(e2) => {
                                     self.queue_phase2_jobs(note_id, schema).await;
-                                    return JobResult::Failed(format!("AI generation failed (escalated): {}", e2));
+                                    return JobResult::Failed(format!(
+                                        "AI generation failed (escalated): {}",
+                                        e2
+                                    ));
                                 }
                             }
                         } else {
                             warn!(error = %e, response = %ai_response, "Failed to parse AI concept suggestions");
                             self.queue_phase2_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                            return JobResult::Failed(format!(
+                                "Failed to parse AI response: {}",
+                                e
+                            ));
                         }
                     }
                 }
@@ -2359,14 +2368,24 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
 pub struct ReferenceExtractionHandler {
     db: Database,
     backend: OllamaBackend,
+    /// Optional GLiNER NER backend for fast entity extraction (#437).
+    /// When available, uses GLiNER (CPU, <300ms) instead of LLM (GPU, 10-24s).
+    /// Falls back to LLM when GLiNER is unavailable.
+    ner_backend: Option<Arc<dyn NerBackend>>,
     registry: Arc<ProviderRegistry>,
 }
 
 impl ReferenceExtractionHandler {
-    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+    pub fn new(
+        db: Database,
+        backend: OllamaBackend,
+        ner_backend: Option<Arc<dyn NerBackend>>,
+        registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             db,
             backend,
+            ner_backend,
             registry,
         }
     }
@@ -2390,30 +2409,22 @@ impl JobHandler for ReferenceExtractionHandler {
         };
 
         let schema = extract_schema(&ctx);
-        let model_override = extract_model_override(&ctx);
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
         };
 
-        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
-            Ok(b) => b,
-            Err(e) => return e,
-        };
-        let backend: &dyn GenerationBackend = match &overridden {
-            Some(b) => b.as_ref(),
-            None => &self.backend,
+        // Determine provenance model name: GLiNER if available, otherwise LLM.
+        let prov_model = match &self.ner_backend {
+            Some(ner) => ner.model_name().to_string(),
+            None => matric_core::GenerationBackend::model_name(&self.backend).to_string(),
         };
 
         // Start provenance activity
         let activity_id = self
             .db
             .provenance
-            .start_activity(
-                note_id,
-                "reference_extraction",
-                Some(matric_core::GenerationBackend::model_name(backend)),
-            )
+            .start_activity(note_id, "reference_extraction", Some(&prov_model))
             .await
             .ok();
 
@@ -2451,8 +2462,94 @@ impl JobHandler for ReferenceExtractionHandler {
             .take(matric_core::defaults::PREVIEW_TAGGING)
             .collect();
 
-        let prompt = format!(
-            r#"Extract specific named references from this content. For each, provide the category and a kebab-case identifier.
+        // Internal struct for normalized reference entities (shared by GLiNER and LLM paths).
+        #[derive(serde::Deserialize)]
+        struct RefEntity {
+            category: String,
+            name: String,
+            #[allow(dead_code)]
+            label: String,
+        }
+
+        // Entity type labels for GLiNER NER extraction.
+        const NER_ENTITY_TYPES: &[&str] = &[
+            "organization",
+            "person",
+            "tool",
+            "dataset",
+            "standard",
+            "venue",
+            "product",
+            "language",
+            "author",
+            "cited-source",
+            "sponsor",
+            "publisher",
+            "affiliation",
+        ];
+
+        // Try GLiNER first (CPU, <300ms), fall back to LLM (GPU, 10-24s).
+        let (entities, extraction_method) = match &self.ner_backend {
+            Some(ner) => {
+                match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
+                    Ok(result) => {
+                        info!(
+                            note_id = %note_id,
+                            entities = result.entities.len(),
+                            model = %result.model,
+                            "GLiNER extraction succeeded"
+                        );
+                        ctx.report_progress(50, Some("Parsing GLiNER entities..."));
+
+                        // Map GLiNER NerEntity → RefEntity
+                        let mapped: Vec<RefEntity> = result
+                            .entities
+                            .into_iter()
+                            .map(|e| {
+                                let name = e
+                                    .text
+                                    .to_lowercase()
+                                    .replace([' ', '_'], "-")
+                                    .chars()
+                                    .filter(|c| c.is_alphanumeric() || *c == '-')
+                                    .collect::<String>();
+                                RefEntity {
+                                    category: e.label.clone(),
+                                    name,
+                                    label: e.text,
+                                }
+                            })
+                            .collect();
+                        (mapped, "gliner")
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "GLiNER extraction failed, falling back to LLM");
+                        // Fall through to LLM path below
+                        (Vec::new(), "gliner_failed")
+                    }
+                }
+            }
+            None => (Vec::new(), "no_gliner"),
+        };
+
+        // If GLiNER produced results, use them. Otherwise fall back to LLM.
+        let (entities, extraction_method) = if !entities.is_empty() || extraction_method == "gliner"
+        {
+            (entities, extraction_method)
+        } else {
+            // LLM fallback path
+            let model_override = extract_model_override(&ctx);
+            let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+                Ok(b) => b,
+                Err(e) => return e,
+            };
+            let backend: &dyn GenerationBackend = match &overridden {
+                Some(b) => b.as_ref(),
+                None => &self.backend,
+            };
+
+            let prompt = format!(
+                r#"Extract specific named references from this content. For each, provide the category and a kebab-case identifier.
 
 Only include entities EXPLICITLY mentioned in the text — do not infer or guess.
 
@@ -2489,45 +2586,40 @@ Output ONLY a JSON array (no markdown, no explanation):
 [{{"category": "organization", "name": "google-deepmind", "label": "Google DeepMind"}}]
 
 If no named references found, output: []"#,
-            content_preview
-        );
+                content_preview
+            );
 
-        let ai_response = match backend.generate_json(&prompt).await {
-            Ok(r) => r.trim().to_string(),
-            Err(e) => {
-                return JobResult::Failed(format!("AI generation failed: {}", e));
-            }
-        };
+            let ai_response = match backend.generate_json(&prompt).await {
+                Ok(r) => r.trim().to_string(),
+                Err(e) => {
+                    return JobResult::Failed(format!("AI generation failed: {}", e));
+                }
+            };
 
-        ctx.report_progress(50, Some("Parsing reference entities..."));
+            ctx.report_progress(50, Some("Parsing reference entities..."));
 
-        // Parse the AI response as JSON array of reference objects.
-        // With format:"json" enforcement, output is guaranteed valid JSON from Ollama.
-        #[derive(serde::Deserialize)]
-        struct RefEntity {
-            category: String,
-            name: String,
-            #[allow(dead_code)]
-            label: String,
-        }
-
-        let entities: Vec<RefEntity> = match serde_json::from_str(&ai_response) {
-            Ok(refs) => refs,
-            Err(_) => {
-                let cleaned = ai_response
-                    .trim()
-                    .trim_start_matches("```json")
-                    .trim_start_matches("```")
-                    .trim_end_matches("```")
-                    .trim();
-                match serde_json::from_str(cleaned) {
-                    Ok(refs) => refs,
-                    Err(e) => {
-                        warn!(error = %e, response = %ai_response, "Failed to parse AI reference extraction response");
-                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+            let parsed: Vec<RefEntity> = match serde_json::from_str(&ai_response) {
+                Ok(refs) => refs,
+                Err(_) => {
+                    let cleaned = ai_response
+                        .trim()
+                        .trim_start_matches("```json")
+                        .trim_start_matches("```")
+                        .trim_end_matches("```")
+                        .trim();
+                    match serde_json::from_str(cleaned) {
+                        Ok(refs) => refs,
+                        Err(e) => {
+                            warn!(error = %e, response = %ai_response, "Failed to parse AI reference extraction response");
+                            return JobResult::Failed(format!(
+                                "Failed to parse AI response: {}",
+                                e
+                            ));
+                        }
                     }
                 }
-            }
+            };
+            (parsed, "llm")
         };
 
         if entities.is_empty() {
@@ -2626,6 +2718,7 @@ If no named references found, output: []"#,
                 "references_found": entities.len(),
                 "labels": &labels,
                 "content_preview_chars": content_preview.len(),
+                "extraction_method": extraction_method,
             });
             if let Err(e) = self
                 .db
@@ -2642,6 +2735,7 @@ If no named references found, output: []"#,
             note_id = %note_id,
             result_count = tagged_count,
             references_found = entities.len(),
+            extraction_method = extraction_method,
             duration_ms = start.elapsed().as_millis() as u64,
             "Reference extraction completed"
         );
@@ -2649,7 +2743,8 @@ If no named references found, output: []"#,
         JobResult::Success(Some(serde_json::json!({
             "references_tagged": tagged_count,
             "references_found": entities.len(),
-            "labels": labels
+            "labels": labels,
+            "extraction_method": extraction_method,
         })))
     }
 }
@@ -3179,10 +3274,17 @@ Example output:
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 if use_fast {
-                    info!("Fast model failed for metadata extraction, escalating to standard model");
+                    info!(
+                        "Fast model failed for metadata extraction, escalating to standard model"
+                    );
                     match self.backend.generate_json(&prompt).await {
                         Ok(r) => r.trim().to_string(),
-                        Err(e2) => return JobResult::Failed(format!("AI generation failed (escalated): {}", e2)),
+                        Err(e2) => {
+                            return JobResult::Failed(format!(
+                                "AI generation failed (escalated): {}",
+                                e2
+                            ))
+                        }
                     }
                 } else {
                     return JobResult::Failed(format!("AI generation failed: {}", e));
@@ -3213,14 +3315,25 @@ Example output:
                                     Ok(v) => v,
                                     Err(e2) => {
                                         warn!(error = %e2, "Standard model also failed");
-                                        return JobResult::Failed(format!("Failed to parse AI response: {}", e2));
+                                        return JobResult::Failed(format!(
+                                            "Failed to parse AI response: {}",
+                                            e2
+                                        ));
                                     }
                                 },
-                                Err(e2) => return JobResult::Failed(format!("AI generation failed (escalated): {}", e2)),
+                                Err(e2) => {
+                                    return JobResult::Failed(format!(
+                                        "AI generation failed (escalated): {}",
+                                        e2
+                                    ))
+                                }
                             }
                         } else {
                             warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
-                            return JobResult::Failed(format!("Failed to parse AI response: {}", e));
+                            return JobResult::Failed(format!(
+                                "Failed to parse AI response: {}",
+                                e
+                            ));
                         }
                     }
                 }

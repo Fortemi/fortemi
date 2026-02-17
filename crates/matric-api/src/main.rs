@@ -371,6 +371,8 @@ struct AppState {
     vision_backend: Option<Arc<dyn VisionBackend>>,
     /// Transcription backend for ad-hoc audio transcription (None if WHISPER_BASE_URL not set).
     transcription_backend: Option<Arc<dyn TranscriptionBackend>>,
+    /// NER backend for named entity recognition (None if GLINER_BASE_URL not set).
+    ner_backend: Option<Arc<dyn matric_inference::NerBackend>>,
     /// Git commit SHA at build time.
     git_sha: String,
     /// Build date (ISO 8601).
@@ -862,6 +864,17 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Create NER backend for reference extraction (#437).
+    // GLiNER provides 100-200x faster NER than LLM on CPU.
+    let ner_backend: Option<Arc<dyn matric_inference::NerBackend>> =
+        matric_inference::GlinerBackend::from_env()
+            .map(|b| Arc::new(b) as Arc<dyn matric_inference::NerBackend>);
+    if let Some(ref backend) = ner_backend {
+        info!("NER backend available: model={}", backend.model_name());
+    } else {
+        info!("NER backend disabled: GLINER_BASE_URL not set");
+    }
+
     // Build shared provider registry for multi-provider inference routing (#432).
     // Created before the worker so it's available to both job handlers and AppState.
     let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
@@ -988,7 +1001,9 @@ async fn main() -> anyhow::Result<()> {
 
         // Register handlers - create separate backend instances.
         // Cascaded model routing (#439): create fast backend if MATRIC_FAST_GEN_MODEL is set.
-        let fast_backend_model = std::env::var("MATRIC_FAST_GEN_MODEL").ok().filter(|s| !s.is_empty());
+        let fast_backend_model = std::env::var("MATRIC_FAST_GEN_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty());
         if let Some(ref model) = fast_backend_model {
             info!(model = %model, "Fast generation model configured for cascaded routing");
         }
@@ -1036,6 +1051,7 @@ async fn main() -> anyhow::Result<()> {
             .register_handler(ReferenceExtractionHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
+                ner_backend.clone(),
                 provider_registry.clone(),
             ))
             .await;
@@ -1178,6 +1194,7 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(matric_core::defaults::MAX_UPLOAD_SIZE_BYTES),
         vision_backend,
         transcription_backend,
+        ner_backend,
         git_sha: std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
         build_date: std::env::var("MATRIC_BUILD_DATE").unwrap_or_else(|_| "unknown".to_string()),
         extraction_strategies: active_extraction_strategies,
@@ -2600,6 +2617,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "capabilities": {
             "vision": state.vision_backend.is_some(),
             "audio_transcription": state.transcription_backend.is_some(),
+            "ner": state.ner_backend.is_some(),
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
         },
@@ -2730,6 +2748,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         "capabilities": {
             "vision": state.vision_backend.is_some(),
             "audio_transcription": state.transcription_backend.is_some(),
+            "ner": state.ner_backend.is_some(),
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
         },
@@ -14413,6 +14432,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            ner_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
@@ -15139,6 +15159,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            ner_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
@@ -15437,6 +15458,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            ner_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),

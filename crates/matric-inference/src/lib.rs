@@ -38,6 +38,7 @@ pub mod discovery;
 pub mod embedding_models;
 pub mod eval;
 pub mod few_shot;
+pub mod gliner;
 pub mod hardware;
 pub mod latency;
 pub mod link_types;
@@ -85,6 +86,7 @@ pub use few_shot::{
     default_revision_examples, default_title_examples, ExampleType, FewShotConfig, FewShotExample,
     FewShotPromptBuilder, SelectionStrategy,
 };
+pub use gliner::{GlinerBackend, NerBackend, NerEntity, NerResult};
 pub use hardware::{
     cloud_comparisons, tier_model_recommendations, tier_quality_expectations, CloudComparison,
     HardwareTier, ModelRecommendation, OllamaSettings, SystemCapabilities, TierQualityExpectations,

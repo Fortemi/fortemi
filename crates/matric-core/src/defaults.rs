@@ -169,6 +169,9 @@ pub const ENV_WHISPER_MODEL: &str = "WHISPER_MODEL";
 /// Default Whisper model.
 pub const DEFAULT_WHISPER_MODEL: &str = "Systran/faster-distil-whisper-large-v3";
 
+/// Environment variable for the GLiNER NER sidecar URL.
+pub const ENV_GLINER_BASE_URL: &str = "GLINER_BASE_URL";
+
 /// Environment variable to enable OCR processing.
 pub const ENV_OCR_ENABLED: &str = "OCR_ENABLED";
 

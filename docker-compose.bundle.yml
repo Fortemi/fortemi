@@ -88,6 +88,26 @@ services:
       retries: 3
       start_period: 120s
 
+  # GLiNER NER sidecar (CPU-only, optional)
+  # Activate with: docker compose -f docker-compose.bundle.yml --profile gliner up -d
+  gliner:
+    build:
+      context: build/gliner
+      dockerfile: Dockerfile
+    profiles:
+      - gliner
+    environment:
+      - GLINER_MODEL=${GLINER_MODEL:-urchade/gliner_large-v2.1}
+      - GLINER_PORT=8090
+      - GLINER_THRESHOLD=${GLINER_THRESHOLD:-0.3}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://0.0.0.0:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   matric:
     image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_TAG:-bundle-main}
     build:
@@ -200,6 +220,8 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - LIBREOFFICE_PATH=${LIBREOFFICE_PATH:-}
+      # GLiNER NER sidecar (optional, activate with --profile gliner)
+      - GLINER_BASE_URL=${GLINER_BASE_URL:-}
 
       # ── Inference: OpenAI (alternative) ────────────────────────────────
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
