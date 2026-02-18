@@ -84,14 +84,22 @@ fn parse_json_lenient<T: serde::de::DeserializeOwned>(
         Ok(v) => return Ok(v),
         Err(e) => e,
     };
-    // If that failed, check if it's an object wrapping a single array value
+    // If that failed, check if it's an object wrapping a single array value,
+    // or a bare object that should be wrapped in an array.
     if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw) {
+        // Case 1: object wrapping an array value, e.g. {"pairs": [...]}
         for (_key, value) in &obj {
             if value.is_array() {
                 if let Ok(v) = serde_json::from_str::<T>(&value.to_string()) {
                     return Ok(v);
                 }
             }
+        }
+        // Case 2: bare single object that should be an array element,
+        // e.g. {"concept_a": "x", "concept_b": "y"} instead of [{...}]
+        let wrapped = serde_json::Value::Array(vec![serde_json::Value::Object(obj)]);
+        if let Ok(v) = serde_json::from_value::<T>(wrapped) {
+            return Ok(v);
         }
     }
     Err(direct_err)
