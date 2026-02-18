@@ -634,53 +634,53 @@ impl JobHandler for EmbeddingHandler {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
 
-        // Build embedding payload: prefix + title + content ONLY (#485).
-        //
         // DOCUMENT COMPOSITION (#485):
-        // The embedding captures the semantic meaning of the note's prose.
-        // Concept labels and tags are EXCLUDED from the default embedding —
-        // they belong to the FTS pipeline (BM25F weight-B boost) and the
-        // tag-boost scoring in the linking pipeline (GraphConfig.tag_boost_weight).
-        // Including tags in the vector created artificial topic-cluster gravity
-        // that produced the spiral/seashell graph topology.  Content-only
-        // embeddings let SNN + PFNET prune edges based on genuine prose
-        // similarity rather than shared labels.
+        // Resolve embedding config to determine what properties go into the
+        // embedding text. The config's DocumentComposition controls whether
+        // title, content, tags, and/or concepts are included.
         //
-        // concept_labels and concept_relations are still fetched above for
-        // provenance metadata and future per-set composition support (#485).
+        // Default composition (title+content only) was chosen because including
+        // tags created artificial topic-cluster gravity in the graph — notes
+        // sharing tags clustered in vector space regardless of content similarity.
+        // Tags influence linking via tag_boost_weight and FTS via BM25F weight-B.
         //
-        // INSTRUCTION PREFIX (#472):
-        // nomic-embed-text supports task-specific prefixes that shift embedding
-        // geometry. "clustering:" maximizes inter-cluster distance, which helps
-        // the HNSW heuristic find genuinely diverse neighbors on same-domain corpora.
-        let prefix = std::env::var(matric_core::defaults::ENV_EMBED_INSTRUCTION_PREFIX)
-            .unwrap_or_else(|_| matric_core::defaults::EMBED_INSTRUCTION_PREFIX.to_string());
-        let title = note.note.title.as_deref().unwrap_or("");
-        let content = {
-            let mut parts = Vec::new();
-            if !title.is_empty() {
-                parts.push(title.to_string());
-            }
-            // concept_labels intentionally excluded from embedding text (#485).
-            // Tags influence linking via tag_boost_weight (0.3) and FTS via
-            // BM25F weight-B — no need to double-count in the vector space.
-            parts.push(base_content.to_string());
-            let body = parts.join("\n\n");
-            if prefix.is_empty() {
-                body
+        // Priority: set-specific config > default config > hardcoded defaults.
+        let embedding_set_id = ctx
+            .payload()
+            .and_then(|p| p.get("embedding_set_id"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok());
+
+        let embed_config = if let Some(set_id) = embedding_set_id {
+            // Fetch config for the specific embedding set
+            if let Ok(Some(set)) = self.db.embedding_sets.get_by_id(set_id).await {
+                if let Some(config_id) = set.embedding_config_id {
+                    self.db.embedding_sets.get_config(config_id).await.ok().flatten()
+                } else {
+                    self.db.embedding_sets.get_default_config().await.ok().flatten()
+                }
             } else {
-                format!("{}{}", prefix, body)
+                self.db.embedding_sets.get_default_config().await.ok().flatten()
             }
+        } else {
+            self.db.embedding_sets.get_default_config().await.ok().flatten()
         };
+
+        let composition = embed_config
+            .as_ref()
+            .map(|c| c.document_composition.clone())
+            .unwrap_or_default();
+
+        let title = note.note.title.as_deref().unwrap_or("");
+        let content = composition.build_text(title, base_content, &concept_labels);
 
         ctx.report_progress(30, Some("Chunking content..."));
 
-        // Resolve chunking config from database with priority chain:
+        // Resolve chunking config with priority:
         // 1. Note's document type (if assigned)
-        // 2. Default embedding config (global fallback)
+        // 2. Resolved embedding config (from set or default)
         // 3. ChunkerConfig::default() (hardcoded fallback)
         let chunker_config = if let Some(doc_type_id) = note.note.document_type_id {
-            // Try to fetch document type configuration
             if let Ok(Some(doc_type)) = self.db.document_types.get(doc_type_id).await {
                 let max = doc_type.chunk_size_default as usize;
                 ChunkerConfig {
@@ -688,8 +688,7 @@ impl JobHandler for EmbeddingHandler {
                     min_chunk_size: (max / 10).max(50),
                     overlap: doc_type.chunk_overlap_default as usize,
                 }
-            } else if let Ok(Some(config)) = self.db.embedding_sets.get_default_config().await {
-                // Document type not found, fall back to default embedding config
+            } else if let Some(ref config) = embed_config {
                 let max = config.chunk_size as usize;
                 ChunkerConfig {
                     max_chunk_size: max,
@@ -697,11 +696,9 @@ impl JobHandler for EmbeddingHandler {
                     overlap: config.chunk_overlap as usize,
                 }
             } else {
-                // No document type or default config, use hardcoded defaults
                 ChunkerConfig::default()
             }
-        } else if let Ok(Some(config)) = self.db.embedding_sets.get_default_config().await {
-            // No document type assigned, use default embedding config
+        } else if let Some(ref config) = embed_config {
             let max = config.chunk_size as usize;
             ChunkerConfig {
                 max_chunk_size: max,
@@ -709,7 +706,6 @@ impl JobHandler for EmbeddingHandler {
                 overlap: config.chunk_overlap as usize,
             }
         } else {
-            // No document type and no default config, use hardcoded defaults
             ChunkerConfig::default()
         };
 
@@ -737,11 +733,6 @@ impl JobHandler for EmbeddingHandler {
 
         // Store embeddings — use set-scoped storage if embedding_set_id is in payload
         let model_name = EmbeddingBackend::model_name(&self.backend);
-        let embedding_set_id = ctx
-            .payload()
-            .and_then(|p| p.get("embedding_set_id"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
@@ -804,7 +795,8 @@ impl JobHandler for EmbeddingHandler {
                 "model": model_name,
                 "concept_labels_available": concept_labels.len(),
                 "concept_relations_available": concept_relations.len(),
-                "composition": "title+content",
+                "composition": serde_json::to_value(&composition).unwrap_or_default(),
+                "embedding_set_id": embedding_set_id.map(|id| id.to_string()),
             });
             if let Err(e) = self
                 .db
