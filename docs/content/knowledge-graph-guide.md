@@ -63,47 +63,124 @@ curl "http://localhost:3000/api/v1/notes/{id}/links"
 }
 ```
 
-### Graph Exploration
+### Graph Exploration (v1 Contract)
 
-Traverse the knowledge graph starting from any note:
+Traverse the knowledge graph starting from any note. Returns a versioned payload with nodes, edges, and truncation/guardrail metadata.
 
 ```bash
-curl "http://localhost:3000/api/v1/graph/{id}/explore?depth=2&max_nodes=50"
+curl "http://localhost:3000/api/v1/graph/{id}?depth=2&max_nodes=50"
 ```
 
 **Parameters:**
 
-| Param | Default | Description |
-|-------|---------|-------------|
-| `depth` | 2 | Maximum hops to traverse |
-| `max_nodes` | 50 | Limit total nodes returned |
+| Param | Default | Range | Description |
+|-------|---------|-------|-------------|
+| `depth` | 2 | 0-10 | Maximum hops to traverse |
+| `max_nodes` | 50 | 1-1000 | Limit total nodes returned |
+| `min_score` | 0.0 | 0.0-1.0 | Minimum edge score threshold |
+| `max_edges_per_node` | unlimited | 1-1000 | Cap edges per hub node |
 
-**Response:**
+**Response (v1):**
 
 ```json
 {
+  "graph_version": "v1",
   "nodes": [
     {
       "id": "uuid",
       "title": "Note Title",
-      "depth": 0
+      "depth": 0,
+      "collection_id": "uuid-or-null",
+      "archived": false,
+      "created_at_utc": "2026-01-15T10:00:00Z",
+      "updated_at_utc": "2026-02-01T14:30:00Z"
     },
     {
       "id": "uuid",
       "title": "Related Note",
-      "depth": 1
+      "depth": 1,
+      "collection_id": null,
+      "archived": false,
+      "created_at_utc": "2026-01-20T08:00:00Z",
+      "updated_at_utc": "2026-01-20T08:00:00Z"
     }
   ],
   "edges": [
     {
-      "from": "uuid",
-      "to": "uuid",
+      "source": "uuid",
+      "target": "uuid",
+      "edge_type": "semantic",
       "score": 0.85,
-      "kind": "semantic"
+      "rank": 1,
+      "computed_at": "2026-01-20T08:01:00Z"
+    },
+    {
+      "source": "uuid",
+      "target": "uuid",
+      "edge_type": "explicit",
+      "score": 1.0,
+      "rank": 1,
+      "computed_at": "2026-02-01T14:30:00Z"
     }
-  ]
+  ],
+  "meta": {
+    "total_nodes": 127,
+    "total_edges": 342,
+    "truncated_nodes": 77,
+    "truncated_edges": 0,
+    "effective_depth": 2,
+    "effective_max_nodes": 50,
+    "effective_min_score": 0.0,
+    "truncation_reasons": [
+      "max_nodes limit: 50 of 127 nodes returned"
+    ]
+  }
 }
 ```
+
+**Node fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Note identifier |
+| `title` | string/null | Note title |
+| `depth` | integer | Hops from starting node (0 = start) |
+| `collection_id` | UUID/null | Parent collection |
+| `archived` | boolean | Archive status |
+| `created_at_utc` | datetime | Creation timestamp |
+| `updated_at_utc` | datetime | Last update timestamp |
+| `community_id` | integer/null | Community cluster ID (when available) |
+| `community_label` | string/null | Community label (when available) |
+| `community_confidence` | float/null | Community assignment confidence |
+
+**Edge fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | UUID | Origin note ID |
+| `target` | UUID | Destination note ID |
+| `edge_type` | string | `"semantic"` or `"explicit"` |
+| `score` | float | Similarity score (0.0-1.0) |
+| `rank` | integer/null | Rank among edges from source node |
+| `embedding_set` | string/null | Embedding set used (provenance) |
+| `model` | string/null | Model used for embedding (provenance) |
+| `computed_at` | datetime/null | When the link was computed |
+
+**Meta fields (guardrails):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_nodes` | integer | Total reachable nodes before truncation |
+| `total_edges` | integer | Total qualifying edges before truncation |
+| `truncated_nodes` | integer | Nodes omitted due to limits |
+| `truncated_edges` | integer | Edges omitted due to limits |
+| `effective_depth` | integer | Depth actually applied (after server clamping) |
+| `effective_max_nodes` | integer | Max nodes actually applied |
+| `effective_min_score` | float | Score threshold actually applied |
+| `effective_max_edges_per_node` | integer/null | Per-node edge limit (null = unlimited) |
+| `truncation_reasons` | string[] | Human-readable truncation explanations |
+
+**Legacy compatibility:** The v1 contract replaces the previous unversioned response. Clients should check for `graph_version` to detect the payload format. Edge fields changed from `from_id`/`to_id`/`kind` to `source`/`target`/`edge_type`.
 
 ## Understanding Similarity Scores
 

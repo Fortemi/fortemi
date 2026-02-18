@@ -755,6 +755,8 @@ function createMcpServer() {
           const graphParams = new URLSearchParams();
           if (args.depth) graphParams.set("depth", args.depth);
           if (args.max_nodes) graphParams.set("max_nodes", args.max_nodes);
+          if (args.min_score != null) graphParams.set("min_score", args.min_score);
+          if (args.max_edges_per_node) graphParams.set("max_edges_per_node", args.max_edges_per_node);
           result = await apiRequest("GET", `/api/v1/graph/${args.id}?${graphParams}`);
           break;
         }

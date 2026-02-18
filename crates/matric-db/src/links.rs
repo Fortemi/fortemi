@@ -1,7 +1,7 @@
 //! Link repository implementation.
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
@@ -189,28 +189,66 @@ impl LinkRepository for PgLinkRepository {
     }
 }
 
-/// Graph node with basic note info.
+/// Graph node in v1 payload contract (#467).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphNode {
     pub id: Uuid,
     pub title: Option<String>,
     pub depth: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<Uuid>,
+    pub archived: bool,
+    pub created_at_utc: DateTime<Utc>,
+    pub updated_at_utc: DateTime<Utc>,
+    // Community hints (#468) — populated when backend community detection is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community_confidence: Option<f32>,
 }
 
-/// Graph edge representing a link between notes.
+/// Graph edge in v1 payload contract (#467).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphEdge {
-    pub from_id: Uuid,
-    pub to_id: Uuid,
+    pub source: Uuid,
+    pub target: Uuid,
+    pub edge_type: String,
     pub score: f32,
-    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<i32>,
+    // Provenance fields (#467, #468).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_set: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computed_at: Option<DateTime<Utc>>,
 }
 
-/// Result of graph traversal.
+/// Truncation and guardrail metadata (#469).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphMeta {
+    pub total_nodes: i64,
+    pub total_edges: i64,
+    pub truncated_nodes: i64,
+    pub truncated_edges: i64,
+    pub effective_depth: i32,
+    pub effective_max_nodes: i64,
+    pub effective_min_score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_max_edges_per_node: Option<i64>,
+    pub truncation_reasons: Vec<String>,
+}
+
+/// Versioned result of graph traversal (v1 contract, #467).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphResult {
+    pub graph_version: String,
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    pub meta: GraphMeta,
 }
 
 impl PgLinkRepository {
@@ -261,40 +299,40 @@ impl PgLinkRepository {
     /// Traverse the knowledge graph starting from a note.
     ///
     /// Uses recursive CTE to explore links up to `max_depth` hops.
-    /// Returns unique nodes and edges discovered.
+    /// Returns versioned v1 payload with nodes, edges, and metadata.
     pub async fn traverse_graph(
         &self,
         start_id: Uuid,
         max_depth: i32,
         max_nodes: i64,
+        min_score: f32,
+        max_edges_per_node: Option<i64>,
     ) -> Result<GraphResult> {
-        // Use recursive CTE to traverse the graph
+        // Use recursive CTE to traverse the graph, then window-count for truncation detection
         let rows = sqlx::query(
             r#"
             WITH RECURSIVE graph AS (
-                -- Base case: starting node
-                SELECT
-                    $1::uuid as note_id,
-                    0 as depth
-
+                SELECT $1::uuid as note_id, 0 as depth
                 UNION
-
-                -- Recursive case: follow links
                 SELECT
                     CASE WHEN l.from_note_id = g.note_id THEN l.to_note_id ELSE l.from_note_id END as note_id,
                     g.depth + 1 as depth
                 FROM graph g
                 JOIN link l ON (l.from_note_id = g.note_id OR l.to_note_id = g.note_id)
                 WHERE g.depth < $2
+            ),
+            deduped AS (
+                SELECT DISTINCT ON (g.note_id)
+                    g.note_id, g.depth, n.title, n.collection_id,
+                    COALESCE(n.archived, false) as archived,
+                    n.created_at_utc, n.updated_at_utc
+                FROM graph g
+                JOIN note n ON n.id = g.note_id
+                WHERE n.deleted_at IS NULL
+                ORDER BY g.note_id, g.depth
             )
-            SELECT DISTINCT ON (g.note_id)
-                g.note_id,
-                g.depth,
-                n.title
-            FROM graph g
-            JOIN note n ON n.id = g.note_id
-            WHERE n.deleted_at IS NULL
-            ORDER BY g.note_id, g.depth
+            SELECT *, COUNT(*) OVER() as total_reachable
+            FROM deduped
             LIMIT $3
             "#,
         )
@@ -305,41 +343,108 @@ impl PgLinkRepository {
         .await
         .map_err(Error::Database)?;
 
+        let total_reachable: i64 = rows.first().map(|r| r.get("total_reachable")).unwrap_or(0);
         let nodes: Vec<GraphNode> = rows
             .iter()
             .map(|row| GraphNode {
                 id: row.get("note_id"),
                 title: row.get("title"),
                 depth: row.get("depth"),
+                collection_id: row.get("collection_id"),
+                archived: row.get("archived"),
+                created_at_utc: row.get("created_at_utc"),
+                updated_at_utc: row.get("updated_at_utc"),
+                community_id: None,
+                community_label: None,
+                community_confidence: None,
             })
             .collect();
 
-        // Get edges between discovered nodes
         let node_ids: Vec<Uuid> = nodes.iter().map(|n| n.id).collect();
 
+        // Fetch edges with provenance, optional per-node limit, and min_score filter
         let edge_rows = sqlx::query(
             r#"
-            SELECT DISTINCT from_note_id, to_note_id, score, kind
-            FROM link
-            WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
+            WITH ranked AS (
+                SELECT from_note_id, to_note_id, score, kind,
+                       created_at_utc, metadata,
+                       ROW_NUMBER() OVER (PARTITION BY from_note_id ORDER BY score DESC) as rn,
+                       COUNT(*) OVER() as total_edges
+                FROM link
+                WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
+                  AND score >= $2
+            )
+            SELECT * FROM ranked
+            WHERE ($3::bigint IS NULL OR rn <= $3)
             "#,
         )
         .bind(&node_ids)
+        .bind(min_score)
+        .bind(max_edges_per_node)
         .fetch_all(&self.pool)
         .await
         .map_err(Error::Database)?;
 
+        let total_edges: i64 = edge_rows.first().map(|r| r.get("total_edges")).unwrap_or(0);
         let edges: Vec<GraphEdge> = edge_rows
             .iter()
-            .map(|row| GraphEdge {
-                from_id: row.get("from_note_id"),
-                to_id: row.get("to_note_id"),
-                score: row.get("score"),
-                kind: row.get("kind"),
+            .map(|row| {
+                let metadata: Option<JsonValue> = row.get("metadata");
+                GraphEdge {
+                    source: row.get("from_note_id"),
+                    target: row.get("to_note_id"),
+                    score: row.get("score"),
+                    edge_type: row.get("kind"),
+                    rank: Some(row.get::<i64, _>("rn") as i32),
+                    embedding_set: metadata
+                        .as_ref()
+                        .and_then(|m| m.get("embedding_set"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    model: metadata
+                        .as_ref()
+                        .and_then(|m| m.get("model"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    computed_at: row.get("created_at_utc"),
+                }
             })
             .collect();
 
-        Ok(GraphResult { nodes, edges })
+        let truncated_nodes = (total_reachable - nodes.len() as i64).max(0);
+        let truncated_edges = (total_edges - edges.len() as i64).max(0);
+        let mut truncation_reasons = Vec::new();
+        if truncated_nodes > 0 {
+            truncation_reasons.push(format!(
+                "max_nodes limit: {} of {} nodes returned",
+                nodes.len(),
+                total_reachable
+            ));
+        }
+        if truncated_edges > 0 {
+            truncation_reasons.push(format!(
+                "max_edges_per_node limit: {} of {} edges returned",
+                edges.len(),
+                total_edges
+            ));
+        }
+
+        Ok(GraphResult {
+            graph_version: "v1".to_string(),
+            nodes,
+            edges,
+            meta: GraphMeta {
+                total_nodes: total_reachable,
+                total_edges,
+                truncated_nodes,
+                truncated_edges,
+                effective_depth: max_depth,
+                effective_max_nodes: max_nodes,
+                effective_min_score: min_score,
+                effective_max_edges_per_node: max_edges_per_node,
+                truncation_reasons,
+            },
+        })
     }
 }
 
@@ -528,40 +633,41 @@ impl PgLinkRepository {
     }
 
     /// Traverse the knowledge graph starting from a note within an existing transaction.
+    ///
+    /// Returns versioned v1 payload with truncation metadata and guardrails (#467, #468, #469).
     pub async fn traverse_graph_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         start_id: Uuid,
         max_depth: i32,
         max_nodes: i64,
+        min_score: f32,
+        max_edges_per_node: Option<i64>,
     ) -> Result<GraphResult> {
-        // Use recursive CTE to traverse the graph
         let rows = sqlx::query(
             r#"
             WITH RECURSIVE graph AS (
-                -- Base case: starting node
-                SELECT
-                    $1::uuid as note_id,
-                    0 as depth
-
+                SELECT $1::uuid as note_id, 0 as depth
                 UNION
-
-                -- Recursive case: follow links
                 SELECT
                     CASE WHEN l.from_note_id = g.note_id THEN l.to_note_id ELSE l.from_note_id END as note_id,
                     g.depth + 1 as depth
                 FROM graph g
                 JOIN link l ON (l.from_note_id = g.note_id OR l.to_note_id = g.note_id)
                 WHERE g.depth < $2
+            ),
+            deduped AS (
+                SELECT DISTINCT ON (g.note_id)
+                    g.note_id, g.depth, n.title, n.collection_id,
+                    COALESCE(n.archived, false) as archived,
+                    n.created_at_utc, n.updated_at_utc
+                FROM graph g
+                JOIN note n ON n.id = g.note_id
+                WHERE n.deleted_at IS NULL
+                ORDER BY g.note_id, g.depth
             )
-            SELECT DISTINCT ON (g.note_id)
-                g.note_id,
-                g.depth,
-                n.title
-            FROM graph g
-            JOIN note n ON n.id = g.note_id
-            WHERE n.deleted_at IS NULL
-            ORDER BY g.note_id, g.depth
+            SELECT *, COUNT(*) OVER() as total_reachable
+            FROM deduped
             LIMIT $3
             "#,
         )
@@ -572,41 +678,107 @@ impl PgLinkRepository {
         .await
         .map_err(Error::Database)?;
 
+        let total_reachable: i64 = rows.first().map(|r| r.get("total_reachable")).unwrap_or(0);
         let nodes: Vec<GraphNode> = rows
             .iter()
             .map(|row| GraphNode {
                 id: row.get("note_id"),
                 title: row.get("title"),
                 depth: row.get("depth"),
+                collection_id: row.get("collection_id"),
+                archived: row.get("archived"),
+                created_at_utc: row.get("created_at_utc"),
+                updated_at_utc: row.get("updated_at_utc"),
+                community_id: None,
+                community_label: None,
+                community_confidence: None,
             })
             .collect();
 
-        // Get edges between discovered nodes
         let node_ids: Vec<Uuid> = nodes.iter().map(|n| n.id).collect();
 
         let edge_rows = sqlx::query(
             r#"
-            SELECT DISTINCT from_note_id, to_note_id, score, kind
-            FROM link
-            WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
+            WITH ranked AS (
+                SELECT from_note_id, to_note_id, score, kind,
+                       created_at_utc, metadata,
+                       ROW_NUMBER() OVER (PARTITION BY from_note_id ORDER BY score DESC) as rn,
+                       COUNT(*) OVER() as total_edges
+                FROM link
+                WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
+                  AND score >= $2
+            )
+            SELECT * FROM ranked
+            WHERE ($3::bigint IS NULL OR rn <= $3)
             "#,
         )
         .bind(&node_ids)
+        .bind(min_score)
+        .bind(max_edges_per_node)
         .fetch_all(&mut **tx)
         .await
         .map_err(Error::Database)?;
 
+        let total_edges: i64 = edge_rows.first().map(|r| r.get("total_edges")).unwrap_or(0);
         let edges: Vec<GraphEdge> = edge_rows
             .iter()
-            .map(|row| GraphEdge {
-                from_id: row.get("from_note_id"),
-                to_id: row.get("to_note_id"),
-                score: row.get("score"),
-                kind: row.get("kind"),
+            .map(|row| {
+                let metadata: Option<JsonValue> = row.get("metadata");
+                GraphEdge {
+                    source: row.get("from_note_id"),
+                    target: row.get("to_note_id"),
+                    score: row.get("score"),
+                    edge_type: row.get("kind"),
+                    rank: Some(row.get::<i64, _>("rn") as i32),
+                    embedding_set: metadata
+                        .as_ref()
+                        .and_then(|m| m.get("embedding_set"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    model: metadata
+                        .as_ref()
+                        .and_then(|m| m.get("model"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    computed_at: row.get("created_at_utc"),
+                }
             })
             .collect();
 
-        Ok(GraphResult { nodes, edges })
+        let truncated_nodes = (total_reachable - nodes.len() as i64).max(0);
+        let truncated_edges = (total_edges - edges.len() as i64).max(0);
+        let mut truncation_reasons = Vec::new();
+        if truncated_nodes > 0 {
+            truncation_reasons.push(format!(
+                "max_nodes limit: {} of {} nodes returned",
+                nodes.len(),
+                total_reachable
+            ));
+        }
+        if truncated_edges > 0 {
+            truncation_reasons.push(format!(
+                "max_edges_per_node limit: {} of {} edges returned",
+                edges.len(),
+                total_edges
+            ));
+        }
+
+        Ok(GraphResult {
+            graph_version: "v1".to_string(),
+            nodes,
+            edges,
+            meta: GraphMeta {
+                total_nodes: total_reachable,
+                total_edges,
+                truncated_nodes,
+                truncated_edges,
+                effective_depth: max_depth,
+                effective_max_nodes: max_nodes,
+                effective_min_score: min_score,
+                effective_max_edges_per_node: max_edges_per_node,
+                truncation_reasons,
+            },
+        })
     }
 
     /// List all links within an existing transaction.

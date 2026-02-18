@@ -95,7 +95,7 @@ describe("Phase 6: Semantic Links", () => {
     assert.strictEqual(backlinks.note_id, note.id, "Note ID should match");
   });
 
-  test("LINKS-004: explore_graph returns nodes and edges", async () => {
+  test("LINKS-004: explore_graph returns v1 versioned payload", async () => {
     const testId = MCPTestClient.uniqueId();
     const content = `# Graph Test ${testId}\n\nNote for graph exploration.`;
 
@@ -110,13 +110,32 @@ describe("Phase 6: Semantic Links", () => {
     }, { maxRetries: 10 });
 
     assert.ok(graph, "Graph response should exist");
+    assert.strictEqual(graph.graph_version, "v1", "Should return graph_version v1");
     assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
     assert.ok(Array.isArray(graph.edges), "Should have edges array");
+    assert.ok(graph.meta, "Should have meta object");
+
+    // Validate meta fields (#469)
+    assert.ok(typeof graph.meta.total_nodes === "number", "meta.total_nodes should be number");
+    assert.ok(typeof graph.meta.total_edges === "number", "meta.total_edges should be number");
+    assert.ok(typeof graph.meta.truncated_nodes === "number", "meta.truncated_nodes should be number");
+    assert.ok(typeof graph.meta.truncated_edges === "number", "meta.truncated_edges should be number");
+    assert.ok(typeof graph.meta.effective_depth === "number", "meta.effective_depth should be number");
+    assert.ok(typeof graph.meta.effective_max_nodes === "number", "meta.effective_max_nodes should be number");
+    assert.ok(typeof graph.meta.effective_min_score === "number", "meta.effective_min_score should be number");
+    assert.ok(Array.isArray(graph.meta.truncation_reasons), "meta.truncation_reasons should be array");
 
     // Should at least include the starting node
     assert.ok(graph.nodes.length >= 1, "Should have at least starting node");
     const startNode = graph.nodes.find((n) => n.id === note.id);
     assert.ok(startNode, "Starting node should be in graph");
+
+    // Validate v1 node fields (#467)
+    assert.ok(startNode.id, "Node should have id");
+    assert.ok(typeof startNode.depth === "number", "Node should have depth");
+    assert.ok(typeof startNode.archived === "boolean", "Node should have archived flag");
+    assert.ok(startNode.created_at_utc, "Node should have created_at_utc");
+    assert.ok(startNode.updated_at_utc, "Node should have updated_at_utc");
   });
 
   test("LINKS-005: explore_graph with depth constraint", async () => {
@@ -134,7 +153,9 @@ describe("Phase 6: Semantic Links", () => {
     });
 
     assert.ok(graph, "Graph response should exist");
+    assert.strictEqual(graph.graph_version, "v1", "Should return v1 payload");
     assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
+    assert.strictEqual(graph.meta.effective_depth, 1, "Effective depth should match request");
 
     // Verify all nodes respect depth constraint
     for (const node of graph.nodes) {
@@ -163,7 +184,7 @@ describe("Phase 6: Semantic Links", () => {
     }
   });
 
-  test("LINKS-007: explore_graph with max_nodes constraint", async () => {
+  test("LINKS-007: explore_graph with max_nodes constraint and guardrails", async () => {
     const testId = MCPTestClient.uniqueId();
     const content = `# Max Nodes Test ${testId}\n\nNote for node limit testing.`;
 
@@ -179,11 +200,23 @@ describe("Phase 6: Semantic Links", () => {
     });
 
     assert.ok(graph, "Graph response should exist");
+    assert.strictEqual(graph.graph_version, "v1", "Should return v1 payload");
     assert.ok(Array.isArray(graph.nodes), "Should have nodes array");
     assert.ok(
       graph.nodes.length <= maxNodes,
       `Should not exceed max_nodes limit of ${maxNodes}`
     );
+    // Validate guardrail metadata (#469)
+    assert.strictEqual(graph.meta.effective_max_nodes, maxNodes, "Effective max_nodes should match");
+    assert.ok(graph.meta.total_nodes >= graph.nodes.length, "total_nodes >= returned nodes");
+
+    // Validate edge structure if edges present (#467)
+    for (const edge of graph.edges) {
+      assert.ok(edge.source, "Edge should have source field");
+      assert.ok(edge.target, "Edge should have target field");
+      assert.ok(edge.edge_type, "Edge should have edge_type field");
+      assert.ok(typeof edge.score === "number", "Edge should have numeric score");
+    }
   });
 
   test("LINKS-008: get_note includes links array in response", async () => {

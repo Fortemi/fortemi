@@ -105,7 +105,7 @@ pub use file_storage::{
     StorageBackend,
 };
 pub use jobs::{get_extraction_stats, PgJobRepository};
-pub use links::{GraphEdge, GraphNode, GraphResult, PgLinkRepository, TopologyStats};
+pub use links::{GraphEdge, GraphMeta, GraphNode, GraphResult, PgLinkRepository, TopologyStats};
 pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};
 pub use oauth::PgOAuthRepository;

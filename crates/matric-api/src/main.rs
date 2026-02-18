@@ -6919,6 +6919,11 @@ struct GraphQuery {
     /// Maximum nodes to return (default: 50)
     #[serde(default = "default_max_nodes")]
     max_nodes: i64,
+    /// Minimum edge score threshold (default: 0.0)
+    #[serde(default)]
+    min_score: f32,
+    /// Maximum edges per node (default: unlimited)
+    max_edges_per_node: Option<i64>,
 }
 
 fn default_depth() -> i32 {
@@ -6950,12 +6955,18 @@ async fn explore_graph(
     }
 
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
-    // Clamp resource limits to prevent DoS (fixes #218)
+    // Clamp resource limits to prevent DoS (fixes #218, #469)
     let depth = query.depth.clamp(0, 10);
     let max_nodes = query.max_nodes.clamp(1, 1000);
+    let min_score = query.min_score.clamp(0.0, 1.0);
+    let max_edges_per_node = query.max_edges_per_node.map(|v| v.clamp(1, 1000));
     let result = ctx
         .query(move |tx| {
-            Box::pin(async move { links.traverse_graph_tx(tx, id, depth, max_nodes).await })
+            Box::pin(async move {
+                links
+                    .traverse_graph_tx(tx, id, depth, max_nodes, min_score, max_edges_per_node)
+                    .await
+            })
         })
         .await?;
     Ok(Json(result))

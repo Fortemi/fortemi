@@ -2068,7 +2068,7 @@ export default [
   },
   {
     name: "explore_graph",
-    description: `Traverse the knowledge graph from a starting note up to N hops. Returns nodes and edges. See \`get_documentation(topic='notes')\` for graph details.`,
+    description: `Traverse the knowledge graph from a starting note up to N hops. Returns v1 versioned payload with nodes, edges, and metadata including truncation info and effective guardrails. See \`get_documentation(topic='notes')\` for graph details.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -2078,13 +2078,22 @@ export default [
         },
         "depth": {
           "type": "number",
-          "description": "Maximum hops to traverse (default: 2)",
+          "description": "Maximum hops to traverse (default: 2, server max: 10)",
           "default": 2
         },
         "max_nodes": {
           "type": "number",
-          "description": "Maximum total nodes to return, including the starting node (default: 50)",
+          "description": "Maximum total nodes to return, including the starting node (default: 50, server max: 1000)",
           "default": 50
+        },
+        "min_score": {
+          "type": "number",
+          "description": "Minimum edge score threshold — edges below this are excluded (default: 0.0, range: 0.0-1.0)",
+          "default": 0
+        },
+        "max_edges_per_node": {
+          "type": "number",
+          "description": "Maximum edges per node — limits hub nodes from dominating the response (optional, server max: 1000)"
         }
       },
       "required": [
