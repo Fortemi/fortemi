@@ -567,7 +567,7 @@ pub const TAG_MAX_CONCEPTS: usize = 7;
 /// Target number of concepts for extraction pipeline.
 /// If GLiNER produces fewer than this, fast/standard inference supplements.
 /// Configurable via `EXTRACTION_TARGET_CONCEPTS` env var.
-pub const EXTRACTION_TARGET_CONCEPTS: usize = 15;
+pub const EXTRACTION_TARGET_CONCEPTS: usize = 5;
 
 /// Environment variable for configuring the target concept count.
 pub const ENV_EXTRACTION_TARGET_CONCEPTS: &str = "EXTRACTION_TARGET_CONCEPTS";
