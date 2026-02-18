@@ -173,7 +173,7 @@ The system enforces these validation rules:
 | Rule | Limit | Description |
 |------|-------|-------------|
 | Max Depth | 5 levels | Maximum hierarchy depth |
-| Max Breadth | 10 children | Maximum children per concept |
+| Max Breadth | 200 children | Maximum children per concept |
 | Max Polyhierarchy | 3 parents | Maximum broader concepts |
 | Literary Warrant | 3+ notes | Notes needed before "controlled" status |
 

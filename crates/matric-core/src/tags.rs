@@ -1107,7 +1107,7 @@ pub struct SearchConceptsResponse {
 pub const MAX_HIERARCHY_DEPTH: i32 = 5;
 
 /// Maximum children per concept (breadth limit).
-pub const MAX_CHILDREN_PER_NODE: i32 = 10;
+pub const MAX_CHILDREN_PER_NODE: i32 = 200;
 
 /// Maximum parents per concept (polyhierarchy limit).
 pub const MAX_PARENTS_PER_NODE: i32 = 3;
@@ -1678,7 +1678,7 @@ mod tests {
     #[test]
     fn test_validation_constants() {
         assert_eq!(MAX_HIERARCHY_DEPTH, 5);
-        assert_eq!(MAX_CHILDREN_PER_NODE, 10);
+        assert_eq!(MAX_CHILDREN_PER_NODE, 200);
         assert_eq!(MAX_PARENTS_PER_NODE, 3);
         assert_eq!(LITERARY_WARRANT_THRESHOLD, 3);
     }
