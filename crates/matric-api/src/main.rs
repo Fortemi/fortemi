@@ -2289,7 +2289,7 @@ async fn sse_events(
     let replay_stream = futures::stream::iter(
         replay_frames
             .into_iter()
-            .map(|frame| Ok::<_, std::convert::Infallible>(frame)),
+            .map(Ok::<_, std::convert::Infallible>),
     );
 
     // --- Coalescing and backpressure state (Issue #458) ---

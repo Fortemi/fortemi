@@ -1118,16 +1118,7 @@ impl EventBus {
         // Find the position of the requested event ID
         let pos = buffer.iter().position(|e| e.event_id == last_event_id);
 
-        match pos {
-            Some(idx) => {
-                // Return everything after the found position
-                Some(buffer.iter().skip(idx + 1).cloned().collect())
-            }
-            None => {
-                // Event ID not found — cursor expired
-                None
-            }
-        }
+        pos.map(|idx| buffer.iter().skip(idx + 1).cloned().collect())
     }
 
     /// Returns the number of events currently in the replay buffer.
