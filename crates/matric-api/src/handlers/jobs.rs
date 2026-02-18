@@ -634,16 +634,20 @@ impl JobHandler for EmbeddingHandler {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
 
-        // Build embedding payload: prefix + title + discriminating tags + content
-        // (#424, #472, #475, #479).
+        // Build embedding payload: prefix + title + content ONLY (#485).
         //
-        // EMBEDDING vs RECORD separation (#479):
-        // The embedding is a derived signal optimized for vector discrimination.
-        // Only discriminating concepts (filtered by TF-IDF, #475) are included.
-        // Concept relationships (broader/narrower/related) are excluded from the
-        // embedding because they add noise that makes vectors more uniform (REF-068).
-        // Full concepts and relationships remain on the note record for display,
-        // search filtering, and tag-boost scoring in the linking pipeline.
+        // DOCUMENT COMPOSITION (#485):
+        // The embedding captures the semantic meaning of the note's prose.
+        // Concept labels and tags are EXCLUDED from the default embedding —
+        // they belong to the FTS pipeline (BM25F weight-B boost) and the
+        // tag-boost scoring in the linking pipeline (GraphConfig.tag_boost_weight).
+        // Including tags in the vector created artificial topic-cluster gravity
+        // that produced the spiral/seashell graph topology.  Content-only
+        // embeddings let SNN + PFNET prune edges based on genuine prose
+        // similarity rather than shared labels.
+        //
+        // concept_labels and concept_relations are still fetched above for
+        // provenance metadata and future per-set composition support (#485).
         //
         // INSTRUCTION PREFIX (#472):
         // nomic-embed-text supports task-specific prefixes that shift embedding
@@ -657,9 +661,9 @@ impl JobHandler for EmbeddingHandler {
             if !title.is_empty() {
                 parts.push(title.to_string());
             }
-            if !concept_labels.is_empty() {
-                parts.push(format!("Tags: {}", concept_labels.join(", ")));
-            }
+            // concept_labels intentionally excluded from embedding text (#485).
+            // Tags influence linking via tag_boost_weight (0.3) and FTS via
+            // BM25F weight-B — no need to double-count in the vector space.
             parts.push(base_content.to_string());
             let body = parts.join("\n\n");
             if prefix.is_empty() {
@@ -798,8 +802,9 @@ impl JobHandler for EmbeddingHandler {
             let prov_metadata = serde_json::json!({
                 "chunks": chunk_count,
                 "model": model_name,
-                "concept_labels_used": concept_labels.len(),
-                "concept_relations_used": concept_relations.len(),
+                "concept_labels_available": concept_labels.len(),
+                "concept_relations_available": concept_relations.len(),
+                "composition": "title+content",
             });
             if let Err(e) = self
                 .db
