@@ -655,15 +655,35 @@ impl JobHandler for EmbeddingHandler {
             // Fetch config for the specific embedding set
             if let Ok(Some(set)) = self.db.embedding_sets.get_by_id(set_id).await {
                 if let Some(config_id) = set.embedding_config_id {
-                    self.db.embedding_sets.get_config(config_id).await.ok().flatten()
+                    self.db
+                        .embedding_sets
+                        .get_config(config_id)
+                        .await
+                        .ok()
+                        .flatten()
                 } else {
-                    self.db.embedding_sets.get_default_config().await.ok().flatten()
+                    self.db
+                        .embedding_sets
+                        .get_default_config()
+                        .await
+                        .ok()
+                        .flatten()
                 }
             } else {
-                self.db.embedding_sets.get_default_config().await.ok().flatten()
+                self.db
+                    .embedding_sets
+                    .get_default_config()
+                    .await
+                    .ok()
+                    .flatten()
             }
         } else {
-            self.db.embedding_sets.get_default_config().await.ok().flatten()
+            self.db
+                .embedding_sets
+                .get_default_config()
+                .await
+                .ok()
+                .flatten()
         };
 
         let composition = embed_config

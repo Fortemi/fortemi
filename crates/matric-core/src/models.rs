@@ -559,12 +559,7 @@ impl Default for DocumentComposition {
 
 impl DocumentComposition {
     /// Build the embedding text from note properties according to this composition.
-    pub fn build_text(
-        &self,
-        title: &str,
-        content: &str,
-        concept_labels: &[String],
-    ) -> String {
+    pub fn build_text(&self, title: &str, content: &str, concept_labels: &[String]) -> String {
         let mut parts = Vec::new();
         if self.include_title && !title.is_empty() {
             parts.push(title.to_string());
@@ -584,7 +579,10 @@ impl DocumentComposition {
                 }
             }
         }
-        if self.include_concepts && !concept_labels.is_empty() && self.tag_strategy == TagStrategy::None {
+        if self.include_concepts
+            && !concept_labels.is_empty()
+            && self.tag_strategy == TagStrategy::None
+        {
             // include_concepts without tag_strategy means include concepts as metadata
             parts.push(format!("Concepts: {}", concept_labels.join(", ")));
         }
