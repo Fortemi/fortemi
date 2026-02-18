@@ -199,7 +199,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (23 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`). Set `MCP_TOOL_MODE=full` for all 187 granular tools.
+**Tool modes:** Default is "core" (29 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`). Set `MCP_TOOL_MODE=full` for all granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json

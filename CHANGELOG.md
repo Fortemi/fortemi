@@ -7,7 +7,56 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-*No changes yet.*
+### Added
+
+- **Pause/Resume Job Processing** (#466) — Global and per-archive pause/resume control for the job worker. State persisted in `system_config` table across container restarts. Endpoints: `GET /api/v1/jobs/status`, `POST /api/v1/jobs/pause`, `POST /api/v1/jobs/resume`, `POST /api/v1/jobs/pause/{archive}`, `POST /api/v1/jobs/resume/{archive}`.
+
+- **Tiered Job Architecture** — Three-tier compute model: CPU_NER (tier 0, GLiNER), FAST_GPU (tier 1, qwen3:8b), STANDARD_GPU (tier 2, gpt-oss:20b). Queue-based tier escalation replaces inline model fallback — each job runs exactly one model, failures enqueue at the next tier.
+
+- **GLiNER NER Sidecar** (#437) — Zero-shot named entity recognition via GLiNER (0.5B BERT, CPU-only, <300ms/doc). Runs as a Docker sidecar (`http://gliner:8090`). Enabled by default in Docker bundle; set `GLINER_BASE_URL=` to disable.
+
+- **Fast-First Chunked Extraction** (#439) — Small model (qwen3:8b) handles concept tagging, reference extraction, and title generation with automatic document chunking. Large documents split into context-window-sized chunks and processed in parallel.
+
+- **Related Concept Inference** (#435) — New pipeline step infers `skos:related` relationships between extracted concepts using LLM analysis.
+
+- **Reference Extraction** — Bibliographic reference and entity extraction pipeline step with provenance metadata.
+
+- **Metadata Extraction & Document Type Inference** (#430) — AI-extracted structured metadata (authors, year, venue, DOI) and automatic document type classification from filename/MIME/content.
+
+- **SSE Event System Overhaul** (#451-#465) — Versioned envelope schema, memory-scoped auth routing, server-side type/entity filtering, `Last-Event-ID` replay, backpressure with event coalescing, health metrics, and expanded catalog to 46 event types covering notes, attachments, collections, archives, jobs, and system events.
+
+- **Multi-Provider Inference Routing** (#431) — Provider-qualified model slugs (`ollama:qwen3:8b`, `openai:gpt-4o`) with model discovery endpoint and per-operation model selection.
+
+- **SKOS Concept Scheme Management** — `manage_concepts` MCP tool extended with scheme CRUD operations.
+
+- **Constrained JSON Decoding** — Structured JSON output for extraction jobs using Ollama's constrained generation.
+
+- **SKOS Concepts in NoteFull** — API responses include SKOS concept tags on note detail endpoints.
+
+- **Hierarchical SKOS Auto-Tagging** (#425) — Concept tagging uses hierarchical SKOS broader/narrower relationships for richer taxonomy.
+
+- **AsyncAPI 3.0 Spec** — Runtime-generated AsyncAPI 3.0 specification for the SSE event catalog at `/api/v1/asyncapi`.
+
+### Changed
+
+- **Default concept target** lowered from 15 to 5 per note (`EXTRACTION_TARGET_CONCEPTS`).
+- **Pipeline reorder** (#424) — Embedding now runs after concept tagging, using enriched content for better semantic search.
+- **GLiNER extracted to sidecar** — Removed from bundle image, runs as independent container for simpler upgrades and resource isolation.
+- **Inference endpoint** — Switched from `/api/generate` to `/api/chat` for Ollama generation.
+- **MCP core tools** expanded from 23 to 29 (added `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`).
+- **Job handlers normalized** — MetadataExtraction, TitleGeneration, and RelatedConceptInference handlers now use queue-based tier escalation (matching ConceptTagging and ReferenceExtraction pattern).
+
+### Fixed
+
+- LLM returning object instead of array in JSON parsing for extraction jobs.
+- SKOS breadth limit only counts promoted concepts toward the limit.
+- SKOS breadth limit raised from 50 to 200 children per concept.
+- WebSocket endpoint routing at `/api/v1/ws` (#423).
+- Multi-memory schema context in extraction pipeline (#426).
+- MCP StreamableHTTP transport JSON responses (#422).
+- Default concept scheme seeding in new archives.
+- Chunked extraction resilience to partial failures.
+- Prevent 20B model escalation when GLiNER produces enough concepts.
 
 ## [2026.2.9] - 2026-02-16
 

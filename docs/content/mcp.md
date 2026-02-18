@@ -1320,7 +1320,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools i
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~78% higher token overhead (187 vs 23 tools)
+- ~78% higher token overhead (187 vs 29 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 

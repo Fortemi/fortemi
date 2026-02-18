@@ -294,7 +294,7 @@ Background job processing for asynchronous NLP operations and document processin
 - `JobHandler` trait - Job type handlers
 - `ExtractionRegistry` - Adapter registry for file processing strategies
 - `ExtractionAdapter` trait - Pluggable extraction strategy interface
-- Job types: 17 total (see Job Processing Architecture section)
+- Job types: 21 total (see Job Processing Architecture section)
 
 **Extraction Adapters:**
 - `TextNativeAdapter` - Plain text files with UTF-8 conversion
@@ -564,6 +564,12 @@ pub trait ExtractionAdapter {
 └─────────────┘  └──────────────┘  └────────┘  └────────┘
 ```
 
+### NER Backend: GLiNER
+
+**GLiNER** is the tier-0 NER backend used for concept extraction (`ConceptTagging`) and reference extraction (`ReferenceExtraction`). It runs entirely on CPU via a sidecar HTTP service (`GLINER_BASE_URL`, default `http://gliner:8090` in Docker bundle), requiring no GPU. GLiNER performs zero-shot named-entity recognition using generative listwise ranking and returns typed entity spans directly from raw text.
+
+When GLiNER is unavailable (health check fails or `GLINER_BASE_URL` is unset), the job escalates to the FAST_GPU tier (qwen3:8b) via the queue-based escalation mechanism described in Tiered Job Architecture above.
+
 ### Available Adapters
 
 **1. TextNativeAdapter** (ExtractionStrategy::TextNative)
@@ -766,7 +772,7 @@ impl ExtractionAdapter for PdfTextAdapter {
 
 **Purpose:** Priority-based async job queue for long-running NLP operations, document processing, and maintenance tasks.
 
-### Job Types (17 Total)
+### Job Types (21 Total)
 
 **Core Priority Mapping** (1=lowest, 10=highest):
 
@@ -779,6 +785,10 @@ impl ExtractionAdapter for PdfTextAdapter {
 | **ContextUpdate** | 1 | Update context/metadata for related notes |
 | **ConceptTagging** | 4 | Auto-generate SKOS concept tags using AI analysis |
 | **EntityExtraction** | 4 | Extract named entities for tri-modal search |
+| **MetadataExtraction** | 6 | AI-extracted structured metadata (authors, year, venue, etc.) |
+| **DocumentTypeInference** | 3 | Auto-detect document type from filename/MIME/content |
+| **ReferenceExtraction** | 4 | Extract named entities and bibliographic references |
+| **RelatedConceptInference** | 4 | Infer skos:related relationships between concepts |
 | **CreateEmbeddingSet** | 2 | Create new embedding set (evaluate criteria, add members) |
 | **RefreshEmbeddingSet** | 2 | Refresh embedding set (re-evaluate criteria, update membership) |
 | **BuildSetIndex** | 3 | Build or rebuild vector index for embedding set |
@@ -788,7 +798,24 @@ impl ExtractionAdapter for PdfTextAdapter {
 | **EmbedForSet** | 5 | Embed specific notes into specific embedding set |
 | **GenerateGraphEmbedding** | 3 | Generate graph embedding from extracted entities |
 | **GenerateCoarseEmbedding** | 2 | Generate coarse MRL embedding for two-stage retrieval |
-| **DocumentTypeInference** | 3 | Auto-detect document type from filename/MIME/content |
+
+### Tiered Job Architecture
+
+Jobs are classified into three compute tiers based on their model requirements. `JobType::default_cost_tier()` is the single source of truth for tier assignment.
+
+| Tier | Name | Model | Purpose |
+|------|------|-------|---------|
+| 0 | CPU_NER | GLiNER | Named-entity recognition and reference extraction (CPU-only, no GPU required) |
+| 1 | FAST_GPU | qwen3:8b | Lightweight generation tasks (concept tagging, title generation, document type inference) |
+| 2 | STANDARD_GPU | gpt-oss:20b | Full RAG generation, AI revision, complex reasoning |
+
+**Escalation via queue** — when a tier-N job fails (e.g., GLiNER unavailable), the handler enqueues a new job of the same logical type at tier N+1. There is no inline model fallback: each job runs exactly one model, and the queue handles progression. This design keeps handlers simple and makes escalation observable via normal job events.
+
+```
+ConceptTagging (tier 0: GLiNER)
+   └─ fails → enqueue ConceptTagging (tier 1: qwen3:8b)
+                  └─ fails → enqueue ConceptTagging (tier 2: gpt-oss:20b)
+```
 
 ### Worker Architecture
 

@@ -10,7 +10,7 @@ Ask it a question, and it doesn't just search for matching words. It finds answe
 
 Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency required.
 
-> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 23 MCP agent tools, and multimodal media processing. ~85k lines of Rust.
+> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 29 MCP agent tools, and multimodal media processing. ~85k lines of Rust.
 
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
@@ -116,7 +116,7 @@ See [Getting Started](docs/content/getting-started.md) for the full walkthrough 
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-core     │ Core types, traits, and error handling       │
 ├──────────────────┼──────────────────────────────────────────────┤
-│  mcp-server      │ MCP agent integration (Node.js, 23 tools)    │
+│  mcp-server      │ MCP agent integration (Node.js, 29 tools)    │
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -126,7 +126,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 ## MCP Server
 
-23 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
+29 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
 
 **Connect** (`.mcp.json` or Claude Desktop):
 
@@ -175,7 +175,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
 | `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
-| `MCP_TOOL_MODE` | `core` | `core` (23 tools) or `full` (187) |
+| `MCP_TOOL_MODE` | `core` | `core` (29 tools) or `full` (all) |
 
 ---
 

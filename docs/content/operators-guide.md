@@ -119,6 +119,8 @@ Container variables (docker-compose.bundle.yml):
 | `OLLAMA_BASE` | `http://host.docker.internal:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 | `OLLAMA_GEN_MODEL` | `gpt-oss:20b` | Generation model name |
+| `EXTRACTION_TARGET_CONCEPTS` | `5` | Target number of concepts to extract per note (GLiNER→fast model escalation triggers below this; fast→standard model escalation triggers below half this value) |
+| `JOB_MAX_CONCURRENT` | `4` | Maximum number of background jobs to process concurrently |
 
 ## Ollama Configuration
 
@@ -155,6 +157,85 @@ docker compose -f docker-compose.bundle.yml exec matric \
 | Embedding jobs fail with "connection refused" | Ollama not reachable | Add `extra_hosts` mapping |
 | Jobs stuck in "failed" state | Old Ollama URL cached | Reset jobs: `UPDATE job_queue SET status = 'pending' WHERE status = 'failed'` |
 | "Model not found" errors | Missing model | Run `ollama pull nomic-embed-text` on host |
+
+## Background Jobs
+
+Background jobs handle embedding generation, concept extraction, link detection, and other async processing. The job worker runs inside the bundle container alongside the API.
+
+### Pause/Resume Job Processing
+
+Pausing job processing is useful during:
+
+- **Bulk imports** — prevent the job queue from overwhelming Ollama while ingesting large datasets
+- **Maintenance windows** — stop background activity before database backups or schema changes
+- **Performance issues** — reduce load when the host machine is under resource pressure
+
+Pausing stops the worker from picking up new jobs. Any job already running will complete normally. State is persisted in the `system_config` table and survives container restarts — remember to resume when the maintenance window ends.
+
+#### Check Current State
+
+```bash
+curl http://localhost:3000/api/v1/jobs/status
+```
+
+Response example:
+
+```json
+{
+  "paused": false,
+  "paused_archives": []
+}
+```
+
+#### Pause All Processing
+
+```bash
+curl -X POST http://localhost:3000/api/v1/jobs/pause
+```
+
+All archives stop picking up new jobs. Already-running jobs finish before the worker idles.
+
+#### Resume All Processing
+
+```bash
+curl -X POST http://localhost:3000/api/v1/jobs/resume
+```
+
+The worker immediately begins picking up queued jobs again.
+
+#### Pause a Specific Archive
+
+```bash
+# Replace "default" with your archive name
+curl -X POST http://localhost:3000/api/v1/jobs/pause/default
+```
+
+Only jobs belonging to that archive are paused. Other archives continue processing normally.
+
+#### Resume a Specific Archive
+
+```bash
+curl -X POST http://localhost:3000/api/v1/jobs/resume/default
+```
+
+#### With Authentication
+
+If `REQUIRE_AUTH=true`, include your Bearer token:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/jobs/pause \
+  -H "Authorization: Bearer mm_at_xxxx"
+```
+
+#### Summary of Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/jobs/status` | Check current pause state |
+| `POST` | `/api/v1/jobs/pause` | Pause all job processing |
+| `POST` | `/api/v1/jobs/resume` | Resume all job processing |
+| `POST` | `/api/v1/jobs/pause/{archive}` | Pause processing for one archive |
+| `POST` | `/api/v1/jobs/resume/{archive}` | Resume processing for one archive |
 
 ## Common Issues
 

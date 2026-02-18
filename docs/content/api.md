@@ -1918,6 +1918,63 @@ Returns queue health metrics:
 }
 ```
 
+### Job Processing Control
+
+Pause and resume job processing globally or per-archive.
+
+#### Get Pause Status
+
+```http
+GET /api/v1/jobs/status
+```
+
+Returns the current pause state and queue statistics:
+
+```json
+{
+  "global": "running",
+  "archives": {
+    "research": "paused"
+  },
+  "queue": {
+    "pending": 42,
+    "running": 3
+  }
+}
+```
+
+#### Pause All Processing
+
+```http
+POST /api/v1/jobs/pause
+```
+
+Pauses job processing globally. Jobs already running will complete, but no new jobs will be picked up.
+
+#### Resume All Processing
+
+```http
+POST /api/v1/jobs/resume
+```
+
+Resumes globally paused job processing.
+
+#### Pause Archive Processing
+
+```http
+POST /api/v1/jobs/pause/{archive}
+```
+
+Pauses job processing for a specific memory archive. Jobs for other archives continue normally.
+
+#### Resume Archive Processing
+
+```http
+POST /api/v1/jobs/resume/{archive}
+```
+
+Resumes job processing for a specific memory archive.
+
 ## Backup & Export
 
 Fortémi provides multiple backup strategies for different use cases.
@@ -2386,7 +2443,7 @@ Content-Type: application/json
 }
 ```
 
-**Event Types:** `QueueStatus`, `JobQueued`, `JobStarted`, `JobProgress`, `JobCompleted`, `JobFailed`, `NoteUpdated`
+**Event Types:** 46 event types are supported, including `NoteCreated`, `NoteUpdated`, `NoteDeleted`, `JobQueued`, `JobStarted`, `JobCompleted`, `JobFailed`, and more. See [Real-Time Events](real-time-events.md) for the full list.
 
 Webhook deliveries include `X-Fortemi-Event` header and optional `X-Fortemi-Signature` (HMAC-SHA256) when a secret is configured.
 

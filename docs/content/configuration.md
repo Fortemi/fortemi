@@ -133,12 +133,14 @@ RUST_LOG=matric_api::routes::search=trace,info
 | `WORKER_ENABLED` | Boolean | `true` | Enable background job processing (embeddings, linking, cleanup) |
 | `WORKER_THREADS` | Integer | CPU cores | Number of worker threads for background jobs |
 | `JOB_POLL_INTERVAL` | Integer | `5` | Polling interval in seconds for checking new jobs |
+| `JOB_MAX_CONCURRENT` | Integer | `4` | Maximum number of jobs that can run concurrently in the worker |
 
 **Example:**
 ```bash
 WORKER_ENABLED=true
 WORKER_THREADS=4
 JOB_POLL_INTERVAL=10
+JOB_MAX_CONCURRENT=4
 ```
 
 ### Memory Management
@@ -211,7 +213,7 @@ Ollama is the default inference backend for local LLM inference without API cost
 | `OLLAMA_EMBEDDING_MODEL` | String | `nomic-embed-text` | Model name for generating embeddings |
 | `OLLAMA_EMBED_MODEL` | String | `nomic-embed-text` | Alias for OLLAMA_EMBEDDING_MODEL |
 | `OLLAMA_GENERATION_MODEL` | String | None | Model name for text generation (optional) |
-| `OLLAMA_GEN_MODEL` | String | None | Alias for OLLAMA_GENERATION_MODEL |
+| `OLLAMA_OLLAMA_GEN_MODEL` | String | None | Alias for OLLAMA_GENERATION_MODEL |
 | `OLLAMA_EMBEDDING_DIMENSION` | Integer | `768` | Vector dimensionality for embeddings |
 | `OLLAMA_EMBED_DIM` | Integer | `768` | Alias for OLLAMA_EMBEDDING_DIMENSION |
 | `OLLAMA_NUM_CTX` | Integer | Model default | Context window size in tokens |
@@ -257,7 +259,7 @@ The OpenAI backend supports OpenAI's cloud API and any OpenAI-compatible endpoin
 | `OPENAI_EMBEDDING_MODEL` | String | `text-embedding-3-small` | Model name for embeddings |
 | `OPENAI_EMBED_MODEL` | String | `text-embedding-3-small` | Alias for OPENAI_EMBEDDING_MODEL |
 | `OPENAI_GENERATION_MODEL` | String | `gpt-4o-mini` | Model name for text generation |
-| `OPENAI_GEN_MODEL` | String | `gpt-4o-mini` | Alias for OPENAI_GENERATION_MODEL |
+| `OPENAI_OLLAMA_GEN_MODEL` | String | `gpt-4o-mini` | Alias for OPENAI_GENERATION_MODEL |
 | `OPENAI_EMBEDDING_DIMENSION` | Integer | `1536` | Vector dimensionality for embeddings |
 | `OPENAI_EMBED_DIM` | Integer | `1536` | Alias for OPENAI_EMBEDDING_DIMENSION |
 | `OPENAI_TIMEOUT` | Integer | `120` | Request timeout in seconds |
@@ -403,6 +405,49 @@ Enabling all flags increases:
 - Query planning overhead by 10-20ms per query
 
 For small installations (< 10,000 notes), enable only the features you need. For large installations (> 100,000 notes), test performance impact before enabling.
+
+### Extraction Pipeline
+
+These variables control the multi-tier concept extraction cascade: GLiNER (tier 0, CPU-based NER) → fast model (tier 1) → standard model (tier 2).
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `GLINER_BASE_URL` | String | `http://gliner:8090` (Docker bundle) | GLiNER NER service URL for CPU-based entity extraction (tier 0). Set to empty to disable. |
+| `EXTRACTION_TARGET_CONCEPTS` | Integer | `5` | Target number of concepts to extract per note. GLiNER→fast model escalation triggers when below this threshold; fast→standard model escalation triggers at < target/2 (i.e., 3 with the default of 5). |
+| `MATRIC_FAST_GEN_MODEL` | String | `qwen3:8b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. |
+| `OLLAMA_GEN_MODEL` | String | `gpt-oss:20b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
+
+**Extraction cascade:**
+```
+GLiNER (tier 0, ~300ms, CPU)
+  → if concepts < EXTRACTION_TARGET_CONCEPTS
+    → MATRIC_FAST_GEN_MODEL (tier 1, chunked)
+      → if concepts < EXTRACTION_TARGET_CONCEPTS / 2
+        → OLLAMA_GEN_MODEL (tier 2, full context)
+```
+
+**Example (Docker bundle defaults):**
+```bash
+GLINER_BASE_URL=http://gliner:8090
+EXTRACTION_TARGET_CONCEPTS=5
+MATRIC_FAST_GEN_MODEL=qwen3:8b
+OLLAMA_GEN_MODEL=gpt-oss:20b
+```
+
+**Example (disable GLiNER, LLM-only extraction):**
+```bash
+GLINER_BASE_URL=
+EXTRACTION_TARGET_CONCEPTS=5
+MATRIC_FAST_GEN_MODEL=qwen3:8b
+OLLAMA_GEN_MODEL=gpt-oss:20b
+```
+
+**Example (higher concept density for rich taxonomies):**
+```bash
+EXTRACTION_TARGET_CONCEPTS=10
+MATRIC_FAST_GEN_MODEL=qwen3:8b
+OLLAMA_GEN_MODEL=gpt-oss:20b
+```
 
 ## Inference Configuration (inference.toml)
 

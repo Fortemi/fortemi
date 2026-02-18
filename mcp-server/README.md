@@ -84,7 +84,7 @@ The server exposes:
 
 The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-### Core Mode (Default) — 23 Tools
+### Core Mode (Default) — 29 Tools
 
 Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~78% compared to full mode.
 
@@ -93,16 +93,17 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 | Category | Tools | Count |
 |----------|-------|-------|
 | **Notes CRUD** | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
-| **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts` | 6 |
-| **Graph** | `explore_graph`, `get_note_links` | 2 |
+| **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups` | 10 |
+| **Graph** | `explore_graph`, `get_topology_stats`, `get_note_links` | 3 |
 | **Export** | `export_note` | 1 |
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
 | **Attachments** | `manage_attachments` | 1 |
 | **Observability** | `get_knowledge_health` | 1 |
+| **Jobs & inference** | `manage_jobs`, `manage_inference` | 2 |
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
 
-**Total:** 22 tools
+**Total:** 29 tools
 
 ### Full Mode — 187 Tools
 
@@ -539,7 +540,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (23 tools) or `full` (187 tools) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (29 tools) or `full` (all granular tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
