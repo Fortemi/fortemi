@@ -2692,8 +2692,8 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/embedding-configs/${args.id}`);
           break;
 
-        case "create_embedding_config":
-          result = await apiRequest("POST", "/api/v1/embedding-configs", {
+        case "create_embedding_config": {
+          const createBody = {
             name: args.name,
             model: args.model,
             dimension: toNum(args.dimension),
@@ -2701,8 +2701,11 @@ function createMcpServer() {
             is_default: args.is_default || false,
             chunk_size: toNum(args.chunk_size),
             chunk_overlap: toNum(args.chunk_overlap),
-          });
+          };
+          if (args.document_composition !== undefined) createBody.document_composition = args.document_composition;
+          result = await apiRequest("POST", "/api/v1/embedding-configs", createBody);
           break;
+        }
 
         case "update_embedding_config": {
           const body = {};
@@ -2713,6 +2716,7 @@ function createMcpServer() {
           if (args.is_default !== undefined) body.is_default = args.is_default;
           if (args.chunk_size !== undefined) body.chunk_size = toNum(args.chunk_size);
           if (args.chunk_overlap !== undefined) body.chunk_overlap = toNum(args.chunk_overlap);
+          if (args.document_composition !== undefined) body.document_composition = args.document_composition;
           result = await apiRequest("PATCH", `/api/v1/embedding-configs/${args.id}`, body);
           break;
         }
@@ -4970,40 +4974,68 @@ remove_related({ concept_id: "uuid-a", related_id: "uuid-b" })
 
   embedding_configs: `# Embedding Model Configuration
 
-Manage embedding models for vector search and semantic linking.
+Manage embedding models and document composition for vector search and semantic linking.
 
 ## Overview
 
-Embedding configs define which models generate vector embeddings for notes. Different configs can be used for different embedding sets.
+Embedding configs define which models generate vector embeddings AND what note properties are included in the embedding text. Different configs can be used for different embedding sets.
+
+## Document Composition (#485)
+
+Each config has a \`document_composition\` field that controls what goes into the embedding text:
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| include_title | true | Include note title |
+| include_content | true | Include note content body |
+| tag_strategy | "none" | "none" (optimal), "all", {schemes: [uuid]}, {specific: ["name"]} |
+| include_concepts | false | Include SKOS concept labels |
+| concept_max_doc_freq | 0.8 | Exclude high-frequency concepts (TF-IDF filtering) |
+| instruction_prefix | "clustering: " | Model-specific prefix for embedding geometry |
+
+**Default (title+content) is optimal for graph quality.** Including tags creates artificial topic-cluster gravity in the vector space. Tags influence search via FTS (BM25F weight-B) and linking via tag_boost_weight separately.
 
 ## Operations
 
 \`\`\`
 // List all configs
 list_embedding_configs()
-// Returns: [{ id, name, model, dimensions, provider, is_default }]
+// Returns: [{ id, name, model, dimensions, provider, is_default, document_composition }]
 
 // Get default config
 get_default_embedding_config()
-// Returns: { id, name, model, dimensions, provider, is_default: true }
 
 // Get specific config
 get_embedding_config({ id: "uuid" })
 
-// Create new config
+// Create with default composition (title+content only)
 create_embedding_config({
   name: "Nomic Large",
   model: "nomic-embed-text",
   dimensions: 768,
-  provider: "ollama",
-  is_default: false
+  provider: "ollama"
 })
 
-// Update config
+// Create with custom composition (include all tags)
+create_embedding_config({
+  name: "Tag-Aware Config",
+  model: "nomic-embed-text",
+  dimensions: 768,
+  provider: "ollama",
+  document_composition: {
+    include_title: true,
+    include_content: true,
+    tag_strategy: "all"
+  }
+})
+
+// Update composition on existing config
 update_embedding_config({
   id: "uuid",
-  dimensions: 384,    // For MRL reduced dimensions
-  is_default: true
+  document_composition: {
+    tag_strategy: "none",
+    include_concepts: false
+  }
 })
 \`\`\`
 

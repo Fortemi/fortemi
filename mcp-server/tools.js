@@ -5236,6 +5236,21 @@ When called without note_ids, processes all notes in the current archive (up to 
         "chunk_overlap": {
           "type": "integer",
           "description": "Overlap characters between chunks for context preservation (default: 100)"
+        },
+        "document_composition": {
+          "type": "object",
+          "description": "Controls which note properties are included in the embedding text. Default: title+content only (optimal for graph quality). Tags are handled separately by FTS and linking pipelines.",
+          "properties": {
+            "include_title": { "type": "boolean", "description": "Include note title (default: true)" },
+            "include_content": { "type": "boolean", "description": "Include note content (default: true)" },
+            "tag_strategy": {
+              "description": "How to include tags: 'none' (default, optimal), 'all', or object {schemes: [uuid]} / {specific: [name]}",
+              "anyOf": [{ "type": "string" }, { "type": "object" }]
+            },
+            "include_concepts": { "type": "boolean", "description": "Include SKOS concept labels (default: false)" },
+            "concept_max_doc_freq": { "type": "number", "description": "Max document frequency for concept inclusion (default: 0.8)" },
+            "instruction_prefix": { "type": "string", "description": "Model-specific prefix (default: 'clustering: ')" }
+          }
         }
       },
       "required": [
@@ -5284,6 +5299,21 @@ When called without note_ids, processes all notes in the current archive (up to 
         "chunk_overlap": {
           "type": "integer",
           "description": "Overlap characters between chunks for context preservation"
+        },
+        "document_composition": {
+          "type": "object",
+          "description": "Override document composition for this config. Controls which note properties go into the embedding text.",
+          "properties": {
+            "include_title": { "type": "boolean", "description": "Include note title" },
+            "include_content": { "type": "boolean", "description": "Include note content" },
+            "tag_strategy": {
+              "description": "How to include tags: 'none' (default, optimal), 'all', or object {schemes: [uuid]} / {specific: [name]}",
+              "anyOf": [{ "type": "string" }, { "type": "object" }]
+            },
+            "include_concepts": { "type": "boolean", "description": "Include SKOS concept labels" },
+            "concept_max_doc_freq": { "type": "number", "description": "Max document frequency for concept inclusion" },
+            "instruction_prefix": { "type": "string", "description": "Model-specific prefix" }
+          }
         }
       },
       "required": [
