@@ -928,11 +928,8 @@ impl JobHandler for TitleGenerationHandler {
         // Tiered model routing:
         // Tier 1 (FAST_GPU, default): fast model → escalate to tier-2 on failure
         // Tier 2 (STANDARD_GPU): standard model → fail cleanly
-        let is_standard_tier =
-            ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
-        let use_fast = !is_standard_tier
-            && overridden.is_none()
-            && self.fast_backend.is_some();
+        let is_standard_tier = ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
+        let use_fast = !is_standard_tier && overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -3511,10 +3508,7 @@ If no meaningful related pairs exist, output an empty array: []"#
                         }
                         warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
                         self.queue_phase3_jobs(note_id, schema).await;
-                        return JobResult::Failed(format!(
-                            "Failed to parse AI response: {}",
-                            e
-                        ));
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }
             }
@@ -3753,11 +3747,8 @@ impl JobHandler for MetadataExtractionHandler {
         // Tiered model routing:
         // Tier 1 (FAST_GPU, default): fast model → escalate to tier-2 on failure
         // Tier 2 (STANDARD_GPU): standard model → fail cleanly
-        let is_standard_tier =
-            ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
-        let use_fast = !is_standard_tier
-            && overridden.is_none()
-            && self.fast_backend.is_some();
+        let is_standard_tier = ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
+        let use_fast = !is_standard_tier && overridden.is_none() && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -3863,10 +3854,7 @@ Example output:
                             })));
                         }
                         warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
-                        return JobResult::Failed(format!(
-                            "Failed to parse AI response: {}",
-                            e
-                        ));
+                        return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }
             }
