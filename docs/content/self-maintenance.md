@@ -310,10 +310,36 @@ See issues for planned improvements:
 - **Symbol graph** - Cross-reference functions, types, imports
 - **Multi-repo support** - Index multiple codebases in separate collections
 
+## Graph Self-Maintenance
+
+Beyond indexing its own content, Fortémi also maintains the quality of its own knowledge graph through the `GraphMaintenance` job pipeline. This pipeline runs periodically and can be triggered on demand:
+
+```bash
+# Trigger the full graph quality pipeline
+curl -X POST http://localhost:3000/api/v1/graph/maintenance
+
+# Or via MCP
+trigger_graph_maintenance({})
+```
+
+The pipeline applies four steps to the entire graph:
+
+1. **Normalization** — Corrects score distribution bias (`GRAPH_NORMALIZATION_GAMMA`)
+2. **SNN (Shared Nearest Neighbors)** — Strengthens genuine neighborhood connections, prunes isolated coincidental links; breaks the "seashell pattern"
+3. **PFNET sparsification** — Removes transitive redundancy, producing a cleaner graph
+4. **Louvain community detection** — Assigns community labels to all notes for cluster-aware navigation
+
+After each run, a diagnostics snapshot is saved. Use `GET /api/v1/graph/diagnostics/history` to review graph health over time, and `GET /api/v1/graph/diagnostics/compare` to compare snapshots.
+
+### Concept Embedding Quality
+
+The `clustering:` prefix on SKOS concept labels in embeddings, combined with TF-IDF filtering via `EMBED_CONCEPT_MAX_DOC_FREQ`, improves the signal-to-noise ratio in semantic links. Generic concepts that appear in most notes are filtered out, so embeddings reflect genuinely distinctive content.
+
 ## Related Documentation
 
 - [Chunking Strategies](./chunking.md) - Deep dive on content-aware chunking
 - [Embedding Sets](./embedding-sets.md) - Focused search contexts for code vs docs
+- [Knowledge Graph Guide](./knowledge-graph-guide.md) - Graph quality pipeline and maintenance
 - [MCP Integration](./mcp.md) - Using MCP tools for code exploration
 - [Search Guide](./search-guide.md) - Advanced search techniques
 

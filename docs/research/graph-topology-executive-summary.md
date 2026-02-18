@@ -6,6 +6,37 @@
 
 ---
 
+## Implementation Status (Updated 2026-02-18)
+
+**Epic completed**: Issues #470-#484, merged 2026-02-18.
+
+The primary recommendation — mutual k-NN linking — was deferred as a no-op after discovering that `create_reciprocal` already writes bidirectional links, making the mutual-check loop redundant (#471). The problem was solved through a different approach: post-processing the existing graph rather than changing the linking loop.
+
+### Decision outcome
+
+| Recommendation | Decision | Rationale |
+|----------------|----------|-----------|
+| Implement mutual k-NN | Deferred (#471) | `create_reciprocal` already produces bidirectional links; mutual-check adds overhead with no topology gain |
+| Add RNG pruning | Implemented as PFNET (#476) | PFNET (Pathfinder Network) was chosen over RNG; it is topology-preserving and better studied for knowledge graphs |
+| Add community detection | Implemented (Louvain, #473) | Shipped even at current corpus sizes; community labels use SKOS concepts for human-readable groupings |
+
+### What was actually built
+
+The graph quality overhaul implemented a maintenance pipeline (`POST /api/v1/graph/maintenance`) combining:
+
+1. Edge weight normalization with configurable gamma (#470)
+2. SNN (Shared Nearest Neighbor) similarity scoring (#474)
+3. PFNET sparsification for topology-preserving pruning (#476)
+4. Louvain community detection with SKOS-derived labels (#473)
+5. MRL 64-dim coarse community detection (#477)
+6. TF-IDF concept filtering (#475)
+7. Embedding clustering instruction prefix (#472)
+8. Diagnostics and snapshot comparison API (#483)
+
+The "Week 1-5" A/B testing roadmap described below was not followed. Instead, the full pipeline was built and shipped directly. The topology metrics endpoint (`GET /api/v1/graph/topology/stats`) described in this document was superseded by the diagnostics API.
+
+---
+
 ## Problem Statement
 
 Fortemi's current auto-linking strategy creates **star topologies** (all notes link to central hubs) instead of **mesh-of-stars** (distributed connections with bridge nodes). This makes depth-based graph traversal less useful since most paths are only 1-2 hops deep.

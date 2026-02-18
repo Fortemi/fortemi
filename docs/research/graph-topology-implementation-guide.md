@@ -5,6 +5,37 @@
 
 ---
 
+## Implementation Status (Updated 2026-02-18)
+
+**This guide describes the intended implementation.** The actual implementation (issues #470-#484, merged 2026-02-18) differs substantially. Read this section before using the code samples below.
+
+### What changed from this plan
+
+**Mutual k-NN (Pattern 1)** — Not implemented. The mutual-check loop was found to be unnecessary because `create_reciprocal` already writes bidirectional links (#471). The code sample in Pattern 1 is pseudocode that does not match the production implementation.
+
+**Community detection (Pattern 4)** — Implemented via Louvain, but not using `petgraph`. The community detection was implemented in-process in Rust without adding a `petgraph` dependency (NFR-2 from the PRD required no new dependencies). The `graph_optimization.rs` file described here was not created.
+
+**PFNET sparsification** — Implemented (#476) as the primary sparsification mechanism, replacing the RNG approach in Pattern 3. The actual implementation is in `crates/matric-db/src/links.rs`.
+
+**Graph topology stats endpoint** — Not implemented as `/api/v1/graph/topology/stats`. Instead, a diagnostics system was built at:
+- `POST /api/v1/graph/diagnostics/snapshot`
+- `GET /api/v1/graph/diagnostics/history`
+- `GET /api/v1/graph/diagnostics/compare`
+
+**Configuration** — The environment variables `GRAPH_LINKING_STRATEGY`, `GRAPH_ADAPTIVE_K`, `GRAPH_PRUNE_REDUNDANT`, and `GRAPH_DETECT_BRIDGES` were not added. Graph configuration is managed through `GraphConfig` in `crates/matric-core/src/defaults.rs`, with approximately 10 tuning parameters covering SNN neighborhood size, PFNET `q` and `r` values, Louvain resolution, MRL dimension, gamma normalization, and community filter mode.
+
+**Petgraph dependency** — Not added. The NFR-2 constraint (no new dependencies) was upheld.
+
+### What to use instead
+
+For understanding the production graph implementation, refer to:
+- `CHANGELOG.md` — Feature descriptions for #470-#484
+- `crates/matric-db/src/links.rs` — SNN, PFNET, Louvain, normalization implementations
+- `crates/matric-api/src/handlers/jobs.rs` — Graph maintenance pipeline (`GraphMaintenanceHandler`)
+- `crates/matric-core/src/defaults.rs` — `GraphConfig` struct with all tuning parameters
+
+---
+
 ## Quick Decision Matrix
 
 | Corpus Size | Recommended Strategy | Rationale |

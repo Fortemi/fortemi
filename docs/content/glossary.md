@@ -487,7 +487,100 @@ Text: "async/await in JavaScript"
 - **RDF Graphs**: Subject-predicate-object triples (Semantic Web)
 - **Property Graphs**: Nodes and edges with arbitrary properties (our approach)
 
-**In Matric-Memory:** Notes with >70% cosine similarity are automatically linked. The `note_links` table stores bidirectional edges with similarity scores.
+**In Matric-Memory:** Notes with >70% cosine similarity are automatically linked. The `note_links` table stores bidirectional edges with similarity scores. The graph quality pipeline (SNN → PFNET → Louvain) runs periodically via the `GraphMaintenance` job.
+
+---
+
+### Shared Nearest Neighbors (SNN)
+
+| Attribute | Value |
+|-----------|-------|
+| **Informal Terms** | neighborhood overlap score, graph normalization |
+| **Professional Term** | Shared Nearest Neighbors (SNN) |
+| **REF** | N/A (graph quality technique) |
+
+**Definition:** A graph edge weighting method that replaces raw similarity scores with a neighborhood-overlap score. For two notes A and B, the SNN score is the number of notes that appear in both A's k-nearest neighbors and B's k-nearest neighbors. High SNN scores indicate mutually-confirming similarity; low scores indicate coincidental proximity.
+
+**Why It Matters:** Raw cosine similarity can produce misleading links if a highly popular note (a "hub") is cosmetically similar to many unrelated notes. SNN penalizes such links because the hub's broad neighborhood does not overlap well with any one note's specific neighborhood.
+
+**Configuration:** `GRAPH_SNN_K` (neighbor count), `GRAPH_SNN_PRUNE_THRESHOLD` (minimum score to retain)
+
+**In Matric-Memory:** Applied as Step 2 of the `GraphMaintenance` job pipeline.
+
+---
+
+### Pathfinder Network (PFNET)
+
+| Attribute | Value |
+|-----------|-------|
+| **Informal Terms** | graph pruning, edge sparsification |
+| **Professional Term** | Pathfinder Network Scaling (PFNET) |
+| **Citation** | Schvaneveldt, Durso, & Dearholt (1989) |
+| **REF** | N/A (cognitive network analysis) |
+
+**Definition:** An algorithm that prunes edges from a weighted graph by removing any edge where a stronger indirect path exists. Given edge (A→C) with score s, the edge is pruned if there exists an intermediate node B such that both (A→B) and (B→C) have scores ≥ s.
+
+**Why It Matters:** Raw fully-connected graphs are cluttered with redundant edges that make community structure hard to detect. PFNET retains only direct relationships — the minimum spanning structure that preserves all neighborhood proximity information.
+
+**Configuration:** `GRAPH_PFNET_Q` controls the metric space (typically q=∞ for ultrametric, or a finite value for tunable sparsity)
+
+**In Matric-Memory:** Applied as Step 3 of the `GraphMaintenance` job pipeline.
+
+---
+
+### Louvain Community Detection
+
+| Attribute | Value |
+|-----------|-------|
+| **Informal Terms** | topic clustering, graph clustering |
+| **Professional Term** | Louvain Method for Community Detection |
+| **Citation** | Blondel et al. (2008) |
+| **REF** | N/A |
+
+**Definition:** A hierarchical modularity-optimization algorithm for detecting community structure in graphs. It greedily assigns nodes to communities to maximize modularity (a measure of how dense connections are within communities compared to between them), then collapses each community into a super-node and repeats.
+
+**Why It Matters:** Identifies topical clusters in the knowledge graph without requiring the number of communities to be specified in advance. Each community typically corresponds to a coherent topic domain.
+
+**Configuration:** `GRAPH_COMMUNITY_RESOLUTION` controls the granularity of communities. Higher values produce more, smaller communities.
+
+**In Matric-Memory:** Applied as Step 4 of the `GraphMaintenance` job pipeline. Community assignments (`community_id`, `community_label`, `community_confidence`) are returned on graph nodes from `GET /api/v1/graph/{id}`.
+
+---
+
+### Seashell Pattern
+
+| Attribute | Value |
+|-----------|-------|
+| **Informal Terms** | hub collapse, star topology defect |
+| **Professional Term** | Hub-induced Star Topology (graph quality defect) |
+| **REF** | N/A (internal term) |
+
+**Definition:** A topology defect in knowledge graphs where a highly-connected hub note pulls many unrelated notes into apparent proximity, producing a star-shaped cluster radiating from the hub rather than a meaningful topic cluster. The resulting visual shape resembles a seashell.
+
+**Cause:** Raw cosine similarity treats any note similar to a hub as similar to all other notes similar to that hub, even when those notes share no meaningful relationship with each other.
+
+**Solution:** SNN scoring penalizes edges to broad hubs because their large neighborhoods do not overlap specifically with any one note's neighborhood. PFNET further removes hub-to-spoke edges that are redundant given spoke-to-spoke paths.
+
+**In Matric-Memory:** The combination of SNN (Step 2) and PFNET (Step 3) in the `GraphMaintenance` pipeline is specifically designed to eliminate seashell patterns.
+
+---
+
+### MRL Coarse Embedding
+
+| Attribute | Value |
+|-----------|-------|
+| **Informal Terms** | 64-dim embedding, fast embedding, coarse vector |
+| **Professional Term** | MRL Coarse-Resolution Embedding |
+| **Citation** | Kusupati et al. (2022) |
+| **REF** | REF-073 |
+
+**Definition:** A truncated embedding at 64 dimensions produced from a Matryoshka Representation Learning (MRL) model. Because MRL encodes information hierarchically, the first 64 dimensions retain a usable (lower-resolution) representation of the full embedding.
+
+**Why It Matters:** Coarse embeddings enable efficient first-pass retrieval and graph operations at a fraction of the compute cost of full-dimensional embeddings. Fortémi uses 64-dim MRL embeddings for community detection on large knowledge bases via `POST /api/v1/graph/community/coarse`.
+
+**Trade-off:** ~3-5% quality loss compared to full-dimensional embeddings, with 12× storage reduction.
+
+**In Matric-Memory:** Used for coarse community detection in `GraphMaintenance`. Also used in the MRL two-stage retrieval pipeline (coarse candidate retrieval → full-dimensional reranking).
 
 ---
 
@@ -779,7 +872,12 @@ A named collection of embeddings with independent configuration for model, dimen
 | re-ranking | Late Interaction / Cross-Encoder | Ranking |
 | token matching | MaxSim Operation | Ranking |
 | flexible dimensions | Matryoshka Representations | Efficiency |
+| 64-dim embedding | MRL Coarse Embedding | Efficiency |
 | retrieval benchmark | BEIR | Evaluation |
+| graph normalization | Shared Nearest Neighbors (SNN) | Graph Quality |
+| graph pruning | Pathfinder Network (PFNET) | Graph Quality |
+| topic clustering | Louvain Community Detection | Graph Quality |
+| hub star defect | Seashell Pattern | Graph Quality |
 
 ---
 
@@ -816,3 +914,4 @@ See `docs/research/retrieval-research-papers.md` and `docs/research/TEXT_EMBEDDI
 | 2026-01-25 | Claude Code | Initial comprehensive glossary with 30+ terms |
 | 2026-02-02 | Technical Writer | Added ColBERT, MRL, Temporal-Spatial Search entries for v2026.2.0 |
 | 2026-02-03 | Claude Code | Added Fortemi product identity section; Fortémi designated as codename |
+| 2026-02-18 | Technical Writer | Added SNN, PFNET, Louvain Community Detection, Seashell Pattern, MRL Coarse Embedding entries for graph quality pipeline (issues #470-#484) |

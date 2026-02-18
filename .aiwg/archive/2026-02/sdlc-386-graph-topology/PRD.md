@@ -1,10 +1,64 @@
 # Product Requirements Document: Graph Topology Improvement
 
-**Document Status**: Draft
+**Document Status**: Complete — Epic Delivered
 **Issue**: #386
 **Created**: 2026-02-14
+**Completed**: 2026-02-18
 **Author**: Product Strategist
 **Stakeholders**: Engineering Team, Product Owner
+
+---
+
+## Epic Completion Note (2026-02-18)
+
+**Status**: COMPLETE. Issues #470-#484 shipped, merged to main on 2026-02-18.
+
+### Acceptance criteria outcome
+
+| Criteria | Result |
+|----------|--------|
+| FR-1: Configurable linking strategy | Partially delivered — `GraphConfig` adds tuning parameters, but `GRAPH_LINKING_STRATEGY` env var was not added as specified |
+| FR-2: Mutual k-NN linking | Deferred (#471) — `create_reciprocal` already produces bidirectional links; the mutual-check step was a no-op |
+| FR-3: Adaptive k based on corpus size | Not implemented as specified; k is a fixed GraphConfig parameter |
+| FR-4: Isolated node fallback | Not implemented; remains a future consideration |
+| FR-5: Graph topology metrics endpoint | Implemented as diagnostics API (different paths than specified): `POST /graph/diagnostics/snapshot`, `GET /graph/diagnostics/history`, `GET /graph/diagnostics/compare` |
+| FR-6: Backward compatibility | Delivered — existing links untouched; maintenance pipeline is additive |
+| NFR-1: Latency ≤200ms per note | Delivered — maintenance runs as a batch job, not per-note |
+| NFR-2: No new dependencies | Delivered — Louvain, SNN, PFNET all implemented in Rust without petgraph |
+| NFR-3: Configuration without restart | Partially delivered — GraphConfig reads from env on startup, not per-job |
+
+### Scope expansion beyond this PRD
+
+The following were not in this PRD but were implemented:
+
+- **SNN (Shared Nearest Neighbor) scoring** (#474)
+- **PFNET sparsification** (#476) — replaced RNG pruning from Section 7.1
+- **Edge weight normalization with gamma** (#470)
+- **MRL 64-dim coarse community detection** (#477)
+- **TF-IDF concept filtering** (#475)
+- **Embedding clustering instruction prefix** (#472)
+- **Graph maintenance pipeline** (#482) — unified `POST /api/v1/graph/maintenance` endpoint
+- **Re-embedding coordination and validation** (#484)
+- **Structural collection edges in graph payloads** (#480)
+
+### What remains deferred
+
+- FR-2 (Mutual k-NN) — no longer needed; bidirectionality already guaranteed
+- Section 7.1 (RNG pruning) — superseded by PFNET
+- Section 7.3 (Hierarchical linking) — still deferred; valid for >10k note corpora
+- Section 7.4 (Link strength decay) — still deferred
+- Section 7.5 (Retroactive re-linking) — still deferred
+
+### Related ADRs
+
+Implementation decisions were captured in the companion ADR:
+- `.aiwg/archive/2026-02/sdlc-386-graph-topology/ADR-001-linking-strategy.md`
+
+For the implemented code, see:
+- `crates/matric-db/src/links.rs` — algorithm implementations (SNN, PFNET, Louvain, normalization)
+- `crates/matric-api/src/handlers/jobs.rs` — `GraphMaintenanceHandler`
+- `crates/matric-core/src/defaults.rs` — `GraphConfig`
+- `CHANGELOG.md` — feature descriptions for each issue
 
 ---
 

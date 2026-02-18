@@ -199,7 +199,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (29 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`). Set `MCP_TOOL_MODE=full` for all granular tools.
+**Tool modes:** Default is "core" (37 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph analysis tools). Set `MCP_TOOL_MODE=full` for all granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json
@@ -275,6 +275,9 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - Collections/folders with hierarchy
 - Note templates with variable substitution
 - Graph exploration with recursive CTE
+- **Graph quality maintenance pipeline** (`normalize → SNN → PFNET → diagnostics snapshot` via `POST /api/v1/graph/maintenance`)
+- **Louvain community detection** with SKOS-derived labels
+- **SNN similarity scoring** and PFNET sparsification for topology-preserving graph analysis
 - Temporal-spatial memory search (PostGIS location + time range queries)
 - PKE encryption for secure note sharing
 - Export to markdown with YAML frontmatter

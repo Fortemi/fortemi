@@ -276,13 +276,141 @@ Understanding how the knowledge graph builds itself helps you get the most from 
 2. **Phase 1 NLP jobs run in parallel**: AI revision, title generation, concept tagging, metadata extraction, document type inference
 3. **Concept tagging completes** — the note now has 8-15 hierarchical SKOS tags
 4. **Related concept inference runs** — the LLM identifies associative relationships between the note's concepts and creates `skos:related` edges
-5. **Tag-enriched embedding is queued** — embedding generation uses concept labels and their relationships (broader, narrower, related) for richer vectors
+5. **Tag-enriched embedding is queued** — embedding generation uses concept labels (prefixed `clustering:`) and their relationships (broader, narrower, related) for richer vectors; high-frequency concepts are filtered via TF-IDF to prevent generic terms from dominating
 6. **Tag-boosted linking is queued** — new connections appear using both embeddings and tag overlap
 7. **The knowledge graph grows** — new connections appear automatically
+8. **Graph maintenance runs periodically** — a `GraphMaintenance` job applies the full quality pipeline: normalization → SNN → PFNET sparsification → Louvain community detection → diagnostics snapshot
 
 You don't need to trigger any of these steps manually. The entire pipeline runs in the background via the job queue.
 
-To re-run the pipeline (e.g., after a model upgrade), use `bulk_reprocess_notes` via MCP or the REST API.
+To re-run the note pipeline (e.g., after a model upgrade), use `bulk_reprocess_notes` via MCP or the REST API. To trigger graph maintenance immediately, use `POST /api/v1/graph/maintenance` or the `trigger_graph_maintenance` MCP tool.
+
+## Graph Quality Pipeline
+
+The graph maintenance job applies a four-step quality pipeline to the entire knowledge graph.
+
+### Step 1: Normalization
+
+Raw similarity scores are normalized using a configurable gamma parameter. This corrects for embedding model bias and produces a more uniform score distribution.
+
+```
+normalized_score = score ^ GRAPH_NORMALIZATION_GAMMA
+```
+
+**Environment variable:** `GRAPH_NORMALIZATION_GAMMA` (default: `1.0`)
+
+### Step 2: Shared Nearest Neighbors (SNN)
+
+Normalizes per-note edge scores by comparing each note's neighborhood to its neighbors' neighborhoods. Notes that share many neighbors get stronger links; isolated connections are weakened.
+
+- **k parameter** (`GRAPH_SNN_K`): Number of nearest neighbors considered per node
+- **Prune threshold** (`GRAPH_SNN_PRUNE_THRESHOLD`): Minimum SNN score to retain an edge
+
+SNN is effective at breaking the "seashell pattern" — a topology defect where one highly-connected hub pulls many notes into artificial proximity, producing a star-shaped cluster rather than a meaningful topic cluster.
+
+### Step 3: PFNET Sparsification
+
+Pathfinder Network (PFNET) pruning removes edges that are redundant given transitive paths. An edge (A→C) is removed if a path A→B→C exists where both segments are stronger than the direct connection.
+
+**Environment variable:** `GRAPH_PFNET_Q` — controls the pathfinder metric space. Higher values preserve more edges.
+
+PFNET produces a sparser, more interpretable graph where each retained edge represents a genuinely direct relationship.
+
+### Step 4: Louvain Community Detection
+
+Applies the Louvain algorithm to identify topic communities in the sparsified graph. Each note is assigned a `community_id` and `community_label`.
+
+**Environment variable:** `GRAPH_COMMUNITY_RESOLUTION` — controls community granularity (higher = more, smaller communities)
+
+For large knowledge bases, coarse community detection uses MRL 64-dimensional embeddings for efficiency via `POST /api/v1/graph/community/coarse`.
+
+Community assignments appear on graph nodes in `GET /api/v1/graph/{id}` responses:
+
+```json
+{
+  "id": "uuid",
+  "title": "Note Title",
+  "community_id": 3,
+  "community_label": "machine-learning",
+  "community_confidence": 0.87
+}
+```
+
+### Diagnostics
+
+After each maintenance run, a diagnostics snapshot is captured automatically. Snapshots record graph health metrics (node count, edge count, average degree, community count, isolated node count) and enable trend tracking over time.
+
+## Graph API Endpoints
+
+### Trigger Graph Maintenance
+
+```bash
+POST /api/v1/graph/maintenance
+```
+
+Queues a `GraphMaintenance` job that runs the full quality pipeline (normalize → SNN → PFNET → Louvain → diagnostics). Returns the job ID for status tracking.
+
+### Recompute SNN Scores
+
+```bash
+POST /api/v1/graph/snn/recompute
+```
+
+Recomputes Shared Nearest Neighbor scores without running the full pipeline. Useful after bulk note imports.
+
+### Run PFNET Sparsification
+
+```bash
+POST /api/v1/graph/pfnet/sparsify
+```
+
+Applies PFNET pruning to the current graph state.
+
+### Coarse Community Detection
+
+```bash
+POST /api/v1/graph/community/coarse
+```
+
+Runs Louvain community detection using MRL 64-dimensional embeddings. Efficient for large knowledge bases.
+
+### Diagnostics Endpoints
+
+```bash
+# Capture a diagnostics snapshot
+POST /api/v1/graph/diagnostics/snapshot
+
+# List all snapshots
+GET /api/v1/graph/diagnostics/history
+
+# Compare two snapshots
+GET /api/v1/graph/diagnostics/compare?from={snapshot_id}&to={snapshot_id}
+```
+
+The compare endpoint highlights changes in graph health between two points in time, useful for validating that maintenance improved graph quality.
+
+## Graph MCP Tools
+
+Two MCP tools support graph maintenance workflows:
+
+| Tool | Description |
+|------|-------------|
+| `trigger_graph_maintenance` | Queue the full 4-step maintenance pipeline |
+| `coarse_community_detection` | Run community detection using MRL 64-dim embeddings |
+
+These are part of the `manage_graphs` discriminated-union tool group. The MCP server now exposes 37 total core tools (was 35).
+
+## Graph Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GRAPH_NORMALIZATION_GAMMA` | `1.0` | Score normalization exponent |
+| `GRAPH_SNN_K` | (system default) | Nearest neighbors for SNN computation |
+| `GRAPH_SNN_PRUNE_THRESHOLD` | (system default) | Minimum SNN score to retain an edge |
+| `GRAPH_PFNET_Q` | (system default) | PFNET pathfinder metric space parameter |
+| `GRAPH_COMMUNITY_RESOLUTION` | (system default) | Louvain community granularity |
+| `GRAPH_STRUCTURAL_SCORE` | (system default) | Weight for structural vs. similarity scores in linking |
+| `EMBED_CONCEPT_MAX_DOC_FREQ` | (system default) | TF-IDF document frequency cutoff for concept filtering in embeddings |
 
 ## Limitations
 

@@ -63,9 +63,9 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**29 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**37 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~85% token reduction** compared to full mode (29 vs 194 tools)
+- **~81% token reduction** compared to full mode (37 vs 194 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 29 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 37 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -1165,6 +1165,36 @@ Discover available LLM models, providers, and embedding configurations. Read-onl
 { "action": "get_embedding_config" }
 ```
 
+### `trigger_graph_maintenance`
+
+Queue the full graph quality pipeline: normalize → SNN → PFNET sparsification → Louvain community detection → diagnostics snapshot.
+
+**Parameters:** None required.
+
+```json
+{}
+```
+
+Returns the job ID for status tracking via `manage_jobs`.
+
+**When to use:** After bulk note imports, after changing `GRAPH_*` env vars, or when graph diagnostics show degraded quality (high isolated-node count, seashell patterns).
+
+---
+
+### `coarse_community_detection`
+
+Run Louvain community detection using MRL 64-dimensional embeddings. More efficient than full-dimensional community detection for large knowledge bases.
+
+**Parameters:** None required.
+
+```json
+{}
+```
+
+Community assignments (`community_id`, `community_label`, `community_confidence`) are written to all notes and appear in `GET /api/v1/graph/{id}` node responses.
+
+---
+
 ### `bulk_reprocess_notes`
 
 Re-run pipeline steps (embedding, linking, revision) on multiple notes.
@@ -1312,7 +1342,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools instead of the 29 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools instead of the 37 core consolidated tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
@@ -1320,7 +1350,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools i
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~78% higher token overhead (187 vs 29 tools)
+- ~80% higher token overhead (194 vs 37 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 

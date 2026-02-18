@@ -9,6 +9,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
+- **Graph Quality Maintenance Pipeline** (#482) — Automated `normalize → SNN → PFNET → diagnostics snapshot` pipeline triggered via `POST /api/v1/graph/maintenance`. Brings graph topology to a consistent, analytically useful state in a single operation.
+
+- **Louvain Community Detection** (#473) — Partition the knowledge graph into topically cohesive communities using the Louvain algorithm. Community labels are derived from SKOS concept terms for human-readable groupings.
+
+- **SNN Similarity Scoring** (#474) — Shared Nearest Neighbor (SNN) scoring for structural graph analysis. Identifies strongly connected note clusters based on neighborhood overlap rather than raw embedding distance.
+
+- **PFNET Sparsification** (#476) — Pathfinder Network (PFNET) algorithm for topology-preserving edge pruning. Removes redundant edges while retaining the shortest-path skeleton of the knowledge graph.
+
+- **MRL 64-dim Coarse Community Detection** (#477) — Fast community detection using 64-dimensional Matryoshka Representation Learning embeddings. Provides coarse-grained topic groupings at significantly lower compute cost than full-dimension clustering.
+
+- **Edge Community Filter and Structural Collection Edges** (#480) — Filter graph edges by community membership (intra-community or inter-community). Structural edges from collection membership are included in graph payloads for richer topology.
+
+- **Embedding Quality Diagnostics with Snapshot Comparison** (#483, #484) — Capture point-in-time embedding quality metrics (coverage, dimension statistics, cluster cohesion) and compare against prior snapshots to detect quality drift over time.
+
+- **Graph Maintenance API Endpoint** (#482) — `POST /api/v1/graph/maintenance` triggers the full maintenance pipeline. Returns a structured report with per-step outcomes and timing.
+
+- **7 New Graph API Endpoints** — New endpoints for graph maintenance, diagnostics, community inspection, SNN scoring, PFNET sparsification, coarse community detection, and edge community filtering.
+
+- **2 New MCP Core Tools** — `trigger_graph_maintenance` and `coarse_community_detection` added to the core tool surface (37 core tools total).
+
+- **20 Graph Algorithm Unit Tests** — Unit test coverage for normalization, SNN, Louvain, and PFNET implementations.
+
 - **Pause/Resume Job Processing** (#466) — Global and per-archive pause/resume control for the job worker. State persisted in `system_config` table across container restarts. Endpoints: `GET /api/v1/jobs/status`, `POST /api/v1/jobs/pause`, `POST /api/v1/jobs/resume`, `POST /api/v1/jobs/pause/{archive}`, `POST /api/v1/jobs/resume/{archive}`.
 
 - **Tiered Job Architecture** — Three-tier compute model: CPU_NER (tier 0, GLiNER), FAST_GPU (tier 1, qwen3:8b), STANDARD_GPU (tier 2, gpt-oss:20b). Queue-based tier escalation replaces inline model fallback — each job runs exactly one model, failures enqueue at the next tier.
@@ -39,12 +61,27 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Changed
 
+- **Embedding enrichment instruction prefix** (#472) — Embeddings generated for graph use now include a `clustering:` instruction prefix, improving cluster cohesion in community detection.
+
+- **Embedding content separated from record metadata** (#479) — Embedding payloads no longer bundle record metadata fields. Content and metadata are stored and retrieved separately, reducing payload size and eliminating cross-contamination during similarity scoring.
+
+- **TF-IDF concept filtering excludes high-frequency concepts** (#475) — Concepts appearing in a large proportion of notes are treated as "stopword" concepts and excluded from graph edge weighting, reducing noise in dense graphs.
+
+- **Edge weight normalization with configurable gamma** (#470) — Graph edge weights are normalized using a configurable gamma parameter, making weight distributions comparable across archives of different sizes.
+
+- **GraphConfig extended with 10+ new tuning parameters** — New parameters cover SNN neighborhood size, PFNET `q` and `r` values, Louvain resolution, MRL dimension selection, gamma normalization, and community filter mode.
+
+- **MCP core tools** expanded from 23 to 37: added `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference` (23→29), then `trigger_graph_maintenance`, `coarse_community_detection`, and 6 additional graph analysis tools (29→37).
+
 - **Default concept target** lowered from 15 to 5 per note (`EXTRACTION_TARGET_CONCEPTS`).
 - **Pipeline reorder** (#424) — Embedding now runs after concept tagging, using enriched content for better semantic search.
 - **GLiNER extracted to sidecar** — Removed from bundle image, runs as independent container for simpler upgrades and resource isolation.
 - **Inference endpoint** — Switched from `/api/generate` to `/api/chat` for Ollama generation.
-- **MCP core tools** expanded from 23 to 29 (added `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`).
 - **Job handlers normalized** — MetadataExtraction, TitleGeneration, and RelatedConceptInference handlers now use queue-based tier escalation (matching ConceptTagging and ReferenceExtraction pattern).
+
+### Deprecated
+
+- **Mutual k-NN filter** (#471) — Deferred as a no-op. The `create_reciprocal` step already enforces bidirectional edges, making a separate mutual k-NN filter redundant. The filter remains in the codebase but is not applied during graph construction.
 
 ### Fixed
 

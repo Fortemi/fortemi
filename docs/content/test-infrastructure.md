@@ -115,6 +115,19 @@ Organized test execution:
 - **Integration**: Database-dependent tests
 - **Slow**: Performance benchmarks, large datasets
 
+### ✅ Graph Quality Unit Tests
+
+20 unit tests covering the graph quality pipeline (added in issues #470-#484):
+
+- **Normalization**: Score distribution correctness across gamma values
+- **SNN**: Neighborhood overlap computation, hub-penalization behavior, seashell pattern detection
+- **PFNET**: Edge pruning correctness, transitivity rule validation, connectivity preservation
+- **Louvain**: Community assignment stability, resolution parameter effects
+- **Diagnostics**: Snapshot capture, metric accuracy, compare endpoint delta computation
+- **MRL coarse**: 64-dim community detection on mock embedding corpus
+
+These tests run as fast unit tests (no database required) using mock graph structures.
+
 ### ✅ CI Integration
 
 Automated testing in Gitea workflows:

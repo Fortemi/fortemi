@@ -6,6 +6,49 @@
 
 ---
 
+## Implementation Status (Updated 2026-02-18)
+
+**Epic completed**: Issues #470-#484. The implementation significantly exceeded the scope outlined in this research document.
+
+### What was implemented
+
+The following techniques from this research were implemented, though often in more specialized forms than the pseudocode here describes:
+
+| Technique | Status | Implementation Notes |
+|-----------|--------|---------------------|
+| Mutual k-NN | Deferred as no-op | `create_reciprocal` already writes bidirectional links; the mutual-check loop was unnecessary (#471) |
+| Community detection (Louvain) | Implemented (#473) | Louvain with SKOS concept labels for human-readable community names |
+| RNG/spectral sparsification | Implemented as PFNET (#476) | Pathfinder Network (PFNET) algorithm chosen over RNG; topology-preserving edge pruning |
+| Hierarchical linking | Not implemented | Deferred; requires schema changes and navigation UI investment |
+| Percolation-based linking | Not implemented | Deferred |
+
+### What was added beyond this research
+
+- **SNN (Shared Nearest Neighbor) scoring** (#474) — structural similarity based on neighborhood overlap rather than raw embedding distance
+- **Edge weight normalization with configurable gamma** (#470) — makes weight distributions comparable across archives
+- **MRL 64-dim coarse community detection** (#477) — fast, low-cost community grouping using 64-dimensional Matryoshka embeddings
+- **TF-IDF concept filtering** (#475) — excludes high-frequency "stopword" concepts from edge weighting
+- **Embedding clustering instruction prefix** (#472) — improves cluster cohesion in community detection
+- **Graph maintenance pipeline** (#482) — `normalize → SNN → PFNET → diagnostics snapshot` as a single operation via `POST /api/v1/graph/maintenance`
+- **Graph diagnostics API** (#483) — snapshot comparison and embedding quality metrics
+- **Structural collection edges** (#480) — collection membership edges included in graph payloads
+
+### Key correction to the code examples
+
+The code examples in this document reference `handlers/jobs.rs` lines 800-843. The actual implementation differs in several ways:
+
+- The linking handler was substantially rewritten; these line numbers no longer apply.
+- `create_reciprocal_tx` is the transactional variant used in production.
+- The topology improvement came primarily from post-processing (PFNET, SNN) rather than changing the linking loop itself. The linking loop still uses similarity thresholds; sparsification happens as a maintenance step.
+
+### Techniques still valid as future work
+
+- Hierarchical linking (Section 5) — valuable at >10k notes; no blocking issues, complexity deferred
+- Gabriel Graph (Section 3) — superseded by PFNET for now; worth revisiting if PFNET over-prunes
+- Explicit bridge-link creation (Section 4) — Louvain detection was implemented but bridge-link creation between detected communities was not
+
+---
+
 ## Executive Summary
 
 Current implementation uses **threshold-based linking** (cosine similarity >= 0.7 for prose, >= 0.85 for code) which creates **star topologies**: notes cluster around central hubs with all-to-one connections rather than distributed mesh structures. This reduces the value of multi-hop graph traversal since paths rarely exceed depth=1.

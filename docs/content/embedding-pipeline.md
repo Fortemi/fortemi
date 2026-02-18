@@ -90,7 +90,8 @@ CREATE TYPE job_type AS ENUM (
     'generate_coarse_embedding',
     'exif_extraction',
     '3d_analysis',
-    're_embed_all'
+    're_embed_all',
+    'graph_maintenance'  -- normalize → SNN → PFNET → Louvain → diagnostics
 );
 
 CREATE TYPE job_status AS ENUM (
@@ -134,6 +135,7 @@ Jobs are processed in priority order:
 | `linking` | 60 | Background processing |
 | `concept_tagging` | 50 | Optional enrichment |
 | `build_set_index` | 40 | Periodic maintenance |
+| `graph_maintenance` | 20 | Whole-graph quality pipeline, runs infrequently |
 | `re_embed_all` | 10 | Batch operations, low priority |
 
 Custom priorities can override defaults:
@@ -253,7 +255,7 @@ chunks = vec![
 
 ### Step 3: Embedding Generation
 
-Each chunk is embedded using the configured model:
+Each chunk is embedded using the configured model. For concept-enriched embeddings, SKOS concept labels are prefixed with `clustering:` and appended to the content. High-frequency concepts (those appearing in more than `EMBED_CONCEPT_MAX_DOC_FREQ` fraction of notes) are filtered via TF-IDF before appending to prevent generic terms from diluting the embedding signal.
 
 ```rust
 use matric_inference::EmbeddingService;
@@ -266,6 +268,14 @@ let model = embedding_set.embedding_model; // e.g., "nomic-embed-text"
 let registry = EmbeddingModelRegistry::new();
 let profile = registry.get_or_default(&model);
 
+// Build concept-enriched content (content + metadata separated)
+// Concept labels filtered by TF-IDF, prefixed with "clustering:"
+let concept_suffix = get_filtered_concepts(note_id)
+    .iter()
+    .map(|c| format!("clustering:{}", c.pref_label))
+    .collect::<Vec<_>>()
+    .join(" ");
+
 // Generate embeddings for all chunks
 for chunk in chunks {
     // Apply model-specific prefix (for E5 models: "passage: ")
@@ -273,7 +283,7 @@ for chunk in chunks {
 
     // Call Ollama embedding API
     let embedding = embedding_service
-        .embed(&model, &prefixed_text)
+        .embed(&model, &format!("{}\n{}", prefixed_text, concept_suffix))
         .await?;
 
     // Store chunk + embedding

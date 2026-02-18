@@ -8,6 +8,40 @@
 
 ---
 
+## Implementation Status (Updated 2026-02-18)
+
+**This card describes the pre-implementation plan. The epic is complete (#470-#484).**
+
+The quick-start steps below — setting `GRAPH_LINKING_STRATEGY`, running the test loop, checking `/api/v1/graph/topology/stats` — do not apply to the production system. Specifically:
+
+- `GRAPH_LINKING_STRATEGY=mutual_knn` was not implemented; mutual k-NN was deferred as a no-op (#471)
+- `/api/v1/graph/topology/stats` does not exist; use `/api/v1/graph/diagnostics/snapshot` and `/api/v1/graph/diagnostics/compare`
+- `GRAPH_K_NEIGHBORS` was not added; k is configured via `GraphConfig` in `matric-core`
+
+### Current quick start for developers
+
+```bash
+# Trigger the graph maintenance pipeline (normalize → SNN → PFNET → snapshot)
+curl -X POST http://localhost:3000/api/v1/graph/maintenance \
+  -H "Content-Type: application/json" \
+  -d '{"steps": ["normalize", "snn", "pfnet", "snapshot"]}'
+
+# Take a diagnostics snapshot
+curl -X POST http://localhost:3000/api/v1/graph/diagnostics/snapshot
+
+# View diagnostics history
+curl http://localhost:3000/api/v1/graph/diagnostics/history
+
+# Compute coarse communities (MRL 64-dim)
+curl -X POST http://localhost:3000/api/v1/graph/community/coarse
+```
+
+For graph configuration, see `GraphConfig` in `crates/matric-core/src/defaults.rs`. For implementation details, see `crates/matric-db/src/links.rs`.
+
+This card is preserved as research context. For the production API, refer to `CHANGELOG.md` entries for #470-#484 and the OpenAPI spec at `/openapi.yaml`.
+
+---
+
 ## TL;DR
 
 **Problem**: Current auto-linking creates star clusters (all notes → hub), not mesh networks (distributed connections)

@@ -595,6 +595,18 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `WORKER_ENABLED` | `true` | Enable background job worker | `false` |
 
+#### Graph Quality Pipeline
+
+| Variable | Default | Description | Example |
+|----------|---------|-------------|---------|
+| `GRAPH_NORMALIZATION_GAMMA` | `1.0` | Score normalization exponent applied before SNN | `0.8` |
+| `GRAPH_SNN_K` | (system default) | Nearest neighbors per node for SNN computation | `10` |
+| `GRAPH_SNN_PRUNE_THRESHOLD` | (system default) | Minimum SNN score to retain an edge | `0.1` |
+| `GRAPH_PFNET_Q` | (system default) | PFNET pathfinder metric space parameter | `2` |
+| `GRAPH_COMMUNITY_RESOLUTION` | (system default) | Louvain community granularity (higher = more communities) | `1.0` |
+| `GRAPH_STRUCTURAL_SCORE` | (system default) | Weight for structural vs. similarity scores in edge ranking | `0.5` |
+| `EMBED_CONCEPT_MAX_DOC_FREQ` | (system default) | TF-IDF document frequency cutoff for concept filtering in embeddings | `0.8` |
+
 #### Real-Time Events
 
 | Variable | Default | Description | Example |
@@ -800,6 +812,9 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c "VACUUM ANALYZE;"
 
 # Backup
 docker exec Fortémi-matric-1 pg_dump -U matric matric > backup_$(date +%Y%m%d).sql
+
+# Trigger graph quality maintenance (normalize → SNN → PFNET → Louvain → diagnostics)
+curl -X POST http://localhost:3000/api/v1/graph/maintenance
 ```
 
 ### Emergency Procedures

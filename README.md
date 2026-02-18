@@ -10,7 +10,7 @@ Ask it a question, and it doesn't just search for matching words. It finds answe
 
 Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency required.
 
-> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 29 MCP agent tools, and multimodal media processing. ~85k lines of Rust.
+> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 37 MCP agent tools, and multimodal media processing. ~85k lines of Rust.
 
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
@@ -45,7 +45,7 @@ See [Use Cases](docs/content/use-cases.md) for deployment patterns and [Executiv
 |------------|-------------|
 | **Hybrid Search** | RRF fusion of BM25 + dense retrieval ([details](docs/content/search-guide.md)) |
 | **Multilingual FTS** | CJK bigrams, emoji trigrams, 6+ language stemmers ([details](docs/content/multilingual-fts.md)) |
-| **Knowledge Graph** | Automatic linking at >70% similarity with graph exploration ([details](docs/content/knowledge-graph-guide.md)) |
+| **Knowledge Graph** | Automatic linking at >70% similarity with graph exploration, community detection, and maintenance pipeline ([details](docs/content/knowledge-graph-guide.md)) |
 | **SKOS Vocabularies** | W3C controlled vocabulary with hierarchical concepts ([details](docs/content/tags.md)) |
 | **Multi-Memory** | Schema-isolated archives with federated cross-archive search ([details](docs/content/multi-memory.md)) |
 | **Authentication** | OAuth2 + API keys, opt-in enforcement ([details](docs/content/authentication.md)) |
@@ -116,7 +116,7 @@ See [Getting Started](docs/content/getting-started.md) for the full walkthrough 
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-core     │ Core types, traits, and error handling       │
 ├──────────────────┼──────────────────────────────────────────────┤
-│  mcp-server      │ MCP agent integration (Node.js, 29 tools)    │
+│  mcp-server      │ MCP agent integration (Node.js, 37 tools)    │
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -126,7 +126,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 ## MCP Server
 
-29 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
+37 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
 
 **Connect** (`.mcp.json` or Claude Desktop):
 
@@ -175,7 +175,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
 | `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
-| `MCP_TOOL_MODE` | `core` | `core` (29 tools) or `full` (all) |
+| `MCP_TOOL_MODE` | `core` | `core` (37 tools) or `full` (all) |
 
 ---
 

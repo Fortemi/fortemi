@@ -32,7 +32,9 @@ When you create a note, Fortémi runs a two-phase NLP pipeline automatically:
 
 **Phase 1** (parallel): AI revision, title generation, concept tagging, metadata extraction, document type inference
 
-**Phase 2** (after tagging): Tag-enriched embedding generation, tag-boosted semantic linking
+**Phase 2** (after tagging): Tag-enriched embedding generation (with `clustering:` concept prefixes and TF-IDF filtering), tag-boosted semantic linking
+
+**Periodic**: Graph maintenance job applies the quality pipeline — normalization → SNN → PFNET sparsification → Louvain community detection → diagnostics snapshot — to the entire knowledge graph. Trigger on demand via `POST /api/v1/graph/maintenance` or the `trigger_graph_maintenance` MCP tool.
 
 This means every note is automatically tagged, titled, embedded, and linked without any manual intervention. The SKOS tools (`manage_tags`, `manage_concepts`) exist for **curation and governance** — reviewing auto-tags, promoting concepts, correcting errors — not for routine tag creation.
 
