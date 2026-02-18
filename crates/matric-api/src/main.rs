@@ -7054,8 +7054,7 @@ async fn graph_diagnostics(
         .get("sample_size")
         .and_then(|v| v.parse().ok())
         .unwrap_or(1000)
-        .min(10000)
-        .max(10);
+        .clamp(10, 10000);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     let result = ctx
@@ -7075,7 +7074,7 @@ async fn capture_diagnostics_snapshot(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CaptureSnapshotBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let sample_size = body.sample_size.unwrap_or(1000).min(10000).max(10);
+    let sample_size = body.sample_size.unwrap_or(1000).clamp(10, 10000);
     let label = body.label;
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
@@ -7115,8 +7114,7 @@ async fn list_diagnostics_snapshots(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(20)
-        .min(100)
-        .max(1);
+        .clamp(1, 100);
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     let result = ctx
@@ -7263,7 +7261,7 @@ async fn coarse_community_detection(
     let similarity_threshold = body.similarity_threshold.unwrap_or(0.3);
     let resolution = body.resolution.unwrap_or(graph_config.community_resolution);
 
-    if coarse_dim < 2 || coarse_dim > 768 {
+    if !(2..=768).contains(&coarse_dim) {
         return Err(ApiError::BadRequest(
             "coarse_dim must be between 2 and 768".into(),
         ));

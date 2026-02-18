@@ -2615,7 +2615,7 @@ mod tests {
         // Scores: 0.0, 0.2, 0.6, 1.0
         // Bins:    [0], [2], [6], [9] (1.0 clamps to bin 9)
         let scores = [0.0_f32, 0.2, 0.6, 1.0];
-        let mut histogram = vec![0i64; 10];
+        let mut histogram = [0i64; 10];
         for &s in &scores {
             let bin = ((s * 10.0).floor() as usize).min(9);
             histogram[bin] += 1;
