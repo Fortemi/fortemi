@@ -9219,7 +9219,29 @@ async fn update_embedding_config(
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateEmbeddingConfigRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let composition_changed = body.document_composition.is_some();
     let config = state.db.embedding_sets.update_config(id, body).await?;
+
+    // Auto re-embed: when document_composition changes, queue RefreshEmbeddingSet
+    // for every set using this config (#485).
+    if composition_changed {
+        if let Ok(slugs) = state.db.embedding_sets.find_set_slugs_by_config(id).await {
+            for slug in slugs {
+                let _ = state
+                    .db
+                    .jobs
+                    .queue(
+                        None,
+                        matric_core::JobType::RefreshEmbeddingSet,
+                        matric_core::JobType::RefreshEmbeddingSet.default_priority(),
+                        Some(serde_json::json!({ "set_slug": slug, "reason": "composition_changed" })),
+                        None,
+                    )
+                    .await;
+            }
+        }
+    }
+
     Ok(Json(config))
 }
 

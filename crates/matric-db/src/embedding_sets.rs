@@ -935,7 +935,7 @@ impl PgEmbeddingSetRepository {
             ));
         }
 
-        // Check if config is in use by any embedding sets
+        // Check if config is in use by any embedding sets (also used by find_sets_by_config)
         let usage_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM embedding_set WHERE embedding_config_id = $1")
                 .bind(id)
@@ -961,6 +961,18 @@ impl PgEmbeddingSetRepository {
         }
 
         Ok(())
+    }
+
+    /// Find slugs of embedding sets that use a given config ID.
+    /// Used to trigger re-embedding when composition changes (#485).
+    pub async fn find_set_slugs_by_config(&self, config_id: Uuid) -> Result<Vec<String>> {
+        let slugs: Vec<String> =
+            sqlx::query_scalar("SELECT slug FROM embedding_set WHERE embedding_config_id = $1")
+                .bind(config_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+        Ok(slugs)
     }
 
     /// Get configs by provider type.
