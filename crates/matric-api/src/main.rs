@@ -244,33 +244,18 @@ async fn queue_nlp_pipeline(
         }
     }
 
-    // Queue Phase 1 pipeline jobs with cost tiers for tiered atomic execution.
+    // Queue Phase 1 pipeline jobs with cost tiers from JobType::default_cost_tier().
     // Phase 2 (RelatedConceptInference) is queued by ConceptTaggingHandler on
     // completion. Phase 3 (Embedding + Linking) is queued by RelatedConceptHandler.
     // Pipeline: ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435).
-    //
-    // MetadataExtraction and DocumentTypeInference added in #430 for full
-    // enrichment parity between single and bulk ingest paths.
-    let tiered_jobs: &[(JobType, Option<i16>)] = &[
-        (
-            JobType::TitleGeneration,
-            Some(matric_core::cost_tier::FAST_GPU),
-        ), // Starts at tier-1
-        (
-            JobType::ConceptTagging,
-            Some(matric_core::cost_tier::CPU_NER),
-        ), // Starts at tier-0 (GLiNER)
-        (
-            JobType::ReferenceExtraction,
-            Some(matric_core::cost_tier::CPU_NER),
-        ), // Starts at tier-0 (GLiNER)
-        (
-            JobType::MetadataExtraction,
-            Some(matric_core::cost_tier::FAST_GPU),
-        ), // Fast model
-        (JobType::DocumentTypeInference, None), // Tier-agnostic
+    let phase1_jobs = [
+        JobType::TitleGeneration,
+        JobType::ConceptTagging,
+        JobType::ReferenceExtraction,
+        JobType::MetadataExtraction,
+        JobType::DocumentTypeInference,
     ];
-    for &(job_type, cost_tier) in tiered_jobs {
+    for job_type in phase1_jobs {
         // Create payload with schema and optional model override
         let mut payload = serde_json::Map::new();
         if let Some(s) = schema {
@@ -292,7 +277,7 @@ async fn queue_nlp_pipeline(
                 job_type,
                 job_type.default_priority(),
                 payload,
-                cost_tier,
+                job_type.default_cost_tier(),
             )
             .await
         {
@@ -5077,7 +5062,7 @@ async fn reprocess_note(
         }
     }
 
-    // Queue remaining pipeline steps selectively
+    // Queue remaining pipeline steps selectively (matches queue_nlp_pipeline)
     let step_types = [
         ("embedding", JobType::Embedding),
         ("title_generation", JobType::TitleGeneration),
@@ -5088,11 +5073,24 @@ async fn reprocess_note(
             "related_concept_inference",
             JobType::RelatedConceptInference,
         ),
+        ("metadata_extraction", JobType::MetadataExtraction),
+        ("document_type_inference", JobType::DocumentTypeInference),
     ];
 
     for (step_name, job_type) in &step_types {
         if should_run(step_name) {
-            let payload = model_override.map(|m| serde_json::json!({ "model": m }));
+            let mut step_payload = serde_json::Map::new();
+            if archive_ctx.schema != "public" {
+                step_payload.insert("schema".to_string(), serde_json::json!(&archive_ctx.schema));
+            }
+            if let Some(m) = model_override {
+                step_payload.insert("model".to_string(), serde_json::json!(m));
+            }
+            let payload = if step_payload.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(step_payload))
+            };
             if let Ok(Some(job_id)) = state
                 .db
                 .jobs
@@ -5101,7 +5099,7 @@ async fn reprocess_note(
                     *job_type,
                     job_type.default_priority(),
                     payload,
-                    None,
+                    job_type.default_cost_tier(),
                 )
                 .await
             {
@@ -5242,7 +5240,9 @@ async fn bulk_reprocess_notes(
     // Previously this was a sequential loop with 2 SQL queries per job,
     // causing O(notes × steps) serial round-trips. Now all jobs are
     // queued concurrently, limited only by the connection pool size.
-    let mut job_specs: Vec<(Uuid, JobType, i32, Option<serde_json::Value>)> = Vec::new();
+    #[allow(clippy::type_complexity)]
+    let mut job_specs: Vec<(Uuid, JobType, i32, Option<serde_json::Value>, Option<i16>)> =
+        Vec::new();
 
     for note_id in &note_ids {
         if revision_mode != RevisionMode::None && should_run("ai_revision") {
@@ -5258,6 +5258,7 @@ async fn bulk_reprocess_notes(
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
+                JobType::AiRevision.default_cost_tier(),
             ));
         }
 
@@ -5268,6 +5269,7 @@ async fn bulk_reprocess_notes(
                     *job_type,
                     job_type.default_priority(),
                     step_payload.clone(),
+                    job_type.default_cost_tier(),
                 ));
             }
         }
@@ -5275,13 +5277,13 @@ async fn bulk_reprocess_notes(
 
     // Queue all pipeline jobs in parallel
     let results = futures::future::join_all(job_specs.iter().map(
-        |(note_id, job_type, priority, payload)| {
+        |(note_id, job_type, priority, payload, cost_tier)| {
             state.db.jobs.queue_deduplicated(
                 Some(*note_id),
                 *job_type,
                 *priority,
                 payload.clone(),
-                None,
+                *cost_tier,
             )
         },
     ))

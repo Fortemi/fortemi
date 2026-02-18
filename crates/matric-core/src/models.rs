@@ -1892,6 +1892,21 @@ impl JobType {
             JobType::ReferenceExtraction => 4,
         }
     }
+
+    /// Default cost tier for this job type.
+    ///
+    /// Returns the tier that should be used when queuing this job type.
+    /// `None` means tier-agnostic (CPU or no GPU needed).
+    pub fn default_cost_tier(&self) -> Option<i16> {
+        match self {
+            // CPU/NER tier: GLiNER concept extraction and reference NER
+            JobType::ConceptTagging | JobType::ReferenceExtraction => Some(cost_tier::CPU_NER),
+            // Fast GPU tier: title gen, metadata extraction
+            JobType::TitleGeneration | JobType::MetadataExtraction => Some(cost_tier::FAST_GPU),
+            // Everything else is tier-agnostic
+            _ => None,
+        }
+    }
 }
 
 /// Tier groups for the worker drain loop.

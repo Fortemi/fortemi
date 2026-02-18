@@ -815,11 +815,15 @@ impl JobHandler for EmbeddingHandler {
     }
 }
 
-/// Handler for title generation jobs - uses related notes for context.
+/// Handler for title generation jobs.
+///
+/// Generates a concise title from note content using the fast model.
+/// Follows the same pattern as MetadataExtractionHandler: fetch note,
+/// preview content, generate with fast-first model routing.
 pub struct TitleGenerationHandler {
     db: Database,
     backend: OllamaBackend,
-    /// Fast model backend for simple documents (#439).
+    /// Fast model backend (#439).
     fast_backend: Option<OllamaBackend>,
     registry: Arc<ProviderRegistry>,
 }
@@ -836,66 +840,6 @@ impl TitleGenerationHandler {
             backend,
             fast_backend,
             registry,
-        }
-    }
-
-    /// Queue a tier-2 escalation job for title generation.
-    async fn queue_tier_escalation(&self, note_id: uuid::Uuid, schema: &str) {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
-        if let Err(e) = self
-            .db
-            .jobs
-            .queue_deduplicated(
-                Some(note_id),
-                JobType::TitleGeneration,
-                JobType::TitleGeneration.default_priority(),
-                payload,
-                Some(matric_core::cost_tier::STANDARD_GPU),
-            )
-            .await
-        {
-            warn!(%note_id, error = %e, "Failed to queue title generation tier-2 escalation");
-        }
-    }
-
-    /// Get related notes for title context.
-    ///
-    /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2).
-    async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
-        let chunks = vec![content
-            .chars()
-            .take(matric_core::defaults::PREVIEW_EMBEDDING)
-            .collect::<String>()];
-        let vectors = match self.backend.embed_texts(&chunks).await {
-            Ok(v) => v,
-            Err(_) => return vec![],
-        };
-
-        let query_vec = match vectors.into_iter().next() {
-            Some(v) => v,
-            None => return vec![],
-        };
-
-        let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
-        match self
-            .db
-            .embeddings
-            .find_similar(&query_vec, fetch_limit, true)
-            .await
-        {
-            Ok(hits) => hits
-                .into_iter()
-                .filter(|hit| {
-                    hit.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
-                        && hit.note_id != note_id
-                })
-                .take(MAX_CONTEXT_NOTES)
-                .collect(),
-            Err(_) => vec![],
         }
     }
 }
@@ -924,13 +868,12 @@ impl JobHandler for TitleGenerationHandler {
             Err(e) => return e,
         };
 
-        // Resolve model override via provider registry (supports provider-qualified slugs)
         let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
             Ok(b) => b,
             Err(e) => return e,
         };
 
-        ctx.report_progress(20, Some("Fetching note..."));
+        ctx.report_progress(10, Some("Fetching note..."));
 
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
@@ -940,9 +883,7 @@ impl JobHandler for TitleGenerationHandler {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
-        if let Err(e) = tx.commit().await {
-            return JobResult::Failed(format!("Commit failed: {}", e));
-        }
+        tx.commit().await.ok();
 
         // Skip if already has a title
         if note.note.title.is_some() {
@@ -959,23 +900,15 @@ impl JobHandler for TitleGenerationHandler {
             return JobResult::Failed("Note has no content".into());
         }
 
-        // Tiered model routing based on cost_tier:
-        // None = legacy inline cascade (try fast → fall back to standard)
-        // Some(1) = fast model only (queue tier-2 on failure)
-        // Some(2) = standard model only
-        let use_fast = overridden.is_none() && self.fast_backend.is_some();
-        let is_tiered = ctx.job.cost_tier.is_some();
+        ctx.report_progress(20, Some("Generating title..."));
 
-        let backend: &dyn GenerationBackend = match ctx.job.cost_tier {
-            Some(matric_core::cost_tier::FAST_GPU) if self.fast_backend.is_some() => {
-                self.fast_backend.as_ref().unwrap()
-            }
-            Some(matric_core::cost_tier::STANDARD_GPU) => &self.backend,
-            _ => match (&overridden, use_fast) {
-                (Some(b), _) => b.as_ref(),
-                (_, true) => self.fast_backend.as_ref().unwrap(),
-                (_, false) => &self.backend,
-            },
+        // Fast-first model routing (same as MetadataExtractionHandler)
+        let use_fast = overridden.is_none() && self.fast_backend.is_some();
+
+        let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
+            (Some(b), _) => b.as_ref(),
+            (_, true) => self.fast_backend.as_ref().unwrap(),
+            (_, false) => &self.backend,
         };
 
         // Start provenance activity (#430)
@@ -990,59 +923,17 @@ impl JobHandler for TitleGenerationHandler {
             .await
             .ok();
 
-        ctx.report_progress(40, Some("Finding related notes..."));
-
-        // Get related notes for context (ported from HOTM)
-        let related_notes = self.get_related_notes(note_id, content).await;
-
-        // Build related context (limit to MAX_PROMPT_SNIPPETS per Miller's Law)
-        let mut related_context = String::new();
-        if !related_notes.is_empty() {
-            related_context.push_str("Related concepts from your knowledge base:\n");
-            for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
-                if let Some(snippet) = &hit.snippet {
-                    let preview: String = snippet
-                        .chars()
-                        .take(matric_core::defaults::PREVIEW_LABEL)
-                        .collect();
-                    related_context.push_str(&format!("- {}\n", preview));
-                }
-            }
-            related_context.push('\n');
-        }
-
-        ctx.report_progress(60, Some("Generating contextual title..."));
-
         let content_preview: String = content
             .chars()
             .take(matric_core::defaults::PREVIEW_EMBEDDING)
             .collect();
 
-        // Enhanced title prompt (ported from HOTM)
         let prompt = format!(
-            r#"You are an expert at creating concise, descriptive titles for notes and documents. Your task is to generate a clear, informative title that captures the essence of the content and its place in the broader knowledge base.
+            r#"Generate a concise, descriptive title (3-8 words) for this content. Be specific. Avoid generic words like "Note", "Document", "Text". Output only the title, no quotes or explanation.
 
-Content to title:
-{}
-
-{}Guidelines for the title:
-1. Keep it between 3-8 words
-2. Be specific and descriptive
-3. Capture the main concept or purpose
-4. Consider the context of related notes
-5. Use natural, readable language
-6. Avoid generic words like "Note", "Document", "Text"
-7. Focus on the actual subject matter
-
-Examples of good titles:
-- "Machine Learning Model Deployment Pipeline"
-- "React State Management Patterns"
-- "Database Index Optimization Strategies"
-- "Team Meeting Notes - Project Alpha"
-- "Python Data Processing Workflow"
-
-Generate only the title, no quotes, no explanations."#,
-            content_preview, related_context
+Content:
+{}"#,
+            content_preview
         );
 
         let clean_title = |raw: String| -> String {
@@ -1063,63 +954,14 @@ Generate only the title, no quotes, no explanations."#,
             Ok(t) => {
                 let t = clean_title(t);
                 if t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH {
-                    if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
-                        // Tiered mode: queue tier-2 escalation instead of inline fallback
-                        info!("Tier-1 fast model produced invalid title, chaining to tier-2");
-                        self.queue_tier_escalation(note_id, schema).await;
-                        return JobResult::Success(Some(serde_json::json!({
-                            "escalated": true,
-                            "reason": "invalid_fast_title"
-                        })));
-                    } else if use_fast {
-                        // Legacy inline escalation
-                        info!("Fast model produced invalid title, escalating to standard model");
-                        match self.backend.generate(&prompt).await {
-                            Ok(t2) => clean_title(t2),
-                            Err(e2) => {
-                                return JobResult::Failed(format!(
-                                    "Title generation failed (escalated): {}",
-                                    e2
-                                ))
-                            }
-                        }
-                    } else {
-                        t
-                    }
-                } else {
-                    t
+                    return JobResult::Failed("Invalid title generated".into());
                 }
+                t
             }
             Err(e) => {
-                if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
-                    // Tiered mode: queue tier-2 escalation instead of inline fallback
-                    info!("Tier-1 fast model failed for title, chaining to tier-2");
-                    self.queue_tier_escalation(note_id, schema).await;
-                    return JobResult::Success(Some(serde_json::json!({
-                        "escalated": true,
-                        "reason": "fast_model_failed"
-                    })));
-                } else if use_fast {
-                    // Legacy inline escalation
-                    info!("Fast model failed for title, escalating to standard model");
-                    match self.backend.generate(&prompt).await {
-                        Ok(t) => clean_title(t),
-                        Err(e2) => {
-                            return JobResult::Failed(format!(
-                                "Title generation failed (escalated): {}",
-                                e2
-                            ))
-                        }
-                    }
-                } else {
-                    return JobResult::Failed(format!("Title generation failed: {}", e));
-                }
+                return JobResult::Failed(format!("Title generation failed: {}", e));
             }
         };
-
-        if title.is_empty() || title.len() < matric_core::defaults::TITLE_MIN_LENGTH {
-            return JobResult::Failed("Invalid title generated".into());
-        }
 
         ctx.report_progress(80, Some("Saving title..."));
 
@@ -1144,7 +986,6 @@ Generate only the title, no quotes, no explanations."#,
         if let Some(act_id) = activity_id {
             let prov_metadata = serde_json::json!({
                 "title": &title,
-                "related_notes_used": related_notes.len(),
             });
             if let Err(e) = self
                 .db
@@ -1167,7 +1008,6 @@ Generate only the title, no quotes, no explanations."#,
 
         JobResult::Success(Some(serde_json::json!({
             "title": title,
-            "related_notes_used": related_notes.len()
         })))
     }
 }
@@ -2484,158 +2324,6 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         (concept_labels, method, false)
     }
 
-    /// Legacy inline cascade (backward compat for in-flight jobs with cost_tier=NULL).
-    async fn execute_legacy_cascade(
-        &self,
-        ctx: &JobContext,
-        note_id: uuid::Uuid,
-        _schema: &str,
-        content_preview: &str,
-        overridden: &Option<Box<dyn GenerationBackend>>,
-    ) -> (Vec<String>, &'static str, bool) {
-        let use_fast = overridden.is_none() && self.fast_backend.is_some();
-        let backend: &dyn GenerationBackend = match (overridden, use_fast) {
-            (Some(b), _) => b.as_ref(),
-            (_, true) => self.fast_backend.as_ref().unwrap(),
-            (_, false) => &self.backend,
-        };
-
-        const CONCEPT_ENTITY_TYPES: &[&str] = &[
-            "domain",
-            "topic",
-            "technique",
-            "methodology",
-            "application",
-            "tool",
-            "framework",
-            "concept",
-            "technology",
-        ];
-
-        let mut concept_labels: Vec<String> = Vec::new();
-        let mut extraction_method = "llm";
-
-        if let Some(ner) = &self.ner_backend {
-            match ner
-                .extract(content_preview, CONCEPT_ENTITY_TYPES, None)
-                .await
-            {
-                Ok(result) if !result.entities.is_empty() => {
-                    ctx.report_progress(25, Some("Mapping GLiNER entities to concepts..."));
-                    let mut seen = HashSet::new();
-                    for ent in &result.entities {
-                        let slug = ent.text.trim().to_lowercase().replace(' ', "-");
-                        if slug.len() < 2 {
-                            continue;
-                        }
-                        let path = format!("{}/{}", ent.label, slug);
-                        if seen.insert(path.clone()) {
-                            concept_labels.push(path);
-                        }
-                    }
-                    extraction_method = "gliner";
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(error = %e, "GLiNER concept extraction failed, falling back to LLM");
-                }
-            }
-        }
-
-        let target = self.target_concepts;
-        let needs_supplement = concept_labels.len() < target;
-        let standard_escalation_threshold = target.div_ceil(2);
-
-        if needs_supplement {
-            let gliner_count = concept_labels.len();
-            if gliner_count > 0 {
-                extraction_method = "gliner+llm";
-            }
-            ctx.report_progress(30, Some("Running fast LLM concept extraction..."));
-
-            let llm_concepts: Vec<String> = if use_fast {
-                let chunk_size = extraction_chunk_size(self.fast_backend.as_ref());
-                let chunks = chunk_for_extraction(content_preview, chunk_size);
-                let mut chunk_results = Vec::new();
-                for (i, chunk) in chunks.iter().enumerate() {
-                    let prompt = Self::make_concept_prompt(chunk, &concept_labels, target);
-                    match backend.generate_json(&prompt).await {
-                        Ok(r) => chunk_results.push(r.trim().to_string()),
-                        Err(e) => {
-                            info!(chunk = i, chunks = chunks.len(), error = %e, "Fast model failed on chunk, skipping");
-                        }
-                    }
-                }
-                merge_json_arrays(chunk_results)
-            } else {
-                Vec::new()
-            };
-
-            if !llm_concepts.is_empty() {
-                let mut seen: HashSet<String> =
-                    concept_labels.iter().map(|l| l.to_lowercase()).collect();
-                for label in llm_concepts {
-                    if seen.insert(label.to_lowercase()) {
-                        concept_labels.push(label);
-                    }
-                }
-            }
-
-            if concept_labels.len() < standard_escalation_threshold {
-                info!(
-                    note_id = %note_id,
-                    count = concept_labels.len(),
-                    threshold = standard_escalation_threshold,
-                    "Below escalation threshold, using standard model"
-                );
-                let existing_snapshot: Vec<String> = concept_labels.clone();
-                let prompt = Self::make_concept_prompt(content_preview, &existing_snapshot, target);
-                let gen_backend: &dyn GenerationBackend = match overridden {
-                    Some(b) => b.as_ref(),
-                    None => &self.backend,
-                };
-
-                match gen_backend.generate_json(&prompt).await {
-                    Ok(r) => {
-                        let ai_response = r.trim().to_string();
-                        let parsed: Vec<String> = match parse_json_lenient(&ai_response) {
-                            Ok(labels) => labels,
-                            Err(_) => {
-                                let cleaned = ai_response
-                                    .trim()
-                                    .trim_start_matches("```json")
-                                    .trim_start_matches("```")
-                                    .trim_end_matches("```")
-                                    .trim();
-                                parse_json_lenient(cleaned).unwrap_or_default()
-                            }
-                        };
-                        let mut seen: HashSet<String> =
-                            concept_labels.iter().map(|l| l.to_lowercase()).collect();
-                        for label in parsed {
-                            if seen.insert(label.to_lowercase()) {
-                                concept_labels.push(label);
-                            }
-                        }
-                        if gliner_count == 0 && extraction_method == "llm" {
-                            extraction_method = "llm_standard";
-                        }
-                    }
-                    Err(e) => {
-                        if concept_labels.is_empty() {
-                            warn!(error = %e, "Legacy cascade: all models failed");
-                        } else {
-                            warn!(error = %e, "Standard model failed but proceeding with {} concepts", concept_labels.len());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Legacy cascade is self-contained — no further escalation
-        (concept_labels, extraction_method, false)
-    }
-
     /// Queue a tier-escalation job for concept tagging with prior results in payload.
     async fn queue_escalation(
         &self,
@@ -2789,8 +2477,9 @@ impl JobHandler for ConceptTaggingHandler {
                 .await
             }
             _ => {
-                // Legacy inline cascade (cost_tier = NULL or unknown).
-                self.execute_legacy_cascade(&ctx, note_id, schema, &content_preview, &overridden)
+                // Treat NULL cost_tier as CPU_NER (tier-0 entry point).
+                // Escalation to tier-1/tier-2 happens via job queue chaining.
+                self.execute_ner(&ctx, note_id, schema, &content_preview)
                     .await
             }
         };
