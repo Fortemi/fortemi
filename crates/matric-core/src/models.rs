@@ -484,6 +484,122 @@ pub struct EmbeddingSetAgentMetadata {
     pub suggested_queries: Vec<String>,
 }
 
+// =============================================================================
+// DOCUMENT COMPOSITION (#485)
+// =============================================================================
+
+/// Strategy for including tags in embedding text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TagStrategy {
+    /// No tags in embedding (optimal default for graph quality).
+    #[default]
+    None,
+    /// Include all tags.
+    All,
+    /// Include only tags matching specific SKOS scheme IDs.
+    Schemes(Vec<Uuid>),
+    /// Include only specific tag names.
+    Specific(Vec<String>),
+}
+
+/// Controls what note properties are assembled into the embedding text.
+///
+/// The document composition is the single most important characteristic of an
+/// embedding set — it entirely determines the semantic geometry of the vector space.
+/// Different compositions produce fundamentally different clustering behaviors.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DocumentComposition {
+    /// Include note title in embedding text.
+    #[serde(default = "default_true")]
+    pub include_title: bool,
+
+    /// Include note body content in embedding text.
+    #[serde(default = "default_true")]
+    pub include_content: bool,
+
+    /// Tag inclusion strategy for embedding text.
+    #[serde(default)]
+    pub tag_strategy: TagStrategy,
+
+    /// Include SKOS concept labels (with optional TF-IDF filtering).
+    #[serde(default)]
+    pub include_concepts: bool,
+
+    /// Max document frequency for concept TF-IDF filtering (only when include_concepts=true).
+    /// Concepts appearing in more than this fraction of notes are excluded.
+    #[serde(default = "default_concept_max_doc_freq")]
+    pub concept_max_doc_freq: f64,
+
+    /// Instruction prefix for the embedding model (e.g., "clustering:", "search_document:").
+    #[serde(default = "default_embed_prefix")]
+    pub instruction_prefix: String,
+}
+
+fn default_concept_max_doc_freq() -> f64 {
+    crate::defaults::EMBED_CONCEPT_MAX_DOC_FREQ
+}
+
+fn default_embed_prefix() -> String {
+    crate::defaults::EMBED_INSTRUCTION_PREFIX.to_string()
+}
+
+impl Default for DocumentComposition {
+    fn default() -> Self {
+        Self {
+            include_title: true,
+            include_content: true,
+            tag_strategy: TagStrategy::None,
+            include_concepts: false,
+            concept_max_doc_freq: crate::defaults::EMBED_CONCEPT_MAX_DOC_FREQ,
+            instruction_prefix: crate::defaults::EMBED_INSTRUCTION_PREFIX.to_string(),
+        }
+    }
+}
+
+impl DocumentComposition {
+    /// Build the embedding text from note properties according to this composition.
+    pub fn build_text(
+        &self,
+        title: &str,
+        content: &str,
+        concept_labels: &[String],
+    ) -> String {
+        let mut parts = Vec::new();
+        if self.include_title && !title.is_empty() {
+            parts.push(title.to_string());
+        }
+        match &self.tag_strategy {
+            TagStrategy::None => {}
+            TagStrategy::All => {
+                if !concept_labels.is_empty() {
+                    parts.push(format!("Tags: {}", concept_labels.join(", ")));
+                }
+            }
+            TagStrategy::Schemes(_) | TagStrategy::Specific(_) => {
+                // Filtering by scheme/specific is handled upstream when fetching labels.
+                // If labels were pre-filtered, include whatever was passed.
+                if !concept_labels.is_empty() {
+                    parts.push(format!("Tags: {}", concept_labels.join(", ")));
+                }
+            }
+        }
+        if self.include_concepts && !concept_labels.is_empty() && self.tag_strategy == TagStrategy::None {
+            // include_concepts without tag_strategy means include concepts as metadata
+            parts.push(format!("Concepts: {}", concept_labels.join(", ")));
+        }
+        if self.include_content {
+            parts.push(content.to_string());
+        }
+        let body = parts.join("\n\n");
+        if self.instruction_prefix.is_empty() {
+            body
+        } else {
+            format!("{}{}", self.instruction_prefix, body)
+        }
+    }
+}
+
 /// Database-stored embedding configuration profile.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingConfigProfile {
@@ -523,6 +639,12 @@ pub struct EmbeddingConfigProfile {
     /// Content types this config is optimized for (e.g., code, text, multilingual)
     #[serde(default)]
     pub content_types: Vec<String>,
+
+    // Document composition (#485)
+    /// Controls what note properties are assembled into the embedding text.
+    /// Empty JSON object `{}` means use `DocumentComposition::default()` (title+content).
+    #[serde(default)]
+    pub document_composition: DocumentComposition,
 }
 
 impl EmbeddingConfigProfile {

@@ -562,7 +562,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             ORDER BY is_default DESC, name
             "#,
@@ -602,6 +602,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }
             })
             .collect();
@@ -616,7 +620,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE is_default = TRUE
             LIMIT 1
@@ -656,6 +660,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }))
             }
             None => Ok(None),
@@ -669,7 +677,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE id = $1
             "#,
@@ -709,6 +717,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }))
             }
             None => Ok(None),
@@ -732,12 +744,12 @@ impl PgEmbeddingSetRepository {
                 id, name, description, model, dimension, chunk_size, chunk_overlap,
                 hnsw_m, hnsw_ef_construction, is_default, created_at, updated_at,
                 supports_mrl, matryoshka_dims, default_truncate_dim,
-                provider, provider_config, content_types
+                provider, provider_config, content_types, document_composition
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8, $9, FALSE, $10, $10,
                 $11, $12, $13,
-                $14::embedding_provider, $15, $16
+                $14::embedding_provider, $15, $16, $17
             )
             "#,
         )
@@ -757,6 +769,7 @@ impl PgEmbeddingSetRepository {
         .bind(request.provider.to_string())
         .bind(&request.provider_config)
         .bind(&request.content_types)
+        .bind(serde_json::to_value(&request.document_composition).unwrap_or_default())
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -831,6 +844,10 @@ impl PgEmbeddingSetRepository {
         }
         if request.hnsw_ef_construction.is_some() {
             updates.push(format!("hnsw_ef_construction = ${}", param_idx));
+            param_idx += 1;
+        }
+        if request.document_composition.is_some() {
+            updates.push(format!("document_composition = ${}", param_idx));
             // param_idx += 1; // not needed for last param
         }
 
@@ -883,6 +900,10 @@ impl PgEmbeddingSetRepository {
         }
         if let Some(hnsw_ef_construction) = request.hnsw_ef_construction {
             query_builder = query_builder.bind(hnsw_ef_construction);
+        }
+        if let Some(composition) = &request.document_composition {
+            let composition_json = serde_json::to_value(composition).unwrap_or_default();
+            query_builder = query_builder.bind(composition_json);
         }
 
         query_builder
@@ -952,7 +973,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE provider = $1::embedding_provider
             ORDER BY name
@@ -994,6 +1015,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }
             })
             .collect();
@@ -1011,7 +1036,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE $1 = ANY(content_types)
             ORDER BY is_default DESC, name
@@ -1052,6 +1077,10 @@ impl PgEmbeddingSetRepository {
                         .unwrap_or_default(),
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
+                        .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
                 }
             })
@@ -2206,7 +2235,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             ORDER BY is_default DESC, name
             "#,
@@ -2246,6 +2275,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }
             })
             .collect();
@@ -2263,7 +2296,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE is_default = TRUE
             LIMIT 1
@@ -2303,6 +2336,10 @@ impl PgEmbeddingSetRepository {
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
                         .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
                 }))
             }
             None => Ok(None),
@@ -2320,7 +2357,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types
+                   provider::text, provider_config, content_types, document_composition
             FROM embedding_config
             WHERE id = $1
             "#,
@@ -2359,6 +2396,10 @@ impl PgEmbeddingSetRepository {
                         .unwrap_or_default(),
                     content_types: row
                         .get::<Option<Vec<String>>, _>("content_types")
+                        .unwrap_or_default(),
+                    document_composition: row
+                        .get::<Option<JsonValue>, _>("document_composition")
+                        .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
                 }))
             }

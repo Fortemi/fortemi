@@ -1,5 +1,6 @@
 //! Embedding provider types and configuration for dynamic embedding generation.
 
+use crate::models::DocumentComposition;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -81,6 +82,10 @@ pub struct CreateEmbeddingConfigRequest {
 
     pub hnsw_m: Option<i32>,
     pub hnsw_ef_construction: Option<i32>,
+
+    /// Document composition for this config. Defaults to title+content only.
+    #[serde(default)]
+    pub document_composition: DocumentComposition,
 }
 
 /// Request to update an existing embedding config.
@@ -100,6 +105,9 @@ pub struct UpdateEmbeddingConfigRequest {
     pub content_types: Option<Vec<String>>,
     pub hnsw_m: Option<i32>,
     pub hnsw_ef_construction: Option<i32>,
+
+    /// Document composition override. If `None`, composition is not changed.
+    pub document_composition: Option<DocumentComposition>,
 }
 
 #[cfg(test)]
@@ -186,6 +194,7 @@ mod tests {
             content_types: vec!["code".to_string()],
             hnsw_m: Some(16),
             hnsw_ef_construction: Some(200),
+            document_composition: DocumentComposition::default(),
         };
 
         let json = serde_json::to_string(&request).unwrap();
