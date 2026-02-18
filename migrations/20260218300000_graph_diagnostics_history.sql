@@ -2,7 +2,7 @@
 -- Stores before/after diagnostic snapshots for validating embedding pipeline changes.
 
 CREATE TABLE IF NOT EXISTS graph_diagnostics_history (
-    id UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     label TEXT NOT NULL,
     metrics JSONB NOT NULL,
     captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

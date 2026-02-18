@@ -1602,7 +1602,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/graph/snn/recompute", post(recompute_snn_scores))
         .route("/api/v1/graph/pfnet/sparsify", post(pfnet_sparsify))
-        .route("/api/v1/graph/community/coarse", post(coarse_community_detection))
+        .route(
+            "/api/v1/graph/community/coarse",
+            post(coarse_community_detection),
+        )
         .route("/api/v1/graph/maintenance", post(trigger_graph_maintenance))
         .route("/api/v1/graph/:id", get(explore_graph))
         // Templates
@@ -7056,9 +7059,7 @@ async fn graph_diagnostics(
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     let result = ctx
-        .query(move |tx| {
-            Box::pin(async move { links.graph_diagnostics_tx(tx, sample_size).await })
-        })
+        .query(move |tx| Box::pin(async move { links.graph_diagnostics_tx(tx, sample_size).await }))
         .await?;
     Ok(Json(result))
 }
@@ -7082,7 +7083,9 @@ async fn capture_diagnostics_snapshot(
         .query(move |tx| {
             Box::pin(async move {
                 let diagnostics = links.graph_diagnostics_tx(tx, sample_size).await?;
-                links.save_diagnostics_snapshot_tx(tx, &label, &diagnostics).await
+                links
+                    .save_diagnostics_snapshot_tx(tx, &label, &diagnostics)
+                    .await
             })
         })
         .await?;
@@ -7164,7 +7167,9 @@ async fn compare_diagnostics_snapshots(
                     .ok_or_else(|| {
                         matric_db::Error::NotFound(format!("Snapshot {after_id} not found"))
                     })?;
-                Ok(matric_db::DiagnosticsComparison::from_snapshots(before, after))
+                Ok(matric_db::DiagnosticsComparison::from_snapshots(
+                    before, after,
+                ))
             })
         })
         .await?;
@@ -7199,7 +7204,9 @@ async fn recompute_snn_scores(
                     let note_count = links.count_notes_tx(tx).await?;
                     graph_config.effective_k(note_count)
                 };
-                links.recompute_snn_scores_tx(tx, k, threshold, dry_run).await
+                links
+                    .recompute_snn_scores_tx(tx, k, threshold, dry_run)
+                    .await
             })
         })
         .await?;
@@ -7233,9 +7240,7 @@ async fn pfnet_sparsify(
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
     let result = ctx
-        .query(move |tx| {
-            Box::pin(async move { links.pfnet_sparsify_tx(tx, q, dry_run).await })
-        })
+        .query(move |tx| Box::pin(async move { links.pfnet_sparsify_tx(tx, q, dry_run).await }))
         .await?;
     Ok(Json(result))
 }

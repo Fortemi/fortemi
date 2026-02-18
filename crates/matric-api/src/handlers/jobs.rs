@@ -5040,7 +5040,10 @@ impl JobHandler for GraphMaintenanceHandler {
 
         // Step 1: Normalization is applied during graph traversal (#470) — just log.
         if steps.iter().any(|s| s == "normalize") {
-            ctx.report_progress(15, Some("Step 1/4: Edge normalization (applied at query time)"));
+            ctx.report_progress(
+                15,
+                Some("Step 1/4: Edge normalization (applied at query time)"),
+            );
             results.insert(
                 "normalize".to_string(),
                 serde_json::json!({
@@ -5061,10 +5064,8 @@ impl JobHandler for GraphMaintenanceHandler {
                     Box::pin(async move {
                         let n = links_clone.count_notes_tx(tx).await?;
                         let k = if n > 0 {
-                            ((n as f64).log2().round() as usize).clamp(
-                                graph_config.k_min,
-                                graph_config.k_max,
-                            )
+                            ((n as f64).log2().round() as usize)
+                                .clamp(graph_config.k_min, graph_config.k_max)
                         } else {
                             graph_config.k_min
                         };
@@ -5105,9 +5106,7 @@ impl JobHandler for GraphMaintenanceHandler {
             let q = graph_config.pfnet_q;
             let pfnet_result = schema_ctx
                 .query(move |tx| {
-                    Box::pin(
-                        async move { links_clone.pfnet_sparsify_tx(tx, q, false).await },
-                    )
+                    Box::pin(async move { links_clone.pfnet_sparsify_tx(tx, q, false).await })
                 })
                 .await;
 
@@ -5143,11 +5142,7 @@ impl JobHandler for GraphMaintenanceHandler {
                     Box::pin(async move {
                         let diag = links_clone.graph_diagnostics_tx(tx, 500).await?;
                         links_clone
-                            .save_diagnostics_snapshot_tx(
-                                tx,
-                                "post_maintenance",
-                                &diag,
-                            )
+                            .save_diagnostics_snapshot_tx(tx, "post_maintenance", &diag)
                             .await
                     })
                 })

@@ -478,10 +478,7 @@ impl PgLinkRepository {
 
         let gamma = matric_core::defaults::GraphConfig::from_env().normalization_gamma;
 
-        let min_score = edges
-            .iter()
-            .map(|e| e.score)
-            .fold(f32::INFINITY, f32::min);
+        let min_score = edges.iter().map(|e| e.score).fold(f32::INFINITY, f32::min);
         let max_score = edges
             .iter()
             .map(|e| e.score)
@@ -553,7 +550,10 @@ impl PgLinkRepository {
         // Precompute weighted degree (k_i) for each node.
         let mut k: HashMap<Uuid, f64> = HashMap::new();
         for &id in &node_ids {
-            let degree: f64 = adj.get(&id).map(|nbrs| nbrs.iter().map(|(_, w)| w).sum()).unwrap_or(0.0);
+            let degree: f64 = adj
+                .get(&id)
+                .map(|nbrs| nbrs.iter().map(|(_, w)| w).sum())
+                .unwrap_or(0.0);
             k.insert(id, degree);
         }
 
@@ -639,7 +639,9 @@ impl PgLinkRepository {
                 if total_w > f64::EPSILON {
                     let internal_w: f64 = neighbors
                         .iter()
-                        .filter(|(nbr, _)| community.get(nbr).copied().unwrap_or(usize::MAX) == comm)
+                        .filter(|(nbr, _)| {
+                            community.get(nbr).copied().unwrap_or(usize::MAX) == comm
+                        })
                         .map(|(_, w)| w)
                         .sum();
                     node.community_confidence = Some((internal_w / total_w) as f32);
@@ -1037,17 +1039,14 @@ impl PgLinkRepository {
 
         // Louvain community detection (#473): populate community_id, label, confidence.
         let graph_config = matric_core::defaults::GraphConfig::from_env();
-        let mut nodes =
-            Self::assign_communities(nodes, &edges, graph_config.community_resolution);
+        let mut nodes = Self::assign_communities(nodes, &edges, graph_config.community_resolution);
 
         // SKOS-based community labels: find dominant concept per community.
         Self::label_communities_skos(tx, &mut nodes).await?;
 
         // Edge community filter (#480): filter edges by community relationship.
-        let node_community: std::collections::HashMap<Uuid, Option<i64>> = nodes
-            .iter()
-            .map(|n| (n.id, n.community_id))
-            .collect();
+        let node_community: std::collections::HashMap<Uuid, Option<i64>> =
+            nodes.iter().map(|n| (n.id, n.community_id)).collect();
 
         let mut edges = match edge_filter {
             Some("intra_community") => edges
@@ -1468,8 +1467,7 @@ impl PgLinkRepository {
         let max_score: Option<f32> = norm_row.get("max_score");
         let normalized_weight_spread = match (min_score, max_score) {
             (Some(_), Some(_)) => {
-                let gamma =
-                    matric_core::defaults::GraphConfig::from_env().normalization_gamma;
+                let gamma = matric_core::defaults::GraphConfig::from_env().normalization_gamma;
                 Some(vec![0.0_f32, 1.0_f32, gamma])
             }
             _ => None,
@@ -1619,12 +1617,11 @@ impl PgLinkRepository {
     ) -> Result<CommunityMetrics> {
         use std::collections::{HashMap, HashSet};
 
-        let edge_rows = sqlx::query(
-            "SELECT from_note_id, to_note_id, score FROM link WHERE kind = 'semantic'",
-        )
-        .fetch_all(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
+        let edge_rows =
+            sqlx::query("SELECT from_note_id, to_note_id, score FROM link WHERE kind = 'semantic'")
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
 
         if edge_rows.is_empty() {
             return Ok(CommunityMetrics::default());
@@ -1886,16 +1883,11 @@ impl PgLinkRepository {
     }
 
     /// Count non-deleted notes (utility for adaptive k computation).
-    pub async fn count_notes_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-    ) -> Result<usize> {
-        let row = sqlx::query(
-            "SELECT COUNT(*) as cnt FROM note WHERE deleted_at IS NULL",
-        )
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
+    pub async fn count_notes_tx(&self, tx: &mut Transaction<'_, Postgres>) -> Result<usize> {
+        let row = sqlx::query("SELECT COUNT(*) as cnt FROM note WHERE deleted_at IS NULL")
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
         let count: i64 = row.get("cnt");
         Ok(count as usize)
     }
@@ -2015,7 +2007,11 @@ impl PgLinkRepository {
         }
 
         let community_count = community_members.len();
-        let largest_size = community_members.values().map(|v| v.len()).max().unwrap_or(0);
+        let largest_size = community_members
+            .values()
+            .map(|v| v.len())
+            .max()
+            .unwrap_or(0);
         let largest_community_ratio = if note_count > 0 {
             largest_size as f64 / note_count as f64
         } else {
@@ -2155,11 +2151,7 @@ impl PgLinkRepository {
             let from_neighbors = neighbor_sets.get(&from).unwrap_or(&empty_set);
             let to_neighbors = neighbor_sets.get(&to).unwrap_or(&empty_set);
             let shared = from_neighbors.intersection(to_neighbors).count();
-            let snn_score = if k > 0 {
-                shared as f32 / k as f32
-            } else {
-                0.0
-            };
+            let snn_score = if k > 0 { shared as f32 / k as f32 } else { 0.0 };
 
             // Histogram bin.
             let bin = ((snn_score * 10.0).floor() as usize).min(9);
@@ -2428,9 +2420,13 @@ impl DiagnosticsComparison {
         let mut summary = Vec::new();
         if let Some(d) = effective_range_delta {
             if d > 0.01 {
-                summary.push(format!("Effective range improved by {d:+.4} (better spread)"));
+                summary.push(format!(
+                    "Effective range improved by {d:+.4} (better spread)"
+                ));
             } else if d < -0.01 {
-                summary.push(format!("Effective range regressed by {d:+.4} (narrower band)"));
+                summary.push(format!(
+                    "Effective range regressed by {d:+.4} (narrower band)"
+                ));
             }
         }
         if let Some(d) = anisotropy_delta {
@@ -2528,17 +2524,27 @@ mod tests {
         ]);
         // With default gamma=1.0: min→0.0, mid→0.5, max→1.0
         let nw: Vec<f32> = edges.iter().map(|e| e.normalized_weight.unwrap()).collect();
-        assert!((nw[0] - 0.0).abs() < 0.01, "min should be ~0.0, got {}", nw[0]);
-        assert!((nw[1] - 0.5).abs() < 0.01, "mid should be ~0.5, got {}", nw[1]);
-        assert!((nw[2] - 1.0).abs() < 0.01, "max should be ~1.0, got {}", nw[2]);
+        assert!(
+            (nw[0] - 0.0).abs() < 0.01,
+            "min should be ~0.0, got {}",
+            nw[0]
+        );
+        assert!(
+            (nw[1] - 0.5).abs() < 0.01,
+            "mid should be ~0.5, got {}",
+            nw[1]
+        );
+        assert!(
+            (nw[2] - 1.0).abs() < 0.01,
+            "max should be ~1.0, got {}",
+            nw[2]
+        );
     }
 
     #[test]
     fn edge_normalization_preserves_original_scores() {
-        let edges = PgLinkRepository::apply_edge_normalization(vec![
-            make_edge(0.70),
-            make_edge(0.94),
-        ]);
+        let edges =
+            PgLinkRepository::apply_edge_normalization(vec![make_edge(0.70), make_edge(0.94)]);
         // Original scores must remain untouched
         assert!((edges[0].score - 0.70).abs() < f32::EPSILON);
         assert!((edges[1].score - 0.94).abs() < f32::EPSILON);
@@ -2787,8 +2793,14 @@ mod tests {
                 if witness == from || witness == to {
                     continue;
                 }
-                let d_ik = adj_dist.get(&(from, witness)).copied().unwrap_or(f64::INFINITY);
-                let d_kj = adj_dist.get(&(witness, to)).copied().unwrap_or(f64::INFINITY);
+                let d_ik = adj_dist
+                    .get(&(from, witness))
+                    .copied()
+                    .unwrap_or(f64::INFINITY);
+                let d_kj = adj_dist
+                    .get(&(witness, to))
+                    .copied()
+                    .unwrap_or(f64::INFINITY);
                 if d_ik.max(d_kj) <= d_ij + f64::EPSILON {
                     redundant = true;
                     break;
