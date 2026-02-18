@@ -212,16 +212,16 @@ mod tests {
             .expect("messages should be an object");
         assert_eq!(
             messages.len(),
-            44,
-            "Expected 44 messages, got {}",
+            46,
+            "Expected 46 messages, got {}",
             messages.len()
         );
 
-        // Operation references all 44 messages
+        // Operation references all 46 messages
         let op_msgs = spec["operations"]["receiveEvents"]["messages"]
             .as_array()
             .expect("operation messages should be an array");
-        assert_eq!(op_msgs.len(), 44);
+        assert_eq!(op_msgs.len(), 46);
 
         // Schemas present
         let schemas = spec["components"]["schemas"]
