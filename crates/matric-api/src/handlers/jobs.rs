@@ -1703,6 +1703,26 @@ impl JobHandler for LinkingHandler {
             }
         }
 
+        // Queue a deduplicated GraphMaintenance job so SNN/PFNET run after new
+        // links are created.  Deduplication ensures only one pending maintenance job
+        // exists even if many linking jobs complete in rapid succession.
+        let schema = extract_schema(&ctx);
+        let maint_payload = serde_json::json!({ "schema": schema });
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                None,
+                JobType::GraphMaintenance,
+                JobType::GraphMaintenance.default_priority(),
+                Some(maint_payload),
+                None,
+            )
+            .await
+        {
+            warn!(error = %e, "Failed to queue post-linking graph maintenance job");
+        }
+
         JobResult::Success(Some(serde_json::json!({
             "links_created": created,
             "wiki_links_found": wiki_links_found,

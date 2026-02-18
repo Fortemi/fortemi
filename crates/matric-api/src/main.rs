@@ -5354,6 +5354,33 @@ async fn bulk_reprocess_notes(
         }
     }
 
+    // Queue a deduplicated GraphMaintenance job so SNN/PFNET run after
+    // the bulk linking jobs complete.  This ensures the graph quality
+    // pipeline (normalize → SNN → PFNET → Louvain → snapshot) runs
+    // automatically after bulk reprocessing.
+    if should_run("linking") || run_all {
+        let maint_payload = serde_json::json!({ "schema": &archive_ctx.schema });
+        if let Ok(Some(job_id)) = state
+            .db
+            .jobs
+            .queue_deduplicated(
+                None,
+                JobType::GraphMaintenance,
+                JobType::GraphMaintenance.default_priority(),
+                Some(maint_payload),
+                None,
+            )
+            .await
+        {
+            state.event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: "GraphMaintenance".to_string(),
+                note_id: None,
+            });
+            jobs_queued += 1;
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "message": "Bulk reprocessing queued",
         "notes_count": total,
