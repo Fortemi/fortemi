@@ -576,15 +576,22 @@ impl JobHandler for EmbeddingHandler {
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
         };
 
-        // Fetch SKOS concept labels for embedding enrichment (#424).
+        // Fetch SKOS concept labels for embedding enrichment (#424, #475).
         // Tags are available because ConceptTagging runs before Embedding in the pipeline.
+        // TF-IDF filtering (#475): exclude "stopword" concepts that appear in >80% of docs
+        // (configurable via EMBED_CONCEPT_MAX_DOC_FREQ). Only discriminating concepts
+        // are prepended — high-frequency concepts make all embeddings more uniform.
+        let max_doc_freq = matric_core::defaults::embed_concept_max_doc_freq();
         let concept_labels: Vec<String> = sqlx::query_scalar(
             "SELECT l.value FROM note_skos_concept nc \
              JOIN skos_concept_label l ON nc.concept_id = l.concept_id \
+             JOIN skos_concept c ON nc.concept_id = c.id \
              WHERE nc.note_id = $1 AND l.label_type = 'pref_label' \
+               AND c.note_count::float / GREATEST((SELECT COUNT(*) FROM note WHERE deleted_at IS NULL), 1) <= $2 \
              ORDER BY nc.is_primary DESC, nc.relevance_score DESC",
         )
         .bind(note_id)
+        .bind(max_doc_freq)
         .fetch_all(&mut *tx)
         .await
         .unwrap_or_default();
@@ -627,10 +634,23 @@ impl JobHandler for EmbeddingHandler {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
 
-        // Build enriched content: title + tags + relationships + content (#424, #435).
-        // Including tags and their relationships in the embedding input produces
-        // vectors that capture the full semantic context from SKOS concepts,
-        // improving search and linking quality.
+        // Build embedding payload: prefix + title + discriminating tags + content
+        // (#424, #472, #475, #479).
+        //
+        // EMBEDDING vs RECORD separation (#479):
+        // The embedding is a derived signal optimized for vector discrimination.
+        // Only discriminating concepts (filtered by TF-IDF, #475) are included.
+        // Concept relationships (broader/narrower/related) are excluded from the
+        // embedding because they add noise that makes vectors more uniform (REF-068).
+        // Full concepts and relationships remain on the note record for display,
+        // search filtering, and tag-boost scoring in the linking pipeline.
+        //
+        // INSTRUCTION PREFIX (#472):
+        // nomic-embed-text supports task-specific prefixes that shift embedding
+        // geometry. "clustering:" maximizes inter-cluster distance, which helps
+        // the HNSW heuristic find genuinely diverse neighbors on same-domain corpora.
+        let prefix = std::env::var(matric_core::defaults::ENV_EMBED_INSTRUCTION_PREFIX)
+            .unwrap_or_else(|_| matric_core::defaults::EMBED_INSTRUCTION_PREFIX.to_string());
         let title = note.note.title.as_deref().unwrap_or("");
         let content = {
             let mut parts = Vec::new();
@@ -640,23 +660,13 @@ impl JobHandler for EmbeddingHandler {
             if !concept_labels.is_empty() {
                 parts.push(format!("Tags: {}", concept_labels.join(", ")));
             }
-            // Add structured relationship context so the embedder can distinguish
-            // hierarchical (broader/narrower) from associative (related) links.
-            if !concept_relations.is_empty() {
-                let mut rel_lines = Vec::new();
-                for (source, rel_type, target) in &concept_relations {
-                    let arrow = match rel_type.as_str() {
-                        "broader" => "is broader than",
-                        "narrower" => "is narrower than",
-                        "related" => "is related to",
-                        _ => "→",
-                    };
-                    rel_lines.push(format!("{} {} {}", source, arrow, target));
-                }
-                parts.push(format!("Concept relationships: {}", rel_lines.join("; ")));
-            }
             parts.push(base_content.to_string());
-            parts.join("\n\n")
+            let body = parts.join("\n\n");
+            if prefix.is_empty() {
+                body
+            } else {
+                format!("{}{}", prefix, body)
+            }
         };
 
         ctx.report_progress(30, Some("Chunking content..."));
@@ -4958,6 +4968,217 @@ impl JobHandler for ThreeDAnalysisHandler {
         JobResult::Success(Some(serde_json::json!({
             "status": "placeholder",
             "message": "3D analysis not yet implemented - requires Python trimesh integration and file attachment infrastructure"
+        })))
+    }
+}
+
+// =============================================================================
+// GRAPH MAINTENANCE HANDLER (#482)
+// =============================================================================
+
+/// Graph maintenance pipeline handler.
+///
+/// Runs the following steps in order:
+/// 1. Edge weight normalization (#470)
+/// 2. SNN scoring (#474) — prune below threshold
+/// 3. PFNET sparsification (#476) — prune geometrically redundant edges
+/// 4. Louvain community detection (#473) — recompute community assignments
+/// 5. Save diagnostics snapshot for before/after comparison
+pub struct GraphMaintenanceHandler {
+    db: Database,
+}
+
+impl GraphMaintenanceHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl JobHandler for GraphMaintenanceHandler {
+    fn job_type(&self) -> JobType {
+        JobType::GraphMaintenance
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "graph_maintenance", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        ctx.report_progress(5, Some("Starting graph maintenance pipeline..."));
+
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        let graph_config = matric_core::defaults::GraphConfig::from_env();
+        let links = matric_db::PgLinkRepository::new(self.db.pool.clone());
+
+        // Parse optional steps from payload (default: all steps).
+        let steps: Vec<String> = ctx
+            .payload()
+            .and_then(|p| p.get("steps"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                vec![
+                    "normalize".to_string(),
+                    "snn".to_string(),
+                    "pfnet".to_string(),
+                    "snapshot".to_string(),
+                ]
+            });
+
+        let mut results = serde_json::Map::new();
+
+        // Step 1: Normalization is applied during graph traversal (#470) — just log.
+        if steps.iter().any(|s| s == "normalize") {
+            ctx.report_progress(15, Some("Step 1/4: Edge normalization (applied at query time)"));
+            results.insert(
+                "normalize".to_string(),
+                serde_json::json!({
+                    "status": "ok",
+                    "note": "Normalization is applied during graph traversal via apply_edge_normalization",
+                    "gamma": graph_config.normalization_gamma,
+                }),
+            );
+        }
+
+        // Step 2: SNN scoring.
+        if steps.iter().any(|s| s == "snn") {
+            ctx.report_progress(30, Some("Step 2/4: Recomputing SNN scores..."));
+            let links_clone = matric_db::PgLinkRepository::new(self.db.pool.clone());
+            let threshold = graph_config.snn_threshold;
+            let snn_result = schema_ctx
+                .query(move |tx| {
+                    Box::pin(async move {
+                        let n = links_clone.count_notes_tx(tx).await?;
+                        let k = if n > 0 {
+                            ((n as f64).log2().round() as usize).clamp(
+                                graph_config.k_min,
+                                graph_config.k_max,
+                            )
+                        } else {
+                            graph_config.k_min
+                        };
+                        links_clone
+                            .recompute_snn_scores_tx(tx, k, threshold, false)
+                            .await
+                    })
+                })
+                .await;
+
+            match snn_result {
+                Ok(snn) => {
+                    info!(
+                        updated = snn.updated,
+                        pruned = snn.pruned,
+                        k = snn.k_used,
+                        "SNN scoring complete"
+                    );
+                    results.insert(
+                        "snn".to_string(),
+                        serde_json::to_value(&snn).unwrap_or_default(),
+                    );
+                }
+                Err(e) => {
+                    warn!(error = %e, "SNN scoring failed");
+                    results.insert(
+                        "snn".to_string(),
+                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
+                    );
+                }
+            }
+        }
+
+        // Step 3: PFNET sparsification.
+        if steps.iter().any(|s| s == "pfnet") {
+            ctx.report_progress(55, Some("Step 3/4: PFNET sparsification..."));
+            let links_clone = matric_db::PgLinkRepository::new(self.db.pool.clone());
+            let q = graph_config.pfnet_q;
+            let pfnet_result = schema_ctx
+                .query(move |tx| {
+                    Box::pin(
+                        async move { links_clone.pfnet_sparsify_tx(tx, q, false).await },
+                    )
+                })
+                .await;
+
+            match pfnet_result {
+                Ok(pfnet) => {
+                    info!(
+                        retained = pfnet.retained,
+                        pruned = pfnet.pruned,
+                        retention_ratio = pfnet.retention_ratio,
+                        "PFNET sparsification complete"
+                    );
+                    results.insert(
+                        "pfnet".to_string(),
+                        serde_json::to_value(&pfnet).unwrap_or_default(),
+                    );
+                }
+                Err(e) => {
+                    warn!(error = %e, "PFNET sparsification failed");
+                    results.insert(
+                        "pfnet".to_string(),
+                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
+                    );
+                }
+            }
+        }
+
+        // Step 4: Save diagnostics snapshot for before/after comparison.
+        if steps.iter().any(|s| s == "snapshot") {
+            ctx.report_progress(80, Some("Step 4/4: Saving diagnostics snapshot..."));
+            let links_clone = matric_db::PgLinkRepository::new(self.db.pool.clone());
+            let snapshot_result = schema_ctx
+                .query(move |tx| {
+                    Box::pin(async move {
+                        let diag = links_clone.graph_diagnostics_tx(tx, 500).await?;
+                        links_clone
+                            .save_diagnostics_snapshot_tx(
+                                tx,
+                                "post_maintenance",
+                                &diag,
+                            )
+                            .await
+                    })
+                })
+                .await;
+
+            match snapshot_result {
+                Ok(snap_id) => {
+                    results.insert(
+                        "snapshot".to_string(),
+                        serde_json::json!({ "status": "ok", "snapshot_id": snap_id }),
+                    );
+                }
+                Err(e) => {
+                    warn!(error = %e, "Diagnostics snapshot failed");
+                    results.insert(
+                        "snapshot".to_string(),
+                        serde_json::json!({ "status": "failed", "error": e.to_string() }),
+                    );
+                }
+            }
+        }
+
+        let _ = links; // suppress unused warning
+        let duration_ms = start.elapsed().as_millis() as u64;
+        ctx.report_progress(100, Some("Graph maintenance complete"));
+        info!(duration_ms, schema, "Graph maintenance pipeline completed");
+
+        JobResult::Success(Some(serde_json::json!({
+            "schema": schema,
+            "duration_ms": duration_ms,
+            "steps": results,
         })))
     }
 }

@@ -42,7 +42,9 @@ const CORE_TOOLS = new Set([
   "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
   "manage_archives", "manage_encryption", "manage_backups",
   // Graph & links
-  "explore_graph", "get_topology_stats", "get_note_links",
+  "explore_graph", "get_topology_stats", "get_graph_diagnostics",
+  "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
+  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links",
   // Export
   "export_note",
   // System & docs
@@ -757,6 +759,8 @@ function createMcpServer() {
           if (args.max_nodes) graphParams.set("max_nodes", args.max_nodes);
           if (args.min_score != null) graphParams.set("min_score", args.min_score);
           if (args.max_edges_per_node) graphParams.set("max_edges_per_node", args.max_edges_per_node);
+          if (args.edge_filter) graphParams.set("edge_filter", args.edge_filter);
+          if (args.include_structural !== undefined) graphParams.set("include_structural", args.include_structural);
           result = await apiRequest("GET", `/api/v1/graph/${args.id}?${graphParams}`);
           break;
         }
@@ -764,6 +768,70 @@ function createMcpServer() {
         case "get_topology_stats":
           result = await apiRequest("GET", "/api/v1/graph/topology/stats");
           break;
+
+        case "get_graph_diagnostics": {
+          const diagParams = new URLSearchParams();
+          if (args.sample_size) diagParams.set("sample_size", args.sample_size);
+          const diagQuery = diagParams.toString();
+          result = await apiRequest("GET", `/api/v1/graph/diagnostics${diagQuery ? `?${diagQuery}` : ""}`);
+          break;
+        }
+
+        case "capture_diagnostics_snapshot": {
+          const snapBody = { label: args.label };
+          if (args.sample_size) snapBody.sample_size = args.sample_size;
+          result = await apiRequest("POST", "/api/v1/graph/diagnostics/snapshot", snapBody);
+          break;
+        }
+
+        case "list_diagnostics_snapshots": {
+          const snapParams = new URLSearchParams();
+          if (args.limit) snapParams.set("limit", args.limit);
+          const snapQuery = snapParams.toString();
+          result = await apiRequest("GET", `/api/v1/graph/diagnostics/history${snapQuery ? `?${snapQuery}` : ""}`);
+          break;
+        }
+
+        case "compare_diagnostics_snapshots": {
+          const cmpParams = new URLSearchParams();
+          cmpParams.set("before", args.before);
+          cmpParams.set("after", args.after);
+          result = await apiRequest("GET", `/api/v1/graph/diagnostics/compare?${cmpParams.toString()}`);
+          break;
+        }
+
+        case "pfnet_sparsify": {
+          const pfnetBody = {};
+          if (args.q !== undefined) pfnetBody.q = args.q;
+          if (args.dry_run !== undefined) pfnetBody.dry_run = args.dry_run;
+          result = await apiRequest("POST", "/api/v1/graph/pfnet/sparsify", pfnetBody);
+          break;
+        }
+
+        case "recompute_snn_scores": {
+          const snnBody = {};
+          if (args.k !== undefined) snnBody.k = args.k;
+          if (args.threshold !== undefined) snnBody.threshold = args.threshold;
+          if (args.dry_run !== undefined) snnBody.dry_run = args.dry_run;
+          result = await apiRequest("POST", "/api/v1/graph/snn/recompute", snnBody);
+          break;
+        }
+
+        case "coarse_community_detection": {
+          const coarseBody = {};
+          if (args.coarse_dim !== undefined) coarseBody.coarse_dim = args.coarse_dim;
+          if (args.similarity_threshold !== undefined) coarseBody.similarity_threshold = args.similarity_threshold;
+          if (args.resolution !== undefined) coarseBody.resolution = args.resolution;
+          result = await apiRequest("POST", "/api/v1/graph/community/coarse", coarseBody);
+          break;
+        }
+
+        case "trigger_graph_maintenance": {
+          const maintenanceBody = {};
+          if (args.steps !== undefined) maintenanceBody.steps = args.steps;
+          result = await apiRequest("POST", "/api/v1/graph/maintenance", maintenanceBody);
+          break;
+        }
 
         case "list_templates":
           result = await apiRequest("GET", "/api/v1/templates");

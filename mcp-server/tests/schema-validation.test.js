@@ -708,7 +708,9 @@ const CORE_TOOLS = new Set([
   "capture_knowledge", "search", "record_provenance",
   "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
   "manage_archives", "manage_encryption", "manage_backups",
-  "explore_graph", "get_topology_stats", "get_note_links", "export_note",
+  "explore_graph", "get_topology_stats", "get_graph_diagnostics",
+  "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
+  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "export_note",
   "get_documentation", "get_system_info", "health_check",
   "select_memory", "get_active_memory",
   "manage_attachments",
@@ -725,13 +727,13 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 29 tools", () => {
-    assert.equal(CORE_TOOLS.size, 29, `Expected 29 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 37 tools", () => {
+    assert.equal(CORE_TOOLS.size, 37, `Expected 37 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 29, `Expected 29 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 37, `Expected 37 filtered tools, got ${coreTools.length}`);
   });
 
   test("CORE-004: All 13 consolidated tools have action enum", () => {

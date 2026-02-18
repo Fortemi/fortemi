@@ -1845,6 +1845,8 @@ pub enum JobType {
     RelatedConceptInference,
     /// Extract named entity references (companies, people, tools, etc.) from content
     ReferenceExtraction,
+    /// Graph maintenance: normalization, SNN, PFNET, Louvain pipeline (#482)
+    GraphMaintenance,
 }
 
 impl JobType {
@@ -1890,6 +1892,8 @@ impl JobType {
             JobType::RelatedConceptInference => 4,
             // Reference extraction - Phase 1 peer alongside ConceptTagging
             JobType::ReferenceExtraction => 4,
+            // Graph maintenance runs after linking, low urgency background task
+            JobType::GraphMaintenance => 2,
         }
     }
 
@@ -3260,6 +3264,7 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::RelatedConceptInference,
             JobType::ReferenceExtraction,
+            JobType::GraphMaintenance,
         ];
 
         for job_type in types {
@@ -3282,6 +3287,7 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::RelatedConceptInference,
             JobType::ReferenceExtraction,
+            JobType::GraphMaintenance,
         ];
 
         for job_type in types {

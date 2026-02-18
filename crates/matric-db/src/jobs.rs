@@ -117,6 +117,7 @@ impl PgJobRepository {
             JobType::MetadataExtraction => "metadata_extraction",
             JobType::RelatedConceptInference => "related_concept_inference",
             JobType::ReferenceExtraction => "reference_extraction",
+            JobType::GraphMaintenance => "graph_maintenance",
         }
     }
 
@@ -146,6 +147,7 @@ impl PgJobRepository {
             "metadata_extraction" => JobType::MetadataExtraction,
             "related_concept_inference" => JobType::RelatedConceptInference,
             "reference_extraction" => JobType::ReferenceExtraction,
+            "graph_maintenance" => JobType::GraphMaintenance,
             _ => JobType::ContextUpdate, // fallback
         }
     }

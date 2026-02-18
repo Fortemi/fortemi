@@ -442,6 +442,27 @@ pub struct GraphConfig {
     /// Blended score = (embedding_sim * (1 - tag_boost_weight)) + (tag_overlap * tag_boost_weight).
     /// Set to 0.0 to disable tag-based linking boost.
     pub tag_boost_weight: f32,
+    /// Gamma exponent for edge weight normalization in graph traversal.
+    /// Applied as: normalized = ((score - min) / (max - min)) ^ gamma
+    /// - 1.0 = linear (default)
+    /// - 2.0 = amplifies top-end differences (squares the normalized range)
+    /// - 0.5 = compresses top-end (square root)
+    pub normalization_gamma: f32,
+    /// SNN threshold: edges with SNN score below this are pruned.
+    /// SNN score = |kNN(A) ∩ kNN(B)| / k. Range: 0.0-1.0 (default: 0.10).
+    pub snn_threshold: f32,
+    /// Louvain community resolution parameter (#473).
+    /// Higher values produce more, smaller communities. Lower values merge more.
+    /// 1.0 = standard modularity. Range: 0.1-10.0.
+    pub community_resolution: f64,
+    /// PFNET q parameter (#476).
+    /// q=2 (default) is equivalent to the Relative Neighborhood Graph (Toussaint 1980).
+    /// Higher q produces sparser graphs approaching MST. q>2 gated to N≤1000.
+    pub pfnet_q: usize,
+    /// Score for structural collection edges (#480).
+    /// Controls the "gravity well" strength for same-collection edges.
+    /// Range: 0.0-1.0. Default: 0.5.
+    pub structural_score: f32,
 }
 
 impl Default for GraphConfig {
@@ -454,8 +475,13 @@ impl Default for GraphConfig {
             k_max: 15,
             min_similarity: 0.5,
             extend_candidates: false,
-            keep_pruned: true,
+            keep_pruned: false,
             tag_boost_weight: 0.3,
+            normalization_gamma: 1.0,
+            snn_threshold: 0.10,
+            community_resolution: 1.0,
+            pfnet_q: 2,
+            structural_score: 0.5,
         }
     }
 }
@@ -503,6 +529,36 @@ impl GraphConfig {
         if let Ok(val) = std::env::var("GRAPH_TAG_BOOST_WEIGHT") {
             if let Ok(w) = val.parse::<f32>() {
                 config.tag_boost_weight = w.clamp(0.0, 1.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_NORMALIZATION_GAMMA") {
+            if let Ok(g) = val.parse::<f32>() {
+                config.normalization_gamma = g.clamp(0.1, 5.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_SNN_THRESHOLD") {
+            if let Ok(t) = val.parse::<f32>() {
+                config.snn_threshold = t.clamp(0.0, 1.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_COMMUNITY_RESOLUTION") {
+            if let Ok(r) = val.parse::<f64>() {
+                config.community_resolution = r.clamp(0.1, 10.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_PFNET_Q") {
+            if let Ok(q) = val.parse::<usize>() {
+                config.pfnet_q = q.clamp(2, 10);
+            }
+        }
+
+        if let Ok(val) = std::env::var("GRAPH_STRUCTURAL_SCORE") {
+            if let Ok(s) = val.parse::<f32>() {
+                config.structural_score = s.clamp(0.0, 1.0);
             }
         }
 
@@ -571,6 +627,34 @@ pub const EXTRACTION_TARGET_CONCEPTS: usize = 5;
 
 /// Environment variable for configuring the target concept count.
 pub const ENV_EXTRACTION_TARGET_CONCEPTS: &str = "EXTRACTION_TARGET_CONCEPTS";
+
+/// Maximum document frequency ratio for concepts included in embedding enrichment (#475).
+/// Concepts appearing in more than this fraction of notes are treated as "stopwords"
+/// and excluded from the embedding text prefix. Range: 0.0-1.0.
+/// Configurable via `EMBED_CONCEPT_MAX_DOC_FREQ` env var.
+pub const EMBED_CONCEPT_MAX_DOC_FREQ: f64 = 0.8;
+
+/// Environment variable for configuring the concept frequency threshold.
+pub const ENV_EMBED_CONCEPT_MAX_DOC_FREQ: &str = "EMBED_CONCEPT_MAX_DOC_FREQ";
+
+/// Instruction prefix prepended to embedding text (#472).
+/// nomic-embed-text supports: "search_document:", "clustering:", "classification:".
+/// "clustering:" maximizes inter-cluster distance for graph linking.
+/// Set to empty string to disable prefix.
+/// Configurable via `EMBED_INSTRUCTION_PREFIX` env var.
+pub const EMBED_INSTRUCTION_PREFIX: &str = "clustering: ";
+
+/// Environment variable for the embedding instruction prefix.
+pub const ENV_EMBED_INSTRUCTION_PREFIX: &str = "EMBED_INSTRUCTION_PREFIX";
+
+/// Read the concept max document frequency from env, falling back to the default.
+pub fn embed_concept_max_doc_freq() -> f64 {
+    std::env::var(ENV_EMBED_CONCEPT_MAX_DOC_FREQ)
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.clamp(0.01, 1.0))
+        .unwrap_or(EMBED_CONCEPT_MAX_DOC_FREQ)
+}
 
 // =============================================================================
 // HEALTH SCORE WEIGHTS (Tier 2)
@@ -680,7 +764,18 @@ mod tests {
         assert_eq!(config.k_max, 15);
         assert!((config.min_similarity - 0.5).abs() < f32::EPSILON);
         assert!(!config.extend_candidates);
-        assert!(config.keep_pruned);
+        assert!(!config.keep_pruned);
+        assert!((config.normalization_gamma - 1.0).abs() < f32::EPSILON);
+        assert!((config.snn_threshold - 0.10).abs() < f32::EPSILON);
+        assert!((config.community_resolution - 1.0).abs() < f64::EPSILON);
+        assert_eq!(config.pfnet_q, 2);
+        assert!((config.structural_score - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn embed_concept_max_doc_freq_default() {
+        let freq = embed_concept_max_doc_freq();
+        assert!((freq - 0.8).abs() < f64::EPSILON);
     }
 
     #[test]

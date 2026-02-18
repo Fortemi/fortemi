@@ -2094,6 +2094,16 @@ export default [
         "max_edges_per_node": {
           "type": "number",
           "description": "Maximum edges per node — limits hub nodes from dominating the response (optional, server max: 1000)"
+        },
+        "edge_filter": {
+          "type": "string",
+          "description": "Filter edges by community relationship: 'all' (default), 'intra_community' (same community), 'inter_community' (bridge edges between communities)",
+          "enum": ["all", "intra_community", "inter_community"]
+        },
+        "include_structural": {
+          "type": "boolean",
+          "description": "Include structural collection edges — connects notes in the same collection (default: true)",
+          "default": true
         }
       },
       "required": [
@@ -2110,6 +2120,155 @@ export default [
       "properties": {}
     },
     annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "get_graph_diagnostics",
+    description: `Get embedding quality diagnostics for the knowledge graph. Reports similarity distribution (histogram, mean, std, anisotropy), topology metrics (degree distribution, coefficient of variation), and normalized edge stats. Useful for validating graph quality interventions and detecting the "seashell pattern" where all nodes appear equidistant. Community metrics (modularity, community count) will appear once Louvain detection is implemented.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "sample_size": {
+          "type": "number",
+          "description": "Number of random embedding pairs to sample for similarity metrics (default: 1000, max: 10000)",
+          "default": 1000
+        }
+      }
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "capture_diagnostics_snapshot",
+    description: `Capture a diagnostics snapshot with a label for before/after comparison. Run before and after embedding pipeline changes to validate improvements. Returns the saved snapshot with ID for later comparison.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Descriptive label for this snapshot (e.g., 'before-tfidf-filter', 'after-clustering-prefix')"
+        },
+        "sample_size": {
+          "type": "number",
+          "description": "Number of random embedding pairs to sample (default: 1000, max: 10000)",
+          "default": 1000
+        }
+      },
+      "required": ["label"]
+    },
+  },
+  {
+    name: "list_diagnostics_snapshots",
+    description: `List saved diagnostics snapshots, ordered by most recent first. Use to find snapshot IDs for comparison.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "description": "Maximum snapshots to return (default: 20, max: 100)",
+          "default": 20
+        }
+      }
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "compare_diagnostics_snapshots",
+    description: `Compare two diagnostics snapshots (before/after) to see what changed. Returns computed deltas for key metrics and a human-readable summary of improvements and regressions. Use with snapshot IDs from capture_diagnostics_snapshot or list_diagnostics_snapshots.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "string",
+          "description": "UUID of the 'before' snapshot"
+        },
+        "after": {
+          "type": "string",
+          "description": "UUID of the 'after' snapshot"
+        }
+      },
+      "required": ["before", "after"]
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "pfnet_sparsify",
+    description: `Run PFNET sparsification on the knowledge graph. Removes geometrically redundant edges — an edge (A,B) is pruned if a witness node C provides a shorter indirect path. PFNET(∞, q=2) is equivalent to the Relative Neighborhood Graph. Typically retains 15-40% of edges on HNSW-derived graphs. Use dry_run=true first to preview the impact.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "number",
+          "description": "PFNET q parameter (default: 2 = RNG-equivalent). Higher values produce sparser graphs.",
+          "default": 2
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "If true, compute but don't delete/update edges. Use to preview impact.",
+          "default": false
+        }
+      }
+    },
+  },
+  {
+    name: "recompute_snn_scores",
+    description: `Recompute Shared Nearest Neighbor (SNN) scores for all semantic links. SNN(A,B) = |kNN(A) ∩ kNN(B)| / k. Edges below the threshold are pruned. This improves graph quality by keeping only structurally meaningful connections. Run after relinking or re-embedding. Use dry_run=true first to preview the impact.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "k": {
+          "type": "number",
+          "description": "Number of nearest neighbors for SNN computation. If not set, uses adaptive k (log₂(N), 5-15)."
+        },
+        "threshold": {
+          "type": "number",
+          "description": "SNN score threshold — edges below this are pruned (default: 0.10 from GRAPH_SNN_THRESHOLD)"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "If true, compute scores but don't update/delete. Use to preview impact.",
+          "default": false
+        }
+      }
+    },
+  },
+  {
+    name: "coarse_community_detection",
+    description: `Run MRL 64-dim coarse community detection. Uses truncated Matryoshka embeddings (first 64 of 768 dims) where cosine similarity spread is ~2× wider (~0.30-0.90 vs ~0.62-0.94). This produces clearer cluster boundaries for Louvain community detection. Returns community assignments with modularity Q, sizes, and note IDs per community.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "coarse_dim": {
+          "type": "number",
+          "description": "MRL truncation dimension (default: 64). Must be 2-768.",
+          "default": 64
+        },
+        "similarity_threshold": {
+          "type": "number",
+          "description": "Minimum cosine similarity for edge inclusion (default: 0.3). Lower captures more structure, higher focuses on strong connections.",
+          "default": 0.3
+        },
+        "resolution": {
+          "type": "number",
+          "description": "Louvain resolution parameter. Higher = more, smaller communities (default: from GRAPH_COMMUNITY_RESOLUTION)."
+        }
+      }
+    },
+  },
+  {
+    name: "trigger_graph_maintenance",
+    description: `Trigger a graph maintenance job that runs the full quality pipeline: normalize → SNN scoring → PFNET sparsification → diagnostics snapshot. The job runs asynchronously in the background. Optionally specify which steps to run. Use after bulk note imports or when graph quality has degraded.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["normalize", "snn", "pfnet", "snapshot"]
+          },
+          "description": "Steps to run (default: all four). Use a subset for targeted maintenance."
+        }
+      }
+    },
   },
   {
     name: "list_templates",

@@ -329,9 +329,9 @@ use handlers::{
     },
     vision::describe_image,
     AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, DocumentTypeInferenceHandler,
-    EmbeddingHandler, ExifExtractionHandler, LinkingHandler, MetadataExtractionHandler,
-    PurgeNoteHandler, ReEmbedAllHandler, ReferenceExtractionHandler, RefreshEmbeddingSetHandler,
-    RelatedConceptHandler, TitleGenerationHandler,
+    EmbeddingHandler, ExifExtractionHandler, GraphMaintenanceHandler, LinkingHandler,
+    MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler, ReferenceExtractionHandler,
+    RefreshEmbeddingSetHandler, RelatedConceptHandler, TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1134,6 +1134,9 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(RefreshEmbeddingSetHandler::new(db.clone()))
             .await;
+        worker
+            .register_handler(GraphMaintenanceHandler::new(db.clone()))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");
@@ -1584,6 +1587,23 @@ async fn main() -> anyhow::Result<()> {
         )
         // Graph exploration
         .route("/api/v1/graph/topology/stats", get(graph_topology_stats))
+        .route("/api/v1/graph/diagnostics", get(graph_diagnostics))
+        .route(
+            "/api/v1/graph/diagnostics/snapshot",
+            post(capture_diagnostics_snapshot),
+        )
+        .route(
+            "/api/v1/graph/diagnostics/history",
+            get(list_diagnostics_snapshots),
+        )
+        .route(
+            "/api/v1/graph/diagnostics/compare",
+            get(compare_diagnostics_snapshots),
+        )
+        .route("/api/v1/graph/snn/recompute", post(recompute_snn_scores))
+        .route("/api/v1/graph/pfnet/sparsify", post(pfnet_sparsify))
+        .route("/api/v1/graph/community/coarse", post(coarse_community_detection))
+        .route("/api/v1/graph/maintenance", post(trigger_graph_maintenance))
         .route("/api/v1/graph/:id", get(explore_graph))
         // Templates
         .route(
@@ -6924,6 +6944,15 @@ struct GraphQuery {
     min_score: f32,
     /// Maximum edges per node (default: unlimited)
     max_edges_per_node: Option<i64>,
+    /// Edge community filter (#480): "all" (default), "intra_community", "inter_community"
+    edge_filter: Option<String>,
+    /// Include structural collection edges (#480, default: true)
+    #[serde(default = "default_include_structural")]
+    include_structural: bool,
+}
+
+fn default_include_structural() -> bool {
+    true
 }
 
 fn default_depth() -> i32 {
@@ -6960,11 +6989,22 @@ async fn explore_graph(
     let max_nodes = query.max_nodes.clamp(1, 1000);
     let min_score = query.min_score.clamp(0.0, 1.0);
     let max_edges_per_node = query.max_edges_per_node.map(|v| v.clamp(1, 1000));
+    let edge_filter = query.edge_filter.clone();
+    let include_structural = query.include_structural;
     let result = ctx
         .query(move |tx| {
             Box::pin(async move {
                 links
-                    .traverse_graph_tx(tx, id, depth, max_nodes, min_score, max_edges_per_node)
+                    .traverse_graph_tx(
+                        tx,
+                        id,
+                        depth,
+                        max_nodes,
+                        min_score,
+                        max_edges_per_node,
+                        edge_filter.as_deref(),
+                        include_structural,
+                    )
                     .await
             })
         })
@@ -6992,6 +7032,336 @@ async fn graph_topology_stats(
         .query(move |tx| Box::pin(async move { links.topology_stats_tx(tx).await }))
         .await?;
     Ok(Json(result))
+}
+
+#[utoipa::path(get, path = "/api/v1/graph/diagnostics", tag = "Graph",
+    params(
+        ("sample_size" = Option<i64>, Query, description = "Number of random embedding pairs to sample (default: 1000)")
+    ),
+    responses(
+        (status = 200, description = "Graph quality diagnostics"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn graph_diagnostics(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let sample_size: i64 = params
+        .get("sample_size")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000)
+        .min(10000)
+        .max(10);
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move { links.graph_diagnostics_tx(tx, sample_size).await })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[utoipa::path(post, path = "/api/v1/graph/diagnostics/snapshot", tag = "Graph",
+    request_body(content = inline(CaptureSnapshotBody), description = "Snapshot label and optional sample size"),
+    responses(
+        (status = 200, description = "Diagnostics snapshot captured"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn capture_diagnostics_snapshot(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(body): Json<CaptureSnapshotBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let sample_size = body.sample_size.unwrap_or(1000).min(10000).max(10);
+    let label = body.label;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let diagnostics = links.graph_diagnostics_tx(tx, sample_size).await?;
+                links.save_diagnostics_snapshot_tx(tx, &label, &diagnostics).await
+            })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CaptureSnapshotBody {
+    label: String,
+    sample_size: Option<i64>,
+}
+
+#[utoipa::path(get, path = "/api/v1/graph/diagnostics/history", tag = "Graph",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum snapshots to return (default: 20)")
+    ),
+    responses(
+        (status = 200, description = "List of diagnostics snapshots"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn list_diagnostics_snapshots(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20)
+        .min(100)
+        .max(1);
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move { links.list_diagnostics_snapshots_tx(tx, limit).await })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[utoipa::path(get, path = "/api/v1/graph/diagnostics/compare", tag = "Graph",
+    params(
+        ("before" = Uuid, Query, description = "Snapshot ID for the 'before' state"),
+        ("after" = Uuid, Query, description = "Snapshot ID for the 'after' state")
+    ),
+    responses(
+        (status = 200, description = "Comparison of two diagnostics snapshots"),
+        (status = 404, description = "Snapshot not found"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn compare_diagnostics_snapshots(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let before_id: Uuid = params
+        .get("before")
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| ApiError::BadRequest("Missing 'before' snapshot ID".to_string()))?;
+    let after_id: Uuid = params
+        .get("after")
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| ApiError::BadRequest("Missing 'after' snapshot ID".to_string()))?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let before = links
+                    .get_diagnostics_snapshot_tx(tx, before_id)
+                    .await?
+                    .ok_or_else(|| {
+                        matric_db::Error::NotFound(format!("Snapshot {before_id} not found"))
+                    })?;
+                let after = links
+                    .get_diagnostics_snapshot_tx(tx, after_id)
+                    .await?
+                    .ok_or_else(|| {
+                        matric_db::Error::NotFound(format!("Snapshot {after_id} not found"))
+                    })?;
+                Ok(matric_db::DiagnosticsComparison::from_snapshots(before, after))
+            })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[utoipa::path(post, path = "/api/v1/graph/snn/recompute", tag = "Graph",
+    request_body(content = inline(RecomputeSnnBody), description = "SNN recomputation parameters"),
+    responses(
+        (status = 200, description = "SNN scores recomputed"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn recompute_snn_scores(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(body): Json<RecomputeSnnBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let graph_config = matric_core::defaults::GraphConfig::from_env();
+    // Use the note count to compute adaptive k if not provided.
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let k_override = body.k;
+    let threshold = body.threshold.unwrap_or(graph_config.snn_threshold);
+    let dry_run = body.dry_run.unwrap_or(false);
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                // Get note count for adaptive k computation.
+                let k = if let Some(k) = k_override {
+                    k
+                } else {
+                    let note_count = links.count_notes_tx(tx).await?;
+                    graph_config.effective_k(note_count)
+                };
+                links.recompute_snn_scores_tx(tx, k, threshold, dry_run).await
+            })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct RecomputeSnnBody {
+    /// Override k (number of nearest neighbors). If not set, uses adaptive k from graph config.
+    k: Option<usize>,
+    /// SNN threshold — edges below this are pruned. Default from GRAPH_SNN_THRESHOLD (0.10).
+    threshold: Option<f32>,
+    /// If true, compute scores but don't update/delete anything.
+    dry_run: Option<bool>,
+}
+
+#[utoipa::path(post, path = "/api/v1/graph/pfnet/sparsify", tag = "Graph",
+    request_body(content = inline(PfnetSparsifyBody), description = "PFNET sparsification parameters"),
+    responses(
+        (status = 200, description = "PFNET sparsification result"),
+        (status = 500, description = "Internal server error")
+    ))]
+async fn pfnet_sparsify(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(body): Json<PfnetSparsifyBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let graph_config = matric_core::defaults::GraphConfig::from_env();
+    let q = body.q.unwrap_or(graph_config.pfnet_q);
+    let dry_run = body.dry_run.unwrap_or(false);
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move { links.pfnet_sparsify_tx(tx, q, dry_run).await })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct PfnetSparsifyBody {
+    /// PFNET q parameter. 2 = RNG-equivalent (default). Higher = sparser.
+    q: Option<usize>,
+    /// If true, compute but don't delete/update edges.
+    dry_run: Option<bool>,
+}
+
+async fn coarse_community_detection(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(body): Json<CoarseCommunityBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    let graph_config = matric_core::defaults::GraphConfig::from_env();
+    let coarse_dim = body.coarse_dim.unwrap_or(matric_core::defaults::COARSE_DIM);
+    let similarity_threshold = body.similarity_threshold.unwrap_or(0.3);
+    let resolution = body.resolution.unwrap_or(graph_config.community_resolution);
+
+    if coarse_dim < 2 || coarse_dim > 768 {
+        return Err(ApiError::BadRequest(
+            "coarse_dim must be between 2 and 768".into(),
+        ));
+    }
+    if !(0.0..=1.0).contains(&similarity_threshold) {
+        return Err(ApiError::BadRequest(
+            "similarity_threshold must be between 0.0 and 1.0".into(),
+        ));
+    }
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+    let result = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                links
+                    .coarse_community_detection_tx(tx, coarse_dim, similarity_threshold, resolution)
+                    .await
+            })
+        })
+        .await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct CoarseCommunityBody {
+    /// Dimension for MRL truncation (default: 64).
+    coarse_dim: Option<i32>,
+    /// Minimum cosine similarity for edge inclusion (default: 0.3).
+    similarity_threshold: Option<f32>,
+    /// Louvain resolution parameter (default: from config).
+    resolution: Option<f64>,
+}
+
+/// Trigger a graph maintenance job that runs normalize → SNN → PFNET → snapshot.
+/// Optionally specify which steps to run via the `steps` array.
+#[utoipa::path(post, path = "/api/v1/graph/maintenance", tag = "Graph",
+    request_body(content = Option<GraphMaintenanceBody>),
+    responses(
+        (status = 201, description = "Job queued"),
+        (status = 200, description = "Job already pending (deduplicated)"),
+    )
+)]
+async fn trigger_graph_maintenance(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    body: Option<Json<GraphMaintenanceBody>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let body = body.map(|b| b.0);
+    let mut payload = serde_json::json!({});
+    if let Some(ref b) = body {
+        if let Some(ref steps) = b.steps {
+            payload["steps"] = serde_json::json!(steps);
+        }
+    }
+    payload["schema"] = serde_json::json!(archive_ctx.schema);
+
+    let priority = JobType::GraphMaintenance.default_priority();
+    let maybe_id = state
+        .db
+        .jobs
+        .queue_deduplicated(
+            None,
+            JobType::GraphMaintenance,
+            priority,
+            Some(payload),
+            None,
+        )
+        .await?;
+
+    match maybe_id {
+        Some(job_id) => {
+            state.event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: "GraphMaintenance".to_string(),
+                note_id: None,
+            });
+            Ok((
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "id": job_id,
+                    "status": "queued",
+                    "steps": body.and_then(|b| b.steps).unwrap_or_else(|| vec![
+                        "normalize".into(), "snn".into(), "pfnet".into(), "snapshot".into()
+                    ]),
+                })),
+            ))
+        }
+        None => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "id": null,
+                "status": "already_pending"
+            })),
+        )),
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+struct GraphMaintenanceBody {
+    /// Steps to run. Default: ["normalize", "snn", "pfnet", "snapshot"].
+    /// Valid values: "normalize", "snn", "pfnet", "snapshot".
+    steps: Option<Vec<String>>,
 }
 
 // =============================================================================
@@ -8868,6 +9238,7 @@ async fn create_job(
         "re_embed_all" => JobType::ReEmbedAll,
         "extraction" => JobType::Extraction,
         "exif_extraction" => JobType::ExifExtraction,
+        "graph_maintenance" => JobType::GraphMaintenance,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",
