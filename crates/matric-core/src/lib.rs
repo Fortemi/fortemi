@@ -5,6 +5,7 @@
 //! This crate provides the foundational data structures and trait definitions
 //! that other matric-memory crates depend on.
 
+pub mod asyncapi;
 pub mod collection_filter;
 pub mod defaults;
 pub mod embedding_provider;
@@ -30,8 +31,8 @@ pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use embedding_provider::*;
 pub use error::{Error, Result};
 pub use events::{
-    EventActor, EventBus, EventContext, EventEnvelope, EventPriority, ServerEvent, SseMetrics,
-    SseMetricsSnapshot,
+    EventActor, EventBus, EventContext, EventEnvelope, EventPriority, EventVariantMeta,
+    ServerEvent, SseMetrics, SseMetricsSnapshot,
 };
 pub use exif::{DeviceInfo, ExifMetadata, GpsCoordinates};
 pub use fair::{DublinCoreExport, FairScore, JsonLdContext, JsonLdExport};

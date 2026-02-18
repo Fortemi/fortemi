@@ -65,6 +65,12 @@ infer = "0.16"
 dotenvy = "0.15"
 blake3 = "1.5"
 
+# JSON Schema generation (for AsyncAPI)
+schemars = { version = "0.8", features = ["chrono", "uuid1"] }
+
+# YAML serialization
+serde_yaml = "0.9"
+
 # Error handling
 thiserror = "1"
 anyhow = "1"

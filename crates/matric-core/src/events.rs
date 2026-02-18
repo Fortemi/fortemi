@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::Serialize;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -30,7 +31,7 @@ use uuid::Uuid;
 ///
 /// Identifies who or what caused an event — system processes, authenticated
 /// users, or AI agents.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EventActor {
     /// Actor type: `"system"`, `"user"`, or `"agent"`.
     pub kind: String,
@@ -109,7 +110,7 @@ pub struct EventContext {
 /// - New optional fields may be added to the envelope without version bump.
 /// - Consumers should ignore unknown fields (forward compatibility).
 /// - Breaking changes require a new `payload_version` with deprecation window.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EventEnvelope {
     /// Unique event identifier (UUIDv7 for temporal ordering).
     pub event_id: Uuid,
@@ -182,7 +183,7 @@ impl EventEnvelope {
 /// `{"type":"JobStarted","job_id":"...","job_type":"Embedding"}`
 ///
 /// When wrapped in an [`EventEnvelope`], these become the `payload` field.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     /// Periodic queue statistics broadcast.
@@ -250,30 +251,17 @@ pub enum ServerEvent {
         tags: Vec<String>,
     },
     /// A note was soft-deleted.
-    NoteDeleted {
-        note_id: Uuid,
-    },
+    NoteDeleted { note_id: Uuid },
     /// A note was archived.
-    NoteArchived {
-        note_id: Uuid,
-    },
+    NoteArchived { note_id: Uuid },
     /// A note was restored from archive or soft-deletion.
-    NoteRestored {
-        note_id: Uuid,
-    },
+    NoteRestored { note_id: Uuid },
     /// Tags on a note were changed (added, removed, or replaced).
-    NoteTagsUpdated {
-        note_id: Uuid,
-        tags: Vec<String>,
-    },
+    NoteTagsUpdated { note_id: Uuid, tags: Vec<String> },
     /// Semantic links on a note were updated (by background linking job).
-    NoteLinksUpdated {
-        note_id: Uuid,
-    },
+    NoteLinksUpdated { note_id: Uuid },
     /// An AI revision was created for a note.
-    NoteRevisionCreated {
-        note_id: Uuid,
-    },
+    NoteRevisionCreated { note_id: Uuid },
 
     // -- Attachment events (Issue #454) --
     /// A file attachment was uploaded to a note.
@@ -290,26 +278,15 @@ pub enum ServerEvent {
         note_id: Option<Uuid>,
     },
     /// Extraction metadata for an attachment was updated (content, document type, EXIF).
-    AttachmentExtractionUpdated {
-        attachment_id: Uuid,
-        note_id: Uuid,
-    },
+    AttachmentExtractionUpdated { attachment_id: Uuid, note_id: Uuid },
 
     // -- Collection events (Issue #454) --
     /// A collection was created.
-    CollectionCreated {
-        collection_id: Uuid,
-        name: String,
-    },
+    CollectionCreated { collection_id: Uuid, name: String },
     /// A collection was updated (name or description changed).
-    CollectionUpdated {
-        collection_id: Uuid,
-        name: String,
-    },
+    CollectionUpdated { collection_id: Uuid, name: String },
     /// A collection was deleted.
-    CollectionDeleted {
-        collection_id: Uuid,
-    },
+    CollectionDeleted { collection_id: Uuid },
     /// A note was moved into or out of a collection.
     CollectionMembershipChanged {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -325,17 +302,90 @@ pub enum ServerEvent {
         archive_id: Option<Uuid>,
     },
     /// A memory archive was updated.
-    ArchiveUpdated {
-        name: String,
-    },
+    ArchiveUpdated { name: String },
     /// A memory archive was deleted.
-    ArchiveDeleted {
-        name: String,
-    },
+    ArchiveDeleted { name: String },
     /// The default memory archive was changed.
-    ArchiveDefaultChanged {
-        name: String,
+    ArchiveDefaultChanged { name: String },
+
+    // -- SKOS concept/scheme lifecycle events (Issue #462) --
+    /// A SKOS concept scheme was created.
+    ConceptSchemeCreated { scheme_id: Uuid },
+    /// A SKOS concept scheme was updated.
+    ConceptSchemeUpdated { scheme_id: Uuid },
+    /// A SKOS concept scheme was deleted.
+    ConceptSchemeDeleted { scheme_id: Uuid },
+    /// A SKOS concept was created.
+    ConceptCreated {
+        concept_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scheme_id: Option<Uuid>,
     },
+    /// A SKOS concept was updated.
+    ConceptUpdated { concept_id: Uuid },
+    /// A SKOS concept was deleted.
+    ConceptDeleted { concept_id: Uuid },
+    /// Semantic relations on a concept were updated (broader/narrower/related).
+    ConceptRelationsUpdated {
+        concept_id: Uuid,
+        relation_type: String,
+    },
+    /// A concept's scheme membership was changed.
+    ConceptSchemeChanged {
+        concept_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scheme_id: Option<Uuid>,
+    },
+    /// A concept's membership in a SKOS collection was changed.
+    ConceptCollectionMembershipChanged {
+        concept_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collection_id: Option<Uuid>,
+    },
+
+    // -- Tag governance lifecycle events (Issue #463) --
+    /// A global tag was created.
+    TagCreated { tag: String },
+    /// A global tag was renamed.
+    TagRenamed { old_name: String, new_name: String },
+    /// A global tag was deleted.
+    TagDeleted { tag: String },
+    /// Two tags were merged.
+    TagMerged {
+        source_tag: String,
+        target_tag: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        affected_count: Option<i64>,
+    },
+    /// Tag usage statistics were updated.
+    TagStatsUpdated,
+
+    // -- Search/index materialization events (Issue #464) --
+    /// Embeddings for a note were updated.
+    IndexEmbeddingUpdated {
+        note_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_id: Option<Uuid>,
+    },
+    /// Semantic links for a note were updated by the linking pipeline.
+    IndexLinkingUpdated {
+        note_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_id: Option<Uuid>,
+    },
+    /// Full-text search index for a note was updated.
+    IndexFtsUpdated {
+        note_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_id: Option<Uuid>,
+    },
+    /// The knowledge graph read model was updated.
+    ReadmodelGraphUpdated {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        note_id: Option<Uuid>,
+    },
+    /// All derived views for a note are ready for search.
+    ReadmodelSearchReady { note_id: Uuid },
 }
 
 impl ServerEvent {
@@ -367,6 +417,27 @@ impl ServerEvent {
             ServerEvent::ArchiveUpdated { .. } => "ArchiveUpdated",
             ServerEvent::ArchiveDeleted { .. } => "ArchiveDeleted",
             ServerEvent::ArchiveDefaultChanged { .. } => "ArchiveDefaultChanged",
+            ServerEvent::ConceptSchemeCreated { .. } => "ConceptSchemeCreated",
+            ServerEvent::ConceptSchemeUpdated { .. } => "ConceptSchemeUpdated",
+            ServerEvent::ConceptSchemeDeleted { .. } => "ConceptSchemeDeleted",
+            ServerEvent::ConceptCreated { .. } => "ConceptCreated",
+            ServerEvent::ConceptUpdated { .. } => "ConceptUpdated",
+            ServerEvent::ConceptDeleted { .. } => "ConceptDeleted",
+            ServerEvent::ConceptRelationsUpdated { .. } => "ConceptRelationsUpdated",
+            ServerEvent::ConceptSchemeChanged { .. } => "ConceptSchemeChanged",
+            ServerEvent::ConceptCollectionMembershipChanged { .. } => {
+                "ConceptCollectionMembershipChanged"
+            }
+            ServerEvent::TagCreated { .. } => "TagCreated",
+            ServerEvent::TagRenamed { .. } => "TagRenamed",
+            ServerEvent::TagDeleted { .. } => "TagDeleted",
+            ServerEvent::TagMerged { .. } => "TagMerged",
+            ServerEvent::TagStatsUpdated => "TagStatsUpdated",
+            ServerEvent::IndexEmbeddingUpdated { .. } => "IndexEmbeddingUpdated",
+            ServerEvent::IndexLinkingUpdated { .. } => "IndexLinkingUpdated",
+            ServerEvent::IndexFtsUpdated { .. } => "IndexFtsUpdated",
+            ServerEvent::ReadmodelGraphUpdated { .. } => "ReadmodelGraphUpdated",
+            ServerEvent::ReadmodelSearchReady { .. } => "ReadmodelSearchReady",
         }
     }
 
@@ -398,6 +469,27 @@ impl ServerEvent {
             ServerEvent::ArchiveUpdated { .. } => "archive.updated",
             ServerEvent::ArchiveDeleted { .. } => "archive.deleted",
             ServerEvent::ArchiveDefaultChanged { .. } => "archive.default.changed",
+            ServerEvent::ConceptSchemeCreated { .. } => "concept_scheme.created",
+            ServerEvent::ConceptSchemeUpdated { .. } => "concept_scheme.updated",
+            ServerEvent::ConceptSchemeDeleted { .. } => "concept_scheme.deleted",
+            ServerEvent::ConceptCreated { .. } => "concept.created",
+            ServerEvent::ConceptUpdated { .. } => "concept.updated",
+            ServerEvent::ConceptDeleted { .. } => "concept.deleted",
+            ServerEvent::ConceptRelationsUpdated { .. } => "concept.relations.updated",
+            ServerEvent::ConceptSchemeChanged { .. } => "concept.scheme.changed",
+            ServerEvent::ConceptCollectionMembershipChanged { .. } => {
+                "concept.collection.membership.changed"
+            }
+            ServerEvent::TagCreated { .. } => "tag.created",
+            ServerEvent::TagRenamed { .. } => "tag.renamed",
+            ServerEvent::TagDeleted { .. } => "tag.deleted",
+            ServerEvent::TagMerged { .. } => "tag.merged",
+            ServerEvent::TagStatsUpdated => "tag.stats.updated",
+            ServerEvent::IndexEmbeddingUpdated { .. } => "index.embedding.updated",
+            ServerEvent::IndexLinkingUpdated { .. } => "index.linking.updated",
+            ServerEvent::IndexFtsUpdated { .. } => "index.fts.updated",
+            ServerEvent::ReadmodelGraphUpdated { .. } => "readmodel.graph.updated",
+            ServerEvent::ReadmodelSearchReady { .. } => "readmodel.search.ready",
         }
     }
 
@@ -429,6 +521,25 @@ impl ServerEvent {
             | ServerEvent::ArchiveUpdated { .. }
             | ServerEvent::ArchiveDeleted { .. }
             | ServerEvent::ArchiveDefaultChanged { .. } => Some("archive"),
+            ServerEvent::ConceptSchemeCreated { .. }
+            | ServerEvent::ConceptSchemeUpdated { .. }
+            | ServerEvent::ConceptSchemeDeleted { .. } => Some("concept_scheme"),
+            ServerEvent::ConceptCreated { .. }
+            | ServerEvent::ConceptUpdated { .. }
+            | ServerEvent::ConceptDeleted { .. }
+            | ServerEvent::ConceptRelationsUpdated { .. }
+            | ServerEvent::ConceptSchemeChanged { .. }
+            | ServerEvent::ConceptCollectionMembershipChanged { .. } => Some("concept"),
+            ServerEvent::TagCreated { .. }
+            | ServerEvent::TagRenamed { .. }
+            | ServerEvent::TagDeleted { .. }
+            | ServerEvent::TagMerged { .. }
+            | ServerEvent::TagStatsUpdated => Some("tag"),
+            ServerEvent::IndexEmbeddingUpdated { .. }
+            | ServerEvent::IndexLinkingUpdated { .. }
+            | ServerEvent::IndexFtsUpdated { .. }
+            | ServerEvent::ReadmodelGraphUpdated { .. }
+            | ServerEvent::ReadmodelSearchReady { .. } => Some("index"),
         }
     }
 
@@ -449,29 +560,40 @@ impl ServerEvent {
             | ServerEvent::NoteTagsUpdated { note_id, .. }
             | ServerEvent::NoteLinksUpdated { note_id, .. }
             | ServerEvent::NoteRevisionCreated { note_id, .. } => Some(*note_id),
-            ServerEvent::AttachmentCreated {
-                attachment_id, ..
+            ServerEvent::AttachmentCreated { attachment_id, .. }
+            | ServerEvent::AttachmentDeleted { attachment_id, .. }
+            | ServerEvent::AttachmentExtractionUpdated { attachment_id, .. } => {
+                Some(*attachment_id)
             }
-            | ServerEvent::AttachmentDeleted {
-                attachment_id, ..
-            }
-            | ServerEvent::AttachmentExtractionUpdated {
-                attachment_id, ..
-            } => Some(*attachment_id),
-            ServerEvent::CollectionCreated {
-                collection_id, ..
-            }
-            | ServerEvent::CollectionUpdated {
-                collection_id, ..
-            }
-            | ServerEvent::CollectionDeleted {
-                collection_id, ..
-            } => Some(*collection_id),
+            ServerEvent::CollectionCreated { collection_id, .. }
+            | ServerEvent::CollectionUpdated { collection_id, .. }
+            | ServerEvent::CollectionDeleted { collection_id, .. } => Some(*collection_id),
             ServerEvent::CollectionMembershipChanged { note_id, .. } => Some(*note_id),
             ServerEvent::ArchiveCreated { archive_id, .. } => *archive_id,
             ServerEvent::ArchiveUpdated { .. }
             | ServerEvent::ArchiveDeleted { .. }
             | ServerEvent::ArchiveDefaultChanged { .. } => None,
+            ServerEvent::ConceptSchemeCreated { scheme_id, .. }
+            | ServerEvent::ConceptSchemeUpdated { scheme_id, .. }
+            | ServerEvent::ConceptSchemeDeleted { scheme_id, .. } => Some(*scheme_id),
+            ServerEvent::ConceptCreated { concept_id, .. }
+            | ServerEvent::ConceptUpdated { concept_id, .. }
+            | ServerEvent::ConceptDeleted { concept_id, .. }
+            | ServerEvent::ConceptRelationsUpdated { concept_id, .. }
+            | ServerEvent::ConceptSchemeChanged { concept_id, .. }
+            | ServerEvent::ConceptCollectionMembershipChanged { concept_id, .. } => {
+                Some(*concept_id)
+            }
+            ServerEvent::TagCreated { .. }
+            | ServerEvent::TagRenamed { .. }
+            | ServerEvent::TagDeleted { .. }
+            | ServerEvent::TagMerged { .. }
+            | ServerEvent::TagStatsUpdated => None,
+            ServerEvent::IndexEmbeddingUpdated { note_id, .. }
+            | ServerEvent::IndexLinkingUpdated { note_id, .. }
+            | ServerEvent::IndexFtsUpdated { note_id, .. }
+            | ServerEvent::ReadmodelSearchReady { note_id, .. } => Some(*note_id),
+            ServerEvent::ReadmodelGraphUpdated { note_id, .. } => *note_id,
         }
     }
 }
@@ -481,7 +603,7 @@ impl ServerEvent {
 /// Critical events (domain mutations) are never coalesced or dropped.
 /// Normal events (job lifecycle) are delivered in order but may be dropped under lag.
 /// Low events (telemetry, progress) may be coalesced or dropped to protect stream stability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 pub enum EventPriority {
     /// Domain mutations — never coalesced or dropped.
     Critical,
@@ -514,17 +636,36 @@ impl ServerEvent {
             | ServerEvent::ArchiveCreated { .. }
             | ServerEvent::ArchiveUpdated { .. }
             | ServerEvent::ArchiveDeleted { .. }
-            | ServerEvent::ArchiveDefaultChanged { .. } => EventPriority::Critical,
+            | ServerEvent::ArchiveDefaultChanged { .. }
+            | ServerEvent::ConceptSchemeCreated { .. }
+            | ServerEvent::ConceptSchemeUpdated { .. }
+            | ServerEvent::ConceptSchemeDeleted { .. }
+            | ServerEvent::ConceptCreated { .. }
+            | ServerEvent::ConceptUpdated { .. }
+            | ServerEvent::ConceptDeleted { .. }
+            | ServerEvent::ConceptRelationsUpdated { .. }
+            | ServerEvent::ConceptSchemeChanged { .. }
+            | ServerEvent::ConceptCollectionMembershipChanged { .. }
+            | ServerEvent::TagCreated { .. }
+            | ServerEvent::TagRenamed { .. }
+            | ServerEvent::TagDeleted { .. }
+            | ServerEvent::TagMerged { .. } => EventPriority::Critical,
 
             // Job lifecycle transitions — important but not critical
             ServerEvent::JobQueued { .. }
             | ServerEvent::JobStarted { .. }
             | ServerEvent::JobCompleted { .. }
-            | ServerEvent::JobFailed { .. } => EventPriority::Normal,
+            | ServerEvent::JobFailed { .. }
+            | ServerEvent::IndexEmbeddingUpdated { .. }
+            | ServerEvent::IndexLinkingUpdated { .. }
+            | ServerEvent::IndexFtsUpdated { .. }
+            | ServerEvent::ReadmodelGraphUpdated { .. }
+            | ServerEvent::ReadmodelSearchReady { .. } => EventPriority::Normal,
 
             // Telemetry and progress — coalescable
             ServerEvent::QueueStatus { .. }
-            | ServerEvent::JobProgress { .. } => EventPriority::Low,
+            | ServerEvent::JobProgress { .. }
+            | ServerEvent::TagStatsUpdated => EventPriority::Low,
         }
     }
 
@@ -534,12 +675,278 @@ impl ServerEvent {
     /// keeping only the latest. Returns `None` for non-coalescable events.
     pub fn coalesce_key(&self) -> Option<String> {
         match self {
-            ServerEvent::JobProgress { job_id, .. } => {
-                Some(format!("job.progress:{}", job_id))
-            }
+            ServerEvent::JobProgress { job_id, .. } => Some(format!("job.progress:{}", job_id)),
             ServerEvent::QueueStatus { .. } => Some("queue.status".to_string()),
+            ServerEvent::TagStatsUpdated => Some("tag.stats.updated".to_string()),
             _ => None,
         }
+    }
+}
+
+// ============================================================================
+// Variant Metadata (for AsyncAPI spec generation)
+// ============================================================================
+
+/// Metadata for a single `ServerEvent` variant, used for AsyncAPI spec generation.
+#[derive(Debug, Clone)]
+pub struct EventVariantMeta {
+    /// Dot-namespaced event type (e.g., `"note.updated"`).
+    pub namespaced_type: &'static str,
+    /// Rust variant name (e.g., `"NoteUpdated"`).
+    pub variant_name: &'static str,
+    /// Entity type (e.g., `"note"`, `"job"`), or `None` for system events.
+    pub entity_type: Option<&'static str>,
+    /// Backpressure priority.
+    pub priority: EventPriority,
+    /// Human-readable description of the event.
+    pub description: &'static str,
+}
+
+impl ServerEvent {
+    /// Returns a human-readable description of this event variant.
+    ///
+    /// This uses an exhaustive match so the compiler enforces coverage
+    /// whenever a new variant is added.
+    pub fn description(&self) -> &'static str {
+        match self {
+            ServerEvent::QueueStatus { .. } => "Periodic queue statistics broadcast",
+            ServerEvent::JobQueued { .. } => "A job was added to the queue",
+            ServerEvent::JobStarted { .. } => "A job started processing",
+            ServerEvent::JobProgress { .. } => "Job progress update",
+            ServerEvent::JobCompleted { .. } => "A job completed successfully",
+            ServerEvent::JobFailed { .. } => "A job failed",
+            ServerEvent::NoteUpdated { .. } => {
+                "A note was created, updated, or had its AI content refreshed"
+            }
+            ServerEvent::NoteCreated { .. } => "A new note was created",
+            ServerEvent::NoteDeleted { .. } => "A note was soft-deleted",
+            ServerEvent::NoteArchived { .. } => "A note was archived",
+            ServerEvent::NoteRestored { .. } => "A note was restored from archive or soft-deletion",
+            ServerEvent::NoteTagsUpdated { .. } => "Tags on a note were changed",
+            ServerEvent::NoteLinksUpdated { .. } => "Semantic links on a note were updated",
+            ServerEvent::NoteRevisionCreated { .. } => "An AI revision was created for a note",
+            ServerEvent::AttachmentCreated { .. } => "A file attachment was uploaded to a note",
+            ServerEvent::AttachmentDeleted { .. } => "A file attachment was deleted",
+            ServerEvent::AttachmentExtractionUpdated { .. } => {
+                "Extraction metadata for an attachment was updated"
+            }
+            ServerEvent::CollectionCreated { .. } => "A collection was created",
+            ServerEvent::CollectionUpdated { .. } => "A collection was updated",
+            ServerEvent::CollectionDeleted { .. } => "A collection was deleted",
+            ServerEvent::CollectionMembershipChanged { .. } => {
+                "A note was moved into or out of a collection"
+            }
+            ServerEvent::ArchiveCreated { .. } => "A memory archive was created",
+            ServerEvent::ArchiveUpdated { .. } => "A memory archive was updated",
+            ServerEvent::ArchiveDeleted { .. } => "A memory archive was deleted",
+            ServerEvent::ArchiveDefaultChanged { .. } => "The default memory archive was changed",
+            ServerEvent::ConceptSchemeCreated { .. } => "A SKOS concept scheme was created",
+            ServerEvent::ConceptSchemeUpdated { .. } => "A SKOS concept scheme was updated",
+            ServerEvent::ConceptSchemeDeleted { .. } => "A SKOS concept scheme was deleted",
+            ServerEvent::ConceptCreated { .. } => "A SKOS concept was created",
+            ServerEvent::ConceptUpdated { .. } => "A SKOS concept was updated",
+            ServerEvent::ConceptDeleted { .. } => "A SKOS concept was deleted",
+            ServerEvent::ConceptRelationsUpdated { .. } => {
+                "Semantic relations on a concept were updated"
+            }
+            ServerEvent::ConceptSchemeChanged { .. } => "A concept's scheme membership was changed",
+            ServerEvent::ConceptCollectionMembershipChanged { .. } => {
+                "A concept's membership in a SKOS collection was changed"
+            }
+            ServerEvent::TagCreated { .. } => "A global tag was created",
+            ServerEvent::TagRenamed { .. } => "A global tag was renamed",
+            ServerEvent::TagDeleted { .. } => "A global tag was deleted",
+            ServerEvent::TagMerged { .. } => "Two tags were merged",
+            ServerEvent::TagStatsUpdated => "Tag usage statistics were updated",
+            ServerEvent::IndexEmbeddingUpdated { .. } => "Embeddings for a note were updated",
+            ServerEvent::IndexLinkingUpdated { .. } => {
+                "Semantic links for a note were updated by the linking pipeline"
+            }
+            ServerEvent::IndexFtsUpdated { .. } => "Full-text search index for a note was updated",
+            ServerEvent::ReadmodelGraphUpdated { .. } => {
+                "The knowledge graph read model was updated"
+            }
+            ServerEvent::ReadmodelSearchReady { .. } => {
+                "All derived views for a note are ready for search"
+            }
+        }
+    }
+
+    /// Returns metadata for all 44 `ServerEvent` variants.
+    ///
+    /// Constructs dummy instances to enumerate every variant. The exhaustive
+    /// match in `description()`, `namespaced_event_type()`, `entity_type()`,
+    /// and `priority()` ensures compiler enforcement when new variants are added.
+    pub fn all_variants_metadata() -> Vec<EventVariantMeta> {
+        let dummy_id = Uuid::nil();
+        let variants: Vec<ServerEvent> = vec![
+            ServerEvent::QueueStatus {
+                total_jobs: 0,
+                running: 0,
+                pending: 0,
+            },
+            ServerEvent::JobQueued {
+                job_id: dummy_id,
+                job_type: String::new(),
+                note_id: None,
+            },
+            ServerEvent::JobStarted {
+                job_id: dummy_id,
+                job_type: String::new(),
+                note_id: None,
+            },
+            ServerEvent::JobProgress {
+                job_id: dummy_id,
+                note_id: None,
+                progress: 0,
+                message: None,
+            },
+            ServerEvent::JobCompleted {
+                job_id: dummy_id,
+                job_type: String::new(),
+                note_id: None,
+                duration_ms: None,
+            },
+            ServerEvent::JobFailed {
+                job_id: dummy_id,
+                job_type: String::new(),
+                note_id: None,
+                error: String::new(),
+            },
+            ServerEvent::NoteUpdated {
+                note_id: dummy_id,
+                title: None,
+                tags: vec![],
+                has_ai_content: false,
+                has_links: false,
+            },
+            ServerEvent::NoteCreated {
+                note_id: dummy_id,
+                title: None,
+                tags: vec![],
+            },
+            ServerEvent::NoteDeleted { note_id: dummy_id },
+            ServerEvent::NoteArchived { note_id: dummy_id },
+            ServerEvent::NoteRestored { note_id: dummy_id },
+            ServerEvent::NoteTagsUpdated {
+                note_id: dummy_id,
+                tags: vec![],
+            },
+            ServerEvent::NoteLinksUpdated { note_id: dummy_id },
+            ServerEvent::NoteRevisionCreated { note_id: dummy_id },
+            ServerEvent::AttachmentCreated {
+                attachment_id: dummy_id,
+                note_id: dummy_id,
+                filename: None,
+            },
+            ServerEvent::AttachmentDeleted {
+                attachment_id: dummy_id,
+                note_id: None,
+            },
+            ServerEvent::AttachmentExtractionUpdated {
+                attachment_id: dummy_id,
+                note_id: dummy_id,
+            },
+            ServerEvent::CollectionCreated {
+                collection_id: dummy_id,
+                name: String::new(),
+            },
+            ServerEvent::CollectionUpdated {
+                collection_id: dummy_id,
+                name: String::new(),
+            },
+            ServerEvent::CollectionDeleted {
+                collection_id: dummy_id,
+            },
+            ServerEvent::CollectionMembershipChanged {
+                collection_id: None,
+                note_id: dummy_id,
+            },
+            ServerEvent::ArchiveCreated {
+                name: String::new(),
+                archive_id: None,
+            },
+            ServerEvent::ArchiveUpdated {
+                name: String::new(),
+            },
+            ServerEvent::ArchiveDeleted {
+                name: String::new(),
+            },
+            ServerEvent::ArchiveDefaultChanged {
+                name: String::new(),
+            },
+            // SKOS events (Issue #462)
+            ServerEvent::ConceptSchemeCreated {
+                scheme_id: dummy_id,
+            },
+            ServerEvent::ConceptSchemeUpdated {
+                scheme_id: dummy_id,
+            },
+            ServerEvent::ConceptSchemeDeleted {
+                scheme_id: dummy_id,
+            },
+            ServerEvent::ConceptCreated {
+                concept_id: dummy_id,
+                scheme_id: None,
+            },
+            ServerEvent::ConceptUpdated {
+                concept_id: dummy_id,
+            },
+            ServerEvent::ConceptDeleted {
+                concept_id: dummy_id,
+            },
+            ServerEvent::ConceptRelationsUpdated {
+                concept_id: dummy_id,
+                relation_type: String::new(),
+            },
+            ServerEvent::ConceptSchemeChanged {
+                concept_id: dummy_id,
+                scheme_id: None,
+            },
+            ServerEvent::ConceptCollectionMembershipChanged {
+                concept_id: dummy_id,
+                collection_id: None,
+            },
+            // Tag governance events (Issue #463)
+            ServerEvent::TagCreated { tag: String::new() },
+            ServerEvent::TagRenamed {
+                old_name: String::new(),
+                new_name: String::new(),
+            },
+            ServerEvent::TagDeleted { tag: String::new() },
+            ServerEvent::TagMerged {
+                source_tag: String::new(),
+                target_tag: String::new(),
+                affected_count: None,
+            },
+            ServerEvent::TagStatsUpdated,
+            // Search/index events (Issue #464)
+            ServerEvent::IndexEmbeddingUpdated {
+                note_id: dummy_id,
+                job_id: None,
+            },
+            ServerEvent::IndexLinkingUpdated {
+                note_id: dummy_id,
+                job_id: None,
+            },
+            ServerEvent::IndexFtsUpdated {
+                note_id: dummy_id,
+                job_id: None,
+            },
+            ServerEvent::ReadmodelGraphUpdated { note_id: None },
+            ServerEvent::ReadmodelSearchReady { note_id: dummy_id },
+        ];
+
+        variants
+            .iter()
+            .map(|v| EventVariantMeta {
+                namespaced_type: v.namespaced_event_type(),
+                variant_name: v.event_type(),
+                entity_type: v.entity_type(),
+                priority: v.priority(),
+                description: v.description(),
+            })
+            .collect()
     }
 }
 
@@ -577,7 +984,9 @@ impl SseMetrics {
         SseMetricsSnapshot {
             connections_total: self.connections_total.load(Ordering::Relaxed),
             disconnections_total: self.disconnections_total.load(Ordering::Relaxed),
-            active_connections: self.connections_total.load(Ordering::Relaxed)
+            active_connections: self
+                .connections_total
+                .load(Ordering::Relaxed)
                 .saturating_sub(self.disconnections_total.load(Ordering::Relaxed)),
             events_emitted: self.events_emitted.load(Ordering::Relaxed),
             events_delivered: self.events_delivered.load(Ordering::Relaxed),
@@ -1439,69 +1848,195 @@ mod tests {
     #[test]
     fn test_note_events_are_critical_priority() {
         let events = vec![
-            ServerEvent::NoteCreated { note_id: Uuid::nil(), title: None, tags: vec![] },
-            ServerEvent::NoteUpdated { note_id: Uuid::nil(), title: None, tags: vec![], has_ai_content: false, has_links: false },
-            ServerEvent::NoteDeleted { note_id: Uuid::nil() },
-            ServerEvent::NoteArchived { note_id: Uuid::nil() },
-            ServerEvent::NoteRestored { note_id: Uuid::nil() },
+            ServerEvent::NoteCreated {
+                note_id: Uuid::nil(),
+                title: None,
+                tags: vec![],
+            },
+            ServerEvent::NoteUpdated {
+                note_id: Uuid::nil(),
+                title: None,
+                tags: vec![],
+                has_ai_content: false,
+                has_links: false,
+            },
+            ServerEvent::NoteDeleted {
+                note_id: Uuid::nil(),
+            },
+            ServerEvent::NoteArchived {
+                note_id: Uuid::nil(),
+            },
+            ServerEvent::NoteRestored {
+                note_id: Uuid::nil(),
+            },
         ];
         for event in events {
-            assert_eq!(event.priority(), EventPriority::Critical, "Note events must be Critical: {:?}", event.event_type());
+            assert_eq!(
+                event.priority(),
+                EventPriority::Critical,
+                "Note events must be Critical: {:?}",
+                event.event_type()
+            );
         }
     }
 
     #[test]
     fn test_job_lifecycle_events_are_normal_priority() {
         let events = vec![
-            ServerEvent::JobQueued { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None },
-            ServerEvent::JobStarted { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None },
-            ServerEvent::JobCompleted { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None, duration_ms: None },
-            ServerEvent::JobFailed { job_id: Uuid::nil(), job_type: "Embedding".to_string(), note_id: None, error: "err".to_string() },
+            ServerEvent::JobQueued {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+            },
+            ServerEvent::JobStarted {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+            },
+            ServerEvent::JobCompleted {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+                duration_ms: None,
+            },
+            ServerEvent::JobFailed {
+                job_id: Uuid::nil(),
+                job_type: "Embedding".to_string(),
+                note_id: None,
+                error: "err".to_string(),
+            },
         ];
         for event in events {
-            assert_eq!(event.priority(), EventPriority::Normal, "Job lifecycle events must be Normal: {:?}", event.event_type());
+            assert_eq!(
+                event.priority(),
+                EventPriority::Normal,
+                "Job lifecycle events must be Normal: {:?}",
+                event.event_type()
+            );
         }
     }
 
     #[test]
     fn test_telemetry_events_are_low_priority() {
         let events = vec![
-            ServerEvent::QueueStatus { total_jobs: 0, running: 0, pending: 0 },
-            ServerEvent::JobProgress { job_id: Uuid::nil(), note_id: None, progress: 50, message: None },
+            ServerEvent::QueueStatus {
+                total_jobs: 0,
+                running: 0,
+                pending: 0,
+            },
+            ServerEvent::JobProgress {
+                job_id: Uuid::nil(),
+                note_id: None,
+                progress: 50,
+                message: None,
+            },
         ];
         for event in events {
-            assert_eq!(event.priority(), EventPriority::Low, "Telemetry events must be Low: {:?}", event.event_type());
+            assert_eq!(
+                event.priority(),
+                EventPriority::Low,
+                "Telemetry events must be Low: {:?}",
+                event.event_type()
+            );
         }
     }
 
     #[test]
     fn test_coalesce_key_for_job_progress() {
         let id = Uuid::new_v4();
-        let event = ServerEvent::JobProgress { job_id: id, note_id: None, progress: 42, message: None };
+        let event = ServerEvent::JobProgress {
+            job_id: id,
+            note_id: None,
+            progress: 42,
+            message: None,
+        };
         assert_eq!(event.coalesce_key(), Some(format!("job.progress:{}", id)));
     }
 
     #[test]
     fn test_coalesce_key_for_queue_status() {
-        let event = ServerEvent::QueueStatus { total_jobs: 10, running: 1, pending: 9 };
+        let event = ServerEvent::QueueStatus {
+            total_jobs: 10,
+            running: 1,
+            pending: 9,
+        };
         assert_eq!(event.coalesce_key(), Some("queue.status".to_string()));
     }
 
     #[test]
     fn test_coalesce_key_none_for_critical_events() {
-        let event = ServerEvent::NoteCreated { note_id: Uuid::nil(), title: None, tags: vec![] };
-        assert!(event.coalesce_key().is_none(), "Critical events must not have a coalescing key");
+        let event = ServerEvent::NoteCreated {
+            note_id: Uuid::nil(),
+            title: None,
+            tags: vec![],
+        };
+        assert!(
+            event.coalesce_key().is_none(),
+            "Critical events must not have a coalescing key"
+        );
     }
 
     #[test]
     fn test_archive_events_are_critical_priority() {
         let events = vec![
-            ServerEvent::ArchiveCreated { name: "test".to_string(), archive_id: None },
-            ServerEvent::ArchiveDeleted { name: "test".to_string() },
-            ServerEvent::ArchiveDefaultChanged { name: "test".to_string() },
+            ServerEvent::ArchiveCreated {
+                name: "test".to_string(),
+                archive_id: None,
+            },
+            ServerEvent::ArchiveDeleted {
+                name: "test".to_string(),
+            },
+            ServerEvent::ArchiveDefaultChanged {
+                name: "test".to_string(),
+            },
         ];
         for event in events {
             assert_eq!(event.priority(), EventPriority::Critical);
         }
+    }
+
+    // -- Variant metadata tests (AsyncAPI) --
+
+    #[test]
+    fn test_all_variants_metadata_is_complete() {
+        let meta = ServerEvent::all_variants_metadata();
+        assert_eq!(
+            meta.len(),
+            44,
+            "Expected 44 event variants, got {}",
+            meta.len()
+        );
+
+        // All namespaced types should be unique
+        let types: std::collections::HashSet<&str> =
+            meta.iter().map(|m| m.namespaced_type).collect();
+        assert_eq!(types.len(), 44, "Duplicate namespaced_type found");
+
+        // All descriptions should be non-empty
+        for m in &meta {
+            assert!(
+                !m.description.is_empty(),
+                "Empty description for {}",
+                m.variant_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_description_matches_doc_comments() {
+        let event = ServerEvent::NoteCreated {
+            note_id: Uuid::nil(),
+            title: None,
+            tags: vec![],
+        };
+        assert_eq!(event.description(), "A new note was created");
+
+        let event = ServerEvent::JobFailed {
+            job_id: Uuid::nil(),
+            job_type: String::new(),
+            note_id: None,
+            error: String::new(),
+        };
+        assert_eq!(event.description(), "A job failed");
     }
 }

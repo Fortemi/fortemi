@@ -53,5 +53,9 @@ infer.workspace = true
 # OpenAPI schema generation
 utoipa = { version = "4", features = ["chrono", "uuid"] }
 
+# JSON Schema / AsyncAPI generation
+schemars.workspace = true
+serde_yaml.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

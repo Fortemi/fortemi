@@ -44,8 +44,8 @@ use matric_core::EmbeddingBackend;
 use matric_core::{
     ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata,
     BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
-    DocumentTypeRepository, EventBus, EventContext, ExtractionAdapter, ExtractionStrategy,
-    JobRepository, JobType, ListNotesRequest, EventEnvelope, NoteRepository, OAuthError,
+    DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
+    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
     RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
     UpdateNoteStatusRequest,
 };
@@ -621,6 +621,16 @@ async fn openapi_yaml() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/yaml")], spec)
 }
 
+/// Serve AsyncAPI 3.0 YAML spec (auto-generated from ServerEvent metadata + schemars).
+async fn asyncapi_yaml() -> impl IntoResponse {
+    let spec = matric_core::asyncapi::build_asyncapi_spec(
+        env!("CARGO_PKG_VERSION"),
+        &std::env::var("ISSUER_URL").unwrap_or_else(|_| "https://localhost:3000".to_string()),
+    );
+    let yaml = serde_yaml::to_string(&spec).expect("AsyncAPI YAML generation must not fail");
+    ([(header::CONTENT_TYPE, "application/yaml")], yaml)
+}
+
 // =============================================================================
 // CORS CONFIGURATION HELPER (Issue #462)
 // =============================================================================
@@ -852,7 +862,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(matric_core::defaults::SSE_REPLAY_BUFFER_SIZE);
 
     // Create the event bus (Issue #38, replay #456)
-    let event_bus = Arc::new(EventBus::with_replay(event_bus_capacity, replay_buffer_size));
+    let event_bus = Arc::new(EventBus::with_replay(
+        event_bus_capacity,
+        replay_buffer_size,
+    ));
     info!(
         broadcast_capacity = event_bus_capacity,
         replay_buffer_size, "Event bus initialized"
@@ -1259,6 +1272,7 @@ async fn main() -> anyhow::Result<()> {
             ),
         )
         .route("/openapi.yaml", get(openapi_yaml))
+        .route("/asyncapi.yaml", get(asyncapi_yaml))
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route("/api/v1/notes/bulk", post(bulk_create_notes))
@@ -1787,6 +1801,27 @@ async fn bridge_worker_events(
                         };
                         event_bus.emit(evt.clone());
 
+                        // Emit index materialization events (Issue #464)
+                        match job_type {
+                            JobType::Embedding => {
+                                if let Some(nid) = note_id {
+                                    event_bus.emit(ServerEvent::IndexEmbeddingUpdated {
+                                        note_id: nid,
+                                        job_id: Some(job_id),
+                                    });
+                                }
+                            }
+                            JobType::Linking => {
+                                if let Some(nid) = note_id {
+                                    event_bus.emit(ServerEvent::IndexLinkingUpdated {
+                                        note_id: nid,
+                                        job_id: Some(job_id),
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+
                         // Also emit NoteUpdated if this was a note-related job (Issue #41)
                         if let Some(nid) = note_id {
                             if let Ok(note) = db.notes.fetch(nid).await {
@@ -2002,8 +2037,7 @@ fn envelope_matches_filters(
     if let Some(ref filters) = type_filters {
         let event_type_lower = envelope.event_type.to_lowercase();
         let matches = filters.iter().any(|prefix| {
-            event_type_lower == *prefix
-                || event_type_lower.starts_with(&format!("{}.", prefix))
+            event_type_lower == *prefix || event_type_lower.starts_with(&format!("{}.", prefix))
         });
         if !matches {
             return false;
@@ -2156,7 +2190,8 @@ async fn sse_events(
     if let Some(ref filters) = type_filters {
         if filters.is_empty() {
             return Err(ApiError::BadRequest(
-                "Invalid 'types' filter: must contain at least one non-empty event type".to_string(),
+                "Invalid 'types' filter: must contain at least one non-empty event type"
+                    .to_string(),
             ));
         }
     }
@@ -2183,61 +2218,70 @@ async fn sse_events(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| Uuid::parse_str(s).ok());
 
-    let (replay_frames, dedup_watermark): (Vec<Event>, Option<Uuid>) =
-        if let Some(last_id) = last_event_id {
-            match state.event_bus.replay_since(last_id) {
-                Some(events) => {
-                    let watermark = events.last().map(|e| e.event_id).unwrap_or(last_id);
-                    // Apply memory + type + entity filters and convert to SSE frames
-                    let frames: Vec<Event> = events
-                        .into_iter()
-                        .filter(|envelope| {
-                            envelope_matches_filters(
-                                envelope,
-                                &memory_filter,
-                                &type_filters,
-                                &entity_id_filter,
-                            )
+    let (replay_frames, dedup_watermark): (Vec<Event>, Option<Uuid>) = if let Some(last_id) =
+        last_event_id
+    {
+        match state.event_bus.replay_since(last_id) {
+            Some(events) => {
+                let watermark = events.last().map(|e| e.event_id).unwrap_or(last_id);
+                // Apply memory + type + entity filters and convert to SSE frames
+                let frames: Vec<Event> = events
+                    .into_iter()
+                    .filter(|envelope| {
+                        envelope_matches_filters(
+                            envelope,
+                            &memory_filter,
+                            &type_filters,
+                            &entity_id_filter,
+                        )
+                    })
+                    .filter_map(|envelope| {
+                        serde_json::to_string(&envelope).ok().map(|json| {
+                            Event::default()
+                                .event(envelope.event_type.clone())
+                                .id(envelope.event_id.to_string())
+                                .data(json)
                         })
-                        .filter_map(|envelope| {
-                            serde_json::to_string(&envelope).ok().map(|json| {
-                                Event::default()
-                                    .event(envelope.event_type.clone())
-                                    .id(envelope.event_id.to_string())
-                                    .data(json)
-                            })
-                        })
-                        .collect();
-                    tracing::info!(
-                        replayed = frames.len(),
-                        last_event_id = %last_id,
-                        "SSE replay: delivered buffered events"
-                    );
-                    state.event_bus.metrics.replays_success.fetch_add(1, Ordering::Relaxed);
-                    (frames, Some(watermark))
-                }
-                None => {
-                    // Expired cursor — send resync hint
-                    tracing::warn!(
-                        last_event_id = %last_id,
-                        buffer_len = state.event_bus.replay_buffer_len(),
-                        "SSE replay: cursor expired, sending resync_required"
-                    );
-                    let resync_data = serde_json::json!({
-                        "reason": "Replay cursor expired. Event ID not found in replay buffer. Perform full state refresh.",
-                        "last_known_id": last_id.to_string(),
-                        "buffer_capacity": state.event_bus.replay_capacity(),
-                    });
-                    state.event_bus.metrics.replays_expired.fetch_add(1, Ordering::Relaxed);
-                    let frame = Event::default()
-                        .event("resync_required")
-                        .data(resync_data.to_string());
-                    (vec![frame], None) // No dedup — client needs full refresh
-                }
+                    })
+                    .collect();
+                tracing::info!(
+                    replayed = frames.len(),
+                    last_event_id = %last_id,
+                    "SSE replay: delivered buffered events"
+                );
+                state
+                    .event_bus
+                    .metrics
+                    .replays_success
+                    .fetch_add(1, Ordering::Relaxed);
+                (frames, Some(watermark))
             }
-        } else {
-            (vec![], None) // No replay requested
-        };
+            None => {
+                // Expired cursor — send resync hint
+                tracing::warn!(
+                    last_event_id = %last_id,
+                    buffer_len = state.event_bus.replay_buffer_len(),
+                    "SSE replay: cursor expired, sending resync_required"
+                );
+                let resync_data = serde_json::json!({
+                    "reason": "Replay cursor expired. Event ID not found in replay buffer. Perform full state refresh.",
+                    "last_known_id": last_id.to_string(),
+                    "buffer_capacity": state.event_bus.replay_capacity(),
+                });
+                state
+                    .event_bus
+                    .metrics
+                    .replays_expired
+                    .fetch_add(1, Ordering::Relaxed);
+                let frame = Event::default()
+                    .event("resync_required")
+                    .data(resync_data.to_string());
+                (vec![frame], None) // No dedup — client needs full refresh
+            }
+        }
+    } else {
+        (vec![], None) // No replay requested
+    };
 
     // --- Build combined stream: replay frames + live events ---
     use tokio_stream::StreamExt as _;
@@ -2256,13 +2300,18 @@ async fn sse_events(
             .unwrap_or(matric_core::defaults::SSE_COALESCE_WINDOW_MS),
     );
     // Track last emission time per coalescing key for low-priority events.
-    let coalesce_state: Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> =
-        Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let coalesce_state: Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let coalesce_state_clone = coalesce_state.clone();
     let metrics_ref = state.event_bus.clone();
 
     // --- Connection tracking (Issue #459) ---
-    state.event_bus.metrics.connections_total.fetch_add(1, Ordering::Relaxed);
+    state
+        .event_bus
+        .metrics
+        .connections_total
+        .fetch_add(1, Ordering::Relaxed);
     let disconnect_bus = state.event_bus.clone();
     tracing::info!(
         memory = ?memory_filter,
@@ -4721,9 +4770,10 @@ async fn delete_note(
         .await?;
 
     // Emit NoteDeleted event (Issue #453, scoped via #452)
-    state
-        .event_bus
-        .emit_with_context(ServerEvent::NoteDeleted { note_id: id }, event_context_for(&archive_ctx));
+    state.event_bus.emit_with_context(
+        ServerEvent::NoteDeleted { note_id: id },
+        event_context_for(&archive_ctx),
+    );
 
     // Invalidate search cache so deleted notes don't appear in results (#247)
     state.search_cache.invalidate_all().await;
@@ -4869,9 +4919,10 @@ async fn restore_note(
         .await?;
 
     // Emit NoteRestored event (Issue #453, scoped via #452)
-    state
-        .event_bus
-        .emit_with_context(ServerEvent::NoteRestored { note_id: id }, event_context_for(&archive_ctx));
+    state.event_bus.emit_with_context(
+        ServerEvent::NoteRestored { note_id: id },
+        event_context_for(&archive_ctx),
+    );
 
     // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
@@ -5313,10 +5364,20 @@ async fn set_note_tags(
     }
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let tags_clone = body.tags.clone();
     ctx.execute(move |tx| {
         Box::pin(async move { repo.set_for_note_tx(tx, id, body.tags, "api").await })
     })
     .await?;
+
+    // Emit NoteTagsUpdated event (Issue #463)
+    state.event_bus.emit_with_context(
+        ServerEvent::NoteTagsUpdated {
+            note_id: id,
+            tags: tags_clone,
+        },
+        event_context_for(&archive_ctx),
+    );
 
     // Invalidate search cache so tag changes are reflected in filtered searches (#341)
     state.search_cache.invalidate_all().await;
@@ -5372,6 +5433,12 @@ async fn create_concept_scheme(
     let id = ctx
         .execute(move |tx| Box::pin(async move { skos.create_scheme_tx(tx, body).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptSchemeCreated { scheme_id: id },
+        event_context_for(&archive_ctx),
+    );
+
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -5406,6 +5473,12 @@ async fn update_concept_scheme(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.update_scheme_tx(tx, id, body).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptSchemeUpdated { scheme_id: id },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5428,6 +5501,12 @@ async fn delete_concept_scheme(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.delete_scheme_tx(tx, id, force).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptSchemeDeleted { scheme_id: id },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5496,11 +5575,21 @@ async fn create_concept(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let scheme_id = body.scheme_id;
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     let id = ctx
         .execute(move |tx| Box::pin(async move { skos.create_concept_tx(tx, body).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptCreated {
+            concept_id: id,
+            scheme_id: Some(scheme_id),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -5590,6 +5679,12 @@ async fn update_concept(
             })
         })
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptUpdated { concept_id: id },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(Json(concept))
 }
 
@@ -5605,6 +5700,12 @@ async fn delete_concept(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.delete_concept_tx(tx, id).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptDeleted { concept_id: id },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5763,6 +5864,15 @@ async fn add_broader(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "broader".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -5790,6 +5900,15 @@ async fn add_narrower(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "narrower".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -5817,6 +5936,15 @@ async fn add_related(
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "related".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({ "success": true })),
@@ -5845,6 +5973,15 @@ async fn remove_broader(
         })
     })
     .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "broader".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5870,6 +6007,15 @@ async fn remove_narrower(
         })
     })
     .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "narrower".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -5895,6 +6041,15 @@ async fn remove_related(
         })
     })
     .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptRelationsUpdated {
+            concept_id: id,
+            relation_type: "related".to_string(),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -6348,6 +6503,15 @@ async fn add_skos_collection_member(
         })
     })
     .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptCollectionMembershipChanged {
+            concept_id,
+            collection_id: Some(collection_id),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::CREATED)
 }
 
@@ -6372,6 +6536,15 @@ async fn remove_skos_collection_member(
         })
     })
     .await?;
+
+    state.event_bus.emit_with_context(
+        ServerEvent::ConceptCollectionMembershipChanged {
+            concept_id,
+            collection_id: Some(collection_id),
+        },
+        event_context_for(&archive_ctx),
+    );
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -15244,7 +15417,11 @@ mod tests {
 
     // -- SSE Filter Unit Tests (Issue #457) --
 
-    fn make_test_envelope(event_type: &str, memory: Option<&str>, entity_id: Option<&str>) -> EventEnvelope {
+    fn make_test_envelope(
+        event_type: &str,
+        memory: Option<&str>,
+        entity_id: Option<&str>,
+    ) -> EventEnvelope {
         EventEnvelope {
             event_id: Uuid::new_v4(),
             event_type: event_type.to_string(),
@@ -15367,7 +15544,12 @@ mod tests {
 
         // Wrong memory
         let wrong_memory = Some("other".to_string());
-        assert!(!envelope_matches_filters(&envelope, &wrong_memory, &types, &None));
+        assert!(!envelope_matches_filters(
+            &envelope,
+            &wrong_memory,
+            &types,
+            &None
+        ));
     }
 
     #[test]
@@ -15380,7 +15562,9 @@ mod tests {
 
         // Wrong entity
         let wrong_eid = Some("note-99".to_string());
-        assert!(!envelope_matches_filters(&envelope, &memory, &types, &wrong_eid));
+        assert!(!envelope_matches_filters(
+            &envelope, &memory, &types, &wrong_eid
+        ));
     }
 
     // -- SSE Contract and Integration Tests (Issue #460) --
@@ -15430,13 +15614,28 @@ mod tests {
         let envelope: serde_json::Value = serde_json::from_str(json_str).unwrap();
 
         // Contract: required fields must be present and correctly typed
-        assert!(envelope["event_id"].is_string(), "event_id must be a UUID string");
+        assert!(
+            envelope["event_id"].is_string(),
+            "event_id must be a UUID string"
+        );
         assert_eq!(envelope["event_type"].as_str(), Some("note.created"));
-        assert!(envelope["occurred_at"].is_string(), "occurred_at must be an ISO timestamp");
-        assert!(envelope["payload_version"].is_number(), "payload_version must be a number");
+        assert!(
+            envelope["occurred_at"].is_string(),
+            "occurred_at must be an ISO timestamp"
+        );
+        assert!(
+            envelope["payload_version"].is_number(),
+            "payload_version must be a number"
+        );
         assert!(envelope["actor"].is_object(), "actor must be an object");
-        assert!(envelope["actor"]["kind"].is_string(), "actor.kind must be a string");
-        assert!(envelope["payload"].is_object(), "payload must contain the event data");
+        assert!(
+            envelope["actor"]["kind"].is_string(),
+            "actor.kind must be a string"
+        );
+        assert!(
+            envelope["payload"].is_object(),
+            "payload must contain the event data"
+        );
 
         // Verify the event_id line matches the id: line
         let id_line = collected
@@ -15491,8 +15690,14 @@ mod tests {
             }
         }
 
-        assert!(collected.contains("event: job.failed"), "Job event should be delivered");
-        assert!(!collected.contains("note.created"), "Note event should be filtered out");
+        assert!(
+            collected.contains("event: job.failed"),
+            "Job event should be delivered"
+        );
+        assert!(
+            !collected.contains("note.created"),
+            "Note event should be filtered out"
+        );
     }
 
     #[tokio::test]
@@ -15534,7 +15739,10 @@ mod tests {
             .unwrap();
         assert_eq!(health_response.status(), 200);
         let health: serde_json::Value = health_response.json().await.unwrap();
-        assert!(health["sse"].is_object(), "/health must include 'sse' metrics");
+        assert!(
+            health["sse"].is_object(),
+            "/health must include 'sse' metrics"
+        );
         assert!(health["sse"]["connections_total"].is_number());
         assert!(health["sse"]["active_connections"].is_number());
         assert!(health["sse"]["events_emitted"].is_number());
@@ -15547,8 +15755,16 @@ mod tests {
         let (base_url, bus, _conns) = spawn_eventing_test_server().await;
         let client = reqwest::Client::new();
 
-        let mut resp_a = client.get(format!("{}/api/v1/events", base_url)).send().await.unwrap();
-        let mut resp_b = client.get(format!("{}/api/v1/events", base_url)).send().await.unwrap();
+        let mut resp_a = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
+        let mut resp_b = client
+            .get(format!("{}/api/v1/events", base_url))
+            .send()
+            .await
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -15588,8 +15804,16 @@ mod tests {
         // Verify events_emitted counter increments on emit (Issue #460).
         let bus = EventBus::new(32);
         let before = bus.metrics.events_emitted.load(Ordering::Relaxed);
-        bus.emit(ServerEvent::QueueStatus { total_jobs: 1, running: 0, pending: 1 });
-        bus.emit(ServerEvent::QueueStatus { total_jobs: 2, running: 0, pending: 2 });
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 1,
+            running: 0,
+            pending: 1,
+        });
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 2,
+            running: 0,
+            pending: 2,
+        });
         let after = bus.metrics.events_emitted.load(Ordering::Relaxed);
         assert_eq!(after - before, 2);
     }
@@ -15600,16 +15824,34 @@ mod tests {
         let bus = EventBus::new(32);
         let mut rx = bus.subscribe();
 
-        bus.emit(ServerEvent::QueueStatus { total_jobs: 1, running: 0, pending: 1 });
-        bus.emit(ServerEvent::QueueStatus { total_jobs: 2, running: 0, pending: 2 });
-        bus.emit(ServerEvent::QueueStatus { total_jobs: 3, running: 0, pending: 3 });
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 1,
+            running: 0,
+            pending: 1,
+        });
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 2,
+            running: 0,
+            pending: 2,
+        });
+        bus.emit(ServerEvent::QueueStatus {
+            total_jobs: 3,
+            running: 0,
+            pending: 3,
+        });
 
         let e1 = rx.recv().await.unwrap();
         let e2 = rx.recv().await.unwrap();
         let e3 = rx.recv().await.unwrap();
 
-        assert!(e1.event_id < e2.event_id, "Event IDs must be monotonically increasing");
-        assert!(e2.event_id < e3.event_id, "Event IDs must be monotonically increasing");
+        assert!(
+            e1.event_id < e2.event_id,
+            "Event IDs must be monotonically increasing"
+        );
+        assert!(
+            e2.event_id < e3.event_id,
+            "Event IDs must be monotonically increasing"
+        );
     }
 
     // -- Webhook API Tests --
@@ -16261,7 +16503,9 @@ mod tests {
         });
         let has_job_started = events.iter().any(|e| e["payload"]["type"] == "JobStarted");
         let has_job_progress = events.iter().any(|e| e["payload"]["type"] == "JobProgress");
-        let has_job_completed = events.iter().any(|e| e["payload"]["type"] == "JobCompleted");
+        let has_job_completed = events
+            .iter()
+            .any(|e| e["payload"]["type"] == "JobCompleted");
         let has_job_queued = events.iter().any(|e| e["payload"]["type"] == "JobQueued");
 
         assert!(
@@ -17038,6 +17282,98 @@ mod tests {
             path_count >= 100,
             "Expected at least 100 API paths, found {}. Did handler annotations get removed?",
             path_count
+        );
+    }
+
+    #[test]
+    fn test_asyncapi_spec_is_valid() {
+        let spec = matric_core::asyncapi::build_asyncapi_spec(
+            env!("CARGO_PKG_VERSION"),
+            "https://example.com",
+        );
+        let yaml = serde_yaml::to_string(&spec).expect("YAML serialization must succeed");
+
+        // Top-level structure
+        assert!(yaml.contains("asyncapi: 3.0.0"), "Missing asyncapi version");
+        assert!(yaml.contains("Fortemi Event Stream"), "Missing title");
+
+        // All 44 variant names should appear as message keys
+        let variant_names = [
+            "QueueStatus",
+            "JobQueued",
+            "JobStarted",
+            "JobProgress",
+            "JobCompleted",
+            "JobFailed",
+            "NoteUpdated",
+            "NoteCreated",
+            "NoteDeleted",
+            "NoteArchived",
+            "NoteRestored",
+            "NoteTagsUpdated",
+            "NoteLinksUpdated",
+            "NoteRevisionCreated",
+            "AttachmentCreated",
+            "AttachmentDeleted",
+            "AttachmentExtractionUpdated",
+            "CollectionCreated",
+            "CollectionUpdated",
+            "CollectionDeleted",
+            "CollectionMembershipChanged",
+            "ArchiveCreated",
+            "ArchiveUpdated",
+            "ArchiveDeleted",
+            "ArchiveDefaultChanged",
+            "ConceptSchemeCreated",
+            "ConceptSchemeUpdated",
+            "ConceptSchemeDeleted",
+            "ConceptCreated",
+            "ConceptUpdated",
+            "ConceptDeleted",
+            "ConceptRelationsUpdated",
+            "ConceptSchemeChanged",
+            "ConceptCollectionMembershipChanged",
+            "TagCreated",
+            "TagRenamed",
+            "TagDeleted",
+            "TagMerged",
+            "TagStatsUpdated",
+            "IndexEmbeddingUpdated",
+            "IndexLinkingUpdated",
+            "IndexFtsUpdated",
+            "ReadmodelGraphUpdated",
+            "ReadmodelSearchReady",
+        ];
+        for name in &variant_names {
+            assert!(
+                yaml.contains(name),
+                "Missing event variant '{}' in AsyncAPI spec",
+                name
+            );
+        }
+
+        // Query parameters documented
+        assert!(yaml.contains("token"), "Missing token parameter");
+        assert!(yaml.contains("memory"), "Missing memory parameter");
+        assert!(yaml.contains("types"), "Missing types parameter");
+        assert!(yaml.contains("entity_id"), "Missing entity_id parameter");
+
+        // Schemas present
+        assert!(
+            yaml.contains("EventEnvelope"),
+            "Missing EventEnvelope schema"
+        );
+        assert!(yaml.contains("EventActor"), "Missing EventActor schema");
+        assert!(yaml.contains("ServerEvent"), "Missing ServerEvent schema");
+        assert!(
+            yaml.contains("EventPriority"),
+            "Missing EventPriority schema"
+        );
+
+        // No leftover schemars refs
+        assert!(
+            !yaml.contains("#/definitions/"),
+            "Found leftover #/definitions/ ref in AsyncAPI YAML"
         );
     }
 }
