@@ -842,6 +842,29 @@ impl TitleGenerationHandler {
             registry,
         }
     }
+
+    /// Queue a tier-escalation job for title generation.
+    async fn queue_tier_escalation(&self, note_id: uuid::Uuid, schema: &str, next_tier: i16) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::TitleGeneration,
+                JobType::TitleGeneration.default_priority(),
+                payload,
+                Some(next_tier),
+            )
+            .await
+        {
+            warn!(%note_id, next_tier, error = %e, "Failed to queue title generation tier escalation");
+        }
+    }
 }
 
 #[async_trait]
@@ -902,8 +925,14 @@ impl JobHandler for TitleGenerationHandler {
 
         ctx.report_progress(20, Some("Generating title..."));
 
-        // Fast-first model routing (same as MetadataExtractionHandler)
-        let use_fast = overridden.is_none() && self.fast_backend.is_some();
+        // Tiered model routing:
+        // Tier 1 (FAST_GPU, default): fast model → escalate to tier-2 on failure
+        // Tier 2 (STANDARD_GPU): standard model → fail cleanly
+        let is_standard_tier =
+            ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
+        let use_fast = !is_standard_tier
+            && overridden.is_none()
+            && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -954,11 +983,37 @@ Content:
             Ok(t) => {
                 let t = clean_title(t);
                 if t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH {
+                    if use_fast {
+                        info!("Fast model generated invalid title, escalating to tier-2");
+                        self.queue_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::STANDARD_GPU,
+                        )
+                        .await;
+                        return JobResult::Success(Some(serde_json::json!({
+                            "escalated": true,
+                            "reason": "fast_model_invalid_title"
+                        })));
+                    }
                     return JobResult::Failed("Invalid title generated".into());
                 }
                 t
             }
             Err(e) => {
+                if use_fast {
+                    info!(error = %e, "Fast model failed for title generation, escalating to tier-2");
+                    self.queue_tier_escalation(
+                        note_id,
+                        schema,
+                        matric_core::cost_tier::STANDARD_GPU,
+                    )
+                    .await;
+                    return JobResult::Success(Some(serde_json::json!({
+                        "escalated": true,
+                        "reason": "fast_model_failed"
+                    })));
+                }
                 return JobResult::Failed(format!("Title generation failed: {}", e));
             }
         };
@@ -3280,7 +3335,6 @@ impl JobHandler for RelatedConceptHandler {
 
         // Tiered model routing based on cost_tier.
         let use_fast = overridden.is_none() && self.fast_backend.is_some();
-        let is_tiered = ctx.job.cost_tier.is_some();
         let backend: &dyn GenerationBackend = match ctx.job.cost_tier {
             Some(matric_core::cost_tier::FAST_GPU) if self.fast_backend.is_some() => {
                 self.fast_backend.as_ref().unwrap()
@@ -3414,33 +3468,19 @@ If no meaningful related pairs exist, output an empty array: []"#
         let ai_response = match backend.generate_json(&prompt).await {
             Ok(r) => r.trim().to_string(),
             Err(e) => {
-                if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
-                    // Tiered mode: chain to tier-2 instead of inline fallback.
+                if use_fast {
+                    // Fast model failed — escalate to tier-2 via job queue.
                     // Do NOT queue phase-3 here — the tier-2 job will do it after completion.
-                    info!("Tier-1 fast model failed for related concepts, chaining to tier-2");
+                    info!(error = %e, "Fast model failed for related concepts, escalating to tier-2");
                     self.queue_related_tier_escalation(note_id, schema).await;
                     return JobResult::Success(Some(serde_json::json!({
                         "relations_created": 0,
                         "escalated": true,
                         "reason": "fast_model_failed"
                     })));
-                } else if use_fast {
-                    // Legacy inline escalation
-                    info!("Fast model failed for related concepts, escalating to standard model");
-                    match self.backend.generate_json(&prompt).await {
-                        Ok(r) => r.trim().to_string(),
-                        Err(e2) => {
-                            self.queue_phase3_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!(
-                                "AI generation failed (escalated): {}",
-                                e2
-                            ));
-                        }
-                    }
-                } else {
-                    self.queue_phase3_jobs(note_id, schema).await;
-                    return JobResult::Failed(format!("AI generation failed: {}", e));
                 }
+                self.queue_phase3_jobs(note_id, schema).await;
+                return JobResult::Failed(format!("AI generation failed: {}", e));
             }
         };
 
@@ -3460,40 +3500,21 @@ If no meaningful related pairs exist, output an empty array: []"#
                 match parse_json_lenient(cleaned) {
                     Ok(p) => p,
                     Err(e) => {
-                        // Escalate to standard model on fast model parse failure
                         if use_fast {
-                            info!("Fast model output unparseable for related concepts, escalating");
-                            match self.backend.generate_json(&prompt).await {
-                                Ok(r) => {
-                                    let r = r.trim().to_string();
-                                    match parse_json_lenient(&r) {
-                                        Ok(p) => p,
-                                        Err(e2) => {
-                                            warn!(error = %e2, "Standard model also failed");
-                                            self.queue_phase3_jobs(note_id, schema).await;
-                                            return JobResult::Failed(format!(
-                                                "Failed to parse AI response: {}",
-                                                e2
-                                            ));
-                                        }
-                                    }
-                                }
-                                Err(e2) => {
-                                    self.queue_phase3_jobs(note_id, schema).await;
-                                    return JobResult::Failed(format!(
-                                        "AI generation failed (escalated): {}",
-                                        e2
-                                    ));
-                                }
-                            }
-                        } else {
-                            warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
-                            self.queue_phase3_jobs(note_id, schema).await;
-                            return JobResult::Failed(format!(
-                                "Failed to parse AI response: {}",
-                                e
-                            ));
+                            info!(error = %e, "Fast model output unparseable for related concepts, escalating to tier-2");
+                            self.queue_related_tier_escalation(note_id, schema).await;
+                            return JobResult::Success(Some(serde_json::json!({
+                                "relations_created": 0,
+                                "escalated": true,
+                                "reason": "fast_model_parse_failed"
+                            })));
                         }
+                        warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
+                        self.queue_phase3_jobs(note_id, schema).await;
+                        return JobResult::Failed(format!(
+                            "Failed to parse AI response: {}",
+                            e
+                        ));
                     }
                 }
             }
@@ -3643,6 +3664,29 @@ impl MetadataExtractionHandler {
             registry,
         }
     }
+
+    /// Queue a tier-escalation job for metadata extraction.
+    async fn queue_tier_escalation(&self, note_id: uuid::Uuid, schema: &str, next_tier: i16) {
+        let payload = if schema != "public" {
+            Some(serde_json::json!({ "schema": schema }))
+        } else {
+            None
+        };
+        if let Err(e) = self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::MetadataExtraction,
+                JobType::MetadataExtraction.default_priority(),
+                payload,
+                Some(next_tier),
+            )
+            .await
+        {
+            warn!(%note_id, next_tier, error = %e, "Failed to queue metadata extraction tier escalation");
+        }
+    }
 }
 
 #[async_trait]
@@ -3706,8 +3750,14 @@ impl JobHandler for MetadataExtractionHandler {
             .take(matric_core::defaults::PREVIEW_METADATA)
             .collect();
 
-        // Fast-first model routing: always try fast model when available
-        let use_fast = overridden.is_none() && self.fast_backend.is_some();
+        // Tiered model routing:
+        // Tier 1 (FAST_GPU, default): fast model → escalate to tier-2 on failure
+        // Tier 2 (STANDARD_GPU): standard model → fail cleanly
+        let is_standard_tier =
+            ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU);
+        let use_fast = !is_standard_tier
+            && overridden.is_none()
+            && self.fast_backend.is_some();
 
         let backend: &dyn GenerationBackend = match (&overridden, use_fast) {
             (Some(b), _) => b.as_ref(),
@@ -3765,21 +3815,20 @@ Example output:
             Ok(r) => r.trim().to_string(),
             Err(e) => {
                 if use_fast {
-                    info!(
-                        "Fast model failed for metadata extraction, escalating to standard model"
-                    );
-                    match self.backend.generate_json(&prompt).await {
-                        Ok(r) => r.trim().to_string(),
-                        Err(e2) => {
-                            return JobResult::Failed(format!(
-                                "AI generation failed (escalated): {}",
-                                e2
-                            ))
-                        }
-                    }
-                } else {
-                    return JobResult::Failed(format!("AI generation failed: {}", e));
+                    info!(error = %e, "Fast model failed for metadata extraction, escalating to tier-2");
+                    self.queue_tier_escalation(
+                        note_id,
+                        schema,
+                        matric_core::cost_tier::STANDARD_GPU,
+                    )
+                    .await;
+                    return JobResult::Success(Some(serde_json::json!({
+                        "fields_extracted": 0,
+                        "escalated": true,
+                        "reason": "fast_model_failed"
+                    })));
                 }
+                return JobResult::Failed(format!("AI generation failed: {}", e));
             }
         };
 
@@ -3800,32 +3849,24 @@ Example output:
                     Ok(v) => v,
                     Err(e) => {
                         if use_fast {
-                            info!("Fast model output unparseable for metadata, escalating");
-                            match self.backend.generate_json(&prompt).await {
-                                Ok(r) => match serde_json::from_str(r.trim()) {
-                                    Ok(v) => v,
-                                    Err(e2) => {
-                                        warn!(error = %e2, "Standard model also failed");
-                                        return JobResult::Failed(format!(
-                                            "Failed to parse AI response: {}",
-                                            e2
-                                        ));
-                                    }
-                                },
-                                Err(e2) => {
-                                    return JobResult::Failed(format!(
-                                        "AI generation failed (escalated): {}",
-                                        e2
-                                    ))
-                                }
-                            }
-                        } else {
-                            warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
-                            return JobResult::Failed(format!(
-                                "Failed to parse AI response: {}",
-                                e
-                            ));
+                            info!(error = %e, "Fast model returned unparseable metadata, escalating to tier-2");
+                            self.queue_tier_escalation(
+                                note_id,
+                                schema,
+                                matric_core::cost_tier::STANDARD_GPU,
+                            )
+                            .await;
+                            return JobResult::Success(Some(serde_json::json!({
+                                "fields_extracted": 0,
+                                "escalated": true,
+                                "reason": "fast_model_parse_failed"
+                            })));
                         }
+                        warn!(error = %e, response = %ai_response, "Failed to parse AI metadata response");
+                        return JobResult::Failed(format!(
+                            "Failed to parse AI response: {}",
+                            e
+                        ));
                     }
                 }
             }
