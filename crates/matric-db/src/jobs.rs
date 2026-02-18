@@ -294,12 +294,44 @@ impl JobRepository for PgJobRepository {
             }
             Ok(result)
         } else {
-            // No note_id — can't deduplicate, just queue normally
-            // (notify happens inside queue())
-            let job_id = self
-                .queue(note_id, job_type, priority, payload, cost_tier)
-                .await?;
-            Ok(Some(job_id))
+            // No note_id — deduplicate by job_type alone (at most one pending/running
+            // instance per job_type, e.g. GraphMaintenance).
+            let job_id = new_v7();
+            let now = Utc::now();
+
+            let estimated_duration: Option<i32> =
+                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                    .bind(job_type_str)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(Error::Database)?
+                    .flatten();
+
+            let result = sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
+                 SELECT $1, NULL, $2::job_type, 'pending'::job_status, $3, $4, $5, $6, $7
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM job_queue
+                     WHERE note_id IS NULL AND job_type = $2::job_type
+                       AND status IN ('pending'::job_status, 'running'::job_status)
+                 )
+                 RETURNING id",
+            )
+            .bind(job_id)
+            .bind(job_type_str)
+            .bind(priority)
+            .bind(&payload)
+            .bind(estimated_duration)
+            .bind(now)
+            .bind(cost_tier)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+            if result.is_some() {
+                self.notify.notify_waiters();
+            }
+            Ok(result)
         }
     }
 

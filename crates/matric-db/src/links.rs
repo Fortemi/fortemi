@@ -783,7 +783,7 @@ impl PgLinkRepository {
         let now = Utc::now();
 
         // Forward link (A -> B)
-        sqlx::query(
+        let fwd = sqlx::query(
             "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
              SELECT $1, $2, $3, NULL, $4, $5, $6, $7
              WHERE NOT EXISTS (
@@ -803,7 +803,7 @@ impl PgLinkRepository {
         .map_err(Error::Database)?;
 
         // Backward link (B -> A)
-        sqlx::query(
+        let bwd = sqlx::query(
             "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
              SELECT $1, $2, $3, NULL, $4, $5, $6, $7
              WHERE NOT EXISTS (
@@ -822,6 +822,7 @@ impl PgLinkRepository {
         .await
         .map_err(Error::Database)?;
 
+        let _ = (fwd, bwd); // rows_affected checked during debugging
         Ok(())
     }
 
@@ -1420,8 +1421,8 @@ impl PgLinkRepository {
                 GROUP BY note_id
             )
             SELECT
-                COALESCE(AVG(degree), 0) as degree_mean,
-                COALESCE(STDDEV_POP(degree), 0) as degree_std
+                COALESCE(AVG(degree), 0)::FLOAT8 as degree_mean,
+                COALESCE(STDDEV_POP(degree), 0)::FLOAT8 as degree_std
             FROM degrees
             "#,
         )
@@ -2120,6 +2121,35 @@ impl PgLinkRepository {
             let score: f32 = row.get("score");
             adjacency.entry(from).or_default().push((to, score));
             adjacency.entry(to).or_default().push((from, score));
+        }
+
+        // Guard: skip SNN pruning if graph is too sparse.
+        // SNN requires mean degree >= k to compute meaningful shared neighbor
+        // counts. With sparse graphs (degree 1-2), all SNN scores are 0 and
+        // pruning would destroy the entire graph.
+        let node_count = adjacency.len() as f64;
+        let mean_degree = if node_count > 0.0 {
+            adjacency.values().map(|v| v.len() as f64).sum::<f64>() / node_count
+        } else {
+            0.0
+        };
+        if mean_degree < k as f64 {
+            tracing::info!(
+                mean_degree = mean_degree,
+                k = k,
+                "SNN skipped: graph too sparse (mean degree {:.1} < k={})",
+                mean_degree,
+                k
+            );
+            return Ok(SnnResult {
+                total_edges: rows.len(),
+                updated: 0,
+                pruned: 0,
+                k_used: k,
+                threshold_used: threshold,
+                dry_run,
+                snn_score_distribution: vec![0; 10],
+            });
         }
 
         // Build top-k neighbor sets (by score, descending).

@@ -1276,17 +1276,21 @@ impl LinkingHandler {
         // Fetch 3*k candidates to give the heuristic enough to work with
         let candidate_limit = (k * 3).max(15) as i64;
 
-        // NOTE: find_similar_with_vectors doesn't have a _tx variant yet.
-        // This will silently return empty for non-default archives (graceful degradation).
-        let _ = schema_ctx; // Suppress unused warning until _tx variant is available
-        let candidates = match self
-            .db
-            .embeddings
-            .find_similar_with_vectors(source_vec, candidate_limit, true)
-            .await
-        {
-            Ok(c) => c,
-            Err(e) => return Err(format!("Failed to find similar: {}", e)),
+        let candidates = {
+            let mut tx = schema_ctx
+                .begin_tx()
+                .await
+                .map_err(|e| format!("Schema tx failed: {}", e))?;
+            let c = self
+                .db
+                .embeddings
+                .find_similar_with_vectors_tx(&mut tx, source_vec, candidate_limit, true)
+                .await;
+            tx.commit().await.ok();
+            match c {
+                Ok(c) => c,
+                Err(e) => return Err(format!("Failed to find similar: {}", e)),
+            }
         };
 
         // Filter self and below minimum similarity
@@ -1338,7 +1342,9 @@ impl LinkingHandler {
                         Some(metadata),
                     )
                     .await;
-                tx.commit().await.ok();
+                if let Err(e) = tx.commit().await {
+                    warn!(error = %e, note_id = %note_id, target = %hit.note_id, "Link commit failed");
+                }
                 res
             };
             if let Err(e) = result {
@@ -1393,7 +1399,9 @@ impl LinkingHandler {
                             Some(metadata),
                         )
                         .await;
-                    tx.commit().await.ok();
+                    if let Err(e) = tx.commit().await {
+                        warn!(error = %e, note_id = %note_id, target = %best_hit.note_id, "Fallback link commit failed");
+                    }
                     res
                 };
                 if let Err(e) = result {
@@ -1645,15 +1653,20 @@ impl JobHandler for LinkingHandler {
         // Dispatch to strategy
         let semantic_created = match graph_config.strategy {
             matric_core::defaults::GraphLinkingStrategy::HnswHeuristic => {
-                // Count total notes for adaptive k
-                let note_count = self
-                    .db
-                    .embeddings
-                    .find_similar(&embeddings[0].vector, 1, true)
-                    .await
-                    .map(|r| r.len())
-                    .unwrap_or(0);
-                // Use a rough count — we'll get the real count from the candidate pool size
+                // Count notes in schema for adaptive k
+                let note_count = {
+                    let mut tx = schema_ctx.begin_tx().await.map(Some).unwrap_or(None);
+                    if let Some(ref mut tx) = tx {
+                        sqlx::query_scalar::<_, i64>(
+                            "SELECT COUNT(*) FROM note WHERE deleted_at IS NULL",
+                        )
+                        .fetch_one(&mut **tx)
+                        .await
+                        .unwrap_or(0) as usize
+                    } else {
+                        100
+                    }
+                };
                 let effective_k = graph_config.effective_k(note_count.max(100));
                 info!(
                     strategy = "hnsw_heuristic",
