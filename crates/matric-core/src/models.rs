@@ -1950,6 +1950,28 @@ pub struct QueueStats {
     pub total: i64,
 }
 
+/// Job processing pause state for global and per-archive control (Issue #466).
+///
+/// Effective state: a job runs only if **both** global AND its archive are `RUNNING`.
+/// If either is `PAUSED`, the job is skipped during claim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobPauseState {
+    /// Global pause state: `"running"` or `"paused"`.
+    pub global: String,
+    /// Per-archive pause state. Only paused archives appear in this map.
+    pub archives: HashMap<String, String>,
+    /// Queue statistics with pause context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<JobPauseQueueStats>,
+}
+
+/// Queue statistics within the pause state response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobPauseQueueStats {
+    pub pending: i64,
+    pub running: i64,
+}
+
 /// Extraction job statistics and analytics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionStats {

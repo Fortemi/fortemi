@@ -360,6 +360,18 @@ pub enum ServerEvent {
     /// Tag usage statistics were updated.
     TagStatsUpdated,
 
+    // -- Job pause/resume events (Issue #466) --
+    /// Job processing was paused (globally or for a specific archive).
+    JobsPaused {
+        /// `"global"` or the archive name that was paused.
+        scope: String,
+    },
+    /// Job processing was resumed (globally or for a specific archive).
+    JobsResumed {
+        /// `"global"` or the archive name that was resumed.
+        scope: String,
+    },
+
     // -- Search/index materialization events (Issue #464) --
     /// Embeddings for a note were updated.
     IndexEmbeddingUpdated {
@@ -433,6 +445,8 @@ impl ServerEvent {
             ServerEvent::TagDeleted { .. } => "TagDeleted",
             ServerEvent::TagMerged { .. } => "TagMerged",
             ServerEvent::TagStatsUpdated => "TagStatsUpdated",
+            ServerEvent::JobsPaused { .. } => "JobsPaused",
+            ServerEvent::JobsResumed { .. } => "JobsResumed",
             ServerEvent::IndexEmbeddingUpdated { .. } => "IndexEmbeddingUpdated",
             ServerEvent::IndexLinkingUpdated { .. } => "IndexLinkingUpdated",
             ServerEvent::IndexFtsUpdated { .. } => "IndexFtsUpdated",
@@ -485,6 +499,8 @@ impl ServerEvent {
             ServerEvent::TagDeleted { .. } => "tag.deleted",
             ServerEvent::TagMerged { .. } => "tag.merged",
             ServerEvent::TagStatsUpdated => "tag.stats.updated",
+            ServerEvent::JobsPaused { .. } => "jobs.paused",
+            ServerEvent::JobsResumed { .. } => "jobs.resumed",
             ServerEvent::IndexEmbeddingUpdated { .. } => "index.embedding.updated",
             ServerEvent::IndexLinkingUpdated { .. } => "index.linking.updated",
             ServerEvent::IndexFtsUpdated { .. } => "index.fts.updated",
@@ -530,6 +546,7 @@ impl ServerEvent {
             | ServerEvent::ConceptRelationsUpdated { .. }
             | ServerEvent::ConceptSchemeChanged { .. }
             | ServerEvent::ConceptCollectionMembershipChanged { .. } => Some("concept"),
+            ServerEvent::JobsPaused { .. } | ServerEvent::JobsResumed { .. } => Some("job"),
             ServerEvent::TagCreated { .. }
             | ServerEvent::TagRenamed { .. }
             | ServerEvent::TagDeleted { .. }
@@ -584,6 +601,7 @@ impl ServerEvent {
             | ServerEvent::ConceptCollectionMembershipChanged { concept_id, .. } => {
                 Some(*concept_id)
             }
+            ServerEvent::JobsPaused { .. } | ServerEvent::JobsResumed { .. } => None,
             ServerEvent::TagCreated { .. }
             | ServerEvent::TagRenamed { .. }
             | ServerEvent::TagDeleted { .. }
@@ -652,7 +670,9 @@ impl ServerEvent {
             | ServerEvent::TagMerged { .. } => EventPriority::Critical,
 
             // Job lifecycle transitions — important but not critical
-            ServerEvent::JobQueued { .. }
+            ServerEvent::JobsPaused { .. }
+            | ServerEvent::JobsResumed { .. }
+            | ServerEvent::JobQueued { .. }
             | ServerEvent::JobStarted { .. }
             | ServerEvent::JobCompleted { .. }
             | ServerEvent::JobFailed { .. }
@@ -758,6 +778,8 @@ impl ServerEvent {
             ServerEvent::TagDeleted { .. } => "A global tag was deleted",
             ServerEvent::TagMerged { .. } => "Two tags were merged",
             ServerEvent::TagStatsUpdated => "Tag usage statistics were updated",
+            ServerEvent::JobsPaused { .. } => "Job processing was paused",
+            ServerEvent::JobsResumed { .. } => "Job processing was resumed",
             ServerEvent::IndexEmbeddingUpdated { .. } => "Embeddings for a note were updated",
             ServerEvent::IndexLinkingUpdated { .. } => {
                 "Semantic links for a note were updated by the linking pipeline"
@@ -920,6 +942,13 @@ impl ServerEvent {
                 affected_count: None,
             },
             ServerEvent::TagStatsUpdated,
+            // Job pause/resume events (Issue #466)
+            ServerEvent::JobsPaused {
+                scope: String::new(),
+            },
+            ServerEvent::JobsResumed {
+                scope: String::new(),
+            },
             // Search/index events (Issue #464)
             ServerEvent::IndexEmbeddingUpdated {
                 note_id: dummy_id,
@@ -1993,15 +2022,15 @@ mod tests {
         let meta = ServerEvent::all_variants_metadata();
         assert_eq!(
             meta.len(),
-            44,
-            "Expected 44 event variants, got {}",
+            46,
+            "Expected 46 event variants, got {}",
             meta.len()
         );
 
         // All namespaced types should be unique
         let types: std::collections::HashSet<&str> =
             meta.iter().map(|m| m.namespaced_type).collect();
-        assert_eq!(types.len(), 44, "Duplicate namespaced_type found");
+        assert_eq!(types.len(), 46, "Duplicate namespaced_type found");
 
         // All descriptions should be non-empty
         for m in &meta {

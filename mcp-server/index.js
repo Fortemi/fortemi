@@ -1022,8 +1022,22 @@ function createMcpServer() {
             result = await apiRequest("GET", "/api/v1/jobs/pending");
           } else if (mjAction === "extraction_stats") {
             result = await apiRequest("GET", "/api/v1/extraction/stats");
+          } else if (mjAction === "pause_status") {
+            result = await apiRequest("GET", "/api/v1/jobs/status");
+          } else if (mjAction === "pause") {
+            if (args.archive) {
+              result = await apiRequest("POST", `/api/v1/jobs/pause/${encodeURIComponent(args.archive)}`);
+            } else {
+              result = await apiRequest("POST", "/api/v1/jobs/pause");
+            }
+          } else if (mjAction === "resume") {
+            if (args.archive) {
+              result = await apiRequest("POST", `/api/v1/jobs/resume/${encodeURIComponent(args.archive)}`);
+            } else {
+              result = await apiRequest("POST", "/api/v1/jobs/resume");
+            }
           } else {
-            throw new Error(`Unknown manage_jobs action: ${mjAction}. Valid: list, get, create, stats, pending_count, extraction_stats`);
+            throw new Error(`Unknown manage_jobs action: ${mjAction}. Valid: list, get, create, stats, pending_count, extraction_stats, pause_status, pause, resume`);
           }
           break;
         }
@@ -3406,7 +3420,7 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_archives\` | Memory archives | list, create, get, update, delete, set_default, stats, clone |
 | \`manage_encryption\` | PKE encryption | generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list/create/get_active/set_active/export/import/delete_keyset |
 | \`manage_backups\` | Backup & restore | export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory |
-| \`manage_jobs\` | Job queue monitoring | list, get, create, stats, pending_count, extraction_stats |
+| \`manage_jobs\` | Job queue monitoring | list, get, create, stats, pending_count, extraction_stats, pause_status, pause, resume |
 | \`manage_inference\` | Model & provider discovery | list_models, get_embedding_config, list_embedding_configs |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.

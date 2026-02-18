@@ -5747,7 +5747,7 @@ When called without note_ids, processes all notes in the current archive (up to 
   },
   {
     name: "manage_jobs",
-    description: `Monitor and manage background processing jobs. Actions: list (filter by status/type/note), get (single job details), create (queue a processing step), stats (queue statistics), pending_count (quick pending check), extraction_stats (extraction pipeline analytics). See \`get_documentation(topic='jobs')\` for job types.`,
+    description: `Monitor and manage background processing jobs. Actions: list (filter by status/type/note), get (single job details), create (queue a processing step), stats (queue statistics), pending_count (quick pending check), extraction_stats (extraction pipeline analytics), pause_status (get current pause state), pause (pause globally or per-archive), resume (resume globally or per-archive). See \`get_documentation(topic='jobs')\` for job types.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -5759,9 +5759,12 @@ When called without note_ids, processes all notes in the current archive (up to 
             "create",
             "stats",
             "pending_count",
-            "extraction_stats"
+            "extraction_stats",
+            "pause_status",
+            "pause",
+            "resume"
           ],
-          "description": "Action: 'list' (jobs with filters), 'get' (single job), 'create' (queue job), 'stats' (queue statistics), 'pending_count' (pending count), 'extraction_stats' (extraction analytics)"
+          "description": "Action: 'list' (jobs with filters), 'get' (single job), 'create' (queue job), 'stats' (queue statistics), 'pending_count' (pending count), 'extraction_stats' (extraction analytics), 'pause_status' (current pause state), 'pause' (pause globally or for specific archive), 'resume' (resume globally or for specific archive)"
         },
         "id": {
           "type": "string",
@@ -5805,6 +5808,10 @@ When called without note_ids, processes all notes in the current archive (up to 
         "offset": {
           "type": "integer",
           "description": "Pagination offset (for list)"
+        },
+        "archive": {
+          "type": "string",
+          "description": "Archive name for per-archive pause/resume. Omit for global pause/resume."
         }
       },
       "required": [

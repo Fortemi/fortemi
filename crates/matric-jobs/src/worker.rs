@@ -15,6 +15,7 @@ use matric_inference::OllamaBackend;
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
+use crate::pause::PauseState;
 use crate::DEFAULT_POLL_INTERVAL_MS;
 
 /// Configuration for the job worker.
@@ -150,6 +151,8 @@ pub struct JobWorker {
     fast_backend: Option<Arc<OllamaBackend>>,
     /// Standard GPU model backend for tier-2 warmup.
     standard_backend: Option<Arc<OllamaBackend>>,
+    /// Pause state for global and per-archive job processing control (Issue #466).
+    pause_state: Option<PauseState>,
 }
 
 impl JobWorker {
@@ -168,6 +171,7 @@ impl JobWorker {
             extraction_registry: extraction_registry.map(Arc::new),
             fast_backend: None,
             standard_backend: None,
+            pause_state: None,
         }
     }
 
@@ -181,6 +185,17 @@ impl JobWorker {
     pub fn with_standard_backend(mut self, backend: Option<OllamaBackend>) -> Self {
         self.standard_backend = backend.map(Arc::new);
         self
+    }
+
+    /// Set the pause state manager for global/per-archive pause control (Issue #466).
+    pub fn with_pause_state(mut self, pause_state: PauseState) -> Self {
+        self.pause_state = Some(pause_state);
+        self
+    }
+
+    /// Get a reference to the pause state (if configured).
+    pub fn pause_state(&self) -> Option<&PauseState> {
+        self.pause_state.as_ref()
     }
 
     /// Register a handler for a job type.
@@ -257,6 +272,21 @@ impl JobWorker {
                 }
             }
 
+            // Issue #466: Skip drain loop if globally paused.
+            if let Some(ref ps) = self.pause_state {
+                if ps.is_globally_paused() {
+                    debug!("Job processing globally paused, skipping drain");
+                    continue;
+                }
+            }
+
+            // Collect paused archives for per-archive filtering (Issue #466).
+            let excluded_archives: Vec<String> = if let Some(ref ps) = self.pause_state {
+                ps.paused_archive_names().await
+            } else {
+                Vec::new()
+            };
+
             // Tiered drain loop: process jobs by cost tier to avoid VRAM contention.
             // Each tier is fully drained before moving to the next. Model warmup
             // happens between tier switches so only one generation model is loaded.
@@ -273,7 +303,11 @@ impl JobWorker {
 
                 // Phase 1: Drain tier NULL + tier 0 (CPU/agnostic jobs — no GPU needed)
                 let drained = self
-                    .drain_tier(TierGroup::CpuAndAgnostic, max_concurrent)
+                    .drain_tier(
+                        TierGroup::CpuAndAgnostic,
+                        max_concurrent,
+                        &excluded_archives,
+                    )
                     .await;
                 if drained > 0 {
                     any_processed = true;
@@ -292,7 +326,9 @@ impl JobWorker {
                             warn!(error = %e, "Fast model warmup failed, proceeding anyway");
                         }
                     }
-                    let drained = self.drain_tier(TierGroup::FastGpu, max_concurrent).await;
+                    let drained = self
+                        .drain_tier(TierGroup::FastGpu, max_concurrent, &excluded_archives)
+                        .await;
                     if drained > 0 {
                         any_processed = true;
                     }
@@ -312,7 +348,7 @@ impl JobWorker {
                         }
                     }
                     let drained = self
-                        .drain_tier(TierGroup::StandardGpu, max_concurrent)
+                        .drain_tier(TierGroup::StandardGpu, max_concurrent, &excluded_archives)
                         .await;
                     if drained > 0 {
                         any_processed = true;
@@ -332,7 +368,14 @@ impl JobWorker {
     }
 
     /// Drain all jobs for a specific tier group, returning the count processed.
-    async fn drain_tier(&self, tier_group: TierGroup, max_concurrent: usize) -> usize {
+    ///
+    /// Jobs belonging to `excluded_archives` are skipped at the SQL level (Issue #466).
+    async fn drain_tier(
+        &self,
+        tier_group: TierGroup,
+        max_concurrent: usize,
+        excluded_archives: &[String],
+    ) -> usize {
         let mut total_drained = 0;
 
         loop {
@@ -340,7 +383,7 @@ impl JobWorker {
             let mut tasks = tokio::task::JoinSet::new();
 
             for _ in 0..max_concurrent {
-                match self.claim_job_for_tier(tier_group).await {
+                match self.claim_job_for_tier(tier_group, excluded_archives).await {
                     Some(job) => {
                         claimed += 1;
                         let worker = self.clone_refs();
@@ -369,18 +412,31 @@ impl JobWorker {
     }
 
     /// Claim the next available job for a specific tier group.
-    async fn claim_job_for_tier(&self, tier_group: TierGroup) -> Option<matric_core::Job> {
+    ///
+    /// Jobs belonging to `excluded_archives` are filtered out at the SQL level (Issue #466).
+    async fn claim_job_for_tier(
+        &self,
+        tier_group: TierGroup,
+        excluded_archives: &[String],
+    ) -> Option<matric_core::Job> {
         let job_types: Vec<JobType> = {
             let handlers = self.handlers.read().await;
             handlers.keys().copied().collect()
         };
 
-        match self
-            .db
-            .jobs
-            .claim_next_for_tier(tier_group, &job_types)
-            .await
-        {
+        let result = if excluded_archives.is_empty() {
+            self.db
+                .jobs
+                .claim_next_for_tier(tier_group, &job_types)
+                .await
+        } else {
+            self.db
+                .jobs
+                .claim_next_for_tier_excluding(tier_group, &job_types, excluded_archives)
+                .await
+        };
+
+        match result {
             Ok(Some(job)) => Some(job),
             Ok(None) => None,
             Err(e) => {
@@ -516,6 +572,7 @@ pub struct WorkerBuilder {
     config: WorkerConfig,
     handlers: Vec<Box<dyn JobHandler>>,
     extraction_registry: Option<ExtractionRegistry>,
+    pause_state: Option<PauseState>,
 }
 
 impl WorkerBuilder {
@@ -526,6 +583,7 @@ impl WorkerBuilder {
             config: WorkerConfig::default(),
             handlers: Vec::new(),
             extraction_registry: None,
+            pause_state: None,
         }
     }
 
@@ -547,9 +605,19 @@ impl WorkerBuilder {
         self
     }
 
+    /// Set the pause state manager (Issue #466).
+    pub fn with_pause_state(mut self, pause_state: PauseState) -> Self {
+        self.pause_state = Some(pause_state);
+        self
+    }
+
     /// Build and return the worker.
     pub async fn build(self) -> JobWorker {
-        let worker = JobWorker::new(self.db, self.config, self.extraction_registry);
+        let mut worker = JobWorker::new(self.db, self.config, self.extraction_registry);
+
+        if let Some(ps) = self.pause_state {
+            worker.pause_state = Some(ps);
+        }
 
         for handler in self.handlers {
             let job_type = handler.job_type();

@@ -39,6 +39,58 @@ impl PgJobRepository {
         self.notify.clone()
     }
 
+    /// Claim next job for a tier group, excluding jobs from paused archives (Issue #466).
+    ///
+    /// Jobs with `payload->>'schema'` matching any of `excluded_schemas` are skipped.
+    /// Jobs without a schema in their payload (public schema) are never excluded.
+    pub async fn claim_next_for_tier_excluding(
+        &self,
+        tier_group: TierGroup,
+        job_types: &[JobType],
+        excluded_schemas: &[String],
+    ) -> Result<Option<Job>> {
+        let now = Utc::now();
+        let type_strings: Vec<String> = job_types
+            .iter()
+            .map(|jt| Self::job_type_to_str(*jt).to_string())
+            .collect();
+
+        let tier_clause = match tier_group {
+            TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
+            TierGroup::FastGpu => "cost_tier = 1",
+            TierGroup::StandardGpu => "cost_tier = 2",
+        };
+
+        let query = format!(
+            "UPDATE job_queue
+             SET status = 'running'::job_status, started_at = $1
+             WHERE id = (
+                 SELECT id FROM job_queue
+                 WHERE status = 'pending'::job_status
+                   AND {tier_clause}
+                   AND (cardinality($2::text[]) = 0 OR job_type::text = ANY($2))
+                   AND (payload->>'schema' IS NULL
+                        OR payload->>'schema' NOT IN (SELECT unnest($3::text[])))
+                 ORDER BY priority DESC, created_at ASC
+                 LIMIT 1
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
+                       error_message, progress_percent, progress_message, retry_count, max_retries,
+                       created_at, started_at, completed_at, cost_tier"
+        );
+
+        let row = sqlx::query(&query)
+            .bind(now)
+            .bind(&type_strings)
+            .bind(excluded_schemas)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(row.map(Self::parse_job_row))
+    }
+
     /// Convert JobType to string for database.
     fn job_type_to_str(job_type: JobType) -> &'static str {
         match job_type {

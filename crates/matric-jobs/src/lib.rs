@@ -41,6 +41,7 @@ pub mod adapters;
 pub mod extraction;
 pub mod extraction_handler;
 pub mod handler;
+pub mod pause;
 pub mod worker;
 
 // Re-export core types
@@ -49,6 +50,7 @@ pub use matric_core::*;
 // Re-export job types
 pub use extraction_handler::ExtractionHandler;
 pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
+pub use pause::PauseState;
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
 
 // Re-export extraction types
