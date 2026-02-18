@@ -167,15 +167,17 @@ Core types and traits shared across all crates.
 - `Tag`, `Link` - Relationship models
 - `SearchHit` - Search result model
 - `ServerEvent`, `EventBus` - Real-time event broadcasting (SSE, WebSocket, webhooks)
+- `DocumentComposition` - Controls what note properties are assembled into embedding text (title, content, tags, concepts). Stored per-embedding-set with inheritance from defaults. See the Embedding Pipeline section for details.
 - Repository traits: `NoteRepository`, `TagRepository`, `LinkRepository`, `JobRepository`
 
 **Advanced Features:**
 - `events.rs` - Unified event bus (`EventBus`) and `ServerEvent` enum for real-time notifications (SSE, WebSocket, webhooks, telemetry). See ADR-037.
+- `embedding_provider.rs` - `EmbeddingSetConfig` with per-set `DocumentComposition` and MRL dimension support
 - `fair.rs` - FAIR metadata export (Findable, Accessible, Interoperable, Reusable) with Dublin Core and JSON-LD support
 - `temporal.rs` - Temporal filtering for time-based queries
 - `uuid_utils.rs` - UUIDv7 generation for time-ordered identifiers
 - `strict_filter.rs` - Type-safe strict filtering predicates
-- `defaults.rs` - Centralized default constants for system-wide configuration
+- `defaults.rs` - Centralized default constants for system-wide configuration, including `GraphConfig` for graph quality pipeline tuning
 
 ### matric-db
 
@@ -261,7 +263,7 @@ LLM inference abstraction for text generation and sentence embedding computation
 - `thinking.rs` - Thinking model detection and response parsing (explicit tags, verbose reasoning, pattern-based)
 
 **Embedding Approach:**
-Uses contrastive learning-based models[^8] (nomic-embed-text) producing 768-dimensional sentence embeddings with mean pooling aggregation[^7].
+Uses contrastive learning-based models[^8] (nomic-embed-text) producing 768-dimensional sentence embeddings with mean pooling aggregation[^7]. What text is sent to the embedding model is controlled by `DocumentComposition` — see the Embedding Pipeline section below.
 
 ### matric-crypto
 
@@ -290,25 +292,37 @@ Public-key encryption (PKE) for secure multi-recipient data sharing.
 Background job processing for asynchronous NLP operations and document processing.
 
 **Key Components:**
-- `JobWorker` - Background worker process with configurable polling and concurrency
+- `JobWorker` - Background worker process. Event-driven (wakes instantly on job enqueue via `Notify`); safety-net poll interval (default 60s) handles crash recovery and race conditions
 - `JobHandler` trait - Job type handlers
 - `ExtractionRegistry` - Adapter registry for file processing strategies
 - `ExtractionAdapter` trait - Pluggable extraction strategy interface
-- Job types: 21 total (see Job Processing Architecture section)
+- `GraphMaintenanceHandler` - Runs the graph quality pipeline (SNN, PFNET, Louvain) after embedding changes; registered in main.rs and triggered automatically by the Linking job
+- Job types: 24 total (see Job Processing Architecture section)
 
 **Extraction Adapters:**
 - `TextNativeAdapter` - Plain text files with UTF-8 conversion
 - `StructuredExtractAdapter` - JSON, YAML, TOML, CSV, XML with format validation and schema extraction
+- `PdfTextAdapter` - PDF text extraction
+- `PdfOcrAdapter` - PDF OCR processing
+- `VisionAdapter` - Image captioning via Ollama vision LLM
+- `AudioTranscribeAdapter` - Audio transcription via Whisper-compatible backend
+- `VideoMultimodalAdapter` - Video multimodal extraction (keyframes, scene detection, transcription alignment)
+- `CodeAstAdapter` - Code AST analysis via tree-sitter
+- `Glb3DModelAdapter` - 3D model understanding via Three.js multi-view rendering + vision (requires Blender)
+- `OfficeConvertAdapter` - Office document conversion
 
 **RAG Pipeline Jobs:**
-1. **Embedding** - Generate sentence embeddings[^7] for semantic search
-2. **AiRevision** - RAG-based content enhancement[^1] with retrieved context
-3. **Linking** - Knowledge graph construction[^5] via embedding similarity (>70% threshold)
-4. **TitleGeneration** - LLM-generated descriptive titles
-5. **ContextUpdate** - Inject related note context into revisions
-6. **ConceptTagging** - Auto-generate SKOS concept tags using AI analysis
-7. **EntityExtraction** - Extract named entities for tri-modal search
-8. **DocumentTypeInference** - Auto-detect document type from filename, MIME, content
+1. **Extraction** - File content extraction via adapter registry (priority 7, gates downstream work)
+2. **Embedding** - Generate sentence embeddings[^7] for semantic search (uses `DocumentComposition` to build text)
+3. **AiRevision** - RAG-based content enhancement[^1] with retrieved context
+4. **Linking** - Knowledge graph construction[^5] via embedding similarity (>70% threshold); auto-queues `GraphMaintenance` on completion
+5. **GraphMaintenance** - Graph quality pipeline: SNN scoring, PFNET sparsification, Louvain community detection
+6. **TitleGeneration** - LLM-generated descriptive titles
+7. **ContextUpdate** - Inject related note context into revisions
+8. **ConceptTagging** - Auto-generate SKOS concept tags using AI analysis (GLiNER tier-0)
+9. **EntityExtraction** - Extract named entities for tri-modal search
+10. **ExifExtraction** - Extract EXIF metadata from image attachments
+11. **DocumentTypeInference** - Auto-detect document type from filename, MIME, content
 
 ### matric-api
 
@@ -772,49 +786,56 @@ impl ExtractionAdapter for PdfTextAdapter {
 
 **Purpose:** Priority-based async job queue for long-running NLP operations, document processing, and maintenance tasks.
 
-### Job Types (21 Total)
+### Job Types (24 Total)
 
 **Core Priority Mapping** (1=lowest, 10=highest):
 
-| Job Type | Priority | Purpose |
-|----------|----------|---------|
-| **AiRevision** | 8 | RAG-based content enhancement with retrieved context |
-| **Embedding** | 5 | Generate sentence embeddings for semantic search |
-| **Linking** | 3 | Auto-detect and create knowledge graph edges via similarity |
-| **TitleGeneration** | 2 | LLM-generated descriptive titles from content |
-| **ContextUpdate** | 1 | Update context/metadata for related notes |
-| **ConceptTagging** | 4 | Auto-generate SKOS concept tags using AI analysis |
-| **EntityExtraction** | 4 | Extract named entities for tri-modal search |
-| **MetadataExtraction** | 6 | AI-extracted structured metadata (authors, year, venue, etc.) |
-| **DocumentTypeInference** | 3 | Auto-detect document type from filename/MIME/content |
-| **ReferenceExtraction** | 4 | Extract named entities and bibliographic references |
-| **RelatedConceptInference** | 4 | Infer skos:related relationships between concepts |
-| **CreateEmbeddingSet** | 2 | Create new embedding set (evaluate criteria, add members) |
-| **RefreshEmbeddingSet** | 2 | Refresh embedding set (re-evaluate criteria, update membership) |
-| **BuildSetIndex** | 3 | Build or rebuild vector index for embedding set |
-| **PurgeNote** | 9 | Permanently delete note and all related data |
-| **ReEmbedAll** | 1 | Re-embed all notes (embedding model migration) |
-| **GenerateFineTuningData** | 1 | Generate synthetic query-document pairs for fine-tuning |
-| **EmbedForSet** | 5 | Embed specific notes into specific embedding set |
-| **GenerateGraphEmbedding** | 3 | Generate graph embedding from extracted entities |
-| **GenerateCoarseEmbedding** | 2 | Generate coarse MRL embedding for two-stage retrieval |
+| Job Type | Priority | Cost Tier | Purpose |
+|----------|----------|-----------|---------|
+| **PurgeNote** | 9 | agnostic | Permanently delete note and all related data |
+| **AiRevision** | 8 | agnostic | RAG-based content enhancement with retrieved context |
+| **Extraction** | 7 | agnostic | File content extraction via adapter registry (gates downstream work) |
+| **Embedding** | 5 | agnostic | Generate sentence embeddings for semantic search (respects `DocumentComposition`) |
+| **EmbedForSet** | 5 | agnostic | Embed specific notes into a specific embedding set |
+| **ExifExtraction** | 5 | agnostic | Extract EXIF metadata from image attachments |
+| **ConceptTagging** | 4 | CPU_NER (0) | Auto-generate SKOS concept tags using GLiNER |
+| **EntityExtraction** | 4 | agnostic | Extract named entities for tri-modal search |
+| **ReferenceExtraction** | 4 | CPU_NER (0) | Extract named entity references (companies, people, tools) |
+| **MetadataExtraction** | 4 | FAST_GPU (1) | AI-extracted structured metadata (authors, year, venue) |
+| **RelatedConceptInference** | 4 | agnostic | Infer skos:related relationships between concepts |
+| **ThreeDAnalysis** | 4 | agnostic | Analyze 3D model geometry/materials via vision LLM |
+| **Linking** | 3 | agnostic | Auto-detect and create knowledge graph edges; queues GraphMaintenance on completion |
+| **BuildSetIndex** | 3 | agnostic | Build or rebuild vector index for embedding set |
+| **GenerateGraphEmbedding** | 3 | agnostic | Generate graph embedding from extracted entities |
+| **DocumentTypeInference** | 2 | agnostic | Auto-detect document type from filename/MIME/content |
+| **TitleGeneration** | 2 | FAST_GPU (1) | LLM-generated descriptive titles from content |
+| **CreateEmbeddingSet** | 2 | agnostic | Create new embedding set (evaluate criteria, add members) |
+| **RefreshEmbeddingSet** | 2 | agnostic | Refresh embedding set (re-evaluate criteria, update membership) |
+| **GenerateCoarseEmbedding** | 2 | agnostic | Generate coarse MRL embedding for two-stage retrieval |
+| **GraphMaintenance** | 2 | agnostic | Graph quality pipeline: SNN scoring, PFNET sparsification, Louvain community detection |
+| **ContextUpdate** | 1 | agnostic | Update context/metadata for related notes |
+| **ReEmbedAll** | 1 | agnostic | Re-embed all notes (embedding model migration) |
+| **GenerateFineTuningData** | 1 | agnostic | Generate synthetic query-document pairs for fine-tuning |
 
 ### Tiered Job Architecture
 
-Jobs are classified into three compute tiers based on their model requirements. `JobType::default_cost_tier()` is the single source of truth for tier assignment.
+Jobs are classified into three compute tiers based on their model requirements. `JobType::default_cost_tier()` is the single source of truth for tier assignment. Most jobs are tier-agnostic (no GPU required).
 
-| Tier | Name | Model | Purpose |
-|------|------|-------|---------|
-| 0 | CPU_NER | GLiNER | Named-entity recognition and reference extraction (CPU-only, no GPU required) |
-| 1 | FAST_GPU | qwen3:8b | Lightweight generation tasks (concept tagging, title generation, document type inference) |
-| 2 | STANDARD_GPU | gpt-oss:20b | Full RAG generation, AI revision, complex reasoning |
+| Tier | Name | Model | Assigned Job Types |
+|------|------|-------|--------------------|
+| NULL | agnostic | any / CPU | Most jobs (Embedding, Linking, AiRevision, Extraction, etc.) |
+| 0 | CPU_NER | GLiNER | `ConceptTagging`, `ReferenceExtraction` (CPU-only, no GPU required) |
+| 1 | FAST_GPU | qwen3:8b | `TitleGeneration`, `MetadataExtraction` |
+| 2 | STANDARD_GPU | gpt-oss:20b | Full RAG generation, complex reasoning (via escalation) |
 
-**Escalation via queue** — when a tier-N job fails (e.g., GLiNER unavailable), the handler enqueues a new job of the same logical type at tier N+1. There is no inline model fallback: each job runs exactly one model, and the queue handles progression. This design keeps handlers simple and makes escalation observable via normal job events.
+**Tiered drain order** — the worker processes tiers sequentially to avoid VRAM contention: agnostic/CPU jobs first, then FAST_GPU (with model warmup), then STANDARD_GPU (with model warmup). The worker loops until all tiers are drained before sleeping.
+
+**Escalation via queue** — when a tier-N job produces insufficient results (e.g., GLiNER unavailable or concept count below threshold), the handler enqueues a new job of the same logical type at tier N+1. There is no inline model fallback: each job runs exactly one model, and the queue handles progression. This design keeps handlers simple and makes escalation observable via normal job events.
 
 ```
 ConceptTagging (tier 0: GLiNER)
-   └─ fails → enqueue ConceptTagging (tier 1: qwen3:8b)
-                  └─ fails → enqueue ConceptTagging (tier 2: gpt-oss:20b)
+   └─ insufficient results → enqueue ConceptTagging (tier 1: qwen3:8b)
+                                 └─ insufficient results → enqueue ConceptTagging (tier 2: gpt-oss:20b)
 ```
 
 ### Worker Architecture
@@ -822,7 +843,7 @@ ConceptTagging (tier 0: GLiNER)
 **Configuration:**
 ```rust
 WorkerConfig {
-    poll_interval_ms: 500,        // Database poll frequency
+    poll_interval_ms: 60_000,     // Safety-net poll interval (not the primary wake mechanism)
     max_concurrent_jobs: 4,       // Parallel job limit
     enabled: true,                // Master switch
 }
@@ -835,20 +856,26 @@ WorkerConfig {
 │     - Register job handlers                         │
 │     - Configure extraction registry                 │
 │     - Set up event broadcast channel                │
+│     - Configure model backends for tier warmup      │
 └────────────────┬────────────────────────────────────┘
                  ▼
 ┌─────────────────────────────────────────────────────┐
-│  2. Polling Loop                                    │
-│     - Claim next job from queue (priority order)    │
-│     - Find handler for job type                     │
-│     - Execute with progress tracking                │
-│     - Update job status (completed/failed/retry)    │
+│  2. Event-Driven Sleep                              │
+│     - Wakes instantly when job is enqueued (Notify) │
+│     - Safety-net timer (60s) catches edge cases     │
+│     - Shutdown signal terminates loop               │
 └────────────────┬────────────────────────────────────┘
-                 │ Every 500ms
-                 └─────┐ (repeats)
-                       ▼
+                 ▼
 ┌─────────────────────────────────────────────────────┐
-│  3. Event Broadcasting                              │
+│  3. Tiered Drain Loop                               │
+│     Phase 1: Drain agnostic/CPU jobs (tier NULL+0)  │
+│     Phase 2: Warmup fast model → drain tier 1       │
+│     Phase 3: Warmup standard model → drain tier 2   │
+│     Loop until all tiers empty (handles escalations)│
+└────────────────┬────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────┐
+│  4. Event Broadcasting (per job)                    │
 │     - JobStarted                                    │
 │     - JobProgress (percent, message)                │
 │     - JobCompleted                                  │
@@ -859,10 +886,13 @@ WorkerConfig {
 **Handler Registration:**
 ```rust
 let worker = WorkerBuilder::new(db)
-    .with_config(WorkerConfig::default().with_poll_interval(1000))
-    .with_handler(EmbeddingHandler::new(inference))
+    .with_config(WorkerConfig::from_env())
+    .with_handler(EmbeddingHandler::new(inference.clone(), db.clone()))
     .with_handler(LinkingHandler::new(db.clone()))
-    .with_handler(AiRevisionHandler::new(inference, db.clone()))
+    .with_handler(AiRevisionHandler::new(inference.clone(), db.clone()))
+    .with_handler(GraphMaintenanceHandler::new(db.clone()))
+    .with_handler(ExtractionHandler::new(db.clone(), registry.clone()))
+    // ... additional handlers registered in main.rs
     .with_extraction_registry(registry)
     .build()
     .await;
@@ -886,7 +916,7 @@ pub const DEFAULT_MAX_RETRIES: i32 = 3;
 
 **Backoff Strategy:**
 - Linear backoff: `retry_count * poll_interval_ms`
-- Example: 500ms, 1000ms, 1500ms for first 3 retries
+- Example with default 60s safety-net: jobs retry on the next wake cycle (event-driven wakeup or 60s timeout)
 
 **Use Cases:**
 - Transient network failures (Ollama connection)
@@ -1184,16 +1214,121 @@ Query-dependent FTS/semantic weight selection:
 - **Strict filter**: Guaranteed isolation via pre-search WHERE clause (100% precision)
 - **Soft filter**: Combined with fuzzy search, may have relevance-based ordering
 
+## Embedding Pipeline
+
+### DocumentComposition
+
+`DocumentComposition` (defined in `matric_core::models`) is the single most important characteristic of an embedding set — it entirely determines the semantic geometry of the vector space. Different compositions produce fundamentally different clustering behaviors.
+
+**Fields:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `include_title` | `true` | Include note title in embedding text |
+| `include_content` | `true` | Include note body in embedding text |
+| `tag_strategy` | `None` | Which SKOS tags to inject: `None`, `All`, `Schemes([...])`, `Specific([...])` |
+| `include_concepts` | `false` | Include SKOS concept labels with TF-IDF filtering |
+| `concept_max_doc_freq` | 0.8 | Exclude concepts appearing in more than this fraction of notes |
+| `instruction_prefix` | `"clustering: "` | Instruction prefix for the model (e.g., `"search_document: "`, `"clustering: "`) |
+
+**Storage:** Each embedding set stores its own `DocumentComposition` in the `embedding_set` table as a JSONB column. Notes inherit the composition from their embedding set's config. The empty object `{}` inherits defaults (title + content only).
+
+**Text Construction:**
+```rust
+// DocumentComposition::build_text assembles the final embedding input
+let text = composition.build_text(
+    &note.title,
+    &note.content,
+    &concept_labels,  // pre-fetched SKOS labels, filtered by tag_strategy
+);
+// Result: "{instruction_prefix}{title}\n\n{tags}\n\n{content}"
+```
+
+**Example compositions:**
+- Default: title + content (best for general semantic similarity)
+- `tag_strategy: All`: title + tags + content (topic-aware clustering)
+- `include_concepts: true`: adds SKOS concept labels as metadata signal
+
 ## Knowledge Graph Construction
 
 Fortemi automatically constructs a knowledge graph[^5] by discovering semantic relationships between notes:
 
-1. **Embedding Generation** - Each note is encoded as a 768-dim sentence embedding[^7]
+1. **Embedding Generation** - Each note is encoded as a sentence embedding[^7] using its configured `DocumentComposition`
 2. **Similarity Computation** - Cosine similarity calculated between all note pairs
 3. **Link Creation** - Notes with >70% similarity are bidirectionally linked
 4. **Property Storage** - Similarity scores stored as edge weights in property graph
+5. **Graph Maintenance** - After linking completes, a `GraphMaintenance` job runs automatically to improve graph quality
 
 The 70% threshold balances precision (avoiding false connections) with recall (discovering meaningful relationships), validated empirically against semantic textual similarity benchmarks.
+
+## Graph Quality Pipeline
+
+After raw similarity edges are created by the `Linking` job, the `GraphMaintenance` job runs an automatic pipeline to improve graph quality. The pipeline is implemented in `PgLinkRepository` (`crates/matric-db/src/links.rs`) and orchestrated by `GraphMaintenanceHandler` (`crates/matric-api/src/handlers/jobs.rs`).
+
+The pipeline executes up to four configurable steps:
+
+```
+Raw similarity edges (from Linking job)
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│  Step 1: Edge Normalization                         │
+│  Rescale raw cosine scores to [0.0, 1.0] with       │
+│  optional gamma exponent for contrast enhancement.  │
+│  Formula: normalized = ((score - min) / range)^γ   │
+│  Applied at graph traversal time (query-time).      │
+└────────────────┬────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────┐
+│  Step 2: SNN Scoring (Shared Nearest Neighbor)      │
+│  SNN(A, B) = |kNN(A) ∩ kNN(B)| / k                 │
+│  k = log2(N) clamped to [k_min, k_max]             │
+│  Edges below threshold are pruned.                  │
+│  Result: edges annotated with snn_score in metadata.│
+│  Skipped when graph is too sparse (mean degree < k).│
+└────────────────┬────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────┐
+│  Step 3: PFNET Sparsification                       │
+│  Pathfinder Network pruning removes geometrically   │
+│  redundant edges. Uses graph-PFNET approximation    │
+│  (witnesses from shared neighbors only).            │
+│  Equivalent to Relative Neighborhood Graph          │
+│  (Toussaint 1980) with PFNET(∞, q=2).              │
+│  Result: retained edges tagged pfnet_retained=true. │
+└────────────────┬────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────────────────────┐
+│  Step 4: Graph Quality Snapshot                     │
+│  Records before/after diagnostics: edge counts,     │
+│  SNN coverage fraction, PFNET retention ratio.      │
+└─────────────────────────────────────────────────────┘
+         │
+         ▼
+Quality graph (used for graph traversal + visualization)
+```
+
+**Louvain Community Detection** runs separately, at graph traversal time (not during maintenance). When `GET /api/v1/notes/:id/graph` is called, the traversal result includes community assignments computed inline via a pure-Rust Louvain implementation:
+
+- Each traversal result has `community_id`, `community_label`, and `community_confidence` per node
+- Community labels are derived from the most frequent SKOS concept among notes in each community
+- Configurable resolution parameter controls community granularity
+
+**Configuration** (via `GraphConfig` from environment variables or defaults):
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `snn_threshold` | 0.10 | Minimum SNN score to retain an edge |
+| `k_min` / `k_max` | 5 / 15 | Bounds for adaptive k in SNN computation (k = log2(N) clamped) |
+| `pfnet_q` | 2 | PFNET Minkowski parameter (2 = Euclidean / Relative Neighborhood Graph) |
+| `normalization_gamma` | 1.0 | Gamma exponent for edge weight normalization (1.0 = linear) |
+| `community_resolution` | 1.0 | Louvain resolution (higher = more, smaller communities) |
+
+**Triggering:**
+
+- **Automatic**: Queued by `Linking` job on completion (deduplicated: only one pending `GraphMaintenance` at a time)
+- **Manual**: `POST /api/v1/graph/maintenance` with optional `steps` array to run specific pipeline stages
+- **Selective**: Payload can specify `{"steps": ["snn", "pfnet"]}` to skip normalization or snapshot steps
 
 ## API Design
 
@@ -1299,6 +1434,11 @@ cargo run -p matric-api
 | ADR-008 | SKOS vocabulary | W3C standard for controlled terms | W3C[^6] |
 | ADR-037 | Unified event bus | Single broadcast channel for SSE, WebSocket, webhooks, telemetry | - |
 | ADR-068 | Archive isolation routing | Schema-per-memory with SchemaContext + middleware | See ADR-068 |
+| Issue #467 | Versioned graph payload contract | v1 graph response with nodes, edges, meta + guardrails | See links.rs |
+| Issue #470 | Edge normalization | Gamma-adjusted min-max normalization at query time | See links.rs |
+| Issue #473 | Louvain community detection | Pure-Rust inline community assignment at traversal time | See links.rs |
+| Issue #474 | SNN scoring | Shared Nearest Neighbor pruning in GraphMaintenance pipeline | See links.rs |
+| Issue #476 | PFNET sparsification | Pathfinder Network pruning in GraphMaintenance pipeline | See links.rs |
 
 See `.aiwg/intake/option-matrix.md` for detailed analysis.
 See `docs/adr/ADR-001-strict-tag-filtering.md` for strict filtering details.

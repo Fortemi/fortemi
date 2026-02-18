@@ -50,36 +50,54 @@ DATABASE_URL=postgres://myuser:mypass@db.example.com:5432/matric_prod
 |----------|------|---------|-------------|
 | `HOST` | String | `0.0.0.0` | IP address to bind the API server (0.0.0.0 = all interfaces) |
 | `PORT` | Integer | `3000` | Port number for the HTTP API server |
+| `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
+| `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Maximum request body size in bytes (default: 2 GB, needed for database backup uploads) |
+| `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum file upload size in bytes (default: 50 MB). Enforced at the multipart upload route and validated per-file. |
 
 **Example:**
 ```bash
 HOST=127.0.0.1  # Localhost only
 PORT=8080       # Custom port
+ALLOWED_ORIGINS=https://memory.example.com,http://localhost:3000
+MATRIC_MAX_BODY_SIZE_BYTES=2147483648
+MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 ```
 
 ### Authentication
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `AUTH_ENABLED` | Boolean | `false` | Enable OAuth authentication (requires ISSUER_URL) |
-| `RATE_LIMIT_ENABLED` | Boolean | `false` | Enable rate limiting for API endpoints |
-| `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time period |
-| `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds |
-| `ISSUER_URL` | String | None | External base URL for OAuth discovery and MCP (e.g., https://memory.example.com) |
+| `REQUIRE_AUTH` | Boolean | `false` | Require authentication on all `/api/v1/*` endpoints. When `false`, all endpoints are publicly accessible. |
+| `ISSUER_URL` | String | `http://<HOST>:<PORT>` | External base URL for OAuth discovery and MCP (e.g., https://memory.example.com). Required for OAuth/MCP. |
+| `OAUTH_TOKEN_LIFETIME_SECS` | Integer | `3600` | OAuth access token lifetime in seconds (1 hour). Shorter = more secure; longer = less re-authentication friction. |
+| `OAUTH_MCP_TOKEN_LIFETIME_SECS` | Integer | `86400` | MCP OAuth access token lifetime in seconds (24 hours). MCP sessions are interactive — shorter tokens cause mid-session disconnects. |
 
 **Example (Personal Use):**
 ```bash
-AUTH_ENABLED=false
-RATE_LIMIT_ENABLED=false
+REQUIRE_AUTH=false
 ```
 
 **Example (Team Deployment):**
 ```bash
-AUTH_ENABLED=true
+REQUIRE_AUTH=true
+ISSUER_URL=https://memory.team.com
+OAUTH_TOKEN_LIFETIME_SECS=3600
+OAUTH_MCP_TOKEN_LIFETIME_SECS=86400
+```
+
+### Rate Limiting
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `RATE_LIMIT_ENABLED` | Boolean | `false` | Enable rate limiting for API endpoints |
+| `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time window |
+| `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds |
+
+**Example:**
+```bash
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=1000
 RATE_LIMIT_PERIOD_SECS=60
-ISSUER_URL=https://memory.team.com
 ```
 
 ### Logging
@@ -130,17 +148,46 @@ RUST_LOG=matric_api::routes::search=trace,info
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WORKER_ENABLED` | Boolean | `true` | Enable background job processing (embeddings, linking, cleanup) |
-| `WORKER_THREADS` | Integer | CPU cores | Number of worker threads for background jobs |
-| `JOB_POLL_INTERVAL` | Integer | `5` | Polling interval in seconds for checking new jobs |
+| `WORKER_ENABLED` | Boolean | `true` | Enable background job processing (embeddings, linking, cleanup). Alias: `JOB_WORKER_ENABLED`. |
+| `JOB_WORKER_ENABLED` | Boolean | `true` | Enable/disable job processing in the worker process (takes precedence when set). |
+| `WORKER_THREADS` | Integer | CPU cores | Number of Tokio worker threads for background jobs |
+| `JOB_POLL_INTERVAL_MS` | Integer | `60000` | Safety-net polling interval in milliseconds. The worker is event-driven (woken by NOTIFY); this interval only triggers as a fallback for crash recovery and race conditions. |
 | `JOB_MAX_CONCURRENT` | Integer | `4` | Maximum number of jobs that can run concurrently in the worker |
 
 **Example:**
 ```bash
 WORKER_ENABLED=true
 WORKER_THREADS=4
-JOB_POLL_INTERVAL=10
+JOB_POLL_INTERVAL_MS=60000
 JOB_MAX_CONCURRENT=4
+```
+
+### Real-Time Events
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MATRIC_EVENT_BUS_CAPACITY` | Integer | `256` | Broadcast channel capacity for the internal event bus. Increase for high-traffic deployments. |
+| `SSE_REPLAY_BUFFER_SIZE` | Integer | `1024` | Number of past events retained in the SSE replay buffer for `Last-Event-ID` reconnection support. |
+| `SSE_COALESCE_WINDOW_MS` | Integer | `500` | Deduplication window in milliseconds for low-priority SSE events (e.g., `job.progress`). Events with the same coalescing key are deduplicated within this window, keeping only the latest. Set to `0` to disable. |
+| `MATRIC_WEBHOOK_TIMEOUT_SECS` | Integer | `10` | Timeout in seconds for outgoing webhook HTTP requests. |
+
+**Example:**
+```bash
+MATRIC_EVENT_BUS_CAPACITY=512
+SSE_REPLAY_BUFFER_SIZE=2048
+SSE_COALESCE_WINDOW_MS=500
+MATRIC_WEBHOOK_TIMEOUT_SECS=10
+```
+
+### File Storage
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FILE_STORAGE_PATH` | String | `/var/lib/matric/files` | Directory for storing uploaded file attachments on disk |
+
+**Example:**
+```bash
+FILE_STORAGE_PATH=/mnt/data/matric/files
 ```
 
 ### Memory Management
@@ -148,6 +195,8 @@ JOB_MAX_CONCURRENT=4
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `MAX_MEMORIES` | Integer | `10` | Maximum number of **live** memory archives in the database |
+| `DEFAULT_ARCHIVE_CACHE_TTL` | Integer | `60` | Cache TTL in seconds for the default archive lookup. Reduces database lookups for the default memory on high-traffic deployments. |
+| `DISABLE_SUPPORT_MEMORY` | Boolean | `false` | Set to `true` to skip automatic loading of the built-in `fortemi-docs` support archive on first boot. |
 
 **Example:**
 ```bash
@@ -197,7 +246,7 @@ MAX_MEMORIES = max_total_notes / target_notes_per_memory
 | Header | Values | Description |
 |--------|--------|-------------|
 | `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: "default") |
-| `Authorization` | Bearer token | API authentication (when `AUTH_ENABLED=true`) |
+| `Authorization` | Bearer token | API authentication (when `REQUIRE_AUTH=true`) |
 
 The `X-Fortemi-Memory` header routes all API requests to a specific memory archive. Without this header, requests operate on the `default` memory. See the [Multi-Memory Guide](./multi-memory.md) for details.
 
@@ -207,44 +256,41 @@ Ollama is the default inference backend for local LLM inference without API cost
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `OLLAMA_URL` | String | `http://localhost:11434` | Ollama API endpoint URL |
-| `OLLAMA_BASE` | String | `http://localhost:11434` | Alias for OLLAMA_URL (for compatibility) |
-| `OLLAMA_HOST` | String | `http://localhost:11434` | Alias for OLLAMA_URL (for compatibility) |
-| `OLLAMA_EMBEDDING_MODEL` | String | `nomic-embed-text` | Model name for generating embeddings |
-| `OLLAMA_EMBED_MODEL` | String | `nomic-embed-text` | Alias for OLLAMA_EMBEDDING_MODEL |
-| `OLLAMA_GENERATION_MODEL` | String | None | Model name for text generation (optional) |
-| `OLLAMA_OLLAMA_GEN_MODEL` | String | None | Alias for OLLAMA_GENERATION_MODEL |
-| `OLLAMA_EMBEDDING_DIMENSION` | Integer | `768` | Vector dimensionality for embeddings |
-| `OLLAMA_EMBED_DIM` | Integer | `768` | Alias for OLLAMA_EMBEDDING_DIMENSION |
-| `OLLAMA_NUM_CTX` | Integer | Model default | Context window size in tokens |
-| `OLLAMA_NUM_GPU` | Integer | `99` | Number of GPU layers to offload (99 = all layers) |
-| `OLLAMA_NUM_PARALLEL` | Integer | `1` | Number of concurrent requests to process |
+| `OLLAMA_BASE` | String | `http://127.0.0.1:11434` | Ollama API endpoint URL (primary variable read by the backend) |
+| `OLLAMA_URL` | String | `http://127.0.0.1:11434` | Alias for `OLLAMA_BASE` (checked as fallback by the vision handler and content summarizer) |
+| `OLLAMA_HOST` | String | `http://localhost:11434` | Alias used by the Ollama discovery service |
+| `OLLAMA_EMBED_MODEL` | String | `nomic-embed-text` | Model name for generating embeddings |
+| `OLLAMA_GEN_MODEL` | String | `gpt-oss:20b` | Model name for text generation (standard/failover tier) |
+| `OLLAMA_EMBED_DIM` | Integer | `768` | Vector dimensionality for embeddings. Must match the model's output dimension. |
+| `MATRIC_EMBED_TIMEOUT_SECS` | Integer | `30` | Timeout in seconds for embedding requests to Ollama |
+| `MATRIC_GEN_TIMEOUT_SECS` | Integer | `120` | Timeout in seconds for generation requests to Ollama |
+| `MATRIC_OLLAMA_URL` | String | `http://127.0.0.1:11434` | Ollama URL used by the TOML-based inference config path |
+| `MATRIC_OLLAMA_EMBEDDING_MODEL` | String | `nomic-embed-text` | Embedding model used by the TOML-based inference config path |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | String | `gpt-oss:20b` | Generation model used by the TOML-based inference config path |
 
 **Example (Docker Desktop - macOS/Windows):**
 ```bash
-OLLAMA_URL=http://host.docker.internal:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_GENERATION_MODEL=llama3.2:3b
-OLLAMA_EMBEDDING_DIMENSION=768
-OLLAMA_NUM_GPU=99
+OLLAMA_BASE=http://host.docker.internal:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_GEN_MODEL=llama3.2:3b
+OLLAMA_EMBED_DIM=768
 ```
 
 **Example (Linux with Docker):**
 ```bash
-OLLAMA_URL=http://172.17.0.1:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_GENERATION_MODEL=qwen2.5:7b
-OLLAMA_EMBEDDING_DIMENSION=768
+OLLAMA_BASE=http://172.17.0.1:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_GEN_MODEL=qwen2.5:7b
+OLLAMA_EMBED_DIM=768
 ```
 
 **Example (Performance Tuning):**
 ```bash
-OLLAMA_URL=http://localhost:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_GENERATION_MODEL=qwen2.5:7b
-OLLAMA_NUM_CTX=16384        # Larger context window
-OLLAMA_NUM_GPU=99           # All layers on GPU
-OLLAMA_NUM_PARALLEL=4       # Process 4 requests concurrently
+OLLAMA_BASE=http://localhost:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_GEN_MODEL=qwen2.5:7b
+MATRIC_EMBED_TIMEOUT_SECS=30
+MATRIC_GEN_TIMEOUT_SECS=180
 ```
 
 ### OpenAI Inference
@@ -256,26 +302,27 @@ The OpenAI backend supports OpenAI's cloud API and any OpenAI-compatible endpoin
 | `INFERENCE_BACKEND` | String | `ollama` | Backend selection: `ollama` or `openai` |
 | `OPENAI_API_KEY` | String | None | API key for OpenAI cloud (required for OpenAI cloud) |
 | `OPENAI_BASE_URL` | String | `https://api.openai.com/v1` | OpenAI API base URL or compatible endpoint |
-| `OPENAI_EMBEDDING_MODEL` | String | `text-embedding-3-small` | Model name for embeddings |
-| `OPENAI_EMBED_MODEL` | String | `text-embedding-3-small` | Alias for OPENAI_EMBEDDING_MODEL |
-| `OPENAI_GENERATION_MODEL` | String | `gpt-4o-mini` | Model name for text generation |
-| `OPENAI_OLLAMA_GEN_MODEL` | String | `gpt-4o-mini` | Alias for OPENAI_GENERATION_MODEL |
-| `OPENAI_EMBEDDING_DIMENSION` | Integer | `1536` | Vector dimensionality for embeddings |
-| `OPENAI_EMBED_DIM` | Integer | `1536` | Alias for OPENAI_EMBEDDING_DIMENSION |
-| `OPENAI_TIMEOUT` | Integer | `120` | Request timeout in seconds |
-| `OPENAI_MAX_RETRIES` | Integer | `3` | Maximum number of retry attempts for failed requests |
+| `OPENAI_EMBED_MODEL` | String | `text-embedding-3-small` | Model name for embeddings |
+| `OPENAI_GEN_MODEL` | String | `gpt-oss:20b` | Model name for text generation |
+| `OPENAI_EMBED_DIM` | Integer | `1536` | Vector dimensionality for embeddings |
+| `OPENAI_TIMEOUT` | Integer | `30` | Request timeout in seconds |
 | `OPENAI_SKIP_TLS_VERIFY` | Boolean | `false` | Disable TLS certificate verification (insecure, for testing only) |
+| `OPENAI_HTTP_REFERER` | String | None | Optional `HTTP-Referer` header sent with requests (useful for OpenRouter and compatible proxies) |
+| `OPENAI_X_TITLE` | String | None | Optional `X-Title` header for identification in compatible API dashboards |
+| `MATRIC_OPENAI_URL` | String | `https://api.openai.com/v1` | OpenAI URL used by the TOML-based inference config path |
+| `MATRIC_OPENAI_API_KEY` | String | None | API key used by the TOML-based inference config path |
+| `MATRIC_OPENAI_EMBEDDING_MODEL` | String | `text-embedding-3-small` | Embedding model used by the TOML-based inference config path |
+| `MATRIC_OPENAI_GENERATION_MODEL` | String | `gpt-4o-mini` | Generation model used by the TOML-based inference config path |
 
 **Example (OpenAI Cloud):**
 ```bash
 INFERENCE_BACKEND=openai
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_GENERATION_MODEL=gpt-4o-mini
-OPENAI_EMBEDDING_DIMENSION=1536
+OPENAI_EMBED_MODEL=text-embedding-3-small
+OPENAI_GEN_MODEL=gpt-4o-mini
+OPENAI_EMBED_DIM=1536
 OPENAI_TIMEOUT=120
-OPENAI_MAX_RETRIES=3
 ```
 
 **Example (Azure OpenAI):**
@@ -283,8 +330,8 @@ OPENAI_MAX_RETRIES=3
 INFERENCE_BACKEND=openai
 OPENAI_API_KEY=your-azure-key
 OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments/your-deployment
-OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
-OPENAI_GENERATION_MODEL=gpt-4
+OPENAI_EMBED_MODEL=text-embedding-ada-002
+OPENAI_GEN_MODEL=gpt-4
 ```
 
 **Example (vLLM Self-Hosted):**
@@ -292,7 +339,7 @@ OPENAI_GENERATION_MODEL=gpt-4
 INFERENCE_BACKEND=openai
 OPENAI_API_KEY=token
 OPENAI_BASE_URL=http://vllm-server:8000/v1
-OPENAI_GENERATION_MODEL=meta-llama/Llama-3.1-8B-Instruct
+OPENAI_GEN_MODEL=meta-llama/Llama-3.1-8B-Instruct
 OPENAI_TIMEOUT=180
 ```
 
@@ -301,8 +348,8 @@ OPENAI_TIMEOUT=180
 INFERENCE_BACKEND=openai
 OPENAI_API_KEY=localai
 OPENAI_BASE_URL=http://localhost:8080/v1
-OPENAI_EMBEDDING_MODEL=text-embedding-ada-002
-OPENAI_GENERATION_MODEL=gpt-3.5-turbo
+OPENAI_EMBED_MODEL=text-embedding-ada-002
+OPENAI_GEN_MODEL=gpt-3.5-turbo
 ```
 
 ### MCP Server
@@ -317,7 +364,10 @@ The MCP (Model Context Protocol) server provides Claude/AI integration.
 | `MCP_BASE_URL` | String | `${ISSUER_URL}/mcp` | MCP protected resource URL (derived from ISSUER_URL) |
 | `MCP_TRANSPORT` | String | `http` | Transport mode: `stdio` (direct process) or `http` (network) |
 | `MCP_PORT` | Integer | `3001` | Port for MCP HTTP server (when transport=http) |
-| `MATRIC_API_URL` | String | `http://localhost:3000` | API server URL for MCP to connect to |
+| `MCP_BASE_PATH` | String | `/mcp` | URL path prefix for the MCP server (when transport=http) |
+| `MATRIC_API_URL` | String | `http://localhost:3000` | API server URL for the MCP server to connect to. Alias: `FORTEMI_URL`. |
+| `FORTEMI_URL` | String | `http://localhost:3000` | Alias for `MATRIC_API_URL`. Used in Docker bundle deployments. |
+| `FORTEMI_API_KEY` | String | None | API key for the MCP server to authenticate with the Fortemi API (when `REQUIRE_AUTH=true`). |
 
 **Example (Docker Bundle):**
 ```bash
@@ -410,11 +460,16 @@ For small installations (< 10,000 notes), enable only the features you need. For
 
 These variables control the multi-tier concept extraction cascade: GLiNER (tier 0, CPU-based NER) → fast model (tier 1) → standard model (tier 2).
 
+#### Concept Extraction
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `GLINER_BASE_URL` | String | `http://gliner:8090` (Docker bundle) | GLiNER NER service URL for CPU-based entity extraction (tier 0). Set to empty to disable. |
+| `GLINER_MODEL` | String | (set by GLiNER sidecar) | GLiNER model name, consumed by the GLiNER sidecar container (e.g., `urchade/gliner_large-v2.1`). |
+| `GLINER_THRESHOLD` | Float | (set by GLiNER sidecar) | Entity confidence threshold for the GLiNER sidecar (e.g., `0.3`). |
 | `EXTRACTION_TARGET_CONCEPTS` | Integer | `5` | Target number of concepts to extract per note. GLiNER→fast model escalation triggers when below this threshold; fast→standard model escalation triggers at < target/2 (i.e., 3 with the default of 5). |
-| `MATRIC_FAST_GEN_MODEL` | String | `qwen3:8b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. |
+| `MATRIC_FAST_GEN_MODEL` | String | `qwen3:8b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. Set to empty to disable. |
+| `MATRIC_FAST_GEN_TIMEOUT_SECS` | Integer | `60` | Timeout in seconds for fast model generation requests. |
 | `OLLAMA_GEN_MODEL` | String | `gpt-oss:20b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
 
 **Extraction cascade:**
@@ -448,6 +503,141 @@ EXTRACTION_TARGET_CONCEPTS=10
 MATRIC_FAST_GEN_MODEL=qwen3:8b
 OLLAMA_GEN_MODEL=gpt-oss:20b
 ```
+
+#### Embedding Enrichment
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `EMBED_CONCEPT_MAX_DOC_FREQ` | Float | `0.8` | Maximum document frequency ratio for concepts included in embedding text enrichment. Concepts appearing in more than this fraction of notes are treated as "stopwords" and excluded. Range: 0.01–1.0. |
+| `EMBED_INSTRUCTION_PREFIX` | String | `clustering: ` | Instruction prefix prepended to embedding text. `nomic-embed-text` supports `clustering: `, `search_document: `, and `classification: `. Set to empty string to disable. |
+
+**Example:**
+```bash
+EMBED_CONCEPT_MAX_DOC_FREQ=0.8
+EMBED_INSTRUCTION_PREFIX=clustering:
+```
+
+#### Vision (Image Description)
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OLLAMA_VISION_MODEL` | String | `qwen3-vl:8b` | Ollama vision model for image description and 3D model rendering. Set to empty to disable image extraction. Requires Ollama with a vision-capable model pulled. |
+
+**Example:**
+```bash
+OLLAMA_VISION_MODEL=qwen3-vl:8b
+# OLLAMA_VISION_MODEL=llava:7b  # Alternative
+# OLLAMA_VISION_MODEL=          # Disable
+```
+
+#### Audio Transcription (Whisper)
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `WHISPER_BASE_URL` | String | `http://localhost:8000` | URL for the Whisper-compatible transcription service. Set to empty to disable audio transcription. Deploy via `docker-compose.whisper.yml`. |
+| `WHISPER_MODEL` | String | `Systran/faster-distil-whisper-large-v3` | Whisper model name to use for transcription. |
+
+**Example:**
+```bash
+WHISPER_BASE_URL=http://host.docker.internal:8000
+WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
+```
+
+#### 3D Model Rendering
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `RENDERER_URL` | String | `http://localhost:8080` | URL for the Three.js renderer used for GLB/3D model keyframe extraction. The Docker bundle includes the renderer at this default address. Set to a custom URL for external renderer deployments. |
+
+**Example:**
+```bash
+RENDERER_URL=http://localhost:8080
+```
+
+#### OCR and Document Processing
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OCR_ENABLED` | Boolean | `false` | Enable OCR-based text extraction for scanned PDFs and images. Requires LibreOffice and Tesseract. |
+| `LIBREOFFICE_PATH` | String | `/usr/bin/libreoffice` | Path to the LibreOffice binary for document conversion (DOCX, XLSX, PPTX to PDF). |
+
+**Example:**
+```bash
+OCR_ENABLED=true
+LIBREOFFICE_PATH=/usr/bin/libreoffice
+```
+
+### Graph Linking
+
+These variables tune the knowledge graph structure. All graph variables are read at job execution time — no restart required for changes.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `GRAPH_LINKING_STRATEGY` | String | `hnsw_heuristic` | Linking strategy: `hnsw_heuristic` (HNSW Algorithm 4, diverse neighbor selection — recommended) or `threshold` (legacy epsilon-threshold). |
+| `GRAPH_K_NEIGHBORS` | Integer | `0` (adaptive) | Maximum neighbors per node (M in HNSW). `0` enables adaptive mode: k = log₂(N) clamped to [5, 15]. Set explicitly (e.g., `8`) to override adaptive computation. |
+| `GRAPH_MIN_SIMILARITY` | Float | `0.5` | Absolute similarity floor — no edges are created below this cosine similarity regardless of strategy. Range: 0.0–1.0. |
+| `GRAPH_EXTEND_CANDIDATES` | Boolean | `false` | Extend HNSW candidate set with neighbors-of-neighbors (Algorithm 4 option). Increases recall at the cost of more comparisons. |
+| `GRAPH_KEEP_PRUNED` | Boolean | `false` | Fill remaining neighbor slots from pruned candidates when the candidate set is exhausted (Algorithm 4 option). |
+| `GRAPH_TAG_BOOST_WEIGHT` | Float | `0.3` | Weight for SKOS tag overlap in the blended linking score. `blended = (embedding_sim * (1 - w)) + (tag_overlap * w)`. Set to `0.0` to disable tag-based boost. Range: 0.0–1.0. |
+| `GRAPH_NORMALIZATION_GAMMA` | Float | `1.0` | Gamma exponent for edge weight normalization during graph traversal. Applied as `normalized = ((score - min) / (max - min)) ^ gamma`. Values >1.0 amplify top-end differences; <1.0 compress them. Range: 0.1–5.0. |
+| `GRAPH_SNN_THRESHOLD` | Float | `0.10` | Shared Nearest Neighbor pruning threshold. Edges with SNN score below this are pruned during `recompute_snn_scores`. SNN(A,B) = \|kNN(A) ∩ kNN(B)\| / k. Range: 0.0–1.0. |
+| `GRAPH_COMMUNITY_RESOLUTION` | Float | `1.0` | Louvain community detection resolution parameter. Higher = more, smaller communities; lower = fewer, larger communities. Range: 0.1–10.0. |
+| `GRAPH_PFNET_Q` | Integer | `2` | PFNET graph sparsification q parameter. q=2 is equivalent to the Relative Neighborhood Graph (Toussaint 1980). Higher q produces sparser graphs approaching the MST. Range: 2–10. |
+| `GRAPH_STRUCTURAL_SCORE` | Float | `0.5` | Edge score assigned to structural (same-collection) edges. Controls the "gravity well" strength pulling exploration toward notes in the same collection. Range: 0.0–1.0. |
+
+**Example (defaults — suitable for most deployments):**
+```bash
+GRAPH_LINKING_STRATEGY=hnsw_heuristic
+GRAPH_K_NEIGHBORS=0
+GRAPH_MIN_SIMILARITY=0.5
+GRAPH_EXTEND_CANDIDATES=false
+GRAPH_KEEP_PRUNED=false
+GRAPH_TAG_BOOST_WEIGHT=0.3
+GRAPH_NORMALIZATION_GAMMA=1.0
+GRAPH_SNN_THRESHOLD=0.10
+GRAPH_COMMUNITY_RESOLUTION=1.0
+GRAPH_PFNET_Q=2
+GRAPH_STRUCTURAL_SCORE=0.5
+```
+
+**Example (denser graph for tightly-related content):**
+```bash
+GRAPH_LINKING_STRATEGY=hnsw_heuristic
+GRAPH_K_NEIGHBORS=12
+GRAPH_MIN_SIMILARITY=0.6
+GRAPH_TAG_BOOST_WEIGHT=0.4
+GRAPH_NORMALIZATION_GAMMA=1.5
+```
+
+### OpenRouter Inference
+
+OpenRouter provides access to 100+ LLMs via a single API. It is opt-in: the `OPENROUTER_API_KEY` variable activates the provider.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OPENROUTER_API_KEY` | String | None | OpenRouter API key. Setting this variable enables the OpenRouter provider for generation tasks. |
+| `OPENROUTER_BASE_URL` | String | `https://openrouter.ai/api/v1` | OpenRouter API base URL. |
+| `OPENROUTER_TIMEOUT` | Integer | `300` | Request timeout in seconds for OpenRouter calls. |
+| `OPENROUTER_HTTP_REFERER` | String | None | Optional `HTTP-Referer` header sent to OpenRouter for attribution and rate limit exemptions. |
+| `OPENROUTER_X_TITLE` | String | None | Optional `X-Title` header sent to OpenRouter for display in the OpenRouter dashboard. |
+
+**Example:**
+```bash
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxx
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_TIMEOUT=300
+OPENROUTER_HTTP_REFERER=https://memory.example.com
+OPENROUTER_X_TITLE=Matric Memory
+```
+
+### Build Information
+
+These variables are set automatically by the CI/CD pipeline and are read-only at runtime. They are exposed via the `/health` endpoint for build tracing.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MATRIC_GIT_SHA` | String | `unknown` | Git commit SHA of the running build. Set by CI during image build. |
+| `MATRIC_BUILD_DATE` | String | `unknown` | Build timestamp. Set by CI during image build. |
 
 ## Inference Configuration (inference.toml)
 
@@ -767,11 +957,11 @@ For personal use with local Ollama, no authentication:
 ```bash
 # .env
 DATABASE_URL=postgres://matric:matric@localhost/matric
-OLLAMA_URL=http://localhost:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_EMBEDDING_DIMENSION=768
+OLLAMA_BASE=http://localhost:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_EMBED_DIM=768
 RUST_LOG=info
-AUTH_ENABLED=false
+REQUIRE_AUTH=false
 RATE_LIMIT_ENABLED=false
 ```
 
@@ -793,7 +983,7 @@ PORT=3000
 RUST_LOG=info
 
 # Authentication
-AUTH_ENABLED=true
+REQUIRE_AUTH=true
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=1000
 RATE_LIMIT_PERIOD_SECS=60
@@ -807,18 +997,15 @@ MCP_TRANSPORT=http
 MCP_PORT=3001
 
 # Ollama (local inference)
-OLLAMA_URL=http://ollama.internal:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_GENERATION_MODEL=qwen2.5:7b
-OLLAMA_EMBEDDING_DIMENSION=768
-OLLAMA_NUM_CTX=8192
-OLLAMA_NUM_GPU=99
-OLLAMA_NUM_PARALLEL=4
+OLLAMA_BASE=http://ollama.internal:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_GEN_MODEL=qwen2.5:7b
+OLLAMA_EMBED_DIM=768
 
 # Background worker
 WORKER_ENABLED=true
 WORKER_THREADS=8
-JOB_POLL_INTERVAL=5
+JOB_POLL_INTERVAL_MS=60000
 
 # Logging
 LOG_FORMAT=json
@@ -845,7 +1032,7 @@ PORT=3000
 RUST_LOG=matric_api=info,matric_db=warn,matric_inference=info
 
 # Authentication and rate limiting
-AUTH_ENABLED=true
+REQUIRE_AUTH=true
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_REQUESTS=10000
 RATE_LIMIT_PERIOD_SECS=60
@@ -860,18 +1047,14 @@ MCP_PORT=3001
 
 # Hybrid inference: Local embeddings + Cloud generation
 INFERENCE_BACKEND=ollama
-OLLAMA_URL=http://ollama-cluster.internal:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-OLLAMA_EMBEDDING_DIMENSION=768
-OLLAMA_NUM_CTX=16384
-OLLAMA_NUM_GPU=99
-OLLAMA_NUM_PARALLEL=8
+OLLAMA_BASE=http://ollama-cluster.internal:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_EMBED_DIM=768
 
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_GENERATION_MODEL=gpt-4o
+OPENAI_GEN_MODEL=gpt-4o
 OPENAI_TIMEOUT=180
-OPENAI_MAX_RETRIES=5
 
 # Multilingual full-text search
 FTS_WEBSEARCH_TO_TSQUERY=true
@@ -883,7 +1066,7 @@ FTS_MULTILINGUAL_CONFIGS=true
 # Background worker optimization
 WORKER_ENABLED=true
 WORKER_THREADS=16
-JOB_POLL_INTERVAL=3
+JOB_POLL_INTERVAL_MS=60000
 
 # Production logging
 LOG_FORMAT=json
@@ -912,13 +1095,13 @@ When running Fortemi in Docker and accessing services on the host machine:
 **macOS and Windows (Docker Desktop):**
 ```bash
 # Use host.docker.internal to access host services
-OLLAMA_URL=http://host.docker.internal:11434
+OLLAMA_BASE=http://host.docker.internal:11434
 ```
 
 **Linux:**
 ```bash
 # Use Docker bridge network gateway IP
-OLLAMA_URL=http://172.17.0.1:11434
+OLLAMA_BASE=http://172.17.0.1:11434
 
 # Or use host network mode in docker-compose.bundle.yml:
 # network_mode: "host"

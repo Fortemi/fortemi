@@ -22,7 +22,7 @@ Three workflows in `.gitea/workflows/`:
 
 ```bash
 # Check recent runs via MCP
-# Use mcp__gitea__list_repo_action_runs with owner=roctinam, repo=matric-memory
+# Use mcp__gitea__list_repo_action_runs with owner=fortemi, repo=fortemi
 
 # Or via Gitea web UI
 # https://github.com/fortemi/fortemi/actions
@@ -199,7 +199,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (37 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph analysis tools). Set `MCP_TOOL_MODE=full` for all granular tools.
+**Tool modes:** Default is "core" (37 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`). Set `MCP_TOOL_MODE=full` for all 202 granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json
@@ -254,7 +254,7 @@ async fn test_something() {
 
 For tests sharing database state without transactional rollback:
 
-1. **Unique identifiers**: `format!("test-{}", chrono::Utc::now().timestamp_millis())`
+1. **Unique identifiers**: Use UUIDs (`uuid::Uuid::new_v4()`) — timestamp millis can collide in parallel tests
 2. **Track created resources**: Store IDs and verify only those records
 3. **Serial execution**: Run with `--test-threads=1` (configured in CI for worker tests)
 

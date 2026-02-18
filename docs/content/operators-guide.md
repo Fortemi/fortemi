@@ -237,6 +237,379 @@ curl -X POST http://localhost:3000/api/v1/jobs/pause \
 | `POST` | `/api/v1/jobs/pause/{archive}` | Pause processing for one archive |
 | `POST` | `/api/v1/jobs/resume/{archive}` | Resume processing for one archive |
 
+## Graph Maintenance
+
+The knowledge graph connects notes by semantic similarity. Over time, as notes are added and updated, edges can drift — weights become skewed, redundant shortcuts accumulate, and community structure degrades. Graph maintenance runs a quality pipeline to keep the graph clean.
+
+### How It Works
+
+Graph maintenance runs four steps in order:
+
+1. **Normalize** — Edge weights are normalized using a gamma correction curve. This step runs automatically during graph traversal; the maintenance job just records the current gamma setting.
+2. **SNN** (Shared Nearest Neighbors) — Edges are scored by how many neighbors the two endpoint notes share. Edges below a threshold are pruned. This removes spurious connections caused by embedding noise.
+3. **PFNET** (Pathfinder Network) — Geometrically redundant edges are pruned: if a shorter indirect path exists between two notes, the direct edge is removed. This reduces clutter in the graph while preserving all reachable paths.
+4. **Snapshot** — A diagnostics snapshot is saved so you can compare graph quality before and after.
+
+### When to Run Maintenance
+
+- After a large bulk import (hundreds of notes)
+- After changing the embedding model (all embeddings were regenerated)
+- When the graph visualization looks unusually dense or shows spiral/cluster artifacts
+- On a regular schedule (e.g., weekly) for large knowledge bases
+
+### Trigger Graph Maintenance
+
+```bash
+# Queue a full maintenance run (normalize → SNN → PFNET → snapshot)
+curl -X POST http://localhost:3000/api/v1/graph/maintenance
+
+# Run only specific steps
+curl -X POST http://localhost:3000/api/v1/graph/maintenance \
+  -H "Content-Type: application/json" \
+  -d '{"steps": ["snn", "pfnet"]}'
+```
+
+Response when queued:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "queued",
+  "steps": ["normalize", "snn", "pfnet", "snapshot"]
+}
+```
+
+Response when a maintenance job is already pending (deduplicated — only one runs at a time):
+```json
+{
+  "id": null,
+  "status": "already_pending"
+}
+```
+
+### Check Graph Quality
+
+Get current graph health statistics:
+
+```bash
+curl http://localhost:3000/api/v1/graph/topology/stats
+```
+
+Run a deeper diagnostics check (samples 1000 random embedding pairs by default):
+
+```bash
+curl "http://localhost:3000/api/v1/graph/diagnostics"
+
+# Sample more pairs for a larger knowledge base
+curl "http://localhost:3000/api/v1/graph/diagnostics?sample_size=5000"
+```
+
+Key fields to watch in the diagnostics response:
+
+| Field | Healthy Range | What It Means |
+|-------|--------------|---------------|
+| `embedding_space.anisotropy_score` | 0.0 – 0.3 | Near 0 = isotropic (good). Near 1 = all embeddings point the same direction (poor diversity). |
+| `embedding_space.similarity_mean` | 0.1 – 0.6 | Average similarity between random pairs. Very high = embeddings are too similar (model issue). |
+| `topology.degree_cv` | < 2.0 | Degree coefficient of variation. Very high = a few notes have thousands of edges (hub problem). |
+| `topology.modularity_q` | > 0.3 | Louvain modularity. Low = no meaningful community structure. |
+| `normalized_edges.pfnet_retention_ratio` | 0.1 – 0.5 | Fraction of edges surviving PFNET. Very high = graph is dense and not being pruned. |
+
+### Save and Compare Snapshots
+
+Snapshots let you compare graph quality before and after maintenance:
+
+```bash
+# Save a snapshot with a label
+curl -X POST http://localhost:3000/api/v1/graph/diagnostics/snapshot \
+  -H "Content-Type: application/json" \
+  -d '{"label": "before-bulk-import"}'
+
+# ... do work ...
+
+curl -X POST http://localhost:3000/api/v1/graph/diagnostics/snapshot \
+  -H "Content-Type: application/json" \
+  -d '{"label": "after-maintenance"}'
+
+# List saved snapshots
+curl "http://localhost:3000/api/v1/graph/diagnostics/history"
+
+# Compare two snapshots (replace UUIDs with actual snapshot IDs)
+curl "http://localhost:3000/api/v1/graph/diagnostics/compare?before=UUID1&after=UUID2"
+```
+
+The comparison response includes a human-readable `summary` array describing what improved or regressed.
+
+### Summary of Graph Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/graph/topology/stats` | Lightweight topology statistics |
+| `GET` | `/api/v1/graph/diagnostics` | Full quality diagnostics (sampling) |
+| `POST` | `/api/v1/graph/diagnostics/snapshot` | Save a named snapshot |
+| `GET` | `/api/v1/graph/diagnostics/history` | List saved snapshots |
+| `GET` | `/api/v1/graph/diagnostics/compare` | Compare two snapshots |
+| `POST` | `/api/v1/graph/maintenance` | Trigger full maintenance pipeline |
+
+## Embedding Set Management
+
+Embedding sets group notes for focused semantic search. They let you build a curated or automatically-maintained subset of notes with their own search index — for example, all notes tagged `architecture`, or all notes in a specific collection.
+
+### Set Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `filter` (default) | Shares embeddings with the default set. Zero storage overhead. | Searching a known tag or collection subset |
+| `full` | Stores its own embeddings from a dedicated config. Can use a different model or MRL truncation. | Domain-specific search, different embedding model, MRL space savings |
+
+### Membership Modes
+
+| Mode | Description |
+|------|-------------|
+| `auto` (default) | Notes are added automatically when they match the criteria |
+| `manual` | Only explicitly added notes are included |
+| `mixed` | Auto criteria plus manual additions and exclusions |
+
+### List and Inspect Sets
+
+```bash
+# List all embedding sets
+curl http://localhost:3000/api/v1/embedding-sets
+
+# Get a specific set by slug or UUID
+curl http://localhost:3000/api/v1/embedding-sets/my-set-slug
+
+# List members of a set
+curl "http://localhost:3000/api/v1/embedding-sets/my-set-slug/members?limit=50"
+```
+
+### Create a Filter Set (Tag-Based)
+
+A filter set automatically includes all notes with the specified tags:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/embedding-sets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Architecture Notes",
+    "slug": "architecture",
+    "description": "All notes tagged with architecture topics",
+    "set_type": "filter",
+    "mode": "auto",
+    "criteria": {
+      "tags": ["architecture", "system-design"],
+      "exclude_archived": true
+    }
+  }'
+```
+
+### Create a Filter Set (Collection-Based)
+
+```bash
+curl -X POST http://localhost:3000/api/v1/embedding-sets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Project Alpha",
+    "slug": "project-alpha",
+    "set_type": "filter",
+    "mode": "auto",
+    "criteria": {
+      "collections": ["COLLECTION-UUID-HERE"],
+      "exclude_archived": true
+    }
+  }'
+```
+
+### Create a Full Set with MRL Truncation
+
+Full sets with MRL-enabled models can store truncated embeddings for storage savings and faster retrieval. Requires an embedding config that supports MRL:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/embedding-sets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Code Snippets (MRL)",
+    "slug": "code-mrl",
+    "set_type": "full",
+    "mode": "auto",
+    "criteria": {
+      "tags": ["code"],
+      "exclude_archived": true
+    },
+    "embedding_config_id": "CONFIG-UUID-HERE",
+    "truncate_dim": 128,
+    "auto_embed_rules": {
+      "on_create": true,
+      "on_update": true
+    }
+  }'
+```
+
+### Create a Manual Set
+
+Manual sets only include notes you explicitly add:
+
+```bash
+# Create the set
+curl -X POST http://localhost:3000/api/v1/embedding-sets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Curated References",
+    "slug": "curated-refs",
+    "set_type": "filter",
+    "mode": "manual"
+  }'
+
+# Add notes to it
+curl -X POST http://localhost:3000/api/v1/embedding-sets/curated-refs/members \
+  -H "Content-Type: application/json" \
+  -d '{"note_ids": ["NOTE-UUID-1", "NOTE-UUID-2"]}'
+
+# Remove a note
+curl -X DELETE http://localhost:3000/api/v1/embedding-sets/curated-refs/members/NOTE-UUID-1
+```
+
+### Refresh a Set
+
+For `auto` and `mixed` sets, refresh re-evaluates the criteria and adds/removes members accordingly. For `manual` sets, refresh re-queues embedding jobs for all members.
+
+```bash
+curl -X POST http://localhost:3000/api/v1/embedding-sets/my-set-slug/refresh
+```
+
+### Update and Delete a Set
+
+```bash
+# Update description or criteria
+curl -X PATCH http://localhost:3000/api/v1/embedding-sets/my-set-slug \
+  -H "Content-Type: application/json" \
+  -d '{"description": "Updated description"}'
+
+# Delete a set (not allowed for system sets)
+curl -X DELETE http://localhost:3000/api/v1/embedding-sets/my-set-slug
+```
+
+### Embedding Set Criteria Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `include_all` | bool | Include every note in the archive |
+| `tags` | string[] | Include notes with any of these tags |
+| `collections` | UUID[] | Include notes in any of these collections |
+| `fts_query` | string | Include notes matching this full-text search query |
+| `created_after` | datetime | Include notes created after this date |
+| `created_before` | datetime | Include notes created before this date |
+| `exclude_archived` | bool | Exclude archived notes (default: true) |
+
+### Summary of Embedding Set Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/embedding-sets` | List all sets |
+| `POST` | `/api/v1/embedding-sets` | Create a new set |
+| `GET` | `/api/v1/embedding-sets/{slug}` | Get a set by slug or UUID |
+| `PATCH` | `/api/v1/embedding-sets/{slug}` | Update a set |
+| `DELETE` | `/api/v1/embedding-sets/{slug}` | Delete a set |
+| `GET` | `/api/v1/embedding-sets/{slug}/members` | List members |
+| `POST` | `/api/v1/embedding-sets/{slug}/members` | Add notes to a set |
+| `DELETE` | `/api/v1/embedding-sets/{slug}/members/{id}` | Remove a note from a set |
+| `POST` | `/api/v1/embedding-sets/{slug}/refresh` | Refresh membership |
+
+## Advanced Diagnostics
+
+### Health Endpoints
+
+| Endpoint | Purpose | Notes |
+|----------|---------|-------|
+| `GET /health` | Fast health check | Always returns 200 if the API process is running |
+| `GET /api/v1/health/live` | Live connectivity check | Probes all backends; returns 503 if PostgreSQL is down |
+
+The `/health` response includes capability flags that reflect what is actually running:
+
+```bash
+curl http://localhost:3000/health
+```
+
+```json
+{
+  "status": "healthy",
+  "version": "2026.1.0",
+  "git_sha": "abc1234",
+  "build_date": "2026-01-15",
+  "capabilities": {
+    "vision": true,
+    "audio_transcription": false,
+    "ner": true,
+    "auth_required": false,
+    "extraction_strategies": ["text-native", "pdf-text", "code-ast", "vision", "audio-transcribe"]
+  },
+  "job_processing": "running"
+}
+```
+
+**`capabilities` fields:**
+
+| Field | Description |
+|-------|-------------|
+| `vision` | Ollama vision backend is configured and reachable |
+| `audio_transcription` | Whisper-compatible backend is configured |
+| `ner` | GLiNER NER backend is configured for concept extraction |
+| `auth_required` | Whether `REQUIRE_AUTH=true` is set |
+| `extraction_strategies` | List of registered attachment extraction adapters |
+| `job_processing` | `"running"` or `"paused"` (reflects global pause state) |
+
+### Live Health Check (Readiness Probe)
+
+Use `/api/v1/health/live` as a readiness probe in container orchestration. It checks each backend concurrently with a 5-second timeout:
+
+```bash
+curl http://localhost:3000/api/v1/health/live
+```
+
+```json
+{
+  "status": "healthy",
+  "check_duration_ms": 12,
+  "services": {
+    "postgresql": { "status": "ok" },
+    "redis": { "status": "ok" },
+    "vision": { "status": "ok" },
+    "transcription": { "status": "not_configured" },
+    "ner": { "status": "not_configured" }
+  }
+}
+```
+
+**Service statuses:**
+- `ok` — reachable and responding
+- `not_configured` — backend is not configured (not an error)
+- `error` — configured but unreachable (check the `error` field for details)
+- `unavailable` — connected but reporting unhealthy
+
+**HTTP status codes:**
+- `200` — healthy or degraded (optional services down; PostgreSQL is up)
+- `503` — unhealthy (PostgreSQL is unreachable)
+
+### Check Extraction Capabilities
+
+The `extraction_strategies` array in `/health` is the authoritative list of what file types can be processed. Compare it to what you expect to be enabled:
+
+| Strategy | Requires | What It Handles |
+|----------|----------|-----------------|
+| `text-native` | Always active | Plain text, Markdown |
+| `pdf-text` | Always active | PDF text extraction |
+| `code-ast` | Always active | Source code files |
+| `vision` | `OLLAMA_VISION_MODEL` set | Images (JPEG, PNG, WEBP) |
+| `audio-transcribe` | `WHISPER_BASE_URL` set | Audio files (MP3, WAV, M4A) |
+| `video-multimodal` | Vision + audio both active | Video files |
+| `office-convert` | LibreOffice installed | DOCX, XLSX, PPTX |
+| `pdf-ocr` | `OCR_ENABLED=true` | Scanned PDFs |
+| `gliner-ner` | `GLINER_BASE_URL` set | Structured entity extraction |
+
+If a strategy you expect is missing, check the container startup logs:
+
+```bash
+docker compose -f docker-compose.bundle.yml logs matric | grep "Extraction adapters"
+```
+
 ## Common Issues
 
 | Symptom | Cause | Fix |
@@ -248,6 +621,11 @@ curl -X POST http://localhost:3000/api/v1/jobs/pause \
 | Connection refused on :3000 | Container not running | `docker compose up -d` |
 | Embedding jobs failing | Ollama not reachable from container | Add `extra_hosts: host.docker.internal:host-gateway` to docker-compose |
 | Tags not matching | Case mismatch or hierarchy | Tags are case-insensitive and support hierarchical matching |
+| Graph visualization shows spirals or tight clusters | Graph needs maintenance | Run `POST /api/v1/graph/maintenance`; check diagnostics for high `anisotropy_score` |
+| Notes added but embedding set stays empty | Auto criteria not matching | Inspect criteria with `GET /api/v1/embedding-sets/{slug}`, then `POST /api/v1/embedding-sets/{slug}/refresh` |
+| Job queue growing but no jobs completing | Job worker paused | Check `GET /api/v1/jobs/status`; resume with `POST /api/v1/jobs/resume` |
+| `extraction_strategies` missing expected adapter | Backend not configured or unreachable | Check startup logs for adapter registration; verify env vars |
+| Graph maintenance job not appearing | Already pending (deduplicated) | Response `"status": "already_pending"` is normal; the existing job will run |
 
 ## MCP Server
 

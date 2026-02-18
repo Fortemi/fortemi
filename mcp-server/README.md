@@ -84,9 +84,9 @@ The server exposes:
 
 The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-### Core Mode (Default) — 29 Tools
+### Core Mode (Default) — 37 Tools
 
-Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~78% compared to full mode.
+Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~82% compared to full mode.
 
 **Core tools:**
 
@@ -94,7 +94,7 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 |----------|-------|-------|
 | **Notes CRUD** | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
 | **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups` | 10 |
-| **Graph** | `explore_graph`, `get_topology_stats`, `get_note_links` | 3 |
+| **Graph** | `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_note_links` | 11 |
 | **Export** | `export_note` | 1 |
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
@@ -103,9 +103,9 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 | **Jobs & inference** | `manage_jobs`, `manage_inference` | 2 |
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
 
-**Total:** 29 tools
+**Total:** 37 tools
 
-### Full Mode — 187 Tools
+### Full Mode — 202 Tools
 
 All granular API operations exposed as individual tools. For backward compatibility and specialized use cases requiring fine-grained control.
 
@@ -162,19 +162,97 @@ Core mode uses discriminated-union tools with an `action` parameter:
 - `action: "get_full"` — Get concept with relations
 - `action: "stats"` — Governance statistics
 - `action: "top"` — Get top-level concepts
+- `action: "list_schemes"` — List all concept schemes
+- `action: "create_scheme"` — Create a concept scheme
+- `action: "get_scheme"` — Get scheme details
+- `action: "update_scheme"` — Update scheme metadata
+- `action: "delete_scheme"` — Delete a concept scheme
+
+**`manage_embeddings`** — Embedding set operations
+- `action: "list"` — List all embedding sets
+- `action: "get"` — Get set details by slug
+- `action: "create"` — Create a new set with criteria
+- `action: "update"` — Update set metadata or criteria
+- `action: "delete"` — Delete a set
+- `action: "list_members"` — List notes in a set
+- `action: "add_members"` — Add notes to a set
+- `action: "remove_member"` — Remove a note from a set
+- `action: "refresh"` — Recompute auto-criteria membership
+
+**`manage_archives`** — Memory archive operations
+- `action: "list"` — List all archives
+- `action: "create"` — Create a new archive
+- `action: "get"` — Get archive details
+- `action: "update"` — Update archive description
+- `action: "delete"` — Permanently delete archive
+- `action: "set_default"` — Set as session default
+- `action: "stats"` — Archive statistics
+- `action: "clone"` — Deep copy to new archive
+
+**`manage_encryption`** — PKE encryption operations
+- `action: "generate_keypair"` — Generate a new keypair
+- `action: "get_address"` — Derive address from public key
+- `action: "encrypt"` — Encrypt plaintext for recipients
+- `action: "decrypt"` — Decrypt ciphertext
+- `action: "list_recipients"` — List recipients from ciphertext
+- `action: "verify_address"` — Verify a PKE address
+- `action: "list_keysets"` — List local keysets
+- `action: "create_keyset"` — Create and store a keyset
+- `action: "get_active_keyset"` — Get active keyset
+- `action: "set_active_keyset"` — Set active keyset
+- `action: "export_keyset"` — Export keyset to directory
+- `action: "import_keyset"` — Import keyset from files
+- `action: "delete_keyset"` — Delete a local keyset
+
+**`manage_backups`** — Backup and restore operations
+- `action: "export_shard"` — Download knowledge shard (.tar.gz)
+- `action: "import_shard"` — Upload/import a knowledge shard
+- `action: "snapshot"` — Create a named database snapshot
+- `action: "restore"` — Restore from a snapshot
+- `action: "list"` — List available backups
+- `action: "get_info"` — Get backup file details
+- `action: "get_metadata"` — Get backup metadata
+- `action: "update_metadata"` — Update backup title/description
+- `action: "download_archive"` — Download a knowledge archive
+- `action: "upload_archive"` — Upload a knowledge archive
+- `action: "swap"` — Swap in a backup as active memory
+- `action: "download_memory"` — Download memory archive as SQL
+
+**`manage_jobs`** — Job queue management
+- `action: "list"` — List jobs with filters
+- `action: "get"` — Get single job details
+- `action: "create"` — Queue a processing job
+- `action: "stats"` — Queue statistics
+- `action: "pending_count"` — Quick pending count
+- `action: "extraction_stats"` — Extraction pipeline analytics
+- `action: "pause_status"` — Get pause state
+- `action: "pause"` — Pause globally or per archive
+- `action: "resume"` — Resume globally or per archive
 
 ## Advanced Features
 
-Features not exposed in the core tool surface (versioning, PKE encryption, SKOS admin, OAuth, embedding sets, job queue, etc.) are accessible via the full API. Use the `get_documentation` tool for guidance:
+Most functionality is available directly through the 37 core tools. A small set of features requires full mode or the REST API:
+
+**Requires full mode or REST API (not in core):**
+- Note versioning (version history, diffs, restore)
+- SKOS concept CRUD (create/update/delete individual concepts, relation management)
+- SKOS collections (`list_skos_collections`, etc.)
+- OAuth client management
+- Embedding configs (model-level configuration)
+- Document types (create, update, delete, detection)
+- Note purge operations (hard delete)
+- Timeline and activity views
+
+Use the `get_documentation` tool to learn about these features:
 
 ```javascript
 get_documentation({ topic: "versioning" })
-get_documentation({ topic: "pke" })
-get_documentation({ topic: "embedding-sets" })
+get_documentation({ topic: "pke" })          // PKE is also in core via manage_encryption
+get_documentation({ topic: "embedding-sets" }) // Also in core via manage_embeddings
 get_documentation({ topic: "skos" })
 ```
 
-Or switch to full mode: `MCP_TOOL_MODE=full`
+Or switch to full mode for all 202 granular tools: `MCP_TOOL_MODE=full`
 
 ## Document Types
 
@@ -540,7 +618,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (29 tools) or `full` (all granular tools) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (37 tools) or `full` (202 granular tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |

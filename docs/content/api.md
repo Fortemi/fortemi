@@ -208,6 +208,52 @@ Content-Type: application/json
 }
 ```
 
+### Bulk Reprocess Notes
+
+```http
+POST /api/v1/notes/reprocess
+Content-Type: application/json
+
+{
+  "limit": 500,
+  "revision_mode": "light",
+  "steps": ["embedding", "linking", "title"],
+  "note_ids": ["550e8400-...", "660e8400-..."]
+}
+```
+
+Queues NLP pipeline jobs for multiple notes at once. Useful after model changes or to backfill new features.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| limit | int | No | Max notes to process (default: 500, max: 5000) |
+| revision_mode | string | No | `full`, `light` (default), or `none` |
+| steps | string[] | No | Steps to run: `embedding`, `linking`, `title`, `concept_tagging`, `reference_extraction`, `metadata_extraction`, `document_type`, `revision`, or `all` (default) |
+| note_ids | UUID[] | No | Specific note IDs to reprocess. If omitted, all active notes up to `limit` are processed. |
+
+**Response:**
+
+```json
+{
+  "queued": 42,
+  "total": 42,
+  "revision_mode": "light",
+  "steps": ["embedding", "linking"]
+}
+```
+
+**Example:**
+
+```bash
+# Reprocess all notes with embedding only
+curl -X POST http://localhost:3000/api/v1/notes/reprocess \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"steps": ["embedding"]}'
+```
+
 ## Note Versioning
 
 Fortémi maintains dual-track versioning: **original** (user-written) and **revised** (AI-enhanced) histories.
@@ -355,6 +401,26 @@ curl -X POST http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-44665544
   -F "file=@vacation-photo.jpg"
 ```
 
+### Upload Attachment (Multipart)
+
+```http
+POST /api/v1/notes/{id}/attachments/upload
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+file=@photo.jpg
+```
+
+Alternative multipart upload endpoint that supports larger files. Uses the same request format as the standard attachment upload but with a dedicated route.
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/attachments/upload \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -F "file=@large-document.pdf"
+```
+
 ### List Note Attachments
 
 ```http
@@ -397,13 +463,28 @@ curl http://localhost:3000/api/v1/notes/550e8400-e29b-41d4-a716-446655440000/att
   -H "Authorization: Bearer mm_key_xxx"
 ```
 
-### Download Attachment
+### Get Attachment
 
 ```http
 GET /api/v1/attachments/{id}
 ```
 
-Downloads the file content with appropriate Content-Type and Content-Disposition headers.
+Returns the attachment record as JSON (metadata, not the binary file).
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
+### Download Attachment
+
+```http
+GET /api/v1/attachments/{id}/download
+```
+
+Downloads the raw binary file content with appropriate Content-Type and Content-Disposition headers.
 
 **Response Headers:**
 
@@ -414,7 +495,7 @@ Downloads the file content with appropriate Content-Type and Content-Disposition
 **Example:**
 
 ```bash
-curl -O http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000 \
+curl -O http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-446655440000/download \
   -H "Authorization: Bearer mm_key_xxx"
 ```
 
@@ -734,6 +815,35 @@ Content-Type: application/json
 
 Links an attachment to its spatial-temporal capture context. Use location and device IDs from the creation endpoints above.
 
+### Create Note Provenance
+
+```http
+POST /api/v1/provenance/notes
+Content-Type: application/json
+
+{
+  "note_id": "550e8400-...",
+  "activity": "ai_revision",
+  "agent": "ollama:llama3.2",
+  "inputs": ["original_content"],
+  "outputs": ["revised_content"],
+  "parameters": {
+    "model": "llama3.2",
+    "temperature": 0.7
+  }
+}
+```
+
+Records a W3C PROV provenance entry for a note. Used to track AI processing, imports, and other activities that transform note content.
+
+**Response (201 Created):**
+
+```json
+{
+  "id": "provenance-uuid"
+}
+```
+
 ## Full Document Reconstruction
 
 ### Get Full Document
@@ -920,18 +1030,25 @@ GET /api/v1/search?query=machine+learning&mode=hybrid&limit=20
 Apply guaranteed tag-based filtering **before** fuzzy search. Unlike query string filters, strict filters guarantee exact matches.
 
 ```http
-POST /api/v1/search
-Content-Type: application/json
+GET /api/v1/search?q=authentication&strict_filter=<json>
+```
 
+Pass the `strict_filter` parameter as a URL-encoded JSON string:
+
+```bash
+curl "http://localhost:3000/api/v1/search?q=authentication" \
+  -H "Authorization: Bearer mm_key_xxx" \
+  --data-urlencode "strict_filter={\"required_tags\":[\"project:matric\"],\"any_tags\":[\"priority:high\"],\"excluded_tags\":[\"status:archived\"]}"
+```
+
+The `strict_filter` JSON object supports:
+
+```json
 {
-  "query": "authentication",
-  "mode": "hybrid",
-  "strict_filter": {
-    "required_tags": ["project:matric"],
-    "any_tags": ["priority:high", "priority:critical"],
-    "excluded_tags": ["status:archived"],
-    "required_schemes": ["client-acme"]
-  }
+  "required_tags": ["project:matric"],
+  "any_tags": ["priority:high", "priority:critical"],
+  "excluded_tags": ["status:archived"],
+  "required_schemes": ["client-acme"]
 }
 ```
 
@@ -1260,6 +1377,22 @@ GET /api/v1/concepts/schemes/{id}/export/turtle
 
 Exports a concept scheme in RDF Turtle format (W3C SKOS-compatible).
 
+#### Export All Schemes as Turtle
+
+```http
+GET /api/v1/concepts/schemes/export/turtle
+```
+
+Exports all concept schemes in a single RDF Turtle document.
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/concepts/schemes/export/turtle \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -o all-schemes.ttl
+```
+
 ### SKOS Collections
 
 SKOS Collections group related concepts for convenience (W3C SKOS Section 9).
@@ -1571,6 +1704,29 @@ GET /api/v1/collections/{id}/notes
 
 Returns all notes in a collection.
 
+### Export Collection as Markdown
+
+```http
+GET /api/v1/collections/{id}/export?include_frontmatter=true&content=revised
+```
+
+Exports all notes in a collection as a single concatenated Markdown document with optional YAML frontmatter separators.
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| include_frontmatter | bool | Include YAML frontmatter per note (default: true) |
+| content | string | `original` or `revised` (default: `revised`) |
+
+**Example:**
+
+```bash
+curl "http://localhost:3000/api/v1/collections/550e8400-e29b-41d4-a716-446655440000/export" \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -o collection-export.md
+```
+
 ### Move Note to Collection
 
 ```http
@@ -1625,9 +1781,12 @@ Traverses semantic links to discover connected notes using recursive CTEs.
 
 | Param | Type | Description |
 |-------|------|-------------|
-| depth | int | Maximum traversal depth (default: 2) |
-| max_nodes | int | Maximum nodes to return (default: 50) |
-| min_score | float | Minimum link score threshold |
+| depth | int | Maximum traversal depth (default: 2, max: 10) |
+| max_nodes | int | Maximum nodes to return (default: 50, max: 1000) |
+| min_score | float | Minimum link score threshold (default: 0.0) |
+| max_edges_per_node | int | Maximum edges returned per node (optional) |
+| edge_filter | string | Community filter: `all` (default), `intra_community`, `inter_community` |
+| include_structural | bool | Include structural collection edges (default: true) |
 
 **Response:**
 
@@ -1653,6 +1812,230 @@ Traverses semantic links to discover connected notes using recursive CTEs.
     }
   ]
 }
+```
+
+### Graph Topology Stats
+
+```http
+GET /api/v1/graph/topology/stats
+```
+
+Returns graph topology statistics for the current memory archive.
+
+**Response:**
+
+```json
+{
+  "total_notes": 1523,
+  "total_links": 8712,
+  "isolated_nodes": 42,
+  "connected_components": 18,
+  "avg_degree": 11.4,
+  "max_degree": 87,
+  "min_degree_linked": 1,
+  "median_degree": 9.0,
+  "linking_strategy": "snn_pfnet",
+  "effective_k": 25
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/graph/topology/stats \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
+### Graph Diagnostics
+
+```http
+GET /api/v1/graph/diagnostics?sample_size=1000
+```
+
+Returns graph quality diagnostics by sampling embedding pairs.
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| sample_size | int | Number of random embedding pairs to sample (default: 1000, range: 10–10000) |
+
+**Example:**
+
+```bash
+curl "http://localhost:3000/api/v1/graph/diagnostics?sample_size=500" \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
+### Capture Diagnostics Snapshot
+
+```http
+POST /api/v1/graph/diagnostics/snapshot
+Content-Type: application/json
+
+{
+  "label": "pre-migration",
+  "sample_size": 1000
+}
+```
+
+Captures and stores a labeled diagnostics snapshot for later comparison.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| label | string | Yes | Human-readable label for the snapshot |
+| sample_size | int | No | Embedding pairs to sample (default: 1000) |
+
+### List Diagnostics Snapshots
+
+```http
+GET /api/v1/graph/diagnostics/history?limit=20
+```
+
+Returns previously captured diagnostics snapshots.
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| limit | int | Max snapshots to return (default: 20, max: 100) |
+
+### Compare Diagnostics Snapshots
+
+```http
+GET /api/v1/graph/diagnostics/compare?before={uuid}&after={uuid}
+```
+
+Compares two diagnostics snapshots and returns a diff.
+
+**Query Parameters:**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| before | UUID | Yes | Snapshot ID for the "before" state |
+| after | UUID | Yes | Snapshot ID for the "after" state |
+
+### Recompute SNN Scores
+
+```http
+POST /api/v1/graph/snn/recompute
+Content-Type: application/json
+
+{
+  "k": 25,
+  "threshold": 0.10,
+  "dry_run": false
+}
+```
+
+Recomputes Shared Nearest Neighbor (SNN) scores for all edges.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| k | int | No | Number of nearest neighbors (default: adaptive from graph config) |
+| threshold | float | No | SNN threshold — edges below this are pruned (default: 0.10) |
+| dry_run | bool | No | Compute scores without updating/deleting anything (default: false) |
+
+### PFNET Sparsify
+
+```http
+POST /api/v1/graph/pfnet/sparsify
+Content-Type: application/json
+
+{
+  "q": 2,
+  "dry_run": false
+}
+```
+
+Runs Pathfinder Network (PFNET) sparsification to remove redundant edges.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| q | int | No | PFNET q parameter — higher values produce sparser graphs (default: 2, RNG-equivalent) |
+| dry_run | bool | No | Compute without deleting/updating edges (default: false) |
+
+### Coarse Community Detection
+
+```http
+POST /api/v1/graph/community/coarse
+Content-Type: application/json
+
+{
+  "coarse_dim": 64,
+  "similarity_threshold": 0.3,
+  "resolution": 1.0
+}
+```
+
+Runs Louvain community detection on a dimensionality-reduced (MRL) graph.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| coarse_dim | int | No | MRL truncation dimension (default: 64, range: 2–768) |
+| similarity_threshold | float | No | Minimum cosine similarity for edge inclusion (default: 0.3) |
+| resolution | float | No | Louvain resolution parameter (default: from config) |
+
+### Trigger Graph Maintenance
+
+```http
+POST /api/v1/graph/maintenance
+Content-Type: application/json
+
+{
+  "steps": ["normalize", "snn", "pfnet", "snapshot"]
+}
+```
+
+Queues a graph maintenance job. Jobs are deduplicated — if one is already pending, returns 200 with `"already_pending"` status.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| steps | string[] | No | Steps to run. Default: all steps. Valid values: `normalize`, `snn`, `pfnet`, `snapshot` |
+
+**Response (201 Created — new job):**
+
+```json
+{
+  "id": "job-uuid",
+  "status": "queued",
+  "steps": ["normalize", "snn", "pfnet", "snapshot"]
+}
+```
+
+**Response (200 OK — deduplicated):**
+
+```json
+{
+  "id": null,
+  "status": "already_pending"
+}
+```
+
+**Example:**
+
+```bash
+# Run full maintenance pipeline
+curl -X POST http://localhost:3000/api/v1/graph/maintenance \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Run only SNN and PFNET steps
+curl -X POST http://localhost:3000/api/v1/graph/maintenance \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"steps": ["snn", "pfnet"]}'
 ```
 
 ## Embedding Sets
@@ -2110,6 +2493,35 @@ Content-Type: application/json
 
 Restores the database from a backup file. **WARNING: This will overwrite all current data.**
 
+### Memory-Scoped Backup
+
+#### Download Memory Backup
+
+```http
+GET /api/v1/backup/memory/{name}
+```
+
+Downloads a gzip-compressed `pg_dump` of a single memory archive schema. Unlike the full database backup, this exports only the specified memory's data.
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| name | string | Memory archive name (e.g., `work-notes`) |
+
+**Response Headers:**
+
+- `Content-Type`: `application/gzip`
+- `Content-Disposition`: `attachment; filename="memory_{name}_{timestamp}.sql.gz"`
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/backup/memory/work-notes \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -o work-notes-backup.sql.gz
+```
+
 ### Knowledge Archives
 
 Knowledge archives bundle a knowledge shard with metadata in a single `.archive` file.
@@ -2396,6 +2808,274 @@ Searches across multiple memories in parallel with unified result ranking.
 
 Use `"memories": ["all"]` to search every memory.
 
+## Vision
+
+Ad-hoc image description using the configured vision LLM. Requires `OLLAMA_VISION_MODEL` to be set.
+
+### Describe Image
+
+```http
+POST /api/v1/vision/describe
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+file=@image.jpg
+```
+
+Analyzes an uploaded image and returns an AI-generated description. No attachment is stored — this is a stateless, ad-hoc operation.
+
+**Multipart Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| file | binary | Yes | Image file (JPEG, PNG, WebP, GIF, etc.) |
+| prompt | string | No | Custom description prompt |
+| model | string | No | Vision model override (e.g., `llava:13b`) |
+
+**Response (200 OK):**
+
+```json
+{
+  "description": "A sunset photograph showing orange and pink clouds over a city skyline...",
+  "model": "qwen3-vl:8b",
+  "image_size": 2457600
+}
+```
+
+**Errors:**
+
+- `400 Bad Request`: Missing or empty file
+- `503 Service Unavailable`: `OLLAMA_VISION_MODEL` not configured
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/v1/vision/describe \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -F "file=@sunset.jpg" \
+  -F "prompt=Describe the colors and mood of this image"
+```
+
+## Audio
+
+Ad-hoc audio transcription using a Whisper-compatible backend. Requires `WHISPER_BASE_URL` to be set.
+
+### Transcribe Audio
+
+```http
+POST /api/v1/audio/transcribe
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+file=@recording.mp3
+```
+
+Transcribes an uploaded audio file and returns timestamped text segments. No attachment is stored — this is a stateless, ad-hoc operation.
+
+**Multipart Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| file | binary | Yes | Audio file (MP3, WAV, M4A, OGG, FLAC, etc.) |
+| language | string | No | ISO 639-1 language hint (e.g., `en`, `es`). Auto-detected if omitted. |
+| model | string | No | Whisper model override (e.g., `Systran/faster-whisper-large-v3`) |
+
+**Response (200 OK):**
+
+```json
+{
+  "text": "Hello, this is the full transcription of the audio file...",
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 3.5,
+      "text": "Hello, this is the full"
+    },
+    {
+      "start": 3.5,
+      "end": 7.2,
+      "text": "transcription of the audio file..."
+    }
+  ],
+  "language": "en",
+  "duration_secs": 7.2,
+  "model": "Systran/faster-distil-whisper-large-v3",
+  "audio_size": 115200
+}
+```
+
+**Errors:**
+
+- `400 Bad Request`: Missing or empty file
+- `503 Service Unavailable`: `WHISPER_BASE_URL` not configured
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/v1/audio/transcribe \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -F "file=@meeting-recording.mp3" \
+  -F "language=en"
+```
+
+## Inference
+
+### List Models
+
+```http
+GET /api/v1/models
+```
+
+Returns all models available through the configured inference providers (Ollama, etc.).
+
+**Response:**
+
+```json
+{
+  "models": [
+    {
+      "name": "llama3.2",
+      "provider": "ollama",
+      "capabilities": ["generation"],
+      "size_bytes": 2000000000
+    },
+    {
+      "name": "mxbai-embed-large",
+      "provider": "ollama",
+      "capabilities": ["embedding"],
+      "size_bytes": 670000000
+    }
+  ]
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/models \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
+### Extraction Stats
+
+```http
+GET /api/v1/extraction/stats
+```
+
+Returns analytics for extraction jobs including counts, durations, and breakdown by strategy.
+
+**Response:**
+
+```json
+{
+  "total": 1523,
+  "completed": 1488,
+  "failed": 12,
+  "pending": 23,
+  "avg_duration_ms": 2341,
+  "by_strategy": {
+    "pdf": {"total": 412, "completed": 408, "failed": 4},
+    "vision": {"total": 298, "completed": 295, "failed": 3},
+    "text_native": {"total": 813, "completed": 785, "failed": 5}
+  }
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/extraction/stats \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
+## PKE (Public Key Encryption)
+
+Fortémi includes a Public Key Encryption system for secure note sharing. Keys use asymmetric cryptography so encrypted notes can be shared with specific recipients.
+
+### Generate Key Pair
+
+```http
+POST /api/v1/pke/keygen
+```
+
+Generates a new PKE key pair. Returns the public key and a secure private key identifier.
+
+### Get Address
+
+```http
+POST /api/v1/pke/address
+Content-Type: application/json
+
+{
+  "public_key": "..."
+}
+```
+
+Derives a shareable address from a public key.
+
+### Encrypt Note
+
+```http
+POST /api/v1/pke/encrypt
+Content-Type: application/json
+
+{
+  "note_id": "550e8400-...",
+  "recipient_address": "addr_xxx"
+}
+```
+
+Encrypts a note's content for a specific recipient address.
+
+### Decrypt Note
+
+```http
+POST /api/v1/pke/decrypt
+Content-Type: application/json
+
+{
+  "ciphertext": "...",
+  "private_key_id": "key_xxx"
+}
+```
+
+Decrypts ciphertext using the specified private key.
+
+### List Recipients
+
+```http
+POST /api/v1/pke/recipients
+Content-Type: application/json
+
+{
+  "note_id": "550e8400-..."
+}
+```
+
+Returns the list of addresses that can decrypt a note.
+
+### Verify Address
+
+```http
+GET /api/v1/pke/verify/{address}
+```
+
+Verifies that an address is valid and corresponds to a registered public key.
+
+### Keyset Management
+
+PKE keysets bundle key pairs for management and export.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/pke/keysets` | GET | List all keysets |
+| `/api/v1/pke/keysets` | POST | Create a new keyset |
+| `/api/v1/pke/keysets/active` | GET | Get the currently active keyset |
+| `/api/v1/pke/keysets/import` | POST | Import a keyset from JSON |
+| `/api/v1/pke/keysets/{name_or_id}` | DELETE | Delete a keyset |
+| `/api/v1/pke/keysets/{name_or_id}/active` | PUT | Set a keyset as active |
+| `/api/v1/pke/keysets/{name_or_id}/export` | GET | Export a keyset as JSON |
+
 ## Real-Time Events
 
 Fortémi provides real-time event streaming through three channels. For comprehensive documentation, see [Real-Time Events](./real-time-events.md).
@@ -2495,7 +3175,7 @@ Returns current rate limit status for the authenticated client.
 GET /health
 ```
 
-Returns `200 OK` if the service is healthy.
+Returns `200 OK` if the service is healthy. Includes version, database connectivity, and capability flags.
 
 **Response:**
 
@@ -2504,9 +3184,20 @@ Returns `200 OK` if the service is healthy.
   "status": "ok",
   "version": "2026.1.0",
   "database": "connected",
-  "ollama": "connected"
+  "ollama": "connected",
+  "capabilities": {
+    "extraction_strategies": ["pdf", "vision", "text_native", "audio", "code_ast"]
+  }
 }
 ```
+
+### Liveness Probe
+
+```http
+GET /health/live
+```
+
+Minimal liveness probe for container orchestrators (Kubernetes, Docker Swarm). Returns `200 OK` as long as the process is running, without checking downstream dependencies.
 
 ## Error Responses
 

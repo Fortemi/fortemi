@@ -140,7 +140,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 **Local stdio** (development): `node mcp-server/index.js` with `MATRIC_MEMORY_URL=http://localhost:3000`
 
-Set `MCP_TOOL_MODE=full` for all 187 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
+Set `MCP_TOOL_MODE=full` for all 202 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
 
 ---
 

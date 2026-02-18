@@ -65,14 +65,14 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 **37 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~81% token reduction** compared to full mode (37 vs 194 tools)
+- **~82% token reduction** compared to full mode (37 vs 202 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**194 granular tools** exposing every API endpoint individually:
+**202 granular tools** exposing every API endpoint individually:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -925,26 +925,210 @@ Root concepts without broader relations.
 }
 ```
 
-### `explore_graph`
+### `manage_embeddings`
 
-Traverse the knowledge graph recursively from a starting note.
+Manage embedding sets — curated subsets of notes for focused semantic search. Embedding sets allow domain-specific search contexts.
 
-**Parameters:**
-- `start_note_id` (required) - UUID of starting note
-- `max_depth` (optional) - Maximum traversal depth (default: 3)
-- `max_results` (optional) - Maximum total nodes (default: 50)
-- `min_similarity` (optional) - Minimum link score (default: 0.70)
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `list` | List all embedding sets |
+| `get` | Get set details by slug |
+| `create` | Create a new set with membership criteria |
+| `update` | Update set metadata or criteria |
+| `delete` | Delete a set |
+| `list_members` | List notes in a set |
+| `add_members` | Add notes to a set (manual/mixed mode) |
+| `remove_member` | Remove a note from a set |
+| `refresh` | Recompute auto-criteria membership |
+
+**Parameters (varies by action):**
+- `action` (required) - The action to perform
+- `slug` (string) - Embedding set slug (required for get/update/delete/list_members/add_members/remove_member/refresh)
+- `name` (string) - Display name (required for create)
+- `description` (string) - Set description
+- `purpose` (string) - Intended purpose (used by agents to pick the right set)
+- `usage_hints` (string) - When to use this set
+- `keywords` (array) - Discovery keywords
+- `mode` (enum) - `auto`, `manual`, or `mixed` (default: `auto`)
+- `criteria` (object) - Auto-membership criteria: `tags`, `collections`, `fts_query`, `include_all`, `exclude_archived`
+- `note_ids` (array of uuid) - Notes to add (for `add_members`)
+- `note_id` (uuid) - Note to remove (for `remove_member`)
+- `limit`/`offset` (integers) - Pagination (for `list_members`)
 
 ```json
+// List all sets
+{ "action": "list" }
+
+// Create a focused set
 {
-  "start_note_id": "550e8400-e29b-41d4-a716-446655440000",
-  "max_depth": 3,
-  "max_results": 50,
-  "min_similarity": 0.70
+  "action": "create",
+  "name": "ML Research",
+  "slug": "ml-research",
+  "mode": "auto",
+  "criteria": { "tags": ["ml", "research"] }
+}
+
+// Search within a set (via search tool)
+// search({ action: "text", query: "...", set: "ml-research" })
+```
+
+### `manage_archives`
+
+Manage parallel memory archives for schema-level data isolation. Each archive is an independent memory with its own notes, tags, embeddings, and links.
+
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `list` | List all archives |
+| `create` | Create a new archive |
+| `get` | Get archive details |
+| `update` | Update archive description |
+| `delete` | Permanently delete archive and all its data |
+| `set_default` | Set as default archive for this session |
+| `stats` | Get archive statistics (note count, size, etc.) |
+| `clone` | Deep copy an archive to a new name |
+
+**Parameters:**
+- `action` (required) - The action to perform
+- `name` (string) - Archive name (required for create/get/update/delete/set_default/stats/clone)
+- `description` (string) - Archive description
+- `new_name` (string) - Name for cloned archive (required for `clone`)
+
+```json
+// List all archives
+{ "action": "list" }
+
+// Create a new archive
+{ "action": "create", "name": "work-2026", "description": "Work notes for 2026" }
+
+// Get archive stats
+{ "action": "stats", "name": "work-2026" }
+
+// Clone an archive
+{ "action": "clone", "name": "work-2026", "new_name": "work-2026-backup" }
+```
+
+### `manage_encryption`
+
+PKE (Public Key Encryption) operations — keypair generation, encrypt/decrypt plaintext, and local keyset management.
+
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `generate_keypair` | Generate a new PKE keypair |
+| `get_address` | Derive PKE address from a public key |
+| `encrypt` | Encrypt plaintext for one or more recipients |
+| `decrypt` | Decrypt ciphertext with a private key |
+| `list_recipients` | List recipient addresses from ciphertext |
+| `verify_address` | Verify a PKE address is valid |
+| `list_keysets` | List locally stored keysets |
+| `create_keyset` | Create and store a named keyset |
+| `get_active_keyset` | Get the currently active local keyset |
+| `set_active_keyset` | Set the active local keyset |
+| `export_keyset` | Export a keyset to a directory |
+| `import_keyset` | Import a keyset from files |
+| `delete_keyset` | Delete a locally stored keyset |
+
+**Parameters (varies by action):**
+- `action` (required) - The action to perform
+- `passphrase` (string) - Passphrase for private key protection (generate_keypair, create_keyset, decrypt)
+- `public_key` (string) - Base64-encoded public key (get_address, encrypt)
+- `plaintext` (string) - Base64-encoded plaintext to encrypt
+- `recipient_keys` (array) - Recipient public keys for encrypt
+- `ciphertext` (string) - Base64-encoded ciphertext (decrypt, list_recipients)
+- `encrypted_private_key` (string) - Encrypted private key for decrypt
+- `address` (string) - PKE address to verify (format: `mm:...`)
+- `name` (string) - Keyset name
+- `output_dir` (string) - Output directory for key files
+- `import_path` (string) - Keyset directory to import from
+
+```json
+// Generate a keypair
+{
+  "action": "generate_keypair",
+  "passphrase": "my-secure-passphrase",
+  "output_dir": "/home/user/.matric/keys/my-key"
+}
+
+// Encrypt for a recipient
+{
+  "action": "encrypt",
+  "plaintext": "aGVsbG8gd29ybGQ=",
+  "recipient_keys": ["BASE64_PUBLIC_KEY"]
 }
 ```
 
-Returns a tree structure showing all connected notes within the specified depth, useful for discovering clusters of related knowledge.
+### `manage_backups`
+
+Backup, restore, knowledge shard export/import, and memory archive download operations.
+
+**Actions:**
+
+| Action | Purpose |
+|--------|---------|
+| `export_shard` | Generate curl command to download a knowledge shard (.tar.gz) |
+| `import_shard` | Generate curl command to upload/import a knowledge shard |
+| `snapshot` | Create a database snapshot (named backup) |
+| `restore` | Restore database from a snapshot |
+| `list` | List all available backups |
+| `get_info` | Get details for a specific backup file |
+| `get_metadata` | Get metadata for a backup file |
+| `update_metadata` | Update backup title/description |
+| `download_archive` | Generate curl command to download a knowledge archive |
+| `upload_archive` | Generate curl command to upload a knowledge archive |
+| `swap` | Swap in a backup as the active memory |
+| `download_memory` | Generate curl command to download a memory archive as SQL |
+
+**Parameters (varies by action):**
+- `action` (required) - The action to perform
+- `filename` (string) - Backup filename (restore, get_info, get_metadata, update_metadata, download_archive, swap)
+- `file_path` (string) - Local path to file (import_shard, upload_archive)
+- `output_dir` (string) - Directory for download output
+- `include` (string) - Components: comma-separated or `all` (export_shard, import_shard)
+- `dry_run` (boolean) - Preview without writing (import_shard, swap)
+- `on_conflict` (enum) - `skip`, `replace`, `merge` (import_shard)
+- `name` (string) - Snapshot name or memory archive name
+- `title` (string) - Human-readable title (snapshot, update_metadata)
+- `description` (string) - Description (snapshot, update_metadata)
+- `strategy` (enum) - `wipe` or `merge` (swap)
+
+```json
+// Export a knowledge shard
+{ "action": "export_shard", "output_dir": "/backups" }
+
+// Create a named snapshot
+{ "action": "snapshot", "name": "pre-migration", "title": "Before schema migration" }
+
+// List all backups
+{ "action": "list" }
+```
+
+### `explore_graph`
+
+Traverse the knowledge graph from a starting note up to N hops. Returns a versioned payload with nodes, edges, and metadata including truncation info.
+
+**Parameters:**
+- `id` (required) - UUID of the starting note
+- `depth` (optional) - Maximum hops to traverse (default: 2, server max: 10)
+- `max_nodes` (optional) - Maximum total nodes to return (default: 50, server max: 1000)
+- `min_score` (optional) - Minimum edge score threshold (default: 0.0, range: 0.0-1.0)
+- `max_edges_per_node` (optional) - Limit edges per node to prevent hub dominance
+- `edge_filter` (optional) - Filter edges by community: `all` (default), `intra_community`, `inter_community`
+- `include_structural` (optional) - Include collection edges (default: true)
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "depth": 2,
+  "max_nodes": 50,
+  "min_score": 0.70,
+  "edge_filter": "intra_community"
+}
+```
 
 ### `get_note_links`
 
@@ -964,6 +1148,90 @@ Get semantic connections for a specific note.
 - `incoming` - BACKLINKS - Notes that link TO this note
 
 Backlinks are crucial for discovering how concepts connect in your knowledge graph.
+
+### `get_topology_stats`
+
+Get graph topology statistics including degree distribution, connected components, isolated nodes, and current linking strategy. Useful for monitoring graph health after auto-linking.
+
+No parameters required.
+
+```json
+{}
+```
+
+### `get_graph_diagnostics`
+
+Get embedding quality diagnostics for the knowledge graph. Reports similarity distribution (histogram, mean, std, anisotropy), topology metrics, and normalized edge stats. Useful for detecting the "seashell pattern" where all nodes appear equidistant.
+
+**Parameters:**
+- `sample_size` (optional) - Random embedding pairs to sample (default: 1000, max: 10000)
+
+```json
+{ "sample_size": 1000 }
+```
+
+### `capture_diagnostics_snapshot`
+
+Capture a labelled diagnostics snapshot for before/after comparison. Run before and after embedding pipeline changes to validate improvements.
+
+**Parameters:**
+- `label` (required) - Descriptive label (e.g., `"before-tfidf-filter"`)
+- `sample_size` (optional) - Random pairs to sample (default: 1000)
+
+```json
+{ "label": "before-reembed", "sample_size": 1000 }
+```
+
+### `list_diagnostics_snapshots`
+
+List saved diagnostics snapshots, ordered by most recent first.
+
+**Parameters:**
+- `limit` (optional) - Max snapshots to return (default: 20)
+
+```json
+{ "limit": 10 }
+```
+
+### `compare_diagnostics_snapshots`
+
+Compare two diagnostics snapshots to see what changed. Returns computed deltas and a human-readable summary of improvements and regressions.
+
+**Parameters:**
+- `before` (required) - UUID of the "before" snapshot
+- `after` (required) - UUID of the "after" snapshot
+
+```json
+{
+  "before": "550e8400-e29b-41d4-a716-446655440000",
+  "after": "660e8400-e29b-41d4-a716-446655440001"
+}
+```
+
+### `recompute_snn_scores`
+
+Recompute Shared Nearest Neighbor (SNN) scores for all semantic links. SNN(A,B) = |kNN(A) ∩ kNN(B)| / k. Edges below the threshold are pruned, improving graph quality by keeping only structurally meaningful connections.
+
+**Parameters:**
+- `k` (optional) - Number of nearest neighbors for SNN computation (default: adaptive, log₂(N) clamped to 5-15)
+- `threshold` (optional) - SNN score threshold — edges below this are pruned (default: from `GRAPH_SNN_THRESHOLD` env var)
+- `dry_run` (optional) - Compute scores but don't apply changes (default: false)
+
+```json
+{ "threshold": 0.10, "dry_run": true }
+```
+
+### `pfnet_sparsify`
+
+Run PFNET sparsification on the knowledge graph. Removes geometrically redundant edges — an edge (A,B) is pruned if a witness node C provides a shorter indirect path. Typically retains 15-40% of edges on HNSW-derived graphs.
+
+**Parameters:**
+- `q` (optional) - PFNET q parameter (default: 2 = Relative Neighborhood Graph equivalent)
+- `dry_run` (optional) - Preview impact without applying (default: false)
+
+```json
+{ "q": 2, "dry_run": true }
+```
 
 ### `export_note`
 
@@ -1106,7 +1374,7 @@ Get overall knowledge base health metrics and diagnostics.
 
 ### `manage_jobs`
 
-Monitor and manage background processing jobs — queue status, individual job details, and extraction pipeline analytics.
+Monitor and manage background processing jobs — queue status, individual job details, extraction pipeline analytics, and pause/resume control.
 
 **Actions:**
 
@@ -1118,17 +1386,21 @@ Monitor and manage background processing jobs — queue status, individual job d
 | `stats` | Queue statistics (pending, running, completed, failed) |
 | `pending_count` | Quick count of pending jobs |
 | `extraction_stats` | Extraction pipeline analytics |
+| `pause_status` | Get current global and per-archive pause state |
+| `pause` | Pause job processing globally or for a specific archive |
+| `resume` | Resume job processing globally or for a specific archive |
 
 **Parameters (varies by action):**
 - `action` (required) - The action to perform
 - `id` (uuid) - Job UUID (for `get`)
 - `note_id` (uuid) - Note UUID (for `create`, optional filter for `list`)
-- `job_type` (string) - Job type (for `create`, optional filter for `list`)
+- `job_type` (string) - Job type: `ai_revision`, `embedding`, `linking`, `context_update`, `title_generation`, `concept_tagging`, `re_embed_all`, `extraction`, `exif_extraction` (for `create`, optional filter for `list`)
 - `status` (enum) - pending/running/completed/failed (for `list`)
 - `priority` (integer) - Higher = sooner (for `create`)
-- `payload` (object) - Job payload (for `create`)
+- `payload` (object) - Job payload (for `create`; required for extraction: `{ strategy, attachment_id, filename, mime_type }`)
 - `deduplicate` (boolean) - Skip duplicate pending jobs (for `create`, default: true)
-- `model` (string) - Provider-qualified model slug (for `create`)
+- `model` (string) - Provider-qualified model slug, e.g. `openai:gpt-4o` (for `create`)
+- `archive` (string) - Archive name for per-archive pause/resume; omit for global
 - `limit`/`offset` (integers) - Pagination (for `list`)
 
 ```json
@@ -1143,6 +1415,15 @@ Monitor and manage background processing jobs — queue status, individual job d
 
 // Quick pending count
 { "action": "pending_count" }
+
+// Pause all job processing
+{ "action": "pause" }
+
+// Pause processing for one archive only
+{ "action": "pause", "archive": "work-2026" }
+
+// Resume everything
+{ "action": "resume" }
 ```
 
 ### `manage_inference`
@@ -1167,33 +1448,37 @@ Discover available LLM models, providers, and embedding configurations. Read-onl
 
 ### `trigger_graph_maintenance`
 
-Queue the full graph quality pipeline: normalize → SNN → PFNET sparsification → Louvain community detection → diagnostics snapshot.
+Queue the full graph quality pipeline as an asynchronous background job: normalize → SNN scoring → PFNET sparsification → diagnostics snapshot.
 
-**Parameters:** None required.
+**Parameters:**
+- `steps` (optional) - Array of steps to run: `["normalize", "snn", "pfnet", "snapshot"]` (default: all four)
 
 ```json
+// Run full pipeline
 {}
+
+// Run only SNN and PFNET steps
+{ "steps": ["snn", "pfnet"] }
 ```
 
 Returns the job ID for status tracking via `manage_jobs`.
 
 **When to use:** After bulk note imports, after changing `GRAPH_*` env vars, or when graph diagnostics show degraded quality (high isolated-node count, seashell patterns).
 
----
-
 ### `coarse_community_detection`
 
-Run Louvain community detection using MRL 64-dimensional embeddings. More efficient than full-dimensional community detection for large knowledge bases.
+Run MRL 64-dim coarse community detection using Louvain algorithm. Uses truncated Matryoshka embeddings where similarity spread is wider, producing clearer cluster boundaries. Community assignments are written to all notes.
 
-**Parameters:** None required.
+**Parameters:**
+- `coarse_dim` (optional) - MRL truncation dimension (default: 64, range: 2-768)
+- `similarity_threshold` (optional) - Minimum cosine similarity for edge inclusion (default: 0.3)
+- `resolution` (optional) - Louvain resolution — higher = more, smaller communities
 
 ```json
-{}
+{ "coarse_dim": 64, "similarity_threshold": 0.3 }
 ```
 
-Community assignments (`community_id`, `community_label`, `community_confidence`) are written to all notes and appear in `GET /api/v1/graph/{id}` node responses.
-
----
+Community assignments (`community_id`, `community_label`, `community_confidence`) are written to all notes and appear in graph node responses.
 
 ### `bulk_reprocess_notes`
 
@@ -1342,7 +1627,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools instead of the 37 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 202 granular tools instead of the 37 core consolidated tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
@@ -1350,7 +1635,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 194 granular tools i
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~80% higher token overhead (194 vs 37 tools)
+- ~82% higher token overhead (202 vs 37 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 
@@ -1377,17 +1662,23 @@ The following features are available via REST API but not exposed in the core MC
 
 **Not in core MCP:**
 - Note versioning (version history, diffs, restore)
-- PKE encryption (keypair generation, encrypt/decrypt, keyset management)
-- SKOS scheme administration (create/delete schemes, concept CRUD, relation management)
-- SKOS collections (concept grouping)
+- SKOS concept CRUD and relation management (create/update/delete concepts, broader/narrower/related relations)
+- SKOS collections (concept grouping, `list_skos_collections`, `add_skos_collection_member`, etc.)
 - OAuth client management and token endpoints
-- Embedding sets (create, update, delete, refresh, member management)
-- Embedding configs (model configuration)
-- Background jobs (create, list, queue stats)
+- Embedding configs (model-level configuration: create, update, delete configs)
 - Document types (create, update, delete, detection)
-- Backup/restore (full backup, knowledge shards, database snapshots)
 - Cache management (invalidation, statistics)
-- File attachments (list, download, delete after upload)
+- Note purge operations (`purge_note`, `purge_notes`, `purge_all_notes` — hard delete)
+- Timeline and activity views (`get_notes_timeline`, `get_notes_activity`)
+- API key management (`list_api_keys`, `create_api_key`)
+
+**Available in core MCP** (contrary to what some documentation may suggest):
+- Embedding sets — via `manage_embeddings` (list, create, update, delete, members, refresh)
+- PKE encryption — via `manage_encryption` (keypair generation, encrypt/decrypt, keysets)
+- Background jobs — via `manage_jobs` (list, create, stats, pause/resume)
+- Backup/restore — via `manage_backups` (knowledge shards, snapshots, archives)
+- Memory archives — via `manage_archives` (list, create, stats, clone)
+- File attachments — via `manage_attachments` (list, upload, get, download, delete)
 
 **Full API reference:** See [API Documentation](./api.md) and [OpenAPI Spec](https://github.com/fortemi/fortemi/blob/main/crates/matric-api/src/openapi.yaml)
 

@@ -83,6 +83,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 - **Mutual k-NN filter** (#471) — Deferred as a no-op. The `create_reciprocal` step already enforces bidirectional edges, making a separate mutual k-NN filter redundant. The filter remains in the codebase but is not applied during graph construction.
 
+### Documentation
+
+- **CLAUDE.md accuracy pass** — Fixed stale MCP monitoring comment (owner/repo updated from `roctinam/matric-memory` to `fortemi/fortemi`). Updated MCP core tool list to include all 37 tools (`manage_attachments`, graph analysis tools, `get_knowledge_health`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`). Updated full tool count from 187 to 202. Updated test isolation guidance to recommend UUIDs over timestamp millis (parallel tests can collide).
+- **README.md accuracy pass** — Updated full tool count from 187 to 202 to match actual `tools.js` definitions.
+
 ### Fixed
 
 - LLM returning object instead of array in JSON parsing for extraction jobs.
