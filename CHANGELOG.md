@@ -7,6 +7,30 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.10] - 2026-02-19
+
+### Highlights
+
+This release delivers **86 commits**, **206 files changed**, **+19K/-41K lines** closing **64 issues** (#422–#485)
+across three major themes: a complete **Graph Quality Overhaul** (Louvain community detection, SNN scoring,
+PFNET sparsification, automated maintenance pipeline), a comprehensive **SSE Event System** (46 event types,
+replay, filtering, backpressure), and a hardened **Extraction Pipeline** (GLiNER NER, tiered job architecture,
+cascaded model routing, configurable document composition for embeddings).
+
+| What Changed | Why You Care | Issues |
+|--------------|--------------|--------|
+| **Graph Quality Pipeline** | Automated normalize → SNN → PFNET → diagnostics in a single API call. Breaks the "seashell" pattern of noisy, unstructured graphs. | #470–#484 |
+| **Louvain Community Detection** | Topically cohesive note clusters with SKOS-derived labels | #473 |
+| **SNN + PFNET Graph Analysis** | Structural similarity scoring and topology-preserving edge pruning | #474, #476 |
+| **SSE Event System Overhaul** | 46 event types, versioned envelope, replay, auth-scoped filtering, backpressure | #450–#465 |
+| **Tiered Job Architecture** | Three-tier compute model (CPU_NER → FAST_GPU → STANDARD_GPU) with queue-based escalation | #436–#449 |
+| **GLiNER NER Sidecar** | Zero-shot NER at <300ms/doc, CPU-only, enabled by default | #437 |
+| **Configurable Embedding Composition** | Choose what goes into embeddings (title, content, concepts, tags) per embedding set | #485 |
+| **Versioned Graph API** | v1 payload contract with community hints and server-side guardrails | #467–#469 |
+| **Pause/Resume Jobs** | Global and per-archive job processing control, persisted across restarts | #466 |
+| **Multi-Provider Inference** | Provider-qualified model slugs with discovery endpoint | #431 |
+| **12 New ADRs** | Architecture decisions documented for graph, embeddings, jobs, inference, and branding | ADR-072–ADR-083 |
+
 ### Added
 
 - **Graph Quality Maintenance Pipeline** (#482) — Automated `normalize → SNN → PFNET → diagnostics snapshot` pipeline triggered via `POST /api/v1/graph/maintenance`. Brings graph topology to a consistent, analytically useful state in a single operation.
@@ -59,6 +83,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 - **AsyncAPI 3.0 Spec** — Runtime-generated AsyncAPI 3.0 specification for the SSE event catalog at `/api/v1/asyncapi`.
 
+- **Configurable Embedding Document Composition** (#485) — Choose which fields compose embedding text (title, content, concepts, tags) per embedding set. Stored as `DocumentComposition` model with migration. MCP `manage_embeddings` tool extended with `document_composition` action.
+
+- **Auto Re-embed on Composition Change** (#485) — Changing an embedding set's composition config automatically triggers re-embedding of all affected notes.
+
+- **Versioned Graph API Payload Contract** (#467, #468, #469) — v1 versioned response format for all graph endpoints with community hints, neighborhood explainability, and server-side guardrails with tuning defaults.
+
+- **Automatic Graph Maintenance After Embedding** — Graph maintenance pipeline auto-triggers after note ingest completes, keeping graph topology fresh without manual intervention.
+
+- **RNG Linking Strategy** (#478) — Relative Neighborhood Graph for local edge sparsification, complementing PFNET for different graph density regimes.
+
+- **Parallel Subtask Execution** (#441) — Extraction pipeline subtasks execute in parallel where dependencies allow, improving throughput on multi-core systems.
+
 ### Changed
 
 - **Embedding enrichment instruction prefix** (#472) — Embeddings generated for graph use now include a `clustering:` instruction prefix, improving cluster cohesion in community detection.
@@ -71,22 +107,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 - **GraphConfig extended with 10+ new tuning parameters** — New parameters cover SNN neighborhood size, PFNET `q` and `r` values, Louvain resolution, MRL dimension selection, gamma normalization, and community filter mode.
 
-- **MCP core tools** expanded from 23 to 37: added `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference` (23→29), then `trigger_graph_maintenance`, `coarse_community_detection`, and 6 additional graph analysis tools (29→37).
+- **MCP core tools** expanded from 27 to 37: added `trigger_graph_maintenance`, `coarse_community_detection`, and 8 additional graph/observability tools.
 
 - **Default concept target** lowered from 15 to 5 per note (`EXTRACTION_TARGET_CONCEPTS`).
 - **Pipeline reorder** (#424) — Embedding now runs after concept tagging, using enriched content for better semantic search.
 - **GLiNER extracted to sidecar** — Removed from bundle image, runs as independent container for simpler upgrades and resource isolation.
 - **Inference endpoint** — Switched from `/api/generate` to `/api/chat` for Ollama generation.
 - **Job handlers normalized** — MetadataExtraction, TitleGeneration, and RelatedConceptInference handlers now use queue-based tier escalation (matching ConceptTagging and ReferenceExtraction pattern).
+- **Workspace version**: `2026.2.9` → `2026.2.10` (86 commits)
 
 ### Deprecated
 
 - **Mutual k-NN filter** (#471) — Deferred as a no-op. The `create_reciprocal` step already enforces bidirectional edges, making a separate mutual k-NN filter redundant. The filter remains in the codebase but is not applied during graph construction.
-
-### Documentation
-
-- **CLAUDE.md accuracy pass** — Fixed stale MCP monitoring comment (owner/repo updated from `roctinam/matric-memory` to `fortemi/fortemi`). Updated MCP core tool list to include all 37 tools (`manage_attachments`, graph analysis tools, `get_knowledge_health`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`). Updated full tool count from 187 to 202. Updated test isolation guidance to recommend UUIDs over timestamp millis (parallel tests can collide).
-- **README.md accuracy pass** — Updated full tool count from 187 to 202 to match actual `tools.js` definitions.
 
 ### Fixed
 
@@ -99,6 +131,37 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - Default concept scheme seeding in new archives.
 - Chunked extraction resilience to partial failures.
 - Prevent 20B model escalation when GLiNER produces enough concepts.
+- Three graph bugs causing stuck jobs and empty graph output (#485).
+- Concept labels removed from default embedding text to reduce noise in similarity scoring (#485).
+- Tiered job escalation: phase-2 and phase-3 jobs no longer queue prematurely on tier escalation (#444, #445).
+- Escalation methods now use `queue_deduplicated()` instead of `queue()` (#446).
+- Job `warmup()` timeout added to prevent stalling the drain loop (#447).
+- Tier-0 NER skips DB round-trip when GLiNER backend is unavailable (#448).
+- Clippy warnings resolved for Rust 1.92 compatibility.
+
+### Documentation
+
+- **Comprehensive documentation overhaul** — Rewrote and consolidated graph quality pipeline docs, extraction pipeline docs, and architecture guides.
+- **12 new ADRs** (ADR-072 through ADR-083): inference provider abstraction, graph quality pipeline, Louvain community detection, PFNET sparsification, MRL coarse community detection, embedding content separation, SNN sparse graph guard, global job deduplication, auto graph maintenance, document composition, queue-based tier escalation, brand naming.
+- **SSE event catalog and migration guide** rewritten (#461).
+- **Tagging and inference docs** updated to clarify automatic vs manual tagging.
+- **fortemi-docs shard** rebuilt from current sources.
+- **CLAUDE.md accuracy pass** — Updated MCP core tool list to 37 tools, full tool count to 202, test isolation guidance to recommend UUIDs.
+- **README.md accuracy pass** — Updated full tool count from 187 to 202.
+
+### Issues Resolved
+
+**64 issues closed** (#422–#485):
+
+- **Epics**: #436 (RLM Extraction Pipeline), #450 (SSE Multi-Client Reactive State), #481 (Graph Quality Overhaul)
+- **Graph Quality**: #467–#470, #471, #472, #473, #474, #475, #476, #477, #478, #479, #480, #482, #483, #484
+- **SSE Events**: #451–#465
+- **Extraction Pipeline**: #437, #438, #439, #440, #441, #442
+- **Tiered Jobs**: #443–#449, #466
+- **Embeddings**: #485
+- **Multi-Provider Inference**: #431
+- **SKOS/Tagging**: #425, #430, #435
+- **Fixes**: #422, #423, #424, #426, #428, #429
 
 ## [2026.2.9] - 2026-02-16
 
@@ -993,7 +1056,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.9...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.10...HEAD
+[2026.2.10]: https://github.com/fortemi/fortemi/compare/v2026.2.9...v2026.2.10
 [2026.2.9]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.9
 [2026.2.7]: https://github.com/fortemi/fortemi/compare/v2026.2.6...v2026.2.7
 [2026.2.6]: https://github.com/fortemi/fortemi/compare/v2026.2.5...v2026.2.6
