@@ -25,7 +25,7 @@
 use async_trait::async_trait;
 use matric_core::{
     Attachment, AttachmentBlob, AttachmentStatus, AttachmentSummary, Error, ExtractionStrategy,
-    Result,
+    GlobalAttachmentSummary, Result,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::path::PathBuf;
@@ -655,6 +655,120 @@ impl PgFileStorageRepository {
         }
 
         Ok(summaries)
+    }
+
+    /// List all attachments across all notes with pagination, sorting, and filtering.
+    ///
+    /// Joins to the `note` table to include `note_title` in results.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn list_all_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        limit: i64,
+        offset: i64,
+        sort_by: &str,
+        sort_order: &str,
+        content_type_filter: Option<&str>,
+        filename_filter: Option<&str>,
+    ) -> Result<(Vec<GlobalAttachmentSummary>, i64)> {
+        // Validate sort parameters to prevent SQL injection
+        let sort_col = match sort_by {
+            "filename" => "a.filename",
+            "size_bytes" => "ab.size_bytes",
+            "content_type" => "ab.content_type",
+            _ => "a.created_at",
+        };
+        let order = if sort_order.eq_ignore_ascii_case("asc") {
+            "ASC"
+        } else {
+            "DESC"
+        };
+
+        // Build dynamic WHERE clause
+        let mut conditions = Vec::new();
+        let mut param_idx = 1u32;
+
+        if content_type_filter.is_some() {
+            conditions.push(format!("ab.content_type LIKE ${param_idx}"));
+            param_idx += 1;
+        }
+        if filename_filter.is_some() {
+            conditions.push(format!("a.filename ILIKE ${param_idx}"));
+            param_idx += 1;
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Count query
+        let count_sql = format!(
+            r#"SELECT COUNT(*) as total
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               {where_clause}"#
+        );
+        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        if let Some(ct) = content_type_filter {
+            count_query = count_query.bind(format!("{ct}%"));
+        }
+        if let Some(fn_filter) = filename_filter {
+            count_query = count_query.bind(format!("%{fn_filter}%"));
+        }
+        let total = count_query.fetch_one(&mut **tx).await?;
+
+        // Data query
+        let data_sql = format!(
+            r#"SELECT a.id, a.note_id, n.title as note_title,
+                      a.filename, ab.content_type, ab.size_bytes,
+                      a.status::TEXT, dt.name as document_type_name,
+                      ddt.name as detected_document_type_name, a.detection_confidence,
+                      a.has_preview, a.is_canonical_content, a.created_at
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               LEFT JOIN note n ON a.note_id = n.id
+               LEFT JOIN document_type dt ON a.document_type_id = dt.id
+               LEFT JOIN document_type ddt ON a.detected_document_type_id = ddt.id
+               {where_clause}
+               ORDER BY {sort_col} {order}
+               LIMIT ${param_idx} OFFSET ${next_idx}"#,
+            param_idx = param_idx,
+            next_idx = param_idx + 1,
+        );
+
+        let mut data_query = sqlx::query(&data_sql);
+        if let Some(ct) = content_type_filter {
+            data_query = data_query.bind(format!("{ct}%"));
+        }
+        if let Some(fn_filter) = filename_filter {
+            data_query = data_query.bind(format!("%{fn_filter}%"));
+        }
+        data_query = data_query.bind(limit).bind(offset);
+
+        let rows = data_query.fetch_all(&mut **tx).await?;
+
+        let mut summaries = Vec::with_capacity(rows.len());
+        for row in rows {
+            summaries.push(GlobalAttachmentSummary {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                note_title: row.get("note_title"),
+                filename: row.get("filename"),
+                content_type: row.get("content_type"),
+                size_bytes: row.get("size_bytes"),
+                status: parse_attachment_status(row.get("status")),
+                document_type_name: row.get("document_type_name"),
+                detected_document_type_name: row.get("detected_document_type_name"),
+                detection_confidence: row.get("detection_confidence"),
+                has_preview: row.get("has_preview"),
+                is_canonical_content: row.get("is_canonical_content"),
+                created_at: row.get("created_at"),
+            });
+        }
+
+        Ok((summaries, total))
     }
 
     /// Transaction-aware variant of store_file.

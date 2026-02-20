@@ -1564,6 +1564,24 @@ pub struct AttachmentSummary {
     pub is_canonical_content: bool,
     pub created_at: DateTime<Utc>,
 }
+
+/// Summary for global attachment listing (includes note_title).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GlobalAttachmentSummary {
+    pub id: Uuid,
+    pub note_id: Uuid,
+    pub note_title: Option<String>,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub status: AttachmentStatus,
+    pub document_type_name: Option<String>,
+    pub detected_document_type_name: Option<String>,
+    pub detection_confidence: Option<f32>,
+    pub has_preview: bool,
+    pub is_canonical_content: bool,
+    pub created_at: DateTime<Utc>,
+}
 // =============================================================================
 // ENTITY TYPES (TRI-MODAL SEARCH)
 // =============================================================================

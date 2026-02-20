@@ -440,8 +440,8 @@ struct AppState {
         oauth_authorize_get, oauth_authorize_post, list_api_keys, create_api_key,
         revoke_api_key, backup_export, backup_download, backup_import,
         backup_trigger, backup_status, knowledge_shard, knowledge_shard_import,
-        list_attachments, upload_attachment, upload_attachment_multipart, get_attachment,
-        download_attachment, delete_attachment, list_backups, get_backup_info,
+        list_attachments, list_all_attachments, upload_attachment, upload_attachment_multipart,
+        get_attachment, download_attachment, delete_attachment, list_backups, get_backup_info,
         swap_backup, memory_backup_download, database_backup_download, database_backup_snapshot,
         database_backup_upload, database_backup_restore, knowledge_archive_download, knowledge_archive_upload,
         get_backup_metadata, update_backup_metadata, memory_info,
@@ -1497,6 +1497,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/:id/attachments/upload",
             post(upload_attachment_multipart).layer(DefaultBodyLimit::max(max_upload_size)),
         )
+        .route("/api/v1/attachments", get(list_all_attachments))
         .route(
             "/api/v1/attachments/:attachment_id",
             get(get_attachment).delete(delete_attachment),
@@ -12348,6 +12349,71 @@ async fn list_attachments(
     let attachments = file_storage.list_by_note_tx(&mut tx, id).await?;
     drop(tx);
     Ok(Json(attachments))
+}
+
+/// Query parameters for the global attachments listing.
+#[derive(Debug, Deserialize)]
+struct ListGlobalAttachmentsQuery {
+    /// Page size (default: 50)
+    limit: Option<i64>,
+    /// Pagination offset (default: 0)
+    offset: Option<i64>,
+    /// Sort field: created_at, filename, size_bytes, content_type (default: created_at)
+    sort_by: Option<String>,
+    /// Sort order: asc, desc (default: desc)
+    sort_order: Option<String>,
+    /// Filter by content type prefix (e.g. "image/", "application/pdf")
+    content_type: Option<String>,
+    /// Filter by filename substring (case-insensitive)
+    filename: Option<String>,
+}
+
+/// List all attachments across all notes with pagination, sorting, and filtering
+#[utoipa::path(get, path = "/api/v1/attachments", tag = "Attachments",
+    params(
+        ("limit" = Option<i64>, Query, description = "Page size (default: 50)"),
+        ("offset" = Option<i64>, Query, description = "Pagination offset (default: 0)"),
+        ("sort_by" = Option<String>, Query, description = "Sort field: created_at, filename, size_bytes, content_type"),
+        ("sort_order" = Option<String>, Query, description = "Sort order: asc, desc"),
+        ("content_type" = Option<String>, Query, description = "Filter by content type prefix"),
+        ("filename" = Option<String>, Query, description = "Filter by filename substring"),
+    ),
+    responses((status = 200, description = "Paginated list of attachments")))]
+async fn list_all_attachments(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<ListGlobalAttachmentsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let limit = query.limit.unwrap_or(50).clamp(0, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let sort_by = query.sort_by.as_deref().unwrap_or("created_at");
+    let sort_order = query.sort_order.as_deref().unwrap_or("desc");
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let (attachments, total) = file_storage
+        .list_all_tx(
+            &mut tx,
+            limit,
+            offset,
+            sort_by,
+            sort_order,
+            query.content_type.as_deref(),
+            query.filename.as_deref(),
+        )
+        .await?;
+    drop(tx);
+
+    Ok(Json(matric_core::ListGlobalAttachmentsResponse {
+        attachments,
+        total,
+    }))
 }
 
 /// Upload a file attachment to a note

@@ -49,6 +49,13 @@ pub struct ListNotesResponse {
     pub total: i64,
 }
 
+/// Response for listing global attachments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListGlobalAttachmentsResponse {
+    pub attachments: Vec<GlobalAttachmentSummary>,
+    pub total: i64,
+}
+
 /// Request for updating note status.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateNoteStatusRequest {
