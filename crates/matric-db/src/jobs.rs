@@ -740,7 +740,7 @@ impl JobRepository for PgJobRepository {
              retried AS (
                  UPDATE job_queue
                  SET status = 'pending'::job_status,
-                     retry_count = retry_count + 1,
+                     retry_count = job_queue.retry_count + 1,
                      error_message = 'Reaped: job orphaned after worker restart',
                      started_at = NULL,
                      progress_percent = 0,
