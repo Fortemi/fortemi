@@ -7,6 +7,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.11] - 2026-02-20
+
+### Fixed
+
+- **Stale Job Reaping** — Worker automatically reaps orphaned `running` jobs on startup. Jobs stuck longer than 2× the timeout threshold (600 s) are reset to `pending` (with retries remaining) or failed. Uses `FOR UPDATE SKIP LOCKED` CTE to avoid blocking concurrent workers. ([ADR-084](docs/architecture/adr/ADR-084-stale-job-reaping.md))
+- **PDF Null Byte Sanitization** — `PdfTextAdapter` now strips null bytes (`\0`) from both `pdfinfo` metadata values and extracted text before database insertion, preventing PostgreSQL `22P05` encoding errors on legacy PDFs (Acrobat 3.0/4.0 era). ([ADR-085](docs/architecture/adr/ADR-085-null-byte-sanitization.md))
+- **Ambiguous Column in Reap CTE** — Fully qualified `retry_count` reference in the stale-job reap query to prevent PostgreSQL ambiguity error.
+- **Archive Note Counts** — `list_archive_schemas` now computes live note counts instead of returning stale cached values.
+
+### Changed
+
+- **Testdb `max_locks_per_transaction`** — Increased to 256 in the test database image to support parallel archive schema tests without lock exhaustion.
+
+### Documentation
+
+- ADR-084: Stale job reaping on worker startup
+- ADR-085: Null byte sanitization in PDF extraction pipeline
+- ADR index backfilled with all entries ADR-037 through ADR-085
+- Operators guide: automatic stale job recovery section
+- Troubleshooting: stale jobs, PDF null byte errors
+- Retired stale UAT reports
+
 ## [2026.2.10] - 2026-02-19
 
 ### Highlights
