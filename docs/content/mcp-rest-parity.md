@@ -153,6 +153,7 @@ These tools work by orchestrating multiple REST operations in a single call.
 | `GET /api/v1/notes/:id/graph` | `explore_graph` |
 | `GET /api/v1/notes/:id/links` | `get_note_links` |
 | `GET /api/v1/notes/:id/backlinks` | `get_note_backlinks` |
+| `GET /api/v1/notes/:id/related` | `get_related_notes` |
 | `GET /api/v1/notes/:id/provenance` | `get_note_provenance` |
 | `GET /api/v1/notes/:id/chunks` | `get_chunk_chain` |
 | `GET /api/v1/notes/:id/full` | `get_full_document` |

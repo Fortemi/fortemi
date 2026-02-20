@@ -40,7 +40,6 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
-use matric_core::EmbeddingBackend;
 use matric_core::{
     ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata,
     BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
@@ -49,6 +48,7 @@ use matric_core::{
     RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
     UpdateNoteStatusRequest,
 };
+use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FilesystemBackend};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -1295,6 +1295,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/notes/:id/links", get(get_note_links))
         .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
+        .route("/api/v1/notes/:id/related", get(get_related_notes))
         .route("/api/v1/notes/:id/export", get(export_note))
         .route("/api/v1/notes/:id/full", get(get_full_document))
         // Provenance (W3C PROV)
@@ -7701,6 +7702,252 @@ async fn get_note_backlinks(
         "backlinks": backlinks,
         "count": backlinks.len()
     })))
+}
+
+// =============================================================================
+// RELATED NOTES HANDLER (#488)
+// =============================================================================
+
+/// A single related note with score and relationship source.
+#[derive(Debug, Serialize)]
+struct RelatedNote {
+    note_id: Uuid,
+    score: f32,
+    snippet: Option<String>,
+    title: Option<String>,
+    tags: Vec<String>,
+    /// How this note was discovered: "semantic", "link_outgoing", or "link_incoming".
+    source: String,
+}
+
+/// Query parameters for the related-notes endpoint.
+#[derive(Debug, Deserialize)]
+struct RelatedNotesQuery {
+    /// Maximum related notes to return (default: 10, max: 50).
+    limit: Option<i64>,
+    /// Minimum similarity score threshold (default: 0.3).
+    min_score: Option<f32>,
+    /// Include an LLM-generated context summary (default: false).
+    /// Requires an inference backend to be available.
+    context_summary: Option<bool>,
+}
+
+/// Response from the related-notes endpoint.
+#[derive(Debug, Serialize)]
+struct RelatedNotesResponse {
+    note_id: Uuid,
+    related: Vec<RelatedNote>,
+    /// LLM-generated explanation of why these notes are related.
+    /// Only present when `context_summary=true` and inference is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_summary: Option<String>,
+}
+
+/// Get related notes via semantic similarity and graph links.
+///
+/// Combines vector-similarity search (if the note has embeddings) with
+/// direct graph links to produce a unified list of related notes,
+/// optionally enriched with an LLM-generated context summary.
+#[utoipa::path(get, path = "/api/v1/notes/{id}/related", tag = "Graph",
+    params(
+        ("id" = Uuid, Path, description = "Note ID"),
+        ("limit" = Option<i64>, Query, description = "Max results (default 10, max 50)"),
+        ("min_score" = Option<f32>, Query, description = "Minimum score threshold (default 0.3)"),
+        ("context_summary" = Option<bool>, Query, description = "Include LLM context summary"),
+    ),
+    responses((status = 200, description = "Related notes")))]
+async fn get_related_notes(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<RelatedNotesQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let pool = state.db.pool.clone();
+    let note_id = id;
+
+    let limit = query.limit.unwrap_or(10).clamp(1, 50);
+    let min_score = query.min_score.unwrap_or(0.3);
+    let want_summary = query.context_summary.unwrap_or(false);
+
+    // 1. Verify note exists
+    let notes = matric_db::PgNoteRepository::new(pool.clone());
+    let note_exists = ctx
+        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, note_id).await }))
+        .await?;
+    if !note_exists {
+        return Err(ApiError::NotFound(format!("Note {} not found", note_id)));
+    }
+
+    // 2. Get note title for the LLM prompt
+    let source_title = {
+        let notes = matric_db::PgNoteRepository::new(pool.clone());
+        ctx.query(move |tx| {
+            Box::pin(async move {
+                let full = notes.fetch_tx(tx, note_id).await?;
+                Ok(full.note.title.unwrap_or_default())
+            })
+        })
+        .await
+        .unwrap_or_default()
+    };
+
+    // 3. Find semantically similar notes via embedding vector
+    let semantic_hits: Vec<RelatedNote> = {
+        let embeds = matric_db::PgEmbeddingRepository::new(pool.clone());
+        let embeds2 = matric_db::PgEmbeddingRepository::new(pool.clone());
+        // Fetch the note's embedding vector, then find similar
+        let hits = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    let vec_opt = embeds.get_note_vector_tx(tx, note_id).await?;
+                    match vec_opt {
+                        Some(vec) => {
+                            // Request extra to account for self-exclusion and merging
+                            embeds2.find_similar_tx(tx, &vec, limit + 5, true).await
+                        }
+                        None => Ok(Vec::new()),
+                    }
+                })
+            })
+            .await?;
+
+        hits.into_iter()
+            .filter(|h| h.note_id != note_id && h.score >= min_score)
+            .map(|h| RelatedNote {
+                note_id: h.note_id,
+                score: h.score,
+                snippet: h.snippet,
+                title: h.title,
+                tags: h.tags,
+                source: "semantic".to_string(),
+            })
+            .collect()
+    };
+
+    // 4. Get graph links (outgoing + incoming)
+    let link_notes: Vec<RelatedNote> = {
+        let links_out = matric_db::PgLinkRepository::new(pool.clone());
+        let links_in = matric_db::PgLinkRepository::new(pool.clone());
+
+        let (outgoing, incoming) = ctx
+            .query(move |tx| {
+                Box::pin(async move {
+                    let out = links_out.get_outgoing_tx(tx, note_id).await?;
+                    let inc = links_in.get_incoming_tx(tx, note_id).await?;
+                    Ok((out, inc))
+                })
+            })
+            .await?;
+
+        let mut link_results: Vec<RelatedNote> = Vec::new();
+        for link in outgoing {
+            if let Some(to_id) = link.to_note_id {
+                if to_id != note_id {
+                    link_results.push(RelatedNote {
+                        note_id: to_id,
+                        score: link.score,
+                        snippet: link.snippet,
+                        title: None,
+                        tags: Vec::new(),
+                        source: "link_outgoing".to_string(),
+                    });
+                }
+            }
+        }
+        for link in incoming {
+            if link.from_note_id != note_id {
+                link_results.push(RelatedNote {
+                    note_id: link.from_note_id,
+                    score: link.score,
+                    snippet: link.snippet,
+                    title: None,
+                    tags: Vec::new(),
+                    source: "link_incoming".to_string(),
+                });
+            }
+        }
+        link_results
+    };
+
+    // 5. Merge and deduplicate (prefer semantic over link, keep highest score)
+    let mut seen = std::collections::HashMap::<Uuid, usize>::new();
+    let mut merged: Vec<RelatedNote> = Vec::new();
+
+    // Add semantic hits first (higher quality — have title, tags, longer snippets)
+    for note in semantic_hits {
+        seen.insert(note.note_id, merged.len());
+        merged.push(note);
+    }
+    // Add link hits, merging score if already present
+    for note in link_notes {
+        if let Some(&idx) = seen.get(&note.note_id) {
+            // Keep the higher score
+            if note.score > merged[idx].score {
+                merged[idx].score = note.score;
+            }
+        } else {
+            seen.insert(note.note_id, merged.len());
+            merged.push(note);
+        }
+    }
+
+    // Sort by score descending and truncate to limit
+    merged.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    merged.truncate(limit as usize);
+
+    // 6. Optionally generate LLM context summary
+    let context_summary = if want_summary && !merged.is_empty() {
+        let backend = OllamaBackend::from_env();
+
+        // Build a concise prompt from the related notes
+        let mut note_list = String::new();
+        for (i, rn) in merged.iter().take(5).enumerate() {
+            let title = rn.title.as_deref().unwrap_or("Untitled");
+            let snippet = rn
+                .snippet
+                .as_deref()
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect::<String>();
+            note_list.push_str(&format!(
+                "{}. \"{}\" (score: {:.2}): {}\n",
+                i + 1,
+                title,
+                rn.score,
+                snippet
+            ));
+        }
+
+        let system = "You are a knowledge assistant. Given a source note and its related notes, \
+            write a brief 1-2 sentence summary explaining the thematic connection between them. \
+            Be specific about the shared topics or concepts. Do not use filler phrases.";
+        let prompt = format!(
+            "Source note: \"{}\"\n\nRelated notes:\n{}\n\nContext summary:",
+            source_title, note_list
+        );
+
+        match GenerationBackend::generate_with_system(&backend, system, &prompt).await {
+            Ok(summary) => Some(summary.trim().to_string()),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to generate context summary for related notes");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(Json(RelatedNotesResponse {
+        note_id,
+        related: merged,
+        context_summary,
+    }))
 }
 
 // =============================================================================

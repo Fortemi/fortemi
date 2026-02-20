@@ -84,7 +84,7 @@ The server exposes:
 
 The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-### Core Mode (Default) — 37 Tools
+### Core Mode (Default) — 38 Tools
 
 Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~82% compared to full mode.
 
@@ -94,7 +94,7 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 |----------|-------|-------|
 | **Notes CRUD** | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
 | **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups` | 10 |
-| **Graph** | `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_note_links` | 11 |
+| **Graph** | `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_note_links`, `get_related_notes` | 12 |
 | **Export** | `export_note` | 1 |
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
@@ -103,7 +103,7 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 | **Jobs & inference** | `manage_jobs`, `manage_inference` | 2 |
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
 
-**Total:** 37 tools
+**Total:** 38 tools
 
 ### Full Mode — 202 Tools
 
@@ -231,7 +231,7 @@ Core mode uses discriminated-union tools with an `action` parameter:
 
 ## Advanced Features
 
-Most functionality is available directly through the 37 core tools. A small set of features requires full mode or the REST API:
+Most functionality is available directly through the 38 core tools. A small set of features requires full mode or the REST API:
 
 **Requires full mode or REST API (not in core):**
 - Note versioning (version history, diffs, restore)
@@ -618,7 +618,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (37 tools) or `full` (202 granular tools) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (38 tools) or `full` (203 granular tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |

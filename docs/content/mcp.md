@@ -1149,6 +1149,30 @@ Get semantic connections for a specific note.
 
 Backlinks are crucial for discovering how concepts connect in your knowledge graph.
 
+### `get_related_notes`
+
+Find notes related to a given note via semantic similarity and graph links.
+
+**Parameters:**
+- `id` (required) - UUID of the source note
+- `limit` (optional) - Maximum results (default: 10, max: 50)
+- `min_score` (optional) - Minimum similarity score (default: 0.3)
+- `context_summary` (optional) - Include LLM context summary (default: false)
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "limit": 5,
+  "context_summary": true
+}
+```
+
+**Returns:**
+- `related` - Array of related notes with `note_id`, `score`, `snippet`, `title`, `tags`, `source`
+- `context_summary` - LLM-generated explanation of thematic connection (when requested)
+
+The `source` field indicates how each note was found: `"semantic"` (vector similarity), `"link_outgoing"` (direct link from this note), or `"link_incoming"` (link to this note).
+
 ### `get_topology_stats`
 
 Get graph topology statistics including degree distribution, connected components, isolated nodes, and current linking strategy. Useful for monitoring graph health after auto-linking.

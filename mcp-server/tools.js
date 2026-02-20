@@ -1559,6 +1559,39 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "get_related_notes",
+    description: `Find notes related to a given note via semantic similarity and graph links. Optionally includes an LLM-generated context summary explaining why the notes are related. Combines vector similarity search with direct graph links into a unified, deduplicated list.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "UUID of the source note"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum related notes to return (default: 10, max: 50)",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "min_score": {
+          "type": "number",
+          "description": "Minimum similarity score threshold (default: 0.3)",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "context_summary": {
+          "type": "boolean",
+          "description": "Include an LLM-generated summary explaining the thematic connection (default: false)"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
     name: "export_note",
     description: `Export a note as markdown with optional YAML frontmatter. See \`get_documentation(topic='versioning')\`.`,
     inputSchema: {

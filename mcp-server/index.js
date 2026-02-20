@@ -44,7 +44,7 @@ const CORE_TOOLS = new Set([
   // Graph & links
   "explore_graph", "get_topology_stats", "get_graph_diagnostics",
   "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
-  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links",
+  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "get_related_notes",
   // Export
   "export_note",
   // System & docs
@@ -636,6 +636,15 @@ function createMcpServer() {
         case "get_note_links":
           result = await apiRequest("GET", `/api/v1/notes/${args.id}/links`);
           break;
+
+        case "get_related_notes": {
+          const relParams = new URLSearchParams();
+          if (args.limit !== undefined) relParams.set("limit", String(args.limit));
+          if (args.min_score !== undefined) relParams.set("min_score", String(args.min_score));
+          if (args.context_summary !== undefined) relParams.set("context_summary", String(args.context_summary));
+          result = await apiRequest("GET", `/api/v1/notes/${args.id}/related?${relParams}`);
+          break;
+        }
 
         case "export_note": {
           const exportParams = new URLSearchParams();
@@ -3530,6 +3539,7 @@ When you create a note via \`capture_knowledge\`, the system runs a **two-phase 
    - Automatic tag-boosted semantic linking (embedding similarity + SKOS tag overlap)
    - HNSW Algorithm 4 for diverse neighbor selection
    - Bidirectional backlinks (\`get_note_links\`, \`get_note_backlinks\`)
+   - Related notes discovery with LLM context summaries (\`get_related_notes\`)
    - Graph exploration with \`explore_graph\`
    - W3C PROV provenance tracking (\`get_note_provenance\`)
 
@@ -3570,7 +3580,8 @@ When you create a note via \`capture_knowledge\`, the system runs a **two-phase 
 1. Create notes with \`create_note\` - choose appropriate revision_mode
 2. Search with \`search_notes\` - use mode="semantic" for conceptual search
 3. Explore links with \`get_note_links\` - backlinks show what references your note
-4. Build hierarchy with SKOS concepts for structured tagging
+4. Discover related notes with \`get_related_notes\` - combines similarity + links with optional LLM context
+5. Build hierarchy with SKOS concepts for structured tagging
 
 ## Storage & Capacity Planning
 
@@ -3619,7 +3630,7 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 
 ### Read-Only Tools (Safe)
 - **Search**: \`search_notes\`, \`search_with_dedup\`, \`list_notes\`, \`list_tags\`
-- **Retrieval**: \`get_note\`, \`get_note_links\`, \`get_note_backlinks\`, \`get_full_document\`, \`get_chunk_chain\`
+- **Retrieval**: \`get_note\`, \`get_note_links\`, \`get_note_backlinks\`, \`get_related_notes\`, \`get_full_document\`, \`get_chunk_chain\`
 - **Provenance**: \`get_note_provenance\`, \`get_notes_timeline\`, \`get_notes_activity\`
 - **SKOS**: \`search_concepts\`, \`get_concept\`, \`get_concept_full\`, \`autocomplete_concepts\`, \`get_governance_stats\`, \`export_skos_turtle\`
 - **Versioning**: \`list_note_versions\`, \`get_note_version\`, \`diff_note_versions\`
@@ -4380,7 +4391,7 @@ Some Claude Code sessions may restrict certain tools. Use these alternatives:
 
 **Usually Available (Read-Only):**
 - \`search_notes\`, \`list_notes\`, \`list_tags\`
-- \`get_note_links\`, \`explore_graph\`
+- \`get_note_links\`, \`get_related_notes\`, \`explore_graph\`
 - \`list_jobs\`, \`get_queue_stats\`, \`health_check\`
 - \`search_concepts\`, \`get_governance_stats\`
 - \`list_note_versions\`, \`diff_note_versions\`
@@ -4879,7 +4890,7 @@ get_note_backlinks({ id: "note-uuid" })
 // Returns: [{ id, title, score, snippet }]
 \`\`\`
 
-This is a focused view of incoming links only. For bidirectional links, use \`get_note_links\`.
+This is a focused view of incoming links only. For bidirectional links, use \`get_note_links\`. For a combined view of semantic similarity + links with LLM context, use \`get_related_notes\`.
 
 **When to use backlinks:**
 - Discover what references a concept

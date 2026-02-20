@@ -1767,6 +1767,51 @@ GET /api/v1/notes/{id}/backlinks
 
 Returns only incoming links to a note.
 
+### Get Related Notes
+
+```http
+GET /api/v1/notes/{id}/related?limit=10&min_score=0.3&context_summary=true
+```
+
+Discovers related notes by combining semantic similarity (vector search on embeddings) with direct graph links. Returns a unified, deduplicated list with an optional LLM-generated context summary explaining the thematic connection.
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| limit | int | Maximum results (default: 10, max: 50) |
+| min_score | float | Minimum similarity score (default: 0.3) |
+| context_summary | bool | Include LLM context summary (default: false) |
+
+**Response:**
+
+```json
+{
+  "note_id": "...",
+  "related": [
+    {
+      "note_id": "...",
+      "score": 0.92,
+      "snippet": "Related content...",
+      "title": "Note Title",
+      "tags": ["topic-a"],
+      "source": "semantic"
+    },
+    {
+      "note_id": "...",
+      "score": 0.85,
+      "snippet": "Linked note...",
+      "title": null,
+      "tags": [],
+      "source": "link_outgoing"
+    }
+  ],
+  "context_summary": "These notes are related because they discuss similar API concepts..."
+}
+```
+
+The `source` field indicates how each related note was discovered: `"semantic"` (vector similarity), `"link_outgoing"` (direct outgoing graph link), or `"link_incoming"` (incoming graph link). When `context_summary=true` and an inference backend is available, the response includes an LLM-generated explanation of the thematic connection between the notes.
+
 ## Graph Exploration
 
 ### Explore Graph

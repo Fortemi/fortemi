@@ -710,7 +710,7 @@ const CORE_TOOLS = new Set([
   "manage_archives", "manage_encryption", "manage_backups",
   "explore_graph", "get_topology_stats", "get_graph_diagnostics",
   "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
-  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "export_note",
+  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "get_related_notes", "export_note",
   "get_documentation", "get_system_info", "health_check",
   "select_memory", "get_active_memory",
   "manage_attachments",

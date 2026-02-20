@@ -36,6 +36,7 @@ const READ_ONLY_TOOLS = [
   'search_notes',
   'list_tags',
   'get_note_links',
+  'get_related_notes',
   'export_note',
   'list_collections',
   'get_collection',

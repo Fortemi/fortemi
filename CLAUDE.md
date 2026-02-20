@@ -199,7 +199,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (37 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`). Set `MCP_TOOL_MODE=full` for all 202 granular tools.
+**Tool modes:** Default is "core" (38 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `get_related_notes`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`). Set `MCP_TOOL_MODE=full` for all 203 granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json

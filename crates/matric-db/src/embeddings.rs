@@ -601,6 +601,25 @@ impl PgEmbeddingRepository {
         Ok(embeddings)
     }
 
+    /// Get the primary embedding vector for a note (chunk_index=0).
+    ///
+    /// Returns `None` if the note has no embeddings.
+    pub async fn get_note_vector_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+    ) -> Result<Option<Vector>> {
+        let row = sqlx::query(
+            "SELECT vector FROM embedding WHERE note_id = $1 ORDER BY chunk_index LIMIT 1",
+        )
+        .bind(note_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| r.get("vector")))
+    }
+
     /// Find similar embeddings within an existing transaction.
     pub async fn find_similar_tx(
         &self,
