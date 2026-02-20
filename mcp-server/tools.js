@@ -245,6 +245,10 @@ export default [
                   "none"
                 ],
                 "default": "light"
+              },
+              "document_type": {
+                "type": "string",
+                "description": "Document type slug (e.g., 'python-source')"
               }
             },
             "required": [
@@ -275,6 +279,10 @@ export default [
         "content_type": {
           "type": "string",
           "description": "MIME type hint for upload (e.g., 'image/jpeg')"
+        },
+        "document_type": {
+          "type": "string",
+          "description": "Document type slug (e.g., 'python-source', 'markdown-document'). Resolved by the API. Use list_document_types to discover available slugs."
         },
         "document_type_id": {
           "type": "string",
@@ -5044,7 +5052,7 @@ export default [
   },
   {
     name: "reprocess_note",
-    description: `Re-run the full AI processing pipeline on a note (revision, embedding, linking).`,
+    description: `Re-run the full AI processing pipeline on a note (revision, embedding, linking). Set revision_mode to control AI enhancement level.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -5062,10 +5070,24 @@ export default [
               "embedding",
               "linking",
               "title_generation",
+              "concept_tagging",
+              "reference_extraction",
+              "related_concept_inference",
+              "metadata_extraction",
+              "document_type_inference",
               "all"
             ]
           },
           "description": "Pipeline steps to run (omit for all)"
+        },
+        "revision_mode": {
+          "type": "string",
+          "enum": ["full", "light", "none"],
+          "description": "AI revision mode: 'full' (contextual expansion), 'light' (formatting only, default), 'none' (skip revision)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default."
         },
         "force": {
           "type": "boolean",

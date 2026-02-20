@@ -219,14 +219,17 @@ function createMcpServer() {
         case "capture_knowledge": {
           const action = args.action;
           if (action === "create") {
-            result = await apiRequest("POST", "/api/v1/notes", {
+            const createBody = {
               content: args.content,
               tags: args.tags,
               revision_mode: args.revision_mode,
               collection_id: args.collection_id,
               metadata: args.metadata,
               model: args.model,
-            });
+            };
+            if (args.document_type) createBody.document_type = args.document_type;
+            if (args.document_type_id) createBody.document_type_id = args.document_type_id;
+            result = await apiRequest("POST", "/api/v1/notes", createBody);
           } else if (action === "bulk_create") {
             const bulkRes = await apiRequest("POST", "/api/v1/notes/bulk", {
               notes: args.notes,
@@ -2644,12 +2647,13 @@ function createMcpServer() {
         // ============================================================================
         // NOTE REPROCESS (#455)
         // ============================================================================
-        case "reprocess_note":
-          result = await apiRequest("POST", `/api/v1/notes/${args.id}/reprocess`, {
-            steps: args.steps,
-            force: args.force || false,
-          });
+        case "reprocess_note": {
+          const rpBody = { steps: args.steps };
+          if (args.revision_mode) rpBody.revision_mode = args.revision_mode;
+          if (args.model) rpBody.model = args.model;
+          result = await apiRequest("POST", `/api/v1/notes/${args.id}/reprocess`, rpBody);
           break;
+        }
 
         // ============================================================================
         // BULK REPROCESS (#377)

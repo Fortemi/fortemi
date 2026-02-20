@@ -194,6 +194,20 @@ async fn queue_exif_extraction_job(
     }
 }
 
+/// Parse and validate a `revision_mode` string, returning 400 for invalid values.
+fn parse_revision_mode(mode: Option<&str>) -> Result<RevisionMode, ApiError> {
+    match mode {
+        Some("full") => Ok(RevisionMode::Full),
+        Some("light") => Ok(RevisionMode::Light),
+        Some("none") => Ok(RevisionMode::None),
+        None => Ok(RevisionMode::Light),
+        Some(other) => Err(ApiError::BadRequest(format!(
+            "Invalid revision_mode '{}'. Must be one of: full, light, none",
+            other
+        ))),
+    }
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -4240,13 +4254,17 @@ struct CreateNoteBody {
     source: Option<String>,
     collection_id: Option<Uuid>,
     tags: Option<Vec<String>>,
-    /// AI revision mode: "full" (default), "light", or "none"
+    /// AI revision mode: "full", "light" (default), or "none"
     #[serde(default)]
     revision_mode: Option<String>,
     #[serde(default)]
     metadata: Option<serde_json::Value>,
     /// Optional document type ID for explicit typing (auto-detected if omitted)
     document_type_id: Option<Uuid>,
+    /// Optional document type slug for explicit typing (e.g. "python-source", "markdown-document").
+    /// Resolved to document_type_id via name lookup. Takes precedence over document_type_id if both set.
+    #[serde(default)]
+    document_type: Option<String>,
     /// Optional language model slug for AI operations (e.g. "qwen3:8b").
     /// If omitted, uses the globally configured default.
     #[serde(default)]
@@ -4269,6 +4287,24 @@ async fn create_note(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Validate revision_mode (returns 400 for invalid values)
+    let revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
+
+    // Resolve document_type slug to UUID if provided (slug takes precedence over UUID)
+    let resolved_doc_type_id = if let Some(ref slug) = body.document_type {
+        match state.db.document_types.get_by_name(slug).await? {
+            Some(dt) => Some(dt.id),
+            None => {
+                return Err(ApiError::BadRequest(format!(
+                    "Unknown document_type '{}'. Use GET /api/v1/document-types to list available types",
+                    slug
+                )))
+            }
+        }
+    } else {
+        body.document_type_id
+    };
+
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
 
@@ -4279,14 +4315,7 @@ async fn create_note(
         collection_id: body.collection_id,
         tags: body.tags, // Legacy flat tags still inserted for backwards compatibility
         metadata: body.metadata,
-        document_type_id: body.document_type_id,
-    };
-
-    // Parse revision mode (default to Light)
-    let revision_mode = match body.revision_mode.as_deref() {
-        Some("full") => RevisionMode::Full,
-        Some("none") => RevisionMode::None,
-        _ => RevisionMode::Light, // "light" or unspecified
+        document_type_id: resolved_doc_type_id,
     };
 
     // Insert note (archive-scoped via SchemaContext)
@@ -4419,12 +4448,16 @@ struct BulkCreateNoteItem {
     /// Optional JSON metadata for the note
     #[serde(default)]
     metadata: Option<serde_json::Value>,
-    /// AI revision mode: "full" (default), "light", or "none"
+    /// AI revision mode: "full" (default for bulk), "light", or "none"
     #[serde(default)]
     revision_mode: Option<String>,
     /// Optional document type ID for explicit typing (auto-detected if omitted) (#430)
     #[serde(default)]
     document_type_id: Option<Uuid>,
+    /// Optional document type slug for explicit typing (e.g. "python-source").
+    /// Resolved to document_type_id via name lookup. Takes precedence over document_type_id.
+    #[serde(default)]
+    document_type: Option<String>,
     /// Optional collection ID for folder hierarchy (#430)
     #[serde(default)]
     collection_id: Option<Uuid>,
@@ -4470,6 +4503,36 @@ async fn bulk_create_notes(
         ));
     }
 
+    // Validate revision_mode and resolve document_type slugs for each note
+    for (i, note) in body.notes.iter().enumerate() {
+        if let Some(ref mode) = note.revision_mode {
+            if !matches!(mode.as_str(), "full" | "light" | "none") {
+                return Err(ApiError::BadRequest(format!(
+                    "Note at index {}: invalid revision_mode '{}'. Must be one of: full, light, none",
+                    i, mode
+                )));
+            }
+        }
+    }
+
+    // Resolve document_type slugs to UUIDs (batch lookup)
+    let mut resolved_doc_type_ids: Vec<Option<Uuid>> = Vec::with_capacity(body.notes.len());
+    for (i, note) in body.notes.iter().enumerate() {
+        if let Some(ref slug) = note.document_type {
+            match state.db.document_types.get_by_name(slug).await? {
+                Some(dt) => resolved_doc_type_ids.push(Some(dt.id)),
+                None => {
+                    return Err(ApiError::BadRequest(format!(
+                        "Note at index {}: unknown document_type '{}'. Use GET /api/v1/document-types to list available types",
+                        i, slug
+                    )))
+                }
+            }
+        } else {
+            resolved_doc_type_ids.push(note.document_type_id);
+        }
+    }
+
     // Validate tags in each note
     for (i, note) in body.notes.iter().enumerate() {
         // Validate tag depth and length (fixes #193, #189)
@@ -4500,11 +4563,12 @@ async fn bulk_create_notes(
         }
     }
 
-    // Convert to CreateNoteRequest — use all fields from BulkCreateNoteItem (#430)
+    // Convert to CreateNoteRequest — use resolved document_type_ids (#430, #490)
     let requests: Vec<CreateNoteRequest> = body
         .notes
         .iter()
-        .map(|item| CreateNoteRequest {
+        .enumerate()
+        .map(|(i, item)| CreateNoteRequest {
             content: item.content.clone(),
             format: item
                 .format
@@ -4517,7 +4581,7 @@ async fn bulk_create_notes(
             collection_id: item.collection_id,
             tags: item.tags.clone(),
             metadata: item.metadata.clone(),
-            document_type_id: item.document_type_id,
+            document_type_id: resolved_doc_type_ids[i],
         })
         .collect();
 
@@ -4577,11 +4641,12 @@ async fn bulk_create_notes(
     };
 
     // Queue NLP pipeline for each note based on revision mode
+    // (validation already done above, so unwrap-with-default is safe here)
     for (i, note_id) in ids.iter().enumerate() {
         let revision_mode = match body.notes[i].revision_mode.as_deref() {
             Some("light") => RevisionMode::Light,
             Some("none") => RevisionMode::None,
-            _ => RevisionMode::Full,
+            _ => RevisionMode::Full, // Default for bulk is Full
         };
 
         // Note: insert_bulk_tx already populates note_revised_current with
@@ -5036,12 +5101,9 @@ async fn reprocess_note(
 
     let body = body.map(|b| b.0);
 
-    // Parse revision mode (default to Light)
-    let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
-        Some("full") => RevisionMode::Full,
-        Some("none") => RevisionMode::None,
-        _ => RevisionMode::Light,
-    };
+    // Validate and parse revision mode (returns 400 for invalid values)
+    let revision_mode =
+        parse_revision_mode(body.as_ref().and_then(|b| b.revision_mode.as_deref()))?;
 
     // Determine which steps to run
     let requested_steps = body.as_ref().and_then(|b| b.steps.as_ref());
