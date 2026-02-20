@@ -180,6 +180,7 @@ The existing embedding pipeline (`JobType::Embedding`) generates vectors via `ma
 | Output | Extracted text, PDF metadata (title, author, pages) |
 | Large file handling | Batch extraction in 50-page chunks for PDFs > 100 pages |
 | Timeout | 60s per `pdftotext`/`pdfinfo` invocation |
+| Sanitization | Strips null bytes (`\0`) from metadata and text — old PDFs embed null bytes that PostgreSQL rejects ([ADR-085](../architecture/adr/ADR-085-null-byte-sanitization.md)) |
 | Fallback | Sets `metadata.needs_ocr = true` when text < 50 chars on multi-page PDF |
 | Health check | Runs `pdftotext -v` |
 

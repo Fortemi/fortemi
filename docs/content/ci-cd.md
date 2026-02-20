@@ -25,7 +25,7 @@ Validates code quality and formatting:
 
 ### 2. Build & Unit Test (runs on: matric-builder)
 
-Compiles and runs the test suite with a dedicated PostgreSQL container:
+Compiles and runs the test suite with a dedicated PostgreSQL container (`build/Dockerfile.testdb`). The testdb image includes `max_locks_per_transaction=256` to support parallel archive schema tests (each archive create/drop acquires locks on ~41 tables + indexes).
 
 ```yaml
 - cargo build --release --workspace

@@ -292,7 +292,7 @@ Public-key encryption (PKE) for secure multi-recipient data sharing.
 Background job processing for asynchronous NLP operations and document processing.
 
 **Key Components:**
-- `JobWorker` - Background worker process. Event-driven (wakes instantly on job enqueue via `Notify`); safety-net poll interval (default 60s) handles crash recovery and race conditions
+- `JobWorker` - Background worker process. Event-driven (wakes instantly on job enqueue via `Notify`); safety-net poll interval (default 60s) handles crash recovery and race conditions. On startup, reaps orphaned `running` jobs left by previous crashes (see [ADR-084](../architecture/adr/ADR-084-stale-job-reaping.md))
 - `JobHandler` trait - Job type handlers
 - `ExtractionRegistry` - Adapter registry for file processing strategies
 - `ExtractionAdapter` trait - Pluggable extraction strategy interface

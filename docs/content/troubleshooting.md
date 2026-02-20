@@ -843,6 +843,24 @@ docker compose -f docker-compose.bundle.yml down
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
+## Extraction Issues
+
+### PDF Extraction Fails with "unsupported Unicode escape sequence"
+
+**Symptom:** PDF extraction jobs fail with PostgreSQL error `22P05: unsupported Unicode escape sequence`.
+
+**Cause:** Old PDFs (Acrobat 3.0/4.0 era) embed null bytes (`\u0000`) in metadata fields like `Creator`. PostgreSQL rejects null bytes in text/JSON columns.
+
+**Fix:** Upgrade to v2026.2.10 or later. The `PdfTextAdapter` now strips null bytes from both metadata and extracted text before database storage. See [ADR-085](../architecture/adr/ADR-085-null-byte-sanitization.md).
+
+If you're on an older version, reset the failed jobs after upgrading:
+```bash
+docker exec fortemi-matric-1 psql -U matric -d matric -c \
+  "UPDATE job_queue SET status = 'pending', error_message = NULL
+   WHERE status = 'failed'
+   AND error_message LIKE '%unsupported Unicode escape%'"
+```
+
 ## MCP Server Issues
 
 ### OAuth "Protected Resource URL Mismatch"
@@ -1436,10 +1454,23 @@ environment:
 docker compose -f docker-compose.bundle.yml restart matric
 ```
 
-**Reset stuck jobs:**
+**Stale jobs after container restart:**
+
+Since v2026.2.10, the worker automatically reaps orphaned `running` jobs on startup (threshold: 10 minutes). If you restarted recently and see stuck jobs, wait for the worker to start — it will reset them automatically and log: `"Reaped stale running jobs from previous worker count=N"`.
+
+If you need to reset jobs immediately (before the auto-reap threshold):
+```bash
+docker exec fortemi-matric-1 psql -U matric -d matric -c \
+  "UPDATE job_queue
+   SET status = 'pending', retry_count = retry_count + 1
+   WHERE status = 'running'
+   AND started_at < NOW() - INTERVAL '5 minutes'"
+```
+
+**Reset stuck jobs (legacy, pre-v2026.2.10):**
 ```bash
 # Reset jobs stuck in "running" state
-docker exec Fortémi-matric-1 psql -U matric -d matric -c \
+docker exec fortemi-matric-1 psql -U matric -d matric -c \
   "UPDATE job_queue
    SET status = 'pending', attempts = 0
    WHERE status = 'running'

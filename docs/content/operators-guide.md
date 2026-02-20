@@ -162,6 +162,26 @@ docker compose -f docker-compose.bundle.yml exec matric \
 
 Background jobs handle embedding generation, concept extraction, link detection, and other async processing. The job worker runs inside the bundle container alongside the API.
 
+### Automatic Stale Job Recovery
+
+When the container restarts (crash, deployment, OOM-kill), in-flight jobs are killed but the database still shows them as `running`. On startup, the worker automatically **reaps** these orphaned jobs:
+
+- Jobs older than 10 minutes (2x the 5-minute job timeout) are reset to `pending` for retry
+- Jobs that have exhausted their retry limit are marked as `failed`
+- The reap count is logged at `warn` level: `"Reaped stale running jobs from previous worker count=N"`
+
+This is fully automatic — no manual intervention needed. See [ADR-084](../architecture/adr/ADR-084-stale-job-reaping.md) for details.
+
+To manually check for stuck jobs:
+
+```bash
+docker exec fortemi-matric-1 psql -U matric -d matric -c \
+  "SELECT id, job_type, status, started_at, retry_count
+   FROM job_queue
+   WHERE status = 'running'
+   AND started_at < NOW() - INTERVAL '10 minutes'"
+```
+
 ### Pause/Resume Job Processing
 
 Pausing job processing is useful during:
@@ -624,6 +644,8 @@ docker compose -f docker-compose.bundle.yml logs matric | grep "Extraction adapt
 | Graph visualization shows spirals or tight clusters | Graph needs maintenance | Run `POST /api/v1/graph/maintenance`; check diagnostics for high `anisotropy_score` |
 | Notes added but embedding set stays empty | Auto criteria not matching | Inspect criteria with `GET /api/v1/embedding-sets/{slug}`, then `POST /api/v1/embedding-sets/{slug}/refresh` |
 | Job queue growing but no jobs completing | Job worker paused | Check `GET /api/v1/jobs/status`; resume with `POST /api/v1/jobs/resume` |
+| Jobs stuck in `running` after restart | Orphaned from previous process | Auto-reaped on next startup (10-min threshold); or manually reset: `UPDATE job_queue SET status = 'pending' WHERE status = 'running' AND started_at < NOW() - INTERVAL '10 minutes'` |
+| PDF extraction fails with "unsupported Unicode escape sequence" | Null bytes in old PDF metadata | Upgrade to latest build (null byte stripping added in v2026.2.10+) |
 | `extraction_strategies` missing expected adapter | Backend not configured or unreachable | Check startup logs for adapter registration; verify env vars |
 | Graph maintenance job not appearing | Already pending (deduplicated) | Response `"status": "already_pending"` is normal; the existing job will run |
 

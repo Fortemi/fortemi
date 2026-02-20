@@ -75,6 +75,71 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-035](ADR-035-structured-media-formats.md) | Structured Media Formats | Accepted | 2026-02-02 |
 | [ADR-036](ADR-036-file-safety-validation.md) | File Safety Validation | Accepted | 2026-02-02 |
 
+### Events & Real-Time (ADR-037)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-037](ADR-037-unified-event-bus.md) | Unified Event Bus | Accepted | 2026-02-03 |
+
+### Extraction & Processing (ADR-048 to ADR-050)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-048](ADR-048-extraction-adapter-pattern.md) | Extraction Adapter Pattern | Accepted | 2026-02-05 |
+| [ADR-049](ADR-049-file-type-doctype-separation.md) | File Type / DocType Separation | Accepted | 2026-02-05 |
+| [ADR-050](ADR-050-pke-http-api.md) | PKE HTTP API | Accepted | 2026-02-05 |
+
+### Multi-Memory Architecture (ADR-068)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-068](ADR-068-archive-isolation-routing.md) | Archive Isolation and Routing | Accepted | 2026-02-08 |
+
+### Authentication (ADR-071)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-071](ADR-071-auth-middleware.md) | Auth Middleware | Accepted | 2026-02-09 |
+
+### Inference & Embedding (ADR-072, ADR-077, ADR-081)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-072](ADR-072-inference-provider-abstraction.md) | Inference Provider Abstraction | Accepted | 2026-02-10 |
+| [ADR-077](ADR-077-embedding-content-separation.md) | Embedding Content Separation | Accepted | 2026-02-18 |
+| [ADR-081](ADR-081-document-composition.md) | DocumentComposition — Configurable Embedding Text | Accepted | 2026-02-18 |
+
+### Graph Quality Pipeline (ADR-073 to ADR-076, ADR-078, ADR-080)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-073](ADR-073-graph-quality-pipeline.md) | Graph Quality Pipeline | Accepted | 2026-02-15 |
+| [ADR-074](ADR-074-louvain-community-detection.md) | Louvain Community Detection | Accepted | 2026-02-15 |
+| [ADR-075](ADR-075-pfnet-sparsification.md) | PFNET Sparsification | Accepted | 2026-02-15 |
+| [ADR-076](ADR-076-mrl-coarse-community-detection.md) | MRL Coarse Community Detection | Accepted | 2026-02-15 |
+| [ADR-078](ADR-078-snn-sparse-graph-guard.md) | SNN Sparse Graph Guard | Accepted | 2026-02-18 |
+| [ADR-080](ADR-080-auto-graph-maintenance-after-embedding.md) | Auto Graph Maintenance After Embedding | Accepted | 2026-02-18 |
+
+### Job Processing (ADR-079, ADR-082, ADR-084)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-079](ADR-079-global-job-deduplication.md) | Global Job Deduplication | Accepted | 2026-02-18 |
+| [ADR-082](ADR-082-queue-based-tier-escalation.md) | Queue-Based Tier Escalation | Accepted | 2026-02-18 |
+| [ADR-084](ADR-084-stale-job-reaping.md) | Stale Job Reaping on Worker Startup | Accepted | 2026-02-20 |
+
+### Data Integrity (ADR-085)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-085](ADR-085-null-byte-sanitization.md) | Null Byte Sanitization in Extraction Pipeline | Accepted | 2026-02-20 |
+
+### Brand & Identity (ADR-083)
+
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [ADR-083](ADR-083-brand-naming-fortemi.md) | Brand Naming — Fortemi | Accepted | 2026-02-03 |
+
 ## Status Definitions
 
 | Status | Meaning |
@@ -108,13 +173,27 @@ See [ADR-TEMPLATE.md](ADR-TEMPLATE.md) for the template used when creating new A
 ```
 Core Architecture (011-016)
 ├── Multilingual FTS (017-021) - extends search capabilities
-├── Embedding System (022-027) - extends semantic features
+├── Embedding System (022-027, 077, 081) - extends semantic features
 └── Backup/Migration (028-030) - operational concerns
 
-Inference Backend (001-005)
-└── Encryption (006-010) - secure data handling
+Inference Backend (001-005, 072)
+└── Encryption (006-010, 050) - secure data handling
 
-File Handling (031-036)
+File Handling (031-036, 048-049)
 ├── Builds on 025 (Document Type Registry)
 └── Builds on 032 (Provenance)
+
+Events & Real-Time (037)
+
+Multi-Memory Architecture (068, 071)
+
+Graph Quality Pipeline (073-076, 078, 080)
+
+Job Processing (079, 082, 084)
+├── 079 - Global deduplication
+├── 082 - Queue-based tier escalation
+└── 084 - Stale job reaping on restart
+
+Data Integrity (085)
+└── Null byte sanitization for untrusted extraction data
 ```
