@@ -939,7 +939,7 @@ impl ArchiveRepository for PgArchiveRepository {
     }
 
     async fn list_archive_schemas(&self) -> Result<Vec<ArchiveInfo>> {
-        let archives = sqlx::query_as::<_, ArchiveInfo>(
+        let mut archives = sqlx::query_as::<_, ArchiveInfo>(
             r#"
             SELECT id, name, schema_name, description, created_at, last_accessed,
                    note_count, size_bytes, is_default, schema_version
@@ -950,6 +950,34 @@ impl ArchiveRepository for PgArchiveRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(Error::Database)?;
+
+        // Compute live note counts and sizes for each archive.
+        // The registry caches these values but they go stale when notes are
+        // added/removed via schema-routed requests (Issue #486).
+        for archive in &mut archives {
+            let schema = &archive.schema_name;
+
+            if let Ok(count) = sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT COUNT(*) FROM {}.note WHERE deleted_at IS NULL",
+                schema
+            ))
+            .fetch_one(&self.pool)
+            .await
+            {
+                archive.note_count = Some(count as i32);
+            }
+
+            if let Ok(size) = sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT pg_total_relation_size('{}.note'::regclass) + \
+                        pg_total_relation_size('{}.embedding'::regclass)",
+                schema, schema
+            ))
+            .fetch_one(&self.pool)
+            .await
+            {
+                archive.size_bytes = Some(size);
+            }
+        }
 
         Ok(archives)
     }
