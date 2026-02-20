@@ -24,13 +24,17 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 pub struct PdfTextAdapter;
 
 /// Parse `pdfinfo` output into a JSON metadata object.
+///
+/// Strips null bytes (`\0`) from values — old PDFs (e.g. Acrobat 3.0/4.0
+/// scans) embed `\u0000` in metadata fields like `Creator`, which PostgreSQL
+/// rejects in JSON/text columns.
 fn parse_pdfinfo(output: &str) -> JsonValue {
     let mut metadata = serde_json::Map::new();
 
     for line in output.lines() {
         if let Some((key, value)) = line.split_once(':') {
             let key = key.trim().to_lowercase().replace(' ', "_");
-            let value = value.trim();
+            let value = value.trim().replace('\0', "");
             if !value.is_empty() {
                 // Parse page count as number
                 if key == "pages" {
@@ -39,7 +43,7 @@ fn parse_pdfinfo(output: &str) -> JsonValue {
                         continue;
                     }
                 }
-                metadata.insert(key, JsonValue::String(value.to_string()));
+                metadata.insert(key, JsonValue::String(value));
             }
         }
     }
@@ -159,6 +163,9 @@ impl ExtractionAdapter for PdfTextAdapter {
             )
             .await?
         };
+
+        // Strip null bytes — old PDFs can embed \0 in text content too
+        let text = text.replace('\0', "");
 
         // Signal if OCR might be needed (text-layer PDFs with scanned content)
         let trimmed_len = text.trim().len();
