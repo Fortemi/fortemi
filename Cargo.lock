@@ -1789,7 +1789,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "matric-api"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "matric-core"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1862,7 +1862,7 @@ dependencies = [
 
 [[package]]
 name = "matric-crypto"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "matric-db"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1918,7 +1918,7 @@ dependencies = [
 
 [[package]]
 name = "matric-inference"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "matric-jobs"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "matric-search"
-version = "2026.2.9"
+version = "2026.2.10"
 dependencies = [
  "async-trait",
  "chrono",

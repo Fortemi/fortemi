@@ -246,6 +246,16 @@ impl JobWorker {
             return;
         }
 
+        // Reap orphaned running jobs from a previous process (crash/restart).
+        // Use 2x the job timeout as the staleness threshold to avoid reaping
+        // jobs that are legitimately still running during normal operation.
+        let stale_threshold = matric_core::defaults::JOB_TIMEOUT_SECS * 2;
+        match self.db.jobs.reap_stale_running(stale_threshold).await {
+            Ok(0) => debug!("No stale running jobs to reap"),
+            Ok(n) => warn!(count = n, "Reaped stale running jobs from previous worker"),
+            Err(e) => error!(error = %e, "Failed to reap stale running jobs"),
+        }
+
         let job_notify = self.db.jobs.job_notify();
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
         let max_concurrent = self.config.max_concurrent_jobs;

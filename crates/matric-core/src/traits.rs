@@ -346,6 +346,15 @@ pub trait JobRepository: Send + Sync {
 
     /// Clean up old completed/failed jobs.
     async fn cleanup(&self, keep_count: i64) -> Result<i64>;
+
+    /// Reap stale running jobs that exceeded the timeout.
+    ///
+    /// On worker startup, jobs left in `running` status from a previous process
+    /// (e.g. after a crash or restart) will never complete. This resets them to
+    /// `pending` with incremented retry count so they get re-processed.
+    ///
+    /// Returns the number of jobs reaped.
+    async fn reap_stale_running(&self, timeout_secs: u64) -> Result<i64>;
 }
 
 // =============================================================================

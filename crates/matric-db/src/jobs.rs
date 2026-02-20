@@ -723,6 +723,53 @@ impl JobRepository for PgJobRepository {
 
         Ok(result.rows_affected() as i64)
     }
+
+    async fn reap_stale_running(&self, timeout_secs: u64) -> Result<i64> {
+        let cutoff = Utc::now()
+            - chrono::Duration::seconds(timeout_secs as i64);
+
+        // Reset stale running jobs to pending with incremented retry count.
+        // Jobs that have exhausted retries are marked as failed instead.
+        let result = sqlx::query(
+            "WITH stale AS (
+                 SELECT id, retry_count, max_retries
+                 FROM job_queue
+                 WHERE status = 'running'::job_status
+                   AND started_at < $1
+                 FOR UPDATE SKIP LOCKED
+             ),
+             retried AS (
+                 UPDATE job_queue
+                 SET status = 'pending'::job_status,
+                     retry_count = retry_count + 1,
+                     error_message = 'Reaped: job orphaned after worker restart',
+                     started_at = NULL,
+                     progress_percent = 0,
+                     progress_message = NULL
+                 FROM stale
+                 WHERE job_queue.id = stale.id
+                   AND stale.retry_count < stale.max_retries
+                 RETURNING job_queue.id
+             ),
+             exhausted AS (
+                 UPDATE job_queue
+                 SET status = 'failed'::job_status,
+                     completed_at = NOW(),
+                     error_message = 'Reaped: job orphaned after worker restart (retries exhausted)'
+                 FROM stale
+                 WHERE job_queue.id = stale.id
+                   AND stale.retry_count >= stale.max_retries
+                 RETURNING job_queue.id
+             )
+             SELECT (SELECT COUNT(*) FROM retried) + (SELECT COUNT(*) FROM exhausted) AS total",
+        )
+        .bind(cutoff)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(result.get::<i64, _>("total"))
+    }
 }
 
 #[cfg(test)]
