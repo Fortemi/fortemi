@@ -35,6 +35,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Extensions are created as superuser (postgres) by the entrypoint.
 COPY build/init-extensions.sh /docker-entrypoint-initdb.d/000-init-extensions.sh
 
+# Increase max_locks_per_transaction for archive schema tests.
+# Each archive create/drop acquires locks on ~41 tables + indexes.
+# With 15 parallel tests, the default (64) is easily exhausted.
+CMD ["postgres", "-c", "max_locks_per_transaction=256"]
+
 # Note: pg_bigm is not available in standard Debian repos.
 # CJK search falls back to pg_trgm which is built into PostgreSQL.
 # For pg_bigm support, use a custom image or compile from source:
