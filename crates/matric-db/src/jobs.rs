@@ -725,8 +725,7 @@ impl JobRepository for PgJobRepository {
     }
 
     async fn reap_stale_running(&self, timeout_secs: u64) -> Result<i64> {
-        let cutoff = Utc::now()
-            - chrono::Duration::seconds(timeout_secs as i64);
+        let cutoff = Utc::now() - chrono::Duration::seconds(timeout_secs as i64);
 
         // Reset stale running jobs to pending with incremented retry count.
         // Jobs that have exhausted retries are marked as failed instead.
