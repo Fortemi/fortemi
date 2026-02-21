@@ -34,6 +34,25 @@ use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+/// Metadata about a file download, separating DB metadata from file content.
+///
+/// This allows the caller to release the DB connection before reading
+/// the file from the filesystem, preventing pool contention during large downloads.
+pub struct FileDownloadInfo {
+    pub content_type: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub source: FileSource,
+}
+
+/// Where the file content lives.
+pub enum FileSource {
+    /// Content stored inline in the database (small files / legacy).
+    Inline(Vec<u8>),
+    /// Content stored on the filesystem at this path.
+    Filesystem(String),
+}
+
 /// Storage backend trait for different storage implementations.
 ///
 /// Allows abstracting over filesystem, S3, or other storage providers.
@@ -50,6 +69,14 @@ pub trait StorageBackend: Send + Sync {
 
     /// Check if data exists at the specified path.
     async fn exists(&self, path: &str) -> Result<bool>;
+
+    /// Resolve a storage path to an absolute filesystem path, if the backend supports it.
+    ///
+    /// Returns `Some(path)` for filesystem backends, enabling streaming file serving.
+    /// Returns `None` for non-filesystem backends (S3, etc.), requiring full buffering.
+    fn resolve_path(&self, _path: &str) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// Filesystem storage backend.
@@ -167,6 +194,10 @@ impl StorageBackend for FilesystemBackend {
     async fn exists(&self, path: &str) -> Result<bool> {
         let full_path = self.full_path(path);
         Ok(tokio::fs::try_exists(full_path).await?)
+    }
+
+    fn resolve_path(&self, path: &str) -> Option<PathBuf> {
+        Some(self.full_path(path))
     }
 }
 
@@ -909,6 +940,67 @@ impl PgFileStorageRepository {
         Ok((data, content_type, filename))
     }
 
+    /// Query file metadata without reading file content.
+    ///
+    /// Returns (storage_backend, storage_path_or_none, data_or_none, content_type, filename, size_bytes).
+    /// Use this to release the DB connection before performing filesystem I/O.
+    pub async fn get_file_metadata_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+    ) -> Result<FileDownloadInfo> {
+        let row = sqlx::query(
+            r#"SELECT ab.content_type, ab.storage_backend, ab.storage_path, ab.data,
+                      ab.size_bytes, a.filename
+               FROM attachment a
+               JOIN attachment_blob ab ON a.blob_id = ab.id
+               WHERE a.id = $1"#,
+        )
+        .bind(attachment_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| Error::NotFound("Attachment not found".into()))?;
+
+        let storage_backend: String = row.get("storage_backend");
+        let content_type: String = row.get("content_type");
+        let filename: String = row.get("filename");
+        let size_bytes: i64 = row.get("size_bytes");
+
+        if storage_backend == "database" {
+            let data = row
+                .get::<Option<Vec<u8>>, _>("data")
+                .ok_or_else(|| Error::NotFound("Blob data missing".into()))?;
+            Ok(FileDownloadInfo {
+                content_type,
+                filename,
+                size_bytes: size_bytes as u64,
+                source: FileSource::Inline(data),
+            })
+        } else {
+            let path = row
+                .get::<Option<String>, _>("storage_path")
+                .ok_or_else(|| Error::NotFound("Storage path missing".into()))?;
+            Ok(FileDownloadInfo {
+                content_type,
+                filename,
+                size_bytes: size_bytes as u64,
+                source: FileSource::Filesystem(path),
+            })
+        }
+    }
+
+    /// Read file content from the storage backend (filesystem) without a DB transaction.
+    pub async fn read_file(&self, storage_path: &str) -> Result<Vec<u8>> {
+        self.backend.read(storage_path).await
+    }
+
+    /// Resolve a storage path to an absolute filesystem path for streaming.
+    ///
+    /// Returns `Some(PathBuf)` for filesystem backends, `None` for others.
+    pub fn resolve_storage_path(&self, storage_path: &str) -> Option<PathBuf> {
+        self.backend.resolve_path(storage_path)
+    }
+
     /// Transaction-aware variant of delete.
     ///
     /// Deletes the attachment row (trigger decrements blob reference_count).
@@ -1123,6 +1215,65 @@ impl PgFileStorageRepository {
         .await?;
 
         Ok(())
+    }
+
+    /// Mark an attachment as having a preview (thumbnail) available.
+    pub async fn set_has_preview_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        has_preview: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET has_preview = $2, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(has_preview)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Store derived content as a child attachment for traceability.
+    ///
+    /// Creates a new attachment on the same note, linked to the parent
+    /// via `extracted_metadata.source_attachment_id` and `derivation_type`.
+    pub async fn store_derived_attachment_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        parent_attachment_id: Uuid,
+        filename: &str,
+        content_type: &str,
+        data: &[u8],
+        derivation_type: &str,
+    ) -> Result<Attachment> {
+        let mut attachment = self
+            .store_file_tx(tx, note_id, filename, content_type, data)
+            .await?;
+
+        // Mark as derived with link back to parent
+        let derived_metadata = serde_json::json!({
+            "source_attachment_id": parent_attachment_id.to_string(),
+            "extraction_derived": true,
+            "derivation_type": derivation_type,
+        });
+
+        sqlx::query(
+            r#"UPDATE attachment
+               SET extracted_metadata = $2, status = 'completed', updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment.id)
+        .bind(&derived_metadata)
+        .execute(&mut **tx)
+        .await?;
+
+        attachment.extracted_metadata = Some(derived_metadata);
+        Ok(attachment)
     }
 }
 

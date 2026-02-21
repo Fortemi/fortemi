@@ -6,6 +6,7 @@
 //! that other matric-memory crates depend on.
 
 pub mod asyncapi;
+pub mod captions;
 pub mod collection_filter;
 pub mod defaults;
 pub mod embedding_provider;

@@ -23,7 +23,7 @@ matric-crypto.workspace = true
 
 # Web framework
 axum = { version = "0.7", features = ["json", "tower-log", "multipart", "ws"] }
-tower = "0.4"
+tower = { version = "0.4", features = ["limit"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
 governor = "0.6"
 
@@ -70,6 +70,7 @@ tokio = { workspace = true, features = ["full"] }
 async-trait.workspace = true
 futures.workspace = true
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
 
 # Logging
 tracing.workspace = true
