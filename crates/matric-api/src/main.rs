@@ -49,7 +49,7 @@ use matric_core::{
     UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
-use matric_db::{Database, FilesystemBackend};
+use matric_db::{Database, FileSource, FilesystemBackend};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
@@ -1537,7 +1537,19 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/attachments/:attachment_id/download",
-            get(download_attachment),
+            get(download_attachment).layer(
+                tower::limit::ConcurrencyLimitLayer::new(
+                    matric_core::defaults::MEDIA_MAX_CONCURRENT_DOWNLOADS,
+                ),
+            ),
+        )
+        .route(
+            "/api/v1/attachments/:attachment_id/subtitles",
+            get(get_attachment_subtitles),
+        )
+        .route(
+            "/api/v1/attachments/:attachment_id/thumbnail",
+            get(get_attachment_thumbnail),
         )
         // SKOS Governance
         .route("/api/v1/concepts/governance", get(get_governance_stats))
@@ -9663,6 +9675,8 @@ async fn create_job(
         "extraction" => JobType::Extraction,
         "exif_extraction" => JobType::ExifExtraction,
         "graph_maintenance" => JobType::GraphMaintenance,
+        "speaker_diarization" => JobType::SpeakerDiarization,
+        "speaker_relabel" => JobType::SpeakerRelabel,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",
@@ -12861,19 +12875,22 @@ async fn download_attachment(
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
 
+    // Split metadata query from file I/O to release DB connection quickly.
+    // This prevents pool contention when serving large files (#504).
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
-    let (data, content_type, filename) = file_storage
-        .download_file_tx(&mut tx, attachment_id)
+    let info = file_storage
+        .get_file_metadata_tx(&mut tx, attachment_id)
         .await?;
-    drop(tx);
+    drop(tx); // Release DB connection before file I/O
 
-    let total_size = data.len();
+    let content_type = info.content_type;
+    let filename = info.filename;
+    let total_size = info.size_bytes as usize;
+
     let ct_header: HeaderValue = content_type
         .parse()
         .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    // Use "inline" for media types so browsers can play/display them directly;
-    // fall back to "attachment" for everything else to trigger download.
     let disposition = if content_type.starts_with("video/")
         || content_type.starts_with("audio/")
         || content_type.starts_with("image/")
@@ -12891,7 +12908,128 @@ async fn download_attachment(
     .parse()
     .unwrap_or_else(|_| HeaderValue::from_static(disposition));
 
-    // Parse Range header if present
+    // Graduated serving strategy (#500):
+    // - Small files / inline DB blobs: full-buffer then send
+    // - Large filesystem files: stream from disk via ReaderStream
+    let use_streaming = matches!(&info.source, FileSource::Filesystem(ref path)
+        if info.size_bytes >= matric_core::defaults::MEDIA_STREAM_THRESHOLD_BYTES
+            && file_storage.resolve_storage_path(path).is_some()
+    );
+
+    if use_streaming {
+        // Streaming path for large filesystem files
+        let storage_path = match &info.source {
+            FileSource::Filesystem(p) => p.clone(),
+            _ => unreachable!(),
+        };
+        let fs_path = file_storage
+            .resolve_storage_path(&storage_path)
+            .expect("resolve_storage_path checked above");
+
+        serve_streaming(
+            fs_path,
+            total_size,
+            ct_header,
+            cd_header,
+            &req_headers,
+        )
+        .await
+    } else {
+        // Buffered path for small files and inline DB blobs
+        let data = match info.source {
+            FileSource::Inline(bytes) => bytes,
+            FileSource::Filesystem(path) => file_storage.read_file(&path).await?,
+        };
+        let actual_size = data.len();
+        serve_buffered(data, actual_size, ct_header, cd_header, &req_headers)
+    }
+}
+
+/// Serve a file by streaming from disk (large files).
+async fn serve_streaming(
+    fs_path: std::path::PathBuf,
+    total_size: usize,
+    ct_header: HeaderValue,
+    cd_header: HeaderValue,
+    req_headers: &HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio_util::io::ReaderStream;
+
+    if let Some(range_val) = req_headers.get(header::RANGE) {
+        let range_str = range_val
+            .to_str()
+            .map_err(|_| ApiError::BadRequest("Invalid Range header".to_string()))?;
+
+        match parse_byte_range(range_str, total_size) {
+            Ok((start, end)) => {
+                let content_length = end - start + 1;
+                let mut file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
+                    ApiError::Internal(format!("Failed to open file: {}", e))
+                })?;
+                file.seek(std::io::SeekFrom::Start(start as u64))
+                    .await
+                    .map_err(|e| {
+                        ApiError::Internal(format!("Failed to seek: {}", e))
+                    })?;
+                let limited = file.take(content_length as u64);
+                let stream = ReaderStream::with_capacity(
+                    limited,
+                    matric_core::defaults::MEDIA_STREAM_BUFFER_BYTES,
+                );
+
+                let mut headers = HeaderMap::new();
+                headers.insert(header::CONTENT_TYPE, ct_header);
+                headers.insert(header::CONTENT_DISPOSITION, cd_header);
+                headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    format!("bytes {}-{}/{}", start, end, total_size)
+                        .parse()
+                        .unwrap(),
+                );
+                headers.insert(header::CONTENT_LENGTH, HeaderValue::from(content_length));
+
+                let body = axum::body::Body::from_stream(stream);
+                Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
+            }
+            Err(_) => {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    format!("bytes */{}", total_size).parse().unwrap(),
+                );
+                Ok((StatusCode::RANGE_NOT_SATISFIABLE, headers, Vec::<u8>::new()).into_response())
+            }
+        }
+    } else {
+        let file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
+            ApiError::Internal(format!("Failed to open file: {}", e))
+        })?;
+        let stream = ReaderStream::with_capacity(
+            file,
+            matric_core::defaults::MEDIA_STREAM_BUFFER_BYTES,
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, ct_header);
+        headers.insert(header::CONTENT_DISPOSITION, cd_header);
+        headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(total_size));
+
+        let body = axum::body::Body::from_stream(stream);
+        Ok((StatusCode::OK, headers, body).into_response())
+    }
+}
+
+/// Serve a file from a fully-buffered Vec<u8> (small files / inline DB blobs).
+fn serve_buffered(
+    data: Vec<u8>,
+    total_size: usize,
+    ct_header: HeaderValue,
+    cd_header: HeaderValue,
+    req_headers: &HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
     if let Some(range_val) = req_headers.get(header::RANGE) {
         let range_str = range_val
             .to_str()
@@ -12925,11 +13063,10 @@ async fn download_attachment(
                     header::CONTENT_RANGE,
                     format!("bytes */{}", total_size).parse().unwrap(),
                 );
-                Ok((StatusCode::RANGE_NOT_SATISFIABLE, headers, Vec::new()).into_response())
+                Ok((StatusCode::RANGE_NOT_SATISFIABLE, headers, Vec::<u8>::new()).into_response())
             }
         }
     } else {
-        // No Range header — return full content
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, ct_header);
         headers.insert(header::CONTENT_DISPOSITION, cd_header);
@@ -12938,6 +13075,199 @@ async fn download_attachment(
 
         Ok((StatusCode::OK, headers, data).into_response())
     }
+}
+
+/// Serve transcript segments as subtitle/caption tracks (WebVTT, SRT, or RTTM).
+///
+/// Query parameters:
+/// - `format`: `vtt` (default), `srt`, or `rttm`
+#[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/subtitles", tag = "Attachments",
+    params(
+        ("attachment_id" = Uuid, Path, description = "Attachment ID"),
+        ("format" = Option<String>, Query, description = "Caption format: vtt (default), srt, rttm"),
+    ),
+    responses(
+        (status = 200, description = "Subtitle track", content_type = "text/vtt"),
+        (status = 404, description = "Attachment not found or no transcript segments"),
+    )
+)]
+async fn get_attachment_subtitles(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(attachment_id): Path<Uuid>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let attachment = file_storage.get_tx(&mut tx, attachment_id).await?;
+    drop(tx);
+
+    let metadata = attachment
+        .extracted_metadata
+        .ok_or_else(|| ApiError::NotFound("No extraction metadata for this attachment".to_string()))?;
+
+    // Try video path first (transcript_segments), then audio path (segments)
+    let segments_json = metadata
+        .get("transcript_segments")
+        .or_else(|| metadata.get("segments"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            ApiError::NotFound("No transcript segments found in extraction metadata".to_string())
+        })?;
+
+    let segments: Vec<matric_core::captions::CaptionSegment> = segments_json
+        .iter()
+        .filter_map(|seg| {
+            let start = seg.get("start_secs")?.as_f64()?;
+            let end = seg.get("end_secs")?.as_f64()?;
+            let text = seg.get("text")?.as_str()?.to_string();
+            let speaker = seg
+                .get("speaker")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            Some(matric_core::captions::CaptionSegment {
+                start_secs: start,
+                end_secs: end,
+                text,
+                speaker,
+            })
+        })
+        .collect();
+
+    if segments.is_empty() {
+        return Err(ApiError::NotFound(
+            "No valid transcript segments found".to_string(),
+        ));
+    }
+
+    let format = params
+        .get("format")
+        .map(|s| s.as_str())
+        .unwrap_or("vtt");
+
+    let (body, content_type, extension) = match format {
+        "srt" => (
+            matric_core::captions::render_srt(&segments),
+            "application/x-subrip",
+            "srt",
+        ),
+        "rttm" => (
+            matric_core::captions::render_rttm(&segments, &attachment.filename),
+            "text/plain",
+            "rttm",
+        ),
+        _ => (
+            matric_core::captions::render_webvtt(&segments),
+            "text/vtt",
+            "vtt",
+        ),
+    };
+
+    let base_name = attachment
+        .filename
+        .rsplit_once('.')
+        .map(|(name, _)| name)
+        .unwrap_or(&attachment.filename);
+    let subtitle_filename = format!("{}.{}", base_name, extension);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type).unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!(
+            "inline; filename=\"{}\"",
+            subtitle_filename.replace('"', "\\\"")
+        )
+        .parse()
+        .unwrap(),
+    );
+
+    Ok((StatusCode::OK, headers, body))
+}
+
+/// Serve the thumbnail for a media attachment.
+///
+/// Returns the derived thumbnail attachment created during extraction.
+/// Sets aggressive cache headers since thumbnails are immutable.
+/// Returns 404 if no thumbnail exists (non-video attachment or not yet processed).
+#[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/thumbnail", tag = "Attachments",
+    params(
+        ("attachment_id" = Uuid, Path, description = "Attachment ID"),
+    ),
+    responses(
+        (status = 200, description = "Thumbnail JPEG"),
+        (status = 404, description = "No thumbnail available"),
+    )
+)]
+async fn get_attachment_thumbnail(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(attachment_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Find the derived thumbnail attachment for this parent
+    let mut tx = ctx.begin_tx().await?;
+    let thumb_row: Option<(uuid::Uuid,)> = sqlx::query_as(
+        r#"SELECT id FROM attachment
+           WHERE extracted_metadata->>'source_attachment_id' = $1::TEXT
+             AND extracted_metadata->>'derivation_type' = 'thumbnail'
+           LIMIT 1"#,
+    )
+    .bind(attachment_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Failed to query thumbnail: {}", e)))?;
+    drop(tx);
+
+    let thumb_id = thumb_row
+        .map(|r| r.0)
+        .ok_or_else(|| ApiError::NotFound("No thumbnail available for this attachment".to_string()))?;
+
+    // Read thumbnail file data via the storage backend
+    let mut tx = ctx.begin_tx().await?;
+    let info = file_storage
+        .get_file_metadata_tx(&mut tx, thumb_id)
+        .await
+        .map_err(|_| ApiError::NotFound("Thumbnail data not found".to_string()))?;
+    drop(tx);
+
+    let thumb_data = match info.source {
+        FileSource::Inline(data) => data,
+        FileSource::Filesystem(storage_path) => {
+            file_storage
+                .read_file(&storage_path)
+                .await
+                .map_err(|_| ApiError::NotFound("Thumbnail data not readable".to_string()))?
+        }
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/jpeg"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400, immutable"),
+    );
+
+    Ok((StatusCode::OK, headers, thumb_data))
 }
 
 /// Parse an HTTP Range header value into (start, end) inclusive byte offsets.

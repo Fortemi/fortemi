@@ -247,6 +247,209 @@ impl JobHandler for ExtractionHandler {
                     }
                 }
 
+                // Run MP4 faststart optimization if applicable (#503)
+                if let Some(att_id) = attachment_id {
+                    if mime_type == "video/mp4" || mime_type == "video/quicktime" {
+                        if let Some(file_storage) = self.db.file_storage.as_ref() {
+                            ctx.report_progress(82, Some("Optimizing video for streaming"));
+                            if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                if let Ok(info) =
+                                    file_storage.get_file_metadata_tx(&mut tx, att_id).await
+                                {
+                                    drop(tx);
+                                    if let matric_db::FileSource::Filesystem(ref storage_path) =
+                                        info.source
+                                    {
+                                        if let Some(fs_path) =
+                                            file_storage.resolve_storage_path(storage_path)
+                                        {
+                                            let fs_str = fs_path.to_string_lossy().to_string();
+                                            let work_dir = match tempfile::TempDir::new() {
+                                                Ok(d) => d,
+                                                Err(_) => {
+                                                    warn!("Failed to create temp dir for faststart");
+                                                    // skip optimization
+                                                    tempfile::TempDir::new().unwrap()
+                                                }
+                                            };
+                                            match crate::adapters::video_multimodal::optimize_faststart(&fs_str, &work_dir).await {
+                                                Ok(optimized) if optimized != fs_str => {
+                                                    // Replace original file with optimized version
+                                                    if let Err(e) = tokio::fs::copy(&optimized, &fs_path).await {
+                                                        warn!(error = %e, "Failed to copy faststart-optimized file");
+                                                    } else {
+                                                        info!(attachment_id = %att_id, "MP4 faststart optimization applied");
+                                                    }
+                                                }
+                                                _ => {} // Already optimized or failed gracefully
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    drop(tx);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Persist thumbnail as derived attachment if available (#502)
+                if let (Some(att_id), Some(note_id), Some(thumbnail_bytes)) =
+                    (attachment_id, ctx.note_id(), result.preview_data.as_ref())
+                {
+                    if let Some(file_storage) = self.db.file_storage.as_ref() {
+                        ctx.report_progress(83, Some("Persisting thumbnail"));
+                        if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                            let thumb_filename = format!(
+                                "{}_thumbnail.jpg",
+                                att_id
+                            );
+                            match file_storage
+                                .store_derived_attachment_tx(
+                                    &mut tx,
+                                    note_id,
+                                    att_id,
+                                    &thumb_filename,
+                                    "image/jpeg",
+                                    thumbnail_bytes,
+                                    "thumbnail",
+                                )
+                                .await
+                            {
+                                Ok(thumb_att) => {
+                                    // Mark parent as having a preview
+                                    if let Err(e) = file_storage
+                                        .set_has_preview_tx(&mut tx, att_id, true)
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to set has_preview on parent");
+                                    }
+                                    if let Err(e) = tx.commit().await {
+                                        error!(error = %e, "Failed to commit thumbnail");
+                                    } else {
+                                        info!(
+                                            parent = %att_id,
+                                            thumbnail = %thumb_att.id,
+                                            "Thumbnail persisted as derived attachment"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to store thumbnail attachment");
+                                    drop(tx);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Persist transcript files as derived attachments if available (#498)
+                if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
+                    if let Some(file_storage) = self.db.file_storage.as_ref() {
+                        // Check for transcript segments in extraction metadata
+                        let segments_json = result
+                            .metadata
+                            .get("transcript_segments")
+                            .or_else(|| result.metadata.get("segments"))
+                            .and_then(|v| v.as_array());
+
+                        if let Some(segs) = segments_json {
+                            let caption_segments: Vec<matric_core::captions::CaptionSegment> = segs
+                                .iter()
+                                .filter_map(|seg| {
+                                    let start = seg.get("start_secs")?.as_f64()?;
+                                    let end = seg.get("end_secs")?.as_f64()?;
+                                    let text = seg.get("text")?.as_str()?.to_string();
+                                    let speaker = seg
+                                        .get("speaker_id")
+                                        .and_then(|s| s.as_str())
+                                        .map(|s| s.to_string());
+                                    Some(matric_core::captions::CaptionSegment {
+                                        start_secs: start,
+                                        end_secs: end,
+                                        text,
+                                        speaker,
+                                    })
+                                })
+                                .collect();
+
+                            if !caption_segments.is_empty() {
+                                ctx.report_progress(84, Some("Persisting transcript files"));
+                                let base_name = filename
+                                    .rsplit_once('.')
+                                    .map(|(name, _)| name)
+                                    .unwrap_or(filename);
+
+                                if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                    // VTT file
+                                    let vtt = matric_core::captions::render_webvtt(&caption_segments);
+                                    if let Err(e) = file_storage
+                                        .store_derived_attachment_tx(
+                                            &mut tx,
+                                            note_id,
+                                            att_id,
+                                            &format!("{}.vtt", base_name),
+                                            "text/vtt",
+                                            vtt.as_bytes(),
+                                            "caption",
+                                        )
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to store VTT attachment");
+                                    }
+
+                                    // SRT file
+                                    let srt = matric_core::captions::render_srt(&caption_segments);
+                                    if let Err(e) = file_storage
+                                        .store_derived_attachment_tx(
+                                            &mut tx,
+                                            note_id,
+                                            att_id,
+                                            &format!("{}.srt", base_name),
+                                            "application/x-subrip",
+                                            srt.as_bytes(),
+                                            "caption",
+                                        )
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to store SRT attachment");
+                                    }
+
+                                    // Plain text transcript
+                                    let plain_text: String = caption_segments
+                                        .iter()
+                                        .map(|s| s.text.trim().to_string())
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    if let Err(e) = file_storage
+                                        .store_derived_attachment_tx(
+                                            &mut tx,
+                                            note_id,
+                                            att_id,
+                                            &format!("{}.transcript.txt", base_name),
+                                            "text/plain",
+                                            plain_text.as_bytes(),
+                                            "transcript",
+                                        )
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to store transcript attachment");
+                                    }
+
+                                    if let Err(e) = tx.commit().await {
+                                        error!(error = %e, "Failed to commit transcript attachments");
+                                    } else {
+                                        info!(
+                                            parent = %att_id,
+                                            "Transcript files persisted as derived attachments (VTT, SRT, TXT)"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ctx.report_progress(85, Some("Results persisted"));
 
                 // --- Bug 1b (Issue #492): propagate extraction content to note
