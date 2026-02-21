@@ -48,11 +48,12 @@ For attachment uploads, an `Extraction` job runs first to extract text/metadata 
 ```
 Attachment Upload
 │
-├─ Extraction (adapter-specific: PDF, image, audio, video, 3D)
+├─ Extraction (adapter-specific: PDF, image, audio, video, 3D, email, spreadsheet, archive)
 │   ├─ On success:
 │   │   ├─ MP4 faststart optimization (video only)
 │   │   ├─ Thumbnail persisted as derived attachment (video/audio)
 │   │   ├─ Transcript files persisted — VTT, SRT, TXT (audio/video)
+│   │   ├─ Derived files persisted as child attachments (email attachments, archive entries)
 │   │   ├─ SpeakerDiarization queued (audio/video, when DIARIZATION_BASE_URL set)
 │   │   └─ Queues Phase 1 jobs for the parent note:
 │   │       ├─ Embedding
@@ -284,6 +285,7 @@ Job handlers report progress at different granularities:
 | 82% | Optimizing video for streaming (MP4 faststart, video only) |
 | 83% | Persisting thumbnail as derived attachment (video/audio only) |
 | 84% | Persisting transcript files — VTT, SRT, plain text (audio/video only) |
+| 84% | Persisting derived attachments — email/archive extracts (mutually exclusive with above) |
 | 85% | Content persisted to note |
 | 95% | Downstream NLP jobs queued |
 | 100% | Done |
@@ -337,6 +339,52 @@ Triggered when a user edits the speaker configuration block in a note, or via th
 | 50% | Computing embeddings / finding links |
 | 90% | Persisting results |
 | 100% | Done |
+
+## Extraction Strategies and Post-Processing
+
+Extraction jobs route files to specialized adapters based on MIME type. Each adapter has different post-processing behavior:
+
+| Strategy | Adapter | External Deps | Post-Processing |
+|----------|---------|---------------|-----------------|
+| `pdf_text` | PdfTextAdapter | None | Text extraction only |
+| `pdf_ocr` | PdfOcrAdapter | tesseract, pdftoppm | OCR → text |
+| `vision` | VisionAdapter | Ollama vision model | Image description, images >4MP downscaled |
+| `audio_transcribe` | AudioTranscribeAdapter | Whisper backend | Transcript → VTT/SRT/TXT, thumbnail, diarization |
+| `video_multimodal` | VideoMultimodalAdapter | Whisper + vision | Keyframes + transcript → VTT/SRT/TXT, thumbnail, MP4 faststart |
+| `code_ast` | CodeAstAdapter | None | AST parsing, syntax-aware chunking |
+| `structured_extract` | StructuredExtractAdapter | None | JSON/XML/CSV/YAML → text |
+| `text_native` | TextNativeAdapter | None | Plain text passthrough |
+| `office_convert` | OfficeConvertAdapter | pandoc | doc/pptx/rtf/odt → markdown |
+| `email` | EmailAdapter | None | RFC 2822/MIME parsing, attachments as derived files |
+| `spreadsheet` | SpreadsheetAdapter | None | xlsx/xls/ods → markdown tables per sheet |
+| `archive` | ArchiveAdapter | None | ZIP/tar/gz → file listing + text content extraction |
+| `glb_3d_model` | Glb3DModelAdapter | Open3D renderer | Multi-view rendering + vision description |
+
+### Derived Files
+
+Some adapters produce **derived files** — binary content extracted from within a compound file. These are automatically persisted as child attachments on the parent note:
+
+- **Email attachments**: Binary files attached to `.eml`/`.mbox` messages (PDFs, images, documents)
+- **Archive entries**: Text files extracted from ZIP/tar archives (limited by security caps: 1000 files, 100MB total)
+
+Derived files trigger their own extraction jobs, creating a recursive pipeline:
+
+```
+Upload: report.eml (email with 2 PDF attachments)
+│
+├─ Extraction (Email strategy)
+│   ├─ 84% — Persisting 2 derived files as child attachments
+│   ├─ 85% — Email text/metadata persisted to note
+│   └─ 95% — Downstream NLP jobs queued for note
+│
+├─ Extraction (PdfText strategy) ← auto-queued for attachment-1.pdf
+│   └─ Text extracted, NLP jobs queued
+│
+└─ Extraction (PdfText strategy) ← auto-queued for attachment-2.pdf
+    └─ Text extracted, NLP jobs queued
+```
+
+When monitoring email/archive extraction, watch for additional `job.queued` events for derived file extractions. These will have different `attachment_id` values but the same parent `note_id`.
 
 ## Backpressure and Reconnection
 
@@ -701,6 +749,8 @@ Some jobs can take minutes or longer:
 |----------|-----------------|----------------------|
 | **Extraction** (video) | 30s–5min | Large video files with scene detection + transcription |
 | **Extraction** (audio) | 10s–3min | Long audio files transcribed via Whisper |
+| **Extraction** (email/mbox) | 1s–30s | Large .mbox files with many messages and binary attachments |
+| **Extraction** (archive) | 1s–60s | Large ZIP/tar files with many entries; text content extracted |
 | **GraphMaintenance** | 5s–2min | Large graphs with SNN + PFNET computation |
 | **ReEmbedAll** | 1min–30min | Bulk re-embedding all notes in an archive |
 | **AiRevisionContextual** | 10s–2min | Gathering context from related notes + LLM generation |

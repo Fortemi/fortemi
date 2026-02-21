@@ -452,6 +452,8 @@ impl JobHandler for ExtractionHandler {
                 }
 
                 // Persist derived files as child attachments (email attachments, etc.)
+                // NOTE: This 84% report is mutually exclusive with transcript persistence above.
+                // Transcripts come from audio/video adapters; derived files from email/archive adapters.
                 if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
                     if !result.derived_files.is_empty() {
                         if let Some(file_storage) = self.db.file_storage.as_ref() {
