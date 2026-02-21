@@ -12782,11 +12782,16 @@ async fn get_attachment(
 /// Clients can use `curl -o filename URL` to download directly.
 #[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/download", tag = "Attachments",
     params(("attachment_id" = Uuid, Path, description = "Attachment ID")),
-    responses((status = 200, description = "Success")))]
+    responses(
+        (status = 200, description = "Full content"),
+        (status = 206, description = "Partial content (Range request)"),
+        (status = 416, description = "Range not satisfiable"),
+    ))]
 async fn download_attachment(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
+    req_headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
         .db
@@ -12801,25 +12806,105 @@ async fn download_attachment(
         .await?;
     drop(tx);
 
-    // Return raw binary with proper Content-Type and Content-Disposition headers
-    let headers = [
-        (
-            axum::http::header::CONTENT_TYPE,
-            content_type
-                .parse::<axum::http::HeaderValue>()
-                .unwrap_or_else(|_| {
-                    axum::http::HeaderValue::from_static("application/octet-stream")
-                }),
-        ),
-        (
-            axum::http::header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
-                .parse::<axum::http::HeaderValue>()
-                .unwrap_or_else(|_| axum::http::HeaderValue::from_static("attachment")),
-        ),
-    ];
+    let total_size = data.len();
+    let ct_header: HeaderValue = content_type
+        .parse()
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    let cd_header: HeaderValue =
+        format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
+            .parse()
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
 
-    Ok((headers, data))
+    // Parse Range header if present
+    if let Some(range_val) = req_headers.get(header::RANGE) {
+        let range_str = range_val
+            .to_str()
+            .map_err(|_| ApiError::BadRequest("Invalid Range header".to_string()))?;
+
+        match parse_byte_range(range_str, total_size) {
+            Ok((start, end)) => {
+                let content_length = end - start + 1;
+                let mut headers = HeaderMap::new();
+                headers.insert(header::CONTENT_TYPE, ct_header);
+                headers.insert(header::CONTENT_DISPOSITION, cd_header);
+                headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    format!("bytes {}-{}/{}", start, end, total_size)
+                        .parse()
+                        .unwrap(),
+                );
+                headers.insert(header::CONTENT_LENGTH, HeaderValue::from(content_length));
+
+                Ok((
+                    StatusCode::PARTIAL_CONTENT,
+                    headers,
+                    data[start..=end].to_vec(),
+                )
+                    .into_response())
+            }
+            Err(_) => {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    format!("bytes */{}", total_size).parse().unwrap(),
+                );
+                Ok((StatusCode::RANGE_NOT_SATISFIABLE, headers, Vec::new()).into_response())
+            }
+        }
+    } else {
+        // No Range header — return full content
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, ct_header);
+        headers.insert(header::CONTENT_DISPOSITION, cd_header);
+        headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(total_size));
+
+        Ok((StatusCode::OK, headers, data).into_response())
+    }
+}
+
+/// Parse an HTTP Range header value into (start, end) inclusive byte offsets.
+/// Supports: `bytes=start-end`, `bytes=start-`, `bytes=-suffix_length`.
+fn parse_byte_range(range: &str, total_size: usize) -> Result<(usize, usize), ()> {
+    let range = range.trim();
+    let spec = range.strip_prefix("bytes=").ok_or(())?;
+
+    // Only support single range (no multi-range with commas)
+    if spec.contains(',') {
+        return Err(());
+    }
+
+    let spec = spec.trim();
+    if let Some(suffix) = spec.strip_prefix('-') {
+        // bytes=-N  (last N bytes)
+        let n: usize = suffix.trim().parse().map_err(|_| ())?;
+        if n == 0 || n > total_size {
+            return Err(());
+        }
+        Ok((total_size - n, total_size - 1))
+    } else if let Some(start_str) = spec.strip_suffix('-') {
+        // bytes=N-  (from N to end)
+        let start: usize = start_str.trim().parse().map_err(|_| ())?;
+        if start >= total_size {
+            return Err(());
+        }
+        Ok((start, total_size - 1))
+    } else {
+        // bytes=N-M
+        let parts: Vec<&str> = spec.splitn(2, '-').collect();
+        if parts.len() != 2 {
+            return Err(());
+        }
+        let start: usize = parts[0].trim().parse().map_err(|_| ())?;
+        let end: usize = parts[1].trim().parse().map_err(|_| ())?;
+        if start > end || start >= total_size {
+            return Err(());
+        }
+        // Clamp end to total_size - 1
+        let end = end.min(total_size - 1);
+        Ok((start, end))
+    }
 }
 
 /// Delete an attachment
@@ -18346,5 +18431,86 @@ mod tests {
             !yaml.contains("#/definitions/"),
             "Found leftover #/definitions/ ref in AsyncAPI YAML"
         );
+    }
+
+    #[test]
+    fn test_parse_byte_range_full_range() {
+        // bytes=0-99 of a 1000-byte file
+        let (start, end) = parse_byte_range("bytes=0-99", 1000).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, 99);
+    }
+
+    #[test]
+    fn test_parse_byte_range_middle() {
+        let (start, end) = parse_byte_range("bytes=500-999", 2000).unwrap();
+        assert_eq!(start, 500);
+        assert_eq!(end, 999);
+    }
+
+    #[test]
+    fn test_parse_byte_range_open_end() {
+        // bytes=500- means from 500 to end
+        let (start, end) = parse_byte_range("bytes=500-", 1000).unwrap();
+        assert_eq!(start, 500);
+        assert_eq!(end, 999);
+    }
+
+    #[test]
+    fn test_parse_byte_range_suffix() {
+        // bytes=-200 means last 200 bytes
+        let (start, end) = parse_byte_range("bytes=-200", 1000).unwrap();
+        assert_eq!(start, 800);
+        assert_eq!(end, 999);
+    }
+
+    #[test]
+    fn test_parse_byte_range_clamps_end() {
+        // End beyond file size should clamp
+        let (start, end) = parse_byte_range("bytes=0-9999", 1000).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, 999);
+    }
+
+    #[test]
+    fn test_parse_byte_range_single_byte() {
+        let (start, end) = parse_byte_range("bytes=0-0", 100).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, 0);
+    }
+
+    #[test]
+    fn test_parse_byte_range_invalid_no_prefix() {
+        assert!(parse_byte_range("0-100", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_invalid_start_beyond_size() {
+        assert!(parse_byte_range("bytes=1000-1500", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_invalid_start_gt_end() {
+        assert!(parse_byte_range("bytes=500-100", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_invalid_suffix_zero() {
+        assert!(parse_byte_range("bytes=-0", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_invalid_suffix_exceeds_size() {
+        assert!(parse_byte_range("bytes=-2000", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_rejects_multi_range() {
+        assert!(parse_byte_range("bytes=0-100,200-300", 1000).is_err());
+    }
+
+    #[test]
+    fn test_parse_byte_range_empty_file() {
+        assert!(parse_byte_range("bytes=0-0", 0).is_err());
     }
 }
