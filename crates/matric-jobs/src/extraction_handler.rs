@@ -98,6 +98,8 @@ impl JobHandler for ExtractionHandler {
             Err(e) => return e,
         };
 
+        ctx.report_progress(5, Some("Resolving attachment and strategy"));
+
         // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
         let data = if let Some(att_id) = attachment_id {
             let file_storage = match self.db.file_storage.as_ref() {

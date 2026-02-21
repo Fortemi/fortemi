@@ -300,6 +300,7 @@ Queued automatically after audio/video extraction when `DIARIZATION_BASE_URL` is
 | 60% | Aligning speakers with transcript segments |
 | 70% | Updating attachment metadata with speaker labels |
 | 80% | Re-rendering caption files (VTT, SRT, TXT) with speaker labels |
+| 90% | Adding speaker config to note content |
 | 95% | Diarization complete |
 | 100% | Done |
 
@@ -750,7 +751,7 @@ The following table shows which job lifecycle events each handler actually emits
 | DocumentTypeInferenceHandler | Auto | Auto | 10%, 30%, 80%, 100% | Auto | Auto |
 | AiRevisionHandler | Auto | Auto | 10%, 40%, 80%, 90%, 95%, 100% | Auto | Auto |
 | AiRevisionContextualHandler | Auto | Auto | 10%, 30%, 40%, 60%, 80%, 90%, 100% | Auto | Auto |
-| ExtractionHandler | Auto | Auto | 10%, 20%, 80%, 82%, 83%, 84%, 85%, 95%, 100% | Auto | Auto |
+| ExtractionHandler | Auto | Auto | 5%, 10%, 20%, 80%, 82%, 83%, 84%, 85%, 95%, 100% | Auto | Auto |
 | ExifExtractionHandler | Auto | Auto | 5%, 10%, 30%, 50%, 60%, 70%, 80%, 90%, 100% | Auto | Auto |
 | GraphMaintenanceHandler | Auto | Auto | 5%, 20%, 30%, 55%, 80%, 100% | Auto | Auto |
 | ReEmbedAllHandler | Auto | Auto | 5%, 10%, per-note updates, 100% | Auto | Auto |
@@ -758,7 +759,7 @@ The following table shows which job lifecycle events each handler actually emits
 | PurgeNoteHandler | Auto | Auto | 10%, 30%, 50%, 80%, 100% | Auto | Auto |
 | ContextUpdateHandler | Auto | Auto | 20%, 40%, 60%, 80%, 100% | Auto | Auto |
 | RefreshEmbeddingSetHandler | Auto | Auto | 10%, 20%, 50%, 100% | Auto | Auto |
-| SpeakerDiarizationHandler | Auto | Auto | 5%, 10%, 20%, 60%, 70%, 80%, 95%, 100% | Auto | Auto |
+| SpeakerDiarizationHandler | Auto | Auto | 5%, 10%, 20%, 60%, 70%, 80%, 90%, 95%, 100% | Auto | Auto |
 | SpeakerRelabelHandler | Auto | Auto | 10%, 20%, 40%, 50%, 70%, 95%, 100% | Auto | Auto |
 
 "Auto" means the worker framework emits these events automatically for every job — handlers don't need to emit them explicitly.

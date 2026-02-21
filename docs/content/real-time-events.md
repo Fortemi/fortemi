@@ -116,7 +116,7 @@ Events are classified by priority for backpressure decisions:
 | `note.deleted` | A note was soft-deleted | `note_id` |
 | `note.archived` | A note was archived | `note_id` |
 | `note.restored` | A note was restored from archive/deletion | `note_id` |
-| `note.tags.updated` | Tags on a note were changed **(planned)** | `note_id`, `tags` |
+| `note.tags.updated` | Tags on a note were changed | `note_id`, `tags` |
 | `note.links.updated` | Semantic links updated by background job **(planned)** | `note_id` |
 | `note.revision.created` | An AI revision was created **(planned)** | `note_id` |
 
