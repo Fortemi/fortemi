@@ -1038,6 +1038,11 @@ function createMcpServer() {
                   vision_model: process.env.OLLAMA_VISION_MODEL || null,
                   requires: "Three.js renderer (bundled) + OLLAMA_VISION_MODEL",
                 },
+                speaker_diarization: {
+                  enabled: health.capabilities?.speaker_diarization || false,
+                  provider: process.env.DIARIZATION_BASE_URL ? "pyannote" : null,
+                  model: process.env.DIARIZATION_MODEL || "pyannote/speaker-diarization-3.1",
+                },
                 ocr: {
                   enabled: (health.capabilities?.extraction_strategies ?? []).includes("pdf_ocr"),
                 },

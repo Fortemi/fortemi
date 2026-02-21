@@ -452,6 +452,74 @@ impl JobHandler for ExtractionHandler {
 
                 ctx.report_progress(85, Some("Results persisted"));
 
+                // Queue speaker diarization if transcript segments are available (#497).
+                // Only for audio/video strategies when diarization backend is configured.
+                let has_transcript_segments = result
+                    .metadata
+                    .get("transcript_segments")
+                    .or_else(|| result.metadata.get("segments"))
+                    .and_then(|v| v.as_array())
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false);
+
+                let is_audio_video = matches!(
+                    strategy,
+                    ExtractionStrategy::AudioTranscribe | ExtractionStrategy::VideoMultimodal
+                );
+
+                let diarization_available = std::env::var(
+                    matric_core::defaults::ENV_DIARIZATION_BASE_URL,
+                )
+                .ok()
+                .filter(|s| !s.is_empty())
+                .is_some();
+
+                if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
+                    if is_audio_video && has_transcript_segments && diarization_available {
+                        let mut diar_payload = serde_json::Map::new();
+                        diar_payload.insert(
+                            "attachment_id".to_string(),
+                            json!(att_id.to_string()),
+                        );
+                        if schema != "public" {
+                            diar_payload.insert("schema".to_string(), json!(&schema));
+                        }
+                        match self
+                            .db
+                            .jobs
+                            .queue_deduplicated(
+                                Some(note_id),
+                                JobType::SpeakerDiarization,
+                                JobType::SpeakerDiarization.default_priority(),
+                                Some(serde_json::Value::Object(diar_payload)),
+                                JobType::SpeakerDiarization.default_cost_tier(),
+                            )
+                            .await
+                        {
+                            Ok(Some(job_id)) => {
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::SpeakerDiarization,
+                                    Some(note_id),
+                                );
+                                info!(
+                                    note_id = %note_id,
+                                    attachment_id = %att_id,
+                                    "Speaker diarization job queued"
+                                );
+                            }
+                            Ok(None) => {} // Deduplicated
+                            Err(e) => {
+                                warn!(
+                                    note_id = %note_id,
+                                    error = %e,
+                                    "Failed to queue speaker diarization job"
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // --- Bug 1b (Issue #492): propagate extraction content to note
                 // and re-queue downstream NLP jobs so they operate on real text
                 // instead of a bare filename stub. ---

@@ -38,17 +38,21 @@
 //! ```
 
 pub mod adapters;
+pub mod diarization_handler;
 pub mod extraction;
 pub mod extraction_handler;
 pub mod handler;
 pub mod pause;
+pub mod relabel_handler;
 pub mod worker;
 
 // Re-export core types
 pub use matric_core::*;
 
 // Re-export job types
+pub use diarization_handler::SpeakerDiarizationHandler;
 pub use extraction_handler::ExtractionHandler;
+pub use relabel_handler::{SpeakerConfig, SpeakerRelabelHandler};
 pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
 pub use pause::PauseState;
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};

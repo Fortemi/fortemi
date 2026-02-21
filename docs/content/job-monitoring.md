@@ -53,14 +53,26 @@ Attachment Upload
 │   │   ├─ MP4 faststart optimization (video only)
 │   │   ├─ Thumbnail persisted as derived attachment (video/audio)
 │   │   ├─ Transcript files persisted — VTT, SRT, TXT (audio/video)
+│   │   ├─ SpeakerDiarization queued (audio/video, when DIARIZATION_BASE_URL set)
 │   │   └─ Queues Phase 1 jobs for the parent note:
 │   │       ├─ Embedding
 │   │       ├─ Linking
 │   │       ├─ ConceptTagging
 │   │       └─ TitleGeneration
-│   └─ Future: SpeakerDiarization (post-transcription, when enabled)
 │
 └─ ExifExtraction (parallel, for images)
+```
+
+Speaker diarization produces a speaker configuration block in the note content. When a user edits speaker names and saves, a `SpeakerRelabel` job is queued:
+
+```
+User edits speaker config block in note
+│
+└─ SpeakerRelabel
+    ├─ Reads speaker map from note content (or API payload)
+    ├─ Applies name mapping to transcript segments
+    ├─ Updates attachment metadata
+    └─ Re-renders caption files (VTT, SRT, TXT)
 ```
 
 **Tier escalation:** NLP handlers use a tiered cost model. If a fast model produces insufficient results, the handler queues a new job at the next tier. Each escalation emits a `job.queued` event.
@@ -274,6 +286,35 @@ Job handlers report progress at different granularities:
 | 84% | Persisting transcript files — VTT, SRT, plain text (audio/video only) |
 | 85% | Content persisted to note |
 | 95% | Downstream NLP jobs queued |
+| 100% | Done |
+
+### Speaker Diarization Jobs
+
+Queued automatically after audio/video extraction when `DIARIZATION_BASE_URL` is set.
+
+| Progress | Stage |
+|----------|-------|
+| 5% | Loading attachment metadata |
+| 10% | Retrieving audio file |
+| 20% | Running speaker diarization (pyannote) |
+| 60% | Aligning speakers with transcript segments |
+| 70% | Updating attachment metadata with speaker labels |
+| 80% | Re-rendering caption files (VTT, SRT, TXT) with speaker labels |
+| 95% | Diarization complete |
+| 100% | Done |
+
+### Speaker Relabel Jobs
+
+Triggered when a user edits the speaker configuration block in a note, or via the API with a `speaker_map` payload.
+
+| Progress | Stage |
+|----------|-------|
+| 10% | Loading speaker config |
+| 20% | Loading attachment metadata |
+| 40% | Applying speaker labels |
+| 50% | Updating attachment metadata |
+| 70% | Re-rendering caption files (VTT, SRT, TXT) |
+| 95% | Relabel complete |
 | 100% | Done |
 
 ### NLP Pipeline Jobs (ConceptTagging, TitleGeneration, etc.)
@@ -717,6 +758,8 @@ The following table shows which job lifecycle events each handler actually emits
 | PurgeNoteHandler | Auto | Auto | 10%, 30%, 50%, 80%, 100% | Auto | Auto |
 | ContextUpdateHandler | Auto | Auto | 20%, 40%, 60%, 80%, 100% | Auto | Auto |
 | RefreshEmbeddingSetHandler | Auto | Auto | 10%, 20%, 50%, 100% | Auto | Auto |
+| SpeakerDiarizationHandler | Auto | Auto | 5%, 10%, 20%, 60%, 70%, 80%, 95%, 100% | Auto | Auto |
+| SpeakerRelabelHandler | Auto | Auto | 10%, 20%, 40%, 50%, 70%, 95%, 100% | Auto | Auto |
 
 "Auto" means the worker framework emits these events automatically for every job — handlers don't need to emit them explicitly.
 

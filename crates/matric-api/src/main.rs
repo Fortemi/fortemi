@@ -323,12 +323,14 @@ async fn queue_nlp_pipeline(
 use matric_api::services::TagResolver;
 use matric_inference::transcription::WhisperBackend;
 use matric_inference::{
-    transcription::TranscriptionBackend, OllamaBackend, OllamaVisionBackend, VisionBackend,
+    transcription::TranscriptionBackend, DiarizationBackend, OllamaBackend, OllamaVisionBackend,
+    PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
     AudioTranscribeAdapter, CodeAstAdapter, ExtractionHandler, ExtractionRegistry,
-    Glb3DModelAdapter, JobWorker, PauseState, PdfTextAdapter, StructuredExtractAdapter,
-    TextNativeAdapter, VideoMultimodalAdapter, VisionAdapter, WorkerConfig, WorkerEvent,
+    Glb3DModelAdapter, JobWorker, PauseState, PdfTextAdapter, SpeakerDiarizationHandler,
+    SpeakerRelabelHandler, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
+    VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -402,6 +404,8 @@ struct AppState {
     transcription_backend: Option<Arc<dyn TranscriptionBackend>>,
     /// NER backend for named entity recognition (None if GLINER_BASE_URL not set).
     ner_backend: Option<Arc<dyn matric_inference::NerBackend>>,
+    /// Diarization backend for speaker identification (None if DIARIZATION_BASE_URL not set).
+    diarization_backend: Option<Arc<dyn DiarizationBackend>>,
     /// Git commit SHA at build time.
     git_sha: String,
     /// Build date (ISO 8601).
@@ -929,6 +933,19 @@ async fn main() -> anyhow::Result<()> {
         info!("NER backend disabled: GLINER_BASE_URL not set");
     }
 
+    // Create diarization backend for speaker identification (#497).
+    // pyannote sidecar provides speaker diarization after transcription.
+    let diarization_backend: Option<Arc<dyn DiarizationBackend>> =
+        PyAnnoteBackend::from_env().map(|b| Arc::new(b) as Arc<dyn DiarizationBackend>);
+    if let Some(ref backend) = diarization_backend {
+        info!(
+            "Diarization backend available: model={}",
+            backend.model_name()
+        );
+    } else {
+        info!("Diarization backend disabled: DIARIZATION_BASE_URL not set");
+    }
+
     // Build shared provider registry for multi-provider inference routing (#432).
     // Created before the worker so it's available to both job handlers and AppState.
     let provider_registry = std::sync::Arc::new(matric_inference::ProviderRegistry::from_env());
@@ -1170,6 +1187,17 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(GraphMaintenanceHandler::new(db.clone()))
             .await;
+        if let Some(ref diar_backend) = diarization_backend {
+            worker
+                .register_handler(SpeakerDiarizationHandler::new(
+                    db.clone(),
+                    diar_backend.clone(),
+                ))
+                .await;
+        }
+        worker
+            .register_handler(SpeakerRelabelHandler::new(db.clone()))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");
@@ -1278,6 +1306,7 @@ async fn main() -> anyhow::Result<()> {
         vision_backend,
         transcription_backend,
         ner_backend,
+        diarization_backend,
         git_sha: std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
         build_date: std::env::var("MATRIC_BUILD_DATE").unwrap_or_else(|_| "unknown".to_string()),
         extraction_strategies: active_extraction_strategies,
@@ -3212,6 +3241,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "capabilities": {
             "vision": state.vision_backend.is_some(),
             "audio_transcription": state.transcription_backend.is_some(),
+            "speaker_diarization": state.diarization_backend.is_some(),
             "ner": state.ner_backend.is_some(),
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
@@ -3244,7 +3274,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     let start = std::time::Instant::now();
 
     // Run all checks concurrently
-    let (db_result, redis_result, vision_result, transcription_result, ner_result) = tokio::join!(
+    let (db_result, redis_result, vision_result, transcription_result, ner_result, diarization_result) = tokio::join!(
         // PostgreSQL: SELECT 1 with 5s timeout
         async {
             match tokio::time::timeout(
@@ -3298,6 +3328,17 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
                 None => ("not_configured", None),
             }
         },
+        // pyannote diarization backend (optional)
+        async {
+            match &state.diarization_backend {
+                Some(backend) => match backend.health_check().await {
+                    Ok(true) => ("ok", None),
+                    Ok(false) => ("error", Some("unhealthy".to_string())),
+                    Err(e) => ("error", Some(format!("{e}"))),
+                },
+                None => ("not_configured", None),
+            }
+        },
     );
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -3312,6 +3353,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         || (vision_result.0 == "error")
         || (transcription_result.0 == "error")
         || (ner_result.0 == "error")
+        || (diarization_result.0 == "error")
     {
         ("degraded", StatusCode::OK)
     } else {
@@ -3334,6 +3376,9 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         "ner": {
             "status": ner_result.0,
         },
+        "diarization": {
+            "status": diarization_result.0,
+        },
     });
 
     // Add error details where present
@@ -3352,6 +3397,9 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     if let Some(err) = &ner_result.1 {
         services["ner"]["error"] = serde_json::Value::String(err.clone());
     }
+    if let Some(err) = &diarization_result.1 {
+        services["diarization"]["error"] = serde_json::Value::String(err.clone());
+    }
 
     let body = serde_json::json!({
         "status": overall_status,
@@ -3363,6 +3411,7 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
         "capabilities": {
             "vision": state.vision_backend.is_some(),
             "audio_transcription": state.transcription_backend.is_some(),
+            "speaker_diarization": state.diarization_backend.is_some(),
             "ner": state.ner_backend.is_some(),
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
@@ -16616,6 +16665,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             ner_backend: None,
+            diarization_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
@@ -17785,6 +17835,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             ner_backend: None,
+            diarization_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
@@ -18093,6 +18144,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             ner_backend: None,
+            diarization_backend: None,
             git_sha: "test".to_string(),
             build_date: "test".to_string(),
             extraction_strategies: Vec::new(),
