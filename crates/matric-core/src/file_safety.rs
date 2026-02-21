@@ -110,7 +110,21 @@ pub fn validate_file(filename: &str, data: &[u8], max_size_bytes: u64) -> Valida
 pub fn detect_content_type(filename: &str, data: &[u8], claimed: &str) -> String {
     // 1. Try magic byte detection via infer
     if let Some(kind) = infer::get(data) {
-        return kind.mime_type().to_string();
+        let mut mime = kind.mime_type().to_string();
+
+        // The infer crate cannot distinguish Ogg audio from Ogg video — both use
+        // the same "OggS" magic bytes and return "audio/ogg". Refine using the
+        // file extension: .ogv → video/ogg, .opus → audio/ogg (already correct).
+        if mime == "audio/ogg" {
+            if let Some(ext) = filename.rsplit('.').next() {
+                match ext.to_lowercase().as_str() {
+                    "ogv" | "ogx" => mime = "video/ogg".to_string(),
+                    _ => {}
+                }
+            }
+        }
+
+        return mime;
     }
 
     // 2. Custom detection for formats the infer crate doesn't fully support.
@@ -662,5 +676,23 @@ mod tests {
         let data_over = vec![b'A'; custom_limit as usize + 1];
         let result = validate_file("file.txt", &data_over, custom_limit);
         assert!(!result.allowed, "File over custom limit should be blocked");
+    }
+
+    #[test]
+    fn test_ogg_video_extension_refinement() {
+        // OggS magic bytes — infer crate returns audio/ogg for all Ogg containers
+        let ogg_magic = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00";
+
+        // .ogv extension should be refined to video/ogg
+        let result = detect_content_type("documentary.ogv", ogg_magic, "application/octet-stream");
+        assert_eq!(result, "video/ogg");
+
+        // .ogg extension should remain audio/ogg
+        let result = detect_content_type("music.ogg", ogg_magic, "application/octet-stream");
+        assert_eq!(result, "audio/ogg");
+
+        // .oga extension should remain audio/ogg
+        let result = detect_content_type("podcast.oga", ogg_magic, "application/octet-stream");
+        assert_eq!(result, "audio/ogg");
     }
 }

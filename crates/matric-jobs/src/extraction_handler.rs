@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use matric_core::{AttachmentStatus, ExtractionStrategy, JobRepository, JobType};
+use matric_core::{AttachmentStatus, ExtractionStrategy, JobRepository, JobType, ProgressFn};
 use matric_db::{Database, SchemaContext};
 
 /// Minimum note content length (in chars) below which extraction results
@@ -148,10 +148,23 @@ impl JobHandler for ExtractionHandler {
 
         ctx.report_progress(20, Some("Extracting content"));
 
-        // Run extraction
+        // Create a scoped progress callback that maps adapter progress (0-100%)
+        // into the extraction phase range (20-80% of overall job progress).
+        let progress: ProgressFn = {
+            let progress_cb = ctx.progress_callback_arc();
+            Arc::new(move |adapter_pct: i32, message: Option<&str>| {
+                // Map adapter's 0-100 to job's 20-80
+                let job_pct = 20 + (adapter_pct.clamp(0, 100) as i64 * 60 / 100) as i32;
+                if let Some(ref cb) = progress_cb {
+                    cb(job_pct, message);
+                }
+            })
+        };
+
+        // Run extraction with progress reporting
         match self
             .registry
-            .extract(strategy, &data, filename, mime_type, &config)
+            .extract_with_progress(strategy, &data, filename, mime_type, &config, progress)
             .await
         {
             Ok(result) => {

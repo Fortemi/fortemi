@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
+use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, ProgressFn, Result};
 use serde_json::Value as JsonValue;
 
 /// Registry mapping extraction strategies to their adapter implementations.
@@ -40,6 +40,31 @@ impl ExtractionRegistry {
             ))
         })?;
         adapter.extract(data, filename, mime_type, config).await
+    }
+
+    /// Extract content with granular progress reporting.
+    ///
+    /// Adapters that support per-item progress (video keyframes, PDF pages,
+    /// chunked documents) will report through the callback. Others delegate
+    /// to [`extract`] and ignore the callback.
+    pub async fn extract_with_progress(
+        &self,
+        strategy: ExtractionStrategy,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+        config: &JsonValue,
+        progress: ProgressFn,
+    ) -> Result<ExtractionResult> {
+        let adapter = self.adapters.get(&strategy).ok_or_else(|| {
+            matric_core::Error::Internal(format!(
+                "No extraction adapter registered for strategy: {:?}",
+                strategy
+            ))
+        })?;
+        adapter
+            .extract_with_progress(data, filename, mime_type, config, progress)
+            .await
     }
 
     /// List all strategies that have registered adapters.

@@ -515,20 +515,19 @@ impl JobWorkerRef {
                     });
                 });
 
-                let job_timeout = Duration::from_secs(matric_core::defaults::JOB_TIMEOUT_SECS);
+                let timeout_secs = matric_core::defaults::job_timeout_secs();
+                let job_timeout = Duration::from_secs(timeout_secs);
                 match tokio::time::timeout(job_timeout, handler.execute(ctx)).await {
                     Ok(result) => result,
                     Err(_) => {
                         warn!(
                             ?job_id,
                             ?job_type,
+                            timeout_secs,
                             "Job exceeded timeout of {}s",
-                            matric_core::defaults::JOB_TIMEOUT_SECS
+                            timeout_secs
                         );
-                        JobResult::Failed(format!(
-                            "Job exceeded timeout of {}s",
-                            matric_core::defaults::JOB_TIMEOUT_SECS
-                        ))
+                        JobResult::Failed(format!("Job exceeded timeout of {}s", timeout_secs))
                     }
                 }
             }

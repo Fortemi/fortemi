@@ -160,8 +160,23 @@ pub const JOB_POLL_INTERVAL_MS: u64 = 60_000;
 /// Default maximum concurrent jobs per worker.
 pub const JOB_MAX_CONCURRENT: usize = 4;
 
-/// Default job execution timeout in seconds (5 minutes).
-pub const JOB_TIMEOUT_SECS: u64 = 300;
+/// Default job execution timeout in seconds (10 minutes).
+/// Configurable via `JOB_TIMEOUT_SECS` env var.
+/// Video multimodal extraction (keyframe extraction + vision model per frame)
+/// can exceed 5 minutes when multiple jobs compete for GPU.
+pub const JOB_TIMEOUT_SECS: u64 = 600;
+
+/// Environment variable for configuring the job execution timeout.
+pub const ENV_JOB_TIMEOUT_SECS: &str = "JOB_TIMEOUT_SECS";
+
+/// Read the job timeout from env, falling back to the default.
+pub fn job_timeout_secs() -> u64 {
+    std::env::var(ENV_JOB_TIMEOUT_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(30, 3600))
+        .unwrap_or(JOB_TIMEOUT_SECS)
+}
 
 /// Page threshold for batch PDF extraction.
 pub const LARGE_PDF_PAGE_THRESHOLD: usize = 100;

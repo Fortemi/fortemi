@@ -501,6 +501,13 @@ pub struct ExtractionResult {
     pub preview_data: Option<Vec<u8>>,
 }
 
+/// Progress callback for extraction adapters.
+///
+/// Reports `(percent 0-100, optional message)` during long-running extraction.
+/// Used by adapters that process items sequentially (e.g., per-keyframe in video,
+/// per-chunk in large documents) to give visibility into actual progress.
+pub type ProgressFn = std::sync::Arc<dyn Fn(i32, Option<&str>) + Send + Sync>;
+
 /// Adapter for extracting content from file attachments.
 ///
 /// Each adapter handles one extraction strategy (e.g., TextNative, PdfText).
@@ -519,6 +526,25 @@ pub trait ExtractionAdapter: Send + Sync {
         mime_type: &str,
         config: &JsonValue,
     ) -> Result<ExtractionResult>;
+
+    /// Extract content with granular progress reporting.
+    ///
+    /// The `progress` callback receives (percent, message) updates as the
+    /// adapter processes items (keyframes, chunks, pages). Percent values
+    /// should be in the 0-100 range within the adapter's scope — the caller
+    /// is responsible for mapping to the overall job progress range.
+    ///
+    /// Default implementation delegates to [`extract`] (no granular progress).
+    async fn extract_with_progress(
+        &self,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+        config: &JsonValue,
+        _progress: ProgressFn,
+    ) -> Result<ExtractionResult> {
+        self.extract(data, filename, mime_type, config).await
+    }
 
     /// Check if the adapter's external dependencies are available.
     async fn health_check(&self) -> Result<bool>;

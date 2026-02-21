@@ -119,9 +119,13 @@ async fn queue_extraction_job(
         payload["schema"] = serde_json::json!(s);
     }
 
+    // Use non-deduplicating queue: each attachment needs its own extraction job.
+    // queue_deduplicated uses (note_id, job_type) as the dedup key, which would
+    // silently drop extraction jobs when multiple attachments are uploaded to the
+    // same note in quick succession.
     match db
         .jobs
-        .queue_deduplicated(
+        .queue(
             Some(note_id),
             JobType::Extraction,
             JobType::Extraction.default_priority(),
@@ -130,14 +134,13 @@ async fn queue_extraction_job(
         )
         .await
     {
-        Ok(Some(job_id)) => {
+        Ok(job_id) => {
             event_bus.emit(ServerEvent::JobQueued {
                 job_id,
                 job_type: format!("{:?}", JobType::Extraction),
                 note_id: Some(note_id),
             });
         }
-        Ok(None) => {} // Deduplicated — job already pending
         Err(e) => {
             error!(%note_id, %attachment_id, error = %e, "Failed to queue extraction job");
         }
@@ -169,9 +172,12 @@ async fn queue_exif_extraction_job(
         payload["schema"] = serde_json::json!(s);
     }
 
+    // Use non-deduplicating queue: each image attachment needs its own EXIF job.
+    // Same rationale as extraction jobs — dedup by (note_id, job_type) drops jobs
+    // when multiple images are attached to the same note.
     match db
         .jobs
-        .queue_deduplicated(
+        .queue(
             Some(note_id),
             JobType::ExifExtraction,
             JobType::ExifExtraction.default_priority(),
@@ -180,14 +186,13 @@ async fn queue_exif_extraction_job(
         )
         .await
     {
-        Ok(Some(job_id)) => {
+        Ok(job_id) => {
             event_bus.emit(ServerEvent::JobQueued {
                 job_id,
                 job_type: format!("{:?}", JobType::ExifExtraction),
                 note_id: Some(note_id),
             });
         }
-        Ok(None) => {} // Deduplicated — job already pending
         Err(e) => {
             error!(%note_id, %attachment_id, error = %e, "Failed to queue EXIF extraction job");
         }
@@ -1818,6 +1823,17 @@ async fn bridge_worker_events(
                         percent,
                         message,
                     } => {
+                        // Persist progress to database so API queries reflect it
+                        if let Err(e) = db
+                            .jobs
+                            .update_progress(job_id, percent, message.as_deref())
+                            .await
+                        {
+                            tracing::debug!(
+                                %job_id, percent, error = %e,
+                                "Failed to persist job progress"
+                            );
+                        }
                         let note_id = db
                             .jobs
                             .get(job_id)

@@ -6,8 +6,10 @@ use uuid::Uuid;
 
 use matric_core::{Job, JobType};
 
+use std::sync::Arc;
+
 /// Progress callback type for job handlers.
-pub type ProgressCallback = Box<dyn Fn(i32, Option<&str>) + Send + Sync>;
+pub type ProgressCallback = Arc<dyn Fn(i32, Option<&str>) + Send + Sync>;
 
 /// Context provided to job handlers.
 pub struct JobContext {
@@ -31,7 +33,7 @@ impl JobContext {
     where
         F: Fn(i32, Option<&str>) + Send + Sync + 'static,
     {
-        self.progress_callback = Some(Box::new(callback));
+        self.progress_callback = Some(Arc::new(callback));
         self
     }
 
@@ -40,6 +42,11 @@ impl JobContext {
         if let Some(ref callback) = self.progress_callback {
             callback(percent, message);
         }
+    }
+
+    /// Get a clone of the progress callback Arc for passing to sub-components.
+    pub fn progress_callback_arc(&self) -> Option<ProgressCallback> {
+        self.progress_callback.clone()
     }
 
     /// Get the note ID for this job, if any.

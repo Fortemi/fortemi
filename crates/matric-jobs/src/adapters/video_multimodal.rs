@@ -21,7 +21,7 @@ use tracing::{debug, warn};
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
 use matric_core::{
-    ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy, Result,
+    ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy, ProgressFn, Result,
 };
 use matric_inference::transcription::TranscriptionBackend;
 use matric_inference::vision::VisionBackend;
@@ -259,6 +259,192 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         } else {
             Some(extracted_text_parts.join("\n\n"))
         };
+
+        Ok(ExtractionResult {
+            extracted_text: full_text,
+            metadata: json!({
+                "duration_secs": duration_secs,
+                "frame_count": keyframe_descriptions.len(),
+                "has_audio": has_audio,
+                "has_video": has_video,
+                "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
+                "keyframe_descriptions": keyframe_descriptions,
+                "transcript_segments": transcript_segments,
+            }),
+            ai_description: None,
+            preview_data: None,
+        })
+    }
+
+    async fn extract_with_progress(
+        &self,
+        data: &[u8],
+        filename: &str,
+        _mime_type: &str,
+        config: &JsonValue,
+        progress: ProgressFn,
+    ) -> Result<ExtractionResult> {
+        if data.is_empty() {
+            return Err(matric_core::Error::InvalidInput(
+                "Cannot process empty video data".to_string(),
+            ));
+        }
+
+        let extract_audio = config
+            .get("extract_audio")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let extract_keyframes = config
+            .get("extract_keyframes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let keyframe_strategy = parse_keyframe_strategy(config);
+
+        let mut tmpfile = NamedTempFile::new().map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+        })?;
+        tmpfile.write_all(data).map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+        })?;
+        let video_path = tmpfile.path().to_string_lossy().to_string();
+        let work_dir = TempDir::new().map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
+        })?;
+
+        progress(0, Some("Analyzing video"));
+        let duration_secs = get_video_duration(&video_path).await.ok();
+
+        let mut extracted_text_parts = Vec::new();
+        let mut keyframe_descriptions = Vec::new();
+        let mut transcript_segments = Vec::new();
+        let mut has_audio = false;
+        let mut has_video = false;
+
+        // Phase 1: Audio extraction + transcription (0-20%)
+        if extract_audio && self.transcription.is_some() {
+            progress(5, Some("Extracting audio track"));
+            match extract_audio_track(&video_path, &work_dir).await {
+                Ok(audio_path) => {
+                    has_audio = true;
+                    progress(10, Some("Transcribing audio"));
+                    if let Some(ref backend) = self.transcription {
+                        match transcribe_audio(backend.as_ref(), &audio_path).await {
+                            Ok(result) => {
+                                extracted_text_parts
+                                    .push(format!("=== TRANSCRIPT ===\n{}", result.full_text));
+                                transcript_segments = result.segments;
+                                progress(20, Some("Transcription complete"));
+                            }
+                            Err(e) => {
+                                warn!(filename, error = %e, "Audio transcription failed");
+                                progress(20, Some("Transcription failed, continuing"));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!(filename, error = %e, "No audio track found");
+                    progress(20, Some("No audio track"));
+                }
+            }
+        } else {
+            progress(20, Some("Audio extraction skipped"));
+        }
+
+        // Phase 2: Keyframe extraction + description (20-95%)
+        if extract_keyframes && self.vision.is_some() {
+            progress(22, Some("Extracting keyframes"));
+            match extract_keyframes_ffmpeg(&video_path, &work_dir, &keyframe_strategy).await {
+                Ok(frame_entries) => {
+                    let total_frames = frame_entries.len();
+                    has_video = total_frames > 0;
+
+                    if total_frames > 0 {
+                        progress(25, Some(&format!("Describing {} keyframes", total_frames)));
+                    }
+
+                    if let Some(ref backend) = self.vision {
+                        let mut prev_descriptions: Vec<String> = Vec::new();
+
+                        for (i, entry) in frame_entries.iter().enumerate() {
+                            // Report per-frame progress: map frame i/total to 25-95%
+                            let frame_pct =
+                                25 + ((i as i64) * 70 / total_frames.max(1) as i64) as i32;
+                            progress(
+                                frame_pct,
+                                Some(&format!(
+                                    "Frame {}/{} ({:.0}s)",
+                                    i + 1,
+                                    total_frames,
+                                    entry.timestamp_secs
+                                )),
+                            );
+
+                            let transcript_context = get_transcript_context_for_frame(
+                                entry.timestamp_secs,
+                                &transcript_segments,
+                            );
+
+                            match describe_frame_with_context(
+                                backend.as_ref(),
+                                &entry.path,
+                                &prev_descriptions,
+                                transcript_context.as_deref(),
+                            )
+                            .await
+                            {
+                                Ok(description) => {
+                                    keyframe_descriptions.push(json!({
+                                        "frame_index": i,
+                                        "timestamp_secs": entry.timestamp_secs,
+                                        "description": description,
+                                    }));
+                                    prev_descriptions.push(description.clone());
+                                    if prev_descriptions.len() > TEMPORAL_CONTEXT_WINDOW {
+                                        prev_descriptions.remove(0);
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(frame = i, error = %e, "Frame description failed");
+                                }
+                            }
+                        }
+
+                        if !keyframe_descriptions.is_empty() {
+                            let descriptions_text = keyframe_descriptions
+                                .iter()
+                                .map(|kf| {
+                                    let ts = kf["timestamp_secs"]
+                                        .as_f64()
+                                        .map(|t| format!(" [{:.1}s]", t))
+                                        .unwrap_or_default();
+                                    format!(
+                                        "Frame {}{}: {}",
+                                        kf["frame_index"], ts, kf["description"]
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            extracted_text_parts
+                                .push(format!("=== VISUAL CONTENT ===\n{}", descriptions_text));
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(filename, error = %e, "Keyframe extraction failed");
+                }
+            }
+        }
+
+        progress(95, Some("Assembling results"));
+
+        let full_text = if extracted_text_parts.is_empty() {
+            None
+        } else {
+            Some(extracted_text_parts.join("\n\n"))
+        };
+
+        progress(100, Some("Complete"));
 
         Ok(ExtractionResult {
             extracted_text: full_text,
