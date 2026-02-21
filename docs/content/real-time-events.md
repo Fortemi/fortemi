@@ -95,15 +95,17 @@ data: {"event_id":"019507a3-1234-7000-8000-abcdef012345","event_type":"note.crea
 
 ## Event Catalog
 
+> **Emission status key:** Events marked with **(planned)** are defined in the `ServerEvent` enum and AsyncAPI spec but not yet emitted by any handler. See [#507](https://git.integrolabs.net/Fortemi/fortemi/issues/507) for tracking.
+
 ### Event Priority
 
 Events are classified by priority for backpressure decisions:
 
 | Priority | Behavior | Event Types |
 |----------|----------|-------------|
-| **Critical** | Never dropped or coalesced | All `note.*`, `attachment.*`, `collection.*`, `archive.*` events |
-| **Normal** | Delivered in order; dropped only under severe lag | `job.queued`, `job.started`, `job.completed`, `job.failed` |
-| **Low** | May be coalesced within time windows | `job.progress`, `queue.status` |
+| **Critical** | Never dropped or coalesced | All `note.*`, `attachment.*`, `collection.*`, `archive.*`, `tag.*`, `concept.*` events |
+| **Normal** | Delivered in order; dropped only under severe lag | `job.queued`, `job.started`, `job.completed`, `job.failed`, `index.*`, `readmodel.*` |
+| **Low** | May be coalesced within time windows | `job.progress`, `queue.status`, `tag.stats.updated` |
 
 ### Note Events
 
@@ -114,9 +116,9 @@ Events are classified by priority for backpressure decisions:
 | `note.deleted` | A note was soft-deleted | `note_id` |
 | `note.archived` | A note was archived | `note_id` |
 | `note.restored` | A note was restored from archive/deletion | `note_id` |
-| `note.tags.updated` | Tags on a note were changed | `note_id`, `tags` |
-| `note.links.updated` | Semantic links updated (by background job) | `note_id` |
-| `note.revision.created` | An AI revision was created | `note_id` |
+| `note.tags.updated` | Tags on a note were changed **(planned)** | `note_id`, `tags` |
+| `note.links.updated` | Semantic links updated by background job **(planned)** | `note_id` |
+| `note.revision.created` | An AI revision was created **(planned)** | `note_id` |
 
 ### Attachment Events
 
@@ -124,7 +126,7 @@ Events are classified by priority for backpressure decisions:
 |------------|-------------|---------------|
 | `attachment.created` | A file was uploaded to a note | `attachment_id`, `note_id`, `filename` |
 | `attachment.deleted` | An attachment was deleted | `attachment_id`, `note_id` |
-| `attachment.extraction.updated` | Extraction metadata updated | `attachment_id`, `note_id` |
+| `attachment.extraction.updated` | Extraction metadata updated **(planned)** | `attachment_id`, `note_id` |
 
 ### Collection Events
 
@@ -144,6 +146,30 @@ Events are classified by priority for backpressure decisions:
 | `archive.deleted` | A memory archive was deleted | `name` |
 | `archive.default.changed` | The default memory was changed | `name` |
 
+### Tag Governance Events
+
+| Event Type | Description | Entity Fields |
+|------------|-------------|---------------|
+| `tag.created` | A global tag was created **(planned)** | `tag` |
+| `tag.renamed` | A global tag was renamed **(planned)** | `old_name`, `new_name` |
+| `tag.deleted` | A global tag was deleted **(planned)** | `tag` |
+| `tag.merged` | Two tags were merged **(planned)** | `source_tag`, `target_tag`, `affected_count` |
+| `tag.stats.updated` | Tag usage statistics updated **(planned)** | — |
+
+### SKOS Concept Events
+
+| Event Type | Description | Entity Fields |
+|------------|-------------|---------------|
+| `concept_scheme.created` | A SKOS concept scheme was created | `scheme_id` |
+| `concept_scheme.updated` | A SKOS concept scheme was updated | `scheme_id` |
+| `concept_scheme.deleted` | A SKOS concept scheme was deleted | `scheme_id` |
+| `concept.created` | A SKOS concept was created | `concept_id`, `scheme_id` |
+| `concept.updated` | A SKOS concept was updated | `concept_id` |
+| `concept.deleted` | A SKOS concept was deleted | `concept_id` |
+| `concept.relations.updated` | Semantic relations updated (broader/narrower/related) | `concept_id`, `relation_type` |
+| `concept.scheme.changed` | Concept's scheme membership changed **(planned)** | `concept_id`, `scheme_id` |
+| `concept.collection.membership.changed` | Concept's SKOS collection membership changed | `concept_id`, `collection_id` |
+
 ### Job Events
 
 | Event Type | Description | Entity Fields |
@@ -153,6 +179,18 @@ Events are classified by priority for backpressure decisions:
 | `job.progress` | Job progress update (coalescable) | `job_id`, `note_id`, `progress`, `message` |
 | `job.completed` | A job completed successfully | `job_id`, `job_type`, `note_id`, `duration_ms` |
 | `job.failed` | A job failed with error | `job_id`, `job_type`, `note_id`, `error` |
+| `jobs.paused` | Job processing was paused | `scope` |
+| `jobs.resumed` | Job processing was resumed | `scope` |
+
+### Index Materialization Events
+
+| Event Type | Description | Entity Fields |
+|------------|-------------|---------------|
+| `index.embedding.updated` | Embeddings for a note were updated | `note_id`, `job_id` |
+| `index.linking.updated` | Semantic links updated by linking pipeline | `note_id`, `job_id` |
+| `index.fts.updated` | Full-text search index updated **(planned)** | `note_id`, `job_id` |
+| `readmodel.graph.updated` | Knowledge graph read model updated **(planned)** | `note_id` |
+| `readmodel.search.ready` | All derived views ready for search **(planned)** | `note_id` |
 
 ### System Events
 

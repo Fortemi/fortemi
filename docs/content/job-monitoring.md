@@ -384,6 +384,334 @@ Common causes:
 
 Some handlers don't emit granular progress. Extraction jobs have the most detailed progress reporting. Simple handlers (Embedding, Linking) may jump from 0% to 100%.
 
+## Tracking Multi-Chunk Long-Running Jobs
+
+Some jobs process content in multiple chunks — for example, embedding large notes with many semantic sections, or extraction jobs that must process video keyframes sequentially. These jobs emit progress events at each stage boundary. Here's how to build robust monitoring for them.
+
+### Understanding Chunked Progress
+
+Multi-stage jobs report progress at these granularities:
+
+| Job Type | Chunk Behavior | Progress Events |
+|----------|---------------|-----------------|
+| **Extraction** | 15+ stages (resolve → extract → persist → queue downstream) | Every 5–10% |
+| **ConceptTagging** | Tiered: GLiNER → fast LLM → standard LLM, with potential escalation | Every 10–20% |
+| **ReferenceExtraction** | GLiNER entities + LLM extraction + concept resolution | Every 10–20% |
+| **EmbeddingHandler** | Chunk → embed → store (large notes have many chunks) | 10%, 30%, 50%, 70%, 100% |
+| **GraphMaintenance** | 4-step pipeline (normalize → SNN → PFNET → diagnostics) | 5%, 20%, 30%, 55%, 80%, 100% |
+| **AiRevision** | Fetch → generate → save → queue contextual | Every 10–20% |
+| **ExifExtraction** | 10+ stages (resolve → download → parse → provenance → persist) | Every 5–10% |
+
+### Complete Pipeline State Machine
+
+When monitoring a full note processing pipeline, you need to track cascading jobs across phases. Here's a complete state machine implementation:
+
+```javascript
+class PipelineTracker {
+  constructor(noteId, baseUrl) {
+    this.noteId = noteId;
+    this.jobs = new Map();      // job_id → { type, status, progress, message, startedAt }
+    this.phases = {
+      phase1: new Set(), // ConceptTagging, TitleGeneration, ReferenceExtraction, MetadataExtraction, DocumentTypeInference
+      phase2: new Set(), // RelatedConceptInference
+      phase3: new Set(), // Embedding, Linking
+    };
+    this.callbacks = { onProgress: null, onPhaseComplete: null, onPipelineComplete: null, onError: null };
+
+    // Classify job types into phases
+    this.PHASE_MAP = {
+      ConceptTagging: 'phase1', TitleGeneration: 'phase1',
+      ReferenceExtraction: 'phase1', MetadataExtraction: 'phase1',
+      DocumentTypeInference: 'phase1',
+      RelatedConceptInference: 'phase2',
+      Embedding: 'phase3', Linking: 'phase3',
+    };
+
+    this.url = `${baseUrl}/api/v1/events?types=job&entity_id=${noteId}`;
+    this.es = null;
+  }
+
+  start(token) {
+    const url = new URL(this.url);
+    if (token) url.searchParams.set('token', token);
+
+    this.es = new EventSource(url);
+
+    // Use the generic onmessage handler since all events come through data:
+    this.es.onmessage = (event) => {
+      const envelope = JSON.parse(event.data);
+      this._handleEvent(envelope);
+    };
+
+    // Also listen to specific named events (SSE uses event: field)
+    for (const type of ['job.queued', 'job.started', 'job.progress', 'job.completed', 'job.failed']) {
+      this.es.addEventListener(type, (event) => {
+        const envelope = JSON.parse(event.data);
+        this._handleEvent(envelope);
+      });
+    }
+
+    this.es.addEventListener('events.lagged', (event) => {
+      const data = JSON.parse(event.data);
+      console.warn(`Events lagged: ${data.dropped_count} dropped. Refreshing state...`);
+      this._refreshFromRest(token);
+    });
+
+    this.es.addEventListener('resync_required', () => {
+      console.warn('Resync required. Refreshing state...');
+      this._refreshFromRest(token);
+    });
+
+    this.es.onerror = () => {
+      // EventSource auto-reconnects with Last-Event-ID
+      console.warn('SSE connection lost, auto-reconnecting...');
+    };
+
+    return this;
+  }
+
+  _handleEvent(envelope) {
+    const eventType = envelope.event_type;
+    // Extract payload — it's a tagged union: { "type": "JobQueued", "job_id": "...", ... }
+    const payload = envelope.payload;
+
+    switch (eventType) {
+      case 'job.queued': {
+        const jobId = payload.job_id;
+        const jobType = payload.job_type;
+        this.jobs.set(jobId, {
+          type: jobType, status: 'queued', progress: 0,
+          message: null, startedAt: null
+        });
+        const phase = this.PHASE_MAP[jobType];
+        if (phase) this.phases[phase].add(jobId);
+        break;
+      }
+      case 'job.started': {
+        const job = this.jobs.get(payload.job_id);
+        if (job) {
+          job.status = 'running';
+          job.startedAt = new Date();
+        }
+        break;
+      }
+      case 'job.progress': {
+        const job = this.jobs.get(payload.job_id);
+        if (job) {
+          job.progress = payload.progress;
+          job.message = payload.message || job.message;
+        }
+        this.callbacks.onProgress?.(this.getStatus());
+        break;
+      }
+      case 'job.completed': {
+        const job = this.jobs.get(payload.job_id);
+        if (job) {
+          job.status = 'completed';
+          job.progress = 100;
+          job.durationMs = payload.duration_ms;
+        }
+        this._checkPhaseCompletion();
+        this._checkPipelineCompletion();
+        break;
+      }
+      case 'job.failed': {
+        const job = this.jobs.get(payload.job_id);
+        if (job) {
+          job.status = 'failed';
+          job.error = payload.error;
+        }
+        this.callbacks.onError?.(payload.job_id, payload.error);
+        this._checkPipelineCompletion();
+        break;
+      }
+    }
+  }
+
+  _checkPhaseCompletion() {
+    for (const [phase, jobIds] of Object.entries(this.phases)) {
+      if (jobIds.size === 0) continue;
+      const allDone = [...jobIds].every(id => {
+        const job = this.jobs.get(id);
+        return job && (job.status === 'completed' || job.status === 'failed');
+      });
+      if (allDone) {
+        this.callbacks.onPhaseComplete?.(phase, this.getPhaseStatus(phase));
+      }
+    }
+  }
+
+  _checkPipelineCompletion() {
+    if (this.jobs.size === 0) return;
+    const allDone = [...this.jobs.values()].every(
+      j => j.status === 'completed' || j.status === 'failed'
+    );
+    if (allDone) {
+      this.callbacks.onPipelineComplete?.(this.getStatus());
+      this.es?.close();
+    }
+  }
+
+  async _refreshFromRest(token) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await fetch(
+      `${this.url.split('/api/v1/events')[0]}/api/v1/jobs?note_id=${this.noteId}&status=pending,running`,
+      { headers }
+    );
+    const jobs = await res.json();
+    for (const j of jobs) {
+      this.jobs.set(j.id, {
+        type: j.job_type, status: j.status,
+        progress: j.progress_percent || 0,
+        message: j.progress_message, startedAt: j.started_at
+      });
+    }
+  }
+
+  getStatus() {
+    const jobs = [...this.jobs.values()];
+    return {
+      total: jobs.length,
+      queued: jobs.filter(j => j.status === 'queued').length,
+      running: jobs.filter(j => j.status === 'running').length,
+      completed: jobs.filter(j => j.status === 'completed').length,
+      failed: jobs.filter(j => j.status === 'failed').length,
+      overallProgress: jobs.length > 0
+        ? Math.round(jobs.reduce((sum, j) => sum + j.progress, 0) / jobs.length)
+        : 0,
+      jobs: Object.fromEntries(this.jobs),
+    };
+  }
+
+  getPhaseStatus(phase) {
+    const jobIds = this.phases[phase];
+    return [...jobIds].map(id => ({ id, ...this.jobs.get(id) }));
+  }
+
+  stop() {
+    this.es?.close();
+  }
+}
+
+// Usage:
+const tracker = new PipelineTracker('NOTE_UUID', 'http://localhost:3000');
+tracker.callbacks.onProgress = (status) => {
+  console.log(`Pipeline ${status.overallProgress}% — ${status.running} running, ${status.queued} queued`);
+};
+tracker.callbacks.onPhaseComplete = (phase, jobs) => {
+  console.log(`Phase ${phase} complete:`, jobs.map(j => `${j.type}: ${j.status}`));
+};
+tracker.callbacks.onPipelineComplete = (status) => {
+  console.log(`Pipeline done! ${status.completed}/${status.total} succeeded`);
+};
+tracker.callbacks.onError = (jobId, error) => {
+  console.error(`Job ${jobId} failed: ${error}`);
+};
+tracker.start(/* 'mm_at_xxx' */);
+```
+
+### Tier Escalation Events
+
+NLP handlers use a tiered cost model (GLiNER → fast LLM → standard LLM). When a lower tier produces insufficient results, the handler queues a new job at the next tier. This means:
+
+1. You may see **multiple `job.queued` events** for the same job type and note ID
+2. Each tier escalation is a **new job** with its own lifecycle
+3. The previous job completes successfully (it produced *some* results, just not enough)
+
+```
+job.queued    ConceptTagging (tier-0 GLiNER)
+job.started   ConceptTagging
+job.progress  ConceptTagging 10% — "Fetching note content..."
+job.progress  ConceptTagging 25% — "Mapping GLiNER entities to concepts..."
+job.progress  ConceptTagging 95% — "Escalating to higher tier — phase-2 deferred"
+job.completed ConceptTagging          ← tier-0 done, found 2 concepts (target: 5)
+job.queued    ConceptTagging (tier-1)  ← escalation! new job queued
+job.started   ConceptTagging
+job.progress  ConceptTagging 30% — "Running fast LLM concept extraction..."
+job.completed ConceptTagging          ← tier-1 found enough concepts
+```
+
+To track this, use `entity_id` (note ID) filtering — all tier escalations share the same `note_id`.
+
+### Coalescing Behavior
+
+`job.progress` events are classified as `Low` priority and coalesced with a default 500ms window. This means:
+
+- If a job reports progress at 10%, 15%, 20% within 500ms, only the 10% event is delivered
+- The next progress event after the window expires delivers the latest value
+- Set `SSE_COALESCE_WINDOW_MS=0` to disable coalescing and receive every progress update
+
+For long-running jobs (Extraction, GraphMaintenance), coalescing has minimal impact since progress stages are seconds apart. For fast jobs (DocumentTypeInference), you may only see the start and completion.
+
+### Long-Running Job Patterns
+
+Some jobs can take minutes or longer:
+
+| Job Type | Typical Duration | Long-Running Scenario |
+|----------|-----------------|----------------------|
+| **Extraction** (video) | 30s–5min | Large video files with scene detection + transcription |
+| **Extraction** (audio) | 10s–3min | Long audio files transcribed via Whisper |
+| **GraphMaintenance** | 5s–2min | Large graphs with SNN + PFNET computation |
+| **ReEmbedAll** | 1min–30min | Bulk re-embedding all notes in an archive |
+| **AiRevisionContextual** | 10s–2min | Gathering context from related notes + LLM generation |
+
+For these, monitor the progress message field — it describes the current stage:
+
+```bash
+# Watch progress messages for a specific job
+curl -N "http://localhost:3000/api/v1/events?types=job.progress&entity_id=JOB_UUID" | \
+  while IFS= read -r line; do
+    if [[ "$line" == data:* ]]; then
+      echo "$line" | sed 's/^data: //' | jq -r '.payload.message // empty'
+    fi
+  done
+```
+
+### Downstream Job Tracking
+
+When a handler queues downstream jobs (e.g., Extraction → Embedding + Linking), those jobs emit `job.queued` events with the same `note_id`. This is how you know the pipeline is extending:
+
+```
+Extraction started for note abc-123
+  → job.queued Embedding (note: abc-123)     ← handler queued downstream
+  → job.queued Linking (note: abc-123)        ← handler queued downstream
+  → job.queued ConceptTagging (note: abc-123) ← handler queued downstream
+  → job.queued TitleGeneration (note: abc-123)
+Extraction completed
+
+Embedding started...
+Linking started...
+ConceptTagging started...
+```
+
+If you're tracking pipeline completion, new `job.queued` events for your `entity_id` mean the pipeline isn't done yet — reset your completion check.
+
+## Event Emission Completeness
+
+The following table shows which job lifecycle events each handler actually emits via `report_progress()`:
+
+| Handler | `job.queued` | `job.started` | `job.progress` | `job.completed` | `job.failed` |
+|---------|:-----------:|:-------------:|:--------------:|:---------------:|:------------:|
+| EmbeddingHandler | Auto | Auto | 10%, 30%, 50%, 70%, 100% | Auto | Auto |
+| LinkingHandler | Auto | Auto | 10%, 20%, 40%, 60%, 100% | Auto | Auto |
+| ConceptTaggingHandler | Auto | Auto | 10%, 20-30%, 50%, 60%, 80-95%, 100% | Auto | Auto |
+| TitleGenerationHandler | Auto | Auto | 10%, 20%, 80%, 100% | Auto | Auto |
+| ReferenceExtractionHandler | Auto | Auto | 10%, 20%, 30-50%, 60%, 100% | Auto | Auto |
+| MetadataExtractionHandler | Auto | Auto | 10%, 20%, 60%, 80%, 100% | Auto | Auto |
+| DocumentTypeInferenceHandler | Auto | Auto | 10%, 30%, 80%, 100% | Auto | Auto |
+| AiRevisionHandler | Auto | Auto | 10%, 40%, 80%, 90%, 95%, 100% | Auto | Auto |
+| AiRevisionContextualHandler | Auto | Auto | 10%, 30%, 40%, 60%, 80%, 90%, 100% | Auto | Auto |
+| ExtractionHandler | Auto | Auto | 10%, 20%, 80%, 85%, 95%, 100% | Auto | Auto |
+| ExifExtractionHandler | Auto | Auto | 5%, 10%, 30%, 50%, 60%, 70%, 80%, 90%, 100% | Auto | Auto |
+| GraphMaintenanceHandler | Auto | Auto | 5%, 20%, 30%, 55%, 80%, 100% | Auto | Auto |
+| ReEmbedAllHandler | Auto | Auto | 5%, 10%, per-note updates, 100% | Auto | Auto |
+| RelatedConceptHandler | Auto | Auto | 10%, 30%, 60%, 70%, 98%, 100% | Auto | Auto |
+| PurgeNoteHandler | Auto | Auto | 10%, 30%, 50%, 80%, 100% | Auto | Auto |
+| ContextUpdateHandler | Auto | Auto | 20%, 40%, 60%, 80%, 100% | Auto | Auto |
+| RefreshEmbeddingSetHandler | Auto | Auto | 10%, 20%, 50%, 100% | Auto | Auto |
+
+"Auto" means the worker framework emits these events automatically for every job — handlers don't need to emit them explicitly.
+
 ## See Also
 
 - [Real-Time Events](real-time-events.md) — Full SSE/WebSocket/Webhook documentation
