@@ -2030,6 +2030,10 @@ pub enum JobType {
     ReferenceExtraction,
     /// Graph maintenance: normalization, SNN, PFNET, Louvain pipeline (#482)
     GraphMaintenance,
+    /// Run speaker diarization on audio after transcription (#497)
+    SpeakerDiarization,
+    /// Re-render transcript with user-assigned speaker names (#497)
+    SpeakerRelabel,
 }
 
 impl JobType {
@@ -2077,6 +2081,10 @@ impl JobType {
             JobType::ReferenceExtraction => 4,
             // Graph maintenance runs after linking, low urgency background task
             JobType::GraphMaintenance => 2,
+            // Speaker diarization runs after transcription, medium priority
+            JobType::SpeakerDiarization => 5,
+            // Speaker relabel is user-triggered re-render, higher priority
+            JobType::SpeakerRelabel => 6,
         }
     }
 

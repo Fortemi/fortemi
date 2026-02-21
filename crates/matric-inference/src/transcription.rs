@@ -4,12 +4,28 @@ use async_trait::async_trait;
 use matric_core::Result;
 use serde::{Deserialize, Serialize};
 
+/// A word-level timestamp for fine-grained alignment.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WordTimestamp {
+    pub word: String,
+    pub start_secs: f64,
+    pub end_secs: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
 /// A segment of transcribed audio with timestamps.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TranscriptionSegment {
     pub start_secs: f64,
     pub end_secs: f64,
     pub text: String,
+    /// Speaker label from diarization (e.g., "SPEAKER_00" or mapped name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_id: Option<String>,
+    /// Word-level timestamps for diarization alignment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub words: Option<Vec<WordTimestamp>>,
 }
 
 /// Result of audio transcription.
@@ -229,6 +245,8 @@ impl TranscriptionBackend for WhisperBackend {
                 start_secs: s.start,
                 end_secs: s.end,
                 text: s.text,
+                speaker_id: None,
+                words: None,
             })
             .collect();
 
@@ -269,12 +287,51 @@ mod tests {
             start_secs: 0.0,
             end_secs: 5.5,
             text: "Hello world".to_string(),
+            speaker_id: None,
+            words: None,
         };
 
         let json = serde_json::to_value(&segment).unwrap();
         assert_eq!(json["start_secs"], 0.0);
         assert_eq!(json["end_secs"], 5.5);
         assert_eq!(json["text"], "Hello world");
+        // speaker_id and words are skipped when None
+        assert!(json.get("speaker_id").is_none());
+        assert!(json.get("words").is_none());
+
+        let deserialized: TranscriptionSegment = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, segment);
+    }
+
+    #[test]
+    fn test_transcription_segment_with_speaker() {
+        let segment = TranscriptionSegment {
+            start_secs: 0.0,
+            end_secs: 5.5,
+            text: "Hello world".to_string(),
+            speaker_id: Some("SPEAKER_00".to_string()),
+            words: Some(vec![
+                WordTimestamp {
+                    word: "Hello".to_string(),
+                    start_secs: 0.0,
+                    end_secs: 0.5,
+                    confidence: Some(0.95),
+                },
+                WordTimestamp {
+                    word: "world".to_string(),
+                    start_secs: 0.5,
+                    end_secs: 1.0,
+                    confidence: None,
+                },
+            ]),
+        };
+
+        let json = serde_json::to_value(&segment).unwrap();
+        assert_eq!(json["speaker_id"], "SPEAKER_00");
+        assert_eq!(json["words"].as_array().unwrap().len(), 2);
+        assert_eq!(json["words"][0]["confidence"], 0.95);
+        // confidence is skipped when None
+        assert!(json["words"][1].get("confidence").is_none());
 
         let deserialized: TranscriptionSegment = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized, segment);
@@ -289,11 +346,15 @@ mod tests {
                     start_secs: 0.0,
                     end_secs: 2.5,
                     text: "Hello world.".to_string(),
+                    speaker_id: None,
+                    words: None,
                 },
                 TranscriptionSegment {
                     start_secs: 2.5,
                     end_secs: 5.0,
                     text: "This is a test.".to_string(),
+                    speaker_id: None,
+                    words: None,
                 },
             ],
             language: Some("en".to_string()),

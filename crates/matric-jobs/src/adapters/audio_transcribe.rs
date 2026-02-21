@@ -7,6 +7,21 @@ use std::sync::Arc;
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 use matric_inference::transcription::TranscriptionBackend;
 
+/// Format duration in seconds to a human-readable string.
+fn format_audio_duration(secs: f64) -> String {
+    let total = secs as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 /// Adapter for extracting text from audio files via transcription.
 ///
 /// Uses a TranscriptionBackend (typically WhisperBackend) to transcribe
@@ -80,10 +95,37 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
             metadata["duration_secs"] = serde_json::json!(duration);
         }
 
+        // Format as markdown with metadata header and transcript section
+        let extracted_text = if transcription.full_text.is_empty() {
+            Some(transcription.full_text)
+        } else {
+            let mut parts = Vec::new();
+
+            // Metadata header
+            let mut meta_items = Vec::new();
+            if let Some(duration) = transcription.duration_secs {
+                meta_items.push(format!("**Duration**: {}", format_audio_duration(duration)));
+            }
+            if let Some(ref lang) = transcription.language {
+                meta_items.push(format!("**Language**: {}", lang));
+            }
+            meta_items.push(format!(
+                "**Segments**: {}",
+                transcription.segments.len()
+            ));
+            parts.push(meta_items.join(" | "));
+
+            // Transcript section
+            parts.push("## Transcript".to_string());
+            parts.push(transcription.full_text);
+
+            Some(parts.join("\n\n"))
+        };
+
         Ok(ExtractionResult {
-            extracted_text: Some(transcription.full_text),
+            extracted_text,
             metadata,
-            ai_description: None, // Transcription is the text itself
+            ai_description: None,
             preview_data: None,
         })
     }
@@ -202,11 +244,15 @@ mod tests {
                         start_secs: 0.0,
                         end_secs: 2.5,
                         text: "Hello, this is".to_string(),
+                        speaker_id: None,
+                        words: None,
                     },
                     TranscriptionSegment {
                         start_secs: 2.5,
                         end_secs: 5.0,
                         text: "a test transcription.".to_string(),
+                        speaker_id: None,
+                        words: None,
                     },
                 ],
                 language: Some("en".to_string()),
@@ -226,10 +272,15 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            result.extracted_text.as_deref(),
-            Some("Hello, this is a test transcription.")
+        let text = result.extracted_text.as_deref().unwrap();
+        assert!(text.contains("## Transcript"), "should have transcript heading");
+        assert!(
+            text.contains("Hello, this is a test transcription."),
+            "should contain transcript text"
         );
+        assert!(text.contains("**Duration**: 5s"), "should have duration");
+        assert!(text.contains("**Language**: en"), "should have language");
+        assert!(text.contains("**Segments**: 2"), "should have segment count");
         assert_eq!(result.metadata["segment_count"], 2);
         assert_eq!(result.metadata["detected_language"], "en");
         assert_eq!(result.metadata["duration_secs"], 5.0);
@@ -270,7 +321,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.extracted_text.as_deref(), Some("Short audio."));
+        let text = result.extracted_text.as_deref().unwrap();
+        assert!(text.contains("## Transcript"), "should have transcript heading");
+        assert!(text.contains("Short audio."), "should contain transcript text");
+        assert!(text.contains("**Segments**: 0"), "should have segment count");
         assert_eq!(result.metadata["segment_count"], 0);
         assert!(result.metadata.get("detected_language").is_none());
         assert!(result.metadata.get("duration_secs").is_none());
@@ -285,6 +339,8 @@ mod tests {
                     start_secs: 0.0,
                     end_secs: 1.5,
                     text: "Hola mundo.".to_string(),
+                    speaker_id: None,
+                    words: None,
                 }],
                 language: Some("es".to_string()),
                 duration_secs: Some(1.5),
@@ -303,7 +359,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.extracted_text.as_deref(), Some("Hola mundo."));
+        let text = result.extracted_text.as_deref().unwrap();
+        assert!(text.contains("Hola mundo."), "should contain transcript text");
+        assert!(text.contains("**Language**: es"), "should have language");
         assert_eq!(result.metadata["detected_language"], "es");
         assert_eq!(result.metadata["segment_count"], 1);
     }
@@ -331,6 +389,7 @@ mod tests {
             .await
             .unwrap();
 
+        // Empty transcription returns empty string (no markdown wrapping)
         assert_eq!(result.extracted_text.as_deref(), Some(""));
         assert_eq!(result.metadata["segment_count"], 0);
         assert_eq!(result.metadata["duration_secs"], 0.0);
@@ -378,7 +437,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.extracted_text.as_deref(), Some("Test"));
+        let text = result.extracted_text.as_deref().unwrap();
+        assert!(text.contains("Test"), "should contain transcript text");
     }
 
     #[tokio::test]
@@ -388,16 +448,22 @@ mod tests {
                 start_secs: 0.0,
                 end_secs: 1.0,
                 text: "First".to_string(),
+                speaker_id: None,
+                words: None,
             },
             TranscriptionSegment {
                 start_secs: 1.0,
                 end_secs: 2.0,
                 text: "Second".to_string(),
+                speaker_id: None,
+                words: None,
             },
             TranscriptionSegment {
                 start_secs: 2.0,
                 end_secs: 3.5,
                 text: "Third".to_string(),
+                speaker_id: None,
+                words: None,
             },
         ];
 

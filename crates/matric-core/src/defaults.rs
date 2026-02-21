@@ -209,6 +209,15 @@ pub const ENV_WHISPER_MODEL: &str = "WHISPER_MODEL";
 /// Default Whisper model.
 pub const DEFAULT_WHISPER_MODEL: &str = "Systran/faster-distil-whisper-large-v3";
 
+/// Environment variable for the speaker diarization service URL.
+pub const ENV_DIARIZATION_BASE_URL: &str = "DIARIZATION_BASE_URL";
+
+/// Environment variable for the diarization model name.
+pub const ENV_DIARIZATION_MODEL: &str = "DIARIZATION_MODEL";
+
+/// Default diarization model.
+pub const DEFAULT_DIARIZATION_MODEL: &str = "pyannote/speaker-diarization-3.1";
+
 /// Environment variable for the GLiNER NER sidecar URL.
 pub const ENV_GLINER_BASE_URL: &str = "GLINER_BASE_URL";
 
@@ -326,6 +335,25 @@ pub const MAX_UPLOAD_SIZE_BYTES: usize = 50 * 1024 * 1024;
 
 /// Maximum filename length (ext4/NTFS compatible).
 pub const FILENAME_MAX_LENGTH: usize = 255;
+
+// =============================================================================
+// MEDIA SERVING
+// =============================================================================
+
+/// Files smaller than this are fully buffered in memory before sending.
+/// Above this threshold, files are streamed from disk. (4 MB)
+pub const MEDIA_STREAM_THRESHOLD_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Streaming read buffer size. Each chunk sent over the wire is this size. (64 KB)
+pub const MEDIA_STREAM_BUFFER_BYTES: usize = 64 * 1024;
+
+/// Maximum concurrent file downloads served simultaneously.
+/// Beyond this limit, requests queue with back-pressure.
+pub const MEDIA_MAX_CONCURRENT_DOWNLOADS: usize = 50;
+
+/// Per-download response timeout in seconds.
+/// If a client doesn't consume the response within this window, the connection is dropped.
+pub const MEDIA_DOWNLOAD_TIMEOUT_SECS: u64 = 300;
 
 // =============================================================================
 // OAUTH

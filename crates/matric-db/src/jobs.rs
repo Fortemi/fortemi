@@ -118,6 +118,8 @@ impl PgJobRepository {
             JobType::RelatedConceptInference => "related_concept_inference",
             JobType::ReferenceExtraction => "reference_extraction",
             JobType::GraphMaintenance => "graph_maintenance",
+            JobType::SpeakerDiarization => "speaker_diarization",
+            JobType::SpeakerRelabel => "speaker_relabel",
         }
     }
 
@@ -148,6 +150,8 @@ impl PgJobRepository {
             "related_concept_inference" => JobType::RelatedConceptInference,
             "reference_extraction" => JobType::ReferenceExtraction,
             "graph_maintenance" => JobType::GraphMaintenance,
+            "speaker_diarization" => JobType::SpeakerDiarization,
+            "speaker_relabel" => JobType::SpeakerRelabel,
             _ => JobType::ContextUpdate, // fallback
         }
     }
