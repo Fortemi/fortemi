@@ -74,6 +74,9 @@ pub use openai::{OpenAIBackend, OpenAIConfig};
 pub use capabilities::{
     known_model_capabilities, Capability, CapabilityRating, ModelCapabilities, QualityTier,
 };
+pub use diarization::{
+    align_speakers, DiarizationBackend, DiarizationResult, DiarizationSegment, PyAnnoteBackend,
+};
 pub use discovery::{
     ConfigRecommendation, DiscoveredModel, DiscoveryError, DiscoveryResult, ModelDiscovery,
 };
@@ -113,9 +116,6 @@ pub use refinement::{
 };
 pub use selector::{KmOperation, ModelSelection, ModelSelector, RecommendedConfig};
 pub use thinking::{detect_thinking_type, parse_thinking_response, ThinkingResponse};
-pub use diarization::{
-    align_speakers, DiarizationBackend, DiarizationResult, DiarizationSegment, PyAnnoteBackend,
-};
 pub use transcription::{
     TranscriptionBackend, TranscriptionResult, TranscriptionSegment, WhisperBackend, WordTimestamp,
 };

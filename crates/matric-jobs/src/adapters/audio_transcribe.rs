@@ -109,10 +109,7 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
             if let Some(ref lang) = transcription.language {
                 meta_items.push(format!("**Language**: {}", lang));
             }
-            meta_items.push(format!(
-                "**Segments**: {}",
-                transcription.segments.len()
-            ));
+            meta_items.push(format!("**Segments**: {}", transcription.segments.len()));
             parts.push(meta_items.join(" | "));
 
             // Transcript section
@@ -273,14 +270,20 @@ mod tests {
             .unwrap();
 
         let text = result.extracted_text.as_deref().unwrap();
-        assert!(text.contains("## Transcript"), "should have transcript heading");
+        assert!(
+            text.contains("## Transcript"),
+            "should have transcript heading"
+        );
         assert!(
             text.contains("Hello, this is a test transcription."),
             "should contain transcript text"
         );
         assert!(text.contains("**Duration**: 5s"), "should have duration");
         assert!(text.contains("**Language**: en"), "should have language");
-        assert!(text.contains("**Segments**: 2"), "should have segment count");
+        assert!(
+            text.contains("**Segments**: 2"),
+            "should have segment count"
+        );
         assert_eq!(result.metadata["segment_count"], 2);
         assert_eq!(result.metadata["detected_language"], "en");
         assert_eq!(result.metadata["duration_secs"], 5.0);
@@ -322,9 +325,18 @@ mod tests {
             .unwrap();
 
         let text = result.extracted_text.as_deref().unwrap();
-        assert!(text.contains("## Transcript"), "should have transcript heading");
-        assert!(text.contains("Short audio."), "should contain transcript text");
-        assert!(text.contains("**Segments**: 0"), "should have segment count");
+        assert!(
+            text.contains("## Transcript"),
+            "should have transcript heading"
+        );
+        assert!(
+            text.contains("Short audio."),
+            "should contain transcript text"
+        );
+        assert!(
+            text.contains("**Segments**: 0"),
+            "should have segment count"
+        );
         assert_eq!(result.metadata["segment_count"], 0);
         assert!(result.metadata.get("detected_language").is_none());
         assert!(result.metadata.get("duration_secs").is_none());
@@ -360,7 +372,10 @@ mod tests {
             .unwrap();
 
         let text = result.extracted_text.as_deref().unwrap();
-        assert!(text.contains("Hola mundo."), "should contain transcript text");
+        assert!(
+            text.contains("Hola mundo."),
+            "should contain transcript text"
+        );
         assert!(text.contains("**Language**: es"), "should have language");
         assert_eq!(result.metadata["detected_language"], "es");
         assert_eq!(result.metadata["segment_count"], 1);

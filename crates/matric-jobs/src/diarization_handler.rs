@@ -107,10 +107,7 @@ impl JobHandler for SpeakerDiarizationHandler {
         let segments_json = attachment
             .extracted_metadata
             .as_ref()
-            .and_then(|m| {
-                m.get("transcript_segments")
-                    .or_else(|| m.get("segments"))
-            })
+            .and_then(|m| m.get("transcript_segments").or_else(|| m.get("segments")))
             .and_then(|v| v.as_array());
 
         let mut transcript_segments: Vec<TranscriptionSegment> = match segments_json {
@@ -151,7 +148,10 @@ impl JobHandler for SpeakerDiarizationHandler {
                 Ok(t) => t,
                 Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
             };
-            let info = match file_storage.get_file_metadata_tx(&mut tx, attachment_id).await {
+            let info = match file_storage
+                .get_file_metadata_tx(&mut tx, attachment_id)
+                .await
+            {
                 Ok(i) => i,
                 Err(e) => {
                     return JobResult::Failed(format!(
@@ -190,16 +190,10 @@ impl JobHandler for SpeakerDiarizationHandler {
                         .rsplit_once('.')
                         .map(|(_, ext)| format!(".{}", ext))
                         .unwrap_or_else(|| ".wav".to_string());
-                    let tmp = match tempfile::Builder::new()
-                        .suffix(&suffix)
-                        .tempfile()
-                    {
+                    let tmp = match tempfile::Builder::new().suffix(&suffix).tempfile() {
                         Ok(t) => t,
                         Err(e) => {
-                            return JobResult::Failed(format!(
-                                "Failed to create temp file: {}",
-                                e
-                            ))
+                            return JobResult::Failed(format!("Failed to create temp file: {}", e))
                         }
                     };
                     let path = tmp.path().to_path_buf();
@@ -228,13 +222,16 @@ impl JobHandler for SpeakerDiarizationHandler {
             .and_then(|v| v.as_u64())
             .map(|n| n as usize);
 
-        let diarization_result: DiarizationResult =
-            match self.backend.diarize(&audio_path, min_speakers, max_speakers).await {
-                Ok(result) => result,
-                Err(e) => {
-                    return JobResult::Retry(format!("Diarization failed: {}", e));
-                }
-            };
+        let diarization_result: DiarizationResult = match self
+            .backend
+            .diarize(&audio_path, min_speakers, max_speakers)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                return JobResult::Retry(format!("Diarization failed: {}", e));
+            }
+        };
 
         if diarization_result.segments.is_empty() {
             info!(
@@ -260,7 +257,10 @@ impl JobHandler for SpeakerDiarizationHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
-                    return JobResult::Failed(format!("Schema tx failed for metadata update: {}", e))
+                    return JobResult::Failed(format!(
+                        "Schema tx failed for metadata update: {}",
+                        e
+                    ))
                 }
             };
 

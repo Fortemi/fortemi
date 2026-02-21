@@ -1566,11 +1566,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/attachments/:attachment_id/download",
-            get(download_attachment).layer(
-                tower::limit::ConcurrencyLimitLayer::new(
-                    matric_core::defaults::MEDIA_MAX_CONCURRENT_DOWNLOADS,
-                ),
-            ),
+            get(download_attachment).layer(tower::limit::ConcurrencyLimitLayer::new(
+                matric_core::defaults::MEDIA_MAX_CONCURRENT_DOWNLOADS,
+            )),
         )
         .route(
             "/api/v1/attachments/:attachment_id/subtitles",
@@ -3274,7 +3272,14 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
     let start = std::time::Instant::now();
 
     // Run all checks concurrently
-    let (db_result, redis_result, vision_result, transcription_result, ner_result, diarization_result) = tokio::join!(
+    let (
+        db_result,
+        redis_result,
+        vision_result,
+        transcription_result,
+        ner_result,
+        diarization_result,
+    ) = tokio::join!(
         // PostgreSQL: SELECT 1 with 5s timeout
         async {
             match tokio::time::timeout(
@@ -12975,14 +12980,7 @@ async fn download_attachment(
             .resolve_storage_path(&storage_path)
             .expect("resolve_storage_path checked above");
 
-        serve_streaming(
-            fs_path,
-            total_size,
-            ct_header,
-            cd_header,
-            &req_headers,
-        )
-        .await
+        serve_streaming(fs_path, total_size, ct_header, cd_header, &req_headers).await
     } else {
         // Buffered path for small files and inline DB blobs
         let data = match info.source {
@@ -13013,14 +13011,12 @@ async fn serve_streaming(
         match parse_byte_range(range_str, total_size) {
             Ok((start, end)) => {
                 let content_length = end - start + 1;
-                let mut file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
-                    ApiError::Internal(format!("Failed to open file: {}", e))
-                })?;
+                let mut file = tokio::fs::File::open(&fs_path)
+                    .await
+                    .map_err(|e| ApiError::Internal(format!("Failed to open file: {}", e)))?;
                 file.seek(std::io::SeekFrom::Start(start as u64))
                     .await
-                    .map_err(|e| {
-                        ApiError::Internal(format!("Failed to seek: {}", e))
-                    })?;
+                    .map_err(|e| ApiError::Internal(format!("Failed to seek: {}", e)))?;
                 let limited = file.take(content_length as u64);
                 let stream = ReaderStream::with_capacity(
                     limited,
@@ -13052,13 +13048,11 @@ async fn serve_streaming(
             }
         }
     } else {
-        let file = tokio::fs::File::open(&fs_path).await.map_err(|e| {
-            ApiError::Internal(format!("Failed to open file: {}", e))
-        })?;
-        let stream = ReaderStream::with_capacity(
-            file,
-            matric_core::defaults::MEDIA_STREAM_BUFFER_BYTES,
-        );
+        let file = tokio::fs::File::open(&fs_path)
+            .await
+            .map_err(|e| ApiError::Internal(format!("Failed to open file: {}", e)))?;
+        let stream =
+            ReaderStream::with_capacity(file, matric_core::defaults::MEDIA_STREAM_BUFFER_BYTES);
 
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, ct_header);
@@ -13157,9 +13151,9 @@ async fn get_attachment_subtitles(
     let attachment = file_storage.get_tx(&mut tx, attachment_id).await?;
     drop(tx);
 
-    let metadata = attachment
-        .extracted_metadata
-        .ok_or_else(|| ApiError::NotFound("No extraction metadata for this attachment".to_string()))?;
+    let metadata = attachment.extracted_metadata.ok_or_else(|| {
+        ApiError::NotFound("No extraction metadata for this attachment".to_string())
+    })?;
 
     // Try video path first (transcript_segments), then audio path (segments)
     let segments_json = metadata
@@ -13195,10 +13189,7 @@ async fn get_attachment_subtitles(
         ));
     }
 
-    let format = params
-        .get("format")
-        .map(|s| s.as_str())
-        .unwrap_or("vtt");
+    let format = params.get("format").map(|s| s.as_str()).unwrap_or("vtt");
 
     let (body, content_type, extension) = match format {
         "srt" => (
@@ -13284,9 +13275,9 @@ async fn get_attachment_thumbnail(
     .map_err(|e| ApiError::Internal(format!("Failed to query thumbnail: {}", e)))?;
     drop(tx);
 
-    let thumb_id = thumb_row
-        .map(|r| r.0)
-        .ok_or_else(|| ApiError::NotFound("No thumbnail available for this attachment".to_string()))?;
+    let thumb_id = thumb_row.map(|r| r.0).ok_or_else(|| {
+        ApiError::NotFound("No thumbnail available for this attachment".to_string())
+    })?;
 
     // Read thumbnail file data via the storage backend
     let mut tx = ctx.begin_tx().await?;
@@ -13298,19 +13289,14 @@ async fn get_attachment_thumbnail(
 
     let thumb_data = match info.source {
         FileSource::Inline(data) => data,
-        FileSource::Filesystem(storage_path) => {
-            file_storage
-                .read_file(&storage_path)
-                .await
-                .map_err(|_| ApiError::NotFound("Thumbnail data not readable".to_string()))?
-        }
+        FileSource::Filesystem(storage_path) => file_storage
+            .read_file(&storage_path)
+            .await
+            .map_err(|_| ApiError::NotFound("Thumbnail data not readable".to_string()))?,
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("image/jpeg"),
-    );
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg"));
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=86400, immutable"),

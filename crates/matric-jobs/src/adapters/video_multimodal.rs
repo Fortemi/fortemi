@@ -541,7 +541,11 @@ fn format_video_markdown(
         for (i, kf) in keyframe_descriptions.iter().enumerate() {
             let ts = kf["timestamp_secs"].as_f64().unwrap_or(0.0);
             let desc = kf["description"].as_str().unwrap_or("");
-            parts.push(format!("### Scene {} \u{2014} {}", i + 1, format_timestamp(ts)));
+            parts.push(format!(
+                "### Scene {} \u{2014} {}",
+                i + 1,
+                format_timestamp(ts)
+            ));
             parts.push(desc.to_string());
         }
     }
@@ -822,7 +826,15 @@ pub async fn is_faststart(video_path: &str) -> Result<bool> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         Command::new("ffprobe")
-            .args(["-v", "quiet", "-show_entries", "format_tags=", "-of", "json", video_path])
+            .args([
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format_tags=",
+                "-of",
+                "json",
+                video_path,
+            ])
             .output(),
     )
     .await
@@ -857,9 +869,12 @@ pub async fn optimize_faststart(video_path: &str, work_dir: &TempDir) -> Result<
         std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
         Command::new("ffmpeg")
             .args([
-                "-i", video_path,
-                "-c", "copy",
-                "-movflags", "+faststart",
+                "-i",
+                video_path,
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
                 "-y",
                 &output_path,
             ])
@@ -900,8 +915,10 @@ pub async fn probe_media_info(video_path: &str) -> Result<JsonValue> {
         std::time::Duration::from_secs(15),
         Command::new("ffprobe")
             .args([
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 "-show_streams",
                 video_path,
@@ -1016,10 +1033,16 @@ pub async fn extract_thumbnail(video_path: &str, work_dir: &TempDir) -> Option<P
                 }
             }
             // Fall through to simpler approach
-            warn!(video_path, "Thumbnail filter produced empty file, trying fallback");
+            warn!(
+                video_path,
+                "Thumbnail filter produced empty file, trying fallback"
+            );
         }
         _ => {
-            debug!(video_path, "Scene+thumbnail filter failed, trying simple thumbnail");
+            debug!(
+                video_path,
+                "Scene+thumbnail filter failed, trying simple thumbnail"
+            );
         }
     }
 
@@ -1048,7 +1071,10 @@ pub async fn extract_thumbnail(video_path: &str, work_dir: &TempDir) -> Option<P
         Ok(Ok(output)) if output.status.success() && fallback_path.exists() => {
             if let Ok(meta) = fs::metadata(&fallback_path) {
                 if meta.len() > 100 {
-                    debug!(video_path, "Thumbnail extracted via fallback thumbnail filter");
+                    debug!(
+                        video_path,
+                        "Thumbnail extracted via fallback thumbnail filter"
+                    );
                     return Some(fallback_path);
                 }
             }

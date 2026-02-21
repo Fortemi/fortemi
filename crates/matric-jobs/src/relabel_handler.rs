@@ -136,40 +136,44 @@ impl JobHandler for SpeakerRelabelHandler {
         ctx.report_progress(10, Some("Loading speaker config"));
 
         // 1. Read the note content to extract the speaker config block
-        let speaker_map: HashMap<String, String> = if let Some(config_json) = payload.get("speaker_map") {
-            // Direct map provided in payload (API-triggered relabel)
-            match serde_json::from_value::<HashMap<String, String>>(config_json.clone()) {
-                Ok(map) => map,
-                Err(e) => {
-                    return JobResult::Failed(format!("Invalid speaker_map in payload: {}", e))
-                }
-            }
-        } else {
-            // Parse from note content (user edit-triggered)
-            let note = {
-                let mut tx = match schema_ctx.begin_tx().await {
-                    Ok(t) => t,
-                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
-                };
-                let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
-                    Ok(n) => n,
+        let speaker_map: HashMap<String, String> =
+            if let Some(config_json) = payload.get("speaker_map") {
+                // Direct map provided in payload (API-triggered relabel)
+                match serde_json::from_value::<HashMap<String, String>>(config_json.clone()) {
+                    Ok(map) => map,
                     Err(e) => {
-                        return JobResult::Failed(format!("Failed to fetch note {}: {}", note_id, e))
+                        return JobResult::Failed(format!("Invalid speaker_map in payload: {}", e))
                     }
-                };
-                let _ = tx.commit().await;
-                note
-            };
-
-            match SpeakerConfig::parse_from_content(&note.original.content) {
-                Some(config) => config.name_map(),
-                None => {
-                    return JobResult::Failed(
-                        "No speaker config block found in note content".into(),
-                    )
                 }
-            }
-        };
+            } else {
+                // Parse from note content (user edit-triggered)
+                let note = {
+                    let mut tx = match schema_ctx.begin_tx().await {
+                        Ok(t) => t,
+                        Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                    };
+                    let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
+                        Ok(n) => n,
+                        Err(e) => {
+                            return JobResult::Failed(format!(
+                                "Failed to fetch note {}: {}",
+                                note_id, e
+                            ))
+                        }
+                    };
+                    let _ = tx.commit().await;
+                    note
+                };
+
+                match SpeakerConfig::parse_from_content(&note.original.content) {
+                    Some(config) => config.name_map(),
+                    None => {
+                        return JobResult::Failed(
+                            "No speaker config block found in note content".into(),
+                        )
+                    }
+                }
+            };
 
         if speaker_map.is_empty() {
             return JobResult::Success(Some(json!({
@@ -207,10 +211,7 @@ impl JobHandler for SpeakerRelabelHandler {
         let segments_json = attachment
             .extracted_metadata
             .as_ref()
-            .and_then(|m| {
-                m.get("transcript_segments")
-                    .or_else(|| m.get("segments"))
-            })
+            .and_then(|m| m.get("transcript_segments").or_else(|| m.get("segments")))
             .and_then(|v| v.as_array());
 
         let segments = match segments_json {
@@ -245,7 +246,10 @@ impl JobHandler for SpeakerRelabelHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => {
-                    return JobResult::Failed(format!("Schema tx failed for metadata update: {}", e))
+                    return JobResult::Failed(format!(
+                        "Schema tx failed for metadata update: {}",
+                        e
+                    ))
                 }
             };
 
@@ -492,9 +496,7 @@ Edit speaker names below to re-label the transcript.
 
     #[test]
     fn test_speaker_config_empty_speakers() {
-        let config = SpeakerConfig {
-            speakers: vec![],
-        };
+        let config = SpeakerConfig { speakers: vec![] };
         assert!(config.name_map().is_empty());
     }
 }

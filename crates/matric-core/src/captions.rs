@@ -100,10 +100,7 @@ pub fn render_rttm(segments: &[CaptionSegment], file_id: &str) -> String {
 
     for seg in segments {
         let duration = seg.end_secs - seg.start_secs;
-        let speaker = seg
-            .speaker
-            .as_deref()
-            .unwrap_or("speaker_0");
+        let speaker = seg.speaker.as_deref().unwrap_or("speaker_0");
         let _ = writeln!(
             out,
             "SPEAKER {} 1 {:.3} {:.3} <NA> <NA> {} <NA> <NA>",

@@ -267,7 +267,9 @@ impl JobHandler for ExtractionHandler {
                                             let work_dir = match tempfile::TempDir::new() {
                                                 Ok(d) => d,
                                                 Err(_) => {
-                                                    warn!("Failed to create temp dir for faststart");
+                                                    warn!(
+                                                        "Failed to create temp dir for faststart"
+                                                    );
                                                     // skip optimization
                                                     tempfile::TempDir::new().unwrap()
                                                 }
@@ -300,10 +302,7 @@ impl JobHandler for ExtractionHandler {
                     if let Some(file_storage) = self.db.file_storage.as_ref() {
                         ctx.report_progress(83, Some("Persisting thumbnail"));
                         if let Ok(mut tx) = schema_ctx.begin_tx().await {
-                            let thumb_filename = format!(
-                                "{}_thumbnail.jpg",
-                                att_id
-                            );
+                            let thumb_filename = format!("{}_thumbnail.jpg", att_id);
                             match file_storage
                                 .store_derived_attachment_tx(
                                     &mut tx,
@@ -318,9 +317,8 @@ impl JobHandler for ExtractionHandler {
                             {
                                 Ok(thumb_att) => {
                                     // Mark parent as having a preview
-                                    if let Err(e) = file_storage
-                                        .set_has_preview_tx(&mut tx, att_id, true)
-                                        .await
+                                    if let Err(e) =
+                                        file_storage.set_has_preview_tx(&mut tx, att_id, true).await
                                     {
                                         warn!(error = %e, "Failed to set has_preview on parent");
                                     }
@@ -382,7 +380,8 @@ impl JobHandler for ExtractionHandler {
 
                                 if let Ok(mut tx) = schema_ctx.begin_tx().await {
                                     // VTT file
-                                    let vtt = matric_core::captions::render_webvtt(&caption_segments);
+                                    let vtt =
+                                        matric_core::captions::render_webvtt(&caption_segments);
                                     if let Err(e) = file_storage
                                         .store_derived_attachment_tx(
                                             &mut tx,
@@ -467,20 +466,16 @@ impl JobHandler for ExtractionHandler {
                     ExtractionStrategy::AudioTranscribe | ExtractionStrategy::VideoMultimodal
                 );
 
-                let diarization_available = std::env::var(
-                    matric_core::defaults::ENV_DIARIZATION_BASE_URL,
-                )
-                .ok()
-                .filter(|s| !s.is_empty())
-                .is_some();
+                let diarization_available =
+                    std::env::var(matric_core::defaults::ENV_DIARIZATION_BASE_URL)
+                        .ok()
+                        .filter(|s| !s.is_empty())
+                        .is_some();
 
                 if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
                     if is_audio_video && has_transcript_segments && diarization_available {
                         let mut diar_payload = serde_json::Map::new();
-                        diar_payload.insert(
-                            "attachment_id".to_string(),
-                            json!(att_id.to_string()),
-                        );
+                        diar_payload.insert("attachment_id".to_string(), json!(att_id.to_string()));
                         if schema != "public" {
                             diar_payload.insert("schema".to_string(), json!(&schema));
                         }

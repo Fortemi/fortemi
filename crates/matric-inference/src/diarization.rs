@@ -58,10 +58,7 @@ pub trait DiarizationBackend: Send + Sync {
 /// For each transcript segment, finds the overlapping diarization segment(s)
 /// and assigns the majority speaker. Uses timestamp overlap to determine
 /// which speaker is speaking during each transcript segment.
-pub fn align_speakers(
-    transcript: &mut [TranscriptionSegment],
-    diarization: &DiarizationResult,
-) {
+pub fn align_speakers(transcript: &mut [TranscriptionSegment], diarization: &DiarizationResult) {
     for seg in transcript.iter_mut() {
         let mut best_speaker: Option<&str> = None;
         let mut best_overlap = 0.0f64;
