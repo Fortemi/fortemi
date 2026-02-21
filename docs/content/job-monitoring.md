@@ -49,11 +49,16 @@ For attachment uploads, an `Extraction` job runs first to extract text/metadata 
 Attachment Upload
 │
 ├─ Extraction (adapter-specific: PDF, image, audio, video, 3D)
-│   └─ On success, queues Phase 1 jobs for the parent note:
-│       ├─ Embedding
-│       ├─ Linking
-│       ├─ ConceptTagging
-│       └─ TitleGeneration
+│   ├─ On success:
+│   │   ├─ MP4 faststart optimization (video only)
+│   │   ├─ Thumbnail persisted as derived attachment (video/audio)
+│   │   ├─ Transcript files persisted — VTT, SRT, TXT (audio/video)
+│   │   └─ Queues Phase 1 jobs for the parent note:
+│   │       ├─ Embedding
+│   │       ├─ Linking
+│   │       ├─ ConceptTagging
+│   │       └─ TitleGeneration
+│   └─ Future: SpeakerDiarization (post-transcription, when enabled)
 │
 └─ ExifExtraction (parallel, for images)
 ```
@@ -264,6 +269,9 @@ Job handlers report progress at different granularities:
 | 5% | Resolving attachment and strategy |
 | 10% | Starting extraction adapter |
 | 20–80% | Adapter-specific processing (chunked updates for large files) |
+| 82% | Optimizing video for streaming (MP4 faststart, video only) |
+| 83% | Persisting thumbnail as derived attachment (video/audio only) |
+| 84% | Persisting transcript files — VTT, SRT, plain text (audio/video only) |
 | 85% | Content persisted to note |
 | 95% | Downstream NLP jobs queued |
 | 100% | Done |
@@ -701,7 +709,7 @@ The following table shows which job lifecycle events each handler actually emits
 | DocumentTypeInferenceHandler | Auto | Auto | 10%, 30%, 80%, 100% | Auto | Auto |
 | AiRevisionHandler | Auto | Auto | 10%, 40%, 80%, 90%, 95%, 100% | Auto | Auto |
 | AiRevisionContextualHandler | Auto | Auto | 10%, 30%, 40%, 60%, 80%, 90%, 100% | Auto | Auto |
-| ExtractionHandler | Auto | Auto | 10%, 20%, 80%, 85%, 95%, 100% | Auto | Auto |
+| ExtractionHandler | Auto | Auto | 10%, 20%, 80%, 82%, 83%, 84%, 85%, 95%, 100% | Auto | Auto |
 | ExifExtractionHandler | Auto | Auto | 5%, 10%, 30%, 50%, 60%, 70%, 80%, 90%, 100% | Auto | Auto |
 | GraphMaintenanceHandler | Auto | Auto | 5%, 20%, 30%, 55%, 80%, 100% | Auto | Auto |
 | ReEmbedAllHandler | Auto | Auto | 5%, 10%, per-note updates, 100% | Auto | Auto |
