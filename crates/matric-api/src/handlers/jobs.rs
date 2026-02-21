@@ -1019,12 +1019,13 @@ Content:
                 if t.is_empty() || t.len() < matric_core::defaults::TITLE_MIN_LENGTH {
                     if use_fast {
                         info!("Fast model generated invalid title, escalating to tier-2");
-                        if let Some(job_id) = self.queue_tier_escalation(
-                            note_id,
-                            schema,
-                            matric_core::cost_tier::STANDARD_GPU,
-                        )
-                        .await
+                        if let Some(job_id) = self
+                            .queue_tier_escalation(
+                                note_id,
+                                schema,
+                                matric_core::cost_tier::STANDARD_GPU,
+                            )
+                            .await
                         {
                             ctx.emit_job_queued(job_id, JobType::TitleGeneration, Some(note_id));
                         }
@@ -1040,12 +1041,13 @@ Content:
             Err(e) => {
                 if use_fast {
                     info!(error = %e, "Fast model failed for title generation, escalating to tier-2");
-                    if let Some(job_id) = self.queue_tier_escalation(
-                        note_id,
-                        schema,
-                        matric_core::cost_tier::STANDARD_GPU,
-                    )
-                    .await
+                    if let Some(job_id) = self
+                        .queue_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::STANDARD_GPU,
+                        )
+                        .await
                     {
                         ctx.emit_job_queued(job_id, JobType::TitleGeneration, Some(note_id));
                     }
@@ -2160,11 +2162,7 @@ impl ConceptTaggingHandler {
     /// RelatedConceptInference infers associative (skos:related) relationships
     /// between the concepts just tagged, then queues Embedding + Linking.
     /// Returns the new job ID if queued (None if deduplicated or on error).
-    async fn queue_phase2_jobs(
-        &self,
-        note_id: uuid::Uuid,
-        schema: &str,
-    ) -> Option<uuid::Uuid> {
+    async fn queue_phase2_jobs(&self, note_id: uuid::Uuid, schema: &str) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
         } else {
@@ -3028,7 +3026,11 @@ impl JobHandler for ReferenceExtractionHandler {
                             )
                             .await
                         {
-                            ctx.emit_job_queued(job_id, JobType::ReferenceExtraction, Some(note_id));
+                            ctx.emit_job_queued(
+                                job_id,
+                                JobType::ReferenceExtraction,
+                                Some(note_id),
+                            );
                         }
                         return JobResult::Success(Some(serde_json::json!({
                             "references": 0,
@@ -3049,7 +3051,11 @@ impl JobHandler for ReferenceExtractionHandler {
                             )
                             .await
                         {
-                            ctx.emit_job_queued(job_id, JobType::ReferenceExtraction, Some(note_id));
+                            ctx.emit_job_queued(
+                                job_id,
+                                JobType::ReferenceExtraction,
+                                Some(note_id),
+                            );
                         }
                         return JobResult::Success(Some(serde_json::json!({
                             "references": 0,
@@ -3520,8 +3526,12 @@ impl JobHandler for RelatedConceptHandler {
             Ok(t) => t,
             Err(e) => {
                 let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-                if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-                if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+                if let Some(jid) = embed_id {
+                    ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+                }
+                if let Some(jid) = link_id {
+                    ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+                }
                 return JobResult::Failed(format!("Schema tx failed: {}", e));
             }
         };
@@ -3585,8 +3595,12 @@ impl JobHandler for RelatedConceptHandler {
         // Need at least 3 concepts for meaningful cross-dimensional pairs
         if concepts.len() < 3 {
             let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-            if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-            if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+            if let Some(jid) = embed_id {
+                ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+            }
+            if let Some(jid) = link_id {
+                ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+            }
             return JobResult::Success(Some(serde_json::json!({
                 "relations_created": 0,
                 "reason": if rows.is_empty() { "no_concepts" } else { "too_few_leaf_concepts" },
@@ -3640,8 +3654,13 @@ If no meaningful related pairs exist, output an empty array: []"#
                     // Fast model failed — escalate to tier-2 via job queue.
                     // Do NOT queue phase-3 here — the tier-2 job will do it after completion.
                     info!(error = %e, "Fast model failed for related concepts, escalating to tier-2");
-                    if let Some(job_id) = self.queue_related_tier_escalation(note_id, schema).await {
-                        ctx.emit_job_queued(job_id, JobType::RelatedConceptInference, Some(note_id));
+                    if let Some(job_id) = self.queue_related_tier_escalation(note_id, schema).await
+                    {
+                        ctx.emit_job_queued(
+                            job_id,
+                            JobType::RelatedConceptInference,
+                            Some(note_id),
+                        );
                     }
                     return JobResult::Success(Some(serde_json::json!({
                         "relations_created": 0,
@@ -3650,8 +3669,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                     })));
                 }
                 let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-                if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-                if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+                if let Some(jid) = embed_id {
+                    ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+                }
+                if let Some(jid) = link_id {
+                    ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+                }
                 return JobResult::Failed(format!("AI generation failed: {}", e));
             }
         };
@@ -3674,8 +3697,14 @@ If no meaningful related pairs exist, output an empty array: []"#
                     Err(e) => {
                         if use_fast {
                             info!(error = %e, "Fast model output unparseable for related concepts, escalating to tier-2");
-                            if let Some(job_id) = self.queue_related_tier_escalation(note_id, schema).await {
-                                ctx.emit_job_queued(job_id, JobType::RelatedConceptInference, Some(note_id));
+                            if let Some(job_id) =
+                                self.queue_related_tier_escalation(note_id, schema).await
+                            {
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::RelatedConceptInference,
+                                    Some(note_id),
+                                );
                             }
                             return JobResult::Success(Some(serde_json::json!({
                                 "relations_created": 0,
@@ -3685,8 +3714,12 @@ If no meaningful related pairs exist, output an empty array: []"#
                         }
                         warn!(error = %e, response = %ai_response, "Failed to parse related concept pairs");
                         let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-                        if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-                        if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+                        if let Some(jid) = embed_id {
+                            ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+                        }
+                        if let Some(jid) = link_id {
+                            ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+                        }
                         return JobResult::Failed(format!("Failed to parse AI response: {}", e));
                     }
                 }
@@ -3695,8 +3728,12 @@ If no meaningful related pairs exist, output an empty array: []"#
 
         if pairs.is_empty() {
             let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-            if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-            if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+            if let Some(jid) = embed_id {
+                ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+            }
+            if let Some(jid) = link_id {
+                ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+            }
             return JobResult::Success(Some(serde_json::json!({
                 "relations_created": 0,
                 "reason": "no_pairs_suggested",
@@ -3793,8 +3830,12 @@ If no meaningful related pairs exist, output an empty array: []"#
 
         ctx.report_progress(98, Some("Queuing embedding and linking..."));
         let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
-        if let Some(jid) = embed_id { ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id)); }
-        if let Some(jid) = link_id { ctx.emit_job_queued(jid, JobType::Linking, Some(note_id)); }
+        if let Some(jid) = embed_id {
+            ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
+        }
+        if let Some(jid) = link_id {
+            ctx.emit_job_queued(jid, JobType::Linking, Some(note_id));
+        }
 
         ctx.report_progress(100, Some("Related concept inference complete"));
         info!(
@@ -4000,12 +4041,13 @@ Example output:
             Err(e) => {
                 if use_fast {
                     info!(error = %e, "Fast model failed for metadata extraction, escalating to tier-2");
-                    if let Some(job_id) = self.queue_tier_escalation(
-                        note_id,
-                        schema,
-                        matric_core::cost_tier::STANDARD_GPU,
-                    )
-                    .await
+                    if let Some(job_id) = self
+                        .queue_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::STANDARD_GPU,
+                        )
+                        .await
                     {
                         ctx.emit_job_queued(job_id, JobType::MetadataExtraction, Some(note_id));
                     }
@@ -4037,14 +4079,19 @@ Example output:
                     Err(e) => {
                         if use_fast {
                             info!(error = %e, "Fast model returned unparseable metadata, escalating to tier-2");
-                            if let Some(job_id) = self.queue_tier_escalation(
-                                note_id,
-                                schema,
-                                matric_core::cost_tier::STANDARD_GPU,
-                            )
-                            .await
+                            if let Some(job_id) = self
+                                .queue_tier_escalation(
+                                    note_id,
+                                    schema,
+                                    matric_core::cost_tier::STANDARD_GPU,
+                                )
+                                .await
                             {
-                                ctx.emit_job_queued(job_id, JobType::MetadataExtraction, Some(note_id));
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::MetadataExtraction,
+                                    Some(note_id),
+                                );
                             }
                             return JobResult::Success(Some(serde_json::json!({
                                 "fields_extracted": 0,
