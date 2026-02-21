@@ -1241,6 +1241,7 @@ impl PgFileStorageRepository {
     ///
     /// Creates a new attachment on the same note, linked to the parent
     /// via `extracted_metadata.source_attachment_id` and `derivation_type`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn store_derived_attachment_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
