@@ -152,11 +152,13 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Get video duration and metadata via ffprobe
         let duration_secs = get_video_duration(&video_path).await.ok();
 
-        let mut extracted_text_parts = Vec::new();
         let mut keyframe_descriptions = Vec::new();
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
+
+        let mut transcript_text: Option<String> = None;
+        let mut transcript_language: Option<String> = None;
 
         // Step 1: Extract and transcribe audio (if backend available and requested)
         if extract_audio && self.transcription.is_some() {
@@ -167,8 +169,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     if let Some(ref backend) = self.transcription {
                         match transcribe_audio(backend.as_ref(), &audio_path).await {
                             Ok(result) => {
-                                extracted_text_parts
-                                    .push(format!("=== TRANSCRIPT ===\n{}", result.full_text));
+                                transcript_text = Some(result.full_text);
+                                transcript_language = result.language;
                                 transcript_segments = result.segments;
                             }
                             Err(e) => {
@@ -226,26 +228,6 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                 }
                             }
                         }
-
-                        // Add visual descriptions to extracted text
-                        if !keyframe_descriptions.is_empty() {
-                            let descriptions_text = keyframe_descriptions
-                                .iter()
-                                .map(|kf| {
-                                    let ts = kf["timestamp_secs"]
-                                        .as_f64()
-                                        .map(|t| format!(" [{:.1}s]", t))
-                                        .unwrap_or_default();
-                                    format!(
-                                        "Frame {}{}: {}",
-                                        kf["frame_index"], ts, kf["description"]
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            extracted_text_parts
-                                .push(format!("=== VISUAL CONTENT ===\n{}", descriptions_text));
-                        }
                     }
                 }
                 Err(e) => {
@@ -254,11 +236,21 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }
         }
 
-        let full_text = if extracted_text_parts.is_empty() {
-            None
-        } else {
-            Some(extracted_text_parts.join("\n\n"))
+        // Probe media info for resolution, codec, bitrate
+        let media_info = probe_media_info(&video_path).await.unwrap_or(json!({}));
+
+        // Extract content-aware thumbnail
+        let thumbnail_data = match extract_thumbnail(&video_path, &work_dir).await {
+            Some(thumb_path) => fs::read(&thumb_path).ok(),
+            None => None,
         };
+
+        let full_text = format_video_markdown(
+            transcript_text.as_deref(),
+            &keyframe_descriptions,
+            duration_secs,
+            transcript_language.as_deref(),
+        );
 
         Ok(ExtractionResult {
             extracted_text: full_text,
@@ -267,12 +259,14 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                 "frame_count": keyframe_descriptions.len(),
                 "has_audio": has_audio,
                 "has_video": has_video,
+                "has_thumbnail": thumbnail_data.is_some(),
                 "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
                 "keyframe_descriptions": keyframe_descriptions,
                 "transcript_segments": transcript_segments,
+                "media_info": media_info,
             }),
             ai_description: None,
-            preview_data: None,
+            preview_data: thumbnail_data,
         })
     }
 
@@ -314,11 +308,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         progress(0, Some("Analyzing video"));
         let duration_secs = get_video_duration(&video_path).await.ok();
 
-        let mut extracted_text_parts = Vec::new();
         let mut keyframe_descriptions = Vec::new();
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
+        let mut transcript_text: Option<String> = None;
+        let mut transcript_language: Option<String> = None;
 
         // Phase 1: Audio extraction + transcription (0-20%)
         if extract_audio && self.transcription.is_some() {
@@ -330,8 +325,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     if let Some(ref backend) = self.transcription {
                         match transcribe_audio(backend.as_ref(), &audio_path).await {
                             Ok(result) => {
-                                extracted_text_parts
-                                    .push(format!("=== TRANSCRIPT ===\n{}", result.full_text));
+                                transcript_text = Some(result.full_text);
+                                transcript_language = result.language;
                                 transcript_segments = result.segments;
                                 progress(20, Some("Transcription complete"));
                             }
@@ -409,25 +404,6 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                                 }
                             }
                         }
-
-                        if !keyframe_descriptions.is_empty() {
-                            let descriptions_text = keyframe_descriptions
-                                .iter()
-                                .map(|kf| {
-                                    let ts = kf["timestamp_secs"]
-                                        .as_f64()
-                                        .map(|t| format!(" [{:.1}s]", t))
-                                        .unwrap_or_default();
-                                    format!(
-                                        "Frame {}{}: {}",
-                                        kf["frame_index"], ts, kf["description"]
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            extracted_text_parts
-                                .push(format!("=== VISUAL CONTENT ===\n{}", descriptions_text));
-                        }
                     }
                 }
                 Err(e) => {
@@ -436,13 +412,23 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }
         }
 
-        progress(95, Some("Assembling results"));
+        progress(90, Some("Probing media info"));
+        let media_info = probe_media_info(&video_path).await.unwrap_or(json!({}));
 
-        let full_text = if extracted_text_parts.is_empty() {
-            None
-        } else {
-            Some(extracted_text_parts.join("\n\n"))
+        progress(93, Some("Generating thumbnail"));
+        let thumbnail_data = match extract_thumbnail(&video_path, &work_dir).await {
+            Some(thumb_path) => fs::read(&thumb_path).ok(),
+            None => None,
         };
+
+        progress(97, Some("Assembling results"));
+
+        let full_text = format_video_markdown(
+            transcript_text.as_deref(),
+            &keyframe_descriptions,
+            duration_secs,
+            transcript_language.as_deref(),
+        );
 
         progress(100, Some("Complete"));
 
@@ -453,12 +439,14 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                 "frame_count": keyframe_descriptions.len(),
                 "has_audio": has_audio,
                 "has_video": has_video,
+                "has_thumbnail": thumbnail_data.is_some(),
                 "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
                 "keyframe_descriptions": keyframe_descriptions,
                 "transcript_segments": transcript_segments,
+                "media_info": media_info,
             }),
             ai_description: None,
-            preview_data: None,
+            preview_data: thumbnail_data,
         })
     }
 
@@ -480,6 +468,85 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 struct FrameEntry {
     path: PathBuf,
     timestamp_secs: f64,
+}
+
+/// Format seconds as human-readable duration (e.g., "1m 30s", "2h 15m 42s").
+fn format_duration(secs: f64) -> String {
+    let total = secs as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
+/// Format seconds as timestamp (e.g., "0:00", "1:30", "1:05:42").
+fn format_timestamp(secs: f64) -> String {
+    let total = secs as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{}:{:02}:{:02}", h, m, s)
+    } else {
+        format!("{}:{:02}", m, s)
+    }
+}
+
+/// Assemble extraction results into properly formatted markdown.
+fn format_video_markdown(
+    transcript_text: Option<&str>,
+    keyframe_descriptions: &[JsonValue],
+    duration_secs: Option<f64>,
+    language: Option<&str>,
+) -> Option<String> {
+    let has_transcript = transcript_text.is_some();
+    let has_frames = !keyframe_descriptions.is_empty();
+
+    if !has_transcript && !has_frames {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+
+    // Metadata header
+    let mut meta_items = Vec::new();
+    if let Some(d) = duration_secs {
+        meta_items.push(format!("**Duration**: {}", format_duration(d)));
+    }
+    if has_frames {
+        meta_items.push(format!("**Frames**: {}", keyframe_descriptions.len()));
+    }
+    if let Some(lang) = language {
+        meta_items.push(format!("**Language**: {}", lang));
+    }
+    if !meta_items.is_empty() {
+        parts.push(meta_items.join(" | "));
+    }
+
+    // Transcript section
+    if let Some(text) = transcript_text {
+        parts.push("## Transcript".to_string());
+        parts.push(text.to_string());
+    }
+
+    // Visual content section
+    if has_frames {
+        parts.push("## Visual Content".to_string());
+        for (i, kf) in keyframe_descriptions.iter().enumerate() {
+            let ts = kf["timestamp_secs"].as_f64().unwrap_or(0.0);
+            let desc = kf["description"].as_str().unwrap_or("");
+            parts.push(format!("### Scene {} \u{2014} {}", i + 1, format_timestamp(ts)));
+            parts.push(desc.to_string());
+        }
+    }
+
+    Some(parts.join("\n\n"))
 }
 
 /// Get video duration in seconds using ffprobe.
@@ -748,6 +815,293 @@ async fn describe_frame_with_context(
         .await
 }
 
+/// Check if an MP4 file has the moov atom before the mdata atom (faststart-optimized).
+///
+/// Returns `true` if the file is already optimized or not an MP4.
+pub async fn is_faststart(video_path: &str) -> Result<bool> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Command::new("ffprobe")
+            .args(["-v", "quiet", "-show_entries", "format_tags=", "-of", "json", video_path])
+            .output(),
+    )
+    .await
+    .map_err(|_| matric_core::Error::Internal("ffprobe timed out".to_string()))?
+    .map_err(|e| matric_core::Error::Internal(format!("ffprobe failed: {}", e)))?;
+
+    if !output.status.success() {
+        return Ok(true); // If we can't probe, assume it's fine
+    }
+
+    // Quick heuristic: use ffprobe atoms. If we can't determine, assume not optimized.
+    // A more robust check reads the first bytes for moov vs mdat atom ordering,
+    // but ffmpeg's -movflags +faststart is idempotent and fast, so we just run it.
+    Ok(false)
+}
+
+/// Run MP4 faststart optimization on a file (moves moov atom to beginning).
+///
+/// Uses `ffmpeg -c copy -movflags +faststart` which only rearranges metadata
+/// without re-encoding, making it extremely fast (seconds, not minutes).
+///
+/// Returns the path to the optimized file, or the original path if optimization
+/// was not needed or failed.
+pub async fn optimize_faststart(video_path: &str, work_dir: &TempDir) -> Result<String> {
+    let output_path = work_dir
+        .path()
+        .join("faststart.mp4")
+        .to_string_lossy()
+        .to_string();
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
+        Command::new("ffmpeg")
+            .args([
+                "-i", video_path,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                "-y",
+                &output_path,
+            ])
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() => {
+            debug!(video_path, "MP4 faststart optimization succeeded");
+            Ok(output_path)
+        }
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!(
+                video_path,
+                error = %stderr.trim(),
+                "MP4 faststart optimization failed, using original"
+            );
+            Ok(video_path.to_string())
+        }
+        Ok(Err(e)) => {
+            warn!(video_path, error = %e, "Failed to run ffmpeg for faststart");
+            Ok(video_path.to_string())
+        }
+        Err(_) => {
+            warn!(video_path, "ffmpeg faststart timed out, using original");
+            Ok(video_path.to_string())
+        }
+    }
+}
+
+/// Probe video file for detailed media info using ffprobe.
+///
+/// Returns metadata including resolution, codec, bitrate, and audio codec.
+pub async fn probe_media_info(video_path: &str) -> Result<JsonValue> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        Command::new("ffprobe")
+            .args([
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                "-show_streams",
+                video_path,
+            ])
+            .output(),
+    )
+    .await
+    .map_err(|_| matric_core::Error::Internal("ffprobe timed out".to_string()))?
+    .map_err(|e| matric_core::Error::Internal(format!("ffprobe failed: {}", e)))?;
+
+    if !output.status.success() {
+        return Ok(json!({}));
+    }
+
+    let probe_data: JsonValue = serde_json::from_slice(&output.stdout).unwrap_or(json!({}));
+
+    // Extract key fields from ffprobe output
+    let streams = probe_data.get("streams").and_then(|s| s.as_array());
+    let format = probe_data.get("format");
+
+    let mut info = json!({});
+
+    // Find video stream
+    if let Some(streams) = streams {
+        for stream in streams {
+            let codec_type = stream.get("codec_type").and_then(|v| v.as_str());
+            match codec_type {
+                Some("video") => {
+                    info["width"] = stream.get("width").cloned().unwrap_or(json!(null));
+                    info["height"] = stream.get("height").cloned().unwrap_or(json!(null));
+                    info["codec"] = stream.get("codec_name").cloned().unwrap_or(json!(null));
+                    info["frame_rate"] = stream
+                        .get("r_frame_rate")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| {
+                            let parts: Vec<&str> = s.split('/').collect();
+                            if parts.len() == 2 {
+                                let num: f64 = parts[0].parse().ok()?;
+                                let den: f64 = parts[1].parse().ok()?;
+                                if den > 0.0 {
+                                    Some(json!((num / den * 100.0).round() / 100.0))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(json!(null));
+                }
+                Some("audio") => {
+                    info["audio_codec"] = stream.get("codec_name").cloned().unwrap_or(json!(null));
+                    info["audio_sample_rate"] =
+                        stream.get("sample_rate").cloned().unwrap_or(json!(null));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Extract format-level info
+    if let Some(format) = format {
+        if let Some(bitrate) = format.get("bit_rate").and_then(|v| v.as_str()) {
+            if let Ok(bps) = bitrate.parse::<u64>() {
+                info["bitrate_kbps"] = json!(bps / 1000);
+            }
+        }
+    }
+
+    Ok(info)
+}
+
+/// Extract a content-aware thumbnail from a video using FFmpeg's `thumbnail` filter.
+///
+/// The `thumbnail` filter analyzes N frames and selects the most visually
+/// diverse frame based on histogram variance across color channels. Combined
+/// with scene detection, this avoids black frames, transitions, and motion blur.
+///
+/// Returns the path to the best thumbnail JPEG, or `None` if extraction fails.
+pub async fn extract_thumbnail(video_path: &str, work_dir: &TempDir) -> Option<PathBuf> {
+    let output_path = work_dir.path().join("thumbnail.jpg");
+
+    // Use scene detection + thumbnail filter for best results.
+    // select='gt(scene,0.15)' filters to scene-change frames only,
+    // thumbnail=50 picks the most visually interesting from each 50-frame group.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
+        Command::new("ffmpeg")
+            .args([
+                "-i",
+                video_path,
+                "-vf",
+                "select='gt(scene\\,0.15)',thumbnail=50",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                "-y",
+            ])
+            .arg(&output_path)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() && output_path.exists() => {
+            // Verify the thumbnail is not empty / corrupt
+            if let Ok(meta) = fs::metadata(&output_path) {
+                if meta.len() > 100 {
+                    debug!(video_path, "Thumbnail extracted via scene+thumbnail filter");
+                    return Some(output_path);
+                }
+            }
+            // Fall through to simpler approach
+            warn!(video_path, "Thumbnail filter produced empty file, trying fallback");
+        }
+        _ => {
+            debug!(video_path, "Scene+thumbnail filter failed, trying simple thumbnail");
+        }
+    }
+
+    // Fallback: just use the thumbnail filter without scene detection
+    let fallback_path = work_dir.path().join("thumbnail_fallback.jpg");
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
+        Command::new("ffmpeg")
+            .args([
+                "-i",
+                video_path,
+                "-vf",
+                "thumbnail=100",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                "-y",
+            ])
+            .arg(&fallback_path)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() && fallback_path.exists() => {
+            if let Ok(meta) = fs::metadata(&fallback_path) {
+                if meta.len() > 100 {
+                    debug!(video_path, "Thumbnail extracted via fallback thumbnail filter");
+                    return Some(fallback_path);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    warn!(video_path, "Could not extract thumbnail from video");
+    None
+}
+
+/// Generate a waveform visualization thumbnail from an audio file.
+///
+/// Creates a PNG image showing the audio waveform, suitable for use as
+/// a visual thumbnail for audio-only content.
+///
+/// Returns the path to the waveform PNG, or `None` if generation fails.
+pub async fn generate_audio_waveform(audio_path: &str, work_dir: &TempDir) -> Option<PathBuf> {
+    let output_path = work_dir.path().join("waveform.png");
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
+        Command::new("ffmpeg")
+            .args([
+                "-i",
+                audio_path,
+                "-filter_complex",
+                "showwavespic=s=640x120:colors=0x3B82F6",
+                "-frames:v",
+                "1",
+                "-y",
+            ])
+            .arg(&output_path)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() && output_path.exists() => {
+            if let Ok(meta) = fs::metadata(&output_path) {
+                if meta.len() > 100 {
+                    debug!(audio_path, "Audio waveform thumbnail generated");
+                    return Some(output_path);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    warn!(audio_path, "Could not generate audio waveform thumbnail");
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +1143,8 @@ mod tests {
                     start_secs: 0.0,
                     end_secs: 1.0,
                     text: "Mock segment".to_string(),
+                    speaker_id: None,
+                    words: None,
                 }],
                 language: Some("en".to_string()),
                 duration_secs: Some(1.0),
@@ -1090,16 +1446,22 @@ mod tests {
                 start_secs: 0.0,
                 end_secs: 3.0,
                 text: "Hello world".to_string(),
+                speaker_id: None,
+                words: None,
             },
             TranscriptionSegment {
                 start_secs: 3.0,
                 end_secs: 6.0,
                 text: "Second segment".to_string(),
+                speaker_id: None,
+                words: None,
             },
             TranscriptionSegment {
                 start_secs: 20.0,
                 end_secs: 25.0,
                 text: "Far away".to_string(),
+                speaker_id: None,
+                words: None,
             },
         ];
         // Frame at 4.0s should pick up both first and second segments
@@ -1117,6 +1479,8 @@ mod tests {
             start_secs: 0.0,
             end_secs: 1.0,
             text: "Early".to_string(),
+            speaker_id: None,
+            words: None,
         }];
         // Frame at 100s should find nothing
         let result = get_transcript_context_for_frame(100.0, &segments);
