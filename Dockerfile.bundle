@@ -84,25 +84,20 @@ COPY mcp-server /app/mcp-server
 WORKDIR /app/mcp-server
 RUN npm ci --omit=dev
 
-# Copy Three.js 3D renderer for GLB/GLTF multi-view extraction
-COPY docker/threejs-renderer /app/threejs-renderer
+# Copy Open3D 3D renderer for GLB/GLTF/OBJ/STL multi-view extraction
+COPY docker/open3d-renderer /app/open3d-renderer
 
-# Install headless-gl dependencies for WebGL server-side rendering
+# Install Open3D renderer dependencies (GPU rendering via EGL, CPU fallback via OSMesa)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-dev \
-    libxi-dev \
-    libxext-dev \
-    xvfb \
-    xauth \
-    python3 \
-    make \
-    g++ \
+    python3-pip \
+    libegl1 \
+    libgl1 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Three.js renderer dependencies
-WORKDIR /app/threejs-renderer
-RUN npm install --production && \
-    npm install pngjs canvas --production
+# Install Python dependencies for 3D renderer
+RUN pip3 install --no-cache-dir --break-system-packages \
+    -r /app/open3d-renderer/requirements.txt
 
 WORKDIR /app
 
@@ -162,9 +157,9 @@ ENV FTS_MULTILINGUAL_CONFIGS=true
 # ENV WORKER_ENABLED=true
 
 # =============================================================================
-# 3D Model Renderer (Three.js)
+# 3D Model Renderer (Open3D)
 # =============================================================================
-# Internal renderer URL - points to the bundled Three.js renderer
+# Internal renderer URL - points to the bundled Open3D renderer
 ENV RENDERER_URL=http://localhost:8080
 ENV RENDERER_PORT=8080
 

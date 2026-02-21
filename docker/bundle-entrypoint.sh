@@ -115,17 +115,20 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# --- Start Three.js 3D Renderer (for GLB extraction) ---
-echo ">>> Starting Three.js 3D Renderer..."
+# --- Start Open3D 3D Renderer (for GLB/GLTF/OBJ/STL extraction) ---
+echo ">>> Starting Open3D 3D Renderer..."
 mkdir -p /var/log/matric
 RENDERER_PORT="${RENDERER_PORT:-8080}"
-cd /app/threejs-renderer
-PORT=$RENDERER_PORT xvfb-run -a --server-args="-screen 0 1024x768x24" node server.js > /var/log/matric/threejs-renderer.log 2>&1 &
+
+# EGL headless rendering needs a runtime dir; NVIDIA EGL needs the platform hint
+export XDG_RUNTIME_DIR=/tmp
+export EGL_PLATFORM=device
+
+PORT=$RENDERER_PORT python3 /app/open3d-renderer/server.py > /var/log/matric/renderer.log 2>&1 &
 RENDERER_PID=$!
-cd /app
 echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
 
-# Wait for renderer to be ready (xvfb + Three.js + headless-gl can take time)
+# Wait for renderer to be ready
 echo "  Waiting for renderer to be ready..."
 RENDERER_READY=false
 for i in {1..15}; do
@@ -137,7 +140,7 @@ for i in {1..15}; do
     # Check renderer process is still alive
     if ! kill -0 $RENDERER_PID 2>/dev/null; then
         echo "  WARNING: Renderer process died during startup"
-        cat /var/log/matric/threejs-renderer.log 2>/dev/null | tail -20 || true
+        cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
         break
     fi
     sleep 1
@@ -145,7 +148,7 @@ done
 
 if [ "$RENDERER_READY" = false ] && kill -0 $RENDERER_PID 2>/dev/null; then
     echo "  WARNING: Renderer health check timed out after 15s (3D model extraction may not work)"
-    cat /var/log/matric/threejs-renderer.log 2>/dev/null | tail -20 || true
+    cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
 fi
 
 /app/matric-api &
@@ -281,7 +284,7 @@ echo "========================================"
 echo "=== Matric Memory Bundle Ready ==="
 echo "  API:      http://0.0.0.0:${PORT:-3000}"
 echo "  MCP:      http://0.0.0.0:${MCP_PORT:-3001}"
-echo "  Renderer: http://localhost:${RENDERER_PORT:-8080} (3D models)"
+echo "  Renderer: http://localhost:${RENDERER_PORT:-8080} (Open3D, 3D models)"
 echo "  MCP Client ID: ${MCP_CLIENT_ID:-NOT SET}"
 echo "========================================"
 

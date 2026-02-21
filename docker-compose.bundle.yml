@@ -218,8 +218,15 @@ services:
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
 
-      # ── 3D Model Renderer (Three.js) ───────────────────────────────────
-      # Internal renderer URL — bundled Three.js renderer on localhost:8080
+      # ── NVIDIA GPU (required for Open3D 3D renderer + optional for other GPU workloads)
+      # 'all' ensures graphics (EGL), compute (CUDA), and utility (nvidia-smi) are available.
+      # For non-GPU deployments: remove the deploy.resources section and set
+      # OPEN3D_CPU_RENDERING=true (3D rendering will use software fallback).
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+
+      # ── 3D Model Renderer (Open3D) ────────────────────────────────────
+      # Internal renderer URL — bundled Open3D renderer on localhost:8080
       - RENDERER_URL=${RENDERER_URL:-http://localhost:8080}
       - RENDERER_PORT=${RENDERER_PORT:-8080}
 
@@ -243,6 +250,7 @@ services:
       # - OPENAI_GEN_MODEL=${OPENAI_GEN_MODEL:-gpt-4o-mini}
       # - OPENAI_EMBED_DIM=${OPENAI_EMBED_DIM:-1536}
       # - OPENAI_TIMEOUT=${OPENAI_TIMEOUT:-30}
+    runtime: nvidia
     volumes:
       # PostgreSQL data persistence
       - matric-pgdata:/var/lib/postgresql/data

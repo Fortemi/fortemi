@@ -5,14 +5,15 @@
 **Deciders:** Architecture team
 **Related:** ADR-031 (Intelligent Attachment Processing), ADR-033 (File Storage Architecture), ADR-048 (Extraction Adapter Pattern), ADR-086 (Extraction Result Propagation), Epic #430, Issue #492
 
-> **Note (2026-02-20):** The Python/trimesh approach described in this ADR was never implemented.
-> The actual implementation uses a **Three.js headless renderer** (`docker/threejs-renderer/`)
-> with the `Glb3DModelAdapter` extraction adapter (ADR-048 pattern). The schema design
+> **Note (2026-02-20):** The Python/trimesh approach and Three.js renderer described in this
+> ADR have been replaced. The current implementation uses an **Open3D headless renderer**
+> (`docker/open3d-renderer/`) with GPU-accelerated EGL rendering, paired with the
+> `Glb3DModelAdapter` extraction adapter (ADR-048 pattern). The schema design
 > (Section 3: `model_3d_metadata` table) was not created; extraction results are stored on
-> the `file_attachment` record instead. The multi-view → vision → synthesis pipeline
-> described in Phase 2 was implemented in `crates/matric-jobs/src/adapters/glb_3d_model.rs`
-> but has bugs documented in Issue #492. See ADR-086 for the extraction result propagation
-> fix that completes the pipeline.
+> the `file_attachment` record (including `ai_description` and `ai_model` columns added by
+> ADR-086). The multi-view → vision → synthesis pipeline is implemented in
+> `crates/matric-jobs/src/adapters/glb_3d_model.rs`. See ADR-086 for the extraction result
+> propagation fix that completes the pipeline.
 
 ## Context
 

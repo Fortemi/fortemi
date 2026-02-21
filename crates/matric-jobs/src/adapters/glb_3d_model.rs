@@ -1,15 +1,15 @@
 //! GLB/3D Model extraction adapter — understands 3D models via multi-view rendering.
 //!
 //! Pipeline:
-//! 1. Send model data to bundled Three.js renderer via multipart POST
+//! 1. Send model data to bundled Open3D renderer via multipart POST
 //! 2. Receive rendered PNG images for each camera angle
 //! 3. Describe each rendered view using VisionBackend
 //! 4. Synthesize a composite description from all views
 //!
 //! Configuration:
-//! - `RENDERER_URL` (default: `http://localhost:8080`) - Three.js renderer endpoint
+//! - `RENDERER_URL` (default: `http://localhost:8080`) - Open3D renderer endpoint
 //!
-//! Requires: Three.js renderer (bundled) + VisionBackend (Ollama with vision-capable model).
+//! Requires: Open3D renderer (bundled) + VisionBackend (Ollama with vision-capable model).
 
 use std::sync::Arc;
 
@@ -29,7 +29,7 @@ const DEFAULT_VIEW_COUNT: u64 = 6;
 /// Maximum number of views to prevent runaway rendering.
 const MAX_VIEW_COUNT: u64 = 15;
 
-/// Default renderer URL (bundled Three.js renderer).
+/// Default renderer URL (bundled Open3D renderer).
 const DEFAULT_RENDERER_URL: &str = "http://localhost:8080";
 
 /// Return the renderer URL.
@@ -77,7 +77,7 @@ impl Glb3DModelAdapter {
         Some(Self::new(Arc::new(backend)))
     }
 
-    /// Render the 3D model using the bundled Three.js renderer.
+    /// Render the 3D model using the bundled Open3D renderer.
     ///
     /// Uses multipart POST to send the model, receives multipart response with PNG images.
     async fn render_via_renderer(
@@ -90,7 +90,7 @@ impl Glb3DModelAdapter {
         let client = reqwest::Client::new();
         let render_url = format!("{}/render", base_url.trim_end_matches('/'));
 
-        debug!(render_url = %render_url, filename, num_views, "Calling Three.js renderer");
+        debug!(render_url = %render_url, filename, num_views, "Calling Open3D renderer");
 
         // Build multipart form with model data
         let model_part = multipart::Part::bytes(data.to_vec())
@@ -274,8 +274,9 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 views_text
             );
 
-            // Use a dummy 1x1 white PNG as the image (the prompt contains the real content)
-            let dummy_png = create_minimal_png();
+            // Use a 64×64 placeholder PNG (the prompt contains the real content).
+            // Must be ≥ 32×32 to satisfy vision model image preprocessors.
+            let dummy_png = create_placeholder_png();
             match self
                 .backend
                 .describe_image(&dummy_png, "image/png", Some(&synthesis_prompt))
@@ -346,75 +347,89 @@ impl ExtractionAdapter for Glb3DModelAdapter {
 }
 
 /// Parse a multipart response body and extract rendered view images.
+///
+/// Works directly on raw bytes to avoid O(n²) UTF-8 conversion overhead.
+/// Each part boundary is located by scanning for `--<boundary>`, then
+/// headers are parsed as ASCII/UTF-8 and Content-Length is used to slice
+/// the exact binary image data from the original body.
 fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedView>> {
-    let boundary_bytes = format!("--{}", boundary);
+    let boundary_marker = format!("--{}", boundary).into_bytes();
+    let header_sep = b"\r\n\r\n";
     let mut views = Vec::new();
 
-    // Split by boundary
-    let body_str = String::from_utf8_lossy(body);
-    let parts: Vec<&str> = body_str.split(&boundary_bytes).collect();
+    // Find each boundary marker in the raw byte stream
+    let mut search_from = 0;
+    let mut part_starts: Vec<usize> = Vec::new();
+    while let Some(pos) = find_bytes(&body[search_from..], &boundary_marker) {
+        part_starts.push(search_from + pos);
+        search_from += pos + boundary_marker.len();
+    }
 
-    for part in parts.iter().skip(1) {
-        // Skip empty parts and final boundary marker
-        if part.trim().is_empty() || part.starts_with("--") {
+    // Each part spans from (boundary_end) to (next_boundary_start)
+    for (i, &start) in part_starts.iter().enumerate() {
+        let part_begin = start + boundary_marker.len();
+
+        // Skip closing `--` marker
+        if body.get(part_begin..part_begin + 2) == Some(b"--") {
             continue;
         }
 
-        // Find headers/body separator
-        let Some(header_end) = part.find("\r\n\r\n") else {
+        // Determine part end (next boundary or end of body)
+        let part_end = part_starts
+            .get(i + 1)
+            .copied()
+            .unwrap_or(body.len());
+
+        let part_data = &body[part_begin..part_end];
+
+        // Find header/body separator (\r\n\r\n)
+        let Some(hdr_end) = find_bytes(part_data, header_sep) else {
             continue;
         };
 
-        let headers = &part[..header_end];
-        let body_start = header_end + 4;
+        // Headers are ASCII-safe, convert to string for easy parsing
+        let headers = String::from_utf8_lossy(&part_data[..hdr_end]);
+        let body_offset = hdr_end + header_sep.len(); // offset within part_data
 
-        // Check if this is an image part
+        // Only process image/png parts
         if !headers.contains("Content-Type: image/png") {
             continue;
         }
 
-        // Parse Content-Disposition for metadata
-        let index = parse_disposition_param(headers, "index")
+        // Parse metadata from Content-Disposition
+        let index = parse_disposition_param(&headers, "index")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(0);
-        let angle_degrees = parse_disposition_param(headers, "angle_degrees")
+        let angle_degrees = parse_disposition_param(&headers, "angle_degrees")
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
         let elevation =
-            parse_disposition_param(headers, "elevation").unwrap_or_else(|| "unknown".to_string());
+            parse_disposition_param(&headers, "elevation").unwrap_or_else(|| "unknown".to_string());
 
-        // Get Content-Length to extract exact image bytes
-        let content_length = headers
+        // Determine image byte length from Content-Length or boundary-to-boundary
+        let content_length: Option<usize> = headers
             .lines()
-            .find(|l| l.to_lowercase().starts_with("content-length:"))
+            .find(|l| l.to_ascii_lowercase().starts_with("content-length:"))
             .and_then(|l| l.split(':').nth(1))
-            .and_then(|s| s.trim().parse::<usize>().ok());
+            .and_then(|s| s.trim().parse().ok());
 
-        // Extract image data
-        let image_bytes = if let Some(len) = content_length {
-            // Use Content-Length to extract exact bytes from original body
-            let part_start = body
-                .windows(part.len())
-                .position(|w| String::from_utf8_lossy(w) == *part);
-
-            if let Some(start) = part_start {
-                let abs_body_start = start + body_start;
-                let abs_body_end = (abs_body_start + len).min(body.len());
-                body[abs_body_start..abs_body_end].to_vec()
-            } else {
-                // Fallback: strip trailing CRLF
-                let body_part = &part[body_start..];
-                body_part.trim_end_matches("\r\n").as_bytes().to_vec()
-            }
+        let img_start = body_offset;
+        let img_end = if let Some(len) = content_length {
+            (img_start + len).min(part_data.len())
         } else {
-            // Fallback: strip trailing CRLF
-            let body_part = &part[body_start..];
-            body_part.trim_end_matches("\r\n").as_bytes().to_vec()
+            // Strip trailing \r\n before boundary
+            let mut end = part_data.len();
+            while end > img_start && (part_data[end - 1] == b'\r' || part_data[end - 1] == b'\n') {
+                end -= 1;
+            }
+            end
         };
+
+        let image_bytes = part_data[img_start..img_end].to_vec();
 
         // Verify PNG magic bytes
         if image_bytes.len() < 8 || image_bytes[0..4] != [0x89, 0x50, 0x4E, 0x47] {
-            warn!(index, "Invalid PNG data in multipart response");
+            warn!(index, len = image_bytes.len(), "Invalid PNG data in multipart response");
             continue;
         }
 
@@ -432,10 +447,18 @@ fn parse_multipart_response(body: &[u8], boundary: &str) -> Result<Vec<RenderedV
         ));
     }
 
-    // Sort by index
     views.sort_by_key(|v| v.index);
-
     Ok(views)
+}
+
+/// Find the first occurrence of `needle` in `haystack` (byte-level search).
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// Parse a parameter from Content-Disposition header.
@@ -455,20 +478,23 @@ fn parse_disposition_param(headers: &str, param: &str) -> Option<String> {
     None
 }
 
-/// Create a minimal valid 1x1 white PNG for use as a dummy image
-/// when the real content is in the prompt text.
-fn create_minimal_png() -> Vec<u8> {
-    // Minimal 1x1 white PNG (67 bytes)
+/// Create a 64×64 gray placeholder PNG for use as a dummy image in the
+/// synthesis step, where the real content lives in the prompt text.
+///
+/// Qwen3-VL (and similar vision models) require images ≥ 32×32 pixels;
+/// a 1×1 image triggers a panic in their image preprocessor.
+fn create_placeholder_png() -> Vec<u8> {
+    // 64×64 RGB gray (#C8C8C8) PNG, 136 bytes
     vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, // 8-bit RGB
-        0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, // IDAT chunk
-        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, // compressed data
-        0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, // checksum
-        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
-        0xAE, 0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x40, 0x08, 0x02, 0x00, 0x00, 0x00, 0x25, 0x0B, 0xE6,
+        0x89, 0x00, 0x00, 0x00, 0x4F, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0xED, 0xCF, 0x41, 0x0D, 0x00,
+        0x00, 0x08, 0x04, 0x20, 0xB5, 0x7F, 0xB0, 0x8B, 0x65, 0x0A, 0x1F, 0x6E, 0xD0, 0x80, 0x4E, 0x52,
+        0x9F, 0x4D, 0x3D, 0x27, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x20, 0x70, 0x6F, 0x01, 0x58, 0xE3, 0x02, 0xD8, 0x44, 0x13, 0xF4, 0x86, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ]
 }
 
@@ -567,12 +593,15 @@ mod tests {
     }
 
     #[test]
-    fn test_create_minimal_png() {
-        let png = create_minimal_png();
+    fn test_create_placeholder_png() {
+        let png = create_placeholder_png();
         // PNG magic bytes
         assert_eq!(&png[0..4], &[0x89, 0x50, 0x4E, 0x47]);
         // IHDR chunk
         assert_eq!(&png[12..16], b"IHDR");
+        // 64×64 dimensions (bytes 16-23 in IHDR)
+        assert_eq!(&png[16..20], &[0x00, 0x00, 0x00, 0x40]); // width = 64
+        assert_eq!(&png[20..24], &[0x00, 0x00, 0x00, 0x40]); // height = 64
         // IEND chunk (last 12 bytes)
         let iend_start = png.len() - 12;
         assert_eq!(&png[iend_start + 4..iend_start + 8], b"IEND");
