@@ -3,11 +3,16 @@
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use matric_core::{AttachmentStatus, ExtractionStrategy, JobType};
+use matric_core::{AttachmentStatus, ExtractionStrategy, JobRepository, JobType};
 use matric_db::{Database, SchemaContext};
+
+/// Minimum note content length (in chars) below which extraction results
+/// replace the note content.  Notes auto-created from attachment uploads
+/// typically have only the filename as content — these should be enriched.
+const MIN_CONTENT_LEN: usize = 50;
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
@@ -173,6 +178,27 @@ impl JobHandler for ExtractionHandler {
                                     );
                                 }
 
+                                // Persist ai_description if present (Issue #492, Bug 1).
+                                // This is the primary useful output for Vision and
+                                // Glb3DModel adapters.
+                                if let Some(ref description) = result.ai_description {
+                                    if let Err(e) = file_storage
+                                        .update_ai_description_tx(
+                                            &mut tx,
+                                            att_id,
+                                            description,
+                                            None, // TODO: pass model name from adapter
+                                        )
+                                        .await
+                                    {
+                                        error!(
+                                            attachment_id = %att_id,
+                                            error = %e,
+                                            "Failed to persist ai_description"
+                                        );
+                                    }
+                                }
+
                                 if let Err(e) = file_storage
                                     .update_status_tx(
                                         &mut tx,
@@ -208,7 +234,114 @@ impl JobHandler for ExtractionHandler {
                     }
                 }
 
-                ctx.report_progress(90, Some("Results persisted"));
+                ctx.report_progress(85, Some("Results persisted"));
+
+                // --- Bug 1b (Issue #492): propagate extraction content to note
+                // and re-queue downstream NLP jobs so they operate on real text
+                // instead of a bare filename stub. ---
+                let effective_content = result
+                    .ai_description
+                    .as_deref()
+                    .or(result.extracted_text.as_deref());
+
+                if let (Some(content), Some(note_id)) = (effective_content, ctx.note_id()) {
+                    // Update note content if it is currently minimal (< MIN_CONTENT_LEN).
+                    match schema_ctx.begin_tx().await {
+                        Ok(mut tx) => {
+                            let should_update = match self.db.notes.fetch_tx(&mut tx, note_id).await
+                            {
+                                Ok(note) => note.original.content.len() < MIN_CONTENT_LEN,
+                                Err(e) => {
+                                    warn!(
+                                        note_id = %note_id,
+                                        error = %e,
+                                        "Could not fetch note for content propagation"
+                                    );
+                                    false
+                                }
+                            };
+
+                            if should_update {
+                                if let Err(e) = self
+                                    .db
+                                    .notes
+                                    .update_original_tx(&mut tx, note_id, content)
+                                    .await
+                                {
+                                    error!(
+                                        note_id = %note_id,
+                                        error = %e,
+                                        "Failed to propagate extraction content to note"
+                                    );
+                                }
+                            }
+
+                            if let Err(e) = tx.commit().await {
+                                error!(
+                                    note_id = %note_id,
+                                    error = %e,
+                                    "Failed to commit note content propagation"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                note_id = %note_id,
+                                error = %e,
+                                "Failed to begin tx for note content propagation"
+                            );
+                        }
+                    }
+
+                    // Re-queue downstream NLP jobs so they run against the
+                    // newly-populated note content instead of the original stub.
+                    let downstream_types = [
+                        JobType::Embedding,
+                        JobType::Linking,
+                        JobType::ConceptTagging,
+                        JobType::TitleGeneration,
+                    ];
+
+                    let mut schema_payload = serde_json::Map::new();
+                    if schema != "public" {
+                        schema_payload.insert("schema".to_string(), json!(&schema));
+                    }
+                    let job_payload = if schema_payload.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::Value::Object(schema_payload))
+                    };
+
+                    for job_type in &downstream_types {
+                        if let Err(e) = self
+                            .db
+                            .jobs
+                            .queue_deduplicated(
+                                Some(note_id),
+                                *job_type,
+                                job_type.default_priority(),
+                                job_payload.clone(),
+                                job_type.default_cost_tier(),
+                            )
+                            .await
+                        {
+                            error!(
+                                note_id = %note_id,
+                                job_type = ?job_type,
+                                error = %e,
+                                "Failed to re-queue downstream job after extraction"
+                            );
+                        }
+                    }
+
+                    info!(
+                        note_id = %note_id,
+                        content_len = content.len(),
+                        "Propagated extraction content and re-queued downstream jobs"
+                    );
+                }
+
+                ctx.report_progress(95, Some("Downstream jobs queued"));
 
                 let result_json = json!({
                     "strategy": strategy.to_string(),

@@ -1498,6 +1498,10 @@ pub struct Attachment {
     pub extraction_strategy: Option<ExtractionStrategy>,
     pub extracted_text: Option<String>,
     pub extracted_metadata: Option<JsonValue>,
+    /// AI-generated description from extraction adapters (Vision, Glb3DModel, etc.)
+    pub ai_description: Option<String>,
+    /// Model used to generate the AI description
+    pub ai_model: Option<String>,
     pub has_preview: bool,
     pub is_canonical_content: bool,
     pub detected_document_type_id: Option<Uuid>,
@@ -1972,9 +1976,6 @@ pub enum JobType {
     ExifExtraction,
     /// Extract content from file attachment
     Extraction,
-    /// Analyze 3D models (geometry, materials, etc.)
-    #[serde(rename = "3d_analysis")]
-    ThreeDAnalysis,
     /// Classify attachment into a semantic document type using AI
     DocumentTypeInference,
     /// Extract rich metadata from note content using AI analysis
@@ -2020,8 +2021,6 @@ impl JobType {
             JobType::ExifExtraction => 5,
             // Extraction is high priority since it gates downstream work
             JobType::Extraction => 7,
-            // 3D analysis - slightly lower priority background task
-            JobType::ThreeDAnalysis => 4,
             // Document type inference - low priority, runs after content extraction
             JobType::DocumentTypeInference => 2,
             // Metadata extraction - runs in Phase 1 alongside tagging

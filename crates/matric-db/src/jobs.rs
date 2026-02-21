@@ -112,7 +112,6 @@ impl PgJobRepository {
             JobType::GenerateCoarseEmbedding => "generate_coarse_embedding",
             JobType::ExifExtraction => "exif_extraction",
             JobType::Extraction => "extraction",
-            JobType::ThreeDAnalysis => "3d_analysis",
             JobType::DocumentTypeInference => "document_type_inference",
             JobType::MetadataExtraction => "metadata_extraction",
             JobType::RelatedConceptInference => "related_concept_inference",
@@ -142,7 +141,6 @@ impl PgJobRepository {
             "generate_coarse_embedding" => JobType::GenerateCoarseEmbedding,
             "exif_extraction" => JobType::ExifExtraction,
             "extraction" => JobType::Extraction,
-            "3d_analysis" => JobType::ThreeDAnalysis,
             "document_type_inference" => JobType::DocumentTypeInference,
             "metadata_extraction" => JobType::MetadataExtraction,
             "related_concept_inference" => JobType::RelatedConceptInference,
@@ -827,10 +825,6 @@ mod tests {
             "exif_extraction"
         );
         assert_eq!(
-            PgJobRepository::job_type_to_str(JobType::ThreeDAnalysis),
-            "3d_analysis"
-        );
-        assert_eq!(
             PgJobRepository::job_type_to_str(JobType::Extraction),
             "extraction"
         );
@@ -898,10 +892,6 @@ mod tests {
         assert_eq!(
             PgJobRepository::str_to_job_type("exif_extraction"),
             JobType::ExifExtraction
-        );
-        assert_eq!(
-            PgJobRepository::str_to_job_type("3d_analysis"),
-            JobType::ThreeDAnalysis
         );
         assert_eq!(
             PgJobRepository::str_to_job_type("extraction"),
@@ -1042,7 +1032,6 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
             JobType::Extraction,
-            JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
             JobType::ReferenceExtraction,
         ];
@@ -1089,7 +1078,6 @@ mod tests {
             JobType::ReEmbedAll,
             JobType::ExifExtraction,
             JobType::Extraction,
-            JobType::ThreeDAnalysis,
             JobType::DocumentTypeInference,
             JobType::ReferenceExtraction,
         ];

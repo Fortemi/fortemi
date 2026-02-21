@@ -71,7 +71,7 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-031](ADR-031-intelligent-attachment-processing.md) | Intelligent Attachment Processing | Accepted | 2026-02-02 |
 | [ADR-032](ADR-032-temporal-spatial-provenance.md) | Temporal and Spatial Provenance | Accepted | 2026-02-02 |
 | [ADR-033](ADR-033-file-storage-architecture.md) | File Storage Architecture | Accepted | 2026-02-02 |
-| [ADR-034](ADR-034-3d-file-analysis-support.md) | 3D File Analysis Support | Accepted | 2026-02-02 |
+| [ADR-034](ADR-034-3d-file-analysis-support.md) | 3D File Analysis Support | Partially Superseded | 2026-02-02 |
 | [ADR-035](ADR-035-structured-media-formats.md) | Structured Media Formats | Accepted | 2026-02-02 |
 | [ADR-036](ADR-036-file-safety-validation.md) | File Safety Validation | Accepted | 2026-02-02 |
 
@@ -81,13 +81,14 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 |-----|-------|--------|------|
 | [ADR-037](ADR-037-unified-event-bus.md) | Unified Event Bus | Accepted | 2026-02-03 |
 
-### Extraction & Processing (ADR-048 to ADR-050)
+### Extraction & Processing (ADR-048 to ADR-050, ADR-086)
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [ADR-048](ADR-048-extraction-adapter-pattern.md) | Extraction Adapter Pattern | Accepted | 2026-02-05 |
 | [ADR-049](ADR-049-file-type-doctype-separation.md) | File Type / DocType Separation | Accepted | 2026-02-05 |
 | [ADR-050](ADR-050-pke-http-api.md) | PKE HTTP API | Accepted | 2026-02-05 |
+| [ADR-086](ADR-086-extraction-result-propagation.md) | Extraction Result Propagation | Accepted | 2026-02-20 |
 
 ### Multi-Memory Architecture (ADR-068)
 
@@ -179,9 +180,10 @@ Core Architecture (011-016)
 Inference Backend (001-005, 072)
 └── Encryption (006-010, 050) - secure data handling
 
-File Handling (031-036, 048-049)
+File Handling (031-036, 048-049, 086)
 ├── Builds on 025 (Document Type Registry)
-└── Builds on 032 (Provenance)
+├── Builds on 032 (Provenance)
+└── 086 - Extraction result propagation (fixes 034 gaps)
 
 Events & Real-Time (037)
 

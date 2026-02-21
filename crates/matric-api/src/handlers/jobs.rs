@@ -4961,67 +4961,6 @@ impl JobHandler for ExifExtractionHandler {
     }
 }
 
-/// Handler for 3D file analysis jobs.
-///
-/// Note: This is a placeholder handler that will be fully implemented
-/// once the file attachment infrastructure (#430) and Python/trimesh
-/// integration are in place.
-#[allow(dead_code)]
-pub struct ThreeDAnalysisHandler {
-    db: Database,
-}
-
-impl ThreeDAnalysisHandler {
-    #[allow(dead_code)]
-    pub fn new(db: Database) -> Self {
-        Self { db }
-    }
-}
-
-#[async_trait]
-impl JobHandler for ThreeDAnalysisHandler {
-    fn job_type(&self) -> JobType {
-        JobType::ThreeDAnalysis
-    }
-
-    #[instrument(
-        skip(self, ctx),
-        fields(subsystem = "jobs", component = "3d_analysis", op = "execute")
-    )]
-    async fn execute(&self, ctx: JobContext) -> JobResult {
-        let start = Instant::now();
-        let note_id = match ctx.note_id() {
-            Some(id) => id,
-            None => return JobResult::Failed("No note_id provided".into()),
-        };
-
-        let schema = extract_schema(&ctx);
-        let _schema_ctx = match schema_context(&self.db, schema) {
-            Ok(ctx) => ctx,
-            Err(e) => return e,
-        };
-
-        ctx.report_progress(10, Some("Fetching 3D model information..."));
-
-        // Placeholder handler for 3D analysis
-        // This will be implemented with Python-based processing using trimesh
-        // once the file attachment infrastructure is in place
-
-        info!(
-            note_id = %note_id,
-            duration_ms = start.elapsed().as_millis() as u64,
-            "3D analysis placeholder executed"
-        );
-
-        ctx.report_progress(100, Some("3D analysis placeholder complete"));
-
-        JobResult::Success(Some(serde_json::json!({
-            "status": "placeholder",
-            "message": "3D analysis not yet implemented - requires Python trimesh integration and file attachment infrastructure"
-        })))
-    }
-}
-
 // =============================================================================
 // GRAPH MAINTENANCE HANDLER (#482)
 // =============================================================================

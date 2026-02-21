@@ -1000,6 +1000,7 @@ async fn main() -> anyhow::Result<()> {
 
         // GLB 3D model requires Three.js renderer + vision backend.
         // Bundled in Docker bundle at http://localhost:8080, or set RENDERER_URL for external.
+        // Only register when the renderer is actually available (Issue #492 Bug 2).
         if let Some(ref backend) = vision_backend {
             let adapter = Glb3DModelAdapter::new(Arc::clone(backend));
             let renderer_available = adapter.health_check().await.unwrap_or(false);
@@ -1011,15 +1012,14 @@ async fn main() -> anyhow::Result<()> {
                     backend.model_name(),
                     renderer_url
                 );
+                extraction_registry.register(Arc::new(adapter));
             } else {
                 warn!(
-                    "Extraction adapter registered: Glb3DModel (model: {}, renderer: NOT AVAILABLE at {} — \
-                     ensure Three.js renderer is running)",
-                    backend.model_name(),
+                    "Glb3DModel adapter NOT registered — renderer unavailable at {} \
+                     (ensure Three.js renderer is running to enable 3D model extraction)",
                     renderer_url,
                 );
             }
-            extraction_registry.register(Arc::new(adapter));
         }
 
         // Conditional: OCR requires OCR_ENABLED=true

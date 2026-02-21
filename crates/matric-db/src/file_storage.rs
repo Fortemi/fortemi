@@ -299,6 +299,7 @@ impl PgFileStorageRepository {
                RETURNING id, note_id, blob_id, filename, original_filename,
                          document_type_id, status::TEXT, extraction_strategy::TEXT,
                          extracted_text, extracted_metadata,
+                         ai_description, ai_model,
                          has_preview, is_canonical_content,
                          detected_document_type_id, detection_confidence, detection_method,
                          created_at, updated_at"#,
@@ -451,6 +452,7 @@ impl PgFileStorageRepository {
             r#"SELECT id, note_id, blob_id, filename, original_filename,
                       document_type_id, status::TEXT, extraction_strategy::TEXT,
                       extracted_text, extracted_metadata,
+                      ai_description, ai_model,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
                       created_at, updated_at
@@ -833,6 +835,7 @@ impl PgFileStorageRepository {
                RETURNING id, note_id, blob_id, filename, original_filename,
                          document_type_id, status::TEXT, extraction_strategy::TEXT,
                          extracted_text, extracted_metadata,
+                         ai_description, ai_model,
                          has_preview, is_canonical_content,
                          detected_document_type_id, detection_confidence, detection_method,
                          created_at, updated_at"#,
@@ -857,6 +860,7 @@ impl PgFileStorageRepository {
             r#"SELECT id, note_id, blob_id, filename, original_filename,
                       document_type_id, status::TEXT, extraction_strategy::TEXT,
                       extracted_text, extracted_metadata,
+                      ai_description, ai_model,
                       has_preview, is_canonical_content,
                       detected_document_type_id, detection_confidence, detection_method,
                       created_at, updated_at
@@ -1028,6 +1032,31 @@ impl PgFileStorageRepository {
         Ok(())
     }
 
+    /// Store AI-generated description on attachment (Issue #492).
+    ///
+    /// Used by ExtractionHandler to persist `ExtractionResult.ai_description`
+    /// from adapters like Vision and Glb3DModel.
+    pub async fn update_ai_description_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        ai_description: &str,
+        ai_model: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET ai_description = $2, ai_model = $3, updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(ai_description)
+        .bind(ai_model)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
     /// Transaction-aware variant of set_detected_document_type.
     pub async fn set_detected_document_type_tx(
         &self,
@@ -1122,6 +1151,7 @@ fn parse_extraction_strategy(s: Option<&str>) -> Option<ExtractionStrategy> {
         "code_ast" => Some(ExtractionStrategy::CodeAst),
         "office_convert" => Some(ExtractionStrategy::OfficeConvert),
         "structured_extract" => Some(ExtractionStrategy::StructuredExtract),
+        "glb_3d_model" => Some(ExtractionStrategy::Glb3DModel),
         _ => None,
     })
 }
@@ -1153,6 +1183,8 @@ fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment> {
         extraction_strategy: parse_extraction_strategy(row.get("extraction_strategy")),
         extracted_text: row.get("extracted_text"),
         extracted_metadata: row.get("extracted_metadata"),
+        ai_description: row.get("ai_description"),
+        ai_model: row.get("ai_model"),
         has_preview: row.get("has_preview"),
         is_canonical_content: row.get("is_canonical_content"),
         detected_document_type_id: row.get("detected_document_type_id"),
