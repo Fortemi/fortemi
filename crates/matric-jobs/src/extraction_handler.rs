@@ -246,6 +246,10 @@ impl JobHandler for ExtractionHandler {
 
                 if let (Some(content), Some(note_id)) = (effective_content, ctx.note_id()) {
                     // Update note content if it is currently minimal (< MIN_CONTENT_LEN).
+                    // Track whether we actually updated so we only re-queue downstream
+                    // jobs when note content changed (avoids wasted reprocessing).
+                    let mut content_updated = false;
+
                     match schema_ctx.begin_tx().await {
                         Ok(mut tx) => {
                             let should_update = match self.db.notes.fetch_tx(&mut tx, note_id).await
@@ -262,17 +266,20 @@ impl JobHandler for ExtractionHandler {
                             };
 
                             if should_update {
-                                if let Err(e) = self
+                                match self
                                     .db
                                     .notes
                                     .update_original_tx(&mut tx, note_id, content)
                                     .await
                                 {
-                                    error!(
-                                        note_id = %note_id,
-                                        error = %e,
-                                        "Failed to propagate extraction content to note"
-                                    );
+                                    Ok(()) => content_updated = true,
+                                    Err(e) => {
+                                        error!(
+                                            note_id = %note_id,
+                                            error = %e,
+                                            "Failed to propagate extraction content to note"
+                                        );
+                                    }
                                 }
                             }
 
@@ -282,6 +289,7 @@ impl JobHandler for ExtractionHandler {
                                     error = %e,
                                     "Failed to commit note content propagation"
                                 );
+                                content_updated = false;
                             }
                         }
                         Err(e) => {
@@ -293,52 +301,54 @@ impl JobHandler for ExtractionHandler {
                         }
                     }
 
-                    // Re-queue downstream NLP jobs so they run against the
-                    // newly-populated note content instead of the original stub.
-                    let downstream_types = [
-                        JobType::Embedding,
-                        JobType::Linking,
-                        JobType::ConceptTagging,
-                        JobType::TitleGeneration,
-                    ];
+                    // Re-queue downstream NLP jobs only when note content was
+                    // actually updated — otherwise they'd reprocess identical text.
+                    if content_updated {
+                        let downstream_types = [
+                            JobType::Embedding,
+                            JobType::Linking,
+                            JobType::ConceptTagging,
+                            JobType::TitleGeneration,
+                        ];
 
-                    let mut schema_payload = serde_json::Map::new();
-                    if schema != "public" {
-                        schema_payload.insert("schema".to_string(), json!(&schema));
-                    }
-                    let job_payload = if schema_payload.is_empty() {
-                        None
-                    } else {
-                        Some(serde_json::Value::Object(schema_payload))
-                    };
-
-                    for job_type in &downstream_types {
-                        if let Err(e) = self
-                            .db
-                            .jobs
-                            .queue_deduplicated(
-                                Some(note_id),
-                                *job_type,
-                                job_type.default_priority(),
-                                job_payload.clone(),
-                                job_type.default_cost_tier(),
-                            )
-                            .await
-                        {
-                            error!(
-                                note_id = %note_id,
-                                job_type = ?job_type,
-                                error = %e,
-                                "Failed to re-queue downstream job after extraction"
-                            );
+                        let mut schema_payload = serde_json::Map::new();
+                        if schema != "public" {
+                            schema_payload.insert("schema".to_string(), json!(&schema));
                         }
-                    }
+                        let job_payload = if schema_payload.is_empty() {
+                            None
+                        } else {
+                            Some(serde_json::Value::Object(schema_payload))
+                        };
 
-                    info!(
-                        note_id = %note_id,
-                        content_len = content.len(),
-                        "Propagated extraction content and re-queued downstream jobs"
-                    );
+                        for job_type in &downstream_types {
+                            if let Err(e) = self
+                                .db
+                                .jobs
+                                .queue_deduplicated(
+                                    Some(note_id),
+                                    *job_type,
+                                    job_type.default_priority(),
+                                    job_payload.clone(),
+                                    job_type.default_cost_tier(),
+                                )
+                                .await
+                            {
+                                error!(
+                                    note_id = %note_id,
+                                    job_type = ?job_type,
+                                    error = %e,
+                                    "Failed to re-queue downstream job after extraction"
+                                );
+                            }
+                        }
+
+                        info!(
+                            note_id = %note_id,
+                            content_len = content.len(),
+                            "Propagated extraction content and re-queued downstream jobs"
+                        );
+                    }
                 }
 
                 ctx.report_progress(95, Some("Downstream jobs queued"));
