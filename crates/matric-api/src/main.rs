@@ -1770,7 +1770,20 @@ async fn main() -> anyhow::Result<()> {
                     Method::DELETE,
                     Method::OPTIONS,
                 ])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    header::ACCEPT,
+                    header::RANGE,
+                    "X-Fortemi-Memory".parse().unwrap(),
+                ])
+                .expose_headers([
+                    header::ACCEPT_RANGES,
+                    header::CONTENT_RANGE,
+                    header::CONTENT_LENGTH,
+                    header::CONTENT_DISPOSITION,
+                    header::ETAG,
+                ])
                 .allow_credentials(true)
                 .max_age(std::time::Duration::from_secs(
                     matric_core::defaults::CORS_MAX_AGE_SECS,
@@ -12826,10 +12839,24 @@ async fn download_attachment(
     let ct_header: HeaderValue = content_type
         .parse()
         .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    let cd_header: HeaderValue =
-        format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""))
-            .parse()
-            .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+    // Use "inline" for media types so browsers can play/display them directly;
+    // fall back to "attachment" for everything else to trigger download.
+    let disposition = if content_type.starts_with("video/")
+        || content_type.starts_with("audio/")
+        || content_type.starts_with("image/")
+        || content_type == "application/pdf"
+    {
+        "inline"
+    } else {
+        "attachment"
+    };
+    let cd_header: HeaderValue = format!(
+        "{}; filename=\"{}\"",
+        disposition,
+        filename.replace('"', "\\\"")
+    )
+    .parse()
+    .unwrap_or_else(|_| HeaderValue::from_static(disposition));
 
     // Parse Range header if present
     if let Some(range_val) = req_headers.get(header::RANGE) {
