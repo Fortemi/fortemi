@@ -487,6 +487,22 @@ impl JobNotifier for NoOpNotifier {
 // EXTRACTION ADAPTER TRAITS
 // =============================================================================
 
+/// A file extracted from within a parent attachment (e.g., email attachment, archive entry).
+///
+/// Used by adapters that decompose compound files into child attachments.
+/// The extraction handler creates derived attachments for each entry.
+#[derive(Debug, Clone)]
+pub struct DerivedFile {
+    /// Filename for the extracted file.
+    pub filename: String,
+    /// MIME type of the extracted file.
+    pub content_type: String,
+    /// Raw binary content.
+    pub data: Vec<u8>,
+    /// Relationship to parent (e.g., "email_attachment", "archive_entry").
+    pub derivation_type: String,
+}
+
 /// Result of content extraction from a file attachment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExtractionResult {
@@ -499,6 +515,10 @@ pub struct ExtractionResult {
     /// Preview data (e.g., thumbnail bytes). Skipped in serialization.
     #[serde(skip)]
     pub preview_data: Option<Vec<u8>>,
+    /// Files extracted from within this attachment (e.g., email attachments, archive entries).
+    /// Each entry becomes a derived attachment linked to the parent.
+    #[serde(skip)]
+    pub derived_files: Vec<DerivedFile>,
 }
 
 /// Progress callback for extraction adapters.

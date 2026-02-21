@@ -327,9 +327,10 @@ use matric_inference::{
     PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
-    AudioTranscribeAdapter, CodeAstAdapter, ExtractionHandler, ExtractionRegistry,
-    Glb3DModelAdapter, JobWorker, PauseState, PdfTextAdapter, SpeakerDiarizationHandler,
-    SpeakerRelabelHandler, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
+    ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, EmailAdapter, ExtractionHandler,
+    ExtractionRegistry, Glb3DModelAdapter, JobWorker, OfficeConvertAdapter, PauseState,
+    PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
+    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
     VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
@@ -1051,16 +1052,31 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // Conditional: OCR requires OCR_ENABLED=true
-        let ocr_enabled = std::env::var("OCR_ENABLED")
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(false);
-        if ocr_enabled {
-            info!("PdfOcrAdapter enabled via OCR_ENABLED=true");
-            // Note: PdfOcrAdapter registration would go here when implemented
+        // Conditional: OfficeConvert requires `pandoc` binary in PATH
+        if OfficeConvertAdapter.health_check().await.unwrap_or(false) {
+            extraction_registry.register(Arc::new(OfficeConvertAdapter));
+            info!("Extraction adapter registered: OfficeConvert (pandoc found)");
         } else {
-            info!("PdfOcrAdapter disabled: OCR_ENABLED not set or false");
+            warn!("OfficeConvertAdapter disabled: pandoc not found in PATH");
         }
+
+        // Conditional: PdfOcr requires `pdftoppm` (poppler-utils) + `tesseract` in PATH
+        if PdfOcrAdapter.health_check().await.unwrap_or(false) {
+            extraction_registry.register(Arc::new(PdfOcrAdapter));
+            info!("Extraction adapter registered: PdfOcr (pdftoppm + tesseract found)");
+        } else {
+            info!("PdfOcrAdapter disabled: pdftoppm and/or tesseract not found in PATH");
+        }
+
+        // Pure-Rust adapters: always available (no external binary dependencies)
+        extraction_registry.register(Arc::new(EmailAdapter));
+        info!("Extraction adapter registered: Email (mailparse)");
+
+        extraction_registry.register(Arc::new(SpreadsheetAdapter));
+        info!("Extraction adapter registered: Spreadsheet (calamine)");
+
+        extraction_registry.register(Arc::new(ArchiveAdapter));
+        info!("Extraction adapter registered: Archive (zip/tar/flate2)");
 
         active_extraction_strategies = extraction_registry
             .available_strategies()

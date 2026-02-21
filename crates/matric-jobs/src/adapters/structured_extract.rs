@@ -120,6 +120,7 @@ impl ExtractionAdapter for StructuredExtractAdapter {
             }),
             ai_description: None,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

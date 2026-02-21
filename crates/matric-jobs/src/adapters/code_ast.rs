@@ -336,6 +336,7 @@ impl ExtractionAdapter for CodeAstAdapter {
             metadata,
             ai_description: None,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

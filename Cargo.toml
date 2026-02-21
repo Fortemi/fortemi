@@ -61,9 +61,17 @@ similar = "2"
 regex = "1"
 rand = "0.8"
 base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 infer = "0.16"
 dotenvy = "0.15"
 blake3 = "1.5"
+
+# Extraction adapters
+mailparse = "0.16"
+calamine = "0.26"
+zip = "2"
+tar = "0.4"
+flate2 = "1"
 
 # JSON Schema generation (for AsyncAPI)
 schemars = { version = "0.8", features = ["chrono", "uuid1"] }

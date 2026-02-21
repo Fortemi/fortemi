@@ -156,6 +156,7 @@ impl ExtractionAdapter for PdfOcrAdapter {
                 }),
                 ai_description: None,
                 preview_data: None,
+                derived_files: vec![],
             });
         }
 
@@ -209,6 +210,7 @@ impl ExtractionAdapter for PdfOcrAdapter {
             }),
             ai_description: None,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

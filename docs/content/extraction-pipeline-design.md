@@ -2,8 +2,28 @@
 
 Technical architecture for the complete content extraction pipeline covering all 10 `ExtractionStrategy` variants, multi-modal processing, AI summarization, and job orchestration.
 
-**Status:** Design document (not yet implemented for 4 of 10 strategies)
-**Last updated:** 2026-02-10
+**Status:** All 10 extraction strategies implemented and registered
+**Last updated:** 2026-02-21
+
+### Adapter Registration Status
+
+| # | Adapter | Strategy | External Deps | Registered | Condition |
+|---|---------|----------|---------------|------------|-----------|
+| 1 | TextNativeAdapter | `text_native` | None | Always | No deps |
+| 2 | StructuredExtractAdapter | `structured_extract` | None | Always | No deps |
+| 3 | CodeAstAdapter | `code_ast` | None (tree-sitter compiled in) | Always | No deps |
+| 4 | PdfTextAdapter | `pdf_text` | `pdftotext` (poppler-utils) | Conditional | health_check |
+| 5 | PdfOcrAdapter | `pdf_ocr` | `tesseract` + `pdftoppm` | Conditional | health_check |
+| 6 | OfficeConvertAdapter | `office_convert` | `pandoc` | Conditional | health_check |
+| 7 | VisionAdapter | `vision` | Ollama vision model | Conditional | OLLAMA_VISION_MODEL set |
+| 8 | AudioTranscribeAdapter | `audio_transcribe` | Whisper backend | Conditional | WHISPER_BASE_URL set |
+| 9 | VideoMultimodalAdapter | `video_multimodal` | ffmpeg + vision/transcription | Conditional | health_check + backends |
+| 10 | Glb3DModelAdapter | `glb_3d_model` | Three.js renderer + vision | Conditional | renderer health_check |
+
+**Additional pipeline handlers** (not extraction adapters, but part of the processing pipeline):
+- `SpeakerDiarizationHandler` — pyannote sidecar for speaker diarization (#497)
+- `SpeakerRelabelHandler` — post-diarization label refinement
+- `ContentSummarizer` — AI summarization for large extracted content
 
 ---
 
@@ -204,7 +224,7 @@ The existing embedding pipeline (`JobType::Embedding`) generates vectors via `ma
 
 ---
 
-### 4. PdfOcrAdapter (NOT IMPLEMENTED)
+### 4. PdfOcrAdapter
 
 **Strategy:** `ExtractionStrategy::PdfOcr`
 **File:** `crates/matric-jobs/src/adapters/pdf_ocr.rs`
@@ -464,7 +484,7 @@ This is the most complex adapter. See [Multi-Modal Processing](#multi-modal-proc
 
 ---
 
-### 8. CodeAstAdapter (NOT IMPLEMENTED)
+### 8. CodeAstAdapter
 
 **Strategy:** `ExtractionStrategy::CodeAst`
 **File:** `crates/matric-jobs/src/adapters/code_ast.rs`
@@ -562,7 +582,7 @@ For unsupported languages, fall back to `TextNativeAdapter` behavior (raw text +
 
 ---
 
-### 9. OfficeConvertAdapter (NOT IMPLEMENTED)
+### 9. OfficeConvertAdapter
 
 **Strategy:** `ExtractionStrategy::OfficeConvert`
 **File:** `crates/matric-jobs/src/adapters/office_convert.rs`
@@ -1091,7 +1111,7 @@ debug!(stage = "vision_analysis", progress = 85, "Analyzed 12/12 keyframes");
 debug!(stage = "fusion", progress = 95, "Fusing multi-modal content");
 ```
 
-**Future enhancement:** Add an optional progress callback to `ExtractionAdapter::extract()` to enable fine-grained progress updates for long-running adapters. This would be a non-breaking change (add a default no-op implementation).
+**Implemented:** The `ExtractionAdapter` trait now provides `extract_with_progress()` with a `ProgressFn` callback for fine-grained progress updates during long-running extraction. The default implementation delegates to `extract()` (no-op progress). Adapters that support progress (e.g., video) override this method. The extraction handler maps adapter-local progress (0-100%) to the job-level 20-80% range.
 
 ### Dependency Chain: Extract -> Summarize -> Chunk -> Embed
 
@@ -1462,21 +1482,19 @@ Map these to `JobResult::Retry` (for transient) or `JobResult::Failed` (for perm
 
 Adds adapters that rely on compiled-in Rust crates or tools already in the Docker image.
 
-- [ ] `CodeAstAdapter` -- tree-sitter integration (crate already in workspace)
+- [x] `CodeAstAdapter` -- tree-sitter integration (crate already in workspace)
   - Reuse `SyntacticChunker` from `matric-db`
   - Structured output with function/class boundaries
   - Fallback to TextNative for unsupported languages
-- [ ] `PdfOcrAdapter` -- tesseract OCR
-  - Add `tesseract-ocr` to Dockerfile.bundle
+- [x] `PdfOcrAdapter` -- tesseract OCR (registered, requires tesseract + pdftoppm in PATH)
   - Page-by-page rendering via `pdftoppm`
   - Configurable language and DPI
-- [ ] `OfficeConvertAdapter` -- pandoc conversion
-  - Add `pandoc` to Dockerfile.bundle
+- [x] `OfficeConvertAdapter` -- pandoc conversion (registered, requires pandoc in PATH)
   - Support docx, pptx, rtf, odt, LaTeX
-  - Email parsing for .eml/.mbox
-- [ ] Add `JobType::Extraction` to enum (migration)
-- [ ] Wire extraction job into the worker dispatch loop
-- [ ] Health check endpoint integration
+  - Email parsing for .eml/.mbox (see #510 for dedicated EmailAdapter)
+- [x] Add `JobType::Extraction` to enum (migration)
+- [x] Wire extraction job into the worker dispatch loop
+- [x] Health check endpoint integration
 
 ### Phase 3: AI-Powered Adapters (Requires Inference Backend)
 
@@ -1486,19 +1504,21 @@ Adds adapters that require LLM inference (vision, transcription).
 
 - [x] `VisionBackend` trait in `matric-inference` (implemented in `vision.rs`)
 - [x] Ollama vision implementation (qwen3-vl, LLaVA support via `OllamaVisionBackend`)
-- [ ] `VisionAdapter` as `ExtractionAdapter` -- full pipeline integration + EXIF
-  - Add `exiftool` to Dockerfile.bundle
-  - Image resize before model call
-  - EXIF metadata extraction
-- [ ] `TranscriptionBackend` trait in `matric-inference`
-- [ ] Whisper integration (CLI + API backends)
-- [ ] `AudioTranscribeAdapter` -- whisper transcription
-  - Add `ffmpeg` to Dockerfile.bundle
+- [x] `VisionAdapter` as `ExtractionAdapter` -- full pipeline integration + EXIF
+  - EXIF metadata extraction via `kamadak-exif`
+  - Image resize before model call (>4MP downscaled via `image` crate, #514)
+- [x] `TranscriptionBackend` trait in `matric-inference`
+- [x] Whisper integration (API backend via `WhisperBackend`)
+- [x] `AudioTranscribeAdapter` -- whisper transcription
   - Audio segmentation for long files
   - Timestamp-aligned output
-- [ ] `ContentSummarizer` for large extracted content
+- [x] `ContentSummarizer` for large extracted content
   - Map-reduce summarization
   - Token-based thresholds
+- [x] Speaker diarization pipeline (#497)
+  - `SpeakerDiarizationHandler` via pyannote sidecar
+  - `SpeakerRelabelHandler` for post-diarization label refinement
+  - Pyannote Docker sidecar (`build/pyannote/`) with GPU/CPU profiles
 
 ### Phase 4: Video Multi-Modal (Complex Orchestration)
 
@@ -1506,21 +1526,21 @@ Adds adapters that require LLM inference (vision, transcription).
 
 Builds on Phase 3 (requires both Vision and Audio adapters).
 
-- [ ] `VideoMultimodalAdapter`
+- [x] `VideoMultimodalAdapter`
   - Audio track extraction via ffmpeg
   - Keyframe extraction (scene-change + fixed-interval)
   - Parallel audio transcription + frame analysis
   - Temporal fusion engine
-- [ ] `fuse_temporal_events()` fusion function
-- [ ] Extended timeouts for long videos
-- [ ] Progress logging for multi-stage processing
+- [x] `fuse_temporal_events()` fusion function
+- [x] Extended timeouts for long videos
+- [x] Progress logging for multi-stage processing (SSE events per extraction stage)
 
 ### Phase 5: Polish and Optimization
 
 **Estimated effort: 1--2 weeks**
 
-- [ ] Extended `ExtractionResult` with `was_summarized`, `sub_results`
-- [ ] Extraction progress callback on `ExtractionAdapter` trait
+- [x] Extended `ExtractionResult` with `derived_files: Vec<DerivedFile>` for child attachment extraction
+- [x] Extraction progress callback on `ExtractionAdapter` trait (`extract_with_progress()`)
 - [ ] Extraction analytics dashboard (success rates, avg duration per adapter)
 - [ ] Retry logic tuning (which errors are transient vs permanent)
 - [ ] Performance benchmarking: extraction throughput per adapter

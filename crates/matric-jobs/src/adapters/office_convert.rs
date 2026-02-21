@@ -110,6 +110,7 @@ impl ExtractionAdapter for OfficeConvertAdapter {
                     }),
                     ai_description: None,
                     preview_data: None,
+                    derived_files: vec![],
                 });
             }
         };
@@ -159,6 +160,7 @@ impl ExtractionAdapter for OfficeConvertAdapter {
             }),
             ai_description: None,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

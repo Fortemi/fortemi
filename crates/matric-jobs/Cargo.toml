@@ -43,6 +43,14 @@ reqwest = { workspace = true, features = ["multipart"] }
 # File handling
 tempfile = "3"
 kamadak-exif = "0.6"
+mailparse.workspace = true
+calamine.workspace = true
+zip.workspace = true
+tar.workspace = true
+flate2.workspace = true
+
+# Image processing
+image.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

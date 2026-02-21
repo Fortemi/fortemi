@@ -451,6 +451,54 @@ impl JobHandler for ExtractionHandler {
                     }
                 }
 
+                // Persist derived files as child attachments (email attachments, etc.)
+                if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
+                    if !result.derived_files.is_empty() {
+                        if let Some(file_storage) = self.db.file_storage.as_ref() {
+                            let count = result.derived_files.len();
+                            ctx.report_progress(
+                                84,
+                                Some(&format!("Persisting {} extracted files", count)),
+                            );
+                            if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                let mut stored = 0usize;
+                                for df in &result.derived_files {
+                                    match file_storage
+                                        .store_derived_attachment_tx(
+                                            &mut tx,
+                                            note_id,
+                                            att_id,
+                                            &df.filename,
+                                            &df.content_type,
+                                            &df.data,
+                                            &df.derivation_type,
+                                        )
+                                        .await
+                                    {
+                                        Ok(_) => stored += 1,
+                                        Err(e) => {
+                                            warn!(
+                                                error = %e,
+                                                filename = %df.filename,
+                                                "Failed to store derived file"
+                                            );
+                                        }
+                                    }
+                                }
+                                if let Err(e) = tx.commit().await {
+                                    error!(error = %e, "Failed to commit derived files");
+                                } else if stored > 0 {
+                                    info!(
+                                        parent = %att_id,
+                                        count = stored,
+                                        "Derived files persisted as child attachments"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ctx.report_progress(85, Some("Results persisted"));
 
                 // Queue speaker diarization if transcript segments are available (#497).

@@ -305,6 +305,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             }),
             ai_description: composite_description,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

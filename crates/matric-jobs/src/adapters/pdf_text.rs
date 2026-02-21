@@ -195,6 +195,7 @@ impl ExtractionAdapter for PdfTextAdapter {
             metadata,
             ai_description: None,
             preview_data: None,
+            derived_files: vec![],
         })
     }
 

@@ -59,9 +59,9 @@ pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHand
 
 // Re-export extraction types
 pub use adapters::{
-    AudioTranscribeAdapter, CodeAstAdapter, ContentSummarizer, Glb3DModelAdapter,
-    OfficeConvertAdapter, PdfOcrAdapter, PdfTextAdapter, StructuredExtractAdapter,
-    TextNativeAdapter, VideoMultimodalAdapter, VisionAdapter,
+    ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, ContentSummarizer, EmailAdapter,
+    Glb3DModelAdapter, OfficeConvertAdapter, PdfOcrAdapter, PdfTextAdapter, SpreadsheetAdapter,
+    StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter, VisionAdapter,
 };
 pub use extraction::ExtractionRegistry;
 

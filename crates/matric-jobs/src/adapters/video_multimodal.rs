@@ -267,6 +267,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }),
             ai_description: None,
             preview_data: thumbnail_data,
+            derived_files: vec![],
         })
     }
 
@@ -447,6 +448,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }),
             ai_description: None,
             preview_data: thumbnail_data,
+            derived_files: vec![],
         })
     }
 

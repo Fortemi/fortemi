@@ -1,13 +1,19 @@
 //! Vision extraction adapter — extracts image descriptions using vision models.
 
+use std::io::Cursor;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use image::ImageReader;
 use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 use matric_inference::vision::VisionBackend;
 use serde_json::Value as JsonValue;
+use tracing::info;
 
 use super::exif::extract_exif_metadata;
+
+/// Default maximum pixels before downscaling for vision inference (4 megapixels).
+const DEFAULT_MAX_PIXELS: u32 = 4_000_000;
 
 /// Adapter for extracting descriptions from images using vision models.
 ///
@@ -60,10 +66,36 @@ impl ExtractionAdapter for VisionAdapter {
         // Extract custom prompt from config if provided
         let custom_prompt = config.get("prompt").and_then(|v| v.as_str());
 
+        // Downscale large images before vision inference to prevent OOM/timeout
+        let max_pixels = std::env::var("VISION_MAX_PIXELS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(DEFAULT_MAX_PIXELS);
+
+        let (inference_data, inference_mime, resized_info) =
+            match maybe_resize_image(data, max_pixels) {
+                Some((resized_bytes, orig_w, orig_h, new_w, new_h)) => {
+                    info!(
+                        original_w = orig_w,
+                        original_h = orig_h,
+                        resized_w = new_w,
+                        resized_h = new_h,
+                        max_pixels,
+                        "Downscaled image for vision inference"
+                    );
+                    (
+                        resized_bytes,
+                        "image/jpeg",
+                        Some((orig_w, orig_h, new_w, new_h)),
+                    )
+                }
+                None => (data.to_vec(), mime_type, None),
+            };
+
         // Call vision backend to describe the image
         let description = self
             .backend
-            .describe_image(data, mime_type, custom_prompt)
+            .describe_image(&inference_data, inference_mime, custom_prompt)
             .await?;
 
         // Build metadata with image info
@@ -80,6 +112,18 @@ impl ExtractionAdapter for VisionAdapter {
             metadata["height"] = serde_json::json!(dimensions.1);
         }
 
+        // Record resize info in metadata if applicable
+        if let Some((orig_w, orig_h, new_w, new_h)) = resized_info {
+            metadata["vision_resized"] = serde_json::json!(true);
+            metadata["vision_inference_width"] = serde_json::json!(new_w);
+            metadata["vision_inference_height"] = serde_json::json!(new_h);
+            // Also ensure original dimensions are set even if header detection failed
+            if metadata.get("width").is_none() {
+                metadata["width"] = serde_json::json!(orig_w);
+                metadata["height"] = serde_json::json!(orig_h);
+            }
+        }
+
         // Extract EXIF metadata (camera info, GPS, settings, etc.)
         if let Some(exif_data) = extract_exif_metadata(data) {
             if let Some(exif_obj) = exif_data.get("exif") {
@@ -92,6 +136,7 @@ impl ExtractionAdapter for VisionAdapter {
             metadata,
             ai_description: Some(description),
             preview_data: None,
+            derived_files: vec![],
         })
     }
 
@@ -104,10 +149,36 @@ impl ExtractionAdapter for VisionAdapter {
     }
 }
 
-/// Detect image dimensions from common image format headers.
+/// Downscale an image if it exceeds `max_pixels` total pixels.
 ///
-/// Supports PNG, JPEG, GIF, WebP basic detection.
-/// Returns (width, height) if successful, None otherwise.
+/// Returns the (possibly resized) image bytes encoded as JPEG, along with
+/// the original and final dimensions. If the image is already within limits,
+/// returns `None` to indicate no resize was needed.
+fn maybe_resize_image(data: &[u8], max_pixels: u32) -> Option<(Vec<u8>, u32, u32, u32, u32)> {
+    let reader = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .ok()?;
+    let img = reader.decode().ok()?;
+    let (w, h) = (img.width(), img.height());
+    let pixels = w as u64 * h as u64;
+
+    if pixels <= max_pixels as u64 {
+        return None; // No resize needed
+    }
+
+    let scale = (max_pixels as f64 / pixels as f64).sqrt();
+    let new_w = ((w as f64 * scale) as u32).max(1);
+    let new_h = ((h as f64 * scale) as u32).max(1);
+
+    let resized = img.resize(new_w, new_h, image::imageops::FilterType::Lanczos3);
+    let mut buf = Vec::new();
+    resized
+        .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+        .ok()?;
+
+    Some((buf, w, h, resized.width(), resized.height()))
+}
+
 /// Detect image dimensions from common image format headers.
 ///
 /// Supports PNG, JPEG, GIF, WebP basic detection.
@@ -377,5 +448,49 @@ mod tests {
         let adapter = VisionAdapter::new(Arc::new(mock));
         assert_eq!(adapter.name(), "vision");
         assert_eq!(adapter.strategy(), ExtractionStrategy::Vision);
+    }
+
+    #[test]
+    fn test_maybe_resize_small_image_returns_none() {
+        // Create a small 10x10 PNG — well under 4MP, should not resize
+        let img = image::RgbImage::new(10, 10);
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+
+        let result = maybe_resize_image(&buf, DEFAULT_MAX_PIXELS);
+        assert!(result.is_none(), "Small image should not be resized");
+    }
+
+    #[test]
+    fn test_maybe_resize_large_image_downscales() {
+        // Create a 3000x3000 image (9MP, exceeds 4MP default)
+        let img = image::RgbImage::new(3000, 3000);
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+
+        let result = maybe_resize_image(&buf, DEFAULT_MAX_PIXELS);
+        assert!(result.is_some(), "Large image should be resized");
+
+        let (resized_bytes, orig_w, orig_h, new_w, new_h) = result.unwrap();
+        assert_eq!(orig_w, 3000);
+        assert_eq!(orig_h, 3000);
+        assert!(new_w < 3000, "Width should be reduced");
+        assert!(new_h < 3000, "Height should be reduced");
+        assert!(
+            (new_w as u64 * new_h as u64) <= DEFAULT_MAX_PIXELS as u64 + 10000,
+            "Resized image should be near max_pixels"
+        );
+        assert!(
+            !resized_bytes.is_empty(),
+            "Resized bytes should not be empty"
+        );
+    }
+
+    #[test]
+    fn test_maybe_resize_invalid_data_returns_none() {
+        let result = maybe_resize_image(b"not an image", DEFAULT_MAX_PIXELS);
+        assert!(result.is_none(), "Invalid data should return None");
     }
 }

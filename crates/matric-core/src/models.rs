@@ -1041,6 +1041,12 @@ pub enum ExtractionStrategy {
     StructuredExtract,
     /// 3D model analysis via multi-view rendering + vision
     Glb3DModel,
+    /// Email parsing (.eml, .mbox) with header extraction
+    Email,
+    /// Multi-sheet spreadsheet extraction (.xlsx, .xls, .ods)
+    Spreadsheet,
+    /// Archive content listing and text extraction (.zip, .tar.gz, .rar, .7z)
+    Archive,
 }
 
 /// Strategy for extracting keyframes from video files.
@@ -1128,10 +1134,17 @@ impl ExtractionStrategy {
             return Self::Glb3DModel;
         }
 
-        // Office documents
+        // Spreadsheets (before generic office check)
+        if mime_lower.contains("spreadsheetml")
+            || mime_lower == "application/vnd.ms-excel"
+            || mime_lower == "application/vnd.oasis.opendocument.spreadsheet"
+        {
+            return Self::Spreadsheet;
+        }
+
+        // Office documents (non-spreadsheet)
         if mime_lower.contains("officedocument")
             || mime_lower.contains("msword")
-            || mime_lower.contains("ms-excel")
             || mime_lower.contains("ms-powerpoint")
             || mime_lower == "application/rtf"
         {
@@ -1143,7 +1156,21 @@ impl ExtractionStrategy {
             || mime_lower == "application/mbox"
             || mime_lower.contains("ms-outlook")
         {
-            return Self::OfficeConvert;
+            return Self::Email;
+        }
+
+        // Archives
+        if mime_lower == "application/zip"
+            || mime_lower == "application/x-tar"
+            || mime_lower == "application/gzip"
+            || mime_lower == "application/x-gzip"
+            || mime_lower == "application/x-7z-compressed"
+            || mime_lower == "application/x-rar-compressed"
+            || mime_lower == "application/vnd.rar"
+            || mime_lower == "application/x-bzip2"
+            || mime_lower == "application/x-xz"
+        {
+            return Self::Archive;
         }
 
         // Structured data
@@ -1199,9 +1226,10 @@ impl ExtractionStrategy {
                 return match ext.to_lowercase().as_str() {
                     // Cheap text-based extraction — safe even for misidentified files
                     "pdf" => Self::PdfText,
-                    "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "ods" | "odp"
-                    | "rtf" => Self::OfficeConvert,
-                    "eml" | "mbox" => Self::OfficeConvert,
+                    "xls" | "xlsx" | "ods" => Self::Spreadsheet,
+                    "doc" | "docx" | "ppt" | "pptx" | "odt" | "odp" | "rtf" => Self::OfficeConvert,
+                    "eml" | "mbox" => Self::Email,
+                    "zip" | "tar" | "gz" | "tgz" | "7z" | "rar" | "bz2" | "xz" => Self::Archive,
                     "json" | "xml" | "yaml" | "yml" | "csv" | "toml" => Self::StructuredExtract,
                     "ics" | "bib" | "geojson" | "ndjson" | "parquet" | "avro" | "mid" | "midi" => {
                         Self::StructuredExtract
@@ -1246,6 +1274,9 @@ impl std::fmt::Display for ExtractionStrategy {
             Self::OfficeConvert => write!(f, "office_convert"),
             Self::StructuredExtract => write!(f, "structured_extract"),
             Self::Glb3DModel => write!(f, "glb_3d_model"),
+            Self::Email => write!(f, "email"),
+            Self::Spreadsheet => write!(f, "spreadsheet"),
+            Self::Archive => write!(f, "archive"),
         }
     }
 }
@@ -1266,6 +1297,9 @@ impl std::str::FromStr for ExtractionStrategy {
                 Ok(Self::StructuredExtract)
             }
             "glb_3d_model" | "glb3dmodel" | "glb" | "3d_model" => Ok(Self::Glb3DModel),
+            "email" | "eml" | "mbox" => Ok(Self::Email),
+            "spreadsheet" | "xlsx" | "xls" | "ods" => Ok(Self::Spreadsheet),
+            "archive" | "zip" | "tar" | "7z" | "rar" => Ok(Self::Archive),
             "none" => Ok(Self::TextNative),
             _ => Err(format!("Invalid extraction strategy: {}", s)),
         }
@@ -4156,8 +4190,6 @@ mod tests {
         for mime in [
             "application/msword",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             "application/rtf",
@@ -4172,23 +4204,57 @@ mod tests {
     }
 
     #[test]
-    fn test_mime_outlook_is_office() {
+    fn test_mime_outlook_is_email() {
         assert_eq!(
             ExtractionStrategy::from_mime_type("application/vnd.ms-outlook"),
-            ExtractionStrategy::OfficeConvert
+            ExtractionStrategy::Email
         );
     }
 
     #[test]
-    fn test_mime_email_is_office() {
+    fn test_mime_email() {
         assert_eq!(
             ExtractionStrategy::from_mime_type("message/rfc822"),
-            ExtractionStrategy::OfficeConvert
+            ExtractionStrategy::Email
         );
         assert_eq!(
             ExtractionStrategy::from_mime_type("application/mbox"),
-            ExtractionStrategy::OfficeConvert
+            ExtractionStrategy::Email
         );
+    }
+
+    #[test]
+    fn test_mime_spreadsheet() {
+        for mime in [
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+            "application/vnd.oasis.opendocument.spreadsheet",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::Spreadsheet,
+                "Failed for {}",
+                mime
+            );
+        }
+    }
+
+    #[test]
+    fn test_mime_archive() {
+        for mime in [
+            "application/zip",
+            "application/x-tar",
+            "application/gzip",
+            "application/x-7z-compressed",
+            "application/x-rar-compressed",
+        ] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_type(mime),
+                ExtractionStrategy::Archive,
+                "Failed for {}",
+                mime
+            );
+        }
     }
 
     #[test]
@@ -4310,10 +4376,8 @@ mod tests {
                 ext
             );
         }
-        // Office
-        for ext in [
-            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf",
-        ] {
+        // Office (pandoc-based conversion)
+        for ext in ["doc", "docx", "ppt", "pptx", "odt", "odp", "rtf"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
                 ExtractionStrategy::OfficeConvert,
@@ -4321,11 +4385,29 @@ mod tests {
                 ext
             );
         }
-        // Email
+        // Spreadsheet (calamine)
+        for ext in ["xls", "xlsx", "ods"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::Spreadsheet,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Email (mailparse)
         for ext in ["eml", "mbox"] {
             assert_eq!(
                 ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
-                ExtractionStrategy::OfficeConvert,
+                ExtractionStrategy::Email,
+                "Failed for .{}",
+                ext
+            );
+        }
+        // Archive (zip/tar/flate2)
+        for ext in ["zip", "tar", "gz", "tgz", "7z", "rar", "bz2", "xz"] {
+            assert_eq!(
+                ExtractionStrategy::from_mime_and_extension(octet, Some(ext)),
+                ExtractionStrategy::Archive,
                 "Failed for .{}",
                 ext
             );
@@ -4503,13 +4585,10 @@ mod tests {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 ExtractionStrategy::OfficeConvert,
             ),
-            (
-                "application/vnd.ms-excel",
-                ExtractionStrategy::OfficeConvert,
-            ),
+            ("application/vnd.ms-excel", ExtractionStrategy::Spreadsheet),
             (
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ExtractionStrategy::OfficeConvert,
+                ExtractionStrategy::Spreadsheet,
             ),
             (
                 "application/vnd.ms-powerpoint",
@@ -4521,12 +4600,9 @@ mod tests {
             ),
             ("application/rtf", ExtractionStrategy::OfficeConvert),
             // Email/Message
-            (
-                "application/vnd.ms-outlook",
-                ExtractionStrategy::OfficeConvert,
-            ),
-            ("message/rfc822", ExtractionStrategy::OfficeConvert),
-            ("application/mbox", ExtractionStrategy::OfficeConvert),
+            ("application/vnd.ms-outlook", ExtractionStrategy::Email),
+            ("message/rfc822", ExtractionStrategy::Email),
+            ("application/mbox", ExtractionStrategy::Email),
             // Structured data (core)
             ("application/json", ExtractionStrategy::StructuredExtract),
             ("application/xml", ExtractionStrategy::StructuredExtract),
