@@ -14,7 +14,7 @@ use matric_core::{
     AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
     CreateProvLocationRequest, CreateSemanticRelationRequest, DocumentTypeRepository,
     EmbeddingBackend, EmbeddingRepository, GenerationBackend, JobRepository, JobType,
-    LinkRepository, NoteRepository, ProvRelation, RevisionMode, SearchHit, SkosSemanticRelation,
+    LinkRepository, NoteRepository, ProvRelation, RevisionMode, SkosSemanticRelation,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -212,69 +212,6 @@ impl AiRevisionHandler {
             registry,
         }
     }
-
-    /// Get related notes for contextual enhancement (similarity > 50%).
-    ///
-    /// Returns up to MAX_CONTEXT_NOTES results, respecting Miller's Law (7±2)
-    /// for optimal cognitive processing of context items.
-    async fn get_related_notes(&self, note_id: uuid::Uuid, content: &str) -> Vec<SearchHit> {
-        // Generate embedding for the content to find related notes
-        let chunks = vec![content
-            .chars()
-            .take(matric_core::defaults::PREVIEW_EMBEDDING)
-            .collect::<String>()];
-        let vectors = match self.backend.embed_texts(&chunks).await {
-            Ok(v) => v,
-            Err(_) => return vec![],
-        };
-
-        let query_vec = match vectors.into_iter().next() {
-            Some(v) => v,
-            None => return vec![],
-        };
-
-        // Fetch more candidates than needed, then filter and limit to Miller's Law bound
-        let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
-        match self
-            .db
-            .embeddings
-            .find_similar(&query_vec, fetch_limit, true)
-            .await
-        {
-            Ok(hits) => hits
-                .into_iter()
-                .filter(|hit| {
-                    hit.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
-                        && hit.note_id != note_id
-                })
-                .take(MAX_CONTEXT_NOTES)
-                .collect(),
-            Err(_) => vec![],
-        }
-    }
-
-    /// Build context string from related notes.
-    ///
-    /// Includes up to MAX_PROMPT_SNIPPETS snippets in the prompt context,
-    /// staying within Miller's Law bounds for working memory.
-    fn build_related_context(&self, related_notes: &[SearchHit]) -> String {
-        if related_notes.is_empty() {
-            return String::new();
-        }
-
-        let mut context = String::from("Related concepts from the knowledge base:\n");
-        for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
-            if let Some(snippet) = &hit.snippet {
-                let preview: String = snippet
-                    .chars()
-                    .take(matric_core::defaults::PREVIEW_CONTEXT_SNIPPET)
-                    .collect();
-                context.push_str(&format!("- {}\n", preview));
-            }
-        }
-        context.push('\n');
-        context
-    }
 }
 
 #[async_trait]
@@ -358,49 +295,38 @@ impl JobHandler for AiRevisionHandler {
             .await
             .ok();
 
-        // Build prompt based on revision mode
-        let (prompt, related_count, related_note_ids) = match revision_mode {
-            RevisionMode::Full => {
-                ctx.report_progress(20, Some("Finding related notes for context..."));
-                let related_notes = self.get_related_notes(note_id, original_content).await;
-                let related_context = self.build_related_context(&related_notes);
-                let count = related_notes.len();
-                let note_ids: Vec<uuid::Uuid> = related_notes.iter().map(|h| h.note_id).collect();
+        // For contextual modes, Phase 1 runs Standard (isolated) first.
+        // Phase 2 (AiRevisionContextual) is queued after saving Phase 1 output.
+        let effective_mode = revision_mode.phase1_mode();
 
-                ctx.report_progress(40, Some("Generating AI-enhanced revision (full mode)..."));
+        // Build prompt based on effective mode (Phase 1 for contextual, or final for non-contextual)
+        let prompt = match effective_mode {
+            RevisionMode::Standard => {
+                ctx.report_progress(40, Some("Generating AI revision (standard mode)..."));
 
-                // Full mode: aggressive expansion with context (original HOTM prompt)
-                let prompt = format!(
-                    r#"You are an intelligent note-taking assistant. Your task is to enhance the following note by leveraging related concepts from the knowledge base to create a more holistic and contextual revision.
+                // Standard mode: intelligent revision using ONLY the note's own content
+                format!(
+                    r#"You are an intelligent note-taking assistant. Revise the following note to improve clarity, structure, and readability. Extract and highlight key concepts.
+
+STRICT RULES:
+- Work ONLY with the content provided below
+- Do NOT reference, infer, or add information from any external source
+- Do NOT invent details, examples, or context not present in the original
+- Preserve ALL original meaning and information
+- If the content is a transcript, clean it up but preserve the speaker's actual words and meaning
 
 Original Note:
 {}
 
-{}Please provide an enhanced version that:
-1. Preserves ALL original information and meaning
-2. Improves clarity and organization with proper markdown formatting
-3. Identifies and highlights key concepts
-4. Makes connections to related concepts where relevant (without overwhelming the original content)
-5. Adds contextual insights that help place this note within the broader knowledge landscape
-6. Maintains a professional yet accessible tone
-7. Formats any code blocks, math expressions, or diagrams properly
-
-Guidelines:
-- Only reference related concepts when they genuinely enhance understanding
-- Do not force connections that don't make sense
-- Keep the focus on the original note's content
-- Add value through context, not just length
-
-Output the enhanced note in clean markdown format. Do not add any labels, markers, or metadata."#,
-                    original_content, related_context
-                );
-                (prompt, count, note_ids)
+Output the revised note in clean markdown format. Do not add any labels, markers, or metadata."#,
+                    original_content
+                )
             }
             RevisionMode::Light => {
-                ctx.report_progress(40, Some("Generating AI-enhanced revision (light mode)..."));
+                ctx.report_progress(40, Some("Generating AI revision (light mode)..."));
 
                 // Light mode: structure and formatting ONLY, no invented details
-                let prompt = format!(
+                format!(
                     r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
 
 Original Note:
@@ -424,10 +350,11 @@ If the note is very short or simple, keep it short and simple. A one-line note s
 
 Output the formatted note. Do not add any labels, markers, or metadata."#,
                     original_content
-                );
-                (prompt, 0, vec![])
+                )
             }
-            RevisionMode::None => unreachable!(), // Already handled above
+            // None is already handled above; Full/Contextual/ContextualFiltered
+            // are resolved to Standard by phase1_mode()
+            _ => unreachable!(),
         };
 
         let revised = match backend.generate(&prompt).await {
@@ -442,10 +369,16 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         ctx.report_progress(80, Some("Saving revision..."));
 
         // Save the revision with mode indicator
-        let revision_note = match revision_mode {
-            RevisionMode::Full => "AI-enhanced revision with context",
+        let revision_note = match effective_mode {
+            RevisionMode::Standard => {
+                if revision_mode.is_contextual() {
+                    "AI revision (phase 1 of contextual pipeline)"
+                } else {
+                    "AI-enhanced revision (isolated, no external context)"
+                }
+            }
             RevisionMode::Light => "Light formatting revision (no expansion)",
-            RevisionMode::None => "Original preserved",
+            _ => "Original preserved",
         };
 
         let mut tx = match schema_ctx.begin_tx().await {
@@ -467,28 +400,16 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         // Record W3C PROV provenance for the AI revision
         ctx.report_progress(90, Some("Recording provenance..."));
 
-        // Get the current revision ID to attach provenance edges
         if let Ok(Some(chain)) = self.db.provenance.get_chain(note_id).await {
             let rev_id = chain.revision_id;
-
-            // Record "used" edges for each related note that contributed context
-            if !related_note_ids.is_empty() {
-                if let Err(e) = self
-                    .db
-                    .provenance
-                    .record_edges_batch(rev_id, &related_note_ids, &ProvRelation::Used)
-                    .await
-                {
-                    warn!(error = %e, "Failed to record provenance edges");
-                }
-            }
 
             // Complete the provenance activity
             if let Some(act_id) = activity_id {
                 let metadata = serde_json::json!({
                     "revision_mode": format!("{:?}", revision_mode),
-                    "related_notes_used": related_count,
+                    "effective_mode": format!("{:?}", effective_mode),
                     "revised_length": revised.len(),
+                    "is_phase1": revision_mode.is_contextual(),
                 });
                 if let Err(e) = self
                     .db
@@ -501,11 +422,50 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             }
         }
 
+        // If the original mode was contextual, queue Phase 2 (AiRevisionContextual)
+        if revision_mode.is_contextual() {
+            ctx.report_progress(95, Some("Queuing contextual re-revision (phase 2)..."));
+            let mut phase2_payload = serde_json::json!({
+                "revision_mode": revision_mode,
+            });
+            if schema != "public" {
+                phase2_payload["schema"] = serde_json::json!(schema);
+            }
+            if let Some(m) = &model_override {
+                phase2_payload["model"] = serde_json::json!(m);
+            }
+            // Pass context_filter through from original payload if present
+            if let Some(cf) = ctx.payload().and_then(|p| p.get("context_filter").cloned()) {
+                phase2_payload["context_filter"] = cf;
+            }
+            match self
+                .db
+                .jobs
+                .queue_deduplicated(
+                    Some(note_id),
+                    JobType::AiRevisionContextual,
+                    JobType::AiRevisionContextual.default_priority(),
+                    Some(phase2_payload),
+                    JobType::AiRevisionContextual.default_cost_tier(),
+                )
+                .await
+            {
+                Ok(Some(job_id)) => {
+                    ctx.emit_job_queued(job_id, JobType::AiRevisionContextual, Some(note_id));
+                    info!(note_id = %note_id, job_id = %job_id, "Queued AiRevisionContextual (phase 2)");
+                }
+                Ok(None) => {} // Deduplicated
+                Err(e) => {
+                    warn!(error = %e, "Failed to queue contextual re-revision phase 2");
+                }
+            }
+        }
+
         ctx.report_progress(100, Some("Revision complete"));
         info!(
             note_id = %note_id,
             mode = ?revision_mode,
-            related_count = related_count,
+            effective_mode = ?effective_mode,
             duration_ms = start.elapsed().as_millis() as u64,
             "AI revision completed"
         );
@@ -513,7 +473,341 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         JobResult::Success(Some(serde_json::json!({
             "revised_length": revised.len(),
             "revision_mode": revision_mode,
-            "related_notes_used": related_count
+            "effective_mode": effective_mode,
+            "phase2_queued": revision_mode.is_contextual()
+        })))
+    }
+}
+
+/// Handler for Phase 2 contextual re-revision.
+///
+/// This job is queued automatically by `AiRevisionHandler` when the revision mode
+/// is `Contextual`, `ContextualFiltered`, or `Full`. It takes the Phase 1 output
+/// (clean isolated revision), generates an intermediate embedding, finds semantically
+/// similar notes, and performs a contextual re-revision with strong guardrails
+/// separating PRIMARY content from REFERENCE context.
+///
+/// See issue #494 for the two-phase architecture rationale.
+pub struct AiRevisionContextualHandler {
+    db: Database,
+    backend: OllamaBackend,
+    registry: Arc<ProviderRegistry>,
+}
+
+impl AiRevisionContextualHandler {
+    pub fn new(db: Database, backend: OllamaBackend, registry: Arc<ProviderRegistry>) -> Self {
+        Self {
+            db,
+            backend,
+            registry,
+        }
+    }
+}
+
+#[async_trait]
+impl JobHandler for AiRevisionContextualHandler {
+    fn job_type(&self) -> JobType {
+        JobType::AiRevisionContextual
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(
+            subsystem = "jobs",
+            component = "ai_revision_contextual",
+            op = "execute"
+        )
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        let start = Instant::now();
+        let note_id = match ctx.note_id() {
+            Some(id) => id,
+            None => return JobResult::Failed("No note_id provided".into()),
+        };
+
+        let revision_mode = ctx
+            .payload()
+            .and_then(|p| p.get("revision_mode"))
+            .and_then(|v| serde_json::from_value::<RevisionMode>(v.clone()).ok())
+            .unwrap_or(RevisionMode::Contextual);
+
+        let schema = extract_schema(&ctx);
+        let model_override = extract_model_override(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+
+        // Resolve model override via provider registry
+        let overridden = match resolve_gen_backend(&self.registry, model_override.as_deref()) {
+            Ok(b) => b,
+            Err(e) => return e,
+        };
+        let backend: &dyn GenerationBackend = match &overridden {
+            Some(b) => b.as_ref(),
+            None => &self.backend,
+        };
+
+        ctx.report_progress(10, Some("Fetching Phase 1 revision..."));
+
+        // Read the Phase 1 revised content (output of AiRevision standard mode)
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
+            Ok(n) => n,
+            Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+
+        // Use revised content as Phase 1 output (the clean isolated revision)
+        let phase1_content = if !note.revised.content.is_empty() {
+            &note.revised.content
+        } else {
+            &note.original.content
+        };
+
+        if phase1_content.trim().is_empty() {
+            return JobResult::Failed("No Phase 1 revision content available".into());
+        }
+
+        // Start provenance activity
+        let activity_id = self
+            .db
+            .provenance
+            .start_activity(
+                note_id,
+                "ai_revision_contextual",
+                Some(matric_core::GenerationBackend::model_name(backend)),
+            )
+            .await
+            .ok();
+
+        // --- Intermediate step: embed Phase 1 output and find related notes ---
+        ctx.report_progress(
+            20,
+            Some("Embedding Phase 1 revision for context discovery..."),
+        );
+
+        let embed_backend = matric_inference::OllamaBackend::from_env();
+        let chunks = vec![phase1_content
+            .chars()
+            .take(matric_core::defaults::PREVIEW_EMBEDDING)
+            .collect::<String>()];
+        let vectors = match embed_backend.embed_texts(&chunks).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(error = %e, "Failed to embed Phase 1 content for context discovery");
+                // Fall back: skip contextual revision, Phase 1 output stands as final
+                return JobResult::Success(Some(serde_json::json!({
+                    "skipped": true,
+                    "reason": "embedding failed, Phase 1 output preserved",
+                })));
+            }
+        };
+
+        let query_vec = match vectors.into_iter().next() {
+            Some(v) => v,
+            None => {
+                return JobResult::Success(Some(serde_json::json!({
+                    "skipped": true,
+                    "reason": "no embedding vector produced",
+                })));
+            }
+        };
+
+        ctx.report_progress(40, Some("Finding related notes for context..."));
+
+        // Parse optional context_filter from payload (for ContextualFiltered mode)
+        let context_filter: Option<matric_core::StrictTagFilter> = ctx
+            .payload()
+            .and_then(|p| p.get("context_filter"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+        let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
+        let related_notes = if let Some(filter) = &context_filter {
+            // ContextualFiltered: scoped search
+            match self
+                .db
+                .embeddings
+                .find_similar_with_strict_filter(&query_vec, filter, fetch_limit, true)
+                .await
+            {
+                Ok(hits) => hits
+                    .into_iter()
+                    .filter(|h| {
+                        h.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
+                            && h.note_id != note_id
+                    })
+                    .take(MAX_CONTEXT_NOTES)
+                    .collect::<Vec<_>>(),
+                Err(e) => {
+                    warn!(error = %e, "Filtered similarity search failed");
+                    vec![]
+                }
+            }
+        } else {
+            // Contextual/Full: unscoped search
+            match self
+                .db
+                .embeddings
+                .find_similar(&query_vec, fetch_limit, true)
+                .await
+            {
+                Ok(hits) => hits
+                    .into_iter()
+                    .filter(|h| {
+                        h.score > matric_core::defaults::RELATED_NOTES_MIN_SIMILARITY
+                            && h.note_id != note_id
+                    })
+                    .take(MAX_CONTEXT_NOTES)
+                    .collect::<Vec<_>>(),
+                Err(e) => {
+                    warn!(error = %e, "Similarity search failed");
+                    vec![]
+                }
+            }
+        };
+
+        let related_count = related_notes.len();
+        let related_note_ids: Vec<uuid::Uuid> = related_notes.iter().map(|h| h.note_id).collect();
+
+        if related_notes.is_empty() {
+            // No related notes found — Phase 1 output stands as final
+            info!(note_id = %note_id, "No related notes found, Phase 1 revision is final");
+            return JobResult::Success(Some(serde_json::json!({
+                "skipped": true,
+                "reason": "no related notes found above similarity threshold",
+                "phase1_preserved": true,
+            })));
+        }
+
+        // --- Phase 2: Contextual re-revision with strong guardrails ---
+        ctx.report_progress(60, Some("Generating contextual revision (phase 2)..."));
+
+        // Build reference context from related notes (using original content for snippets)
+        let mut reference_context = String::new();
+        for hit in related_notes.iter().take(MAX_PROMPT_SNIPPETS) {
+            if let Some(snippet) = &hit.snippet {
+                let preview: String = snippet
+                    .chars()
+                    .take(matric_core::defaults::PREVIEW_CONTEXT_SNIPPET)
+                    .collect();
+                reference_context.push_str(&format!("- {}\n", preview));
+            }
+        }
+
+        let prompt = format!(
+            r#"You are an intelligent note-taking assistant performing a contextual revision.
+
+## PRIMARY CONTENT (this is the note you are revising — your output MUST be a revision of this):
+{phase1}
+
+## REFERENCE CONTEXT (supplementary only — use ONLY if directly relevant to the primary content):
+{context}
+
+STRICT RULES:
+1. Your output MUST be a revision of the PRIMARY CONTENT section above
+2. NEVER replace or override the primary content with reference material
+3. Reference context is supplementary — mention connections ONLY when they genuinely clarify the primary content
+4. If no reference items are relevant to the primary content, output the primary content unchanged
+5. Preserve ALL original meaning and information from the primary content
+6. Do NOT fabricate cross-references that are not genuinely supported by the reference context
+
+What you MAY do:
+- Note genuine connections between the primary content and reference items
+- Add brief contextual annotations where a reference item directly relates
+- Improve organization if the connection adds clarity
+
+Output the revised note in clean markdown format. Do not add any labels, markers, or metadata."#,
+            phase1 = phase1_content,
+            context = reference_context
+        );
+
+        let revised = match backend.generate(&prompt).await {
+            Ok(r) => clean_enhanced_content(r.trim(), &prompt),
+            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
+        };
+
+        if revised.is_empty() {
+            return JobResult::Failed("AI returned empty response".into());
+        }
+
+        ctx.report_progress(80, Some("Saving contextual revision..."));
+
+        let revision_note = match revision_mode {
+            RevisionMode::ContextualFiltered => "AI contextual revision (filtered scope)",
+            _ => "AI contextual revision with cross-references",
+        };
+
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(t) => t,
+            Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+        };
+        if let Err(e) = self
+            .db
+            .notes
+            .update_revised_tx(&mut tx, note_id, &revised, Some(revision_note))
+            .await
+        {
+            return JobResult::Failed(format!("Failed to save contextual revision: {}", e));
+        }
+        if let Err(e) = tx.commit().await {
+            return JobResult::Failed(format!("Commit failed: {}", e));
+        }
+
+        // Record provenance: edges to each related note used as context
+        ctx.report_progress(90, Some("Recording provenance..."));
+
+        if let Ok(Some(chain)) = self.db.provenance.get_chain(note_id).await {
+            let rev_id = chain.revision_id;
+
+            if !related_note_ids.is_empty() {
+                if let Err(e) = self
+                    .db
+                    .provenance
+                    .record_edges_batch(rev_id, &related_note_ids, &ProvRelation::Used)
+                    .await
+                {
+                    warn!(error = %e, "Failed to record provenance edges");
+                }
+            }
+
+            if let Some(act_id) = activity_id {
+                let metadata = serde_json::json!({
+                    "revision_mode": format!("{:?}", revision_mode),
+                    "related_notes_used": related_count,
+                    "revised_length": revised.len(),
+                    "context_filtered": context_filter.is_some(),
+                });
+                if let Err(e) = self
+                    .db
+                    .provenance
+                    .complete_activity(act_id, Some(rev_id), Some(metadata))
+                    .await
+                {
+                    warn!(error = %e, "Failed to complete provenance activity");
+                }
+            }
+        }
+
+        ctx.report_progress(100, Some("Contextual revision complete"));
+        info!(
+            note_id = %note_id,
+            mode = ?revision_mode,
+            related_count = related_count,
+            duration_ms = start.elapsed().as_millis() as u64,
+            "AI contextual revision completed"
+        );
+
+        JobResult::Success(Some(serde_json::json!({
+            "revised_length": revised.len(),
+            "revision_mode": revision_mode,
+            "related_notes_used": related_count,
+            "context_filtered": context_filter.is_some(),
         })))
     }
 }
@@ -4553,7 +4847,12 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
         "Guidelines:",
         "Output the enhanced note",
         "Output the formatted note",
+        "Output the revised note",
         "Do not add any labels, markers, or metadata",
+        // Phase 2 contextual revision markers (#494)
+        "## PRIMARY CONTENT",
+        "## REFERENCE CONTEXT",
+        "performing a contextual revision",
     ];
 
     // Remove any lines that match prompt indicators (case-insensitive)

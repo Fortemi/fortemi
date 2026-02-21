@@ -279,7 +279,7 @@ const testSuites = {
       const itemSchema = {
         content: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
-        revision_mode: { type: "string", enum: ["full", "light", "none"] },
+        revision_mode: { type: "string", enum: ["standard", "contextual", "contextual_filtered", "light", "none", "full"] },
         collection_id: {
           type: "string",
           format: "uuid",

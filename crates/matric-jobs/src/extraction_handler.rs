@@ -334,6 +334,38 @@ impl JobHandler for ExtractionHandler {
                             Some(serde_json::Value::Object(schema_payload))
                         };
 
+                        // Re-queue AI revision with Standard mode so it operates on
+                        // the actual extracted content (not the filename stub). (#494)
+                        let mut revision_payload = serde_json::Map::new();
+                        revision_payload.insert("revision_mode".to_string(), json!("standard"));
+                        if schema != "public" {
+                            revision_payload.insert("schema".to_string(), json!(&schema));
+                        }
+                        match self
+                            .db
+                            .jobs
+                            .queue_deduplicated(
+                                Some(note_id),
+                                JobType::AiRevision,
+                                JobType::AiRevision.default_priority(),
+                                Some(serde_json::Value::Object(revision_payload)),
+                                JobType::AiRevision.default_cost_tier(),
+                            )
+                            .await
+                        {
+                            Ok(Some(job_id)) => {
+                                ctx.emit_job_queued(job_id, JobType::AiRevision, Some(note_id));
+                            }
+                            Ok(None) => {} // Deduplicated
+                            Err(e) => {
+                                error!(
+                                    note_id = %note_id,
+                                    error = %e,
+                                    "Failed to re-queue AiRevision after extraction"
+                                );
+                            }
+                        }
+
                         for job_type in &downstream_types {
                             match self
                                 .db

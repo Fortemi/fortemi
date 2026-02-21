@@ -1924,24 +1924,68 @@ pub enum JobStatus {
 }
 
 /// AI revision mode controlling enhancement aggressiveness.
+///
+/// Modes are ordered by how much transformation they apply:
+/// - `None`: No revision, original preserved as-is
+/// - `Light`: Formatting and structure only, no invented details
+/// - `Standard`: Intelligent revision (summarization, key concepts) using ONLY the note's own content
+/// - `Full`: Legacy alias for `Contextual` (backward compatibility)
+/// - `Contextual`: Two-phase pipeline — isolated revision then cross-referencing with related notes
+/// - `ContextualFiltered`: Same as Contextual but scoped to specific tags/collections
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RevisionMode {
-    /// Full contextual enhancement - expands content with related concepts
+    /// Full contextual enhancement - expands content with related concepts.
+    /// Legacy alias for Contextual, kept for backward compatibility.
     Full,
-    /// Light touch - formatting and structure only, no invented details (default)
-    #[default]
+    /// Light touch - formatting and structure only, no invented details
     Light,
+    /// Intelligent revision with structural improvements, summarization, key concept extraction.
+    /// Operates ONLY on the note's own content — no external context injection (default).
+    #[default]
+    Standard,
+    /// Two-phase contextual enhancement: isolated revision → embed → find similar → re-revise
+    /// with cross-references from related notes. Opt-in only.
+    Contextual,
+    /// Same as Contextual but scoped: related notes filtered by tags/collection.
+    /// Requires `context_filter` in job payload.
+    #[serde(rename = "contextual_filtered")]
+    ContextualFiltered,
     /// No AI revision - store original as-is
     None,
+}
+
+impl RevisionMode {
+    /// Returns true if this mode requires the two-phase contextual pipeline.
+    /// Phase 1 (AiRevision with Standard) is always run first, then Phase 2
+    /// (AiRevisionContextual) is queued automatically.
+    pub fn is_contextual(&self) -> bool {
+        matches!(
+            self,
+            RevisionMode::Full | RevisionMode::Contextual | RevisionMode::ContextualFiltered
+        )
+    }
+
+    /// Returns the effective mode for Phase 1 (isolated revision).
+    /// Contextual modes run Standard as Phase 1, then queue Phase 2 separately.
+    pub fn phase1_mode(&self) -> RevisionMode {
+        if self.is_contextual() {
+            RevisionMode::Standard
+        } else {
+            *self
+        }
+    }
 }
 
 /// Type of job to process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobType {
-    /// Generate AI revision of content
+    /// Generate AI revision of content (isolated: Light or Standard mode)
     AiRevision,
+    /// Phase 2 contextual re-revision: takes Phase 1 output, embeds, finds similar, re-revises
+    /// with cross-references. Queued automatically by AiRevision when mode is Contextual/ContextualFiltered.
+    AiRevisionContextual,
     /// Generate embeddings for content
     Embedding,
     /// Auto-detect and create links
@@ -1993,6 +2037,8 @@ impl JobType {
     pub fn default_priority(&self) -> i32 {
         match self {
             JobType::AiRevision => 8,
+            // Contextual re-revision runs after AiRevision, slightly lower priority
+            JobType::AiRevisionContextual => 7,
             JobType::Embedding => 5,
             JobType::Linking => 3,
             JobType::TitleGeneration => 2,
@@ -3338,7 +3384,7 @@ mod tests {
 
     #[test]
     fn test_revision_mode_default() {
-        assert_eq!(RevisionMode::default(), RevisionMode::Light);
+        assert_eq!(RevisionMode::default(), RevisionMode::Standard);
     }
 
     #[test]
@@ -3346,6 +3392,9 @@ mod tests {
         let modes = vec![
             (RevisionMode::Full, "full"),
             (RevisionMode::Light, "light"),
+            (RevisionMode::Standard, "standard"),
+            (RevisionMode::Contextual, "contextual"),
+            (RevisionMode::ContextualFiltered, "contextual_filtered"),
             (RevisionMode::None, "none"),
         ];
 
@@ -3361,6 +3410,7 @@ mod tests {
     fn test_job_type_serialization() {
         let types = vec![
             (JobType::AiRevision, "ai_revision"),
+            (JobType::AiRevisionContextual, "ai_revision_contextual"),
             (JobType::Embedding, "embedding"),
             (JobType::Linking, "linking"),
             (JobType::ContextUpdate, "context_update"),

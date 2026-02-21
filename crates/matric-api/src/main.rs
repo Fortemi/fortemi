@@ -200,14 +200,20 @@ async fn queue_exif_extraction_job(
 }
 
 /// Parse and validate a `revision_mode` string, returning 400 for invalid values.
+///
+/// Accepts both new modes (`standard`, `contextual`, `contextual_filtered`) and
+/// legacy values (`full` maps to `Contextual` for backward compatibility).
 fn parse_revision_mode(mode: Option<&str>) -> Result<RevisionMode, ApiError> {
     match mode {
         Some("full") => Ok(RevisionMode::Full),
         Some("light") => Ok(RevisionMode::Light),
+        Some("standard") => Ok(RevisionMode::Standard),
+        Some("contextual") => Ok(RevisionMode::Contextual),
+        Some("contextual_filtered") => Ok(RevisionMode::ContextualFiltered),
         Some("none") => Ok(RevisionMode::None),
-        None => Ok(RevisionMode::Light),
+        None => Ok(RevisionMode::Standard),
         Some(other) => Err(ApiError::BadRequest(format!(
-            "Invalid revision_mode '{}'. Must be one of: full, light, none",
+            "Invalid revision_mode '{}'. Must be one of: standard, light, full, contextual, contextual_filtered, none",
             other
         ))),
     }
@@ -347,10 +353,11 @@ use handlers::{
         create_prov_location,
     },
     vision::describe_image,
-    AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler, DocumentTypeInferenceHandler,
-    EmbeddingHandler, ExifExtractionHandler, GraphMaintenanceHandler, LinkingHandler,
-    MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler, ReferenceExtractionHandler,
-    RefreshEmbeddingSetHandler, RelatedConceptHandler, TitleGenerationHandler,
+    AiRevisionContextualHandler, AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler,
+    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, GraphMaintenanceHandler,
+    LinkingHandler, MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    ReferenceExtractionHandler, RefreshEmbeddingSetHandler, RelatedConceptHandler,
+    TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1073,6 +1080,13 @@ async fn main() -> anyhow::Result<()> {
 
         worker
             .register_handler(AiRevisionHandler::new(
+                db.clone(),
+                OllamaBackend::from_env(),
+                provider_registry.clone(),
+            ))
+            .await;
+        worker
+            .register_handler(AiRevisionContextualHandler::new(
                 db.clone(),
                 OllamaBackend::from_env(),
                 provider_registry.clone(),
@@ -4684,7 +4698,9 @@ async fn bulk_create_notes(
         let revision_mode = match body.notes[i].revision_mode.as_deref() {
             Some("light") => RevisionMode::Light,
             Some("none") => RevisionMode::None,
-            _ => RevisionMode::Full, // Default for bulk is Full
+            Some("full") | Some("contextual") => RevisionMode::Contextual,
+            Some("contextual_filtered") => RevisionMode::ContextualFiltered,
+            _ => RevisionMode::Standard,
         };
 
         // Note: insert_bulk_tx already populates note_revised_current with
@@ -4827,7 +4843,9 @@ async fn update_note(
         let revision_mode = match body.revision_mode.as_deref() {
             Some("light") => RevisionMode::Light,
             Some("none") => RevisionMode::None,
-            _ => RevisionMode::Full, // "full" or unspecified
+            Some("full") | Some("contextual") => RevisionMode::Contextual,
+            Some("contextual_filtered") => RevisionMode::ContextualFiltered,
+            _ => RevisionMode::Standard,
         };
 
         // If mode is "none", copy original to revised (so embedding/search works on it)
@@ -5073,9 +5091,11 @@ async fn restore_note(
 
     // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
-        Some("full") => RevisionMode::Full,
+        Some("full") | Some("contextual") => RevisionMode::Contextual,
+        Some("contextual_filtered") => RevisionMode::ContextualFiltered,
+        Some("light") => RevisionMode::Light,
         Some("none") => RevisionMode::None,
-        _ => RevisionMode::Light,
+        _ => RevisionMode::Standard,
     };
 
     // Determine schema for background jobs
@@ -5282,9 +5302,11 @@ async fn bulk_reprocess_notes(
 
     // Parse revision mode (default to Light)
     let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
-        Some("full") => RevisionMode::Full,
+        Some("full") | Some("contextual") => RevisionMode::Contextual,
+        Some("contextual_filtered") => RevisionMode::ContextualFiltered,
+        Some("light") => RevisionMode::Light,
         Some("none") => RevisionMode::None,
-        _ => RevisionMode::Light, // "light" or unspecified
+        _ => RevisionMode::Standard,
     };
 
     // Determine which steps to run
@@ -7703,8 +7725,10 @@ async fn instantiate_template(
     // Parse and queue NLP pipeline
     let revision_mode = match body.revision_mode.as_deref() {
         Some("none") => RevisionMode::None,
-        Some("full") => RevisionMode::Full,
-        _ => RevisionMode::Light,
+        Some("full") | Some("contextual") => RevisionMode::Contextual,
+        Some("contextual_filtered") => RevisionMode::ContextualFiltered,
+        Some("light") => RevisionMode::Light,
+        _ => RevisionMode::Standard,
     };
     // Determine schema for background jobs (Issue #413)
     let schema_for_jobs = if archive_ctx.schema != "public" {

@@ -82,7 +82,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -90,6 +90,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                    ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE TRUE {}
             ORDER BY e.note_id, e.vector <=> $1::vector
@@ -151,7 +152,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
                    e.vector AS vector,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -159,6 +160,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                    ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE TRUE {}
             ORDER BY e.note_id, e.vector <=> $1::vector
@@ -297,7 +299,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -305,6 +307,7 @@ impl PgEmbeddingRepository {
                    ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE e.embedding_set_id = $3 {}
             ORDER BY e.note_id, e.vector <=> $1::vector
@@ -395,7 +398,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -404,6 +407,7 @@ impl PgEmbeddingRepository {
             FROM embedding e
             JOIN filtered_notes fn ON fn.id = e.note_id
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             ORDER BY e.note_id, e.vector <=> $1::vector
             "#,
@@ -639,7 +643,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -647,6 +651,7 @@ impl PgEmbeddingRepository {
                    ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE TRUE {}
             ORDER BY e.note_id, e.vector <=> $1::vector
@@ -710,7 +715,7 @@ impl PgEmbeddingRepository {
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
                    e.vector AS vector,
-                   left(convert_from(convert_to(nrc.content, 'UTF8'), 'UTF8'), 200) AS snippet,
+                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -718,6 +723,7 @@ impl PgEmbeddingRepository {
                    ) as tags
             FROM embedding e
             JOIN note n ON n.id = e.note_id
+            LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
             WHERE TRUE {}
             ORDER BY e.note_id, e.vector <=> $1::vector

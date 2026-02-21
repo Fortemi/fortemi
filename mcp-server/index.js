@@ -3581,7 +3581,7 @@ When you create a note via \`capture_knowledge\`, the system runs a **two-phase 
 
 ## Quick Start
 
-1. Create notes with \`create_note\` - choose appropriate revision_mode
+1. Create notes with \`create_note\` - default \`standard\` mode works for most content
 2. Search with \`search_notes\` - use mode="semantic" for conceptual search
 3. Explore links with \`get_note_links\` - backlinks show what references your note
 4. Discover related notes with \`get_related_notes\` - combines similarity + links with optional LLM context
@@ -3671,9 +3671,14 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 
 | Mode | When to Use | Behavior |
 |------|-------------|----------|
-| \`full\` (default) | Technical concepts, research | Full contextual expansion |
-| \`light\` | Facts, quick thoughts | Formatting only |
+| \`standard\` (default) | Most content | Isolated intelligent revision — works only with the note's own content |
+| \`contextual\` | Research, synthesis | Two-phase: isolated revision, then cross-references related notes for enrichment |
+| \`contextual_filtered\` | Scoped synthesis | Like contextual, but only cross-references notes sharing matching tags |
+| \`light\` | Facts, quick thoughts | Formatting only — no content changes |
 | \`none\` | Exact quotes, data imports | No AI processing |
+| \`full\` (legacy) | Backward compatibility | Alias for \`contextual\` |
+
+**Why two-phase contextual?** Phase 1 (standard) produces a clean revision working only with your content. Phase 2 uses that clean output to find related notes and optionally enrich with cross-references — preventing external content from overwhelming your original note.
 
 ## Title Generation
 
@@ -3716,12 +3721,13 @@ Title is extracted automatically **regardless of revision_mode**:
 ## Processing Pipeline
 
 After create_note/update_note:
-1. AI Revision (if mode != none)
-2. Embedding generation
-3. Title extraction
-4. Semantic link creation
+1. **AI Revision Phase 1** (if mode != none/light): Isolated intelligent revision
+2. **AI Revision Phase 2** (contextual modes only): Cross-reference enrichment using related notes
+3. Embedding generation
+4. Title extraction
+5. Semantic link creation
 
-**Jobs are asynchronous** - use \`list_jobs\` to check progress.
+**Jobs are asynchronous** - use \`list_jobs\` or subscribe to SSE events at \`/api/v1/events\` to monitor progress. See \`get_documentation(topic='streaming')\` for real-time monitoring.
 
 ## Best Practices
 
@@ -4021,7 +4027,7 @@ diff_note_versions({ note_id: "uuid", from_version: 1, to_version: 3 })
 4. If mistake, restore: \`restore_note_version\`
 
 ### AI Enhancement Review
-1. Create note with \`revision_mode: "full"\`
+1. Create note with \`revision_mode: "standard"\` (default) or \`"contextual"\` for cross-referencing
 2. Compare tracks: get original and revised versions
 3. If AI added unwanted content, restore original
 4. Re-create with \`revision_mode: "light"\` or \`"none"\`
@@ -4138,7 +4144,8 @@ instantiate_template({
 
 - Use descriptive variable names: \`{{project_name}}\` not \`{{x}}\`
 - Include default_tags for automatic categorization
-- Use \`revision_mode: "light"\` for structured templates`,
+- Use \`revision_mode: "light"\` for structured templates
+- Use \`revision_mode: "standard"\` for templates that benefit from intelligent revision`,
 
   backup: `# Backup & Restore
 
@@ -4271,7 +4278,7 @@ knowledge_shard_import({ file_path: "/path/to/other.tar.gz", on_conflict: "repla
 ## Pattern 4: Dual-Track Mind
 
 - **Raw observations**: \`revision_mode: "none"\`
-- **Synthesized insights**: \`revision_mode: "full"\`
+- **Synthesized insights**: \`revision_mode: "contextual"\` (cross-references related notes)
 
 ## Pattern 5: Graph Exploration
 
@@ -4705,17 +4712,19 @@ get_notes_activity({ limit: 50, event_types: ["created", "updated"] })
 
   jobs: `# Background Jobs & Processing
 
-Monitor and manage the asynchronous NLP processing pipeline.
+Monitor and manage the asynchronous NLP processing pipeline. For real-time monitoring via SSE, see \`get_documentation(topic='streaming')\`.
 
 ## How Jobs Work
 
 After \`create_note\` or \`update_note\`, background jobs run:
-1. **ai_revision** - Content enhancement (if revision_mode != "none")
-2. **embedding** - Vector embedding generation
-3. **title_generation** - Automatic title extraction
-4. **linking** - Semantic link calculation
+1. **ai_revision** - Phase 1: Isolated content enhancement (if revision_mode != "none")
+2. **ai_revision_contextual** - Phase 2: Cross-reference enrichment (contextual modes only)
+3. **embedding** - Vector embedding generation
+4. **title_generation** - Automatic title extraction
+5. **concept_tagging** - SKOS concept extraction
+6. **linking** - Semantic link calculation
 
-Jobs run asynchronously - content may not be immediately searchable.
+Jobs run asynchronously - content may not be immediately searchable. Subscribe to SSE events at \`/api/v1/events?types=job\` for real-time job lifecycle updates.
 
 ## Monitoring Jobs
 
@@ -5481,6 +5490,157 @@ Use \`get_system_info\` to verify 3D model processing is configured:
 **Rendering failures**
 - Very complex models may exceed rendering timeout
 - Check API logs for renderer errors`,
+
+  streaming: `# Real-Time Event Streaming (SSE)
+
+Monitor job progress and system events in real-time via Server-Sent Events.
+
+## Connecting
+
+\`\`\`bash
+# Subscribe to all events
+curl -N https://your-domain.com/api/v1/events
+
+# With authentication
+curl -N -H "Authorization: Bearer mm_at_xxx" https://your-domain.com/api/v1/events
+
+# Or via query param (useful for EventSource)
+curl -N "https://your-domain.com/api/v1/events?token=mm_at_xxx"
+
+# Filter to job events only
+curl -N "https://your-domain.com/api/v1/events?types=job"
+
+# Filter to specific event types
+curl -N "https://your-domain.com/api/v1/events?types=job.completed,job.failed"
+
+# Filter to a specific entity
+curl -N "https://your-domain.com/api/v1/events?entity_id=<note-uuid>"
+\`\`\`
+
+## Event Types
+
+### Job Lifecycle Events
+
+| Event | When | Payload |
+|-------|------|---------|
+| \`job.queued\` | Job added to queue | \`{ job_id, job_type, note_id }\` |
+| \`job.started\` | Job begins processing | \`{ job_id, job_type, note_id }\` |
+| \`job.progress\` | Chunk/step progress update | \`{ job_id, note_id, progress, message }\` |
+| \`job.completed\` | Job finished successfully | \`{ job_id, job_type, note_id, result }\` |
+| \`job.failed\` | Job failed | \`{ job_id, job_type, note_id, error }\` |
+
+### Note Events
+
+| Event | When | Payload |
+|-------|------|---------|
+| \`note.created\` | New note created | \`{ note_id }\` |
+| \`note.updated\` | Note content/metadata changed | \`{ note_id }\` |
+| \`note.deleted\` | Note soft-deleted | \`{ note_id }\` |
+
+### System Events
+
+| Event | When | Payload |
+|-------|------|---------|
+| \`queue.status\` | Periodic queue statistics | \`{ running, pending }\` |
+| \`tag.stats.updated\` | Tag statistics refreshed | \`{}\` |
+
+## Monitoring Long-Running Jobs
+
+Jobs that process content in chunks (like bulk reprocessing or extraction) emit \`job.progress\` events:
+
+\`\`\`
+event: job.progress
+data: {"type":"JobProgress","job_id":"abc-123","progress":33,"message":"Processing chunk 1/3"}
+
+event: job.progress
+data: {"type":"JobProgress","job_id":"abc-123","progress":66,"message":"Processing chunk 2/3"}
+
+event: job.progress
+data: {"type":"JobProgress","job_id":"abc-123","progress":100,"message":"Processing chunk 3/3"}
+
+event: job.completed
+data: {"type":"JobCompleted","job_id":"abc-123","job_type":"metadata_extraction","note_id":"def-456"}
+\`\`\`
+
+## Two-Phase Revision Pipeline Events
+
+When using \`contextual\` or \`contextual_filtered\` revision mode, you'll see two job sequences:
+
+\`\`\`
+# Phase 1: Isolated revision
+event: job.queued
+data: {"type":"JobQueued","job_id":"aaa","job_type":"ai_revision","note_id":"note-1"}
+
+event: job.started
+data: {"type":"JobStarted","job_id":"aaa","job_type":"ai_revision","note_id":"note-1"}
+
+event: job.completed
+data: {"type":"JobCompleted","job_id":"aaa","job_type":"ai_revision","note_id":"note-1"}
+
+# Phase 2: Contextual enrichment (automatically queued after Phase 1)
+event: job.queued
+data: {"type":"JobQueued","job_id":"bbb","job_type":"ai_revision_contextual","note_id":"note-1"}
+
+event: job.started
+data: {"type":"JobStarted","job_id":"bbb","job_type":"ai_revision_contextual","note_id":"note-1"}
+
+event: job.completed
+data: {"type":"JobCompleted","job_id":"bbb","job_type":"ai_revision_contextual","note_id":"note-1"}
+\`\`\`
+
+## JavaScript EventSource Example
+
+\`\`\`javascript
+const source = new EventSource('/api/v1/events?types=job&token=mm_at_xxx');
+
+source.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  switch (data.type) {
+    case 'JobQueued':
+      console.log(\\\`Job \\\${data.job_type} queued for note \\\${data.note_id}\\\`);
+      break;
+    case 'JobProgress':
+      console.log(\\\`Progress: \\\${data.progress}% - \\\${data.message}\\\`);
+      break;
+    case 'JobCompleted':
+      console.log(\\\`Job \\\${data.job_type} completed for note \\\${data.note_id}\\\`);
+      break;
+    case 'JobFailed':
+      console.error(\\\`Job \\\${data.job_type} failed: \\\${data.error}\\\`);
+      break;
+  }
+};
+
+source.onerror = () => {
+  console.log('Connection lost, reconnecting...');
+};
+\`\`\`
+
+## Envelope Format
+
+All events are wrapped in an EventEnvelope:
+
+\`\`\`json
+{
+  "id": "evt_abc123",
+  "event_type": "job.completed",
+  "timestamp": "2026-02-21T12:00:00Z",
+  "actor": { "type": "system" },
+  "data": { "job_id": "...", "job_type": "ai_revision", "note_id": "..." }
+}
+\`\`\`
+
+## Reconnection
+
+The SSE endpoint supports \`Last-Event-ID\` for reconnection. The browser's EventSource API handles this automatically. Events have monotonically increasing IDs.
+
+## Best Practices
+
+1. Use \`?types=job\` filter when monitoring specific job pipelines — reduces noise
+2. For bulk operations, track the complete pipeline: \`job.queued\` → \`job.started\` → \`job.progress\` → \`job.completed\`/\`job.failed\`
+3. The \`job.progress\` event coalesces — if multiple progress updates fire rapidly, the SSE endpoint delivers only the latest
+4. Use \`get_pending_jobs_count()\` for a quick synchronous check; use SSE for real-time monitoring
+5. The AsyncAPI spec at \`/api/v1/asyncapi\` documents all event types with JSON Schemas`,
 };
 
 // Combine all documentation for "all" topic

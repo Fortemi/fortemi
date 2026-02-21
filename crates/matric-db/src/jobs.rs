@@ -95,6 +95,7 @@ impl PgJobRepository {
     fn job_type_to_str(job_type: JobType) -> &'static str {
         match job_type {
             JobType::AiRevision => "ai_revision",
+            JobType::AiRevisionContextual => "ai_revision_contextual",
             JobType::Embedding => "embedding",
             JobType::Linking => "linking",
             JobType::ContextUpdate => "context_update",
@@ -124,6 +125,7 @@ impl PgJobRepository {
     fn str_to_job_type(s: &str) -> JobType {
         match s {
             "ai_revision" => JobType::AiRevision,
+            "ai_revision_contextual" => JobType::AiRevisionContextual,
             "embedding" => JobType::Embedding,
             "linking" => JobType::Linking,
             "context_update" => JobType::ContextUpdate,

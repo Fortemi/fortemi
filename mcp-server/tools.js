@@ -201,7 +201,7 @@ export default [
   },
   {
     name: "capture_knowledge",
-    description: `Add knowledge to the active memory. Each note triggers the full NLP pipeline: AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, tag-enriched embedding, and semantic linking — all automatic. Set revision_mode='none' to skip AI revision but keep auto-tagging/embedding/linking. See \`get_documentation(topic='notes')\`.`,
+    description: `Add knowledge to the active memory. Each note triggers the full NLP pipeline: AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, tag-enriched embedding, and semantic linking — all automatic. Default revision_mode is 'standard' (isolated intelligent revision). Use 'contextual' for cross-referencing with related notes, or 'none' to skip AI revision. See \`get_documentation(topic='notes')\`.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -240,11 +240,14 @@ export default [
               "revision_mode": {
                 "type": "string",
                 "enum": [
-                  "full",
+                  "standard",
+                  "contextual",
+                  "contextual_filtered",
                   "light",
-                  "none"
+                  "none",
+                  "full"
                 ],
-                "default": "light"
+                "default": "standard"
               },
               "document_type": {
                 "type": "string",
@@ -299,12 +302,15 @@ export default [
         "revision_mode": {
           "type": "string",
           "enum": [
-            "full",
+            "standard",
+            "contextual",
+            "contextual_filtered",
             "light",
-            "none"
+            "none",
+            "full"
           ],
-          "description": "AI revision mode: 'full' (default), 'light' (format only), 'none' (skip)",
-          "default": "light"
+          "description": "AI revision mode: 'standard' (default, isolated intelligent revision), 'contextual' (two-phase: isolated revision then cross-reference enhancement), 'contextual_filtered' (contextual scoped to matching tags), 'light' (formatting only), 'none' (skip). 'full' is a legacy alias for 'contextual'.",
+          "default": "standard"
         },
         "collection_id": {
           "type": "string",
@@ -1650,12 +1656,15 @@ export default [
         "revision_mode": {
           "type": "string",
           "enum": [
-            "full",
+            "standard",
+            "contextual",
+            "contextual_filtered",
             "light",
-            "none"
+            "none",
+            "full"
           ],
-          "description": "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
-          "default": "light"
+          "description": "AI revision mode: 'standard' (default, isolated intelligent revision), 'contextual' (two-phase: isolated revision then cross-reference enhancement), 'contextual_filtered' (contextual scoped to matching tags), 'light' (formatting only), 'none' (skip). 'full' is a legacy alias for 'contextual'.",
+          "default": "standard"
         },
         "collection_id": {
           "type": "string",
@@ -1703,12 +1712,15 @@ export default [
               "revision_mode": {
                 "type": "string",
                 "enum": [
-                  "full",
+                  "standard",
+                  "contextual",
+                  "contextual_filtered",
                   "light",
-                  "none"
+                  "none",
+                  "full"
                 ],
                 "description": "AI revision mode for this note",
-                "default": "light"
+                "default": "standard"
               }
             },
             "required": [
@@ -1748,12 +1760,15 @@ export default [
         "revision_mode": {
           "type": "string",
           "enum": [
-            "full",
+            "standard",
+            "contextual",
+            "contextual_filtered",
             "light",
-            "none"
+            "none",
+            "full"
           ],
-          "description": "AI revision mode: 'full' (default) for contextual expansion, 'light' for formatting only without inventing details, 'none' to skip AI revision entirely",
-          "default": "light"
+          "description": "AI revision mode: 'standard' (default, isolated intelligent revision), 'contextual' (two-phase: isolated revision then cross-reference enhancement), 'contextual_filtered' (contextual scoped to matching tags), 'light' (formatting only), 'none' (skip). 'full' is a legacy alias for 'contextual'.",
+          "default": "standard"
         },
         "metadata": {
           "type": "object",
@@ -2480,12 +2495,15 @@ export default [
         "revision_mode": {
           "type": "string",
           "enum": [
-            "full",
+            "standard",
+            "contextual",
+            "contextual_filtered",
             "light",
-            "none"
+            "none",
+            "full"
           ],
-          "description": "AI revision mode (default: light)",
-          "default": "light"
+          "description": "AI revision mode (default: standard)",
+          "default": "standard"
         }
       },
       "required": [
@@ -4000,6 +4018,7 @@ export default [
             "audio",
             "video",
             "3d-models",
+            "streaming",
             "workflows",
             "troubleshooting",
             "contributing",
@@ -5052,7 +5071,7 @@ export default [
   },
   {
     name: "reprocess_note",
-    description: `Re-run the full AI processing pipeline on a note (revision, embedding, linking). Set revision_mode to control AI enhancement level.`,
+    description: `Re-run the full AI processing pipeline on a note (revision, embedding, linking). Set revision_mode to control AI enhancement level: 'standard' (isolated), 'contextual' (cross-referencing), 'light', or 'none'.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -5082,8 +5101,8 @@ export default [
         },
         "revision_mode": {
           "type": "string",
-          "enum": ["full", "light", "none"],
-          "description": "AI revision mode: 'full' (contextual expansion), 'light' (formatting only, default), 'none' (skip revision)"
+          "enum": ["standard", "contextual", "contextual_filtered", "light", "none", "full"],
+          "description": "AI revision mode: 'standard' (default, isolated intelligent revision), 'contextual' (two-phase with cross-referencing), 'contextual_filtered' (contextual scoped to tags), 'light' (formatting only), 'none' (skip). 'full' is legacy alias for 'contextual'."
         },
         "model": {
           "type": "string",
@@ -5105,7 +5124,7 @@ export default [
     name: "bulk_reprocess_notes",
     description: `Bulk reprocess multiple notes through the AI pipeline — the "Make Smarter" operation.
 
-Queues AI revision, embedding, and linking jobs for many notes at once. Use revision_mode "full" for deep contextual enhancement that cross-references related notes, or omit for light formatting cleanup.
+Queues AI revision, embedding, and linking jobs for many notes at once. Use revision_mode "contextual" for deep cross-referencing enhancement, "standard" (default) for isolated intelligent revision, or "none" to skip revision.
 
 When called without note_ids, processes all notes in the current archive (up to the limit).`,
     inputSchema: {
@@ -5114,12 +5133,15 @@ When called without note_ids, processes all notes in the current archive (up to 
         "revision_mode": {
           "type": "string",
           "enum": [
-            "full",
+            "standard",
+            "contextual",
+            "contextual_filtered",
             "light",
-            "none"
+            "none",
+            "full"
           ],
-          "default": "light",
-          "description": "AI revision mode: 'full' for deep enhancement, 'light' for formatting only (default), 'none' to skip revision"
+          "default": "standard",
+          "description": "AI revision mode: 'standard' (default, isolated intelligent revision), 'contextual' (two-phase with cross-referencing), 'contextual_filtered' (contextual scoped to tags), 'light' (formatting only), 'none' (skip). 'full' is legacy alias for 'contextual'."
         },
         "note_ids": {
           "type": "array",
