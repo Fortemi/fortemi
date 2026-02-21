@@ -1627,3 +1627,8 @@ Builds on Phase 3 (requires both Vision and Audio adapters).
 - Fast-paced content (music videos, action sequences) may merge distinct scenes
 - Very slow content (lectures) may have sparse windows
 - Future: could adapt window size based on scene-change density
+
+## See Also
+
+- [Job Monitoring](job-monitoring.md) - Monitor extraction and NLP pipeline jobs via SSE
+- [Real-Time Events](real-time-events.md) - Full SSE/WebSocket/Webhook documentation

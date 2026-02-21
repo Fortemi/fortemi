@@ -335,7 +335,7 @@ impl JobHandler for ExtractionHandler {
                         };
 
                         for job_type in &downstream_types {
-                            if let Err(e) = self
+                            match self
                                 .db
                                 .jobs
                                 .queue_deduplicated(
@@ -347,12 +347,18 @@ impl JobHandler for ExtractionHandler {
                                 )
                                 .await
                             {
-                                error!(
-                                    note_id = %note_id,
-                                    job_type = ?job_type,
-                                    error = %e,
-                                    "Failed to re-queue downstream job after extraction"
-                                );
+                                Ok(Some(job_id)) => {
+                                    ctx.emit_job_queued(job_id, *job_type, Some(note_id));
+                                }
+                                Ok(None) => {} // Deduplicated
+                                Err(e) => {
+                                    error!(
+                                        note_id = %note_id,
+                                        job_type = ?job_type,
+                                        error = %e,
+                                        "Failed to re-queue downstream job after extraction"
+                                    );
+                                }
                             }
                         }
 

@@ -96,6 +96,12 @@ impl WorkerConfig {
 /// Event emitted by the job worker.
 #[derive(Debug, Clone)]
 pub enum WorkerEvent {
+    /// A downstream job was queued by a handler (not directly by user request).
+    JobQueued {
+        job_id: Uuid,
+        job_type: JobType,
+        note_id: Option<Uuid>,
+    },
     /// A job was started.
     JobStarted { job_id: Uuid, job_type: JobType },
     /// Job progress was updated.
@@ -507,13 +513,16 @@ impl JobWorkerRef {
         let result = match handler {
             Some(handler) => {
                 let event_tx = self.event_tx.clone();
-                let ctx = JobContext::new(job).with_progress_callback(move |percent, message| {
-                    let _ = event_tx.send(WorkerEvent::JobProgress {
-                        job_id,
-                        percent,
-                        message: message.map(String::from),
-                    });
-                });
+                let event_tx_for_ctx = self.event_tx.clone();
+                let ctx = JobContext::new(job)
+                    .with_progress_callback(move |percent, message| {
+                        let _ = event_tx.send(WorkerEvent::JobProgress {
+                            job_id,
+                            percent,
+                            message: message.map(String::from),
+                        });
+                    })
+                    .with_event_tx(event_tx_for_ctx);
 
                 let timeout_secs = matric_core::defaults::job_timeout_secs();
                 let job_timeout = Duration::from_secs(timeout_secs);
@@ -935,5 +944,51 @@ mod tests {
         assert_eq!(config1.poll_interval_ms, config2.poll_interval_ms);
         assert_eq!(config1.max_concurrent_jobs, config2.max_concurrent_jobs);
         assert_eq!(config1.enabled, config2.enabled);
+    }
+
+    #[test]
+    fn test_worker_event_job_queued() {
+        let job_id = Uuid::new_v4();
+        let note_id = Uuid::new_v4();
+        let event = WorkerEvent::JobQueued {
+            job_id,
+            job_type: JobType::Embedding,
+            note_id: Some(note_id),
+        };
+
+        match event {
+            WorkerEvent::JobQueued {
+                job_id: id,
+                job_type,
+                note_id: nid,
+            } => {
+                assert_eq!(id, job_id);
+                assert_eq!(job_type, JobType::Embedding);
+                assert_eq!(nid, Some(note_id));
+            }
+            _ => panic!("Wrong event variant"),
+        }
+    }
+
+    #[test]
+    fn test_worker_event_job_queued_no_note() {
+        let job_id = Uuid::new_v4();
+        let event = WorkerEvent::JobQueued {
+            job_id,
+            job_type: JobType::GraphMaintenance,
+            note_id: None,
+        };
+
+        match event {
+            WorkerEvent::JobQueued {
+                note_id: nid,
+                job_type,
+                ..
+            } => {
+                assert!(nid.is_none());
+                assert_eq!(job_type, JobType::GraphMaintenance);
+            }
+            _ => panic!("Wrong event variant"),
+        }
     }
 }

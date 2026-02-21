@@ -328,9 +328,7 @@ async fn test_worker_broadcasts_progress_events() {
     let pool = setup_test_pool().await;
     let db = Database::new(pool);
 
-    let job_id = create_test_job(&db, JobType::BuildSetIndex, None, 10).await;
-
-    // NoOpHandler reports progress
+    // Start worker and subscribe BEFORE creating the job to avoid race condition
     let worker = WorkerBuilder::new(db.clone())
         .with_config(WorkerConfig::default().with_poll_interval(100))
         .with_handler(NoOpHandler::new(JobType::BuildSetIndex))
@@ -340,21 +338,33 @@ async fn test_worker_broadcasts_progress_events() {
     let handle = worker.start();
     let mut events = handle.events();
 
-    // Collect progress events
+    // Wait for worker to be ready
+    sleep(Duration::from_millis(50)).await;
+
+    // Create job AFTER subscribing so we don't miss progress events
+    let job_id = create_test_job(&db, JobType::BuildSetIndex, None, 10).await;
+
+    // Collect progress events — wait for OUR job specifically (stale jobs may exist)
     let mut progress_events = Vec::new();
-    let timeout = Duration::from_secs(5);
+    let timeout = Duration::from_secs(10);
     let start = std::time::Instant::now();
 
     while start.elapsed() < timeout {
         tokio::select! {
             event = events.recv() => {
-                if let Ok(WorkerEvent::JobProgress { job_id: id, percent, message }) = event {
-                    if id == job_id {
-                        progress_events.push((percent, message));
+                match event {
+                    Ok(WorkerEvent::JobProgress { job_id: id, percent, message }) => {
+                        if id == job_id {
+                            progress_events.push((percent, message));
+                            if percent == 100 {
+                                break;
+                            }
+                        }
                     }
-                    if percent == 100 {
+                    Ok(WorkerEvent::JobCompleted { job_id: id, .. }) if id == job_id => {
                         break;
                     }
+                    _ => {}
                 }
             }
             _ = sleep(Duration::from_millis(50)) => {}
@@ -364,7 +374,9 @@ async fn test_worker_broadcasts_progress_events() {
     // NoOpHandler reports 50% and 100% progress
     assert!(
         progress_events.len() >= 2,
-        "Should receive at least 2 progress events"
+        "Should receive at least 2 progress events for job {}, got {}",
+        job_id,
+        progress_events.len(),
     );
     assert!(
         progress_events.iter().any(|(p, _)| *p == 50),

@@ -2,11 +2,14 @@
 
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use matric_core::{Job, JobType};
 
 use std::sync::Arc;
+
+use crate::worker::WorkerEvent;
 
 /// Progress callback type for job handlers.
 pub type ProgressCallback = Arc<dyn Fn(i32, Option<&str>) + Send + Sync>;
@@ -17,6 +20,8 @@ pub struct JobContext {
     pub job: Job,
     /// Progress callback for updating job progress.
     progress_callback: Option<ProgressCallback>,
+    /// Event broadcast sender for emitting worker events (e.g. downstream job.queued).
+    event_tx: Option<broadcast::Sender<WorkerEvent>>,
 }
 
 impl JobContext {
@@ -25,6 +30,7 @@ impl JobContext {
         Self {
             job,
             progress_callback: None,
+            event_tx: None,
         }
     }
 
@@ -37,10 +43,30 @@ impl JobContext {
         self
     }
 
+    /// Set the worker event broadcast sender.
+    pub fn with_event_tx(mut self, event_tx: broadcast::Sender<WorkerEvent>) -> Self {
+        self.event_tx = Some(event_tx);
+        self
+    }
+
     /// Report progress to the callback.
     pub fn report_progress(&self, percent: i32, message: Option<&str>) {
         if let Some(ref callback) = self.progress_callback {
             callback(percent, message);
+        }
+    }
+
+    /// Emit a `JobQueued` event for a downstream job queued by this handler.
+    ///
+    /// This bridges the gap where handler-initiated downstream jobs (e.g.
+    /// extraction → embedding) were missing `job.queued` SSE events.
+    pub fn emit_job_queued(&self, job_id: Uuid, job_type: JobType, note_id: Option<Uuid>) {
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(WorkerEvent::JobQueued {
+                job_id,
+                job_type,
+                note_id,
+            });
         }
     }
 
@@ -547,5 +573,75 @@ mod tests {
         assert!(ctx.job.progress_message.is_some());
         assert_eq!(ctx.job.created_at, created_at);
         assert_eq!(ctx.job.started_at, Some(started_at));
+    }
+
+    #[test]
+    fn test_job_context_emit_job_queued_no_event_tx() {
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: None,
+            job_type: JobType::Embedding,
+            status: matric_core::JobStatus::Pending,
+            priority: 0,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            completed_at: None,
+            cost_tier: None,
+        };
+
+        let ctx = JobContext::new(job);
+        // Should not panic when event_tx is None
+        ctx.emit_job_queued(Uuid::new_v4(), JobType::Embedding, Some(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn test_job_context_emit_job_queued_with_event_tx() {
+        let (tx, mut rx) = broadcast::channel(16);
+
+        let job = Job {
+            id: Uuid::new_v4(),
+            note_id: None,
+            job_type: JobType::Embedding,
+            status: matric_core::JobStatus::Pending,
+            priority: 0,
+            payload: None,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 3,
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            completed_at: None,
+            cost_tier: None,
+        };
+
+        let downstream_job_id = Uuid::new_v4();
+        let note_id = Uuid::new_v4();
+
+        let ctx = JobContext::new(job).with_event_tx(tx);
+        ctx.emit_job_queued(downstream_job_id, JobType::Linking, Some(note_id));
+
+        let event = rx.try_recv().expect("Should receive JobQueued event");
+        match event {
+            WorkerEvent::JobQueued {
+                job_id,
+                job_type,
+                note_id: nid,
+            } => {
+                assert_eq!(job_id, downstream_job_id);
+                assert_eq!(job_type, JobType::Linking);
+                assert_eq!(nid, Some(note_id));
+            }
+            _ => panic!("Expected JobQueued event"),
+        }
     }
 }

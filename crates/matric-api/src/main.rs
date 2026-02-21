@@ -1931,6 +1931,15 @@ async fn bridge_worker_events(
                             error,
                         }
                     }
+                    WorkerEvent::JobQueued {
+                        job_id,
+                        job_type,
+                        note_id,
+                    } => ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", job_type),
+                        note_id,
+                    },
                     WorkerEvent::WorkerStarted | WorkerEvent::WorkerStopped => continue,
                 };
                 event_bus.emit(server_event);
