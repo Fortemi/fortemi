@@ -22,6 +22,7 @@ impl PgTusRepository {
     }
 
     /// Create a new tus upload session.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create(
         &self,
         tx: &mut Transaction<'_, Postgres>,

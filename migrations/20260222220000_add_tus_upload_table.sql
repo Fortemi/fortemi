@@ -6,7 +6,7 @@
 -- Expired rows are cleaned up by a periodic maintenance query.
 
 CREATE TABLE IF NOT EXISTS tus_upload (
-    id              UUID PRIMARY KEY DEFAULT gen_uuid_v7(),
+    id              UUID PRIMARY KEY DEFAULT uuidv7(),
     note_id         UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
     filename        TEXT NOT NULL,
     content_type    TEXT NOT NULL DEFAULT 'application/octet-stream',
