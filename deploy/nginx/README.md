@@ -152,6 +152,40 @@ curl -s https://your-domain.com/ | head -1
 # Expected: <!DOCTYPE html>...
 ```
 
+## Streaming and Large File Operations
+
+The API location block includes settings critical for video/audio streaming and large file uploads/downloads:
+
+### Range Requests (Video/Audio Streaming)
+
+HTML5 `<video>` and `<audio>` elements rely on HTTP Range requests for seeking. The config forwards the `Range` and `If-Range` headers from the client to the upstream API, and `proxy_force_ranges on` ensures nginx preserves the upstream's `Accept-Ranges` and `Content-Range` response headers.
+
+Without these, video players will be unable to seek and audio players won't support progressive playback.
+
+### Upload Size (`client_max_body_size`)
+
+Set to `500M` to accommodate large video, 3D model, and audio uploads. Adjust upward if users upload files larger than 500MB. When uploads exceed this limit, nginx returns 413 Request Entity Too Large before the request reaches the API.
+
+### Request Buffering (`proxy_request_buffering off`)
+
+By default nginx buffers the entire request body in memory/temp files before forwarding to upstream. With `off`, the upload streams directly to the API as it arrives, reducing memory usage and upload latency for large files.
+
+### Response Buffering (`proxy_buffering off`)
+
+Disabled for the API location to support SSE (Server-Sent Events) and large file downloads. Responses stream directly from the API to the client without nginx buffering them in temp files.
+
+### Timeouts
+
+- `proxy_read_timeout 600s` — 10 minutes for large extraction jobs that take time
+- `proxy_send_timeout 600s` — 10 minutes for slow clients downloading large files
+
+### Gzip (`gzip_proxied off`)
+
+Disabled for proxied responses in the API block because:
+1. Gzip compression interferes with Range requests (compressed responses can't be byte-ranged)
+2. Binary media files (video, audio, 3D models) don't compress well
+3. The API already serves pre-compressed text responses where beneficial
+
 ## Troubleshooting
 
 ### HTML Responses Instead of JSON
