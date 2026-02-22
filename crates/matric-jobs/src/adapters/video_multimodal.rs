@@ -463,17 +463,22 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                         }
                         if persist_keyframes {
                             for (i, entry) in frame_entries.iter().enumerate() {
+                                let frame_data = fs::read(&entry.path).unwrap_or_default();
+                                if frame_data.is_empty() {
+                                    warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                    continue;
+                                }
                                 derived_files.push(DerivedFile {
                                     filename: format!("{}_keyframe_{:04}.jpg", base_name, i),
                                     content_type: "image/jpeg".to_string(),
-                                    data: Vec::new(),
+                                    data: frame_data,
                                     derivation_type: "keyframe".to_string(),
                                     ai_description: None,
                                     metadata: Some(json!({
                                         "frame_index": i,
                                         "timestamp_secs": entry.timestamp_secs,
                                     })),
-                                    source_path: Some(entry.path.clone()),
+                                    source_path: None,
                                 });
                             }
                             debug!(
@@ -521,21 +526,26 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
                                     // Persist keyframe JPEG as derived attachment
                                     if persist_keyframes {
-                                        derived_files.push(DerivedFile {
-                                            filename: format!(
-                                                "{}_keyframe_{:04}.jpg",
-                                                base_name, i
-                                            ),
-                                            content_type: "image/jpeg".to_string(),
-                                            data: Vec::new(), // read from source_path
-                                            derivation_type: "keyframe".to_string(),
-                                            ai_description: Some(description.clone()),
-                                            metadata: Some(json!({
-                                                "frame_index": i,
-                                                "timestamp_secs": entry.timestamp_secs,
-                                            })),
-                                            source_path: Some(entry.path.clone()),
-                                        });
+                                        let frame_data = fs::read(&entry.path).unwrap_or_default();
+                                        if frame_data.is_empty() {
+                                            warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                        } else {
+                                            derived_files.push(DerivedFile {
+                                                filename: format!(
+                                                    "{}_keyframe_{:04}.jpg",
+                                                    base_name, i
+                                                ),
+                                                content_type: "image/jpeg".to_string(),
+                                                data: frame_data,
+                                                derivation_type: "keyframe".to_string(),
+                                                ai_description: Some(description.clone()),
+                                                metadata: Some(json!({
+                                                    "frame_index": i,
+                                                    "timestamp_secs": entry.timestamp_secs,
+                                                })),
+                                                source_path: None,
+                                            });
+                                        }
                                     }
 
                                     // Update sliding window
@@ -787,17 +797,22 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                         // KeyframeVision jobs will describe each frame independently.
                         if persist_keyframes {
                             for (i, entry) in frame_entries.iter().enumerate() {
+                                let frame_data = fs::read(&entry.path).unwrap_or_default();
+                                if frame_data.is_empty() {
+                                    warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                    continue;
+                                }
                                 derived_files.push(DerivedFile {
                                     filename: format!("{}_keyframe_{:04}.jpg", base_name, i),
                                     content_type: "image/jpeg".to_string(),
-                                    data: Vec::new(),
+                                    data: frame_data,
                                     derivation_type: "keyframe".to_string(),
                                     ai_description: None,
                                     metadata: Some(json!({
                                         "frame_index": i,
                                         "timestamp_secs": entry.timestamp_secs,
                                     })),
-                                    source_path: Some(entry.path.clone()),
+                                    source_path: None,
                                 });
                             }
                             progress(
@@ -870,21 +885,26 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
                                         // Persist keyframe JPEG as derived attachment
                                         if persist_keyframes {
-                                            derived_files.push(DerivedFile {
-                                                filename: format!(
-                                                    "{}_keyframe_{:04}.jpg",
-                                                    base_name, i
-                                                ),
-                                                content_type: "image/jpeg".to_string(),
-                                                data: Vec::new(),
-                                                derivation_type: "keyframe".to_string(),
-                                                ai_description: Some(description.clone()),
-                                                metadata: Some(json!({
-                                                    "frame_index": i,
-                                                    "timestamp_secs": entry.timestamp_secs,
-                                                })),
-                                                source_path: Some(entry.path.clone()),
-                                            });
+                                            let frame_data = fs::read(&entry.path).unwrap_or_default();
+                                            if frame_data.is_empty() {
+                                                warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
+                                            } else {
+                                                derived_files.push(DerivedFile {
+                                                    filename: format!(
+                                                        "{}_keyframe_{:04}.jpg",
+                                                        base_name, i
+                                                    ),
+                                                    content_type: "image/jpeg".to_string(),
+                                                    data: frame_data,
+                                                    derivation_type: "keyframe".to_string(),
+                                                    ai_description: Some(description.clone()),
+                                                    metadata: Some(json!({
+                                                        "frame_index": i,
+                                                        "timestamp_secs": entry.timestamp_secs,
+                                                    })),
+                                                    source_path: None,
+                                                });
+                                            }
                                         }
 
                                         prev_descriptions.push(description.clone());
