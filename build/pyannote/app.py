@@ -47,7 +47,7 @@ def load_pipeline():
 
     print(f"Loading pipeline: {_model_name} on {device}")
     start = time.time()
-    _pipeline = Pipeline.from_pretrained(_model_name, use_auth_token=hf_token)
+    _pipeline = Pipeline.from_pretrained(_model_name, token=hf_token)
     _pipeline.to(torch.device(device))
     elapsed = time.time() - start
     print(f"Pipeline loaded in {elapsed:.1f}s")
