@@ -497,12 +497,20 @@ pub struct DerivedFile {
     pub filename: String,
     /// MIME type of the extracted file.
     pub content_type: String,
-    /// Raw binary content.
+    /// Raw binary content. May be empty when `source_path` is set.
     pub data: Vec<u8>,
-    /// Relationship to parent (e.g., "email_attachment", "archive_entry").
+    /// Relationship to parent (e.g., "email_attachment", "archive_entry", "keyframe").
     pub derivation_type: String,
     /// Optional AI-generated description for this derived file.
     pub ai_description: Option<String>,
+    /// Optional structured metadata merged into the derived attachment's `extracted_metadata`.
+    /// Used for keyframe index/timestamp, view angles, etc.
+    pub metadata: Option<JsonValue>,
+    /// Optional path to file on disk instead of holding bytes in `data`.
+    /// When set, the extraction handler reads from this path during persistence,
+    /// allowing large files (keyframe JPEGs, audio tracks) to stay on disk
+    /// instead of accumulating in memory.
+    pub source_path: Option<std::path::PathBuf>,
 }
 
 /// Result of content extraction from a file attachment.

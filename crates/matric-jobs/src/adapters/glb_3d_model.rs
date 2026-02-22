@@ -365,6 +365,8 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                     data: view.image_data.clone(),
                     derivation_type: "3d_rendering".to_string(),
                     ai_description,
+                    metadata: None,
+                    source_path: None,
                 }
             })
             .collect();

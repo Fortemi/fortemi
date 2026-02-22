@@ -413,6 +413,8 @@ fn collect_derived_files(
                     data,
                     derivation_type: "email_attachment".to_string(),
                     ai_description: None,
+                    metadata: None,
+                    source_path: None,
                 });
             }
         }

@@ -1,9 +1,10 @@
 //! ExtractionHandler — dispatches upload → extract → chunk → embed pipeline.
 
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tempfile::NamedTempFile;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use matric_core::{AttachmentStatus, ExtractionStrategy, JobRepository, JobType, ProgressFn};
@@ -34,6 +35,37 @@ fn extract_schema(ctx: &JobContext) -> &str {
 fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResult> {
     db.for_schema(schema)
         .map_err(|e| JobResult::Failed(format!("Invalid schema '{}': {}", schema, e)))
+}
+
+/// Stream-copy a file to a temp location using a windowed buffer.
+///
+/// Reads from `source` in `buffer_size`-byte chunks and writes to a new
+/// temp file. Peak memory usage is bounded to `buffer_size` regardless
+/// of file size. The returned `NamedTempFile` must be kept alive for as
+/// long as the temp path is needed.
+fn stream_copy_to_temp(
+    source: &std::path::Path,
+    buffer_size: usize,
+) -> std::io::Result<NamedTempFile> {
+    use std::io::{BufReader, BufWriter, Read, Write};
+
+    let src = std::fs::File::open(source)?;
+    let tmpfile = NamedTempFile::new()?;
+
+    let mut reader = BufReader::with_capacity(buffer_size, src);
+    let mut writer = BufWriter::with_capacity(buffer_size, tmpfile.reopen()?);
+
+    let mut buf = vec![0u8; buffer_size];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buf[..n])?;
+    }
+    writer.flush()?;
+
+    Ok(tmpfile)
 }
 
 pub struct ExtractionHandler {
@@ -77,7 +109,7 @@ impl JobHandler for ExtractionHandler {
             .get("mime_type")
             .and_then(|v| v.as_str())
             .unwrap_or("application/octet-stream");
-        let config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
+        let mut config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
         // Parse optional attachment_id (used later for persisting results)
         let attachment_id: Option<Uuid> = if let Some(id_str) =
@@ -100,6 +132,27 @@ impl JobHandler for ExtractionHandler {
 
         ctx.report_progress(5, Some("Resolving attachment and strategy"));
 
+        // For strategies that benefit from direct filesystem access (video, audio),
+        // resolve the on-disk path instead of loading the entire file into memory.
+        //
+        // Two modes controlled by VIDEO_FILE_ACCESS env var:
+        //   "direct" (default): inject the storage path directly into config;
+        //     adapter reads from the original file (zero-copy, fastest).
+        //   "stream": stream-copy from storage to temp file using a windowed
+        //     buffer (VIDEO_STREAM_BUFFER_BYTES); never holds more than the
+        //     buffer size in memory. Use when workers need filesystem isolation.
+        //
+        // Both modes fall back to full download for inline (database) storage.
+        let supports_path_access = matches!(
+            strategy,
+            ExtractionStrategy::VideoMultimodal | ExtractionStrategy::AudioTranscribe
+        );
+        let file_access_mode = matric_core::defaults::video_file_access_mode();
+
+        // _stream_tmpfile keeps the temp file alive for the duration of the job.
+        // Dropped at end of scope, cleaning up the temp file automatically.
+        let mut _stream_tmpfile: Option<NamedTempFile> = None;
+
         // Get data: prefer attachment_id (fetch from file storage), fall back to inline data
         let data = if let Some(att_id) = attachment_id {
             let file_storage = match self.db.file_storage.as_ref() {
@@ -107,21 +160,119 @@ impl JobHandler for ExtractionHandler {
                 None => return JobResult::Failed("File storage not configured".into()),
             };
 
-            let mut tx = match schema_ctx.begin_tx().await {
-                Ok(t) => t,
-                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
-            };
-            let result = file_storage.download_file_tx(&mut tx, att_id).await;
-            if let Err(e) = tx.commit().await {
-                return JobResult::Failed(format!("Commit failed: {}", e));
-            }
-            match result {
-                Ok((file_data, _content_type, _filename)) => file_data,
-                Err(e) => {
-                    return JobResult::Failed(format!(
-                        "Failed to download attachment {}: {}",
-                        att_id, e
-                    ))
+            // Try path-based access for supported strategies
+            if supports_path_access {
+                let mut tx = match schema_ctx.begin_tx().await {
+                    Ok(t) => t,
+                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                };
+                let path_result = file_storage.get_file_metadata_tx(&mut tx, att_id).await;
+                if let Err(e) = tx.commit().await {
+                    return JobResult::Failed(format!("Commit failed: {}", e));
+                }
+                match path_result {
+                    Ok(info) => {
+                        if let matric_db::FileSource::Filesystem(ref storage_path) = info.source {
+                            if let Some(fs_path) = file_storage.resolve_storage_path(storage_path) {
+                                let source_path = if file_access_mode
+                                    == matric_core::defaults::VIDEO_FILE_ACCESS_DIRECT
+                                {
+                                    // Direct mode: use the storage path as-is
+                                    debug!(
+                                        mode = "direct",
+                                        path = %fs_path.display(),
+                                        "Using direct file access for extraction"
+                                    );
+                                    fs_path.to_string_lossy().to_string()
+                                } else {
+                                    // Stream mode: windowed copy to temp file
+                                    let buffer_size =
+                                        matric_core::defaults::video_stream_buffer_bytes();
+                                    debug!(
+                                        mode = "stream",
+                                        buffer_bytes = buffer_size,
+                                        source = %fs_path.display(),
+                                        "Streaming file to temp location for extraction"
+                                    );
+                                    match stream_copy_to_temp(&fs_path, buffer_size) {
+                                        Ok(tmpfile) => {
+                                            let path = tmpfile.path().to_string_lossy().to_string();
+                                            _stream_tmpfile = Some(tmpfile);
+                                            path
+                                        }
+                                        Err(e) => {
+                                            return JobResult::Failed(format!(
+                                                "Stream copy failed for {}: {}",
+                                                fs_path.display(),
+                                                e
+                                            ));
+                                        }
+                                    }
+                                };
+
+                                // Inject path into config for the adapter
+                                if let Some(obj) = config.as_object_mut() {
+                                    obj.insert("_source_path".to_string(), json!(source_path));
+                                }
+                                Vec::new() // Empty data — adapter uses _source_path
+                            } else {
+                                // Path couldn't be resolved: download into memory
+                                let mut tx2 = match schema_ctx.begin_tx().await {
+                                    Ok(t) => t,
+                                    Err(e) => {
+                                        return JobResult::Failed(format!(
+                                            "Schema tx failed: {}",
+                                            e
+                                        ))
+                                    }
+                                };
+                                let result = file_storage.download_file_tx(&mut tx2, att_id).await;
+                                if let Err(e) = tx2.commit().await {
+                                    return JobResult::Failed(format!("Commit failed: {}", e));
+                                }
+                                match result {
+                                    Ok((d, _, _)) => d,
+                                    Err(e) => {
+                                        return JobResult::Failed(format!(
+                                            "Failed to download attachment {}: {}",
+                                            att_id, e
+                                        ))
+                                    }
+                                }
+                            }
+                        } else {
+                            // Inline storage: extract the data directly
+                            match info.source {
+                                matric_db::FileSource::Inline(d) => d,
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return JobResult::Failed(format!(
+                            "Failed to get attachment metadata {}: {}",
+                            att_id, e
+                        ))
+                    }
+                }
+            } else {
+                // Non-path strategies: download into memory as before
+                let mut tx = match schema_ctx.begin_tx().await {
+                    Ok(t) => t,
+                    Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+                };
+                let result = file_storage.download_file_tx(&mut tx, att_id).await;
+                if let Err(e) = tx.commit().await {
+                    return JobResult::Failed(format!("Commit failed: {}", e));
+                }
+                match result {
+                    Ok((file_data, _content_type, _filename)) => file_data,
+                    Err(e) => {
+                        return JobResult::Failed(format!(
+                            "Failed to download attachment {}: {}",
+                            att_id, e
+                        ))
+                    }
                 }
             }
         } else if let Some(data_str) = payload.get("data").and_then(|v| v.as_str()) {
@@ -131,6 +282,49 @@ impl JobHandler for ExtractionHandler {
                 "No data provided (expected 'attachment_id' or 'data' field)".into(),
             );
         };
+
+        // Checkpoint/resume: for video extraction, query existing keyframe derived
+        // attachments. If any exist (from a previous partial run), inject their frame
+        // indices so the adapter can skip already-completed frames.
+        if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+            if let Some(att_id) = attachment_id {
+                if let Some(file_storage) = self.db.file_storage.as_ref() {
+                    if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                        match file_storage
+                            .list_derived_by_type_tx(&mut tx, att_id, "keyframe")
+                            .await
+                        {
+                            Ok(existing) if !existing.is_empty() => {
+                                // Extract frame indices from existing keyframes' metadata
+                                let completed_indices: Vec<JsonValue> = existing
+                                    .iter()
+                                    .filter_map(|att| {
+                                        att.extracted_metadata
+                                            .as_ref()
+                                            .and_then(|m| m.get("frame_index").cloned())
+                                    })
+                                    .collect();
+                                if !completed_indices.is_empty() {
+                                    debug!(
+                                        attachment_id = %att_id,
+                                        completed = completed_indices.len(),
+                                        "Checkpoint: found existing keyframes, injecting skip list"
+                                    );
+                                    if let Some(obj) = config.as_object_mut() {
+                                        obj.insert(
+                                            "_checkpoint".to_string(),
+                                            json!({ "completed_frames": completed_indices }),
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        let _ = tx.commit().await;
+                    }
+                }
+            }
+        }
 
         ctx.report_progress(10, Some("Starting extraction"));
 
@@ -510,6 +704,33 @@ impl JobHandler for ExtractionHandler {
                             if let Ok(mut tx) = schema_ctx.begin_tx().await {
                                 let mut stored = 0usize;
                                 for df in &result.derived_files {
+                                    // Resolve file data: use source_path if data is empty
+                                    let file_data = if df.data.is_empty() {
+                                        if let Some(ref path) = df.source_path {
+                                            match std::fs::read(path) {
+                                                Ok(d) => d,
+                                                Err(e) => {
+                                                    warn!(
+                                                        error = %e,
+                                                        path = %path.display(),
+                                                        filename = %df.filename,
+                                                        "Failed to read derived file from source_path"
+                                                    );
+                                                    continue;
+                                                }
+                                            }
+                                        } else {
+                                            // Empty data and no source_path — skip
+                                            warn!(
+                                                filename = %df.filename,
+                                                "Derived file has empty data and no source_path"
+                                            );
+                                            continue;
+                                        }
+                                    } else {
+                                        df.data.clone()
+                                    };
+
                                     match file_storage
                                         .store_derived_attachment_tx(
                                             &mut tx,
@@ -517,13 +738,32 @@ impl JobHandler for ExtractionHandler {
                                             att_id,
                                             &df.filename,
                                             &df.content_type,
-                                            &df.data,
+                                            &file_data,
                                             &df.derivation_type,
                                         )
                                         .await
                                     {
                                         Ok(child_att) => {
                                             stored += 1;
+
+                                            // Merge DerivedFile.metadata into extracted_metadata
+                                            if let Some(ref extra_meta) = df.metadata {
+                                                if let Err(e) = file_storage
+                                                    .merge_extracted_metadata_tx(
+                                                        &mut tx,
+                                                        child_att.id,
+                                                        extra_meta,
+                                                    )
+                                                    .await
+                                                {
+                                                    warn!(
+                                                        error = %e,
+                                                        attachment_id = %child_att.id,
+                                                        "Failed to merge derived file metadata"
+                                                    );
+                                                }
+                                            }
+
                                             // Persist AI description and extracted_text
                                             if let Some(ref desc) = df.ai_description {
                                                 if let Err(e) = file_storage

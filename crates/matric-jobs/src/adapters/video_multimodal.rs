@@ -19,7 +19,7 @@ use tempfile::{NamedTempFile, TempDir};
 use tokio::process::Command;
 use tracing::{debug, warn};
 
-use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
+use matric_core::defaults::{EXTRACTION_CMD_TIMEOUT_SECS, VIDEO_MAX_KEYFRAMES};
 use matric_core::{
     DerivedFile, ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy,
     ProgressFn, Result,
@@ -29,6 +29,64 @@ use matric_inference::vision::VisionBackend;
 
 /// Maximum number of previous frame descriptions to include as temporal context.
 const TEMPORAL_CONTEXT_WINDOW: usize = 3;
+
+/// Writes frame descriptions to individual files in a work directory,
+/// avoiding accumulation in memory. Each description is stored as a JSON
+/// file (`desc_NNNN.json`) and read back at assembly time.
+struct FrameDescriptionWriter {
+    dir: PathBuf,
+    count: usize,
+}
+
+impl FrameDescriptionWriter {
+    fn new(work_dir: &std::path::Path) -> std::io::Result<Self> {
+        let dir = work_dir.join("descriptions");
+        fs::create_dir_all(&dir)?;
+        Ok(Self { dir, count: 0 })
+    }
+
+    /// Write a single frame description to disk and return the count so far.
+    fn write(&mut self, desc: &JsonValue) -> std::io::Result<usize> {
+        let path = self.dir.join(format!("desc_{:04}.json", self.count));
+        let data = serde_json::to_vec(desc)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        fs::write(&path, &data)?;
+        self.count += 1;
+        Ok(self.count)
+    }
+
+    /// Read all descriptions back from disk in order.
+    fn read_all(&self) -> Vec<JsonValue> {
+        let mut results = Vec::with_capacity(self.count);
+        for i in 0..self.count {
+            let path = self.dir.join(format!("desc_{:04}.json", i));
+            if let Ok(data) = fs::read(&path) {
+                if let Ok(val) = serde_json::from_slice(&data) {
+                    results.push(val);
+                }
+            }
+        }
+        results
+    }
+
+    /// Number of descriptions written.
+    fn len(&self) -> usize {
+        self.count
+    }
+}
+
+/// Parse checkpoint data from config, returning the set of already-completed frame indices.
+///
+/// The extraction handler injects `_checkpoint.completed_frames` when resuming a
+/// partially-completed extraction job (Issue 6). Frames in this set are skipped.
+fn parse_checkpoint(config: &JsonValue) -> std::collections::HashSet<u64> {
+    config
+        .get("_checkpoint")
+        .and_then(|cp| cp.get("completed_frames"))
+        .and_then(|arr| arr.as_array())
+        .map(|indices| indices.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default()
+}
 
 pub struct VideoMultimodalAdapter {
     vision: Option<Arc<dyn VisionBackend>>,
@@ -104,6 +162,116 @@ fn parse_keyframe_strategy(config: &JsonValue) -> KeyframeStrategy {
     }
 }
 
+/// Read max_keyframes from config JSON, env var, or default.
+fn read_max_keyframes(config: &JsonValue) -> u32 {
+    // 1. Per-job config override
+    if let Some(v) = config.get("max_keyframes").and_then(|v| v.as_u64()) {
+        return (v as u32).max(1);
+    }
+    // 2. Environment variable
+    if let Ok(v) = std::env::var(matric_core::defaults::ENV_VIDEO_MAX_KEYFRAMES) {
+        if let Ok(n) = v.parse::<u32>() {
+            return n.max(1);
+        }
+    }
+    // 3. Default
+    VIDEO_MAX_KEYFRAMES
+}
+
+/// Adjust keyframe strategy so it produces at most `max_keyframes` for the given duration.
+///
+/// For Interval/Hybrid strategies, increases the interval to `ceil(duration / max)`.
+/// For SceneDetection, the budget is enforced after extraction by truncating.
+fn apply_keyframe_budget(
+    strategy: KeyframeStrategy,
+    duration_secs: f64,
+    max_keyframes: u32,
+) -> KeyframeStrategy {
+    if max_keyframes == 0 || duration_secs <= 0.0 {
+        return strategy;
+    }
+
+    let estimated_frames = match &strategy {
+        KeyframeStrategy::Interval { every_n_secs } => {
+            let interval = if *every_n_secs > 0 { *every_n_secs } else { 10 };
+            (duration_secs / interval as f64).ceil() as u32
+        }
+        KeyframeStrategy::Hybrid {
+            min_interval_secs, ..
+        } => {
+            let interval = if *min_interval_secs > 0 {
+                *min_interval_secs
+            } else {
+                2
+            };
+            // Worst case: scene change at every min_interval
+            (duration_secs / interval as f64).ceil() as u32
+        }
+        KeyframeStrategy::SceneDetection { .. } => {
+            // Can't predict scene detection count; budget enforced post-extraction
+            return strategy;
+        }
+    };
+
+    if estimated_frames <= max_keyframes {
+        return strategy;
+    }
+
+    // Increase interval to fit within budget
+    let new_interval = (duration_secs / max_keyframes as f64).ceil() as u64;
+
+    match strategy {
+        KeyframeStrategy::Interval { every_n_secs } => {
+            debug!(
+                original_interval = every_n_secs,
+                new_interval, max_keyframes, duration_secs, "Keyframe budget: clamped interval"
+            );
+            KeyframeStrategy::Interval {
+                every_n_secs: new_interval,
+            }
+        }
+        KeyframeStrategy::Hybrid {
+            scene_threshold,
+            min_interval_secs,
+        } => {
+            debug!(
+                original_min_interval = min_interval_secs,
+                new_min_interval = new_interval,
+                max_keyframes,
+                duration_secs,
+                "Keyframe budget: clamped hybrid min_interval"
+            );
+            KeyframeStrategy::Hybrid {
+                scene_threshold,
+                min_interval_secs: new_interval,
+            }
+        }
+        other => other,
+    }
+}
+
+/// Truncate a list of frame entries to at most `max` by evenly sampling.
+fn truncate_frames(frames: Vec<FrameEntry>, max: usize) -> Vec<FrameEntry> {
+    if frames.len() <= max {
+        return frames;
+    }
+    let total = frames.len();
+    let step = total as f64 / max as f64;
+    (0..max)
+        .map(|i| {
+            let idx = (i as f64 * step).floor() as usize;
+            idx.min(total - 1)
+        })
+        .map(|idx| {
+            // We need to move out of the vec, so collect indices first
+            FrameEntry {
+                path: frames[idx].path.clone(),
+                timestamp_secs: frames[idx].timestamp_secs,
+            }
+        })
+        .collect()
+}
+
 #[async_trait]
 impl ExtractionAdapter for VideoMultimodalAdapter {
     fn strategy(&self) -> ExtractionStrategy {
@@ -117,7 +285,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         _mime_type: &str,
         config: &JsonValue,
     ) -> Result<ExtractionResult> {
-        if data.is_empty() {
+        let has_source_path = config
+            .get("_source_path")
+            .and_then(|v| v.as_str())
+            .is_some();
+        if data.is_empty() && !has_source_path {
             return Err(matric_core::Error::InvalidInput(
                 "Cannot process empty video data".to_string(),
             ));
@@ -132,16 +304,32 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("extract_keyframes")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let persist_keyframes = config
+            .get("persist_keyframes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
-        // Write video to temp file
-        let mut tmpfile = NamedTempFile::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
-        })?;
-        tmpfile.write_all(data).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
-        })?;
-        let video_path = tmpfile.path().to_string_lossy().to_string();
+        // Write video to temp file (unless _source_path is provided).
+        // _tmpfile_guard keeps NamedTempFile alive so the OS doesn't delete it.
+        let mut _tmpfile_guard: Option<NamedTempFile> = None;
+        let video_path = if let Some(src) = config.get("_source_path").and_then(|v| v.as_str()) {
+            src.to_string()
+        } else if data.is_empty() {
+            return Err(matric_core::Error::InvalidInput(
+                "No video data and no _source_path provided".to_string(),
+            ));
+        } else {
+            let mut tmpfile = NamedTempFile::new().map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+            })?;
+            tmpfile.write_all(data).map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+            })?;
+            let path = tmpfile.path().to_string_lossy().to_string();
+            _tmpfile_guard = Some(tmpfile);
+            path
+        };
 
         // Create temp dir for extracted assets
         let work_dir = TempDir::new().map_err(|e| {
@@ -153,7 +341,18 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Get video duration and metadata via ffprobe
         let duration_secs = get_video_duration(&video_path).await.ok();
 
-        let mut keyframe_descriptions = Vec::new();
+        // Apply keyframe budget to prevent runaway processing on long videos
+        let max_keyframes = read_max_keyframes(config);
+        let keyframe_strategy = if let Some(dur) = duration_secs {
+            apply_keyframe_budget(keyframe_strategy, dur, max_keyframes)
+        } else {
+            keyframe_strategy
+        };
+
+        // Write descriptions to disk incrementally to cap memory usage
+        let mut desc_writer = FrameDescriptionWriter::new(work_dir.path()).map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to create description writer: {}", e))
+        })?;
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
@@ -184,6 +383,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             data: audio_bytes,
                             derivation_type: "audio_track".to_string(),
                             ai_description: None,
+                            metadata: None,
+                            source_path: None,
                         });
                     }
 
@@ -209,14 +410,37 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Step 2: Extract and describe keyframes with temporal context
         if extract_keyframes && self.vision.is_some() {
             debug!(filename, "Extracting keyframes");
+            let completed_frames = parse_checkpoint(config);
+            if !completed_frames.is_empty() {
+                debug!(
+                    completed = completed_frames.len(),
+                    "Checkpoint: resuming with {} completed frames",
+                    completed_frames.len()
+                );
+            }
+            let base_name = filename
+                .rsplit('/')
+                .next()
+                .unwrap_or(filename)
+                .rsplit_once('.')
+                .map(|(n, _)| n)
+                .unwrap_or(filename);
             match extract_keyframes_ffmpeg(&video_path, &work_dir, &keyframe_strategy).await {
                 Ok(frame_entries) => {
+                    // Apply budget truncation for scene detection (interval already adjusted above)
+                    let frame_entries = truncate_frames(frame_entries, max_keyframes as usize);
                     has_video = !frame_entries.is_empty();
                     if let Some(ref backend) = self.vision {
                         // Build descriptions with sliding temporal context window
                         let mut prev_descriptions: Vec<String> = Vec::new();
 
                         for (i, entry) in frame_entries.iter().enumerate() {
+                            // Skip frames already completed in a previous run
+                            if completed_frames.contains(&(i as u64)) {
+                                debug!(frame = i, "Checkpoint: skipping completed frame");
+                                continue;
+                            }
+
                             // Build context from transcript segments near this frame's timestamp
                             let transcript_context = get_transcript_context_for_frame(
                                 entry.timestamp_secs,
@@ -232,11 +456,34 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             .await
                             {
                                 Ok(description) => {
-                                    keyframe_descriptions.push(json!({
+                                    // Write description to disk (not memory)
+                                    let desc_json = json!({
                                         "frame_index": i,
                                         "timestamp_secs": entry.timestamp_secs,
                                         "description": description,
-                                    }));
+                                    });
+                                    if let Err(e) = desc_writer.write(&desc_json) {
+                                        warn!(frame = i, error = %e, "Failed to write description to disk");
+                                    }
+
+                                    // Persist keyframe JPEG as derived attachment
+                                    if persist_keyframes {
+                                        derived_files.push(DerivedFile {
+                                            filename: format!(
+                                                "{}_keyframe_{:04}.jpg",
+                                                base_name, i
+                                            ),
+                                            content_type: "image/jpeg".to_string(),
+                                            data: Vec::new(), // read from source_path
+                                            derivation_type: "keyframe".to_string(),
+                                            ai_description: Some(description.clone()),
+                                            metadata: Some(json!({
+                                                "frame_index": i,
+                                                "timestamp_secs": entry.timestamp_secs,
+                                            })),
+                                            source_path: Some(entry.path.clone()),
+                                        });
+                                    }
 
                                     // Update sliding window
                                     prev_descriptions.push(description.clone());
@@ -266,6 +513,9 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             None => None,
         };
 
+        // Read all descriptions back from disk for assembly
+        let keyframe_descriptions = desc_writer.read_all();
+
         let full_text = format_video_markdown(
             transcript_text.as_deref(),
             &keyframe_descriptions,
@@ -273,16 +523,40 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             transcript_language.as_deref(),
         );
 
+        // Store bulk keyframe descriptions as a derived manifest file
+        // instead of bloating the parent's extracted_metadata JSONB.
+        if !keyframe_descriptions.is_empty() {
+            let base_name = filename
+                .rsplit('/')
+                .next()
+                .unwrap_or(filename)
+                .rsplit_once('.')
+                .map(|(n, _)| n)
+                .unwrap_or(filename);
+            let manifest = serde_json::to_vec_pretty(&json!({
+                "keyframe_descriptions": keyframe_descriptions,
+            }))
+            .unwrap_or_default();
+            derived_files.push(DerivedFile {
+                filename: format!("{}_keyframes.json", base_name),
+                content_type: "application/json".to_string(),
+                data: manifest,
+                derivation_type: "keyframe_manifest".to_string(),
+                ai_description: None,
+                metadata: None,
+                source_path: None,
+            });
+        }
+
         Ok(ExtractionResult {
             extracted_text: full_text,
             metadata: json!({
                 "duration_secs": duration_secs,
-                "frame_count": keyframe_descriptions.len(),
+                "frame_count": desc_writer.len(),
                 "has_audio": has_audio,
                 "has_video": has_video,
                 "has_thumbnail": thumbnail_data.is_some(),
                 "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
-                "keyframe_descriptions": keyframe_descriptions,
                 "transcript_segments": transcript_segments,
                 "media_info": media_info,
             }),
@@ -300,7 +574,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         config: &JsonValue,
         progress: ProgressFn,
     ) -> Result<ExtractionResult> {
-        if data.is_empty() {
+        let has_source_path = config
+            .get("_source_path")
+            .and_then(|v| v.as_str())
+            .is_some();
+        if data.is_empty() && !has_source_path {
             return Err(matric_core::Error::InvalidInput(
                 "Cannot process empty video data".to_string(),
             ));
@@ -314,15 +592,28 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("extract_keyframes")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let persist_keyframes = config
+            .get("persist_keyframes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
-        let mut tmpfile = NamedTempFile::new().map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
-        })?;
-        tmpfile.write_all(data).map_err(|e| {
-            matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
-        })?;
-        let video_path = tmpfile.path().to_string_lossy().to_string();
+        // Use _source_path if provided (avoid RAM copy), otherwise write to temp file.
+        // _tmpfile_guard keeps NamedTempFile alive so the OS doesn't delete it.
+        let mut _tmpfile_guard: Option<NamedTempFile> = None;
+        let video_path = if let Some(src) = config.get("_source_path").and_then(|v| v.as_str()) {
+            src.to_string()
+        } else {
+            let mut tmpfile = NamedTempFile::new().map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to create temp file: {}", e))
+            })?;
+            tmpfile.write_all(data).map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to write temp file: {}", e))
+            })?;
+            let path = tmpfile.path().to_string_lossy().to_string();
+            _tmpfile_guard = Some(tmpfile);
+            path
+        };
         let work_dir = TempDir::new().map_err(|e| {
             matric_core::Error::Internal(format!("Failed to create temp dir: {}", e))
         })?;
@@ -330,7 +621,18 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         progress(0, Some("Analyzing video"));
         let duration_secs = get_video_duration(&video_path).await.ok();
 
-        let mut keyframe_descriptions = Vec::new();
+        // Apply keyframe budget to prevent runaway processing on long videos
+        let max_keyframes = read_max_keyframes(config);
+        let keyframe_strategy = if let Some(dur) = duration_secs {
+            apply_keyframe_budget(keyframe_strategy, dur, max_keyframes)
+        } else {
+            keyframe_strategy
+        };
+
+        // Write descriptions to disk incrementally to cap memory usage
+        let mut desc_writer = FrameDescriptionWriter::new(work_dir.path()).map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to create description writer: {}", e))
+        })?;
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
@@ -360,6 +662,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             data: audio_bytes,
                             derivation_type: "audio_track".to_string(),
                             ai_description: None,
+                            metadata: None,
+                            source_path: None,
                         });
                     }
 
@@ -391,19 +695,50 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Phase 2: Keyframe extraction + description (20-95%)
         if extract_keyframes && self.vision.is_some() {
             progress(22, Some("Extracting keyframes"));
+            let completed_frames = parse_checkpoint(config);
+            if !completed_frames.is_empty() {
+                debug!(
+                    completed = completed_frames.len(),
+                    "Checkpoint: resuming with {} completed frames",
+                    completed_frames.len()
+                );
+            }
+            let base_name = filename
+                .rsplit('/')
+                .next()
+                .unwrap_or(filename)
+                .rsplit_once('.')
+                .map(|(n, _)| n)
+                .unwrap_or(filename);
             match extract_keyframes_ffmpeg(&video_path, &work_dir, &keyframe_strategy).await {
                 Ok(frame_entries) => {
+                    // Apply budget truncation for scene detection (interval already adjusted above)
+                    let frame_entries = truncate_frames(frame_entries, max_keyframes as usize);
                     let total_frames = frame_entries.len();
                     has_video = total_frames > 0;
 
                     if total_frames > 0 {
-                        progress(25, Some(&format!("Describing {} keyframes", total_frames)));
+                        let remaining = total_frames - completed_frames.len().min(total_frames);
+                        progress(
+                            25,
+                            Some(&format!(
+                                "Describing {} keyframes ({} cached)",
+                                remaining,
+                                completed_frames.len()
+                            )),
+                        );
                     }
 
                     if let Some(ref backend) = self.vision {
                         let mut prev_descriptions: Vec<String> = Vec::new();
 
                         for (i, entry) in frame_entries.iter().enumerate() {
+                            // Skip frames already completed in a previous run
+                            if completed_frames.contains(&(i as u64)) {
+                                debug!(frame = i, "Checkpoint: skipping completed frame");
+                                continue;
+                            }
+
                             // Report per-frame progress: map frame i/total to 25-95%
                             let frame_pct =
                                 25 + ((i as i64) * 70 / total_frames.max(1) as i64) as i32;
@@ -431,11 +766,35 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             .await
                             {
                                 Ok(description) => {
-                                    keyframe_descriptions.push(json!({
+                                    // Write description to disk (not memory)
+                                    let desc_json = json!({
                                         "frame_index": i,
                                         "timestamp_secs": entry.timestamp_secs,
                                         "description": description,
-                                    }));
+                                    });
+                                    if let Err(e) = desc_writer.write(&desc_json) {
+                                        warn!(frame = i, error = %e, "Failed to write description to disk");
+                                    }
+
+                                    // Persist keyframe JPEG as derived attachment
+                                    if persist_keyframes {
+                                        derived_files.push(DerivedFile {
+                                            filename: format!(
+                                                "{}_keyframe_{:04}.jpg",
+                                                base_name, i
+                                            ),
+                                            content_type: "image/jpeg".to_string(),
+                                            data: Vec::new(),
+                                            derivation_type: "keyframe".to_string(),
+                                            ai_description: Some(description.clone()),
+                                            metadata: Some(json!({
+                                                "frame_index": i,
+                                                "timestamp_secs": entry.timestamp_secs,
+                                            })),
+                                            source_path: Some(entry.path.clone()),
+                                        });
+                                    }
+
                                     prev_descriptions.push(description.clone());
                                     if prev_descriptions.len() > TEMPORAL_CONTEXT_WINDOW {
                                         prev_descriptions.remove(0);
@@ -465,6 +824,9 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
         progress(97, Some("Assembling results"));
 
+        // Read all descriptions back from disk for assembly
+        let keyframe_descriptions = desc_writer.read_all();
+
         let full_text = format_video_markdown(
             transcript_text.as_deref(),
             &keyframe_descriptions,
@@ -472,18 +834,42 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             transcript_language.as_deref(),
         );
 
+        // Store bulk keyframe descriptions as a derived manifest file
+        // instead of bloating the parent's extracted_metadata JSONB.
+        if !keyframe_descriptions.is_empty() {
+            let base_name = filename
+                .rsplit('/')
+                .next()
+                .unwrap_or(filename)
+                .rsplit_once('.')
+                .map(|(n, _)| n)
+                .unwrap_or(filename);
+            let manifest = serde_json::to_vec_pretty(&json!({
+                "keyframe_descriptions": keyframe_descriptions,
+            }))
+            .unwrap_or_default();
+            derived_files.push(DerivedFile {
+                filename: format!("{}_keyframes.json", base_name),
+                content_type: "application/json".to_string(),
+                data: manifest,
+                derivation_type: "keyframe_manifest".to_string(),
+                ai_description: None,
+                metadata: None,
+                source_path: None,
+            });
+        }
+
         progress(100, Some("Complete"));
 
         Ok(ExtractionResult {
             extracted_text: full_text,
             metadata: json!({
                 "duration_secs": duration_secs,
-                "frame_count": keyframe_descriptions.len(),
+                "frame_count": desc_writer.len(),
                 "has_audio": has_audio,
                 "has_video": has_video,
                 "has_thumbnail": thumbnail_data.is_some(),
                 "keyframe_strategy": serde_json::to_value(&keyframe_strategy).ok(),
-                "keyframe_descriptions": keyframe_descriptions,
                 "transcript_segments": transcript_segments,
                 "media_info": media_info,
             }),
@@ -1424,16 +1810,17 @@ mod tests {
             assert!(md.get("has_audio").is_some(), "Missing has_audio");
             assert!(md.get("has_video").is_some(), "Missing has_video");
             assert!(
-                md.get("keyframe_descriptions").is_some(),
-                "Missing keyframe_descriptions"
-            );
-            assert!(
                 md.get("transcript_segments").is_some(),
                 "Missing transcript_segments"
             );
             assert!(
                 md.get("keyframe_strategy").is_some(),
                 "Missing keyframe_strategy"
+            );
+            // keyframe_descriptions moved to derived keyframe_manifest file (Issue 5)
+            assert!(
+                md.get("keyframe_descriptions").is_none(),
+                "keyframe_descriptions should be in derived manifest, not metadata"
             );
         }
     }
@@ -1576,5 +1963,202 @@ mod tests {
     fn test_parse_showinfo_timestamps_empty() {
         let timestamps = parse_showinfo_timestamps("nothing useful here");
         assert!(timestamps.is_empty());
+    }
+
+    // ── Keyframe budget tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_apply_keyframe_budget_no_clamp_needed() {
+        // 60s video at 10s interval = 6 frames, well under budget of 60
+        let strategy = KeyframeStrategy::Interval { every_n_secs: 10 };
+        let result = apply_keyframe_budget(strategy, 60.0, 60);
+        match result {
+            KeyframeStrategy::Interval { every_n_secs } => {
+                assert_eq!(every_n_secs, 10);
+            }
+            _ => panic!("Expected Interval"),
+        }
+    }
+
+    #[test]
+    fn test_apply_keyframe_budget_clamps_interval() {
+        // 7200s (2h) video at 10s interval = 720 frames, budget 60
+        // Expected new interval: ceil(7200/60) = 120
+        let strategy = KeyframeStrategy::Interval { every_n_secs: 10 };
+        let result = apply_keyframe_budget(strategy, 7200.0, 60);
+        match result {
+            KeyframeStrategy::Interval { every_n_secs } => {
+                assert_eq!(every_n_secs, 120);
+            }
+            _ => panic!("Expected Interval"),
+        }
+    }
+
+    #[test]
+    fn test_apply_keyframe_budget_clamps_hybrid() {
+        // 3600s (1h) video, hybrid with min_interval 2s = worst case 1800 frames, budget 30
+        // Expected new min_interval: ceil(3600/30) = 120
+        let strategy = KeyframeStrategy::Hybrid {
+            scene_threshold: 0.3,
+            min_interval_secs: 2,
+        };
+        let result = apply_keyframe_budget(strategy, 3600.0, 30);
+        match result {
+            KeyframeStrategy::Hybrid {
+                scene_threshold,
+                min_interval_secs,
+            } => {
+                assert_eq!(min_interval_secs, 120);
+                assert!((scene_threshold - 0.3).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected Hybrid"),
+        }
+    }
+
+    #[test]
+    fn test_apply_keyframe_budget_scene_detection_passthrough() {
+        // Scene detection can't be pre-budgeted, should pass through unchanged
+        let strategy = KeyframeStrategy::SceneDetection { threshold: 0.4 };
+        let result = apply_keyframe_budget(strategy, 7200.0, 60);
+        match result {
+            KeyframeStrategy::SceneDetection { threshold } => {
+                assert!((threshold - 0.4).abs() < f64::EPSILON);
+            }
+            _ => panic!("Expected SceneDetection"),
+        }
+    }
+
+    #[test]
+    fn test_apply_keyframe_budget_zero_duration() {
+        let strategy = KeyframeStrategy::Interval { every_n_secs: 10 };
+        let result = apply_keyframe_budget(strategy, 0.0, 60);
+        match result {
+            KeyframeStrategy::Interval { every_n_secs } => {
+                assert_eq!(every_n_secs, 10); // unchanged
+            }
+            _ => panic!("Expected Interval"),
+        }
+    }
+
+    #[test]
+    fn test_truncate_frames_under_budget() {
+        let frames: Vec<FrameEntry> = (0..5)
+            .map(|i| FrameEntry {
+                path: PathBuf::from(format!("frame_{}.jpg", i)),
+                timestamp_secs: i as f64 * 10.0,
+            })
+            .collect();
+        let result = truncate_frames(frames, 10);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_truncate_frames_over_budget() {
+        let frames: Vec<FrameEntry> = (0..100)
+            .map(|i| FrameEntry {
+                path: PathBuf::from(format!("frame_{}.jpg", i)),
+                timestamp_secs: i as f64 * 1.0,
+            })
+            .collect();
+        let result = truncate_frames(frames, 10);
+        assert_eq!(result.len(), 10);
+        // First frame should be at index 0
+        assert!((result[0].timestamp_secs - 0.0).abs() < f64::EPSILON);
+        // Last frame should be near the end
+        assert!(result[9].timestamp_secs >= 80.0);
+    }
+
+    #[test]
+    fn test_read_max_keyframes_from_config() {
+        let config = json!({"max_keyframes": 30});
+        assert_eq!(read_max_keyframes(&config), 30);
+    }
+
+    #[test]
+    fn test_read_max_keyframes_default() {
+        let config = json!({});
+        assert_eq!(read_max_keyframes(&config), VIDEO_MAX_KEYFRAMES);
+    }
+
+    #[test]
+    fn test_read_max_keyframes_minimum_one() {
+        let config = json!({"max_keyframes": 0});
+        assert_eq!(read_max_keyframes(&config), 1);
+    }
+
+    // ── Checkpoint parsing tests ──────────────────────────────────────
+
+    #[test]
+    fn test_parse_checkpoint_empty() {
+        let config = json!({});
+        let completed = parse_checkpoint(&config);
+        assert!(completed.is_empty());
+    }
+
+    #[test]
+    fn test_parse_checkpoint_with_completed_frames() {
+        let config = json!({
+            "_checkpoint": {
+                "completed_frames": [0, 2, 5, 10]
+            }
+        });
+        let completed = parse_checkpoint(&config);
+        assert_eq!(completed.len(), 4);
+        assert!(completed.contains(&0));
+        assert!(completed.contains(&2));
+        assert!(completed.contains(&5));
+        assert!(completed.contains(&10));
+        assert!(!completed.contains(&1));
+    }
+
+    #[test]
+    fn test_parse_checkpoint_empty_array() {
+        let config = json!({
+            "_checkpoint": {
+                "completed_frames": []
+            }
+        });
+        let completed = parse_checkpoint(&config);
+        assert!(completed.is_empty());
+    }
+
+    #[test]
+    fn test_parse_checkpoint_malformed() {
+        // Non-array completed_frames
+        let config = json!({
+            "_checkpoint": {
+                "completed_frames": "not an array"
+            }
+        });
+        let completed = parse_checkpoint(&config);
+        assert!(completed.is_empty());
+    }
+
+    // ── FrameDescriptionWriter tests ──────────────────────────────────
+
+    #[test]
+    fn test_frame_description_writer_roundtrip() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut writer = FrameDescriptionWriter::new(tmp.path()).unwrap();
+
+        let d1 = json!({"frame_index": 0, "timestamp_secs": 0.0, "description": "Opening shot"});
+        let d2 = json!({"frame_index": 1, "timestamp_secs": 10.0, "description": "Second scene"});
+
+        writer.write(&d1).unwrap();
+        writer.write(&d2).unwrap();
+        assert_eq!(writer.len(), 2);
+
+        let results = writer.read_all();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["frame_index"], 0);
+        assert_eq!(results[1]["description"], "Second scene");
+    }
+
+    #[test]
+    fn test_frame_description_writer_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let writer = FrameDescriptionWriter::new(tmp.path()).unwrap();
+        assert_eq!(writer.len(), 0);
+        assert!(writer.read_all().is_empty());
     }
 }

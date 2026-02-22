@@ -178,6 +178,74 @@ pub fn job_timeout_secs() -> u64 {
         .unwrap_or(JOB_TIMEOUT_SECS)
 }
 
+/// Default maximum keyframes to extract from a video.
+/// Prevents runaway processing on feature-length content.
+/// A 2-hour video at 10s intervals would generate 720 frames;
+/// this budget caps to 60, adjusting the interval to ~120s.
+/// Configurable via `VIDEO_MAX_KEYFRAMES` env var or per-job config.
+pub const VIDEO_MAX_KEYFRAMES: u32 = 60;
+
+/// Environment variable for configuring the maximum keyframe count.
+pub const ENV_VIDEO_MAX_KEYFRAMES: &str = "VIDEO_MAX_KEYFRAMES";
+
+/// Default job execution timeout for video extraction in seconds (2 hours).
+/// Feature-length videos with vision model calls per frame can exceed the
+/// standard 10-minute job timeout. Configurable via `VIDEO_JOB_TIMEOUT_SECS`.
+pub const VIDEO_JOB_TIMEOUT_SECS: u64 = 7200;
+
+/// Environment variable for configuring the video job timeout.
+pub const ENV_VIDEO_JOB_TIMEOUT_SECS: &str = "VIDEO_JOB_TIMEOUT_SECS";
+
+/// Video file access mode: how the extraction pipeline reads large video files.
+///
+/// - `direct` (default): Use the filesystem path directly (zero-copy). Best when
+///   the worker process has access to the same filesystem as the storage backend.
+/// - `stream`: Stream-copy from storage to a temp file using a buffered window.
+///   Never holds more than `VIDEO_STREAM_BUFFER_BYTES` in memory. Use when the
+///   worker can't access the storage path or needs filesystem isolation.
+///
+/// Both modes fall back to full download for inline (database) storage.
+/// Configurable via `VIDEO_FILE_ACCESS` env var.
+pub const VIDEO_FILE_ACCESS_DIRECT: &str = "direct";
+pub const VIDEO_FILE_ACCESS_STREAM: &str = "stream";
+pub const VIDEO_FILE_ACCESS_DEFAULT: &str = VIDEO_FILE_ACCESS_DIRECT;
+
+/// Environment variable for configuring the video file access mode.
+pub const ENV_VIDEO_FILE_ACCESS: &str = "VIDEO_FILE_ACCESS";
+
+/// Buffer size in bytes for windowed stream copy of video files (8 MB).
+///
+/// Controls peak memory usage per concurrent extraction job when using
+/// `stream` file access mode. Total memory footprint = buffer × concurrent jobs.
+/// Configurable via `VIDEO_STREAM_BUFFER_BYTES` env var.
+///
+/// Recommended values by hardware tier:
+///   Tier 1 (8GB RAM):  4 MB (4_194_304)  — conservative
+///   Tier 2 (16GB RAM): 8 MB (8_388_608)  — default
+///   Tier 3 (32GB+):   16 MB (16_777_216) — throughput-optimized
+pub const VIDEO_STREAM_BUFFER_BYTES: usize = 8 * 1024 * 1024;
+
+/// Environment variable for configuring the stream buffer size.
+pub const ENV_VIDEO_STREAM_BUFFER_BYTES: &str = "VIDEO_STREAM_BUFFER_BYTES";
+
+/// Read the video file access mode from env, falling back to the default.
+pub fn video_file_access_mode() -> String {
+    std::env::var(ENV_VIDEO_FILE_ACCESS)
+        .ok()
+        .map(|v| v.to_lowercase())
+        .filter(|v| v == VIDEO_FILE_ACCESS_DIRECT || v == VIDEO_FILE_ACCESS_STREAM)
+        .unwrap_or_else(|| VIDEO_FILE_ACCESS_DEFAULT.to_string())
+}
+
+/// Read the stream buffer size from env, falling back to the default.
+pub fn video_stream_buffer_bytes() -> usize {
+    std::env::var(ENV_VIDEO_STREAM_BUFFER_BYTES)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|v| v.clamp(64 * 1024, 128 * 1024 * 1024)) // 64KB..128MB
+        .unwrap_or(VIDEO_STREAM_BUFFER_BYTES)
+}
+
 /// Page threshold for batch PDF extraction.
 pub const LARGE_PDF_PAGE_THRESHOLD: usize = 100;
 

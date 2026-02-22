@@ -1313,6 +1313,60 @@ impl PgFileStorageRepository {
         attachment.extracted_metadata = Some(derived_metadata);
         Ok(attachment)
     }
+
+    /// Merge additional metadata fields into an attachment's `extracted_metadata` JSONB.
+    ///
+    /// Uses PostgreSQL `||` operator to merge the new object into the existing one.
+    /// Existing keys are preserved; new keys from `extra` are added.
+    pub async fn merge_extracted_metadata_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        extra: &serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"UPDATE attachment
+               SET extracted_metadata = COALESCE(extracted_metadata, '{}'::jsonb) || $2::jsonb,
+                   updated_at = NOW()
+               WHERE id = $1"#,
+        )
+        .bind(attachment_id)
+        .bind(extra)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
+    }
+
+    /// List derived attachments for a parent, filtered by derivation_type.
+    ///
+    /// Used by checkpoint/resume to discover already-completed keyframes.
+    pub async fn list_derived_by_type_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_attachment_id: Uuid,
+        derivation_type: &str,
+    ) -> Result<Vec<Attachment>> {
+        let rows = sqlx::query(
+            r#"SELECT id, note_id, blob_id, filename, original_filename,
+                      document_type_id, status::TEXT, extraction_strategy::TEXT,
+                      extracted_text, extracted_metadata,
+                      ai_description, ai_model,
+                      has_preview, is_canonical_content,
+                      detected_document_type_id, detection_confidence, detection_method,
+                      created_at, updated_at
+               FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1
+               AND extracted_metadata->>'derivation_type' = $2
+               ORDER BY created_at"#,
+        )
+        .bind(parent_attachment_id.to_string())
+        .bind(derivation_type)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        rows.iter().map(attachment_from_row).collect()
+    }
 }
 
 /// Parse attachment status from database string.
