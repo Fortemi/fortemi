@@ -13,6 +13,7 @@ Environment variables:
 
 import io
 import os
+import subprocess
 import tempfile
 import time
 
@@ -74,6 +75,36 @@ def health():
     }
 
 
+def _normalize_audio(input_path: str) -> str:
+    """Normalize audio to WAV 16kHz mono via ffmpeg.
+
+    pyannote can crash with a ValueError when the actual sample count
+    doesn't match the expected count (common with VBR/compressed formats).
+    Re-encoding to a clean WAV avoids the mismatch entirely.
+
+    Returns the path to the normalized WAV file (caller must delete).
+    """
+    wav_path = input_path + ".norm.wav"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_path,
+                "-ac", "1", "-ar", "16000", "-sample_fmt", "s16",
+                wav_path,
+            ],
+            capture_output=True,
+            timeout=120,
+            check=True,
+        )
+        return wav_path
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        # If ffmpeg fails, fall back to the original file
+        print(f"WARNING: ffmpeg normalization failed ({exc}), using original audio")
+        if os.path.exists(wav_path):
+            os.unlink(wav_path)
+        return input_path
+
+
 @app.post("/diarize", response_class=PlainTextResponse)
 async def diarize(
     file: UploadFile = File(...),
@@ -96,6 +127,9 @@ async def diarize(
         tmp.write(audio_data)
         tmp_path = tmp.name
 
+    # Normalize to WAV 16kHz mono to avoid pyannote sample-count mismatches
+    norm_path = _normalize_audio(tmp_path)
+
     try:
         # Build pipeline parameters
         params = {}
@@ -105,7 +139,7 @@ async def diarize(
             params["max_speakers"] = max_speakers
 
         # Run diarization
-        output = pipeline(tmp_path, **params)
+        output = pipeline(norm_path, **params)
 
         # pyannote.audio 4.x returns DiarizeOutput dataclass;
         # the Annotation is in .speaker_diarization
@@ -125,6 +159,8 @@ async def diarize(
 
     finally:
         os.unlink(tmp_path)
+        if norm_path != tmp_path and os.path.exists(norm_path):
+            os.unlink(norm_path)
 
 
 if __name__ == "__main__":
