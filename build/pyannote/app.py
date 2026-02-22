@@ -105,7 +105,11 @@ async def diarize(
             params["max_speakers"] = max_speakers
 
         # Run diarization
-        diarization = pipeline(tmp_path, **params)
+        output = pipeline(tmp_path, **params)
+
+        # pyannote.audio 4.x returns DiarizeOutput dataclass;
+        # the Annotation is in .speaker_diarization
+        diarization = getattr(output, "speaker_diarization", output)
 
         # Convert to RTTM format
         rttm_lines = []
