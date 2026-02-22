@@ -3022,9 +3022,18 @@ async fn cache_control_middleware(
             .append(header::VARY, "X-Fortemi-Memory".parse().unwrap());
     }
 
-    // ETag support for successful GET responses on API paths
-    if is_get && path.starts_with("/api/v1/") && response.status().is_success() {
-        // Collect body bytes to compute hash
+    // ETag support for successful GET responses on API paths.
+    // Skip for file downloads (streaming bodies) — collecting the body into memory
+    // would either OOM or, when it exceeds the 2MB limit, destroy the stream.
+    let is_download = path.ends_with("/download")
+        || response
+            .headers()
+            .get(header::ACCEPT_RANGES)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v == "bytes");
+
+    if is_get && path.starts_with("/api/v1/") && response.status().is_success() && !is_download {
+        // Collect body bytes to compute hash (safe — non-download API responses are small)
         let (parts, body) = response.into_parts();
         if let Ok(bytes) = axum::body::to_bytes(body, 2 * 1024 * 1024).await {
             // Compute weak ETag from FNV-1a hash of body
@@ -3057,7 +3066,8 @@ async fn cache_control_middleware(
                 .insert(header::ETAG, etag.parse().unwrap());
             return response;
         }
-        // If body collection fails (too large), return without ETag
+        // Body exceeded 2MB limit — should not happen for non-download API responses.
+        // Return without ETag rather than losing the response body.
         axum::response::Response::from_parts(parts, Body::empty())
     } else {
         response
