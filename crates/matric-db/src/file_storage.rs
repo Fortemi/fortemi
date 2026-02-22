@@ -1149,6 +1149,28 @@ impl PgFileStorageRepository {
         Ok(())
     }
 
+    /// Count keyframe derived attachments that have been described by vision LLM.
+    ///
+    /// Used by KeyframeVisionHandler fan-in: when this count equals expected_frame_count,
+    /// the last-completing vision job queues KeyframeAssembly. (#526)
+    pub async fn count_described_keyframes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_attachment_id: Uuid,
+    ) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as(
+            r#"SELECT COUNT(*)
+               FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1
+                 AND extracted_metadata->>'derivation_type' = 'keyframe'
+                 AND ai_description IS NOT NULL"#,
+        )
+        .bind(parent_attachment_id.to_string())
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(row.0)
+    }
+
     /// Transaction-aware variant of set_detected_document_type.
     pub async fn set_detected_document_type_tx(
         &self,

@@ -308,6 +308,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("persist_keyframes")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        // When true, skip vision LLM calls and store keyframes without descriptions.
+        // KeyframeVision jobs will describe each frame atomically. (#526)
+        let skip_vision = config
+            .get("_skip_vision")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
         // Write video to temp file (unless _source_path is provided).
@@ -430,7 +436,32 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     // Apply budget truncation for scene detection (interval already adjusted above)
                     let frame_entries = truncate_frames(frame_entries, max_keyframes as usize);
                     has_video = !frame_entries.is_empty();
-                    if let Some(ref backend) = self.vision {
+
+                    if skip_vision {
+                        // Atomic pipeline (#526): persist keyframe JPEGs without vision descriptions.
+                        // KeyframeVision jobs will describe each frame independently.
+                        if persist_keyframes {
+                            for (i, entry) in frame_entries.iter().enumerate() {
+                                derived_files.push(DerivedFile {
+                                    filename: format!("{}_keyframe_{:04}.jpg", base_name, i),
+                                    content_type: "image/jpeg".to_string(),
+                                    data: Vec::new(),
+                                    derivation_type: "keyframe".to_string(),
+                                    ai_description: None,
+                                    metadata: Some(json!({
+                                        "frame_index": i,
+                                        "timestamp_secs": entry.timestamp_secs,
+                                    })),
+                                    source_path: Some(entry.path.clone()),
+                                });
+                            }
+                            debug!(
+                                frame_count = frame_entries.len(),
+                                "Persisted {} keyframes without vision (skip_vision=true)",
+                                frame_entries.len()
+                            );
+                        }
+                    } else if let Some(ref backend) = self.vision {
                         // Build descriptions with sliding temporal context window
                         let mut prev_descriptions: Vec<String> = Vec::new();
 
@@ -599,6 +630,10 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("persist_keyframes")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let skip_vision = config
+            .get("_skip_vision")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
         // Use _source_path if provided (avoid RAM copy), otherwise write to temp file.
@@ -696,7 +731,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         }
 
         // Phase 2: Keyframe extraction + description (20-95%)
-        if extract_keyframes && self.vision.is_some() {
+        if extract_keyframes && (skip_vision || self.vision.is_some()) {
             progress(22, Some("Extracting keyframes"));
             let completed_frames = parse_checkpoint(config);
             if !completed_frames.is_empty() {
@@ -720,91 +755,119 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     let total_frames = frame_entries.len();
                     has_video = total_frames > 0;
 
-                    if total_frames > 0 {
-                        let remaining = total_frames - completed_frames.len().min(total_frames);
-                        progress(
-                            25,
-                            Some(&format!(
-                                "Describing {} keyframes ({} cached)",
-                                remaining,
-                                completed_frames.len()
-                            )),
-                        );
-                    }
-
-                    if let Some(ref backend) = self.vision {
-                        let mut prev_descriptions: Vec<String> = Vec::new();
-
-                        for (i, entry) in frame_entries.iter().enumerate() {
-                            // Skip frames already completed in a previous run
-                            if completed_frames.contains(&(i as u64)) {
-                                debug!(frame = i, "Checkpoint: skipping completed frame");
-                                continue;
-                            }
-
-                            // Report per-frame progress: map frame i/total to 25-95%
-                            let frame_pct =
-                                25 + ((i as i64) * 70 / total_frames.max(1) as i64) as i32;
-                            progress(
-                                frame_pct,
-                                Some(&format!(
-                                    "Frame {}/{} ({:.0}s)",
-                                    i + 1,
-                                    total_frames,
-                                    entry.timestamp_secs
-                                )),
-                            );
-
-                            let transcript_context = get_transcript_context_for_frame(
-                                entry.timestamp_secs,
-                                &transcript_segments,
-                            );
-
-                            match describe_frame_with_context(
-                                backend.as_ref(),
-                                &entry.path,
-                                &prev_descriptions,
-                                transcript_context.as_deref(),
-                            )
-                            .await
-                            {
-                                Ok(description) => {
-                                    // Write description to disk (not memory)
-                                    let desc_json = json!({
+                    if skip_vision {
+                        // Atomic pipeline (#526): persist keyframe JPEGs without vision.
+                        // KeyframeVision jobs will describe each frame independently.
+                        if persist_keyframes {
+                            for (i, entry) in frame_entries.iter().enumerate() {
+                                derived_files.push(DerivedFile {
+                                    filename: format!("{}_keyframe_{:04}.jpg", base_name, i),
+                                    content_type: "image/jpeg".to_string(),
+                                    data: Vec::new(),
+                                    derivation_type: "keyframe".to_string(),
+                                    ai_description: None,
+                                    metadata: Some(json!({
                                         "frame_index": i,
                                         "timestamp_secs": entry.timestamp_secs,
-                                        "description": description,
-                                    });
-                                    if let Err(e) = desc_writer.write(&desc_json) {
-                                        warn!(frame = i, error = %e, "Failed to write description to disk");
-                                    }
+                                    })),
+                                    source_path: Some(entry.path.clone()),
+                                });
+                            }
+                            progress(
+                                90,
+                                Some(&format!(
+                                    "Persisted {} keyframes (vision deferred to atomic jobs)",
+                                    total_frames
+                                )),
+                            );
+                        }
+                    } else {
+                        if total_frames > 0 {
+                            let remaining = total_frames - completed_frames.len().min(total_frames);
+                            progress(
+                                25,
+                                Some(&format!(
+                                    "Describing {} keyframes ({} cached)",
+                                    remaining,
+                                    completed_frames.len()
+                                )),
+                            );
+                        }
 
-                                    // Persist keyframe JPEG as derived attachment
-                                    if persist_keyframes {
-                                        derived_files.push(DerivedFile {
-                                            filename: format!(
-                                                "{}_keyframe_{:04}.jpg",
-                                                base_name, i
-                                            ),
-                                            content_type: "image/jpeg".to_string(),
-                                            data: Vec::new(),
-                                            derivation_type: "keyframe".to_string(),
-                                            ai_description: Some(description.clone()),
-                                            metadata: Some(json!({
-                                                "frame_index": i,
-                                                "timestamp_secs": entry.timestamp_secs,
-                                            })),
-                                            source_path: Some(entry.path.clone()),
-                                        });
-                                    }
+                        if let Some(ref backend) = self.vision {
+                            let mut prev_descriptions: Vec<String> = Vec::new();
 
-                                    prev_descriptions.push(description.clone());
-                                    if prev_descriptions.len() > TEMPORAL_CONTEXT_WINDOW {
-                                        prev_descriptions.remove(0);
-                                    }
+                            for (i, entry) in frame_entries.iter().enumerate() {
+                                // Skip frames already completed in a previous run
+                                if completed_frames.contains(&(i as u64)) {
+                                    debug!(frame = i, "Checkpoint: skipping completed frame");
+                                    continue;
                                 }
-                                Err(e) => {
-                                    warn!(frame = i, error = %e, "Frame description failed");
+
+                                // Report per-frame progress: map frame i/total to 25-95%
+                                let frame_pct =
+                                    25 + ((i as i64) * 70 / total_frames.max(1) as i64) as i32;
+                                progress(
+                                    frame_pct,
+                                    Some(&format!(
+                                        "Frame {}/{} ({:.0}s)",
+                                        i + 1,
+                                        total_frames,
+                                        entry.timestamp_secs
+                                    )),
+                                );
+
+                                let transcript_context = get_transcript_context_for_frame(
+                                    entry.timestamp_secs,
+                                    &transcript_segments,
+                                );
+
+                                match describe_frame_with_context(
+                                    backend.as_ref(),
+                                    &entry.path,
+                                    &prev_descriptions,
+                                    transcript_context.as_deref(),
+                                )
+                                .await
+                                {
+                                    Ok(description) => {
+                                        // Write description to disk (not memory)
+                                        let desc_json = json!({
+                                            "frame_index": i,
+                                            "timestamp_secs": entry.timestamp_secs,
+                                            "description": description,
+                                        });
+                                        if let Err(e) = desc_writer.write(&desc_json) {
+                                            warn!(frame = i, error = %e, "Failed to write description to disk");
+                                        }
+
+                                        // Persist keyframe JPEG as derived attachment
+                                        if persist_keyframes {
+                                            derived_files.push(DerivedFile {
+                                                filename: format!(
+                                                    "{}_keyframe_{:04}.jpg",
+                                                    base_name, i
+                                                ),
+                                                content_type: "image/jpeg".to_string(),
+                                                data: Vec::new(),
+                                                derivation_type: "keyframe".to_string(),
+                                                ai_description: Some(description.clone()),
+                                                metadata: Some(json!({
+                                                    "frame_index": i,
+                                                    "timestamp_secs": entry.timestamp_secs,
+                                                })),
+                                                source_path: Some(entry.path.clone()),
+                                            });
+                                        }
+
+                                        prev_descriptions.push(description.clone());
+                                        if prev_descriptions.len() > TEMPORAL_CONTEXT_WINDOW {
+                                            prev_descriptions.remove(0);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!(frame = i, error = %e, "Frame description failed");
+                                    }
                                 }
                             }
                         }
@@ -906,7 +969,7 @@ struct FrameEntry {
 }
 
 /// Format seconds as human-readable duration (e.g., "1m 30s", "2h 15m 42s").
-fn format_duration(secs: f64) -> String {
+pub(crate) fn format_duration(secs: f64) -> String {
     let total = secs as u64;
     let h = total / 3600;
     let m = (total % 3600) / 60;
@@ -921,7 +984,7 @@ fn format_duration(secs: f64) -> String {
 }
 
 /// Format seconds as timestamp (e.g., "0:00", "1:30", "1:05:42").
-fn format_timestamp(secs: f64) -> String {
+pub(crate) fn format_timestamp(secs: f64) -> String {
     let total = secs as u64;
     let h = total / 3600;
     let m = (total % 3600) / 60;
@@ -934,7 +997,7 @@ fn format_timestamp(secs: f64) -> String {
 }
 
 /// Format a seconds value as a WebVTT timestamp (HH:MM:SS.mmm).
-fn format_vtt_timestamp(secs: f64) -> String {
+pub(crate) fn format_vtt_timestamp(secs: f64) -> String {
     let total_ms = (secs * 1000.0).round() as u64;
     let h = total_ms / 3_600_000;
     let m = (total_ms % 3_600_000) / 60_000;
@@ -948,7 +1011,7 @@ fn format_vtt_timestamp(secs: f64) -> String {
 /// Each cue covers from the keyframe's timestamp to the next keyframe's
 /// timestamp (or +interval for the last frame). The cue payload is the
 /// keyframe filename so the ThumbnailSprite job can correlate frames.
-fn build_keyframe_vtt(keyframe_descriptions: &[serde_json::Value]) -> String {
+pub(crate) fn build_keyframe_vtt(keyframe_descriptions: &[serde_json::Value]) -> String {
     if keyframe_descriptions.is_empty() {
         return String::new();
     }
@@ -1012,7 +1075,7 @@ fn push_keyframe_vtt(
 }
 
 /// Assemble extraction results into properly formatted markdown.
-fn format_video_markdown(
+pub(crate) fn format_video_markdown(
     transcript_text: Option<&str>,
     keyframe_descriptions: &[JsonValue],
     duration_secs: Option<f64>,
@@ -1265,7 +1328,7 @@ async fn transcribe_audio(
 /// Find transcript segments that overlap with a keyframe timestamp.
 ///
 /// Returns a short context string of nearby dialogue/speech.
-fn get_transcript_context_for_frame(
+pub(crate) fn get_transcript_context_for_frame(
     frame_timestamp: f64,
     segments: &[matric_inference::transcription::TranscriptionSegment],
 ) -> Option<String> {

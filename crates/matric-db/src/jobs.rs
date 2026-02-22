@@ -122,6 +122,8 @@ impl PgJobRepository {
             JobType::SpeakerRelabel => "speaker_relabel",
             JobType::MediaOptimize => "media_optimize",
             JobType::ThumbnailSprite => "thumbnail_sprite",
+            JobType::KeyframeVision => "keyframe_vision",
+            JobType::KeyframeAssembly => "keyframe_assembly",
         }
     }
 
@@ -156,6 +158,8 @@ impl PgJobRepository {
             "speaker_relabel" => JobType::SpeakerRelabel,
             "media_optimize" => JobType::MediaOptimize,
             "thumbnail_sprite" => JobType::ThumbnailSprite,
+            "keyframe_vision" => JobType::KeyframeVision,
+            "keyframe_assembly" => JobType::KeyframeAssembly,
             _ => JobType::ContextUpdate, // fallback
         }
     }

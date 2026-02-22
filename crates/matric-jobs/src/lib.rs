@@ -42,6 +42,8 @@ pub mod diarization_handler;
 pub mod extraction;
 pub mod extraction_handler;
 pub mod handler;
+pub mod keyframe_assembly_handler;
+pub mod keyframe_vision_handler;
 pub mod media_optimize_handler;
 pub mod pause;
 pub mod relabel_handler;
@@ -55,10 +57,12 @@ pub use matric_core::*;
 pub use diarization_handler::SpeakerDiarizationHandler;
 pub use extraction_handler::ExtractionHandler;
 pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
+pub use keyframe_assembly_handler::KeyframeAssemblyHandler;
+pub use keyframe_vision_handler::KeyframeVisionHandler;
 pub use media_optimize_handler::MediaOptimizeHandler;
 pub use pause::PauseState;
-pub use sprite_handler::ThumbnailSpriteHandler;
 pub use relabel_handler::{SpeakerConfig, SpeakerRelabelHandler};
+pub use sprite_handler::ThumbnailSpriteHandler;
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
 
 // Re-export extraction types

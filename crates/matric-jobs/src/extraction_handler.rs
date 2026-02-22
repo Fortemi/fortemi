@@ -326,6 +326,14 @@ impl JobHandler for ExtractionHandler {
             }
         }
 
+        // Inject _skip_vision for VideoMultimodal: defer vision LLM calls to
+        // atomic KeyframeVision jobs instead of running them inline (#526).
+        if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+            if let Some(obj) = config.as_object_mut() {
+                obj.insert("_skip_vision".to_string(), json!(true));
+            }
+        }
+
         ctx.report_progress(10, Some("Starting extraction"));
 
         // Check adapter availability
@@ -904,17 +912,12 @@ impl JobHandler for ExtractionHandler {
                         .iter()
                         .any(|f| f.derivation_type == "keyframe");
 
-                    if matches!(strategy, ExtractionStrategy::VideoMultimodal)
-                        && has_keyframes
-                    {
+                    if matches!(strategy, ExtractionStrategy::VideoMultimodal) && has_keyframes {
                         let mut sprite_payload = serde_json::Map::new();
-                        sprite_payload.insert(
-                            "attachment_id".to_string(),
-                            json!(att_id.to_string()),
-                        );
+                        sprite_payload
+                            .insert("attachment_id".to_string(), json!(att_id.to_string()));
                         if schema != "public" {
-                            sprite_payload
-                                .insert("schema".to_string(), json!(&schema));
+                            sprite_payload.insert("schema".to_string(), json!(&schema));
                         }
                         match self
                             .db
@@ -949,6 +952,110 @@ impl JobHandler for ExtractionHandler {
                                 );
                             }
                         }
+
+                        // Queue atomic KeyframeVision jobs — one per keyframe (#526).
+                        // Each job describes a single frame via vision LLM. The last
+                        // to complete triggers KeyframeAssembly for markdown rebuild.
+                        if let Some(fs) = self.db.file_storage.as_ref() {
+                            if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                let keyframes: Vec<matric_core::Attachment> = fs
+                                    .list_derived_by_type_tx(&mut tx, att_id, "keyframe")
+                                    .await
+                                    .unwrap_or_default();
+                                let _ = tx.commit().await;
+
+                                let total_frames = keyframes.len();
+                                if total_frames > 0 {
+                                    // Store expected count in parent metadata for fan-in
+                                    if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                        let _ = fs
+                                            .merge_extracted_metadata_tx(
+                                                &mut tx,
+                                                att_id,
+                                                &json!({"expected_frame_count": total_frames}),
+                                            )
+                                            .await;
+                                        let _ = tx.commit().await;
+                                    }
+
+                                    let mut queued = 0usize;
+                                    for kf in &keyframes {
+                                        let frame_index: u64 = kf
+                                            .extracted_metadata
+                                            .as_ref()
+                                            .and_then(|m| m.get("frame_index"))
+                                            .and_then(|v| v.as_u64())
+                                            .unwrap_or(0);
+                                        let timestamp_secs: f64 = kf
+                                            .extracted_metadata
+                                            .as_ref()
+                                            .and_then(|m| m.get("timestamp_secs"))
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0);
+
+                                        let mut vision_payload = serde_json::Map::new();
+                                        vision_payload.insert(
+                                            "parent_attachment_id".into(),
+                                            json!(att_id.to_string()),
+                                        );
+                                        vision_payload.insert(
+                                            "keyframe_attachment_id".into(),
+                                            json!(kf.id.to_string()),
+                                        );
+                                        vision_payload
+                                            .insert("frame_index".into(), json!(frame_index));
+                                        vision_payload
+                                            .insert("timestamp_secs".into(), json!(timestamp_secs));
+                                        vision_payload
+                                            .insert("total_frames".into(), json!(total_frames));
+                                        if schema != "public" {
+                                            vision_payload.insert("schema".into(), json!(&schema));
+                                        }
+
+                                        // Use queue() not queue_deduplicated() — each frame
+                                        // is a distinct job sharing the same (note_id, job_type).
+                                        match self
+                                            .db
+                                            .jobs
+                                            .queue(
+                                                Some(note_id),
+                                                JobType::KeyframeVision,
+                                                JobType::KeyframeVision.default_priority(),
+                                                Some(serde_json::Value::Object(vision_payload)),
+                                                JobType::KeyframeVision.default_cost_tier(),
+                                            )
+                                            .await
+                                        {
+                                            Ok(job_id) => {
+                                                ctx.emit_job_queued(
+                                                    job_id,
+                                                    JobType::KeyframeVision,
+                                                    Some(note_id),
+                                                );
+                                                queued += 1;
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    note_id = %note_id,
+                                                    frame_index,
+                                                    error = %e,
+                                                    "Failed to queue KeyframeVision job"
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    info!(
+                                        note_id = %note_id,
+                                        attachment_id = %att_id,
+                                        total_frames,
+                                        queued,
+                                        "Queued {} KeyframeVision jobs",
+                                        queued
+                                    );
+                                }
+                            }
+                        } // if let Some(fs)
                     }
                 }
 

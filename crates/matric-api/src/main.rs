@@ -377,10 +377,11 @@ use matric_inference::{
 };
 use matric_jobs::{
     ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, EmailAdapter, ExtractionHandler,
-    ExtractionRegistry, Glb3DModelAdapter, JobWorker, MediaOptimizeHandler, OfficeConvertAdapter,
-    PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
-    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler,
-    VideoMultimodalAdapter, VisionAdapter, WorkerConfig, WorkerEvent,
+    ExtractionRegistry, Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler,
+    KeyframeVisionHandler, MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter,
+    PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter,
+    StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter,
+    VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1258,6 +1259,16 @@ async fn main() -> anyhow::Result<()> {
             .await;
         worker
             .register_handler(ThumbnailSpriteHandler::new(db.clone()))
+            .await;
+        // Keyframe vision pipeline (#526): vision handler needs vision_backend,
+        // assembly handler is CPU-only.
+        if let Some(ref vision) = vision_backend {
+            worker
+                .register_handler(KeyframeVisionHandler::new(db.clone(), Arc::clone(vision)))
+                .await;
+        }
+        worker
+            .register_handler(KeyframeAssemblyHandler::new(db.clone()))
             .await;
 
         let handle = worker.start();
@@ -13578,9 +13589,9 @@ async fn get_sprite_sheet(
         .strip_suffix(".jpg")
         .or_else(|| sprite_index.strip_suffix(".jpeg"))
         .unwrap_or(&sprite_index);
-    let _idx: u32 = idx_str.parse().map_err(|_| {
-        ApiError::BadRequest(format!("Invalid sprite index: {}", sprite_index))
-    })?;
+    let _idx: u32 = idx_str
+        .parse()
+        .map_err(|_| ApiError::BadRequest(format!("Invalid sprite index: {}", sprite_index)))?;
 
     // Find the sprite sheet by matching filename pattern
     let expected_filename = format!("sprite_{}.jpg", idx_str);

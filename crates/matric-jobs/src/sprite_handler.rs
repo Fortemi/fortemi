@@ -154,8 +154,7 @@ impl ThumbnailSpriteHandler {
         keyframes: &[KeyframeEntry],
         ctx: &JobContext,
     ) -> Vec<Vec<u8>> {
-        let total_sheets =
-            (keyframes.len() as u32 + FRAMES_PER_SHEET - 1) / FRAMES_PER_SHEET;
+        let total_sheets = (keyframes.len() as u32).div_ceil(FRAMES_PER_SHEET);
         let mut sheets = Vec::new();
 
         for sheet_idx in 0..total_sheets {
@@ -178,17 +177,9 @@ impl ThumbnailSpriteHandler {
                 let x = col * THUMB_WIDTH;
                 let y = row * THUMB_HEIGHT;
 
-                match self
-                    .load_thumbnail(schema_ctx, entry.attachment_id)
-                    .await
-                {
+                match self.load_thumbnail(schema_ctx, entry.attachment_id).await {
                     Ok(thumb) => {
-                        image::imageops::overlay(
-                            &mut canvas,
-                            &thumb,
-                            x as i64,
-                            y as i64,
-                        );
+                        image::imageops::overlay(&mut canvas, &thumb, x as i64, y as i64);
                     }
                     Err(e) => {
                         warn!(
@@ -203,10 +194,8 @@ impl ThumbnailSpriteHandler {
 
             // Encode as JPEG
             let mut jpeg_buf = std::io::Cursor::new(Vec::new());
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut jpeg_buf,
-                JPEG_QUALITY,
-            );
+            let encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, JPEG_QUALITY);
             if let Err(e) = canvas.write_with_encoder(encoder) {
                 error!(sheet_idx, "Failed to encode sprite sheet: {}", e);
                 continue;
@@ -229,11 +218,7 @@ impl ThumbnailSpriteHandler {
     }
 
     /// Generate a WebVTT file mapping time ranges to sprite sheet coordinates.
-    fn build_sprite_vtt(
-        &self,
-        keyframes: &[KeyframeEntry],
-        attachment_id: Uuid,
-    ) -> String {
+    fn build_sprite_vtt(&self, keyframes: &[KeyframeEntry], attachment_id: Uuid) -> String {
         if keyframes.is_empty() {
             return String::new();
         }
@@ -241,7 +226,11 @@ impl ThumbnailSpriteHandler {
         // Estimate interval from first two frames (fallback 10s)
         let interval = if keyframes.len() >= 2 {
             let diff = keyframes[1].timestamp_secs - keyframes[0].timestamp_secs;
-            if diff > 0.0 { diff } else { 10.0 }
+            if diff > 0.0 {
+                diff
+            } else {
+                10.0
+            }
         } else {
             10.0
         };
@@ -379,7 +368,11 @@ impl JobHandler for ThumbnailSpriteHandler {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(tx) => tx,
                 Err(e) => {
-                    error!("Failed to begin transaction for sprite sheet {}: {}", i + 1, e);
+                    error!(
+                        "Failed to begin transaction for sprite sheet {}: {}",
+                        i + 1,
+                        e
+                    );
                     continue;
                 }
             };

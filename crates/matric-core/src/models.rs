@@ -2081,6 +2081,10 @@ pub enum JobType {
     MediaOptimize,
     /// Generate thumbnail sprite sheets and WebVTT map from keyframes (#525)
     ThumbnailSprite,
+    /// Describe a single video keyframe using vision LLM (atomic, parallelizable) (#526)
+    KeyframeVision,
+    /// Aggregate all keyframe descriptions and rebuild video markdown (#526)
+    KeyframeAssembly,
 }
 
 impl JobType {
@@ -2136,6 +2140,10 @@ impl JobType {
             JobType::MediaOptimize => 3,
             // Thumbnail sprite generation runs after extraction, low priority background task
             JobType::ThumbnailSprite => 3,
+            // Keyframe vision is per-frame, medium priority (gates assembly)
+            JobType::KeyframeVision => 4,
+            // Keyframe assembly runs after all vision jobs, low priority
+            JobType::KeyframeAssembly => 3,
         }
     }
 
