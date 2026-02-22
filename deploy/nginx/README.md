@@ -119,6 +119,10 @@ sudo cp deploy/nginx/your-domain.com.conf /etc/nginx/sites-available/memory
 # Enable site
 sudo ln -sf /etc/nginx/sites-available/memory /etc/nginx/sites-enabled/memory
 
+# Verify temp directory permissions (must match nginx worker user)
+NGINX_USER=$(grep '^user ' /etc/nginx/nginx.conf | awk '{print $2}' | tr -d ';')
+sudo chown -R "$NGINX_USER:$NGINX_USER" /var/lib/nginx/
+
 # Test configuration
 sudo nginx -t
 
@@ -164,11 +168,17 @@ Without these, video players will be unable to seek and audio players won't supp
 
 ### Upload Size (`client_max_body_size`)
 
-Set to `500M` to accommodate large video, 3D model, and audio uploads. Adjust upward if users upload files larger than 500MB. When uploads exceed this limit, nginx returns 413 Request Entity Too Large before the request reaches the API.
+Set to `1024M` (1 GB) to accommodate large video, 3D model, and audio uploads. This must be >= the API's `MATRIC_MAX_UPLOAD_SIZE_BYTES` setting. When uploads exceed this limit, nginx returns 413 Request Entity Too Large before the request reaches the API.
 
-### Request Buffering (`proxy_request_buffering off`)
+### Upload Endpoint (Streaming)
 
-By default nginx buffers the entire request body in memory/temp files before forwarding to upstream. With `off`, the upload streams directly to the API as it arrives, reducing memory usage and upload latency for large files.
+File uploads use a dedicated `location` block with `proxy_request_buffering off`, which streams the request body directly to the API without buffering to a temp file. This is necessary because Chrome's HTTP/2 implementation drops connections mid-transfer when nginx tries to buffer large uploads (200+ MB) to temp files.
+
+The upload location matches `~ ^/api/v1/notes/[^/]+/attachments/upload$` and must appear **before** the general `/api/` location block (nginx evaluates regex locations in order of appearance, and they take priority over prefix matches).
+
+### Request Buffering (`proxy_request_buffering on`)
+
+The general `/api/` location uses `proxy_request_buffering on` (nginx default). This buffers the request body to `/var/lib/nginx/body/` before forwarding to upstream, which works well for JSON API requests. See [Temp Directory Permissions](#temp-directory-permissions) for ownership requirements.
 
 ### Response Buffering (`proxy_buffering off`)
 
@@ -185,6 +195,45 @@ Disabled for proxied responses in the API block because:
 1. Gzip compression interferes with Range requests (compressed responses can't be byte-ranged)
 2. Binary media files (video, audio, 3D models) don't compress well
 3. The API already serves pre-compressed text responses where beneficial
+
+## Temp Directory Permissions
+
+nginx uses several temp directories under `/var/lib/nginx/` for buffering:
+
+| Directory | Purpose |
+|-----------|---------|
+| `body/` | Request body buffering (file uploads) |
+| `proxy/` | Response buffering from upstream (SPA JS bundles, API responses) |
+| `fastcgi/` | FastCGI response buffering |
+| `scgi/` | SCGI response buffering |
+| `uwsgi/` | uWSGI response buffering |
+
+**These directories must be owned by the nginx worker user.** Check which user nginx runs as:
+
+```bash
+# Check nginx.conf worker user
+grep '^user ' /etc/nginx/nginx.conf
+# e.g.: user www-data;
+
+# Verify workers match
+ps -eo pid,user,comm | grep 'nginx: worker' | head -3
+```
+
+If the worker user doesn't own the temp directories, nginx silently fails to buffer requests/responses. Uploads return `400` with empty bodies, and large proxied responses (like SPA JS bundles) get truncated causing white screens.
+
+**Fix permissions:**
+
+```bash
+# Replace www-data with your nginx worker user if different
+sudo chown -R www-data:www-data /var/lib/nginx/
+sudo find /var/lib/nginx -type d -exec chmod 700 {} \;
+sudo systemctl reload nginx
+```
+
+**Common causes of permission mismatch:**
+- Package upgrades changing the default user
+- Manual `nginx.conf` edits changing `user` without updating temp dirs
+- Running `chown` to match a containerized nginx instead of the host nginx
 
 ## Troubleshooting
 
@@ -218,6 +267,38 @@ curl http://127.0.0.1:3001/
 # Check HotM SPA
 curl http://127.0.0.1:4180/
 ```
+
+### White Screen (SPA Loads but JS Bundle Fails)
+
+**Symptom**: `https://your-domain.com/` returns a blank white page. The HTML loads but the JavaScript bundle doesn't.
+
+**Cause**: nginx can't buffer the proxied response from the SPA server. The JS bundle (~3.6 MB) exceeds the in-memory proxy buffer, so nginx tries to write to `/var/lib/nginx/proxy/` but lacks permission.
+
+**Diagnosis**:
+
+```bash
+# Check nginx error log for permission errors
+sudo tail -20 /var/log/nginx/memory_error.log | grep 'Permission denied'
+# e.g.: open() "/var/lib/nginx/proxy/4/92/0000002924" failed (13: Permission denied)
+
+# Check ownership
+ls -la /var/lib/nginx/
+# All dirs should be owned by the nginx worker user (e.g., www-data)
+```
+
+**Fix**: See [Temp Directory Permissions](#temp-directory-permissions).
+
+### Large File Upload Fails (`400 0` or "Failed to fetch")
+
+**Symptom**: Uploading files from the browser fails. nginx access log shows `400 0` (400 status, 0-byte response). No error in API logs — the request never reaches the API intact. `curl` uploads through the same nginx server succeed.
+
+**Possible causes (check in order)**:
+
+1. **Temp directory permissions** — If `proxy_request_buffering on` is used, nginx writes the upload body to `/var/lib/nginx/body/`. Permission denied causes silent truncation. Check: `sudo tail -50 /var/log/nginx/memory_error.log | grep 'Permission denied'`. Fix: see [Temp Directory Permissions](#temp-directory-permissions).
+
+2. **Upload size limit mismatch** — `client_max_body_size` in nginx must be >= `MATRIC_MAX_UPLOAD_SIZE_BYTES` in the API. The API defaults to 50 MB; set `MATRIC_MAX_UPLOAD_SIZE_BYTES` in `.env` for larger files.
+
+3. **Chrome HTTP/2 large upload bug** — Chrome drops HTTP/2 connections mid-transfer for files >200 MB. Diagnosis: enable detailed logging (`rt`, `rl`, `cl`, `us` fields) and compare `rl` (received length) vs `cl` (content-length). If `rl < cl` and `us=-` (never forwarded), the browser disconnected mid-upload. Workaround: the upload endpoint uses a dedicated location block with `proxy_request_buffering off` to stream directly to the API. For very large files, the frontend should use chunked/resumable uploads or ensure HTTP client libraries are up to date.
 
 ### SSL Certificate Issues
 
