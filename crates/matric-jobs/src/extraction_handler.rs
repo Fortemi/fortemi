@@ -358,7 +358,6 @@ impl JobHandler for ExtractionHandler {
                         let segments_json = result
                             .metadata
                             .get("transcript_segments")
-                            .or_else(|| result.metadata.get("segments"))
                             .and_then(|v| v.as_array());
 
                         if let Some(segs) = segments_json {
@@ -583,7 +582,6 @@ impl JobHandler for ExtractionHandler {
                 let has_transcript_segments = result
                     .metadata
                     .get("transcript_segments")
-                    .or_else(|| result.metadata.get("segments"))
                     .and_then(|v| v.as_array())
                     .map(|a| !a.is_empty())
                     .unwrap_or(false);

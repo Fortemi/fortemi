@@ -211,7 +211,7 @@ impl JobHandler for SpeakerRelabelHandler {
         let segments_json = attachment
             .extracted_metadata
             .as_ref()
-            .and_then(|m| m.get("transcript_segments").or_else(|| m.get("segments")))
+            .and_then(|m| m.get("transcript_segments"))
             .and_then(|v| v.as_array());
 
         let segments = match segments_json {
@@ -258,12 +258,7 @@ impl JobHandler for SpeakerRelabelHandler {
                 .clone()
                 .unwrap_or_else(|| json!({}));
 
-            // Update the segments key
-            if metadata.get("transcript_segments").is_some() {
-                metadata["transcript_segments"] = json!(relabeled_segments);
-            } else {
-                metadata["segments"] = json!(relabeled_segments);
-            }
+            metadata["transcript_segments"] = json!(relabeled_segments);
 
             // Record the relabel mapping
             metadata["speaker_relabel"] = json!({

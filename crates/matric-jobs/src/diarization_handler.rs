@@ -107,7 +107,7 @@ impl JobHandler for SpeakerDiarizationHandler {
         let segments_json = attachment
             .extracted_metadata
             .as_ref()
-            .and_then(|m| m.get("transcript_segments").or_else(|| m.get("segments")))
+            .and_then(|m| m.get("transcript_segments"))
             .and_then(|v| v.as_array());
 
         let mut transcript_segments: Vec<TranscriptionSegment> = match segments_json {
@@ -289,12 +289,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                 })
                 .collect();
 
-            // Update the segments key (prefer transcript_segments if it existed)
-            if metadata.get("transcript_segments").is_some() {
-                metadata["transcript_segments"] = json!(labeled_segments);
-            } else {
-                metadata["segments"] = json!(labeled_segments);
-            }
+            metadata["transcript_segments"] = json!(labeled_segments);
 
             // Add diarization metadata
             metadata["diarization"] = json!({

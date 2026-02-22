@@ -13310,10 +13310,8 @@ async fn get_attachment_subtitles(
         ApiError::NotFound("No extraction metadata for this attachment".to_string())
     })?;
 
-    // Try video path first (transcript_segments), then audio path (segments)
     let segments_json = metadata
         .get("transcript_segments")
-        .or_else(|| metadata.get("segments"))
         .and_then(|v| v.as_array())
         .ok_or_else(|| {
             ApiError::NotFound("No transcript segments found in extraction metadata".to_string())

@@ -96,7 +96,7 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
 
         let mut metadata = serde_json::json!({
             "segment_count": transcription.segments.len(),
-            "segments": segments_json,
+            "transcript_segments": segments_json,
         });
 
         if let Some(lang) = &transcription.language {
@@ -304,7 +304,7 @@ mod tests {
         assert!(result.preview_data.is_none());
 
         // Verify segments structure
-        let segments = result.metadata["segments"].as_array().unwrap();
+        let segments = result.metadata["transcript_segments"].as_array().unwrap();
         assert_eq!(segments.len(), 2);
         assert_eq!(segments[0]["start_secs"], 0.0);
         assert_eq!(segments[0]["end_secs"], 2.5);
@@ -512,7 +512,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.metadata["segment_count"], 3);
-        let segments_json = result.metadata["segments"].as_array().unwrap();
+        let segments_json = result.metadata["transcript_segments"].as_array().unwrap();
         assert_eq!(segments_json.len(), 3);
 
         for (i, seg) in segments.iter().enumerate() {
