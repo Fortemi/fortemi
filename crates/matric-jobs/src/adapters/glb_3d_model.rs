@@ -350,7 +350,10 @@ impl ExtractionAdapter for Glb3DModelAdapter {
         let derived_files: Vec<DerivedFile> = rendered_views
             .iter()
             .map(|view| DerivedFile {
-                filename: format!("{}_view_{:03}_{}.png", base_name, view.index, view.elevation),
+                filename: format!(
+                    "{}_view_{:03}_{}.png",
+                    base_name, view.index, view.elevation
+                ),
                 content_type: "image/png".to_string(),
                 data: view.image_data.clone(),
                 derivation_type: "3d_rendering".to_string(),
