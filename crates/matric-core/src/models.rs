@@ -2539,7 +2539,7 @@ pub struct OAuthToken {
 }
 
 /// OAuth2 token request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TokenRequest {
     pub grant_type: String,
     #[serde(default)]
@@ -4940,7 +4940,7 @@ pub struct MemoryProvenance {
 // =============================================================================
 
 /// Request to create a provenance location record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProvLocationRequest {
     pub latitude: f64,
     pub longitude: f64,
@@ -4955,7 +4955,7 @@ pub struct CreateProvLocationRequest {
 }
 
 /// Request to create a named location (landmark, address).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateNamedLocationRequest {
     pub name: String,
     pub location_type: String, // home, work, poi, city, region, country
@@ -4975,7 +4975,7 @@ pub struct CreateNamedLocationRequest {
 }
 
 /// Request to create a provenance device record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateProvDeviceRequest {
     pub device_make: String,
     pub device_model: String,
@@ -4990,7 +4990,7 @@ pub struct CreateProvDeviceRequest {
 }
 
 /// Request to create a file provenance record linking an attachment to spatial-temporal context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateFileProvenanceRequest {
     pub attachment_id: Uuid,
     pub note_id: Option<Uuid>,
@@ -5009,7 +5009,7 @@ pub struct CreateFileProvenanceRequest {
 }
 
 /// Request to create a note provenance record linking a note to spatial-temporal context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateNoteProvenanceRequest {
     pub note_id: Uuid,
     pub capture_time_start: Option<DateTime<Utc>>,

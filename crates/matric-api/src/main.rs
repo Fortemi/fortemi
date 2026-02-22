@@ -1402,42 +1402,42 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route("/api/v1/notes/bulk", post(bulk_create_notes))
         .route(
-            "/api/v1/notes/:id",
+            "/api/v1/notes/{id}",
             get(get_note).patch(update_note).delete(delete_note),
         )
-        .route("/api/v1/notes/:id/restore", post(restore_note))
-        .route("/api/v1/notes/:id/purge", post(purge_note))
-        .route("/api/v1/notes/:id/reprocess", post(reprocess_note))
+        .route("/api/v1/notes/{id}/restore", post(restore_note))
+        .route("/api/v1/notes/{id}/purge", post(purge_note))
+        .route("/api/v1/notes/{id}/reprocess", post(reprocess_note))
         .route("/api/v1/notes/reprocess", post(bulk_reprocess_notes))
         .route(
-            "/api/v1/notes/:id/tags",
+            "/api/v1/notes/{id}/tags",
             get(get_note_tags).put(set_note_tags),
         )
-        .route("/api/v1/notes/:id/links", get(get_note_links))
-        .route("/api/v1/notes/:id/backlinks", get(get_note_backlinks))
-        .route("/api/v1/notes/:id/related", get(get_related_notes))
-        .route("/api/v1/notes/:id/export", get(export_note))
-        .route("/api/v1/notes/:id/full", get(get_full_document))
+        .route("/api/v1/notes/{id}/links", get(get_note_links))
+        .route("/api/v1/notes/{id}/backlinks", get(get_note_backlinks))
+        .route("/api/v1/notes/{id}/related", get(get_related_notes))
+        .route("/api/v1/notes/{id}/export", get(export_note))
+        .route("/api/v1/notes/{id}/full", get(get_full_document))
         // Provenance (W3C PROV)
-        .route("/api/v1/notes/:id/provenance", get(get_note_provenance))
+        .route("/api/v1/notes/{id}/provenance", get(get_note_provenance))
         // Note versioning (#104)
-        .route("/api/v1/notes/:id/versions", get(list_note_versions))
+        .route("/api/v1/notes/{id}/versions", get(list_note_versions))
         .route(
-            "/api/v1/notes/:id/versions/:version",
+            "/api/v1/notes/{id}/versions/{version}",
             get(get_note_version).delete(delete_note_version),
         )
         .route(
-            "/api/v1/notes/:id/versions/:version/restore",
+            "/api/v1/notes/{id}/versions/{version}/restore",
             post(restore_note_version),
         )
-        .route("/api/v1/notes/:id/versions/diff", get(diff_note_versions))
+        .route("/api/v1/notes/{id}/versions/diff", get(diff_note_versions))
         // Search
         .route("/api/v1/search", get(search_notes))
         .route("/api/v1/search/federated", post(federated_search))
         // Memory search (spatial/temporal provenance)
         .route("/api/v1/memories/search", get(search_memories))
         .route(
-            "/api/v1/notes/:id/memory-provenance",
+            "/api/v1/notes/{id}/memory-provenance",
             get(get_memory_provenance_handler),
         )
         // Provenance creation (Issue #261)
@@ -1459,18 +1459,18 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/health/unlinked-notes", get(get_unlinked_notes))
         .route("/api/v1/health/tag-cooccurrence", get(get_tag_cooccurrence))
         // Note status shortcut
-        .route("/api/v1/notes/:id/status", patch(update_note_status))
+        .route("/api/v1/notes/{id}/status", patch(update_note_status))
         // Jobs
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
-        .route("/api/v1/jobs/:id", get(get_job))
+        .route("/api/v1/jobs/{id}", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
         .route("/api/v1/jobs/stats", get(queue_stats))
         // Job pause/resume (Issue #466)
         .route("/api/v1/jobs/status", get(get_job_pause_status))
         .route("/api/v1/jobs/pause", post(pause_jobs_global))
         .route("/api/v1/jobs/resume", post(resume_jobs_global))
-        .route("/api/v1/jobs/pause/:archive", post(pause_jobs_archive))
-        .route("/api/v1/jobs/resume/:archive", post(resume_jobs_archive))
+        .route("/api/v1/jobs/pause/{archive}", post(pause_jobs_archive))
+        .route("/api/v1/jobs/resume/{archive}", post(resume_jobs_archive))
         // Extraction Analytics
         .route("/api/v1/extraction/stats", get(extraction_stats))
         // Model discovery
@@ -1491,7 +1491,7 @@ async fn main() -> anyhow::Result<()> {
             get(list_document_types).post(create_document_type),
         )
         .route(
-            "/api/v1/document-types/:name",
+            "/api/v1/document-types/{name}",
             get(get_document_type)
                 .patch(update_document_type)
                 .delete(delete_document_type),
@@ -1500,49 +1500,52 @@ async fn main() -> anyhow::Result<()> {
         // Archives
         .route("/api/v1/archives", get(list_archives).post(create_archive))
         .route(
-            "/api/v1/archives/:name",
+            "/api/v1/archives/{name}",
             get(get_archive)
                 .patch(update_archive)
                 .delete(delete_archive),
         )
         .route(
-            "/api/v1/archives/:name/set-default",
+            "/api/v1/archives/{name}/set-default",
             post(set_default_archive),
         )
-        .route("/api/v1/archives/:name/stats", get(get_archive_stats))
-        .route("/api/v1/archives/:name/clone", post(clone_archive))
+        .route("/api/v1/archives/{name}/stats", get(get_archive_stats))
+        .route("/api/v1/archives/{name}/clone", post(clone_archive))
         // Memories (aliases for archives - user-facing terminology, Issue #179)
         .route("/api/v1/memories", get(list_archives).post(create_archive))
         .route("/api/v1/memories/overview", get(memories_overview))
         .route(
-            "/api/v1/memories/:name",
+            "/api/v1/memories/{name}",
             get(get_archive)
                 .patch(update_archive)
                 .delete(delete_archive),
         )
         .route(
-            "/api/v1/memories/:name/set-default",
+            "/api/v1/memories/{name}/set-default",
             post(set_default_archive),
         )
-        .route("/api/v1/memories/:name/stats", get(get_archive_stats))
-        .route("/api/v1/memories/:name/clone", post(clone_archive))
+        .route("/api/v1/memories/{name}/stats", get(get_archive_stats))
+        .route("/api/v1/memories/{name}/clone", post(clone_archive))
         // PKE (Public Key Encryption)
         .route("/api/v1/pke/keygen", post(pke_keygen))
         .route("/api/v1/pke/address", post(pke_address))
         .route("/api/v1/pke/encrypt", post(pke_encrypt))
         .route("/api/v1/pke/decrypt", post(pke_decrypt))
         .route("/api/v1/pke/recipients", post(pke_recipients))
-        .route("/api/v1/pke/verify/:address", get(pke_verify))
+        .route("/api/v1/pke/verify/{address}", get(pke_verify))
         // PKE Keysets (REST API keyset management - Issues #328, #332)
         .route("/api/v1/pke/keysets", get(list_keysets).post(create_keyset))
         .route("/api/v1/pke/keysets/active", get(get_active_keyset))
         .route("/api/v1/pke/keysets/import", post(import_keyset))
-        .route("/api/v1/pke/keysets/:name_or_id", delete(delete_keyset))
+        .route("/api/v1/pke/keysets/{name_or_id}", delete(delete_keyset))
         .route(
-            "/api/v1/pke/keysets/:name_or_id/active",
+            "/api/v1/pke/keysets/{name_or_id}/active",
             put(set_active_keyset),
         )
-        .route("/api/v1/pke/keysets/:name_or_id/export", get(export_keyset))
+        .route(
+            "/api/v1/pke/keysets/{name_or_id}/export",
+            get(export_keyset),
+        )
         // Tags (legacy)
         .route("/api/v1/tags", get(list_tags))
         // SKOS Concept Schemes
@@ -1551,13 +1554,13 @@ async fn main() -> anyhow::Result<()> {
             get(list_concept_schemes).post(create_concept_scheme),
         )
         .route(
-            "/api/v1/concepts/schemes/:id",
+            "/api/v1/concepts/schemes/{id}",
             get(get_concept_scheme)
                 .patch(update_concept_scheme)
                 .delete(delete_concept_scheme),
         )
         .route(
-            "/api/v1/concepts/schemes/:id/top-concepts",
+            "/api/v1/concepts/schemes/{id}/top-concepts",
             get(get_top_concepts),
         )
         // SKOS Concepts
@@ -1567,80 +1570,80 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/concepts/autocomplete", get(autocomplete_concepts))
         .route(
-            "/api/v1/concepts/:id",
+            "/api/v1/concepts/{id}",
             get(get_concept)
                 .patch(update_concept)
                 .delete(delete_concept),
         )
-        .route("/api/v1/concepts/:id/full", get(get_concept_full))
-        .route("/api/v1/concepts/:id/ancestors", get(get_ancestors))
-        .route("/api/v1/concepts/:id/descendants", get(get_descendants))
+        .route("/api/v1/concepts/{id}/full", get(get_concept_full))
+        .route("/api/v1/concepts/{id}/ancestors", get(get_ancestors))
+        .route("/api/v1/concepts/{id}/descendants", get(get_descendants))
         .route(
-            "/api/v1/concepts/:id/broader",
+            "/api/v1/concepts/{id}/broader",
             get(get_broader).post(add_broader),
         )
         .route(
-            "/api/v1/concepts/:id/broader/:target_id",
+            "/api/v1/concepts/{id}/broader/{target_id}",
             delete(remove_broader),
         )
         .route(
-            "/api/v1/concepts/:id/narrower",
+            "/api/v1/concepts/{id}/narrower",
             get(get_narrower).post(add_narrower),
         )
         .route(
-            "/api/v1/concepts/:id/narrower/:target_id",
+            "/api/v1/concepts/{id}/narrower/{target_id}",
             delete(remove_narrower),
         )
         .route(
-            "/api/v1/concepts/:id/related",
+            "/api/v1/concepts/{id}/related",
             get(get_related).post(add_related),
         )
         .route(
-            "/api/v1/concepts/:id/related/:target_id",
+            "/api/v1/concepts/{id}/related/{target_id}",
             delete(remove_related),
         )
         // SKOS Tagging
         .route(
-            "/api/v1/notes/:id/concepts",
+            "/api/v1/notes/{id}/concepts",
             get(get_note_concepts).post(tag_note_with_concept),
         )
         .route(
-            "/api/v1/notes/:id/concepts/:concept_id",
+            "/api/v1/notes/{id}/concepts/{concept_id}",
             delete(untag_note_concept),
         )
         // File Attachments
         .route(
-            "/api/v1/notes/:id/attachments",
+            "/api/v1/notes/{id}/attachments",
             get(list_attachments).post(upload_attachment),
         )
         .route(
-            "/api/v1/notes/:id/attachments/upload",
+            "/api/v1/notes/{id}/attachments/upload",
             post(upload_attachment_multipart).layer(DefaultBodyLimit::max(max_upload_size)),
         )
         .route("/api/v1/attachments", get(list_all_attachments))
         .route(
-            "/api/v1/attachments/:attachment_id",
+            "/api/v1/attachments/{attachment_id}",
             get(get_attachment).delete(delete_attachment),
         )
         .route(
-            "/api/v1/attachments/:attachment_id/download",
+            "/api/v1/attachments/{attachment_id}/download",
             get(download_attachment).layer(tower::limit::ConcurrencyLimitLayer::new(
                 matric_core::defaults::MEDIA_MAX_CONCURRENT_DOWNLOADS,
             )),
         )
         .route(
-            "/api/v1/attachments/:attachment_id/subtitles",
+            "/api/v1/attachments/{attachment_id}/subtitles",
             get(get_attachment_subtitles),
         )
         .route(
-            "/api/v1/attachments/:attachment_id/thumbnail",
+            "/api/v1/attachments/{attachment_id}/thumbnail",
             get(get_attachment_thumbnail),
         )
         // SKOS Governance
         .route("/api/v1/concepts/governance", get(get_governance_stats))
         // SKOS Export
         .route(
-            "/api/v1/concepts/schemes/:id/export/turtle",
+            "/api/v1/concepts/schemes/{id}/export/turtle",
             get(export_scheme_turtle),
         )
         .route(
@@ -1653,17 +1656,17 @@ async fn main() -> anyhow::Result<()> {
             get(list_skos_collections).post(create_skos_collection),
         )
         .route(
-            "/api/v1/concepts/collections/:id",
+            "/api/v1/concepts/collections/{id}",
             get(get_skos_collection)
                 .patch(update_skos_collection)
                 .delete(delete_skos_collection),
         )
         .route(
-            "/api/v1/concepts/collections/:id/members",
+            "/api/v1/concepts/collections/{id}/members",
             put(replace_skos_collection_members),
         )
         .route(
-            "/api/v1/concepts/collections/:id/members/:concept_id",
+            "/api/v1/concepts/collections/{id}/members/{concept_id}",
             post(add_skos_collection_member).delete(remove_skos_collection_member),
         )
         // Collections
@@ -1672,35 +1675,35 @@ async fn main() -> anyhow::Result<()> {
             get(list_collections).post(create_collection),
         )
         .route(
-            "/api/v1/collections/:id",
+            "/api/v1/collections/{id}",
             get(get_collection)
                 .patch(update_collection)
                 .delete(delete_collection),
         )
-        .route("/api/v1/collections/:id/notes", get(get_collection_notes))
-        .route("/api/v1/collections/:id/export", get(export_collection))
-        .route("/api/v1/notes/:id/move", post(move_note_to_collection))
+        .route("/api/v1/collections/{id}/notes", get(get_collection_notes))
+        .route("/api/v1/collections/{id}/export", get(export_collection))
+        .route("/api/v1/notes/{id}/move", post(move_note_to_collection))
         // Embedding sets
         .route(
             "/api/v1/embedding-sets",
             get(list_embedding_sets).post(create_embedding_set),
         )
         .route(
-            "/api/v1/embedding-sets/:slug",
+            "/api/v1/embedding-sets/{slug}",
             get(get_embedding_set)
                 .patch(update_embedding_set)
                 .delete(delete_embedding_set),
         )
         .route(
-            "/api/v1/embedding-sets/:slug/members",
+            "/api/v1/embedding-sets/{slug}/members",
             get(list_embedding_set_members).post(add_embedding_set_members),
         )
         .route(
-            "/api/v1/embedding-sets/:slug/members/:note_id",
+            "/api/v1/embedding-sets/{slug}/members/{note_id}",
             delete(remove_embedding_set_member),
         )
         .route(
-            "/api/v1/embedding-sets/:slug/refresh",
+            "/api/v1/embedding-sets/{slug}/refresh",
             post(refresh_embedding_set),
         )
         .route(
@@ -1712,7 +1715,7 @@ async fn main() -> anyhow::Result<()> {
             get(get_default_embedding_config),
         )
         .route(
-            "/api/v1/embedding-configs/:id",
+            "/api/v1/embedding-configs/{id}",
             get(get_embedding_config)
                 .patch(update_embedding_config)
                 .delete(delete_embedding_config),
@@ -1739,20 +1742,20 @@ async fn main() -> anyhow::Result<()> {
             post(coarse_community_detection),
         )
         .route("/api/v1/graph/maintenance", post(trigger_graph_maintenance))
-        .route("/api/v1/graph/:id", get(explore_graph))
+        .route("/api/v1/graph/{id}", get(explore_graph))
         // Templates
         .route(
             "/api/v1/templates",
             get(list_templates).post(create_template),
         )
         .route(
-            "/api/v1/templates/:id",
+            "/api/v1/templates/{id}",
             get(get_template)
                 .patch(update_template)
                 .delete(delete_template),
         )
         .route(
-            "/api/v1/templates/:id/instantiate",
+            "/api/v1/templates/{id}/instantiate",
             post(instantiate_template),
         )
         // OAuth2 endpoints
@@ -1774,7 +1777,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/oauth/revoke", post(oauth_revoke))
         // API key management
         .route("/api/v1/api-keys", get(list_api_keys).post(create_api_key))
-        .route("/api/v1/api-keys/:id", delete(revoke_api_key))
+        .route("/api/v1/api-keys/{id}", delete(revoke_api_key))
         // Legacy backup endpoints (JSON export/import)
         .route("/api/v1/backup/export", get(backup_export))
         .route("/api/v1/backup/download", get(backup_download))
@@ -1806,10 +1809,10 @@ async fn main() -> anyhow::Result<()> {
             post(database_backup_restore),
         )
         // Memory-scoped backup (single archive schema)
-        .route("/api/v1/backup/memory/:name", get(memory_backup_download))
+        .route("/api/v1/backup/memory/{name}", get(memory_backup_download))
         // Knowledge archives (backup + metadata bundled as .archive)
         .route(
-            "/api/v1/backup/knowledge-archive/:filename",
+            "/api/v1/backup/knowledge-archive/{filename}",
             get(knowledge_archive_download),
         )
         .route(
@@ -1818,15 +1821,15 @@ async fn main() -> anyhow::Result<()> {
         )
         // Backup browser (lists all backups)
         .route("/api/v1/backup/list", get(list_backups))
-        .route("/api/v1/backup/list/:filename", get(get_backup_info))
+        .route("/api/v1/backup/list/{filename}", get(get_backup_info))
         .route("/api/v1/backup/swap", post(swap_backup))
         // Backup metadata
         .route(
-            "/api/v1/backup/metadata/:filename",
+            "/api/v1/backup/metadata/{filename}",
             get(get_backup_metadata),
         )
         .route(
-            "/api/v1/backup/metadata/:filename",
+            "/api/v1/backup/metadata/{filename}",
             put(update_backup_metadata),
         )
         // Memory info
@@ -1838,16 +1841,16 @@ async fn main() -> anyhow::Result<()> {
         // Webhooks (Issue #44)
         .route("/api/v1/webhooks", post(create_webhook).get(list_webhooks))
         .route(
-            "/api/v1/webhooks/:id",
+            "/api/v1/webhooks/{id}",
             get(get_webhook)
                 .patch(update_webhook)
                 .delete(delete_webhook_handler),
         )
         .route(
-            "/api/v1/webhooks/:id/deliveries",
+            "/api/v1/webhooks/{id}/deliveries",
             get(list_webhook_deliveries),
         )
-        .route("/api/v1/webhooks/:id/test", post(test_webhook))
+        .route("/api/v1/webhooks/{id}/test", post(test_webhook))
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
@@ -2113,7 +2116,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
                         Ok(envelope) => {
                             // Send payload only for HotM WebSocket backward compatibility
                             if let Ok(json) = serde_json::to_string(&envelope.payload) {
-                                if sender.send(Message::Text(json)).await.is_err() {
+                                if sender.send(Message::Text(json.into())).await.is_err() {
                                     break;
                                 }
                             }
@@ -2125,7 +2128,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
                     }
                 }
                 _ = ping_interval.tick() => {
-                    if sender.send(Message::Ping(vec![])).await.is_err() {
+                    if sender.send(Message::Ping(Vec::new().into())).await.is_err() {
                         break;
                     }
                 }
@@ -2140,7 +2143,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
         use matric_core::JobRepository;
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
-                Message::Text(ref text) if text == "refresh" => {
+                Message::Text(ref text) if text.as_str() == "refresh" => {
                     // Send immediate queue status
                     if let Ok(stats) = db.jobs.queue_stats().await {
                         event_bus.emit(ServerEvent::QueueStatus {
@@ -3253,7 +3256,7 @@ fn is_admin_route(path: &str) -> bool {
 
     // API key management (kept as admin — security-sensitive)
     if path.starts_with("/api/v1/api-keys") && !path.ends_with("/api-keys") {
-        // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/:id (revoke)
+        // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/{id} (revoke)
         return true;
     }
     false
@@ -4627,7 +4630,7 @@ async fn create_note(
     ))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct BulkCreateNoteItem {
     content: String,
     tags: Option<Vec<String>>,
@@ -6182,7 +6185,7 @@ async fn get_related(
     Ok(Json(relations))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct AddRelationBody {
     target_id: Uuid,
 }
@@ -6415,7 +6418,7 @@ async fn get_note_concepts(
     Ok(Json(concepts))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct TagNoteBody {
     concept_id: Uuid,
     is_primary: Option<bool>,
@@ -6917,7 +6920,7 @@ async fn list_collections(
     Ok(Json(collections))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct CreateCollectionBody {
     name: String,
     description: Option<String>,
@@ -6975,7 +6978,7 @@ async fn get_collection(
     Ok(Json(collection))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct UpdateCollectionBody {
     name: String,
     description: Option<String>,
@@ -7181,7 +7184,7 @@ async fn export_collection(
     Ok((StatusCode::OK, headers, output))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct MoveNoteBody {
     collection_id: Option<Uuid>,
 }
@@ -7670,7 +7673,7 @@ async fn list_templates(
     Ok(Json(result))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct CreateTemplateBody {
     name: String,
     description: Option<String>,
@@ -7731,7 +7734,7 @@ async fn get_template(
     Ok(Json(template))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct UpdateTemplateBody {
     name: Option<String>,
     description: Option<String>,
@@ -7781,7 +7784,7 @@ async fn delete_template(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct InstantiateTemplateBody {
     /// Variables to substitute in the template (placeholder -> value)
     #[serde(default)]
@@ -8701,7 +8704,7 @@ async fn get_note_version(
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 struct RestoreVersionRequest {
     /// Whether to restore tags from the version snapshot (default: false)
     #[serde(default)]
@@ -9052,7 +9055,7 @@ async fn search_notes(
 // =============================================================================
 
 /// Request body for cross-memory federated search.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct FederatedSearchRequest {
     /// Search query string
     q: String,
@@ -9767,7 +9770,7 @@ async fn delete_embedding_config(
 // JOB HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct CreateJobBody {
     note_id: Option<Uuid>,
     job_type: String,
@@ -10388,7 +10391,7 @@ async fn oauth_token(
 }
 
 /// Token introspection request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct IntrospectRequest {
     token: String,
     #[serde(default)]
@@ -10428,7 +10431,7 @@ async fn oauth_introspect(
 }
 
 /// Token revocation request.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct RevokeRequest {
     token: String,
     #[serde(default)]
@@ -10730,7 +10733,7 @@ async fn oauth_authorize_get(
 }
 
 /// Authorization form submission.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct AuthorizationForm {
     response_type: String,
     client_id: String,
@@ -11013,7 +11016,6 @@ pub struct Auth {
     pub principal: AuthPrincipal,
 }
 
-#[axum::async_trait]
 impl FromRequestParts<AppState> for Auth {
     type Rejection = ApiError;
 
@@ -11047,7 +11049,6 @@ pub struct RequireAuth {
     pub principal: AuthPrincipal,
 }
 
-#[axum::async_trait]
 impl FromRequestParts<AppState> for RequireAuth {
     type Rejection = ApiError;
 
@@ -11459,7 +11460,7 @@ struct BackupImportBody {
     on_conflict: ConflictStrategy,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[allow(dead_code)] // Fields validated during deserialization, used for future features
 struct BackupImportData {
     manifest: Option<serde_json::Value>,
@@ -11472,7 +11473,7 @@ struct BackupImportData {
     templates: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct BackupNoteData {
     id: Option<Uuid>,
     title: Option<String>,
@@ -11487,7 +11488,7 @@ struct BackupNoteData {
     tags: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Default, Clone, Copy)]
+#[derive(Debug, Deserialize, Default, Clone, Copy, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 enum ConflictStrategy {
     /// Skip notes that already exist (by ID)
@@ -11759,7 +11760,7 @@ async fn backup_import(
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct BackupTriggerBody {
     /// Target destinations: local, s3, rsync, or all (reserved for future use)
     #[allow(dead_code)]
@@ -12430,7 +12431,7 @@ async fn knowledge_shard(
 // ARCHIVE IMPORT (Full restore from knowledge shard)
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct ShardImportBody {
     /// Base64-encoded knowledge shard data
     shard_base64: String,
@@ -12582,7 +12583,7 @@ struct UploadAttachmentQuery {
 }
 
 /// Request body for uploading file attachments
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct UploadAttachmentBody {
     filename: String,
     content_type: String,
@@ -13999,7 +14000,7 @@ async fn get_backup_info(
 // BACKUP SWAP (HOT RESTORE)
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct SwapBackupRequest {
     /// Filename of the shard to restore from
     filename: String,
@@ -14806,7 +14807,7 @@ struct DatabaseBackupResponse {
     metadata: Option<BackupMetadataEcho>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct SnapshotRequest {
     /// Optional name for the snapshot (will be sanitized for filename)
     name: Option<String>,
@@ -15046,7 +15047,7 @@ async fn database_backup_snapshot(
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct DatabaseUploadRequest {
     /// Base64-encoded .sql.gz file
     data_base64: String,
@@ -15145,7 +15146,7 @@ async fn database_backup_upload(
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct DatabaseRestoreRequest {
     /// Filename of the backup to restore
     filename: String,
@@ -15924,7 +15925,7 @@ async fn knowledge_archive_upload(
 // BACKUP METADATA HANDLERS
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct UpdateMetadataRequest {
     /// Human-readable title for the backup
     title: Option<String>,
@@ -16761,7 +16762,7 @@ mod tests {
                 .expect("stream ended")
                 .expect("WS error");
             if msg.is_text() {
-                return msg.into_text().unwrap();
+                return msg.into_text().unwrap().to_string();
             }
             // Skip Ping, Pong, Binary, etc.
         }
@@ -16820,16 +16821,16 @@ mod tests {
             .route("/api/v1/events", get(sse_events))
             .route("/api/v1/webhooks", post(create_webhook).get(list_webhooks))
             .route(
-                "/api/v1/webhooks/:id",
+                "/api/v1/webhooks/{id}",
                 get(get_webhook)
                     .patch(update_webhook)
                     .delete(delete_webhook_handler),
             )
             .route(
-                "/api/v1/webhooks/:id/deliveries",
+                "/api/v1/webhooks/{id}/deliveries",
                 get(list_webhook_deliveries),
             )
-            .route("/api/v1/webhooks/:id/test", post(test_webhook))
+            .route("/api/v1/webhooks/{id}/test", post(test_webhook))
             .layer(Extension(ArchiveContext::default()))
             .with_state(state);
 
@@ -16898,7 +16899,7 @@ mod tests {
         // Send refresh command
         ws_stream
             .send(tokio_tungstenite::tungstenite::Message::Text(
-                "refresh".to_string(),
+                "refresh".into(),
             ))
             .await
             .unwrap();
@@ -18296,7 +18297,7 @@ mod tests {
         let router = Router::new()
             .route("/api/v1/memories/search", get(search_memories))
             .route(
-                "/api/v1/notes/:id/memory-provenance",
+                "/api/v1/notes/{id}/memory-provenance",
                 get(get_memory_provenance_handler),
             )
             .route("/api/v1/provenance/locations", post(create_prov_location))

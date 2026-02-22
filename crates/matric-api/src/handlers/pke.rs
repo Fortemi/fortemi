@@ -13,7 +13,7 @@ use matric_crypto::pke::{
 // REQUEST/RESPONSE TYPES
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PkeKeygenRequest {
     pub passphrase: String,
     pub label: Option<String>,
@@ -27,7 +27,7 @@ pub struct PkeKeygenResponse {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PkeAddressRequest {
     pub public_key: String, // base64 public key bytes
 }
@@ -37,7 +37,7 @@ pub struct PkeAddressResponse {
     pub address: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PkeEncryptRequest {
     pub plaintext: String,       // base64 encoded
     pub recipients: Vec<String>, // mm:... addresses or base64 public keys
@@ -50,7 +50,7 @@ pub struct PkeEncryptResponse {
     pub recipients: Vec<String>, // mm:... addresses
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PkeDecryptRequest {
     pub ciphertext: String,            // base64 MMPKE01
     pub encrypted_private_key: String, // base64
@@ -63,7 +63,7 @@ pub struct PkeDecryptResponse {
     pub original_filename: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PkeRecipientsRequest {
     pub ciphertext: String, // base64 MMPKE01
 }
@@ -378,7 +378,7 @@ use axum::extract::State;
 use matric_db::{CreateKeysetRequest, ExportedKeyset};
 use uuid::Uuid;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateKeysetApiRequest {
     pub name: String,
     pub passphrase: String,
@@ -401,7 +401,7 @@ pub struct ActiveKeysetResponse {
     pub keyset: Option<KeysetResponse>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ImportKeysetRequest {
     pub name: String,
     pub exported: ExportedKeyset,

@@ -51,7 +51,7 @@ kamadak-exif = "0.6"
 infer.workspace = true
 
 # OpenAPI schema generation
-utoipa = { version = "4", features = ["chrono", "uuid"] }
+utoipa = { version = "5", features = ["chrono", "uuid"] }
 
 # JSON Schema / AsyncAPI generation
 schemars.workspace = true

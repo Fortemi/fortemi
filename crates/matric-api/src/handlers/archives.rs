@@ -21,7 +21,7 @@ use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 // =============================================================================
 
 /// Request body for creating a new archive.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateArchiveRequest {
     /// Unique name for the archive
     pub name: String,
@@ -30,14 +30,14 @@ pub struct CreateArchiveRequest {
 }
 
 /// Request body for updating archive metadata.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateArchiveRequest {
     /// Updated description (or null to clear)
     pub description: Option<String>,
 }
 
 /// Request body for cloning an archive.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CloneArchiveRequest {
     /// Name for the cloned archive
     pub new_name: String,

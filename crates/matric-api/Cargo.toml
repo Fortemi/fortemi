@@ -22,9 +22,9 @@ matric-inference.workspace = true
 matric-crypto.workspace = true
 
 # Web framework
-axum = { version = "0.7", features = ["json", "tower-log", "multipart", "ws"] }
-tower = { version = "0.4", features = ["limit"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
+axum = { version = "0.8", features = ["json", "tower-log", "multipart", "ws"] }
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "catch-panic", "request-id", "limit"] }
 governor = "0.6"
 
 # Database
@@ -81,8 +81,8 @@ tracing-appender = "0.2"
 dotenvy = "0.15"
 
 # OpenAPI
-utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid", "yaml"] }
-utoipa-swagger-ui = { version = "7", features = ["axum"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid", "yaml"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 # AsyncAPI YAML generation
 serde_yaml.workspace = true
@@ -90,7 +90,7 @@ serde_yaml.workspace = true
 [dev-dependencies]
 tempfile = "3.24.0"
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.28"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"

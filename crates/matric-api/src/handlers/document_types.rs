@@ -35,7 +35,7 @@ pub struct ListDocumentTypesQuery {
 }
 
 /// Request body for document type detection.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DetectDocumentTypeRequest {
     /// Optional filename to match against file extensions
     pub filename: Option<String>,

@@ -47,7 +47,7 @@ pub struct CreateKeysetRequest {
 }
 
 /// Exported keyset data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ExportedKeyset {
     pub name: String,
     pub public_key_base64: String,
