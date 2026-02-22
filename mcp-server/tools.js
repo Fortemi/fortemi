@@ -324,6 +324,11 @@ export default [
         "model": {
           "type": "string",
           "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3:8b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
+        },
+        "media_optimize": {
+          "type": "boolean",
+          "description": "Request media optimization for audio/video attachments: generates web-streamable variants (faststart MP4, remuxed container, preview clips). Only effective for 'upload' action with audio/video files.",
+          "default": false
         }
       },
       "required": [
@@ -980,6 +985,11 @@ export default [
           "type": "string",
           "format": "uuid",
           "description": "Optional: explicit document type UUID override for upload (skips auto-classification)"
+        },
+        "media_optimize": {
+          "type": "boolean",
+          "description": "Request media optimization for audio/video uploads: generates web-streamable variants (faststart MP4, remuxed container, preview clips).",
+          "default": false
         }
       },
       "required": [

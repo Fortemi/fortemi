@@ -120,6 +120,7 @@ impl PgJobRepository {
             JobType::GraphMaintenance => "graph_maintenance",
             JobType::SpeakerDiarization => "speaker_diarization",
             JobType::SpeakerRelabel => "speaker_relabel",
+            JobType::MediaOptimize => "media_optimize",
         }
     }
 
@@ -152,6 +153,7 @@ impl PgJobRepository {
             "graph_maintenance" => JobType::GraphMaintenance,
             "speaker_diarization" => JobType::SpeakerDiarization,
             "speaker_relabel" => JobType::SpeakerRelabel,
+            "media_optimize" => JobType::MediaOptimize,
             _ => JobType::ContextUpdate, // fallback
         }
     }

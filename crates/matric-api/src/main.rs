@@ -199,6 +199,55 @@ async fn queue_exif_extraction_job(
     }
 }
 
+/// Queue a media optimization job for audio/video attachments (#506).
+///
+/// Creates web-optimized variants (faststart MP4, remuxed container, preview clips).
+/// Only queues if the content type is audio or video.
+async fn queue_media_optimize_job(
+    db: &Database,
+    note_id: Uuid,
+    attachment_id: Uuid,
+    content_type: &str,
+    event_bus: &EventBus,
+    schema: Option<&str>,
+) {
+    // Only queue for audio/video content types
+    if !content_type.starts_with("audio/") && !content_type.starts_with("video/") {
+        return;
+    }
+
+    let mut payload = serde_json::json!({
+        "attachment_id": attachment_id.to_string(),
+        "content_type": content_type,
+    });
+    if let Some(s) = schema {
+        payload["schema"] = serde_json::json!(s);
+    }
+
+    match db
+        .jobs
+        .queue(
+            Some(note_id),
+            JobType::MediaOptimize,
+            JobType::MediaOptimize.default_priority(),
+            Some(payload),
+            None,
+        )
+        .await
+    {
+        Ok(job_id) => {
+            event_bus.emit(ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::MediaOptimize),
+                note_id: Some(note_id),
+            });
+        }
+        Err(e) => {
+            error!(%note_id, %attachment_id, error = %e, "Failed to queue media optimize job");
+        }
+    }
+}
+
 /// Parse and validate a `revision_mode` string, returning 400 for invalid values.
 ///
 /// Accepts both new modes (`standard`, `contextual`, `contextual_filtered`) and
@@ -9747,6 +9796,7 @@ async fn create_job(
         "graph_maintenance" => JobType::GraphMaintenance,
         "speaker_diarization" => JobType::SpeakerDiarization,
         "speaker_relabel" => JobType::SpeakerRelabel,
+        "media_optimize" => JobType::MediaOptimize,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",
@@ -12524,6 +12574,8 @@ async fn knowledge_shard_import_upload(
 struct UploadAttachmentQuery {
     /// Optional explicit document type override via query parameter
     document_type_id: Option<Uuid>,
+    /// Request media optimization (faststart, web-compatible remux, preview variants) (#506)
+    media_optimize: Option<bool>,
 }
 
 /// Request body for uploading file attachments
@@ -12535,6 +12587,8 @@ struct UploadAttachmentBody {
     data: String,
     /// Optional explicit document type override (skips auto-detection)
     document_type_id: Option<Uuid>,
+    /// Request media optimization (faststart, web-compatible remux, preview variants) (#506)
+    media_optimize: Option<bool>,
 }
 
 /// List all attachments for a note
@@ -12741,6 +12795,24 @@ async fn upload_attachment(
     )
     .await;
 
+    // Queue media optimization if requested (#506)
+    // Query parameter takes priority over body field
+    let media_optimize = att_query
+        .media_optimize
+        .or(body.media_optimize)
+        .unwrap_or(false);
+    if media_optimize {
+        queue_media_optimize_job(
+            &state.db,
+            id,
+            attachment.id,
+            &content_type,
+            &state.event_bus,
+            Some(&archive_ctx.schema),
+        )
+        .await;
+    }
+
     Ok(Json(attachment))
 }
 
@@ -12769,6 +12841,7 @@ async fn upload_attachment_multipart(
     let mut content_type: Option<String> = None;
     let mut data: Option<Vec<u8>> = None;
     let mut document_type_id: Option<Uuid> = None;
+    let mut media_optimize: Option<bool> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -12794,6 +12867,13 @@ async fn upload_attachment_multipart(
                     .await
                     .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
                 document_type_id = val.parse::<Uuid>().ok();
+            }
+            Some("media_optimize") => {
+                let val = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Read error: {}", e)))?;
+                media_optimize = Some(val == "true" || val == "1");
             }
             _ => {} // ignore unknown fields
         }
@@ -12897,6 +12977,21 @@ async fn upload_attachment_multipart(
         Some(&archive_ctx.schema),
     )
     .await;
+
+    // Queue media optimization if requested (#506)
+    // Query parameter takes priority over form field
+    let do_media_optimize = att_query.media_optimize.or(media_optimize).unwrap_or(false);
+    if do_media_optimize {
+        queue_media_optimize_job(
+            &state.db,
+            id,
+            attachment.id,
+            &content_type,
+            &state.event_bus,
+            Some(&archive_ctx.schema),
+        )
+        .await;
+    }
 
     Ok(Json(attachment))
 }

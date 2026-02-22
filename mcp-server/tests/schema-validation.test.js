@@ -727,13 +727,13 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 37 tools", () => {
-    assert.equal(CORE_TOOLS.size, 37, `Expected 37 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 38 tools", () => {
+    assert.equal(CORE_TOOLS.size, 38, `Expected 38 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 37, `Expected 37 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 38, `Expected 38 filtered tools, got ${coreTools.length}`);
   });
 
   test("CORE-004: All 13 consolidated tools have action enum", () => {

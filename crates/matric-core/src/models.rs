@@ -2077,6 +2077,8 @@ pub enum JobType {
     SpeakerDiarization,
     /// Re-render transcript with user-assigned speaker names (#497)
     SpeakerRelabel,
+    /// Pre-generate streamable media variants (faststart, remux, preview) (#506)
+    MediaOptimize,
 }
 
 impl JobType {
@@ -2128,6 +2130,8 @@ impl JobType {
             JobType::SpeakerDiarization => 5,
             // Speaker relabel is user-triggered re-render, higher priority
             JobType::SpeakerRelabel => 6,
+            // Media optimization runs after extraction, low priority background task
+            JobType::MediaOptimize => 3,
         }
     }
 
