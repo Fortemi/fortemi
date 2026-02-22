@@ -67,7 +67,19 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
         let language = config.get("language").and_then(|v| v.as_str());
 
         // Perform transcription
-        let transcription = self.backend.transcribe(data, mime_type, language).await?;
+        let transcription = self
+            .backend
+            .transcribe(data, mime_type, language)
+            .await
+            .map_err(|e| {
+                matric_core::Error::Internal(format!(
+                    "Audio transcription failed (backend: {}, mime: {}, size: {} bytes): {}",
+                    self.backend.model_name(),
+                    mime_type,
+                    data.len(),
+                    e
+                ))
+            })?;
 
         // Build metadata with segments and transcription info
         let segments_json: Vec<JsonValue> = transcription

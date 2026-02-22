@@ -77,6 +77,50 @@ impl Glb3DModelAdapter {
         Some(Self::new(Arc::new(backend)))
     }
 
+    /// Check if the Open3D renderer is available.
+    ///
+    /// Returns `Ok(())` if healthy, `Err(reason)` explaining why not.
+    async fn check_renderer(&self) -> std::result::Result<(), String> {
+        let base_url = renderer_url();
+        let client = reqwest::Client::new();
+        let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+
+        let response = client
+            .get(&health_url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|e| {
+                format!(
+                    "3D model renderer unreachable at {} ({}). \
+                     Ensure the Open3D renderer is running — in Docker bundle it starts \
+                     automatically; for standalone, set RENDERER_URL.",
+                    base_url, e
+                )
+            })?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "3D model renderer at {} returned HTTP {} — check renderer logs",
+                base_url,
+                response.status()
+            ));
+        }
+
+        match response.json::<RendererHealthResponse>().await {
+            Ok(health) if health.status == "healthy" => Ok(()),
+            Ok(health) => Err(format!(
+                "3D model renderer at {} reports status '{}' — \
+                 GPU or CPU rendering may not be available (try setting OPEN3D_CPU_RENDERING=true)",
+                base_url, health.status
+            )),
+            Err(e) => Err(format!(
+                "3D model renderer at {} returned invalid health response: {}",
+                base_url, e
+            )),
+        }
+    }
+
     /// Render the 3D model using the bundled Open3D renderer.
     ///
     /// Uses multipart POST to send the model, receives multipart response with PNG images.
@@ -186,6 +230,11 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             return Err(matric_core::Error::InvalidInput(
                 "Cannot process empty 3D model data".to_string(),
             ));
+        }
+
+        // Check renderer availability before proceeding
+        if let Err(reason) = self.check_renderer().await {
+            return Err(matric_core::Error::Internal(reason));
         }
 
         // Parse config
@@ -310,36 +359,29 @@ impl ExtractionAdapter for Glb3DModelAdapter {
     }
 
     async fn health_check(&self) -> Result<bool> {
-        // Check renderer availability
-        let base_url = renderer_url();
-        let client = reqwest::Client::new();
-        let health_url = format!("{}/health", base_url.trim_end_matches('/'));
-
-        let renderer_ok = match client
-            .get(&health_url)
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    match resp.json::<RendererHealthResponse>().await {
-                        Ok(health) => health.status == "healthy",
-                        Err(_) => false,
-                    }
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        };
-
-        if !renderer_ok {
+        // Register if vision backend is healthy — renderer is checked at extraction time.
+        // This ensures GLB uploads get a clear error ("renderer unavailable") rather than
+        // the generic "no adapter registered" error.
+        let vision_ok = self.backend.health_check().await.unwrap_or(false);
+        if !vision_ok {
             return Ok(false);
         }
 
-        // Also check vision backend
-        self.backend.health_check().await
+        // Log renderer status at health-check time (informational, not blocking)
+        match self.check_renderer().await {
+            Ok(()) => {
+                debug!("GLB adapter healthy: vision + renderer available");
+            }
+            Err(reason) => {
+                warn!(
+                    "GLB adapter registered with degraded capability — \
+                     renderer not available: {}",
+                    reason
+                );
+            }
+        }
+
+        Ok(true)
     }
 
     fn name(&self) -> &str {

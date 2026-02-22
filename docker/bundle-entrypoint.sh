@@ -120,9 +120,20 @@ echo ">>> Starting Open3D 3D Renderer..."
 mkdir -p /var/log/matric
 RENDERER_PORT="${RENDERER_PORT:-8080}"
 
-# EGL headless rendering needs a runtime dir; NVIDIA EGL needs the platform hint
+# EGL headless rendering environment
 export XDG_RUNTIME_DIR=/tmp
-export EGL_PLATFORM=device
+
+# Try GPU first (EGL device), fall back to software rendering
+if [ -e /dev/dri ] || [ -e /dev/nvidia0 ]; then
+    echo "  GPU detected — using EGL device rendering"
+    export EGL_PLATFORM=device
+else
+    echo "  No GPU detected — using CPU software rendering"
+    export OPEN3D_CPU_RENDERING=true
+    # Mesa llvmpipe needs GL version override for Open3D's Filament backend
+    export MESA_GL_VERSION_OVERRIDE=4.5
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
 
 PORT=$RENDERER_PORT python3 /app/open3d-renderer/server.py > /var/log/matric/renderer.log 2>&1 &
 RENDERER_PID=$!

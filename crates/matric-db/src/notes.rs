@@ -1131,6 +1131,29 @@ impl PgNoteRepository {
         Ok(revision_id)
     }
 
+    /// Update the rationale of the latest revision for a note.
+    ///
+    /// Used by Phase 2 of the contextual pipeline to update the revision note
+    /// when Phase 2 is skipped (so users see an accurate description of what happened).
+    pub async fn update_revision_note_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        rationale: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE note_revision SET rationale = $1
+             WHERE note_id = $2
+             AND revision_number = (SELECT MAX(revision_number) FROM note_revision WHERE note_id = $2)",
+        )
+        .bind(rationale)
+        .bind(note_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
     /// Check if note exists within an existing transaction.
     pub async fn exists_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<bool> {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id = $1)")

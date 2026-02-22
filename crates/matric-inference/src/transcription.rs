@@ -221,7 +221,11 @@ impl TranscriptionBackend for WhisperBackend {
             .send()
             .await
             .map_err(|e| {
-                matric_core::Error::Internal(format!("Transcription request failed: {}", e))
+                matric_core::Error::Internal(format!(
+                    "Transcription request to {} failed: {} \
+                     (check that WHISPER_BASE_URL is correct and the Whisper service is running)",
+                    self.base_url, e
+                ))
             })?;
 
         if !response.status().is_success() {

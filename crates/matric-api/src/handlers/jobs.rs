@@ -363,7 +363,14 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         };
 
         if revised.is_empty() {
-            return JobResult::Failed("AI returned empty response".into());
+            let mode_context = if revision_mode.is_contextual() {
+                " (Phase 1 of contextual pipeline — Phase 2 will not be queued)"
+            } else {
+                ""
+            };
+            return JobResult::Failed(format!(
+                "AI revision returned empty after content cleaning{mode_context}"
+            ));
         }
 
         ctx.report_progress(80, Some("Saving revision..."));
@@ -502,6 +509,27 @@ impl AiRevisionContextualHandler {
             registry,
         }
     }
+
+    /// Update the note's revision_note to reflect the final state of the contextual pipeline.
+    /// Called when Phase 2 is skipped so users see an accurate description of what happened.
+    async fn update_revision_note(
+        &self,
+        schema_ctx: &matric_db::SchemaContext,
+        note_id: uuid::Uuid,
+        revision_note: &str,
+    ) {
+        if let Ok(mut tx) = schema_ctx.begin_tx().await {
+            if let Err(e) = self
+                .db
+                .notes
+                .update_revision_note_tx(&mut tx, note_id, revision_note)
+                .await
+            {
+                warn!(error = %e, "Failed to update revision note for skipped Phase 2");
+            }
+            let _ = tx.commit().await;
+        }
+    }
 }
 
 #[async_trait]
@@ -563,10 +591,15 @@ impl JobHandler for AiRevisionContextualHandler {
             return JobResult::Failed(format!("Commit failed: {}", e));
         }
 
-        // Use revised content as Phase 1 output (the clean isolated revision)
+        // Use revised content as Phase 1 output (the clean isolated revision).
+        // Fall back to original content if Phase 1 didn't produce output.
         let phase1_content = if !note.revised.content.is_empty() {
             &note.revised.content
         } else {
+            warn!(
+                note_id = %note_id,
+                "Phase 1 revised content is empty, falling back to original content for Phase 2"
+            );
             &note.original.content
         };
 
@@ -601,7 +634,14 @@ impl JobHandler for AiRevisionContextualHandler {
             Ok(v) => v,
             Err(e) => {
                 warn!(error = %e, "Failed to embed Phase 1 content for context discovery");
-                // Fall back: skip contextual revision, Phase 1 output stands as final
+                // Fall back: skip contextual revision, Phase 1 output stands as final.
+                // Update the revision note so users know contextual enrichment was skipped.
+                self.update_revision_note(
+                    &schema_ctx,
+                    note_id,
+                    "AI standard revision (contextual enrichment skipped: embedding unavailable)",
+                )
+                .await;
                 return JobResult::Success(Some(serde_json::json!({
                     "skipped": true,
                     "reason": "embedding failed, Phase 1 output preserved",
@@ -612,6 +652,12 @@ impl JobHandler for AiRevisionContextualHandler {
         let query_vec = match vectors.into_iter().next() {
             Some(v) => v,
             None => {
+                self.update_revision_note(
+                    &schema_ctx,
+                    note_id,
+                    "AI standard revision (contextual enrichment skipped: no embedding produced)",
+                )
+                .await;
                 return JobResult::Success(Some(serde_json::json!({
                     "skipped": true,
                     "reason": "no embedding vector produced",
@@ -676,8 +722,15 @@ impl JobHandler for AiRevisionContextualHandler {
         let related_note_ids: Vec<uuid::Uuid> = related_notes.iter().map(|h| h.note_id).collect();
 
         if related_notes.is_empty() {
-            // No related notes found — Phase 1 output stands as final
+            // No related notes found — Phase 1 output stands as final.
+            // Update revision note so users know contextual enrichment was attempted.
             info!(note_id = %note_id, "No related notes found, Phase 1 revision is final");
+            self.update_revision_note(
+                &schema_ctx,
+                note_id,
+                "AI standard revision (no related notes found for contextual enrichment)",
+            )
+            .await;
             return JobResult::Success(Some(serde_json::json!({
                 "skipped": true,
                 "reason": "no related notes found above similarity threshold",
@@ -733,7 +786,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
         };
 
         if revised.is_empty() {
-            return JobResult::Failed("AI returned empty response".into());
+            return JobResult::Failed(
+                "AI contextual revision returned empty after content cleaning \
+                 (model may have echoed the prompt instead of generating a revision)"
+                    .into(),
+            );
         }
 
         ctx.report_progress(80, Some("Saving contextual revision..."));
@@ -4831,36 +4888,36 @@ impl JobHandler for ReEmbedAllHandler {
 ///
 /// This function aggressively removes system prompts, instructions, and markers
 /// that may leak into the AI response, particularly in raw mode with thinking models.
-fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
+fn clean_enhanced_content(content: &str, _original_prompt: &str) -> String {
     let mut cleaned = content.to_string();
 
-    // CRITICAL FIX: Remove prompt leakage that occurs with raw mode models
-    // Extract key phrases from the original prompt to detect leakage
+    // Remove prompt leakage that occurs with raw mode models.
+    // Only match highly specific prompt phrases — avoid generic terms like "Guidelines:"
+    // that could legitimately appear in user content.
     let prompt_indicators = [
         "You are an intelligent note-taking assistant",
         "You are a formatting assistant",
-        "Your task is to enhance",
-        "Your task is to improve",
+        "Your task is to enhance the following note",
+        "Your task is to improve the structure and readability of the following note",
         "Original Note:",
-        "STRICT RULES",
-        "What you MAY do:",
-        "Guidelines:",
-        "Output the enhanced note",
+        "Output the enhanced note in clean markdown format",
         "Output the formatted note",
-        "Output the revised note",
+        "Output the revised note in clean markdown format",
         "Do not add any labels, markers, or metadata",
         // Phase 2 contextual revision markers (#494)
-        "## PRIMARY CONTENT",
-        "## REFERENCE CONTEXT",
-        "performing a contextual revision",
+        "## PRIMARY CONTENT (this is the note you are revising",
+        "## REFERENCE CONTEXT (supplementary only",
+        "You are an intelligent note-taking assistant performing a contextual revision",
     ];
 
     // Remove any lines that match prompt indicators (case-insensitive)
     let lines: Vec<&str> = cleaned.lines().collect();
+    let original_line_count = lines.len();
     let mut filtered_lines = Vec::new();
     let mut skip_until_content = false;
+    let mut removed_count = 0;
 
-    for line in lines {
+    for line in &lines {
         let line_lower = line.to_lowercase();
         let line_trimmed = line.trim();
 
@@ -4871,11 +4928,13 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
 
         if is_prompt_line {
             skip_until_content = true;
+            removed_count += 1;
             continue;
         }
 
         // Skip empty lines immediately after detecting prompt
         if skip_until_content && line_trimmed.is_empty() {
+            removed_count += 1;
             continue;
         }
 
@@ -4884,25 +4943,31 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
             skip_until_content = false;
         }
 
-        filtered_lines.push(line);
+        filtered_lines.push(*line);
+    }
+
+    if removed_count > 0 {
+        info!(
+            removed_lines = removed_count,
+            original_lines = original_line_count,
+            remaining_lines = filtered_lines.len(),
+            "Cleaned prompt leakage from AI revision output"
+        );
     }
 
     cleaned = filtered_lines.join("\n");
 
-    // Remove common markers that might slip through
-    let markers = [
+    // Remove obvious wrapper markers at the start (but NOT generic markdown like "---")
+    let start_markers = [
         "PART 1",
         "PART 2",
         "ENHANCED NOTE",
         "FORMATTED NOTE",
         "REVISED NOTE",
         "METADATA",
-        "---",
-        "```json",
-        "```markdown",
     ];
 
-    for marker in &markers {
+    for marker in &start_markers {
         if cleaned.starts_with(marker) {
             cleaned = cleaned
                 .split_once('\n')
@@ -4912,24 +4977,39 @@ fn clean_enhanced_content(content: &str, original_prompt: &str) -> String {
         }
     }
 
-    // Remove trailing ``` if present
-    if cleaned.ends_with("```") {
-        cleaned = cleaned.trim_end_matches("```").to_string();
+    // Remove markdown code fence wrappers ONLY if the entire content is wrapped
+    let is_fenced = (cleaned.starts_with("```markdown\n") || cleaned.starts_with("```md\n"))
+        && (cleaned.ends_with("\n```") || cleaned.ends_with("```"));
+    if is_fenced {
+        // Strip opening fence
+        let after_fence = cleaned.find('\n').map(|i| i + 1).unwrap_or(0);
+        cleaned = cleaned[after_fence..].to_string();
+        // Strip closing fence
+        if let Some(pos) = cleaned.rfind("\n```") {
+            cleaned = cleaned[..pos].to_string();
+        } else if cleaned.ends_with("```") {
+            cleaned = cleaned.trim_end_matches("```").to_string();
+        }
     }
 
     // Remove leading/trailing whitespace
     cleaned = cleaned.trim().to_string();
 
-    // Final sanity check: if the cleaned content looks like it's just instructions,
-    // check against the original prompt more aggressively
-    if cleaned.len() < 50 || cleaned.lines().count() < 2 {
-        // Try to find where the actual content starts by looking for the original note marker
-        if let Some(idx) = original_prompt.find("Original Note:") {
-            if let Some(_content_start) = original_prompt[idx..].find('\n') {
-                // This is risky but necessary for extreme cases
-                warn!("Cleaned content suspiciously short, may indicate complete prompt leakage");
-            }
-        }
+    // Log warning if cleaning removed most of the content
+    let content_len = content.trim().len();
+    let cleaned_len = cleaned.len();
+    if content_len > 0 && cleaned_len == 0 {
+        warn!(
+            original_bytes = content_len,
+            "AI output was entirely removed by content cleaning — \
+             model may have echoed the prompt instead of generating a revision"
+        );
+    } else if content_len > 100 && cleaned_len < content_len / 4 {
+        warn!(
+            original_bytes = content_len,
+            cleaned_bytes = cleaned_len,
+            "Content cleaning removed >75% of AI output — possible over-filtering"
+        );
     }
 
     cleaned

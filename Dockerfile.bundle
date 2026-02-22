@@ -87,12 +87,14 @@ RUN npm ci --omit=dev
 # Copy Open3D 3D renderer for GLB/GLTF/OBJ/STL multi-view extraction
 COPY docker/open3d-renderer /app/open3d-renderer
 
-# Install Open3D renderer dependencies (GPU rendering via EGL, CPU fallback via OSMesa)
+# Install Open3D renderer dependencies (GPU rendering via EGL, CPU fallback via OSMesa/llvmpipe)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     libegl1 \
     libgl1 \
     libgomp1 \
+    libosmesa6 \
+    libglu1-mesa \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies for 3D renderer

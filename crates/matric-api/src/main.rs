@@ -1077,28 +1077,18 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // GLB 3D model requires Three.js renderer + vision backend.
-        // Bundled in Docker bundle at http://localhost:8080, or set RENDERER_URL for external.
-        // Only register when the renderer is actually available (Issue #492 Bug 2).
+        // GLB 3D model requires vision backend for description.
+        // Renderer availability is checked at extraction time — always register the adapter
+        // so users get a clear "renderer unavailable" error instead of "no adapter registered".
         if let Some(ref backend) = vision_backend {
-            let adapter = Glb3DModelAdapter::new(Arc::clone(backend));
-            let renderer_available = adapter.health_check().await.unwrap_or(false);
             let renderer_url = std::env::var("RENDERER_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string());
-            if renderer_available {
-                info!(
-                    "Extraction adapter registered: Glb3DModel (model: {}, renderer: {})",
-                    backend.model_name(),
-                    renderer_url
-                );
-                extraction_registry.register(Arc::new(adapter));
-            } else {
-                warn!(
-                    "Glb3DModel adapter NOT registered — renderer unavailable at {} \
-                     (ensure Three.js renderer is running to enable 3D model extraction)",
-                    renderer_url,
-                );
-            }
+            info!(
+                "Extraction adapter registered: Glb3DModel (model: {}, renderer: {})",
+                backend.model_name(),
+                renderer_url
+            );
+            extraction_registry.register(Arc::new(Glb3DModelAdapter::new(Arc::clone(backend))));
         }
 
         // Conditional: OfficeConvert requires `pandoc` binary in PATH

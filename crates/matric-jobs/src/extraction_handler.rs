@@ -564,6 +564,24 @@ impl JobHandler for ExtractionHandler {
                                 );
                             }
                         }
+                    } else if is_audio_video {
+                        // Log why diarization was NOT queued for audio/video content
+                        if !diarization_available {
+                            info!(
+                                note_id = %note_id,
+                                attachment_id = %att_id,
+                                strategy = ?strategy,
+                                "Diarization skipped: DIARIZATION_BASE_URL not set \
+                                 (set this env var to enable speaker diarization)"
+                            );
+                        } else if !has_transcript_segments {
+                            info!(
+                                note_id = %note_id,
+                                attachment_id = %att_id,
+                                strategy = ?strategy,
+                                "Diarization skipped: no transcript segments in extraction result"
+                            );
+                        }
                     }
                 }
 
