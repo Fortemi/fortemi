@@ -338,9 +338,9 @@ mod tests {
 
     #[test]
     fn test_cell_to_string_float_fractional() {
-        let s = cell_to_string(&Data::Float(3.14));
+        let s = cell_to_string(&Data::Float(2.78));
         assert!(
-            s.starts_with("3.14"),
+            s.starts_with("2.78"),
             "Expected fractional float, got: {}",
             s
         );

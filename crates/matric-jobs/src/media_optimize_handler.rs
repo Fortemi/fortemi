@@ -1201,7 +1201,7 @@ mod tests {
             is_faststart: true,
             ..Default::default()
         };
-        assert!(!(probe2.is_mp4() && !probe2.is_faststart));
+        assert!(!probe2.is_mp4() || probe2.is_faststart);
 
         // MKV → not eligible for faststart (not MP4)
         let probe3 = ProbeResult {
@@ -1258,7 +1258,7 @@ mod tests {
             video_height: Some(1080),
             ..Default::default()
         };
-        assert!(!(probe2.size_bytes > threshold));
+        assert!(probe2.size_bytes <= threshold);
 
         // Large 480p file → not eligible (below target height)
         let probe3 = ProbeResult {
@@ -1266,7 +1266,7 @@ mod tests {
             video_height: Some(480),
             ..Default::default()
         };
-        assert!(!(probe3.video_height.unwrap_or(0) > height));
+        assert!(probe3.video_height.unwrap_or(0) <= height);
 
         // Large file with no video height → not eligible
         let probe4 = ProbeResult {
@@ -1291,7 +1291,7 @@ mod tests {
             duration_secs: 120.0,
             ..Default::default()
         };
-        assert!(!(probe2.duration_secs > 300.0));
+        assert!(probe2.duration_secs <= 300.0);
     }
 
     #[test]
