@@ -379,8 +379,8 @@ use matric_jobs::{
     ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, EmailAdapter, ExtractionHandler,
     ExtractionRegistry, Glb3DModelAdapter, JobWorker, MediaOptimizeHandler, OfficeConvertAdapter,
     PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
-    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
-    VisionAdapter, WorkerConfig, WorkerEvent,
+    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler,
+    VideoMultimodalAdapter, VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1256,6 +1256,9 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(MediaOptimizeHandler::new(db.clone()))
             .await;
+        worker
+            .register_handler(ThumbnailSpriteHandler::new(db.clone()))
+            .await;
 
         let handle = worker.start();
         info!("Job worker started");
@@ -1638,6 +1641,14 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/attachments/{attachment_id}/thumbnail",
             get(get_attachment_thumbnail),
+        )
+        .route(
+            "/api/v1/attachments/{attachment_id}/thumbnails.vtt",
+            get(get_sprite_vtt),
+        )
+        .route(
+            "/api/v1/attachments/{attachment_id}/sprites/{sprite_index}",
+            get(get_sprite_sheet),
         )
         // SKOS Governance
         .route("/api/v1/concepts/governance", get(get_governance_stats))
@@ -13457,6 +13468,168 @@ async fn get_attachment_thumbnail(
     );
 
     Ok((StatusCode::OK, headers, thumb_data))
+}
+
+/// Serve the thumbnail sprite WebVTT file for scrub bar previews (#525).
+///
+/// Returns the generated VTT with `#xywh=` media fragment coordinates pointing
+/// to the sprite sheet images. Clients use this to render seek bar thumbnails.
+#[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/thumbnails.vtt", tag = "Attachments",
+    params(
+        ("attachment_id" = Uuid, Path, description = "Parent video attachment ID"),
+    ),
+    responses(
+        (status = 200, description = "WebVTT thumbnail map", content_type = "text/vtt"),
+        (status = 404, description = "No sprite thumbnails available"),
+    )
+)]
+async fn get_sprite_vtt(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(attachment_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Find the derived thumbnail_vtt attachment
+    let mut tx = ctx.begin_tx().await?;
+    let vtt_row: Option<(uuid::Uuid,)> = sqlx::query_as(
+        r#"SELECT id FROM attachment
+           WHERE extracted_metadata->>'source_attachment_id' = $1::TEXT
+             AND extracted_metadata->>'derivation_type' = 'thumbnail_vtt'
+           LIMIT 1"#,
+    )
+    .bind(attachment_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Failed to query sprite VTT: {}", e)))?;
+    drop(tx);
+
+    let vtt_id = vtt_row.map(|r| r.0).ok_or_else(|| {
+        ApiError::NotFound("No thumbnail sprites available for this attachment".to_string())
+    })?;
+
+    let mut tx = ctx.begin_tx().await?;
+    let info = file_storage
+        .get_file_metadata_tx(&mut tx, vtt_id)
+        .await
+        .map_err(|_| ApiError::NotFound("Sprite VTT data not found".to_string()))?;
+    drop(tx);
+
+    let vtt_data = match info.source {
+        FileSource::Inline(data) => data,
+        FileSource::Filesystem(storage_path) => file_storage
+            .read_file(&storage_path)
+            .await
+            .map_err(|_| ApiError::NotFound("Sprite VTT data not readable".to_string()))?,
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/vtt; charset=utf-8"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+
+    Ok((StatusCode::OK, headers, vtt_data))
+}
+
+/// Serve a numbered sprite sheet image for thumbnail previews (#525).
+///
+/// Sprite sheets are 5x5 grids of 160x90 JPEG thumbnails, 1-indexed.
+/// Returns 404 if the sprite index doesn't exist.
+#[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/sprites/{sprite_index}", tag = "Attachments",
+    params(
+        ("attachment_id" = Uuid, Path, description = "Parent video attachment ID"),
+        ("sprite_index" = String, Path, description = "Sprite sheet number (1-indexed, e.g. '1.jpg')"),
+    ),
+    responses(
+        (status = 200, description = "Sprite sheet JPEG", content_type = "image/jpeg"),
+        (status = 404, description = "Sprite sheet not found"),
+    )
+)]
+async fn get_sprite_sheet(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path((attachment_id, sprite_index)): Path<(Uuid, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("File storage not configured".to_string()))?;
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // Parse sprite index: accept "1.jpg", "1", etc.
+    let idx_str = sprite_index
+        .strip_suffix(".jpg")
+        .or_else(|| sprite_index.strip_suffix(".jpeg"))
+        .unwrap_or(&sprite_index);
+    let _idx: u32 = idx_str.parse().map_err(|_| {
+        ApiError::BadRequest(format!("Invalid sprite index: {}", sprite_index))
+    })?;
+
+    // Find the sprite sheet by matching filename pattern
+    let expected_filename = format!("sprite_{}.jpg", idx_str);
+    let mut tx = ctx.begin_tx().await?;
+    let sprite_row: Option<(uuid::Uuid,)> = sqlx::query_as(
+        r#"SELECT id FROM attachment
+           WHERE extracted_metadata->>'source_attachment_id' = $1::TEXT
+             AND extracted_metadata->>'derivation_type' = 'thumbnail_sprite'
+             AND filename = $2
+           LIMIT 1"#,
+    )
+    .bind(attachment_id)
+    .bind(&expected_filename)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| ApiError::Internal(format!("Failed to query sprite sheet: {}", e)))?;
+    drop(tx);
+
+    let sprite_id = sprite_row.map(|r| r.0).ok_or_else(|| {
+        ApiError::NotFound(format!(
+            "Sprite sheet {} not found for attachment {}",
+            sprite_index, attachment_id
+        ))
+    })?;
+
+    let mut tx = ctx.begin_tx().await?;
+    let info = file_storage
+        .get_file_metadata_tx(&mut tx, sprite_id)
+        .await
+        .map_err(|_| ApiError::NotFound("Sprite sheet data not found".to_string()))?;
+    drop(tx);
+
+    let sprite_data = match info.source {
+        FileSource::Inline(data) => data,
+        FileSource::Filesystem(storage_path) => file_storage
+            .read_file(&storage_path)
+            .await
+            .map_err(|_| ApiError::NotFound("Sprite sheet data not readable".to_string()))?,
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg"));
+    // Sprites are immutable — aggressive caching
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+
+    Ok((StatusCode::OK, headers, sprite_data))
 }
 
 /// Parse an HTTP Range header value into (start, end) inclusive byte offsets.

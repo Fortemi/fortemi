@@ -896,6 +896,60 @@ impl JobHandler for ExtractionHandler {
                             );
                         }
                     }
+
+                    // Queue thumbnail sprite sheet generation for video extraction (#525).
+                    // Only for VideoMultimodal strategy when keyframes were persisted.
+                    let has_keyframes = result
+                        .derived_files
+                        .iter()
+                        .any(|f| f.derivation_type == "keyframe");
+
+                    if matches!(strategy, ExtractionStrategy::VideoMultimodal)
+                        && has_keyframes
+                    {
+                        let mut sprite_payload = serde_json::Map::new();
+                        sprite_payload.insert(
+                            "attachment_id".to_string(),
+                            json!(att_id.to_string()),
+                        );
+                        if schema != "public" {
+                            sprite_payload
+                                .insert("schema".to_string(), json!(&schema));
+                        }
+                        match self
+                            .db
+                            .jobs
+                            .queue_deduplicated(
+                                Some(note_id),
+                                JobType::ThumbnailSprite,
+                                JobType::ThumbnailSprite.default_priority(),
+                                Some(serde_json::Value::Object(sprite_payload)),
+                                JobType::ThumbnailSprite.default_cost_tier(),
+                            )
+                            .await
+                        {
+                            Ok(Some(job_id)) => {
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::ThumbnailSprite,
+                                    Some(note_id),
+                                );
+                                info!(
+                                    note_id = %note_id,
+                                    attachment_id = %att_id,
+                                    "Thumbnail sprite job queued"
+                                );
+                            }
+                            Ok(None) => {} // Deduplicated
+                            Err(e) => {
+                                warn!(
+                                    note_id = %note_id,
+                                    error = %e,
+                                    "Failed to queue thumbnail sprite job"
+                                );
+                            }
+                        }
+                    }
                 }
 
                 // --- Bug 1b (Issue #492): propagate extraction content to note

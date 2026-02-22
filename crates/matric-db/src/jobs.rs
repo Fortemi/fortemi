@@ -121,6 +121,7 @@ impl PgJobRepository {
             JobType::SpeakerDiarization => "speaker_diarization",
             JobType::SpeakerRelabel => "speaker_relabel",
             JobType::MediaOptimize => "media_optimize",
+            JobType::ThumbnailSprite => "thumbnail_sprite",
         }
     }
 
@@ -154,6 +155,7 @@ impl PgJobRepository {
             "speaker_diarization" => JobType::SpeakerDiarization,
             "speaker_relabel" => JobType::SpeakerRelabel,
             "media_optimize" => JobType::MediaOptimize,
+            "thumbnail_sprite" => JobType::ThumbnailSprite,
             _ => JobType::ContextUpdate, // fallback
         }
     }

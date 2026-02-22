@@ -2079,6 +2079,8 @@ pub enum JobType {
     SpeakerRelabel,
     /// Pre-generate streamable media variants (faststart, remux, preview) (#506)
     MediaOptimize,
+    /// Generate thumbnail sprite sheets and WebVTT map from keyframes (#525)
+    ThumbnailSprite,
 }
 
 impl JobType {
@@ -2132,6 +2134,8 @@ impl JobType {
             JobType::SpeakerRelabel => 6,
             // Media optimization runs after extraction, low priority background task
             JobType::MediaOptimize => 3,
+            // Thumbnail sprite generation runs after extraction, low priority background task
+            JobType::ThumbnailSprite => 3,
         }
     }
 

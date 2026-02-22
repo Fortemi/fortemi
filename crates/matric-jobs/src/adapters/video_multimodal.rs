@@ -546,6 +546,9 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                 metadata: None,
                 source_path: None,
             });
+
+            // Generate keyframe VTT mapping timestamps for sprite assembly (#525)
+            push_keyframe_vtt(&mut derived_files, &keyframe_descriptions, base_name);
         }
 
         Ok(ExtractionResult {
@@ -857,6 +860,9 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                 metadata: None,
                 source_path: None,
             });
+
+            // Generate keyframe VTT mapping timestamps for sprite assembly (#525)
+            push_keyframe_vtt(&mut derived_files, &keyframe_descriptions, base_name);
         }
 
         progress(100, Some("Complete"));
@@ -925,6 +931,84 @@ fn format_timestamp(secs: f64) -> String {
     } else {
         format!("{}:{:02}", m, s)
     }
+}
+
+/// Format a seconds value as a WebVTT timestamp (HH:MM:SS.mmm).
+fn format_vtt_timestamp(secs: f64) -> String {
+    let total_ms = (secs * 1000.0).round() as u64;
+    let h = total_ms / 3_600_000;
+    let m = (total_ms % 3_600_000) / 60_000;
+    let s = (total_ms % 60_000) / 1_000;
+    let ms = total_ms % 1_000;
+    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
+}
+
+/// Build a WebVTT file mapping keyframe indices to their time ranges.
+///
+/// Each cue covers from the keyframe's timestamp to the next keyframe's
+/// timestamp (or +interval for the last frame). The cue payload is the
+/// keyframe filename so the ThumbnailSprite job can correlate frames.
+fn build_keyframe_vtt(keyframe_descriptions: &[serde_json::Value]) -> String {
+    if keyframe_descriptions.is_empty() {
+        return String::new();
+    }
+
+    // Estimate interval from first two keyframes (fallback 10s)
+    let interval = keyframe_descriptions
+        .windows(2)
+        .filter_map(|w| {
+            let t0 = w[0].get("timestamp_secs").and_then(|v| v.as_f64());
+            let t1 = w[1].get("timestamp_secs").and_then(|v| v.as_f64());
+            match (t0, t1) {
+                (Some(a), Some(b)) if b > a => Some(b - a),
+                _ => None,
+            }
+        })
+        .next()
+        .unwrap_or(10.0);
+
+    let mut vtt = String::from("WEBVTT\n\n");
+    for (i, desc) in keyframe_descriptions.iter().enumerate() {
+        let ts = desc
+            .get("timestamp_secs")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let end_ts = keyframe_descriptions
+            .get(i + 1)
+            .and_then(|d| d.get("timestamp_secs"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(ts + interval);
+
+        vtt.push_str(&format!(
+            "{}\n{} --> {}\nkeyframe_{:04}.jpg\n\n",
+            i + 1,
+            format_vtt_timestamp(ts),
+            format_vtt_timestamp(end_ts),
+            i,
+        ));
+    }
+    vtt
+}
+
+/// Push a keyframe VTT derived file into the derived_files list.
+fn push_keyframe_vtt(
+    derived_files: &mut Vec<DerivedFile>,
+    keyframe_descriptions: &[serde_json::Value],
+    base_name: &str,
+) {
+    let vtt = build_keyframe_vtt(keyframe_descriptions);
+    if vtt.is_empty() {
+        return;
+    }
+    derived_files.push(DerivedFile {
+        filename: format!("{}_keyframes.vtt", base_name),
+        content_type: "text/vtt".to_string(),
+        data: vtt.into_bytes(),
+        derivation_type: "keyframe_vtt".to_string(),
+        ai_description: None,
+        metadata: None,
+        source_path: None,
+    });
 }
 
 /// Assemble extraction results into properly formatted markdown.
