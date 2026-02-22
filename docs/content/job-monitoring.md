@@ -64,6 +64,41 @@ Attachment Upload
 └─ ExifExtraction (parallel, for images)
 ```
 
+When the `media_optimize` flag is set on an attachment upload (default for video/audio), a `MediaOptimize` job is queued after extraction to pre-generate streaming-friendly variants:
+
+```
+Attachment Upload (media_optimize=true)
+│
+├─ Extraction (as above)
+│
+└─ MediaOptimize (queued by API after extraction job queued)
+    ├─ ffprobe analysis
+    ├─ Video variants: faststart, web_compatible, audio_only, preview_720p
+    ├─ Audio variants: web_audio, audio_preview
+    └─ Each variant stored as derived attachment (derivation_type in metadata)
+```
+
+Optimized variants are accessible via the download endpoint with a `?variant=` query parameter:
+
+```bash
+# Download the web-compatible remux
+curl "http://localhost:3000/api/v1/attachments/ATTACHMENT_UUID/download?variant=web_compatible"
+
+# Download just the audio track
+curl "http://localhost:3000/api/v1/attachments/ATTACHMENT_UUID/download?variant=audio_only"
+```
+
+Available variant types depend on the source media:
+
+| Variant | Applies To | Description |
+|---------|-----------|-------------|
+| `faststart` | Video (non-faststart MP4) | MP4 with moov atom moved to front for progressive download |
+| `web_compatible` | Video (non-H.264/AAC in non-MP4) | Remuxed/transcoded to H.264+AAC in MP4 container |
+| `audio_only` | Video | Extracted audio track in M4A container |
+| `preview_720p` | Video (>720p) | Downscaled 720p preview for bandwidth-constrained playback |
+| `web_audio` | Audio (non-AAC/MP3/Opus) | Transcoded to AAC in M4A container |
+| `audio_preview` | Audio (lossless: FLAC/ALAC/WAV/PCM) | Lossy AAC preview of lossless source |
+
 Speaker diarization produces a speaker configuration block in the note content. When a user edits speaker names and saves, a `SpeakerRelabel` job is queued:
 
 ```
@@ -320,6 +355,19 @@ Triggered when a user edits the speaker configuration block in a note, or via th
 | 95% | Relabel complete |
 | 100% | Done |
 
+### Media Optimize Jobs
+
+Queued after attachment upload when `media_optimize=true` (default for video/audio). Requires `ffmpeg` and `ffprobe` on the system PATH.
+
+| Progress | Stage |
+|----------|-------|
+| 5% | Loading source attachment metadata |
+| 10% | Downloading source file to temp directory |
+| 20% | Analyzing media file (ffprobe + faststart check) |
+| 30% | Generating optimized variants (ffmpeg) |
+| 70–95% | Storing generated variants as derived attachments (per-variant progress) |
+| 100% | Done |
+
 ### NLP Pipeline Jobs (ConceptTagging, TitleGeneration, etc.)
 
 | Progress | Stage |
@@ -493,6 +541,7 @@ Multi-stage jobs report progress at these granularities:
 | Job Type | Chunk Behavior | Progress Events |
 |----------|---------------|-----------------|
 | **Extraction** | 15+ stages (resolve → extract → persist → queue downstream) | Every 5–10% |
+| **MediaOptimize** | ffprobe → generate variants → store each as derived attachment | 5%, 10%, 20%, 30%, 70–95%, 100% |
 | **ConceptTagging** | Tiered: GLiNER → fast LLM → standard LLM, with potential escalation | Every 10–20% |
 | **ReferenceExtraction** | GLiNER entities + LLM extraction + concept resolution | Every 10–20% |
 | **EmbeddingHandler** | Chunk → embed → store (large notes have many chunks) | 10%, 30%, 50%, 70%, 100% |
@@ -747,6 +796,7 @@ Some jobs can take minutes or longer:
 
 | Job Type | Typical Duration | Long-Running Scenario |
 |----------|-----------------|----------------------|
+| **MediaOptimize** | 5s–3min | Large video files with multiple variant transcodes (720p preview, web remux) |
 | **Extraction** (video) | 30s–5min | Large video files with scene detection + transcription |
 | **Extraction** (audio) | 10s–3min | Long audio files transcribed via Whisper |
 | **Extraction** (email/mbox) | 1s–30s | Large .mbox files with many messages and binary attachments |
@@ -811,6 +861,7 @@ The following table shows which job lifecycle events each handler actually emits
 | RefreshEmbeddingSetHandler | Auto | Auto | 10%, 20%, 50%, 100% | Auto | Auto |
 | SpeakerDiarizationHandler | Auto | Auto | 5%, 10%, 20%, 60%, 70%, 80%, 90%, 95%, 100% | Auto | Auto |
 | SpeakerRelabelHandler | Auto | Auto | 10%, 20%, 40%, 50%, 70%, 95%, 100% | Auto | Auto |
+| MediaOptimizeHandler | Auto | Auto | 5%, 10%, 20%, 30%, 70–95%, 100% | Auto | Auto |
 
 "Auto" means the worker framework emits these events automatically for every job — handlers don't need to emit them explicitly.
 

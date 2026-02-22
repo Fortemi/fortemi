@@ -377,8 +377,8 @@ use matric_inference::{
 };
 use matric_jobs::{
     ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, EmailAdapter, ExtractionHandler,
-    ExtractionRegistry, Glb3DModelAdapter, JobWorker, OfficeConvertAdapter, PauseState,
-    PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
+    ExtractionRegistry, Glb3DModelAdapter, JobWorker, MediaOptimizeHandler, OfficeConvertAdapter,
+    PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
     SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, VideoMultimodalAdapter,
     VisionAdapter, WorkerConfig, WorkerEvent,
 };
@@ -1262,6 +1262,9 @@ async fn main() -> anyhow::Result<()> {
         }
         worker
             .register_handler(SpeakerRelabelHandler::new(db.clone()))
+            .await;
+        worker
+            .register_handler(MediaOptimizeHandler::new(db.clone()))
             .await;
 
         let handle = worker.start();
@@ -13018,11 +13021,24 @@ async fn get_attachment(
     Ok(Json(attachment))
 }
 
+/// Query parameters for attachment download.
+#[derive(Debug, Deserialize)]
+struct DownloadAttachmentQuery {
+    /// Request a pre-generated media variant instead of the original file.
+    /// Valid values: `faststart`, `web_compatible`, `audio_only`, `preview_720p`,
+    /// `web_audio`, `audio_preview`. Requires media optimization to have run (#506).
+    variant: Option<String>,
+}
+
 /// Download a file attachment (returns raw binary with proper content headers).
 ///
 /// Clients can use `curl -o filename URL` to download directly.
+/// Use `?variant=faststart` (etc.) to download a pre-generated optimized variant.
 #[utoipa::path(get, path = "/api/v1/attachments/{attachment_id}/download", tag = "Attachments",
-    params(("attachment_id" = Uuid, Path, description = "Attachment ID")),
+    params(
+        ("attachment_id" = Uuid, Path, description = "Attachment ID"),
+        ("variant" = Option<String>, Query, description = "Media variant: faststart, web_compatible, audio_only, preview_720p, web_audio, audio_preview"),
+    ),
     responses(
         (status = 200, description = "Full content"),
         (status = 206, description = "Partial content (Range request)"),
@@ -13032,6 +13048,7 @@ async fn download_attachment(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
+    Query(query): Query<DownloadAttachmentQuery>,
     req_headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let file_storage = state
@@ -13043,9 +13060,36 @@ async fn download_attachment(
     // Split metadata query from file I/O to release DB connection quickly.
     // This prevents pool contention when serving large files (#504).
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // If a variant is requested, resolve the derived attachment ID first (#506).
+    let target_id = if let Some(ref variant) = query.variant {
+        let mut tx = ctx.begin_tx().await?;
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"SELECT id FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1::TEXT
+                 AND extracted_metadata->>'derivation_type' = $2
+               LIMIT 1"#,
+        )
+        .bind(attachment_id)
+        .bind(variant.as_str())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to query variant: {}", e)))?;
+        drop(tx);
+
+        row.map(|r| r.0).ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "No '{}' variant available for attachment {}",
+                variant, attachment_id
+            ))
+        })?
+    } else {
+        attachment_id
+    };
+
     let mut tx = ctx.begin_tx().await?;
     let info = file_storage
-        .get_file_metadata_tx(&mut tx, attachment_id)
+        .get_file_metadata_tx(&mut tx, target_id)
         .await?;
     drop(tx); // Release DB connection before file I/O
 
