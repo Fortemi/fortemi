@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value as JsonValue};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use matric_core::defaults::{EXTRACTION_CMD_TIMEOUT_SECS, VIDEO_MAX_KEYFRAMES};
 use matric_core::{
@@ -413,9 +413,18 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }
         }
 
-        // Step 2: Extract and describe keyframes with temporal context
-        if extract_keyframes && self.vision.is_some() {
-            debug!(filename, "Extracting keyframes");
+        // Step 2: Extract keyframes via ffmpeg and optionally describe via vision LLM.
+        // Keyframe extraction only requires ffmpeg — vision backend is only needed for
+        // inline descriptions (skip_vision=false). With the atomic pipeline (#526),
+        // _skip_vision=true is always injected, so keyframes are persisted as JPEGs and
+        // KeyframeVision jobs handle descriptions independently.
+        if extract_keyframes {
+            debug!(
+                filename,
+                skip_vision,
+                vision_available = self.vision.is_some(),
+                "Extracting keyframes"
+            );
             let completed_frames = parse_checkpoint(config);
             if !completed_frames.is_empty() {
                 debug!(
@@ -437,9 +446,21 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     let frame_entries = truncate_frames(frame_entries, max_keyframes as usize);
                     has_video = !frame_entries.is_empty();
 
-                    if skip_vision {
-                        // Atomic pipeline (#526): persist keyframe JPEGs without vision descriptions.
-                        // KeyframeVision jobs will describe each frame independently.
+                    if skip_vision || self.vision.is_none() {
+                        // Persist keyframe JPEGs without vision descriptions.
+                        // When skip_vision=true (#526 atomic pipeline): KeyframeVision
+                        // jobs will describe each frame independently.
+                        // When vision unavailable: keyframes are still valuable for
+                        // thumbnails and sprite sheets.
+                        if self.vision.is_none() && !skip_vision {
+                            warn!(
+                                filename,
+                                frame_count = frame_entries.len(),
+                                "Vision backend unavailable — persisting {} keyframes without \
+                                 descriptions (configure OLLAMA_VISION_MODEL to enable)",
+                                frame_entries.len()
+                            );
+                        }
                         if persist_keyframes {
                             for (i, entry) in frame_entries.iter().enumerate() {
                                 derived_files.push(DerivedFile {
@@ -457,7 +478,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                             }
                             debug!(
                                 frame_count = frame_entries.len(),
-                                "Persisted {} keyframes without vision (skip_vision=true)",
+                                skip_vision,
+                                "Persisted {} keyframes without inline vision",
                                 frame_entries.len()
                             );
                         }
@@ -533,6 +555,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                     warn!(filename, error = %e, "Keyframe extraction failed");
                 }
             }
+        } else {
+            info!(
+                filename,
+                "Keyframe extraction disabled (extract_keyframes=false)"
+            );
         }
 
         // Probe media info for resolution, codec, bitrate
@@ -2307,5 +2334,94 @@ mod tests {
         let writer = FrameDescriptionWriter::new(tmp.path()).unwrap();
         assert_eq!(writer.len(), 0);
         assert!(writer.read_all().is_empty());
+    }
+
+    // ── Issue #527: keyframe extraction without vision backend ───────
+
+    #[tokio::test]
+    async fn test_keyframe_extraction_runs_without_vision_backend() {
+        // With no vision backend but extract_keyframes=true and _skip_vision=true,
+        // extraction should still attempt ffmpeg keyframe extraction (Issue #527).
+        // Before the fix, self.vision.is_none() would skip the entire keyframe block.
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "extract_audio": false,
+            "extract_keyframes": true,
+            "_skip_vision": true,
+        });
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+
+        // ffmpeg will likely fail on fake data, but the important thing is that
+        // the keyframe extraction code PATH was entered (not skipped due to
+        // vision.is_none()). The metadata should show has_video was attempted.
+        if let Ok(extraction) = result {
+            // The metadata must include keyframe_strategy — proving the
+            // keyframe extraction block was entered.
+            assert!(
+                extraction.metadata.get("keyframe_strategy").is_some(),
+                "keyframe_strategy should be in metadata even without vision backend"
+            );
+        }
+        // An error is also acceptable (ffmpeg can't parse fake bytes)
+    }
+
+    #[tokio::test]
+    async fn test_keyframe_extraction_skipped_when_disabled() {
+        // When extract_keyframes=false, keyframes should NOT be extracted
+        // regardless of vision backend presence.
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "extract_audio": false,
+            "extract_keyframes": false,
+        });
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+
+        if let Ok(extraction) = result {
+            assert_eq!(extraction.metadata["has_video"], false);
+            assert_eq!(extraction.metadata["frame_count"], 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_keyframe_extraction_without_vision_no_skip() {
+        // When vision is None and skip_vision=false, keyframes should still
+        // be extracted and persisted (without descriptions). Before the fix,
+        // this case silently dropped all keyframes.
+        let adapter = VideoMultimodalAdapter::new(None, None);
+        let config = json!({
+            "extract_audio": false,
+            "extract_keyframes": true,
+            "_skip_vision": false,
+        });
+        let result = adapter
+            .extract(
+                b"\x00\x00\x00\x1cftypisom",
+                "test.mp4",
+                "video/mp4",
+                &config,
+            )
+            .await;
+
+        if let Ok(extraction) = result {
+            // The keyframe extraction block should have been entered
+            assert!(
+                extraction.metadata.get("keyframe_strategy").is_some(),
+                "keyframe_strategy should be present — extraction block was entered"
+            );
+        }
     }
 }

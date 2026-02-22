@@ -965,6 +965,17 @@ impl JobHandler for ExtractionHandler {
                                 let _ = tx.commit().await;
 
                                 let total_frames = keyframes.len();
+                                if total_frames == 0 {
+                                    warn!(
+                                        note_id = %note_id,
+                                        attachment_id = %att_id,
+                                        in_memory_keyframes = has_keyframes,
+                                        "No keyframe attachments found in DB — \
+                                         KeyframeVision jobs will not be queued. \
+                                         This may indicate derived files were not \
+                                         persisted before this check ran."
+                                    );
+                                }
                                 if total_frames > 0 {
                                     // Store expected count in parent metadata for fan-in
                                     if let Ok(mut tx) = schema_ctx.begin_tx().await {
@@ -1056,6 +1067,15 @@ impl JobHandler for ExtractionHandler {
                                 }
                             }
                         } // if let Some(fs)
+                    } else if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+                        info!(
+                            note_id = %note_id,
+                            attachment_id = %att_id,
+                            derived_count = result.derived_files.len(),
+                            has_keyframes,
+                            "VideoMultimodal extraction produced no keyframe derived files — \
+                             KeyframeVision and ThumbnailSprite jobs will not be queued"
+                        );
                     }
                 }
 
