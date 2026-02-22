@@ -20,7 +20,7 @@ use serde_json::{json, Value as JsonValue};
 use tracing::{debug, info, warn};
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
-use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
+use matric_core::{DerivedFile, ExtractionAdapter, ExtractionResult, ExtractionStrategy, Result};
 use matric_inference::vision::VisionBackend;
 
 /// Default number of camera angles for multi-view rendering.
@@ -341,6 +341,25 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             None
         };
 
+        // Build derived files from rendered views so they persist as child attachments
+        let base_name = filename
+            .trim_end_matches(".glb")
+            .trim_end_matches(".gltf")
+            .trim_end_matches(".GLB")
+            .trim_end_matches(".GLTF");
+        let derived_files: Vec<DerivedFile> = rendered_views
+            .iter()
+            .map(|view| DerivedFile {
+                filename: format!("{}_view_{:03}_{}.png", base_name, view.index, view.elevation),
+                content_type: "image/png".to_string(),
+                data: view.image_data.clone(),
+                derivation_type: "3d_rendering".to_string(),
+            })
+            .collect();
+
+        // Use the first rendered view (front-facing, low elevation) as preview thumbnail
+        let preview_data = rendered_views.first().map(|v| v.image_data.clone());
+
         Ok(ExtractionResult {
             extracted_text: None,
             metadata: json!({
@@ -353,8 +372,8 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 "view_descriptions": view_descriptions,
             }),
             ai_description: composite_description,
-            preview_data: None,
-            derived_files: vec![],
+            preview_data,
+            derived_files,
         })
     }
 
