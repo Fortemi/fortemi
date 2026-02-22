@@ -885,7 +885,8 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
 
                                         // Persist keyframe JPEG as derived attachment
                                         if persist_keyframes {
-                                            let frame_data = fs::read(&entry.path).unwrap_or_default();
+                                            let frame_data =
+                                                fs::read(&entry.path).unwrap_or_default();
                                             if frame_data.is_empty() {
                                                 warn!(frame = i, path = %entry.path.display(), "Failed to read keyframe");
                                             } else {
