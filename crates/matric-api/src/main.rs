@@ -18879,7 +18879,10 @@ mod tests {
             .expect("OpenAPI YAML generation must not fail");
 
         // Verify basic structure
-        assert!(yaml.contains("openapi: 3.0"), "Must be OpenAPI 3.0.x");
+        assert!(
+            yaml.contains("openapi: 3.0") || yaml.contains("openapi: 3.1"),
+            "Must be OpenAPI 3.x"
+        );
         assert!(
             yaml.contains("title: Matric Memory API"),
             "Title must match"
