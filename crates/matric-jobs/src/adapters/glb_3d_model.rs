@@ -349,14 +349,23 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             .trim_end_matches(".GLTF");
         let derived_files: Vec<DerivedFile> = rendered_views
             .iter()
-            .map(|view| DerivedFile {
-                filename: format!(
-                    "{}_view_{:03}_{}.png",
-                    base_name, view.index, view.elevation
-                ),
-                content_type: "image/png".to_string(),
-                data: view.image_data.clone(),
-                derivation_type: "3d_rendering".to_string(),
+            .map(|view| {
+                // Find the matching AI description for this view
+                let ai_description = view_descriptions
+                    .iter()
+                    .find(|vd| vd["view_index"].as_u64() == Some(view.index as u64))
+                    .and_then(|vd| vd["description"].as_str())
+                    .map(|s| s.to_string());
+                DerivedFile {
+                    filename: format!(
+                        "{}_view_{:03}_{}.png",
+                        base_name, view.index, view.elevation
+                    ),
+                    content_type: "image/png".to_string(),
+                    data: view.image_data.clone(),
+                    derivation_type: "3d_rendering".to_string(),
+                    ai_description,
+                }
             })
             .collect();
 

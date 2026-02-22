@@ -501,6 +501,8 @@ pub struct DerivedFile {
     pub data: Vec<u8>,
     /// Relationship to parent (e.g., "email_attachment", "archive_entry").
     pub derivation_type: String,
+    /// Optional AI-generated description for this derived file.
+    pub ai_description: Option<String>,
 }
 
 /// Result of content extraction from a file attachment.

@@ -477,7 +477,27 @@ impl JobHandler for ExtractionHandler {
                                         )
                                         .await
                                     {
-                                        Ok(_) => stored += 1,
+                                        Ok(child_att) => {
+                                            stored += 1;
+                                            // Persist AI description if the adapter provided one
+                                            if let Some(ref desc) = df.ai_description {
+                                                if let Err(e) = file_storage
+                                                    .update_ai_description_tx(
+                                                        &mut tx,
+                                                        child_att.id,
+                                                        desc,
+                                                        None,
+                                                    )
+                                                    .await
+                                                {
+                                                    warn!(
+                                                        error = %e,
+                                                        attachment_id = %child_att.id,
+                                                        "Failed to persist derived file ai_description"
+                                                    );
+                                                }
+                                            }
+                                        }
                                         Err(e) => {
                                             warn!(
                                                 error = %e,

@@ -412,6 +412,7 @@ fn collect_derived_files(
                     content_type: part.ctype.mimetype.clone(),
                     data,
                     derivation_type: "email_attachment".to_string(),
+                    ai_description: None,
                 });
             }
         }
