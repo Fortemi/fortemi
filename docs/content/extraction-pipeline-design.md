@@ -18,7 +18,7 @@ Technical architecture for the complete content extraction pipeline covering all
 | 7 | VisionAdapter | `vision` | Ollama vision model | Conditional | OLLAMA_VISION_MODEL set |
 | 8 | AudioTranscribeAdapter | `audio_transcribe` | Whisper backend | Conditional | WHISPER_BASE_URL set |
 | 9 | VideoMultimodalAdapter | `video_multimodal` | ffmpeg + vision/transcription | Conditional | health_check + backends |
-| 10 | Glb3DModelAdapter | `glb_3d_model` | Three.js renderer + vision | Conditional | renderer health_check |
+| 10 | Glb3DModelAdapter | `glb_3d_model` | Open3D renderer + vision | Conditional | renderer health_check |
 
 **Additional pipeline handlers** (not extraction adapters, but part of the processing pipeline):
 - `SpeakerDiarizationHandler` — pyannote sidecar for speaker diarization (#497)
@@ -656,7 +656,7 @@ Document bytes
 
 | Attribute | Value |
 |-----------|-------|
-| External deps | Three.js renderer (localhost:8080), Vision LLM |
+| External deps | Open3D renderer (localhost:8080), Vision LLM |
 | Input | `&[u8]` model bytes (GLB, GLTF, OBJ, STL) |
 | Output | Multi-view descriptions synthesized into composite summary |
 | View count | Configurable (default 6 angles), min 3, max 15 |
@@ -668,12 +668,12 @@ Document bytes
 
 ```
 3D Model bytes
-  --> Send to Three.js renderer via multipart POST:
+  --> Send to Open3D renderer via multipart POST:
         POST {RENDERER_URL}/render
         - model: binary model data
         - filename: original filename (for format detection)
         - num_views: number of angles to render
-  --> Three.js renderer returns multipart response:
+  --> Open3D renderer returns multipart response:
         - N PNG images (512x512)
         - Equidistant angles on horizontal orbit
         - Alternating 30°/60° elevation angles

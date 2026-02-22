@@ -10,7 +10,7 @@ Ask it a question, and it doesn't just search for matching words. It finds answe
 
 Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency required.
 
-> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 37 MCP agent tools, and multimodal media processing. ~85k lines of Rust.
+> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 38 MCP agent tools, and multimodal media processing with 13 extraction adapters. ~85k lines of Rust.
 
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
@@ -33,7 +33,7 @@ Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency 
 - **Understands meaning** — Semantic search finds related content even without keyword matches
 - **Discovers connections** — Automatically links related notes via embedding similarity
 - **Enhances content** — RAG pipeline enriches notes with context from related knowledge
-- **Processes media** — Extracts knowledge from images, audio, video, and 3D models
+- **Processes media** — Extracts knowledge from images, audio, video, 3D models, emails, spreadsheets, and archives
 - **Isolates tenants** — Parallel memory archives with schema-level isolation and federated search
 - **Streams events** — Real-time SSE, WebSocket, and webhook notifications
 
@@ -49,7 +49,7 @@ See [Use Cases](docs/content/use-cases.md) for deployment patterns and [Executiv
 | **SKOS Vocabularies** | W3C controlled vocabulary with hierarchical concepts ([details](docs/content/tags.md)) |
 | **Multi-Memory** | Schema-isolated archives with federated cross-archive search ([details](docs/content/multi-memory.md)) |
 | **Authentication** | OAuth2 + API keys, opt-in enforcement ([details](docs/content/authentication.md)) |
-| **Media Processing** | Vision, audio, video, 3D model extraction ([details](docs/content/file-attachments.md)) |
+| **Media Processing** | Vision, audio, video, 3D model, email, spreadsheet, archive extraction with speaker diarization and streaming optimization ([details](docs/content/file-attachments.md)) |
 | **Embedding Sets** | MRL dimensionality reduction, auto-embed, two-stage retrieval ([details](docs/content/embedding-sets.md)) |
 | **Real-Time Events** | SSE + WebSocket + webhook notifications ([details](docs/content/real-time-events.md)) |
 | **Spatial-Temporal** | PostGIS location + time range queries |
@@ -116,7 +116,7 @@ See [Getting Started](docs/content/getting-started.md) for the full walkthrough 
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-core     │ Core types, traits, and error handling       │
 ├──────────────────┼──────────────────────────────────────────────┤
-│  mcp-server      │ MCP agent integration (Node.js, 37 tools)    │
+│  mcp-server      │ MCP agent integration (Node.js, 38 tools)    │
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -126,7 +126,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 ## MCP Server
 
-37 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
+38 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
 
 **Connect** (`.mcp.json` or Claude Desktop):
 
@@ -140,7 +140,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 **Local stdio** (development): `node mcp-server/index.js` with `MATRIC_MEMORY_URL=http://localhost:3000`
 
-Set `MCP_TOOL_MODE=full` for all 202 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
+Set `MCP_TOOL_MODE=full` for all 203 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
 
 ---
 
@@ -175,7 +175,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
 | `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
-| `MCP_TOOL_MODE` | `core` | `core` (37 tools) or `full` (all) |
+| `MCP_TOOL_MODE` | `core` | `core` (38 tools) or `full` (all) |
 
 ---
 

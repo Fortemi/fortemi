@@ -63,16 +63,16 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**37 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**38 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~82% token reduction** compared to full mode (37 vs 202 tools)
+- **~82% token reduction** compared to full mode (38 vs 203 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**202 granular tools** exposing every API endpoint individually:
+**203 granular tools** exposing every API endpoint individually:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 37 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 38 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -1651,7 +1651,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 202 granular tools instead of the 37 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 203 granular tools instead of the 38 core consolidated tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
@@ -1659,7 +1659,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 202 granular tools i
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~82% higher token overhead (202 vs 37 tools)
+- ~82% higher token overhead (203 vs 38 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 

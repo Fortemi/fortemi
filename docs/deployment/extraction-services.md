@@ -1,17 +1,22 @@
 # Extraction Services Deployment Guide
 
-This guide covers deploying optional extraction services for Fortemi (issues #101 and #102).
+This guide covers deploying extraction services for Fortemi.
 
 ## Overview
 
 Fortemi supports multiple extraction services for processing different file types:
 
-- **Vision Model** (Issue #101) - Extract text and metadata from images
-- **Whisper Transcription** (Issue #102) - Transcribe audio files
-- **OCR** - Extract text from scanned documents
-- **LibreOffice** - Convert office documents to text
+- **Vision Model** — Extract text and metadata from images
+- **Whisper Transcription** — Transcribe audio files
+- **Speaker Diarization** — Identify and label speakers in audio/video
+- **GLiNER NER** — Zero-shot named entity recognition
+- **Media Optimization** — Pre-generate streaming-friendly media variants
+- **OCR** — Extract text from scanned documents
+- **LibreOffice** — Convert office documents to text
 
-## Vision Model (Issue #101)
+The Docker bundle (`docker-compose.bundle.yml`) includes all services with sensible defaults. Individual services can be disabled by setting their URL to empty.
+
+## Vision Model
 
 ### Requirements
 
@@ -45,7 +50,7 @@ curl http://localhost:3000/health
 
 The health endpoint should show the vision model is available.
 
-## Whisper Transcription (Issue #102)
+## Whisper Transcription
 
 ### Requirements
 
@@ -129,13 +134,105 @@ Check that GPU is being used (not CPU fallback):
 docker logs speaches | grep -i cuda
 ```
 
+## Speaker Diarization (pyannote)
+
+Speaker diarization identifies and labels different speakers in audio and video transcripts.
+
+### Requirements
+
+- Docker with NVIDIA GPU support (or CPU-only profile)
+- HuggingFace token for gated pyannote models (first download only)
+
+### Setup
+
+The Docker bundle includes the pyannote sidecar by default. It starts automatically alongside the main container.
+
+1. Set your HuggingFace token for first-time model download:
+   ```bash
+   # .env
+   HF_TOKEN=hf_xxxxx
+   ```
+
+2. Optionally configure the diarization model:
+   ```bash
+   DIARIZATION_BASE_URL=http://pyannote:8001   # Default in bundle
+   DIARIZATION_MODEL=pyannote/speaker-diarization-3.1
+   ```
+
+3. For CPU-only environments:
+   ```bash
+   docker compose -f docker-compose.bundle.yml --profile pyannote-cpu up -d
+   ```
+
+### Disabling
+
+Set `DIARIZATION_BASE_URL=` (empty) in `.env` to disable diarization entirely.
+
+### What It Produces
+
+After audio/video transcription, diarization adds:
+- Speaker labels to VTT/SRT/TXT caption files
+- A speaker configuration block in note content
+- Editable speaker names (triggers `SpeakerRelabel` job on save)
+
+## GLiNER NER (Named Entity Recognition)
+
+Zero-shot named entity recognition for concept tagging. Runs as a CPU-only sidecar container.
+
+### Setup
+
+Included in the Docker bundle by default:
+
+```bash
+GLINER_BASE_URL=http://gliner:8090  # Default in bundle
+GLINER_MODEL=urchade/gliner_large-v2.1
+GLINER_THRESHOLD=0.3
+```
+
+### Performance
+
+- **Speed**: <300ms per document (CPU-only, no GPU required)
+- **Memory**: ~2 GB RAM for the 0.5B BERT model
+- **Role**: Tier-0 in the concept tagging pipeline (runs before LLM extraction)
+
+### Disabling
+
+Set `GLINER_BASE_URL=` (empty) in `.env` to skip NER and use LLM-only concept extraction.
+
+## Media Optimization (ffmpeg)
+
+Pre-generates streaming-friendly media variants during attachment upload.
+
+### Requirements
+
+- `ffmpeg` and `ffprobe` installed in the container (included in the Docker bundle)
+
+### Configuration
+
+Media optimization is enabled by default for video/audio uploads via the `media_optimize` flag. No additional environment variables are required.
+
+### What It Produces
+
+Depending on the source media, the handler generates:
+
+| Variant | Applies To | Description |
+|---------|-----------|-------------|
+| `faststart` | Video (non-faststart MP4) | Moov atom moved to front for progressive download |
+| `web_compatible` | Video (non-H.264/AAC) | Remuxed/transcoded to H.264+AAC MP4 |
+| `audio_only` | Video | Extracted audio track in M4A container |
+| `preview_720p` | Video (>720p) | Downscaled 720p preview |
+| `web_audio` | Audio (non-AAC/MP3/Opus) | AAC transcode in M4A container |
+| `audio_preview` | Audio (lossless) | Lossy AAC preview of FLAC/ALAC/WAV source |
+
+Access variants via `GET /api/v1/attachments/{id}/download?variant=web_compatible`.
+
 ## Network Configuration
 
 ### Same Docker Network (Recommended)
 
 If running both services on the same Docker network, use service names:
 ```bash
-WHISPER_BASE_URL=http://speaches:8000
+WHISPER_BASE_URL=http://whisper:8000
 ```
 
 ### Host Network
@@ -226,17 +323,27 @@ deploy:
 ## Environment Variables Reference
 
 ### Vision Model
-- `OLLAMA_VISION_MODEL` - Vision model name (e.g., `qwen3-vl:8b`)
+- `OLLAMA_VISION_MODEL` — Vision model name (e.g., `qwen3-vl:8b`). Set to empty to disable.
 
 ### Whisper Transcription
-- `WHISPER_BASE_URL` - Whisper service URL (e.g., `http://localhost:8000`)
-- `WHISPER_MODEL` - Whisper model name (default: `Systran/faster-distil-whisper-large-v3`)
+- `WHISPER_BASE_URL` — Whisper service URL (e.g., `http://whisper:8000`). Set to empty to disable.
+- `WHISPER_MODEL` — Whisper model name (default: `Systran/faster-distil-whisper-large-v3`)
+
+### Speaker Diarization
+- `DIARIZATION_BASE_URL` — pyannote service URL (e.g., `http://pyannote:8001`). Set to empty to disable.
+- `DIARIZATION_MODEL` — Diarization model (default: `pyannote/speaker-diarization-3.1`)
+- `HF_TOKEN` — HuggingFace token for gated model download (first time only)
+
+### GLiNER NER
+- `GLINER_BASE_URL` — GLiNER service URL (e.g., `http://gliner:8090`). Set to empty to disable.
+- `GLINER_MODEL` — GLiNER model (default: `urchade/gliner_large-v2.1`)
+- `GLINER_THRESHOLD` — Entity confidence threshold (default: `0.3`)
 
 ### OCR
-- `OCR_ENABLED` - Enable OCR processing (default: `false`)
+- `OCR_ENABLED` — Enable OCR processing (default: `false`)
 
 ### LibreOffice
-- `LIBREOFFICE_PATH` - Path to LibreOffice binary (e.g., `/usr/bin/libreoffice`)
+- `LIBREOFFICE_PATH` — Path to LibreOffice binary (e.g., `/usr/bin/libreoffice`)
 
 ## Integration with Fortemi
 
@@ -258,7 +365,8 @@ curl http://localhost:3000/api/v1/jobs/{job_id}
 
 ## References
 
-- Issue #101: Deploy qwen3-vl:8b Vision Model
-- Issue #102: Deploy faster-whisper-server (Speaches)
 - [Speaches Documentation](https://github.com/speaches-ai/speaches)
 - [Ollama Vision Models](https://ollama.com/library)
+- [pyannote Speaker Diarization](https://github.com/pyannote/pyannote-audio)
+- [GLiNER NER](https://github.com/urchade/GLiNER)
+- [Job Monitoring Guide](../content/job-monitoring.md) — Progress tracking for extraction and media optimization jobs

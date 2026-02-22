@@ -547,7 +547,7 @@ WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `RENDERER_URL` | String | `http://localhost:8080` | URL for the Three.js renderer used for GLB/3D model keyframe extraction. The Docker bundle includes the renderer at this default address. Set to a custom URL for external renderer deployments. |
+| `RENDERER_URL` | String | `http://localhost:8080` | URL for the Open3D renderer used for GLB/3D model multi-view rendering. The Docker bundle includes the renderer at this default address. Set to a custom URL for external renderer deployments. |
 
 **Example:**
 ```bash

@@ -288,8 +288,15 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Auto-detection** from filename patterns and magic content
 - **Vision (image description)** via Ollama vision LLM (qwen3-vl, llava)
 - **Audio transcription** via Whisper-compatible backend (attachment pipeline + ad-hoc API)
+- **Speaker diarization** via pyannote sidecar (speaker-labeled captions, editable speaker names)
 - **Video multimodal extraction** via attachment pipeline (keyframe extraction, scene detection, transcription alignment)
-- **3D model understanding** via attachment pipeline (Three.js multi-view rendering + vision description)
+- **3D model understanding** via attachment pipeline (Open3D multi-view rendering + vision description)
+- **Media optimization** via ffmpeg (faststart, web-compatible remux, audio extraction, 720p preview)
+- **Email extraction** (RFC 2822/MIME parsing, embedded attachment extraction)
+- **Spreadsheet extraction** (xlsx/xls/ods → markdown tables per sheet)
+- **Archive extraction** (ZIP/tar/gz → file listing + text content extraction)
+- **Derived attachments** (thumbnails, transcripts, caption files, media variants as child attachments)
+- **HTTP Range requests** for partial content download of large attachments
 
 ### Multi-Memory Architecture
 

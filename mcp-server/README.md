@@ -252,7 +252,7 @@ get_documentation({ topic: "embedding-sets" }) // Also in core via manage_embedd
 get_documentation({ topic: "skos" })
 ```
 
-Or switch to full mode for all 202 granular tools: `MCP_TOOL_MODE=full`
+Or switch to full mode for all 203 granular tools: `MCP_TOOL_MODE=full`
 
 ## Document Types
 

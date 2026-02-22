@@ -7,6 +7,43 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- **Speaker Diarization Pipeline** (#497) — pyannote-based speaker identification for audio and video transcripts. Runs as a GPU sidecar container (`DIARIZATION_BASE_URL`). Produces speaker-labeled VTT/SRT/TXT caption files and a speaker configuration block in note content. Speaker names editable via `SpeakerRelabel` job.
+- **Speaker Diarization Foundation Types** (#497) — Core inference types and backend abstraction for diarization providers.
+- **Media Optimize Handler** (#506) — Pre-generates streaming-friendly media variants during attachment upload using ffmpeg. Variant types: `faststart` (moov atom relocation), `web_compatible` (H.264+AAC remux), `audio_only` (extracted audio), `preview_720p` (downscaled preview), `web_audio` (AAC transcode), `audio_preview` (lossless→lossy). Variants stored as derived attachments and served via `?variant=` query parameter on the download endpoint.
+- **Media Optimize Flag** (#506) — `media_optimize` parameter on attachment upload API and MCP `manage_attachments` tool. Defaults to true for video/audio content types.
+- **Email Extraction Adapter** (#508–#512) — RFC 2822 / MIME email parsing (`.eml`, `.mbox`). Extracts message body, headers, and binary attachments as derived child attachments that trigger their own extraction jobs.
+- **Spreadsheet Extraction Adapter** (#508–#512) — Excel (`.xlsx`, `.xls`) and ODS spreadsheet extraction. Converts each sheet to markdown tables.
+- **Archive Extraction Adapter** (#514–#515) — ZIP, tar, and gzip archive extraction. Produces file listing with text content extraction (capped at 1000 files, 100 MB total).
+- **Derived Attachment Storage** (#498, #502) — Thumbnails, transcripts (VTT, SRT, TXT), and media variants stored as child attachments linked to their source via `extracted_metadata` JSON.
+- **Video Thumbnail & Audio Waveform** (#502, #503) — Auto-generated preview images persisted as derived attachments during extraction.
+- **MP4 Faststart Optimization** (#503) — Automatic moov atom relocation during video extraction for progressive download.
+- **Diagramming & Layout Document Types** (#516) — New document type category supporting SVG, Graphviz (DOT), Mermaid, D2, PlantUML, and layout formats.
+- **HTTP Range Request Support** (#493) — Partial content download (`Range` header) for large attachment files.
+- **Open3D GPU Renderer** (#492) — Replaces Three.js with Open3D for 3D model multi-view rendering. Supports EGL headless rendering on GPU.
+- **Global Attachment Listing** — `GET /api/v1/attachments` endpoint for listing all attachments across notes.
+- **Related Notes with LLM Summary** — `GET /api/v1/notes/{id}/related` endpoint returns related notes with AI-generated context summary.
+- **Document Type Slug Validation** (#490, #491) — Accept `document_type` slug on note creation; validate `revision_mode` parameter.
+- **Handler-Initiated SSE Events** — `job.queued` SSE events now emitted for downstream jobs queued by handlers (e.g., Extraction → Embedding), not just API-initiated jobs.
+
+### Fixed
+
+- **AI Revision Cross-Contamination** (#494) — Prevent RAG revision from injecting unrelated note content.
+- **Extraction Reliability** — Fix job deduplication, OGG format detection, and timeout handling.
+- **Inline Disposition for Media** — Use inline content disposition for browser-playable media types; fix CORS headers for streaming.
+- **Extraction Re-queue Logic** — Only re-queue downstream NLP jobs when extraction actually updates note content.
+- **AI Description Propagation** (#492) — Persist `ai_description` from vision/3D extraction and propagate to note metadata.
+- **SSE Progress Alignment** — Align progress events with documented checkpoint percentages across all handlers.
+- **Clippy Lint Warnings** — Fix `nonminimal_bool`, `neg_cmp_op_on_partial_ord`, and `approx_constant` in test assertions.
+
+### Documentation
+
+- CPU-only deployment guide (`docs/content/cpu-only-deployment.md`)
+- Job monitoring guide expanded with multi-chunk tracking, tier escalation, and SSE event emission completeness table
+- Extraction pipeline design updated with all 13 extraction strategies and derived file documentation
+- MediaOptimize handler documented in job monitoring guide (progress stages, variant types, download endpoint)
+
 ## [2026.2.11] - 2026-02-20
 
 ### Fixed

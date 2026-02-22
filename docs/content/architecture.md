@@ -308,8 +308,11 @@ Background job processing for asynchronous NLP operations and document processin
 - `AudioTranscribeAdapter` - Audio transcription via Whisper-compatible backend
 - `VideoMultimodalAdapter` - Video multimodal extraction (keyframes, scene detection, transcription alignment)
 - `CodeAstAdapter` - Code AST analysis via tree-sitter
-- `Glb3DModelAdapter` - 3D model understanding via Three.js multi-view rendering + vision (requires Blender)
+- `Glb3DModelAdapter` - 3D model understanding via Open3D multi-view rendering + vision
 - `OfficeConvertAdapter` - Office document conversion
+- `EmailAdapter` - RFC 2822/MIME email parsing with attachment extraction
+- `SpreadsheetAdapter` - Excel/ODS spreadsheet → markdown tables
+- `ArchiveAdapter` - ZIP/tar/gz archive listing and text content extraction
 
 **RAG Pipeline Jobs:**
 1. **Extraction** - File content extraction via adapter registry (priority 7, gates downstream work)
@@ -323,6 +326,12 @@ Background job processing for asynchronous NLP operations and document processin
 9. **EntityExtraction** - Extract named entities for tri-modal search
 10. **ExifExtraction** - Extract EXIF metadata from image attachments
 11. **DocumentTypeInference** - Auto-detect document type from filename, MIME, content
+12. **SpeakerDiarization** - pyannote speaker identification for audio/video transcripts
+13. **SpeakerRelabel** - Re-render captions with user-assigned speaker names
+14. **MediaOptimize** - Pre-generate streaming-friendly media variants via ffmpeg
+15. **MetadataExtraction** - AI-extracted structured metadata (authors, year, venue, DOI)
+16. **ReferenceExtraction** - Named entity and bibliographic reference extraction
+17. **RelatedConceptInference** - Infer SKOS related relationships between concepts
 
 ### matric-api
 
