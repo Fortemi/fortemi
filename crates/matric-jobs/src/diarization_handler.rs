@@ -348,7 +348,12 @@ impl JobHandler for SpeakerDiarizationHandler {
 
                 if let Ok(mut tx) = schema_ctx.begin_tx().await {
                     // Delete existing derived caption/transcript attachments to avoid duplicates
-                    // Then re-create with speaker labels
+                    if let Err(e) = file_storage
+                        .delete_derived_captions_tx(&mut tx, attachment_id)
+                        .await
+                    {
+                        warn!(error = %e, "Failed to delete existing caption attachments");
+                    }
 
                     // VTT file
                     let vtt = captions::render_webvtt(&caption_segments);
@@ -425,7 +430,7 @@ impl JobHandler for SpeakerDiarizationHandler {
         }
 
         // 8. Inject speaker config block into note content for user editing
-        if diarization_result.num_speakers > 1 {
+        {
             ctx.report_progress(90, Some("Adding speaker config to note"));
 
             // Collect unique speaker IDs

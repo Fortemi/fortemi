@@ -48,7 +48,12 @@ pub fn render_webvtt(segments: &[CaptionSegment]) -> String {
             format_vtt_timestamp(seg.start_secs),
             format_vtt_timestamp(seg.end_secs)
         );
-        let _ = writeln!(out, "{}", seg.text.trim());
+        // W3C WebVTT voice span: <v Speaker>text</v>
+        if let Some(ref speaker) = seg.speaker {
+            let _ = writeln!(out, "<v {}>{}  </v>", speaker, seg.text.trim());
+        } else {
+            let _ = writeln!(out, "{}", seg.text.trim());
+        }
         out.push('\n');
     }
 
@@ -58,6 +63,7 @@ pub fn render_webvtt(segments: &[CaptionSegment]) -> String {
 /// Render segments as SRT (SubRip Subtitle).
 ///
 /// Format: sequential index, `HH:MM:SS,mmm --> HH:MM:SS,mmm`, text, blank line.
+/// When speaker labels are present, uses the common `Speaker: text` convention.
 ///
 /// ```text
 /// 1
@@ -79,7 +85,12 @@ pub fn render_srt(segments: &[CaptionSegment]) -> String {
             format_srt_timestamp(seg.start_secs),
             format_srt_timestamp(seg.end_secs)
         );
-        let _ = writeln!(out, "{}", seg.text.trim());
+        // Common SRT convention: "Speaker: text"
+        if let Some(ref speaker) = seg.speaker {
+            let _ = writeln!(out, "{}: {}", speaker, seg.text.trim());
+        } else {
+            let _ = writeln!(out, "{}", seg.text.trim());
+        }
         out.push('\n');
     }
 
@@ -232,6 +243,68 @@ mod tests {
         assert_eq!(format_vtt_timestamp(1.5), "00:00:01.500");
         assert_eq!(format_vtt_timestamp(61.123), "00:01:01.123");
         assert_eq!(format_vtt_timestamp(3661.0), "01:01:01.000");
+    }
+
+    #[test]
+    fn test_render_webvtt_with_speakers() {
+        let segments = vec![
+            CaptionSegment {
+                start_secs: 0.0,
+                end_secs: 2.5,
+                text: "Hello everyone.".to_string(),
+                speaker: Some("Alice".to_string()),
+            },
+            CaptionSegment {
+                start_secs: 2.5,
+                end_secs: 5.0,
+                text: "Hi Alice!".to_string(),
+                speaker: Some("Bob".to_string()),
+            },
+            CaptionSegment {
+                start_secs: 5.0,
+                end_secs: 7.0,
+                text: "No speaker here.".to_string(),
+                speaker: None,
+            },
+        ];
+        let vtt = render_webvtt(&segments);
+
+        assert!(vtt.contains("<v Alice>Hello everyone.  </v>"));
+        assert!(vtt.contains("<v Bob>Hi Alice!  </v>"));
+        assert!(vtt.contains("No speaker here.\n"));
+        // Ensure the no-speaker line doesn't have voice tags
+        assert!(!vtt.contains("<v >No speaker here."));
+    }
+
+    #[test]
+    fn test_render_srt_with_speakers() {
+        let segments = vec![
+            CaptionSegment {
+                start_secs: 0.0,
+                end_secs: 2.5,
+                text: "Hello everyone.".to_string(),
+                speaker: Some("Alice".to_string()),
+            },
+            CaptionSegment {
+                start_secs: 2.5,
+                end_secs: 5.0,
+                text: "Hi Alice!".to_string(),
+                speaker: Some("Bob".to_string()),
+            },
+            CaptionSegment {
+                start_secs: 5.0,
+                end_secs: 7.0,
+                text: "No speaker here.".to_string(),
+                speaker: None,
+            },
+        ];
+        let srt = render_srt(&segments);
+
+        assert!(srt.contains("Alice: Hello everyone.\n"));
+        assert!(srt.contains("Bob: Hi Alice!\n"));
+        assert!(srt.contains("No speaker here.\n"));
+        // Ensure the no-speaker line doesn't have prefix
+        assert!(!srt.contains(": No speaker here."));
     }
 
     #[test]

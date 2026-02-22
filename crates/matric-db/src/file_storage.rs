@@ -1237,6 +1237,43 @@ impl PgFileStorageRepository {
         Ok(())
     }
 
+    /// Delete all derived caption/transcript attachments for a parent attachment.
+    ///
+    /// Finds attachments where `extracted_metadata->>'source_attachment_id'` matches
+    /// the parent and `derivation_type` is `caption` or `transcript`, then deletes them.
+    /// Used to replace stale caption files before re-rendering (diarization, relabel).
+    ///
+    /// Returns the number of deleted attachments.
+    pub async fn delete_derived_captions_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_attachment_id: Uuid,
+    ) -> Result<usize> {
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"SELECT id FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1
+               AND extracted_metadata->>'derivation_type' IN ('caption', 'transcript')"#,
+        )
+        .bind(parent_attachment_id.to_string())
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let count = ids.len();
+        for id in ids {
+            self.delete_tx(tx, id).await?;
+        }
+
+        if count > 0 {
+            debug!(
+                parent_attachment_id = %parent_attachment_id,
+                deleted = count,
+                "Deleted existing derived caption/transcript attachments"
+            );
+        }
+
+        Ok(count)
+    }
+
     /// Store derived content as a child attachment for traceability.
     ///
     /// Creates a new attachment on the same note, linked to the parent

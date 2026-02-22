@@ -319,6 +319,14 @@ impl JobHandler for SpeakerRelabelHandler {
                     .unwrap_or(filename);
 
                 if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                    // Delete existing derived caption/transcript attachments to avoid duplicates
+                    if let Err(e) = file_storage
+                        .delete_derived_captions_tx(&mut tx, attachment_id)
+                        .await
+                    {
+                        warn!(error = %e, "Failed to delete existing caption attachments");
+                    }
+
                     // VTT file
                     let vtt = captions::render_webvtt(&caption_segments);
                     if let Err(e) = file_storage
