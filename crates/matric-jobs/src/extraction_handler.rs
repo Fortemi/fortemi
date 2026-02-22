@@ -177,11 +177,19 @@ impl JobHandler for ExtractionHandler {
                     if let Some(file_storage) = self.db.file_storage.as_ref() {
                         match schema_ctx.begin_tx().await {
                             Ok(mut tx) => {
+                                // When the adapter didn't produce extracted_text but
+                                // did produce an ai_description, use the description
+                                // as extracted_text so it's indexed for FTS search.
+                                let effective_text = result
+                                    .extracted_text
+                                    .as_deref()
+                                    .or(result.ai_description.as_deref());
+
                                 if let Err(e) = file_storage
                                     .update_extracted_content_tx(
                                         &mut tx,
                                         att_id,
-                                        result.extracted_text.as_deref(),
+                                        effective_text,
                                         Some(result.metadata.clone()),
                                     )
                                     .await
@@ -381,10 +389,17 @@ impl JobHandler for ExtractionHandler {
                                     .unwrap_or(filename);
 
                                 if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                    // Plain text for all caption files (shared for extracted_text)
+                                    let plain_text: String = caption_segments
+                                        .iter()
+                                        .map(|s| s.text.trim().to_string())
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+
                                     // VTT file
                                     let vtt =
                                         matric_core::captions::render_webvtt(&caption_segments);
-                                    if let Err(e) = file_storage
+                                    match file_storage
                                         .store_derived_attachment_tx(
                                             &mut tx,
                                             note_id,
@@ -396,12 +411,24 @@ impl JobHandler for ExtractionHandler {
                                         )
                                         .await
                                     {
-                                        warn!(error = %e, "Failed to store VTT attachment");
+                                        Ok(child) => {
+                                            let _ = file_storage
+                                                .update_extracted_content_tx(
+                                                    &mut tx,
+                                                    child.id,
+                                                    Some(&plain_text),
+                                                    None,
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to store VTT attachment")
+                                        }
                                     }
 
                                     // SRT file
                                     let srt = matric_core::captions::render_srt(&caption_segments);
-                                    if let Err(e) = file_storage
+                                    match file_storage
                                         .store_derived_attachment_tx(
                                             &mut tx,
                                             note_id,
@@ -413,16 +440,23 @@ impl JobHandler for ExtractionHandler {
                                         )
                                         .await
                                     {
-                                        warn!(error = %e, "Failed to store SRT attachment");
+                                        Ok(child) => {
+                                            let _ = file_storage
+                                                .update_extracted_content_tx(
+                                                    &mut tx,
+                                                    child.id,
+                                                    Some(&plain_text),
+                                                    None,
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to store SRT attachment")
+                                        }
                                     }
 
                                     // Plain text transcript
-                                    let plain_text: String = caption_segments
-                                        .iter()
-                                        .map(|s| s.text.trim().to_string())
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-                                    if let Err(e) = file_storage
+                                    match file_storage
                                         .store_derived_attachment_tx(
                                             &mut tx,
                                             note_id,
@@ -434,7 +468,19 @@ impl JobHandler for ExtractionHandler {
                                         )
                                         .await
                                     {
-                                        warn!(error = %e, "Failed to store transcript attachment");
+                                        Ok(child) => {
+                                            let _ = file_storage
+                                                .update_extracted_content_tx(
+                                                    &mut tx,
+                                                    child.id,
+                                                    Some(&plain_text),
+                                                    None,
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to store transcript attachment")
+                                        }
                                     }
 
                                     if let Err(e) = tx.commit().await {
@@ -479,7 +525,7 @@ impl JobHandler for ExtractionHandler {
                                     {
                                         Ok(child_att) => {
                                             stored += 1;
-                                            // Persist AI description if the adapter provided one
+                                            // Persist AI description and extracted_text
                                             if let Some(ref desc) = df.ai_description {
                                                 if let Err(e) = file_storage
                                                     .update_ai_description_tx(
@@ -496,6 +542,15 @@ impl JobHandler for ExtractionHandler {
                                                         "Failed to persist derived file ai_description"
                                                     );
                                                 }
+                                                // Also set extracted_text for FTS indexing
+                                                let _ = file_storage
+                                                    .update_extracted_content_tx(
+                                                        &mut tx,
+                                                        child_att.id,
+                                                        Some(desc),
+                                                        None,
+                                                    )
+                                                    .await;
                                             }
                                         }
                                         Err(e) => {

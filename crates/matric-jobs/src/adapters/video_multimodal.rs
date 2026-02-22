@@ -21,7 +21,8 @@ use tracing::{debug, warn};
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
 use matric_core::{
-    ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy, ProgressFn, Result,
+    DerivedFile, ExtractionAdapter, ExtractionResult, ExtractionStrategy, KeyframeStrategy,
+    ProgressFn, Result,
 };
 use matric_inference::transcription::TranscriptionBackend;
 use matric_inference::vision::VisionBackend;
@@ -156,6 +157,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
+        let mut derived_files: Vec<DerivedFile> = Vec::new();
 
         let mut transcript_text: Option<String> = None;
         let mut transcript_language: Option<String> = None;
@@ -166,6 +168,25 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             match extract_audio_track(&video_path, &work_dir).await {
                 Ok(audio_path) => {
                     has_audio = true;
+
+                    // Persist extracted audio as a derived file
+                    if let Ok(audio_bytes) = fs::read(&audio_path) {
+                        let base_name = filename
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(filename)
+                            .rsplit_once('.')
+                            .map(|(n, _)| n)
+                            .unwrap_or(filename);
+                        derived_files.push(DerivedFile {
+                            filename: format!("{}_audio.wav", base_name),
+                            content_type: "audio/wav".to_string(),
+                            data: audio_bytes,
+                            derivation_type: "audio_track".to_string(),
+                            ai_description: None,
+                        });
+                    }
+
                     if let Some(ref backend) = self.transcription {
                         match transcribe_audio(backend.as_ref(), &audio_path).await {
                             Ok(result) => {
@@ -267,7 +288,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }),
             ai_description: None,
             preview_data: thumbnail_data,
-            derived_files: vec![],
+            derived_files,
         })
     }
 
@@ -313,6 +334,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         let mut transcript_segments = Vec::new();
         let mut has_audio = false;
         let mut has_video = false;
+        let mut derived_files: Vec<DerivedFile> = Vec::new();
         let mut transcript_text: Option<String> = None;
         let mut transcript_language: Option<String> = None;
 
@@ -322,6 +344,25 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             match extract_audio_track(&video_path, &work_dir).await {
                 Ok(audio_path) => {
                     has_audio = true;
+
+                    // Persist extracted audio as a derived file
+                    if let Ok(audio_bytes) = fs::read(&audio_path) {
+                        let base_name = filename
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(filename)
+                            .rsplit_once('.')
+                            .map(|(n, _)| n)
+                            .unwrap_or(filename);
+                        derived_files.push(DerivedFile {
+                            filename: format!("{}_audio.wav", base_name),
+                            content_type: "audio/wav".to_string(),
+                            data: audio_bytes,
+                            derivation_type: "audio_track".to_string(),
+                            ai_description: None,
+                        });
+                    }
+
                     progress(10, Some("Transcribing audio"));
                     if let Some(ref backend) = self.transcription {
                         match transcribe_audio(backend.as_ref(), &audio_path).await {
@@ -448,7 +489,7 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             }),
             ai_description: None,
             preview_data: thumbnail_data,
-            derived_files: vec![],
+            derived_files,
         })
     }
 
