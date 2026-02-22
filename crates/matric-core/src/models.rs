@@ -1142,11 +1142,13 @@ impl ExtractionStrategy {
             return Self::Spreadsheet;
         }
 
-        // Office documents (non-spreadsheet)
+        // Office documents (non-spreadsheet) and binary diagram formats
         if mime_lower.contains("officedocument")
             || mime_lower.contains("msword")
             || mime_lower.contains("ms-powerpoint")
             || mime_lower == "application/rtf"
+            || mime_lower.contains("ms-visio")
+            || mime_lower == "application/vnd.visio"
         {
             return Self::OfficeConvert;
         }
@@ -1190,7 +1192,9 @@ impl ExtractionStrategy {
                 | "application/x-ndjson"
                 | "application/geo+json"
                 | "application/x-drawio"
+                | "application/x-drawio+xml"
                 | "application/x-excalidraw+json"
+                | "application/x-omnigraffle"
                 | "text/calendar"
         ) {
             return Self::StructuredExtract;
@@ -1234,6 +1238,11 @@ impl ExtractionStrategy {
                     "ics" | "bib" | "geojson" | "ndjson" | "parquet" | "avro" | "mid" | "midi" => {
                         Self::StructuredExtract
                     }
+                    // Diagram formats
+                    "drawio" | "excalidraw" | "graffle" => Self::StructuredExtract,
+                    "vsdx" | "vsd" => Self::OfficeConvert,
+                    "d2" | "typ" | "mmd" | "mermaid" | "puml" | "plantuml" | "pu" | "dot"
+                    | "gv" => Self::TextNative,
                     "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "h" | "rb"
                     | "swift" | "kt" | "scala" | "zig" | "hs" => Self::CodeAst,
                     "txt" | "md" | "markdown" | "rst" | "org" | "adoc" => Self::TextNative,
