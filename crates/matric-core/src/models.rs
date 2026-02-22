@@ -1630,6 +1630,31 @@ pub struct GlobalAttachmentSummary {
     pub created_at: DateTime<Utc>,
 }
 // =============================================================================
+// TUS RESUMABLE UPLOADS
+// =============================================================================
+
+/// Tracks an in-progress tus resumable upload session.
+///
+/// Each row maps to a staging file on disk at `storage_path`. When the final
+/// chunk is received (`current_offset == total_size`), the upload is finalized
+/// into the standard attachment pipeline and this row is deleted.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+pub struct TusUpload {
+    pub id: Uuid,
+    pub note_id: Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub total_size: i64,
+    pub current_offset: i64,
+    pub storage_path: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+// =============================================================================
 // ENTITY TYPES (TRI-MODAL SEARCH)
 // =============================================================================
 

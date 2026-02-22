@@ -786,6 +786,114 @@ Binary data (images, PDFs, archives) can be megabytes or gigabytes. Passing this
 
 Instead, the MCP server handles file I/O directly on the filesystem, and only metadata (paths, sizes, content types) flows through the LLM conversation.
 
+## Resumable Uploads (tus Protocol)
+
+For files over 100 MB, unreliable connections, or mobile uploads where progress reporting is important, use the tus v1.0.0 resumable upload protocol. Unlike a single-request multipart upload, tus lets clients pause and resume transfers without restarting from scratch.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `OPTIONS` | `/api/v1/notes/{note_id}/attachments/tus` | Discover server capabilities |
+| `POST` | `/api/v1/notes/{note_id}/attachments/tus` | Create a new upload session |
+| `HEAD` | `/api/v1/notes/{note_id}/attachments/tus/{upload_id}` | Get current offset (for resume) |
+| `PATCH` | `/api/v1/notes/{note_id}/attachments/tus/{upload_id}` | Append a chunk |
+| `DELETE` | `/api/v1/notes/{note_id}/attachments/tus/{upload_id}` | Cancel the upload |
+
+### Required Headers
+
+| Header | Required On | Value |
+|--------|-------------|-------|
+| `Tus-Resumable` | All requests | `1.0.0` |
+| `Upload-Length` | POST | File size in bytes |
+| `Upload-Offset` | PATCH | Current offset (0 for first chunk) |
+| `Content-Type` | PATCH | `application/offset+octet-stream` |
+| `Upload-Metadata` | POST (optional) | Comma-separated `key base64value` pairs |
+
+### Upload-Metadata Format
+
+Key-value pairs where values are base64-encoded, comma-separated:
+
+```
+Upload-Metadata: filename aGVsbG8ud29ybGQ=, content_type dGV4dC9wbGFpbg==
+```
+
+Standard keys: `filename`, `content_type` (or `filetype`).
+
+### Protocol Flow
+
+**1. Create upload session**
+
+```bash
+curl -X POST https://memory.example.com/api/v1/notes/{note_id}/attachments/tus \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Upload-Length: 104857600" \
+  -H "Upload-Metadata: filename bXktdmlkZW8ubXA0, content_type dmlkZW8vbXA0"
+# Response: 201 Created
+# Location: /api/v1/notes/{note_id}/attachments/tus/{upload_id}
+# Upload-Expires: Sun, 23 Feb 2026 16:00:00 GMT
+```
+
+**2. Send chunks** (repeat until offset equals Upload-Length)
+
+```bash
+curl -X PATCH https://memory.example.com/api/v1/notes/{note_id}/attachments/tus/{upload_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Content-Type: application/offset+octet-stream" \
+  -H "Upload-Offset: 0" \
+  --data-binary @chunk-part-0.bin
+# Response: 204 No Content (mid-upload)
+# Upload-Offset: 52428800
+```
+
+When the final chunk lands, response is `200 OK` with the completed attachment JSON.
+
+**3. Resume after interruption** (check current offset first)
+
+```bash
+curl -X HEAD https://memory.example.com/api/v1/notes/{note_id}/attachments/tus/{upload_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Tus-Resumable: 1.0.0"
+# Response: 200 OK
+# Upload-Offset: 52428800  ← resume from here
+# Upload-Length: 104857600
+```
+
+**4. Cancel upload**
+
+```bash
+curl -X DELETE https://memory.example.com/api/v1/notes/{note_id}/attachments/tus/{upload_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Tus-Resumable: 1.0.0"
+# Response: 204 No Content
+```
+
+### Finalization
+
+When the final chunk completes the upload (offset equals Upload-Length), Fortemi automatically:
+1. Validates file safety (magic bytes, extension blocklist)
+2. Detects the actual content type
+3. Stores via the standard attachment pipeline (BLAKE3 dedup, blob reference counting)
+4. Queues background extraction jobs (content extraction, EXIF, media optimization)
+5. Deletes the staging file
+
+The `200 OK` response body contains the completed `Attachment` JSON, identical to what `POST /attachments` returns.
+
+### Upload Expiry
+
+Incomplete sessions expire after 24 hours by default (configurable via `TUS_UPLOAD_EXPIRY_HOURS`). The `Upload-Expires` response header shows when a session will be cleaned up. Expired sessions are automatically purged.
+
+### Chunk Size
+
+The default maximum chunk size is 50 MB (configurable via `TUS_CHUNK_MAX_SIZE`). Smaller chunks (5-20 MB) resume faster after interruptions; larger chunks have lower overhead for stable connections.
+
+### Client Libraries
+
+- **[tus-js-client](https://github.com/tus/tus-js-client)** — Browser and Node.js client with automatic resume
+- **[Uppy](https://uppy.io)** — Full-featured file picker with built-in tus support
+
 ## REST API Examples
 
 ### Upload File

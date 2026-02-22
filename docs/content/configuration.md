@@ -190,6 +190,21 @@ MATRIC_WEBHOOK_TIMEOUT_SECS=10
 FILE_STORAGE_PATH=/mnt/data/matric/files
 ```
 
+### Tus Resumable Uploads
+
+Settings for the tus v1.0.0 resumable upload protocol. See [File Attachments Guide](./file-attachments.md#resumable-uploads-tus-protocol) for protocol details.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `TUS_UPLOAD_EXPIRY_HOURS` | Integer | `24` | Hours before an incomplete tus upload session expires and is cleaned up |
+| `TUS_CHUNK_MAX_SIZE` | Integer | `52428800` | Maximum chunk size in bytes for tus PATCH requests (default: 50 MB) |
+
+**Example:**
+```bash
+TUS_UPLOAD_EXPIRY_HOURS=48       # 2 days for slow connections
+TUS_CHUNK_MAX_SIZE=104857600     # 100 MB chunks for fast networks
+```
+
 ### Memory Management
 
 | Variable | Type | Default | Description |

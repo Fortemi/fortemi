@@ -59,6 +59,7 @@ pub mod strict_filter;
 pub mod syntactic_chunker;
 pub mod tags;
 pub mod templates;
+pub mod tus;
 pub mod unified_filter;
 pub mod versioning;
 pub mod webhooks;
@@ -124,6 +125,7 @@ pub use search::PgFtsSearch;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
+pub use tus::PgTusRepository;
 pub use unified_filter::{UnifiedFilterQueryBuilder, UnifiedFilterResult};
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,
@@ -190,6 +192,8 @@ pub struct Database {
     pub pke_keys: PgPkeKeyRepository,
     /// PKE keyset repository for REST API (Issues #328, #332).
     pub pke_keysets: PgPkeKeysetRepository,
+    /// Tus resumable upload session repository (Issue #528).
+    pub tus: PgTusRepository,
 }
 
 impl Database {
@@ -222,6 +226,7 @@ impl Database {
             webhooks: PgWebhookRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
+            tus: PgTusRepository::new(pool.clone()),
             pool,
         }
     }
@@ -375,6 +380,7 @@ impl Clone for Database {
             webhooks: PgWebhookRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
+            tus: PgTusRepository::new(self.pool.clone()),
         }
     }
 }
