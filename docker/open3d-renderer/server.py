@@ -74,6 +74,45 @@ def load_geometry(filepath):
     return ("mesh", mesh)
 
 
+def _create_grid_plane(center, extent):
+    """Create a ground-plane grid (like 3D modelling apps) for spatial reference.
+
+    Returns an Open3D LineSet with light silver lines spanning 2x the model
+    footprint, centered below the object bounding box.
+    """
+    grid_half = max(extent[0], extent[2]) * 1.5  # 1.5× footprint on each side
+    divisions = 10
+    step = (grid_half * 2) / divisions
+    y = center[1] - extent[1] / 2  # bottom of bounding box
+
+    points = []
+    lines = []
+    idx = 0
+
+    # Lines parallel to X axis
+    for i in range(divisions + 1):
+        z = center[2] - grid_half + i * step
+        points.append([center[0] - grid_half, y, z])
+        points.append([center[0] + grid_half, y, z])
+        lines.append([idx, idx + 1])
+        idx += 2
+
+    # Lines parallel to Z axis
+    for i in range(divisions + 1):
+        x = center[0] - grid_half + i * step
+        points.append([x, y, center[2] - grid_half])
+        points.append([x, y, center[2] + grid_half])
+        lines.append([idx, idx + 1])
+        idx += 2
+
+    grid = o3d.geometry.LineSet()
+    grid.points = o3d.utility.Vector3dVector(points)
+    grid.lines = o3d.utility.Vector2iVector(lines)
+    # Light silver lines — visible but not distracting
+    grid.colors = o3d.utility.Vector3dVector([[0.78, 0.78, 0.78]] * len(lines))
+    return grid
+
+
 def render_views(model_data, filename, num_views=6, width=512, height=512):
     """Render multi-view PNG images of a 3D model."""
     ext = os.path.splitext(filename)[1].lower() or ".glb"
@@ -88,8 +127,8 @@ def render_views(model_data, filename, num_views=6, width=512, height=512):
         renderer = rendering.OffscreenRenderer(width, height)
         scene = renderer.scene
 
-        # Light background for better vision model understanding
-        scene.set_background([1.0, 1.0, 1.0, 1.0])
+        # Off-white background for good contrast (human + machine vision)
+        scene.set_background([0.94, 0.94, 0.94, 1.0])
         scene.set_lighting(
             rendering.Open3DScene.LightingProfile.MED_SHADOWS,
             [0.577, -0.577, -0.577],
@@ -108,6 +147,13 @@ def render_views(model_data, filename, num_views=6, width=512, height=512):
         extent = bbox.get_extent()
         max_dim = max(extent)
         distance = max_dim * 2.5
+
+        # Add ground-plane grid for spatial reference
+        grid = _create_grid_plane(center, extent)
+        grid_mat = rendering.MaterialRecord()
+        grid_mat.shader = "unlitLine"
+        grid_mat.line_width = 1.0
+        scene.add_geometry("grid", grid, grid_mat)
 
         views = []
         for i in range(num_views):
