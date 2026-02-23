@@ -1268,7 +1268,10 @@ async fn main() -> anyhow::Result<()> {
         // Vision handler defers (Retry) if vision_backend is None, so jobs stay
         // queued until the backend is configured rather than being silently orphaned.
         worker
-            .register_handler(KeyframeVisionHandler::new(db.clone(), vision_backend.clone()))
+            .register_handler(KeyframeVisionHandler::new(
+                db.clone(),
+                vision_backend.clone(),
+            ))
             .await;
         if vision_backend.is_none() {
             warn!(
