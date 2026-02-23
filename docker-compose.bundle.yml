@@ -318,7 +318,6 @@ services:
       # - OPENAI_GEN_MODEL=${OPENAI_GEN_MODEL:-gpt-4o-mini}
       # - OPENAI_EMBED_DIM=${OPENAI_EMBED_DIM:-1536}
       # - OPENAI_TIMEOUT=${OPENAI_TIMEOUT:-30}
-    runtime: nvidia
     volumes:
       # PostgreSQL data persistence
       - matric-pgdata:/var/lib/postgresql/data

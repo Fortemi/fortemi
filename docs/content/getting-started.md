@@ -1,8 +1,10 @@
 # Getting Started
 
+> **Looking to deploy Fortemi?** See the [Quickstart Guide](./quickstart.md) for step-by-step deployment using published GHCR images, including prerequisite validation, hardware detection, and model selection. This page is a **feature tour** — it assumes you already have a running instance.
+
 > **Note:** Internal code and configurations use the name `Fortémi` — this is Fortémi.
 
-This quickstart guide takes you from zero to your first search result in 5 minutes. You'll deploy Fortemi, create notes, and explore hybrid search combining traditional keyword matching with AI-powered semantic understanding.
+This guide takes you from a running Fortemi instance to your first search result in 5 minutes. You'll create notes and explore hybrid search combining traditional keyword matching with AI-powered semantic understanding.
 
 ## Prerequisites
 
