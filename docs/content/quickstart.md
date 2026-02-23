@@ -6,7 +6,7 @@ Deploy a fully functional Fortemi instance using published container images from
 2. **+AI** — Add Ollama for semantic search, auto-linking, and NLP extraction
 3. **+Full Stack** — Add extraction sidecars (GLiNER NER, Whisper transcription)
 
-Time estimate: 5-10 minutes for Core, 15-20 minutes through Full Stack.
+Time estimate: **2 minutes** for Core (one command), 15-20 minutes through Full Stack with AI.
 
 This guide is designed for both humans and AI agents. Agent-parseable markers (`<!-- agent:step -->`) annotate each step with check commands, expected output, and failure actions.
 
@@ -117,11 +117,11 @@ ollama --version 2>/dev/null \
 
 ---
 
-## Step 1: Download Configuration
+## Step 1: Download and Start
 
 <!-- agent:step id="download-config" required="true" depends="check-docker,check-curl,check-ports,check-disk,check-ram" -->
 
-Download the compose file and environment template:
+Download the compose file and start Fortemi:
 
 ```bash
 mkdir -p fortemi && cd fortemi
@@ -129,10 +129,6 @@ mkdir -p fortemi && cd fortemi
 # Download compose file
 curl -fsSL -o docker-compose.bundle.yml \
   https://raw.githubusercontent.com/fortemi/fortemi/main/docker-compose.bundle.yml
-
-# Download environment template
-curl -fsSL -o .env.example \
-  https://raw.githubusercontent.com/fortemi/fortemi/main/.env.example
 ```
 
 **Alternative** — clone the repository:
@@ -152,65 +148,44 @@ docker compose -f docker-compose.bundle.yml config --quiet \
 
 On failure: Re-download the file. If using a proxy, ensure it's not modifying the download.
 
----
+> **No `.env` file required for basic usage.** The compose file defaults to pulling published images from GHCR (`ghcr.io/fortemi/fortemi`). All sidecars (GLiNER, Whisper, pyannote) are optional and won't block startup.
 
-## Step 2: Configure Environment
+### Optional: Configure Environment
 
-<!-- agent:step id="configure-env" required="true" depends="download-config" -->
-
-Create your `.env` from the template:
+Create a `.env` file only if you need to customize settings:
 
 ```bash
+# Download the template (optional)
+curl -fsSL -o .env.example \
+  https://raw.githubusercontent.com/fortemi/fortemi/main/.env.example
 cp .env.example .env
 ```
 
-Set the GHCR registry overrides so Docker pulls published images instead of building locally:
+Common customizations:
 
-```bash
-# Append GHCR overrides to .env
-cat >> .env << 'EOF'
-
-# ── GHCR Deployment ─────────────────────────────────────────────────────
-FORTEMI_REGISTRY=ghcr.io
-FORTEMI_TAG=bundle-latest
-EOF
-```
-
-### Configure ISSUER_URL
-
-If Fortemi is only accessed from `localhost` (personal use, testing), the default is fine — skip this.
-
-If you're deploying behind a domain or reverse proxy, set `ISSUER_URL`:
-
-```bash
-# Replace with your domain
-echo 'ISSUER_URL=https://memory.example.com' >> .env
-```
+| Setting | When to configure |
+|---------|------------------|
+| `ISSUER_URL=https://your-domain.com` | Deploying behind a reverse proxy or domain |
+| `OLLAMA_VISION_MODEL=` | CPU-only host (disables vision model) |
+| `FORTEMI_REGISTRY=git.integrolabs.net` | Internal development (Gitea registry) |
 
 ### GPU or CPU-only?
 
-<!-- agent:step id="configure-gpu" required="false" depends="detect-gpu,configure-env" -->
+<!-- agent:step id="configure-gpu" required="false" depends="detect-gpu,download-config" -->
 
 **GPU detected** — no changes needed. The default compose file enables GPU acceleration for Whisper and pyannote sidecars via `deploy.resources.reservations.devices`.
 
-**No GPU detected** — disable GPU-dependent services to avoid startup errors:
+**No GPU detected** — that's fine. Sidecars requiring GPU (Whisper, pyannote) are marked `required: false` and won't block startup. Fortemi Core and GLiNER work on CPU. For CPU transcription, use:
 
 ```bash
-cat >> .env << 'EOF'
-
-# ── CPU-only overrides ──────────────────────────────────────────────────
-# Disable vision model (requires GPU for reasonable speed)
-OLLAMA_VISION_MODEL=
-# Whisper GPU service will fail to start (no NVIDIA toolkit) — that's OK,
-# it's marked required: false. Use --profile whisper-cpu for CPU transcription.
-EOF
+docker compose -f docker-compose.bundle.yml --profile whisper-cpu up -d
 ```
 
 ---
 
-## Step 3: Start Core Services
+## Step 2: Start Core Services
 
-<!-- agent:step id="start-core" required="true" depends="configure-env" -->
+<!-- agent:step id="start-core" required="true" depends="download-config" -->
 
 Start the core stack (Fortemi + Redis). Sidecars (Whisper, GLiNER, pyannote) start automatically but are non-blocking — Fortemi works without them.
 
@@ -243,10 +218,10 @@ for i in $(seq 1 18); do
 done
 ```
 
-Verify the full health response:
+Or just wait and check once:
 
 ```bash
-curl -s http://localhost:3000/health | python3 -m json.tool 2>/dev/null || curl -s http://localhost:3000/health
+sleep 30 && curl -s http://localhost:3000/health
 ```
 
 Expected output includes:
@@ -279,7 +254,7 @@ At this point, **Tier 1 (Core) is complete**. You have full-text search, tagging
 
 ---
 
-## Step 4: Add AI Features (Optional)
+## Step 3: Add AI Features (Optional)
 
 This section adds Ollama for semantic search, embeddings, auto-linking, and NLP extraction.
 
@@ -373,9 +348,9 @@ ollama list
 
 ### Update .env with Model Selections
 
-<!-- agent:step id="configure-models" required="false" depends="pull-models,configure-env" -->
+<!-- agent:step id="configure-models" required="false" depends="pull-models" -->
 
-Update your `.env` with the models you pulled. Example for a 12-23 GB VRAM system:
+Create a `.env` file (if you don't already have one) with your model selections. Example for a 12-23 GB VRAM system:
 
 ```bash
 cat >> .env << 'EOF'
@@ -400,7 +375,7 @@ Restart the matric service to pick up new model configuration:
 docker compose -f docker-compose.bundle.yml up -d matric
 ```
 
-Wait for healthy (same poll as Step 3), then verify Ollama connectivity:
+Wait for healthy (same poll as Step 2), then verify Ollama connectivity:
 
 ```bash
 # Check Fortemi can reach Ollama
@@ -440,7 +415,7 @@ docker exec $(docker compose -f docker-compose.bundle.yml ps -q matric) \
 
 ---
 
-## Step 5: Enable Extraction Sidecars (Optional)
+## Step 4: Enable Extraction Sidecars (Optional)
 
 Sidecars provide specialized NLP capabilities that run as separate containers alongside Fortemi.
 
@@ -547,7 +522,7 @@ On failure: Restart the matric service to re-detect sidecars: `docker compose -f
 
 ---
 
-## Step 6: Connect an AI Agent (MCP)
+## Step 5: Connect an AI Agent (MCP)
 
 <!-- agent:step id="configure-mcp" required="false" depends="verify-health" -->
 

@@ -62,14 +62,25 @@ See [Use Cases](docs/content/use-cases.md) for deployment patterns and [Executiv
 
 ### Docker Bundle (Recommended)
 
-Includes PostgreSQL, API server, and MCP server in one container:
+All-in-one container with PostgreSQL, API server, and MCP server. No external dependencies required:
 
 ```bash
+mkdir -p fortemi && cd fortemi
+curl -fsSL -o docker-compose.bundle.yml \
+  https://raw.githubusercontent.com/fortemi/fortemi/main/docker-compose.bundle.yml
 docker compose -f docker-compose.bundle.yml up -d
+```
+
+Wait ~30 seconds for first-time initialization, then verify:
+
+```bash
 curl http://localhost:3000/health
+# → {"status":"healthy","database":"connected",...}
 ```
 
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP)
+
+That's it. Full-text search, tagging, collections, graph linking, and the MCP server are ready. For AI features (semantic search, auto-linking), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` — see the [Quickstart Guide](docs/content/quickstart.md) for details.
 
 Clean reset: `docker compose -f docker-compose.bundle.yml down -v && docker compose -f docker-compose.bundle.yml up -d`
 

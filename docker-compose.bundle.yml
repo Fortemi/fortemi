@@ -1,15 +1,16 @@
 # docker-compose.bundle.yml - All-in-one Fortemi deployment
 #
-# Usage (development/UAT - pulls from internal Gitea registry):
-#   docker compose -f docker-compose.bundle.yml pull
-#   docker compose -f docker-compose.bundle.yml up -d --no-build
+# Usage (end-user / default - pulls from GHCR):
+#   docker compose -f docker-compose.bundle.yml up -d
+#
+# Usage (internal development - pulls from Gitea registry):
+#   FORTEMI_REGISTRY=git.integrolabs.net FORTEMI_TAG=bundle-main \
+#     docker compose -f docker-compose.bundle.yml pull
+#   FORTEMI_REGISTRY=git.integrolabs.net FORTEMI_TAG=bundle-main \
+#     docker compose -f docker-compose.bundle.yml up -d --no-build
 #
 # Usage (development - build locally):
 #   docker compose -f docker-compose.bundle.yml up -d --build
-#
-# Usage (external/end-user - pull from GHCR):
-#   FORTEMI_REGISTRY=ghcr.io FORTEMI_TAG=bundle-latest \
-#     docker compose -f docker-compose.bundle.yml up -d
 #
 # Audio transcription (Whisper) is enabled by default:
 #   - GPU mode (default): Uses NVIDIA GPU for fast transcription
@@ -92,7 +93,7 @@ services:
   # Runs after transcription to identify and label speakers.
   # Set DIARIZATION_BASE_URL= (empty) in .env to disable diarization entirely.
   pyannote:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
+    image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
@@ -121,7 +122,7 @@ services:
   # pyannote CPU-only variant (slower but works without NVIDIA GPU)
   # Activate with: docker compose --profile pyannote-cpu up -d
   pyannote-cpu:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
+    image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
@@ -150,7 +151,7 @@ services:
   # Runs as a separate container; matric connects via GLINER_BASE_URL=http://gliner:8090
   # Set GLINER_BASE_URL= (empty) in .env to disable NER entirely.
   gliner:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-latest}
+    image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-latest}
     build:
       context: build/gliner
       dockerfile: Dockerfile
@@ -169,7 +170,7 @@ services:
       start_period: 30s
 
   matric:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_TAG:-bundle-main}
+    image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
     build:
       context: .
       dockerfile: Dockerfile.bundle
