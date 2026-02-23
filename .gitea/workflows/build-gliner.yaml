@@ -5,17 +5,22 @@ on:
     branches: [main]
     paths:
       - 'build/gliner/**'
+  # Tag push triggers versioned release (e.g. gliner-v1, gliner-v2)
+  create:
+    tags: ['gliner-v*']
   workflow_dispatch:
 
 env:
   GHCR_REGISTRY: ghcr.io
   GITEA_REGISTRY: git.integrolabs.net
-  GLINER_IMAGE: fortemi/fortemi
+  IMAGE_NAME: fortemi/fortemi
 
 jobs:
   build-gliner:
     name: Build and Push GLiNER Image
     runs-on: matric-builder
+    # Gitea create events don't reliably filter tag patterns — guard here
+    if: github.event_name != 'create' || startsWith(github.ref, 'refs/tags/gliner-v')
     steps:
       - name: Checkout
         run: |
@@ -27,27 +32,37 @@ jobs:
           echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
           echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
-      - name: Build GLiNER image
+      - name: Determine tags
         run: |
-          GHCR_IMAGE="${GHCR_REGISTRY}/${GLINER_IMAGE}"
-          GITEA_IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
+          GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
+          GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
+          # Always applied
+          TAGS="-t ${GHCR}:gliner -t ${GHCR}:gliner-latest"
+          TAGS="${TAGS} -t ${GITEA}:gliner -t ${GITEA}:gliner-main -t ${GITEA}:gliner-latest"
+          TAGS="${TAGS} -t ${GHCR}:gliner-${SHORT_SHA} -t ${GITEA}:gliner-${SHORT_SHA}"
+
+          # Versioned tags on release (gliner-v1 -> gliner-1)
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/gliner-v'; then
+            VERSION="${GITHUB_REF_NAME#gliner-v}"
+            TAGS="${TAGS} -t ${GHCR}:gliner-${VERSION} -t ${GITEA}:gliner-${VERSION}"
+            echo "Release build: gliner-${VERSION}"
+          fi
+
+          echo "DOCKER_TAGS=${TAGS}" >> $GITHUB_ENV
+
+      - name: Build GLiNER image
+        run: |
           echo "Building GLiNER NER sidecar image..."
           docker build --no-cache \
             -f build/gliner/Dockerfile \
-            -t ${GHCR_IMAGE}:gliner \
-            -t ${GHCR_IMAGE}:gliner-${SHORT_SHA} \
-            -t ${GHCR_IMAGE}:gliner-latest \
-            -t ${GITEA_IMAGE}:gliner \
-            -t ${GITEA_IMAGE}:gliner-${SHORT_SHA} \
-            -t ${GITEA_IMAGE}:gliner-main \
-            -t ${GITEA_IMAGE}:gliner-latest \
+            ${DOCKER_TAGS} \
             build/gliner
 
       - name: Test GLiNER image
         run: |
-          IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
+          IMAGE="${GITEA_REGISTRY}/${IMAGE_NAME}"
 
           echo "Testing GLiNER image..."
 
@@ -95,6 +110,8 @@ jobs:
 
       - name: Push images
         run: |
+          GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
+          GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
           push_with_retry() {
@@ -114,20 +131,22 @@ jobs:
             return 1
           }
 
-          GHCR_IMAGE="${GHCR_REGISTRY}/${GLINER_IMAGE}"
-          GITEA_IMAGE="${GITEA_REGISTRY}/${GLINER_IMAGE}"
-
           echo "Pushing to Gitea Registry..."
-          push_with_retry ${GITEA_IMAGE}:gliner
-          push_with_retry ${GITEA_IMAGE}:gliner-${SHORT_SHA}
-          push_with_retry ${GITEA_IMAGE}:gliner-main
-          push_with_retry ${GITEA_IMAGE}:gliner-latest
+          push_with_retry ${GITEA}:gliner
+          push_with_retry ${GITEA}:gliner-${SHORT_SHA}
+          push_with_retry ${GITEA}:gliner-main
+          push_with_retry ${GITEA}:gliner-latest
 
           echo "Pushing to GitHub Container Registry..."
-          push_with_retry ${GHCR_IMAGE}:gliner
-          push_with_retry ${GHCR_IMAGE}:gliner-${SHORT_SHA}
-          push_with_retry ${GHCR_IMAGE}:gliner-latest
+          push_with_retry ${GHCR}:gliner
+          push_with_retry ${GHCR}:gliner-${SHORT_SHA}
+          push_with_retry ${GHCR}:gliner-latest
 
-          echo "Published GLiNER images:"
-          echo "  Gitea:  ${GITEA_IMAGE}:gliner, :gliner-main, :gliner-latest, :gliner-${SHORT_SHA}"
-          echo "  GitHub: ${GHCR_IMAGE}:gliner, :gliner-latest, :gliner-${SHORT_SHA}"
+          # Push versioned tags if this is a release
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/gliner-v'; then
+            VERSION="${GITHUB_REF_NAME#gliner-v}"
+            push_with_retry ${GITEA}:gliner-${VERSION}
+            push_with_retry ${GHCR}:gliner-${VERSION}
+          fi
+
+          echo "Published GLiNER images to both registries"

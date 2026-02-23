@@ -547,31 +547,12 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${VERSION}
           push_with_retry ${IMAGE}:bundle-latest
 
-          # Build GLiNER sidecar image
-          docker build --no-cache \
-            -f build/gliner/Dockerfile \
-            -t ${IMAGE}:gliner-${VERSION} \
-            -t ${IMAGE}:gliner-latest \
-            build/gliner
-
-          push_with_retry ${IMAGE}:gliner-${VERSION}
-          push_with_retry ${IMAGE}:gliner-latest
-
-          # Build pyannote sidecar image
-          docker build --no-cache \
-            -f build/pyannote/Dockerfile \
-            -t ${IMAGE}:pyannote-${VERSION} \
-            -t ${IMAGE}:pyannote-latest \
-            build/pyannote
-
-          push_with_retry ${IMAGE}:pyannote-${VERSION}
-          push_with_retry ${IMAGE}:pyannote-latest
+          # Sidecar images (GLiNER, pyannote) are released independently
+          # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published release images:"
-          echo "  API-only:  ${IMAGE}:${VERSION}, ${IMAGE}:latest"
-          echo "  Bundle:    ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
-          echo "  GLiNER:    ${IMAGE}:gliner-${VERSION}, ${IMAGE}:gliner-latest"
-          echo "  pyannote:  ${IMAGE}:pyannote-${VERSION}, ${IMAGE}:pyannote-latest"
+          echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
 
   # Create Gitea release on tag push
   create-release:
@@ -691,31 +672,12 @@ jobs:
           push_with_retry ${IMAGE}:bundle-${VERSION}
           push_with_retry ${IMAGE}:bundle-latest
 
-          # Build GLiNER sidecar image
-          docker build --no-cache \
-            -f build/gliner/Dockerfile \
-            -t ${IMAGE}:gliner-${VERSION} \
-            -t ${IMAGE}:gliner-latest \
-            build/gliner
-
-          push_with_retry ${IMAGE}:gliner-${VERSION}
-          push_with_retry ${IMAGE}:gliner-latest
-
-          # Build pyannote sidecar image
-          docker build --no-cache \
-            -f build/pyannote/Dockerfile \
-            -t ${IMAGE}:pyannote-${VERSION} \
-            -t ${IMAGE}:pyannote-latest \
-            build/pyannote
-
-          push_with_retry ${IMAGE}:pyannote-${VERSION}
-          push_with_retry ${IMAGE}:pyannote-latest
+          # Sidecar images (GLiNER, pyannote) are released independently
+          # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published to GitHub Container Registry:"
-          echo "  API-only:  ${IMAGE}:${VERSION}, ${IMAGE}:latest"
-          echo "  Bundle:    ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
-          echo "  GLiNER:    ${IMAGE}:gliner-${VERSION}, ${IMAGE}:gliner-latest"
-          echo "  pyannote:  ${IMAGE}:pyannote-${VERSION}, ${IMAGE}:pyannote-latest"
+          echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
 
   # Create GitHub Release with changelog
   create-github-release:

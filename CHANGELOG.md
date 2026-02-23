@@ -11,12 +11,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
-- **Sidecar images published to GHCR on release** — GLiNER and pyannote Docker images are now built and pushed to both the internal registry and `ghcr.io/fortemi/fortemi` as part of every tagged release. Tags: `gliner-{version}`, `gliner-latest`, `pyannote-{version}`, `pyannote-latest`.
-- **pyannote CI workflow** (`.gitea/workflows/build-pyannote.yaml`) — Automated build, test, and publish for the pyannote speaker diarization sidecar image on `build/pyannote/**` changes, mirroring the existing GLiNER workflow.
+- **Independent sidecar CI/CD** — GLiNER and pyannote Docker images now have dedicated build-and-release workflows (`build-gliner.yaml`, `build-pyannote.yaml`) that publish to both internal and GHCR registries. Sidecar images are released independently from the main API/bundle via their own tags (`gliner-v*`, `pyannote-v*`), avoiding expensive ML image rebuilds on every core release.
 
 ### Changed
 
 - **docker-compose.bundle.yml default tags** — Sidecar image tags changed from `*-main` (internal-only) to `*-latest` (available on both registries). Users setting `FORTEMI_REGISTRY=ghcr.io` no longer need to manually override `FORTEMI_GLINER_TAG` or `FORTEMI_PYANNOTE_TAG`.
+- **Sidecar builds removed from main release pipeline** — `publish-release` and `publish-github` jobs in `ci-builder.yaml` no longer build GLiNER/pyannote, reducing release build time.
 - **Workspace version**: `2026.2.12` → `2026.2.13`
 
 ## [2026.2.12] - 2026-02-22

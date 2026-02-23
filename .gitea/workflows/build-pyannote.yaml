@@ -5,17 +5,22 @@ on:
     branches: [main]
     paths:
       - 'build/pyannote/**'
+  # Tag push triggers versioned release (e.g. pyannote-v1, pyannote-v2)
+  create:
+    tags: ['pyannote-v*']
   workflow_dispatch:
 
 env:
   GHCR_REGISTRY: ghcr.io
   GITEA_REGISTRY: git.integrolabs.net
-  PYANNOTE_IMAGE: fortemi/fortemi
+  IMAGE_NAME: fortemi/fortemi
 
 jobs:
   build-pyannote:
     name: Build and Push pyannote Image
     runs-on: matric-builder
+    # Gitea create events don't reliably filter tag patterns — guard here
+    if: github.event_name != 'create' || startsWith(github.ref, 'refs/tags/pyannote-v')
     steps:
       - name: Checkout
         run: |
@@ -27,27 +32,37 @@ jobs:
           echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
           echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
-      - name: Build pyannote image
+      - name: Determine tags
         run: |
-          GHCR_IMAGE="${GHCR_REGISTRY}/${PYANNOTE_IMAGE}"
-          GITEA_IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
+          GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
+          GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
+          # Always applied
+          TAGS="-t ${GHCR}:pyannote -t ${GHCR}:pyannote-latest"
+          TAGS="${TAGS} -t ${GITEA}:pyannote -t ${GITEA}:pyannote-main -t ${GITEA}:pyannote-latest"
+          TAGS="${TAGS} -t ${GHCR}:pyannote-${SHORT_SHA} -t ${GITEA}:pyannote-${SHORT_SHA}"
+
+          # Versioned tags on release (pyannote-v1 -> pyannote-1)
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/pyannote-v'; then
+            VERSION="${GITHUB_REF_NAME#pyannote-v}"
+            TAGS="${TAGS} -t ${GHCR}:pyannote-${VERSION} -t ${GITEA}:pyannote-${VERSION}"
+            echo "Release build: pyannote-${VERSION}"
+          fi
+
+          echo "DOCKER_TAGS=${TAGS}" >> $GITHUB_ENV
+
+      - name: Build pyannote image
+        run: |
           echo "Building pyannote speaker diarization sidecar image..."
           docker build --no-cache \
             -f build/pyannote/Dockerfile \
-            -t ${GHCR_IMAGE}:pyannote \
-            -t ${GHCR_IMAGE}:pyannote-${SHORT_SHA} \
-            -t ${GHCR_IMAGE}:pyannote-latest \
-            -t ${GITEA_IMAGE}:pyannote \
-            -t ${GITEA_IMAGE}:pyannote-${SHORT_SHA} \
-            -t ${GITEA_IMAGE}:pyannote-main \
-            -t ${GITEA_IMAGE}:pyannote-latest \
+            ${DOCKER_TAGS} \
             build/pyannote
 
       - name: Test pyannote image
         run: |
-          IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
+          IMAGE="${GITEA_REGISTRY}/${IMAGE_NAME}"
 
           echo "Testing pyannote image..."
 
@@ -95,6 +110,8 @@ jobs:
 
       - name: Push images
         run: |
+          GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
+          GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
 
           push_with_retry() {
@@ -114,20 +131,22 @@ jobs:
             return 1
           }
 
-          GHCR_IMAGE="${GHCR_REGISTRY}/${PYANNOTE_IMAGE}"
-          GITEA_IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
-
           echo "Pushing to Gitea Registry..."
-          push_with_retry ${GITEA_IMAGE}:pyannote
-          push_with_retry ${GITEA_IMAGE}:pyannote-${SHORT_SHA}
-          push_with_retry ${GITEA_IMAGE}:pyannote-main
-          push_with_retry ${GITEA_IMAGE}:pyannote-latest
+          push_with_retry ${GITEA}:pyannote
+          push_with_retry ${GITEA}:pyannote-${SHORT_SHA}
+          push_with_retry ${GITEA}:pyannote-main
+          push_with_retry ${GITEA}:pyannote-latest
 
           echo "Pushing to GitHub Container Registry..."
-          push_with_retry ${GHCR_IMAGE}:pyannote
-          push_with_retry ${GHCR_IMAGE}:pyannote-${SHORT_SHA}
-          push_with_retry ${GHCR_IMAGE}:pyannote-latest
+          push_with_retry ${GHCR}:pyannote
+          push_with_retry ${GHCR}:pyannote-${SHORT_SHA}
+          push_with_retry ${GHCR}:pyannote-latest
 
-          echo "Published pyannote images:"
-          echo "  Gitea:  ${GITEA_IMAGE}:pyannote, :pyannote-main, :pyannote-latest, :pyannote-${SHORT_SHA}"
-          echo "  GitHub: ${GHCR_IMAGE}:pyannote, :pyannote-latest, :pyannote-${SHORT_SHA}"
+          # Push versioned tags if this is a release
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/pyannote-v'; then
+            VERSION="${GITHUB_REF_NAME#pyannote-v}"
+            push_with_retry ${GITEA}:pyannote-${VERSION}
+            push_with_retry ${GHCR}:pyannote-${VERSION}
+          fi
+
+          echo "Published pyannote images to both registries"

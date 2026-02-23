@@ -105,10 +105,10 @@ Publishes release images to internal registry on version tags:
 - `{version}` - Semantic version (e.g., `2026.2.0`)
 - `latest` - Latest stable release
 - `bundle-{version}`, `bundle-latest` - All-in-one images
-- `gliner-{version}`, `gliner-latest` - GLiNER NER sidecar
-- `pyannote-{version}`, `pyannote-latest` - pyannote diarization sidecar
 
 **Triggers**: Version tags only (`v*`)
+
+> **Note**: Sidecar images (GLiNER, pyannote) are released independently — see [Sidecar Image Workflows](#sidecar-image-workflows) below.
 
 ### 8. Create Gitea Release
 
@@ -122,7 +122,7 @@ Publishes release images to GitHub Container Registry for public distribution:
 
 ```yaml
 IMAGE: ghcr.io/fortemi/fortemi
-Tags: {version}, latest, bundle-{version}, bundle-latest, gliner-{version}, gliner-latest, pyannote-{version}, pyannote-latest
+Tags: {version}, latest, bundle-{version}, bundle-latest
 ```
 
 **Dependencies**: Requires `test-container` and `integration-test` jobs to pass
@@ -137,6 +137,40 @@ Creates a public release on GitHub with:
 - Quick start commands
 
 **Dependencies**: Requires `publish-github` job to pass
+
+## Sidecar Image Workflows
+
+GLiNER and pyannote sidecar images are released independently from the main Fortémi images. They change infrequently and are expensive to build (ML model downloads), so they have their own workflows.
+
+### build-gliner.yaml
+
+| Trigger | Tags |
+|---------|------|
+| `build/gliner/**` changes on main | `:gliner`, `:gliner-latest`, `:gliner-main`, `:gliner-{sha}` |
+| `gliner-v*` tag push | All of the above + `:gliner-{version}` |
+| Manual (`workflow_dispatch`) | Same as path trigger |
+
+### build-pyannote.yaml
+
+| Trigger | Tags |
+|---------|------|
+| `build/pyannote/**` changes on main | `:pyannote`, `:pyannote-latest`, `:pyannote-main`, `:pyannote-{sha}` |
+| `pyannote-v*` tag push | All of the above + `:pyannote-{version}` |
+| Manual (`workflow_dispatch`) | Same as path trigger |
+
+### Releasing a sidecar
+
+```bash
+# Release GLiNER version 1
+git tag -a gliner-v1 -m "gliner-v1: update model to gliner_large-v2.1"
+git push origin gliner-v1
+
+# Release pyannote version 1
+git tag -a pyannote-v1 -m "pyannote-v1: initial GHCR release"
+git push origin pyannote-v1
+```
+
+Both workflows push to the internal Gitea registry and GHCR simultaneously.
 
 ## Self-Hosted Runners
 

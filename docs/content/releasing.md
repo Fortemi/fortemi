@@ -86,10 +86,8 @@ When you push the tag, the CI pipeline automatically:
 - `latest` - Latest stable release
 - `bundle-{version}` - All-in-one image with embedded PostgreSQL
 - `bundle-latest` - Latest bundle image
-- `gliner-{version}` - GLiNER NER sidecar
-- `gliner-latest` - Latest GLiNER sidecar
-- `pyannote-{version}` - pyannote diarization sidecar
-- `pyannote-latest` - Latest pyannote sidecar
+
+> **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](./ci-cd.md#sidecar-image-workflows) for details.
 
 ### Post-Release
 
