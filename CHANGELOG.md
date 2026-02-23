@@ -7,6 +7,8 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.2.12] - 2026-02-22
+
 ### Added
 
 - **TUS v1.0.0 Resumable Upload Protocol** (#528) — Standards-compliant [tus](https://tus.io/) resumable file uploads with Creation, Termination, and Checksum extensions. Enables reliable upload of large files over unreliable connections with automatic resume from the last successful byte. Endpoints at `/api/v1/attachments/{note_id}/tus`.
@@ -35,6 +37,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 ### Changed
 
 - **axum 0.7→0.8 Framework Upgrade** (#524) — Major dependency upgrade: axum 0.7→0.8, tower 0.4→0.5, tower-http 0.5→0.6, tokio-tungstenite 0.24→0.28. Adapts all `Service` implementations to `call(&self)` signature change.
+- **Workspace version**: `2026.2.11` → `2026.2.12` (56 commits)
 
 ### Fixed
 
@@ -63,6 +66,8 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - Job monitoring guide expanded with multi-chunk tracking, tier escalation, and SSE event emission completeness table
 - Extraction pipeline design updated with all 13 extraction strategies and derived file documentation
 - MediaOptimize handler documented in job monitoring guide (progress stages, variant types, download endpoint)
+- KeyframeVision, KeyframeAssembly, and ThumbnailSprite handlers documented in job monitoring guide
+- Media Integration Guide (`docs/content/media-integration-guide.md`) — frontend integration for streaming playback, subtitles, sprite sheets, TUS uploads, SSE events
 - Full documentation sync with current code state
 
 ## [2026.2.11] - 2026-02-20
@@ -1136,7 +1141,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.11...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.12...HEAD
+[2026.2.12]: https://github.com/fortemi/fortemi/compare/v2026.2.11...v2026.2.12
 [2026.2.11]: https://github.com/fortemi/fortemi/compare/v2026.2.10...v2026.2.11
 [2026.2.10]: https://github.com/fortemi/fortemi/compare/v2026.2.9...v2026.2.10
 [2026.2.9]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.9

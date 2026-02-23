@@ -1,8 +1,8 @@
 # Extraction Pipeline Design
 
-Technical architecture for the complete content extraction pipeline covering all 10 `ExtractionStrategy` variants, multi-modal processing, AI summarization, and job orchestration.
+Technical architecture for the complete content extraction pipeline covering all 13 `ExtractionStrategy` variants, multi-modal processing, AI summarization, and job orchestration.
 
-**Status:** All 10 extraction strategies implemented and registered
+**Status:** All 13 extraction strategies implemented and registered
 **Last updated:** 2026-02-21
 
 ### Adapter Registration Status
@@ -19,6 +19,9 @@ Technical architecture for the complete content extraction pipeline covering all
 | 8 | AudioTranscribeAdapter | `audio_transcribe` | Whisper backend | Conditional | WHISPER_BASE_URL set |
 | 9 | VideoMultimodalAdapter | `video_multimodal` | ffmpeg + vision/transcription | Conditional | health_check + backends |
 | 10 | Glb3DModelAdapter | `glb_3d_model` | Open3D renderer + vision | Conditional | renderer health_check |
+| 11 | EmailAdapter | `email_extract` | None (mailparse compiled in) | Always | No deps |
+| 12 | SpreadsheetAdapter | `spreadsheet_extract` | None (calamine compiled in) | Always | No deps |
+| 13 | ArchiveAdapter | `archive_extract` | None (zip/tar/flate2 compiled in) | Always | No deps |
 
 **Additional pipeline handlers** (not extraction adapters, but part of the processing pipeline):
 - `SpeakerDiarizationHandler` — pyannote sidecar for speaker diarization (#497)

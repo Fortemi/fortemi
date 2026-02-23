@@ -296,6 +296,8 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Spreadsheet extraction** (xlsx/xls/ods → markdown tables per sheet)
 - **Archive extraction** (ZIP/tar/gz → file listing + text content extraction)
 - **Derived attachments** (thumbnails, transcripts, caption files, media variants as child attachments)
+- **TUS resumable uploads** — tus v1.0.0 protocol for reliable large-file uploads with Creation, Termination, and Checksum extensions
+- **Thumbnail sprite sheets** — CSS sprite grids with WebVTT maps for video seek-bar previews
 - **HTTP Range requests** for partial content download of large attachments
 
 ### Multi-Memory Architecture

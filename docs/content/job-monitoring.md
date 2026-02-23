@@ -547,6 +547,9 @@ Multi-stage jobs report progress at these granularities:
 | **EmbeddingHandler** | Chunk → embed → store (large notes have many chunks) | 10%, 30%, 50%, 70%, 100% |
 | **GraphMaintenance** | 4-step pipeline (normalize → SNN → PFNET → diagnostics) | 5%, 20%, 30%, 55%, 80%, 100% |
 | **AiRevision** | Fetch → generate → save → queue contextual | Every 10–20% |
+| **KeyframeVision** | Download keyframe JPEG → load transcript context → call vision LLM → store description → fan-in check | 10%, 20%, 30%, 80%, 90%, 100% |
+| **KeyframeAssembly** | Collect all keyframe descriptions → assemble combined summary → update parent attachment | 10%, 30%, 50%, 70%, 90%, 100% |
+| **ThumbnailSprite** | Load keyframe derived attachments → compose 5x5 JPEG grids → generate WebVTT map → store sprite sheets | 10%, 30%, 50%, 70%, 90%, 100% |
 | **ExifExtraction** | 10+ stages (resolve → download → parse → provenance → persist) | Every 5–10% |
 
 ### Complete Pipeline State Machine
@@ -862,6 +865,9 @@ The following table shows which job lifecycle events each handler actually emits
 | SpeakerDiarizationHandler | Auto | Auto | 5%, 10%, 20%, 60%, 70%, 80%, 90%, 95%, 100% | Auto | Auto |
 | SpeakerRelabelHandler | Auto | Auto | 10%, 20%, 40%, 50%, 70%, 95%, 100% | Auto | Auto |
 | MediaOptimizeHandler | Auto | Auto | 5%, 10%, 20%, 30%, 70–95%, 100% | Auto | Auto |
+| KeyframeVisionHandler | Auto | Auto | 10%, 20%, 30%, 80%, 90%, 100% | Auto | Auto |
+| KeyframeAssemblyHandler | Auto | Auto | 10%, 30%, 50%, 70%, 90%, 100% | Auto | Auto |
+| ThumbnailSpriteHandler | Auto | Auto | 10%, 30%, 50%, 70%, 90%, 100% | Auto | Auto |
 
 "Auto" means the worker framework emits these events automatically for every job — handlers don't need to emit them explicitly.
 
