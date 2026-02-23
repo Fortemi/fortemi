@@ -7,8 +7,6 @@ on:
       - 'build/Dockerfile.builder'
       - 'build/Dockerfile.testdb'
       - 'build/scripts/**'
-  # Also build on release tags to publish versioned builder images
-  create:
     tags: ['v*']
   workflow_dispatch:
 

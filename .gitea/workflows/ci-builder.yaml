@@ -14,13 +14,8 @@
 name: CI
 
 on:
-  # Branch pushes (main only)
   push:
     branches: [main]
-  # Tag pushes trigger release workflow
-  # NOTE: Gitea Actions requires separate push block for tags
-  # Combining branches+tags in one block may cause AND logic instead of OR
-  create:
     tags: ['v*']
   pull_request:
     branches: [main]
