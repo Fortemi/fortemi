@@ -92,7 +92,7 @@ services:
   # Runs after transcription to identify and label speakers.
   # Set DIARIZATION_BASE_URL= (empty) in .env to disable diarization entirely.
   pyannote:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-main}
+    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
@@ -121,7 +121,7 @@ services:
   # pyannote CPU-only variant (slower but works without NVIDIA GPU)
   # Activate with: docker compose --profile pyannote-cpu up -d
   pyannote-cpu:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-main}
+    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
@@ -150,7 +150,7 @@ services:
   # Runs as a separate container; matric connects via GLINER_BASE_URL=http://gliner:8090
   # Set GLINER_BASE_URL= (empty) in .env to disable NER entirely.
   gliner:
-    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-main}
+    image: ${FORTEMI_REGISTRY:-git.integrolabs.net}/fortemi/fortemi:${FORTEMI_GLINER_TAG:-gliner-latest}
     build:
       context: build/gliner
       dockerfile: Dockerfile

@@ -1,0 +1,133 @@
+name: Build pyannote Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'build/pyannote/**'
+  workflow_dispatch:
+
+env:
+  GHCR_REGISTRY: ghcr.io
+  GITEA_REGISTRY: git.integrolabs.net
+  PYANNOTE_IMAGE: fortemi/fortemi
+
+jobs:
+  build-pyannote:
+    name: Build and Push pyannote Image
+    runs-on: matric-builder
+    steps:
+      - name: Checkout
+        run: |
+          git clone --depth 1 --branch ${GITHUB_REF_NAME:-main} https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to registries
+        run: |
+          echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+          echo "${{ secrets.BUILD_REPO_TOKEN }}" | docker login ${GITEA_REGISTRY} -u ${{ gitea.actor }} --password-stdin
+
+      - name: Build pyannote image
+        run: |
+          GHCR_IMAGE="${GHCR_REGISTRY}/${PYANNOTE_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          echo "Building pyannote speaker diarization sidecar image..."
+          docker build --no-cache \
+            -f build/pyannote/Dockerfile \
+            -t ${GHCR_IMAGE}:pyannote \
+            -t ${GHCR_IMAGE}:pyannote-${SHORT_SHA} \
+            -t ${GHCR_IMAGE}:pyannote-latest \
+            -t ${GITEA_IMAGE}:pyannote \
+            -t ${GITEA_IMAGE}:pyannote-${SHORT_SHA} \
+            -t ${GITEA_IMAGE}:pyannote-main \
+            -t ${GITEA_IMAGE}:pyannote-latest \
+            build/pyannote
+
+      - name: Test pyannote image
+        run: |
+          IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
+
+          echo "Testing pyannote image..."
+
+          # Start container (CPU mode for CI testing)
+          docker run -d --name pyannote-verify \
+            -e PYANNOTE_PORT=8001 \
+            -e PYANNOTE_DEVICE=cpu \
+            -e HF_TOKEN=${{ secrets.HF_TOKEN }} \
+            ${IMAGE}:pyannote
+
+          # Wait for health check (pyannote model loading can be slow)
+          HEALTHY=false
+          for i in {1..90}; do
+            if docker exec pyannote-verify curl -sf http://localhost:8001/health >/dev/null 2>&1; then
+              echo "pyannote is healthy!"
+              HEALTHY=true
+              break
+            fi
+            echo "Waiting for pyannote... ($i/90)"
+            sleep 2
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+            echo "ERROR: pyannote failed to become healthy"
+            docker logs pyannote-verify 2>&1 | tail -30
+            docker stop pyannote-verify && docker rm pyannote-verify
+            exit 1
+          fi
+
+          # Verify health endpoint returns expected fields
+          RESPONSE=$(docker exec pyannote-verify curl -sf http://localhost:8001/health)
+
+          if echo "$RESPONSE" | grep -q '"status"'; then
+            echo "Health endpoint: OK"
+          else
+            echo "ERROR: Health endpoint returned unexpected response"
+            echo "Response: $RESPONSE"
+            docker stop pyannote-verify && docker rm pyannote-verify
+            exit 1
+          fi
+
+          # Cleanup
+          docker stop pyannote-verify && docker rm pyannote-verify
+          echo "All pyannote tests passed!"
+
+      - name: Push images
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          GHCR_IMAGE="${GHCR_REGISTRY}/${PYANNOTE_IMAGE}"
+          GITEA_IMAGE="${GITEA_REGISTRY}/${PYANNOTE_IMAGE}"
+
+          echo "Pushing to Gitea Registry..."
+          push_with_retry ${GITEA_IMAGE}:pyannote
+          push_with_retry ${GITEA_IMAGE}:pyannote-${SHORT_SHA}
+          push_with_retry ${GITEA_IMAGE}:pyannote-main
+          push_with_retry ${GITEA_IMAGE}:pyannote-latest
+
+          echo "Pushing to GitHub Container Registry..."
+          push_with_retry ${GHCR_IMAGE}:pyannote
+          push_with_retry ${GHCR_IMAGE}:pyannote-${SHORT_SHA}
+          push_with_retry ${GHCR_IMAGE}:pyannote-latest
+
+          echo "Published pyannote images:"
+          echo "  Gitea:  ${GITEA_IMAGE}:pyannote, :pyannote-main, :pyannote-latest, :pyannote-${SHORT_SHA}"
+          echo "  GitHub: ${GHCR_IMAGE}:pyannote, :pyannote-latest, :pyannote-${SHORT_SHA}"

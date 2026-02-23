@@ -105,6 +105,8 @@ Publishes release images to internal registry on version tags:
 - `{version}` - Semantic version (e.g., `2026.2.0`)
 - `latest` - Latest stable release
 - `bundle-{version}`, `bundle-latest` - All-in-one images
+- `gliner-{version}`, `gliner-latest` - GLiNER NER sidecar
+- `pyannote-{version}`, `pyannote-latest` - pyannote diarization sidecar
 
 **Triggers**: Version tags only (`v*`)
 
@@ -120,7 +122,7 @@ Publishes release images to GitHub Container Registry for public distribution:
 
 ```yaml
 IMAGE: ghcr.io/fortemi/fortemi
-Tags: {version}, latest, bundle-{version}, bundle-latest
+Tags: {version}, latest, bundle-{version}, bundle-latest, gliner-{version}, gliner-latest, pyannote-{version}, pyannote-latest
 ```
 
 **Dependencies**: Requires `test-container` and `integration-test` jobs to pass
@@ -245,17 +247,28 @@ cargo build --release --workspace
 
 ## Docker Images
 
-Two image variants are published:
+Four image variants are published on release:
 
-### API-only (`Fortémi:{version}`)
+### API-only (`fortemi/fortemi:{version}`)
 - Requires external PostgreSQL database
 - Suitable for Kubernetes/container orchestration
 - Smaller image size
 
-### Bundle (`Fortémi:bundle-{version}`)
+### Bundle (`fortemi/fortemi:bundle-{version}`)
 - All-in-one with embedded PostgreSQL
 - No external dependencies
 - Suitable for quick starts and single-node deployments
+
+### GLiNER (`fortemi/fortemi:gliner-{version}`)
+- Zero-shot named entity recognition sidecar
+- CPU-only, no GPU required
+- Also built on `build/gliner/**` changes via `build-gliner.yaml`
+
+### pyannote (`fortemi/fortemi:pyannote-{version}`)
+- Speaker diarization sidecar
+- GPU-accelerated (CPU fallback available)
+- Requires HuggingFace token for gated model download
+- Also built on `build/pyannote/**` changes via `build-pyannote.yaml`
 
 ## Troubleshooting
 

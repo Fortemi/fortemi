@@ -451,9 +451,6 @@ Sidecars provide specialized NLP capabilities that run as separate containers al
 GLiNER is a zero-shot NER model that extracts entities from text. It's CPU-only and adds rich concept tagging to the extraction pipeline.
 
 ```bash
-# Add GHCR tag for GLiNER
-echo 'FORTEMI_GLINER_TAG=gliner-latest' >> .env
-
 # Start GLiNER alongside existing services
 docker compose -f docker-compose.bundle.yml up -d gliner
 ```
@@ -500,7 +497,31 @@ done
 
 ### pyannote (Speaker Diarization)
 
-The pyannote speaker diarization image is **not published on GHCR** — it requires a local build due to HuggingFace licensing. See [Media Integration Guide](./media-integration-guide.md) for build-from-source instructions.
+<!-- agent:step id="start-pyannote" required="false" depends="verify-health,detect-gpu" -->
+
+pyannote identifies and labels individual speakers in audio. Requires a HuggingFace token for the gated pyannote model.
+
+```bash
+# Add your HuggingFace token (required for model download)
+echo 'HF_TOKEN=hf_your_token_here' >> .env
+
+# GPU mode (default, requires NVIDIA Container Toolkit):
+docker compose -f docker-compose.bundle.yml up -d pyannote
+
+# CPU mode (slower, works everywhere):
+docker compose -f docker-compose.bundle.yml --profile pyannote-cpu up -d
+```
+
+Wait for pyannote (first start downloads the model, ~2-5 minutes):
+
+```bash
+for i in $(seq 1 30); do
+  curl -sf http://localhost:8001/health > /dev/null 2>&1 \
+    && echo "OK: pyannote healthy" && break
+  echo "Waiting for pyannote... ($i/30)"
+  sleep 10
+done
+```
 
 ### Verify Capabilities
 
