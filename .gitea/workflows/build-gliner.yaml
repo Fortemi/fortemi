@@ -96,7 +96,7 @@ jobs:
           # Verify NER endpoint works
           RESPONSE=$(docker exec gliner-verify curl -sf -X POST http://localhost:8090/extract \
             -H "Content-Type: application/json" \
-            -d '{"text":"Albert Einstein was born in Ulm, Germany.","labels":["person","location"]}')
+            -d '{"text":"Albert Einstein was born in Ulm, Germany.","entity_types":["person","location"]}')
 
           if echo "$RESPONSE" | grep -q "entities"; then
             echo "NER extraction: OK"
