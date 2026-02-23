@@ -66,6 +66,9 @@ jobs:
 
           echo "Testing pyannote image..."
 
+          # Clean up any stale container from previous runs
+          docker rm -f pyannote-verify 2>/dev/null || true
+
           # Start container (CPU mode for CI testing)
           docker run -d --name pyannote-verify \
             -e PYANNOTE_PORT=8001 \

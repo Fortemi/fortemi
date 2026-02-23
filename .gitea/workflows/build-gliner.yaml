@@ -66,6 +66,9 @@ jobs:
 
           echo "Testing GLiNER image..."
 
+          # Clean up any stale container from previous runs
+          docker rm -f gliner-verify 2>/dev/null || true
+
           # Start container
           docker run -d --name gliner-verify \
             -e GLINER_PORT=8090 \
