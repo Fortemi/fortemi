@@ -9,6 +9,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
+- **TUS v1.0.0 Resumable Upload Protocol** (#528) — Standards-compliant [tus](https://tus.io/) resumable file uploads with Creation, Termination, and Checksum extensions. Enables reliable upload of large files over unreliable connections with automatic resume from the last successful byte. Endpoints at `/api/v1/attachments/{note_id}/tus`.
+- **Atomic Per-Frame Keyframe Vision Pipeline** (#526) — Keyframe vision descriptions processed as individual `KeyframeVision` jobs instead of inline during extraction. Enables per-frame checkpointing, retry, parallel processing, and independent failure recovery. Keyframes persisted as derived attachments first, then described asynchronously.
+- **Thumbnail Sprite Sheet Generation** (#525) — `ThumbnailSprite` handler generates CSS sprite sheets from video keyframes with WebVTT timestamp maps, enabling video preview scrubbing in UI clients.
+- **Video Extraction Hardening** — Feature-length video support with adaptive keyframe budgets, timeout scaling, and memory-bounded frame processing.
+- **3D Model Rendering as Derived Attachments** — Multi-view 3D renderings persisted as derived child attachments with individual AI descriptions per view and preview thumbnail. Ground-plane grid and off-white background for better visual clarity.
 - **Speaker Diarization Pipeline** (#497) — pyannote-based speaker identification for audio and video transcripts. Runs as a GPU sidecar container (`DIARIZATION_BASE_URL`). Produces speaker-labeled VTT/SRT/TXT caption files and a speaker configuration block in note content. Speaker names editable via `SpeakerRelabel` job.
 - **Speaker Diarization Foundation Types** (#497) — Core inference types and backend abstraction for diarization providers.
 - **Media Optimize Handler** (#506) — Pre-generates streaming-friendly media variants during attachment upload using ffmpeg. Variant types: `faststart` (moov atom relocation), `web_compatible` (H.264+AAC remux), `audio_only` (extracted audio), `preview_720p` (downscaled preview), `web_audio` (AAC transcode), `audio_preview` (lossless→lossy). Variants stored as derived attachments and served via `?variant=` query parameter on the download endpoint.
@@ -27,8 +32,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - **Document Type Slug Validation** (#490, #491) — Accept `document_type` slug on note creation; validate `revision_mode` parameter.
 - **Handler-Initiated SSE Events** — `job.queued` SSE events now emitted for downstream jobs queued by handlers (e.g., Extraction → Embedding), not just API-initiated jobs.
 
+### Changed
+
+- **axum 0.7→0.8 Framework Upgrade** (#524) — Major dependency upgrade: axum 0.7→0.8, tower 0.4→0.5, tower-http 0.5→0.6, tokio-tungstenite 0.24→0.28. Adapts all `Service` implementations to `call(&self)` signature change.
+
 ### Fixed
 
+- **KeyframeVision Jobs Silently Orphaned Without Vision Backend** (#529) — `KeyframeVisionHandler` is now always registered regardless of vision backend availability. When the vision backend is unavailable, jobs return `Retry` and stay in the queue until the backend is configured, rather than being silently orphaned with no handler to execute them. Added startup warning when vision backend is missing.
+- **Keyframe DerivedFiles Lost to TempDir Drop** — Keyframe JPEG bytes now read inline before the temp directory is dropped, matching the audio extraction pattern. Previously all keyframe attachments were silently lost, breaking the entire downstream pipeline (no KeyframeVision jobs, no ThumbnailSprite content).
+- **Keyframe Extraction Gated on Vision Backend** (#527) — Video keyframes now extract regardless of vision backend availability. Keyframes are valuable for thumbnails and sprite sheets even without AI descriptions.
+- **Native uuidv7() for TUS Uploads** (#528) — Switched TUS upload tracking from application-generated UUIDs to PostgreSQL native `uuidv7()`; suppressed clippy `too_many_arguments` on upload handler.
+- **Audio Transcript Key Normalization** (#523) — Unified `transcript_segments` key in API responses for UI consistency.
+- **ETag Middleware Bypass for Downloads** (#522) — File download responses now skip ETag calculation, fixing slow responses for large attachments.
+- **Video Audio Track and extracted_text** (#517–#521) — Populate `extracted_text` from transcription and persist video audio track as derived attachment.
+- **GLB Adapter and Diagnostics Fixes** (#517–#521) — Multiple fixes for 3D model extraction, AI revision context, and diagnostic snapshot handling.
+- **Derived Caption Deduplication** (#516) — Prevent duplicate VTT/SRT/TXT caption files; add speaker labels to diarized captions.
+- **Pyannote 4.x Compatibility** — Handle `DiarizeOutput` from pyannote.audio 4.x, replace deprecated `use_auth_token` parameter, normalize audio to WAV before diarization.
+- **Nginx Upload and Proxy Configuration** — Dedicated upload endpoint with `proxy_request_buffering off` for streaming; 1 GB upload limit; optimized proxy headers for large file operations.
 - **AI Revision Cross-Contamination** (#494) — Prevent RAG revision from injecting unrelated note content.
 - **Extraction Reliability** — Fix job deduplication, OGG format detection, and timeout handling.
 - **Inline Disposition for Media** — Use inline content disposition for browser-playable media types; fix CORS headers for streaming.
@@ -43,6 +63,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - Job monitoring guide expanded with multi-chunk tracking, tier escalation, and SSE event emission completeness table
 - Extraction pipeline design updated with all 13 extraction strategies and derived file documentation
 - MediaOptimize handler documented in job monitoring guide (progress stages, variant types, download endpoint)
+- Full documentation sync with current code state
 
 ## [2026.2.11] - 2026-02-20
 
@@ -1115,7 +1136,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.10...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.11...HEAD
+[2026.2.11]: https://github.com/fortemi/fortemi/compare/v2026.2.10...v2026.2.11
 [2026.2.10]: https://github.com/fortemi/fortemi/compare/v2026.2.9...v2026.2.10
 [2026.2.9]: https://github.com/fortemi/fortemi/compare/v2026.2.7...v2026.2.9
 [2026.2.7]: https://github.com/fortemi/fortemi/compare/v2026.2.6...v2026.2.7

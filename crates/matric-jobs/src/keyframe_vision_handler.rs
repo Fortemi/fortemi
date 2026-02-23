@@ -39,11 +39,11 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
 
 pub struct KeyframeVisionHandler {
     db: Database,
-    vision: Arc<dyn VisionBackend>,
+    vision: Option<Arc<dyn VisionBackend>>,
 }
 
 impl KeyframeVisionHandler {
-    pub fn new(db: Database, vision: Arc<dyn VisionBackend>) -> Self {
+    pub fn new(db: Database, vision: Option<Arc<dyn VisionBackend>>) -> Self {
         Self { db, vision }
     }
 }
@@ -97,6 +97,22 @@ impl JobHandler for KeyframeVisionHandler {
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
+        };
+
+        // Bail early if vision backend is unavailable — the job stays in the
+        // queue and will be retried once the backend is configured (#529).
+        let vision = match self.vision.as_ref() {
+            Some(v) => v,
+            None => {
+                warn!(
+                    frame_index,
+                    keyframe = %keyframe_attachment_id,
+                    "KeyframeVision job deferred — vision backend unavailable"
+                );
+                return JobResult::Retry(
+                    "Vision backend unavailable — job will retry when configured".into(),
+                );
+            }
         };
 
         let file_storage = match self.db.file_storage.as_ref() {
@@ -179,8 +195,7 @@ impl JobHandler for KeyframeVisionHandler {
             ));
         }
 
-        let description = match self
-            .vision
+        let description = match vision
             .describe_image(&image_data, "image/jpeg", Some(&prompt))
             .await
         {
@@ -205,7 +220,7 @@ impl JobHandler for KeyframeVisionHandler {
                     &mut tx,
                     keyframe_attachment_id,
                     &description,
-                    Some(self.vision.model_name()),
+                    Some(vision.model_name()),
                 )
                 .await
             {
