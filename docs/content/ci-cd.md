@@ -147,7 +147,7 @@ GLiNER and pyannote sidecar images are released independently from the main Fort
 | Trigger | Tags |
 |---------|------|
 | `build/gliner/**` changes on main | `:gliner`, `:gliner-latest`, `:gliner-main`, `:gliner-{sha}` |
-| `gliner-v*` tag push | All of the above + `:gliner-{version}` |
+| `sidecar-gliner-v*` tag push | All of the above + `:gliner-{version}` |
 | Manual (`workflow_dispatch`) | Same as path trigger |
 
 ### build-pyannote.yaml
@@ -155,19 +155,19 @@ GLiNER and pyannote sidecar images are released independently from the main Fort
 | Trigger | Tags |
 |---------|------|
 | `build/pyannote/**` changes on main | `:pyannote`, `:pyannote-latest`, `:pyannote-main`, `:pyannote-{sha}` |
-| `pyannote-v*` tag push | All of the above + `:pyannote-{version}` |
+| `sidecar-pyannote-v*` tag push | All of the above + `:pyannote-{version}` |
 | Manual (`workflow_dispatch`) | Same as path trigger |
 
 ### Releasing a sidecar
 
 ```bash
 # Release GLiNER version 1
-git tag -a gliner-v1 -m "gliner-v1: update model to gliner_large-v2.1"
-git push origin gliner-v1
+git tag -a sidecar-gliner-v1 -m "sidecar-gliner-v1: update model to gliner_large-v2.1"
+git push origin sidecar-gliner-v1
 
 # Release pyannote version 1
-git tag -a pyannote-v1 -m "pyannote-v1: initial GHCR release"
-git push origin pyannote-v1
+git tag -a sidecar-pyannote-v1 -m "sidecar-pyannote-v1: initial GHCR release"
+git push origin sidecar-pyannote-v1
 ```
 
 Both workflows push to the internal Gitea registry and GHCR simultaneously.

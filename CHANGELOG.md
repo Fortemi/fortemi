@@ -11,7 +11,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
-- **Independent sidecar CI/CD** — GLiNER and pyannote Docker images now have dedicated build-and-release workflows (`build-gliner.yaml`, `build-pyannote.yaml`) that publish to both internal and GHCR registries. Sidecar images are released independently from the main API/bundle via their own tags (`gliner-v*`, `pyannote-v*`), avoiding expensive ML image rebuilds on every core release.
+- **Independent sidecar CI/CD** — GLiNER and pyannote Docker images now have dedicated build-and-release workflows (`build-gliner.yaml`, `build-pyannote.yaml`) that publish to both internal and GHCR registries. Sidecar images are released independently from the main API/bundle via their own tags (`sidecar-gliner-v*`, `sidecar-pyannote-v*`), avoiding expensive ML image rebuilds on every core release.
 
 ### Changed
 

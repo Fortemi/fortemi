@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'build/gliner/**'
-    tags: ['gliner-v*']
+    tags: ['sidecar-gliner-v*']
   workflow_dispatch:
 
 env:
@@ -39,9 +39,9 @@ jobs:
           TAGS="${TAGS} -t ${GITEA}:gliner -t ${GITEA}:gliner-main -t ${GITEA}:gliner-latest"
           TAGS="${TAGS} -t ${GHCR}:gliner-${SHORT_SHA} -t ${GITEA}:gliner-${SHORT_SHA}"
 
-          # Versioned tags on release (gliner-v1 -> gliner-1)
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/gliner-v'; then
-            VERSION="${GITHUB_REF_NAME#gliner-v}"
+          # Versioned tags on release (sidecar-gliner-v1 -> gliner-1)
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-gliner-v'; then
+            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
             TAGS="${TAGS} -t ${GHCR}:gliner-${VERSION} -t ${GITEA}:gliner-${VERSION}"
             echo "Release build: gliner-${VERSION}"
           fi
@@ -142,8 +142,8 @@ jobs:
           push_with_retry ${GHCR}:gliner-latest
 
           # Push versioned tags if this is a release
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/gliner-v'; then
-            VERSION="${GITHUB_REF_NAME#gliner-v}"
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-gliner-v'; then
+            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
             push_with_retry ${GITEA}:gliner-${VERSION}
             push_with_retry ${GHCR}:gliner-${VERSION}
           fi

@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'build/pyannote/**'
-    tags: ['pyannote-v*']
+    tags: ['sidecar-pyannote-v*']
   workflow_dispatch:
 
 env:
@@ -39,9 +39,9 @@ jobs:
           TAGS="${TAGS} -t ${GITEA}:pyannote -t ${GITEA}:pyannote-main -t ${GITEA}:pyannote-latest"
           TAGS="${TAGS} -t ${GHCR}:pyannote-${SHORT_SHA} -t ${GITEA}:pyannote-${SHORT_SHA}"
 
-          # Versioned tags on release (pyannote-v1 -> pyannote-1)
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/pyannote-v'; then
-            VERSION="${GITHUB_REF_NAME#pyannote-v}"
+          # Versioned tags on release (sidecar-pyannote-v1 -> pyannote-1)
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-pyannote-v'; then
+            VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
             TAGS="${TAGS} -t ${GHCR}:pyannote-${VERSION} -t ${GITEA}:pyannote-${VERSION}"
             echo "Release build: pyannote-${VERSION}"
           fi
@@ -142,8 +142,8 @@ jobs:
           push_with_retry ${GHCR}:pyannote-latest
 
           # Push versioned tags if this is a release
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/pyannote-v'; then
-            VERSION="${GITHUB_REF_NAME#pyannote-v}"
+          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-pyannote-v'; then
+            VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
             push_with_retry ${GITEA}:pyannote-${VERSION}
             push_with_retry ${GHCR}:pyannote-${VERSION}
           fi
