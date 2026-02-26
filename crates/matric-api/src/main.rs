@@ -120,12 +120,12 @@ async fn queue_extraction_job(
     }
 
     // Determine cost tier based on extraction strategy.
-    // Vision and 3D model strategies use Ollama and should be grouped in the
-    // vision GPU tier to avoid VRAM contention.
+    // 3D model extraction uses Open3D renderer (GPU EGL), separated from
+    // vision tier to avoid renderer↔Ollama GPU contention.
+    // Vision extraction uses Ollama vision model directly.
     let cost_tier = match strategy {
-        ExtractionStrategy::Vision | ExtractionStrategy::Glb3DModel => {
-            Some(matric_core::cost_tier::VISION_GPU)
-        }
+        ExtractionStrategy::Glb3DModel => Some(matric_core::cost_tier::RENDER_GPU),
+        ExtractionStrategy::Vision => Some(matric_core::cost_tier::VISION_GPU),
         _ => None,
     };
 

@@ -135,31 +135,54 @@ else
     export LIBGL_ALWAYS_SOFTWARE=1
 fi
 
-PORT=$RENDERER_PORT python3 /app/open3d-renderer/server.py > /var/log/matric/renderer.log 2>&1 &
-RENDERER_PID=$!
-echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
+# Probe: test if Open3D can initialize before starting the full renderer.
+# Open3D 0.19.0's Filament backend may segfault during EGL init if no GPU
+# device is available. Running the probe in a subprocess catches the crash
+# cleanly instead of logging confusing segfault messages.
+RENDERER_AVAILABLE=false
+if python3 -c "
+import open3d as o3d
+r = o3d.visualization.rendering.OffscreenRenderer(64, 64)
+del r
+print('ok')
+" > /dev/null 2>&1; then
+    echo "  Open3D probe passed — renderer available"
+    RENDERER_AVAILABLE=true
+else
+    echo "  Open3D probe failed — renderer unavailable (no GPU or EGL init failed)"
+    echo "  3D model extraction will be disabled. To enable, add GPU device reservation"
+    echo "  to docker-compose.bundle.yml (see deploy.resources.reservations.devices)"
+fi
 
-# Wait for renderer to be ready
-echo "  Waiting for renderer to be ready..."
 RENDERER_READY=false
-for i in {1..15}; do
-    if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
-        echo "  Renderer is healthy!"
-        RENDERER_READY=true
-        break
-    fi
-    # Check renderer process is still alive
-    if ! kill -0 $RENDERER_PID 2>/dev/null; then
-        echo "  WARNING: Renderer process died during startup"
-        cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
-        break
-    fi
-    sleep 1
-done
+if [ "$RENDERER_AVAILABLE" = true ]; then
+    PORT=$RENDERER_PORT python3 /app/open3d-renderer/server.py > /var/log/matric/renderer.log 2>&1 &
+    RENDERER_PID=$!
+    echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
 
-if [ "$RENDERER_READY" = false ] && kill -0 $RENDERER_PID 2>/dev/null; then
-    echo "  WARNING: Renderer health check timed out after 15s (3D model extraction may not work)"
-    cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
+    # Wait for renderer to be ready
+    echo "  Waiting for renderer to be ready..."
+    for i in {1..15}; do
+        if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
+            echo "  Renderer is healthy!"
+            RENDERER_READY=true
+            break
+        fi
+        # Check renderer process is still alive
+        if ! kill -0 $RENDERER_PID 2>/dev/null; then
+            echo "  WARNING: Renderer process died during startup"
+            cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$RENDERER_READY" = false ] && kill -0 $RENDERER_PID 2>/dev/null; then
+        echo "  WARNING: Renderer health check timed out after 15s (3D model extraction may not work)"
+        cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
+    fi
+else
+    RENDERER_PID=""
 fi
 
 /app/matric-api &

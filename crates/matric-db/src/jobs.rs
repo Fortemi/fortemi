@@ -59,6 +59,7 @@ impl PgJobRepository {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
             TierGroup::FastGpu => "cost_tier = 1",
             TierGroup::StandardGpu => "cost_tier = 2",
+            TierGroup::RenderGpu => "cost_tier = 4",
             TierGroup::VisionGpu => "cost_tier = 3",
         };
 
@@ -406,6 +407,7 @@ impl JobRepository for PgJobRepository {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
             TierGroup::FastGpu => "cost_tier = 1",
             TierGroup::StandardGpu => "cost_tier = 2",
+            TierGroup::RenderGpu => "cost_tier = 4",
             TierGroup::VisionGpu => "cost_tier = 3",
         };
 

@@ -374,7 +374,30 @@ impl JobWorker {
                     }
                 }
 
-                // Phase 4: Drain tier 3 (vision GPU) — per-frame/per-view
+                // Phase 4: Drain tier 4 (render GPU) — Open3D multi-view rendering.
+                // No model warmup needed: uses the bundled HTTP renderer, not Ollama.
+                // Must drain before vision GPU so rendered views are available
+                // when ViewVision jobs start.
+                let tier4_pending = self
+                    .db
+                    .jobs
+                    .pending_count_for_tier(cost_tier::RENDER_GPU)
+                    .await
+                    .unwrap_or(0);
+                if tier4_pending > 0 {
+                    debug!(
+                        pending = tier4_pending,
+                        gpu_concurrent, "Render GPU tier: draining"
+                    );
+                    let drained = self
+                        .drain_tier(TierGroup::RenderGpu, gpu_concurrent, &excluded_archives)
+                        .await;
+                    if drained > 0 {
+                        any_processed = true;
+                    }
+                }
+
+                // Phase 5: Drain tier 3 (vision GPU) — per-frame/per-view
                 // vision description jobs, also serialized by gpu_concurrent.
                 let tier3_pending = self
                     .db

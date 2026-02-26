@@ -2209,6 +2209,10 @@ pub enum TierGroup {
     FastGpu,
     /// Standard GPU jobs (cost_tier = 2).
     StandardGpu,
+    /// Render GPU jobs (cost_tier = 4): Open3D multi-view rendering of 3D models.
+    /// Drains before VisionGpu so rendered images are available when vision
+    /// descriptions start. No Ollama model warmup needed (uses HTTP renderer).
+    RenderGpu,
     /// Vision GPU jobs (cost_tier = 3).
     /// Serialized by default to avoid VRAM contention on single-GPU systems.
     VisionGpu,
@@ -2229,6 +2233,12 @@ pub mod cost_tier {
     /// Serialized by default (`VISION_MAX_CONCURRENT=1`) to avoid VRAM contention
     /// on single-GPU systems with 6-8GB VRAM.
     pub const VISION_GPU: i16 = 3;
+    /// Render GPU tier: Open3D multi-view rendering of 3D models.
+    /// Separated from VISION_GPU to avoid GPU contention between the
+    /// EGL rendering engine and the Ollama vision LLM. Drains before
+    /// VISION_GPU in the worker loop so all rendered views are available
+    /// when vision description jobs start.
+    pub const RENDER_GPU: i16 = 4;
 }
 
 /// A job in the processing queue.

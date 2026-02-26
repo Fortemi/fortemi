@@ -303,6 +303,8 @@ pub trait JobRepository: Send + Sync {
     /// - `CpuAndAgnostic`: cost_tier IS NULL OR cost_tier = 0
     /// - `FastGpu`: cost_tier = 1
     /// - `StandardGpu`: cost_tier = 2
+    /// - `RenderGpu`: cost_tier = 4
+    /// - `VisionGpu`: cost_tier = 3
     async fn claim_next_for_tier(
         &self,
         tier_group: TierGroup,

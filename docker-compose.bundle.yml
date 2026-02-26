@@ -290,6 +290,9 @@ services:
       # OPEN3D_CPU_RENDERING=true (3D rendering will use software fallback).
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      # Max concurrent GPU jobs per tier (default 1 = serial, prevents VRAM contention).
+      # Increase only if your GPU has enough VRAM to run multiple models simultaneously.
+      - GPU_MAX_CONCURRENT=${GPU_MAX_CONCURRENT:-1}
 
       # ── 3D Model Renderer (Open3D) ────────────────────────────────────
       # Internal renderer URL — bundled Open3D renderer on localhost:8080
@@ -326,6 +329,15 @@ services:
       - matric-files:/var/lib/matric/files
       # Backup directory
       - matric-backups:/var/backups/matric-memory
+    # GPU device reservation for Open3D EGL rendering and CUDA workloads.
+    # For non-GPU deployments: remove this deploy section entirely.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     extra_hosts:
       # Required on Linux for host.docker.internal to resolve to host
