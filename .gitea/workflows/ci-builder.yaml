@@ -554,7 +554,9 @@ jobs:
     name: Create Gitea Release
     runs-on: matric-builder
     needs: publish-release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Explicit result check: Gitea Actions hangs on `if:` when `needs:` was
+    # skipped instead of properly skipping the dependent job.
+    if: needs.publish-release.result == 'success'
     steps:
       - name: Checkout
         run: |
@@ -679,7 +681,7 @@ jobs:
     name: Create GitHub Release
     runs-on: matric-builder
     needs: publish-github
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.publish-github.result == 'success'
     steps:
       - name: Checkout
         run: |
