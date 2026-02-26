@@ -35,7 +35,7 @@ log = logging.getLogger("renderer")
 app = Flask(__name__)
 
 SUPPORTED_FORMATS = ["glb", "gltf", "obj", "stl", "ply", "off"]
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 def _detect_renderer_type():
@@ -144,6 +144,57 @@ def _create_grid_plane(center, extent):
     return grid
 
 
+def _normalize_to_unit_scale(kind, geometry):
+    """Center at origin and scale so largest dimension ≈ 1.0.
+
+    Open3D's Filament backend has implicit near-plane clip limits that
+    cause tiny models (e.g., Khronos BoomBox at 0.02 units) to render
+    as completely blank images — even the grid plane disappears.
+    Normalizing to unit scale ensures camera, lighting, and grid all
+    work at a well-tested range.
+    """
+    if kind == "model":
+        all_verts = []
+        for mi in geometry.meshes:
+            v = np.asarray(mi.mesh.vertices)
+            if len(v) > 0:
+                all_verts.append(v)
+        if not all_verts:
+            return
+        combined = np.concatenate(all_verts)
+    else:
+        combined = np.asarray(geometry.vertices)
+        if len(combined) == 0:
+            return
+
+    bbox_min = combined.min(axis=0)
+    bbox_max = combined.max(axis=0)
+    center = (bbox_min + bbox_max) / 2.0
+    extent = bbox_max - bbox_min
+    max_dim = float(max(extent))
+
+    if max_dim < 1e-8:
+        return
+
+    # Skip if already near unit scale (avoid unnecessary transforms)
+    if 0.5 <= max_dim <= 5.0:
+        return
+
+    scale = 1.0 / max_dim
+    log.info(
+        "Normalizing %s to unit scale: max_dim=%.6f → scale ×%.1f",
+        kind, max_dim, scale,
+    )
+
+    if kind == "model":
+        for mi in geometry.meshes:
+            mi.mesh.translate(-center)
+            mi.mesh.scale(scale, [0, 0, 0])
+    else:
+        geometry.translate(-center)
+        geometry.scale(scale, [0, 0, 0])
+
+
 def render_views(model_data, filename, num_views=6, width=512, height=512):
     """Render multi-view PNG images of a 3D model."""
     ext = os.path.splitext(filename)[1].lower() or ".glb"
@@ -154,6 +205,11 @@ def render_views(model_data, filename, num_views=6, width=512, height=512):
 
     try:
         kind, geometry = load_geometry(tmp_path)
+
+        # Normalize extreme-scale models to unit scale before rendering.
+        # Tiny models (like BoomBox at 0.02 units) fall within Filament's
+        # implicit near-plane clip distance, producing blank renders.
+        _normalize_to_unit_scale(kind, geometry)
 
         renderer = rendering.OffscreenRenderer(width, height)
         scene = renderer.scene
