@@ -1312,12 +1312,10 @@ impl JobHandler for ExtractionHandler {
                         ExtractionStrategy::Glb3DModel | ExtractionStrategy::VideoMultimodal
                     );
                     if content_updated && !uses_fanout {
-                        let downstream_types = [
-                            JobType::Embedding,
-                            JobType::Linking,
-                            JobType::ConceptTagging,
-                            JobType::TitleGeneration,
-                        ];
+                        // ConceptTagging removed — chained from AiRevision after revision completes.
+                        // Embedding + Linking removed — chained from ConceptTagging → RelatedConceptInference.
+                        // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking.
+                        let downstream_types = [JobType::TitleGeneration];
 
                         let mut schema_payload = serde_json::Map::new();
                         if schema != "public" {

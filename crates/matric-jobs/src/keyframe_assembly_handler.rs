@@ -346,12 +346,10 @@ async fn finish_propagation(
 
         // Queue downstream NLP if content was updated
         if content_updated {
-            let downstream_types = [
-                JobType::Embedding,
-                JobType::Linking,
-                JobType::ConceptTagging,
-                JobType::TitleGeneration,
-            ];
+            // ConceptTagging removed — chained from AiRevision after revision completes.
+            // Embedding + Linking removed — chained from ConceptTagging → RelatedConceptInference.
+            // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking.
+            let downstream_types = [JobType::TitleGeneration];
 
             let mut schema_payload = serde_json::Map::new();
             if schema != "public" {
@@ -362,6 +360,33 @@ async fn finish_propagation(
             } else {
                 Some(serde_json::Value::Object(schema_payload))
             };
+
+            // Queue AI revision so the assembled keyframe descriptions get
+            // polished content. ConceptTagging chains from AiRevision completion.
+            let mut revision_payload = serde_json::Map::new();
+            revision_payload.insert("revision_mode".to_string(), json!("standard"));
+            if schema != "public" {
+                revision_payload.insert("schema".to_string(), json!(schema));
+            }
+            match db
+                .jobs
+                .queue_deduplicated(
+                    Some(note_id),
+                    JobType::AiRevision,
+                    JobType::AiRevision.default_priority(),
+                    Some(serde_json::Value::Object(revision_payload)),
+                    JobType::AiRevision.default_cost_tier(),
+                )
+                .await
+            {
+                Ok(Some(job_id)) => {
+                    ctx.emit_job_queued(job_id, JobType::AiRevision, Some(note_id));
+                }
+                Ok(None) => {} // deduplicated
+                Err(e) => {
+                    warn!(error = %e, "Failed to queue AiRevision after keyframe assembly");
+                }
+            }
 
             for job_type in &downstream_types {
                 match db
@@ -387,7 +412,7 @@ async fn finish_propagation(
 
             info!(
                 note_id = %note_id,
-                "Queued downstream NLP after keyframe assembly"
+                "Queued AiRevision + downstream NLP after keyframe assembly"
             );
         }
     }

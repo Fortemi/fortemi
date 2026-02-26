@@ -430,6 +430,7 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
         }
 
         // If the original mode was contextual, queue Phase 2 (AiRevisionContextual)
+        // which will chain ConceptTagging on its completion.
         if revision_mode.is_contextual() {
             ctx.report_progress(95, Some("Queuing contextual re-revision (phase 2)..."));
             let mut phase2_payload = serde_json::json!({
@@ -464,6 +465,43 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
                 Ok(None) => {} // Deduplicated
                 Err(e) => {
                     warn!(error = %e, "Failed to queue contextual re-revision phase 2");
+                }
+            }
+        } else {
+            // Non-contextual: chain ConceptTagging now that revised content is available.
+            // For contextual mode, AiRevisionContextual will chain it after Phase 2.
+            // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking (#538).
+            let mut ct_payload = serde_json::Map::new();
+            if schema != "public" {
+                ct_payload.insert("schema".to_string(), serde_json::json!(schema));
+            }
+            if let Some(m) = &model_override {
+                ct_payload.insert("model".to_string(), serde_json::json!(m));
+            }
+            let ct_payload = if ct_payload.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(ct_payload))
+            };
+            match self
+                .db
+                .jobs
+                .queue_deduplicated(
+                    Some(note_id),
+                    JobType::ConceptTagging,
+                    JobType::ConceptTagging.default_priority(),
+                    ct_payload,
+                    JobType::ConceptTagging.default_cost_tier(),
+                )
+                .await
+            {
+                Ok(Some(job_id)) => {
+                    ctx.emit_job_queued(job_id, JobType::ConceptTagging, Some(note_id));
+                    info!(note_id = %note_id, job_id = %job_id, "Queued ConceptTagging after revision");
+                }
+                Ok(None) => {} // Deduplicated
+                Err(e) => {
+                    warn!(error = %e, "Failed to queue ConceptTagging after revision");
                 }
             }
         }
@@ -507,6 +545,51 @@ impl AiRevisionContextualHandler {
             db,
             backend,
             registry,
+        }
+    }
+
+    /// Chain ConceptTagging after the final revision step completes.
+    /// Called on all success paths (including early returns where Phase 2 is skipped).
+    /// Pipeline: AiRevision → AiRevisionContextual → ConceptTagging → ... (#538).
+    async fn queue_concept_tagging(
+        &self,
+        ctx: &JobContext,
+        note_id: uuid::Uuid,
+        schema: &str,
+        model_override: &Option<String>,
+    ) {
+        let mut ct_payload = serde_json::Map::new();
+        if schema != "public" {
+            ct_payload.insert("schema".to_string(), serde_json::json!(schema));
+        }
+        if let Some(m) = model_override {
+            ct_payload.insert("model".to_string(), serde_json::json!(m));
+        }
+        let ct_payload = if ct_payload.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(ct_payload))
+        };
+        match self
+            .db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::ConceptTagging,
+                JobType::ConceptTagging.default_priority(),
+                ct_payload,
+                JobType::ConceptTagging.default_cost_tier(),
+            )
+            .await
+        {
+            Ok(Some(job_id)) => {
+                ctx.emit_job_queued(job_id, JobType::ConceptTagging, Some(note_id));
+                info!(note_id = %note_id, job_id = %job_id, "Queued ConceptTagging after contextual revision");
+            }
+            Ok(None) => {} // Deduplicated
+            Err(e) => {
+                warn!(error = %e, "Failed to queue ConceptTagging after contextual revision");
+            }
         }
     }
 
@@ -642,6 +725,8 @@ impl JobHandler for AiRevisionContextualHandler {
                     "AI standard revision (contextual enrichment skipped: embedding unavailable)",
                 )
                 .await;
+                self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
+                    .await;
                 return JobResult::Success(Some(serde_json::json!({
                     "skipped": true,
                     "reason": "embedding failed, Phase 1 output preserved",
@@ -658,6 +743,8 @@ impl JobHandler for AiRevisionContextualHandler {
                     "AI standard revision (contextual enrichment skipped: no embedding produced)",
                 )
                 .await;
+                self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
+                    .await;
                 return JobResult::Success(Some(serde_json::json!({
                     "skipped": true,
                     "reason": "no embedding vector produced",
@@ -731,6 +818,8 @@ impl JobHandler for AiRevisionContextualHandler {
                 "AI standard revision (no related notes found for contextual enrichment)",
             )
             .await;
+            self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
+                .await;
             return JobResult::Success(Some(serde_json::json!({
                 "skipped": true,
                 "reason": "no related notes found above similarity threshold",
@@ -850,6 +939,10 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                 }
             }
         }
+
+        // Chain ConceptTagging now that the final revised content is available.
+        self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
+            .await;
 
         ctx.report_progress(100, Some("Contextual revision complete"));
         info!(
@@ -2549,18 +2642,64 @@ impl ConceptTaggingHandler {
     }
 
     /// Build the LLM prompt for concept extraction.
-    fn make_concept_prompt(text: &str, existing: &[String], target: usize) -> String {
-        let count_hint = if !existing.is_empty() {
-            let needed = target.saturating_sub(existing.len());
-            format!("We already have {} concepts from entity extraction. Suggest {} MORE distinct concepts that cover different dimensions. Do NOT repeat: {:?}\n\n",
-                existing.len(), needed, existing)
-        } else {
-            String::new()
+    ///
+    /// `existing_prior`: concepts from prior tier escalation (e.g. GLiNER results).
+    /// `existing_db`: concepts already tagged on this note in the database.
+    fn make_concept_prompt(
+        text: &str,
+        existing_prior: &[String],
+        existing_db: &[String],
+        target: usize,
+    ) -> String {
+        let all_existing: Vec<&str> = existing_prior
+            .iter()
+            .chain(existing_db.iter())
+            .map(|s| s.as_str())
+            .collect();
+        let unique_existing: Vec<&str> = {
+            let mut seen = HashSet::new();
+            all_existing
+                .into_iter()
+                .filter(|s| seen.insert(s.to_lowercase()))
+                .collect()
         };
+
+        let mut context_hint = String::new();
+
+        if !existing_db.is_empty() {
+            context_hint.push_str(&format!(
+                "This note already has {} concepts in the knowledge base: {:?}\n\
+                 PREFER reusing these if they are still relevant. Only replace if clearly wrong.\n\n",
+                existing_db.len(),
+                existing_db
+            ));
+        }
+
+        if !existing_prior.is_empty() {
+            let needed = target.saturating_sub(unique_existing.len());
+            context_hint.push_str(&format!(
+                "We have {} concepts from entity extraction. Suggest {} MORE distinct concepts \
+                 that cover different dimensions. Do NOT repeat: {:?}\n\n",
+                existing_prior.len(),
+                needed,
+                existing_prior
+            ));
+        }
+
+        let total_needed = target.saturating_sub(unique_existing.len());
+        if total_needed == 0 && !unique_existing.is_empty() {
+            context_hint.push_str(&format!(
+                "We already have {} concepts meeting the target of {}. \
+                 Only suggest additional concepts if there are clearly important dimensions missing.\n\n",
+                unique_existing.len(),
+                target
+            ));
+        }
+
         format!(
             r#"You are a knowledge organization specialist using SKOS (Simple Knowledge Organization System). Analyze the following content and suggest concept tags organized as hierarchical paths across MULTIPLE dimensions.
 
-{count_hint}Content:
+{context_hint}Content:
 {text}
 
 REQUIRED DIMENSIONS (include at least one tag from each applicable dimension):
@@ -2583,10 +2722,11 @@ Guidelines:
 4. Focus on actual subject matter, not generic terms
 5. Order by relevance (most relevant first)
 6. Reuse top-level categories across notes for cross-cutting queries
-7. Aim for {target} tags total — breadth across dimensions is more valuable than depth in one
+7. Aim for 5-8 tags total — breadth across dimensions is more valuable than depth in one
+8. PREFER reusing existing concept paths from the knowledge base when they are relevant
 
 Output ONLY a JSON array of tag paths, nothing else. Example:
-["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper", "era/foundation-models"]"#
+["science/machine-learning", "nlp/transformers", "technique/attention-mechanism", "methodology/experimental", "evaluation/benchmark", "application/translation", "tool/pytorch", "content-type/research-paper"]"#
         )
     }
 
@@ -2597,6 +2737,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         note_id: uuid::Uuid,
         schema: &str,
         content_preview: &str,
+        existing_db_concepts: &[String],
     ) -> (Vec<String>, &'static str, bool) {
         const CONCEPT_ENTITY_TYPES: &[&str] = &[
             "domain",
@@ -2648,8 +2789,19 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             }
         }
 
-        // Chain to tier-1 if below target
-        let escalating = concept_labels.len() < self.target_concepts;
+        // Chain to tier-1 if total concepts (existing DB + new) below target
+        let total_concepts = {
+            let mut seen: HashSet<String> = existing_db_concepts
+                .iter()
+                .map(|s| s.to_lowercase())
+                .collect();
+            let unique_new = concept_labels
+                .iter()
+                .filter(|l| seen.insert(l.to_lowercase()))
+                .count();
+            existing_db_concepts.len() + unique_new
+        };
+        let escalating = total_concepts < self.target_concepts;
         if escalating {
             if let Some(job_id) = self
                 .queue_escalation(
@@ -2676,6 +2828,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         schema: &str,
         content_preview: &str,
         overridden: Option<&dyn GenerationBackend>,
+        existing_db_concepts: &[String],
     ) -> (Vec<String>, &'static str, bool) {
         let mut concept_labels = Self::extract_prior_concepts(ctx);
         let prior_count = concept_labels.len();
@@ -2710,7 +2863,12 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         let mut chunk_results: Vec<String> = Vec::new();
 
         for (i, chunk) in chunks.iter().enumerate() {
-            let prompt = Self::make_concept_prompt(chunk, &concept_labels, self.target_concepts);
+            let prompt = Self::make_concept_prompt(
+                chunk,
+                &concept_labels,
+                existing_db_concepts,
+                self.target_concepts,
+            );
             match backend.generate_json(&prompt).await {
                 Ok(r) => chunk_results.push(r.trim().to_string()),
                 Err(e) => {
@@ -2732,9 +2890,20 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             }
         }
 
-        // Chain to tier-2 if still below half target (standard escalation threshold)
+        // Chain to tier-2 if total (existing DB + new) still below half target
         let standard_threshold = self.target_concepts.div_ceil(2);
-        let escalating = concept_labels.len() < standard_threshold;
+        let total_concepts = {
+            let mut seen: HashSet<String> = existing_db_concepts
+                .iter()
+                .map(|s| s.to_lowercase())
+                .collect();
+            let unique_new = concept_labels
+                .iter()
+                .filter(|l| seen.insert(l.to_lowercase()))
+                .count();
+            existing_db_concepts.len() + unique_new
+        };
+        let escalating = total_concepts < standard_threshold;
         if escalating {
             info!(
                 note_id = %note_id,
@@ -2772,6 +2941,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         _schema: &str,
         content_preview: &str,
         overridden: Option<&dyn GenerationBackend>,
+        existing_db_concepts: &[String],
     ) -> (Vec<String>, &'static str, bool) {
         let mut concept_labels = Self::extract_prior_concepts(ctx);
         let prior_count = concept_labels.len();
@@ -2784,8 +2954,12 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         ctx.report_progress(30, Some("Running standard model concept extraction..."));
 
         let existing_snapshot: Vec<String> = concept_labels.clone();
-        let prompt =
-            Self::make_concept_prompt(content_preview, &existing_snapshot, self.target_concepts);
+        let prompt = Self::make_concept_prompt(
+            content_preview,
+            &existing_snapshot,
+            existing_db_concepts,
+            self.target_concepts,
+        );
 
         match backend.generate_json(&prompt).await {
             Ok(r) => {
@@ -2926,7 +3100,7 @@ impl JobHandler for ConceptTaggingHandler {
 
         ctx.report_progress(10, Some("Fetching note content..."));
 
-        // Get the note
+        // Get the note and existing concepts in one transaction
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
@@ -2934,6 +3108,29 @@ impl JobHandler for ConceptTaggingHandler {
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
             Ok(n) => n,
             Err(e) => return JobResult::Failed(format!("Failed to fetch note: {}", e)),
+        };
+        // Fetch existing SKOS concepts already tagged on this note so the LLM
+        // can reuse them and fill in gaps rather than starting from scratch.
+        let existing_db_concepts: Vec<String> = match self
+            .db
+            .skos
+            .get_note_tags_with_labels_tx(&mut tx, note_id)
+            .await
+        {
+            Ok(tags) => tags
+                .iter()
+                .filter_map(|(_, c)| {
+                    c.concept
+                        .notation
+                        .as_ref()
+                        .or(c.pref_label.as_ref())
+                        .cloned()
+                })
+                .collect(),
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch existing concepts, proceeding without");
+                vec![]
+            }
         };
         tx.commit().await.ok();
 
@@ -2966,10 +3163,17 @@ impl JobHandler for ConceptTaggingHandler {
         // Some(0) = GLiNER only, chain to tier-1 if insufficient.
         // Some(1) = Fast model, merge prior results, chain to tier-2 if insufficient.
         // Some(2) = Standard model, merge prior results.
+        // existing_db_concepts are passed so each tier can include them in prompts.
         let (concept_labels, extraction_method, escalating) = match ctx.job.cost_tier {
             Some(matric_core::cost_tier::CPU_NER) => {
-                self.execute_ner(&ctx, note_id, schema, &content_preview)
-                    .await
+                self.execute_ner(
+                    &ctx,
+                    note_id,
+                    schema,
+                    &content_preview,
+                    &existing_db_concepts,
+                )
+                .await
             }
             Some(matric_core::cost_tier::FAST_GPU) => {
                 self.execute_fast(
@@ -2978,6 +3182,7 @@ impl JobHandler for ConceptTaggingHandler {
                     schema,
                     &content_preview,
                     overridden.as_deref(),
+                    &existing_db_concepts,
                 )
                 .await
             }
@@ -2988,14 +3193,21 @@ impl JobHandler for ConceptTaggingHandler {
                     schema,
                     &content_preview,
                     overridden.as_deref(),
+                    &existing_db_concepts,
                 )
                 .await
             }
             _ => {
                 // Treat NULL cost_tier as CPU_NER (tier-0 entry point).
                 // Escalation to tier-1/tier-2 happens via job queue chaining.
-                self.execute_ner(&ctx, note_id, schema, &content_preview)
-                    .await
+                self.execute_ner(
+                    &ctx,
+                    note_id,
+                    schema,
+                    &content_preview,
+                    &existing_db_concepts,
+                )
+                .await
             }
         };
 

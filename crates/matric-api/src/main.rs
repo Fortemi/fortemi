@@ -337,12 +337,11 @@ async fn queue_nlp_pipeline(
     }
 
     // Queue Phase 1 pipeline jobs with cost tiers from JobType::default_cost_tier().
-    // Phase 2 (RelatedConceptInference) is queued by ConceptTaggingHandler on
-    // completion. Phase 3 (Embedding + Linking) is queued by RelatedConceptHandler.
-    // Pipeline: ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435).
+    // ConceptTagging is NOT in this list — it chains from AiRevision on completion
+    // so it operates on the enriched AI-revised content instead of the raw original.
+    // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435, #538).
     let phase1_jobs = [
         JobType::TitleGeneration,
-        JobType::ConceptTagging,
         JobType::ReferenceExtraction,
         JobType::MetadataExtraction,
         JobType::DocumentTypeInference,
@@ -383,6 +382,46 @@ async fn queue_nlp_pipeline(
             Ok(None) => {} // Deduplicated
             Err(e) => {
                 error!(%note_id, job_type = ?job_type, error = %e, "Failed to queue NLP pipeline job");
+            }
+        }
+    }
+
+    // When revision is disabled, queue ConceptTagging directly since there's
+    // no AiRevision to chain from. Otherwise AiRevision chains it on completion.
+    if revision_mode == RevisionMode::None {
+        let mut payload = serde_json::Map::new();
+        if let Some(s) = schema {
+            payload.insert("schema".to_string(), serde_json::json!(s));
+        }
+        if let Some(m) = model {
+            payload.insert("model".to_string(), serde_json::json!(m));
+        }
+        let payload = if payload.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(payload))
+        };
+        match db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::ConceptTagging,
+                JobType::ConceptTagging.default_priority(),
+                payload,
+                JobType::ConceptTagging.default_cost_tier(),
+            )
+            .await
+        {
+            Ok(Some(job_id)) => {
+                event_bus.emit(ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::ConceptTagging),
+                    note_id: Some(note_id),
+                });
+            }
+            Ok(None) => {} // Deduplicated
+            Err(e) => {
+                error!(%note_id, error = %e, "Failed to queue ConceptTagging (no-revision path)");
             }
         }
     }

@@ -346,12 +346,10 @@ async fn finish_propagation(
 
     // Queue downstream NLP if content was updated
     if content_updated {
-        let downstream_types = [
-            JobType::Embedding,
-            JobType::Linking,
-            JobType::ConceptTagging,
-            JobType::TitleGeneration,
-        ];
+        // ConceptTagging removed — chained from AiRevision after revision completes.
+        // Embedding + Linking removed — chained from ConceptTagging → RelatedConceptInference.
+        // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking.
+        let downstream_types = [JobType::TitleGeneration];
 
         let mut schema_payload = serde_json::Map::new();
         if schema != "public" {
