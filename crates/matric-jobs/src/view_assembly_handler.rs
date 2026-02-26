@@ -363,6 +363,33 @@ async fn finish_propagation(
             Some(serde_json::Value::Object(schema_payload))
         };
 
+        // Queue AI revision so the assembled view descriptions get a polished
+        // title and revised content (mirrors extraction_handler.rs pattern).
+        let mut revision_payload = serde_json::Map::new();
+        revision_payload.insert("revision_mode".to_string(), json!("standard"));
+        if schema != "public" {
+            revision_payload.insert("schema".to_string(), json!(schema));
+        }
+        match db
+            .jobs
+            .queue_deduplicated(
+                Some(note_id),
+                JobType::AiRevision,
+                JobType::AiRevision.default_priority(),
+                Some(serde_json::Value::Object(revision_payload)),
+                JobType::AiRevision.default_cost_tier(),
+            )
+            .await
+        {
+            Ok(Some(job_id)) => {
+                ctx.emit_job_queued(job_id, JobType::AiRevision, Some(note_id));
+            }
+            Ok(None) => {} // deduplicated
+            Err(e) => {
+                warn!(error = %e, "Failed to queue AiRevision after view assembly");
+            }
+        }
+
         for job_type in &downstream_types {
             match db
                 .jobs
@@ -387,7 +414,7 @@ async fn finish_propagation(
 
         info!(
             note_id = %note_id,
-            "Queued downstream NLP after view assembly"
+            "Queued AiRevision + downstream NLP after view assembly"
         );
     }
 

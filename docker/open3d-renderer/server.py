@@ -108,8 +108,8 @@ def _create_grid_plane(center, extent):
     grid = o3d.geometry.LineSet()
     grid.points = o3d.utility.Vector3dVector(points)
     grid.lines = o3d.utility.Vector2iVector(lines)
-    # Light silver lines — visible but not distracting
-    grid.colors = o3d.utility.Vector3dVector([[0.78, 0.78, 0.78]] * len(lines))
+    # Muted grid lines — visible on the dark background but not distracting
+    grid.colors = o3d.utility.Vector3dVector([[0.50, 0.50, 0.50]] * len(lines))
     return grid
 
 
@@ -127,12 +127,21 @@ def render_views(model_data, filename, num_views=6, width=512, height=512):
         renderer = rendering.OffscreenRenderer(width, height)
         scene = renderer.scene
 
-        # Off-white background for good contrast (human + machine vision)
-        scene.set_background([0.94, 0.94, 0.94, 1.0])
+        # Medium-dark background for clear contrast with both light and dark
+        # objects.  The previous near-white [0.94] was invisible for PBR
+        # metallic surfaces whose reflections matched the background.
+        scene.set_background([0.35, 0.37, 0.40, 1.0])
         scene.set_lighting(
             rendering.Open3DScene.LightingProfile.MED_SHADOWS,
             [0.577, -0.577, -0.577],
         )
+
+        # Boost IBL (indirect/environment light) so metallic PBR surfaces
+        # have something to reflect — without this, metals appear flat gray.
+        try:
+            scene.scene.set_indirect_light_intensity(45000)
+        except Exception:
+            pass  # older Open3D versions may not support this
 
         if kind == "model":
             scene.add_model("object", geometry)
@@ -146,7 +155,25 @@ def render_views(model_data, filename, num_views=6, width=512, height=512):
         center = bbox.get_center()
         extent = bbox.get_extent()
         max_dim = max(extent)
+
+        # Safeguard: if bounding box is degenerate (zero/tiny), use a
+        # fallback distance so the camera isn't placed inside the model.
+        if max_dim < 1e-6:
+            log.warning(
+                "Degenerate bbox (max_dim=%.2e) for %s — using fallback",
+                max_dim, filename,
+            )
+            max_dim = 1.0
+
         distance = max_dim * 2.5
+
+        log.info(
+            "Camera: center=[%.4f,%.4f,%.4f] extent=[%.4f,%.4f,%.4f] "
+            "max_dim=%.4f dist=%.4f",
+            center[0], center[1], center[2],
+            extent[0], extent[1], extent[2],
+            max_dim, distance,
+        )
 
         # Add ground-plane grid for spatial reference
         grid = _create_grid_plane(center, extent)
