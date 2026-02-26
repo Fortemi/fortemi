@@ -203,11 +203,13 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
 
     async fn health_check(&self) -> Result<bool> {
         let backend_ok = self.backend.health_check().await?;
-        let ffmpeg_ok = super::audio_util::ffmpeg_available().await;
-        if !ffmpeg_ok {
-            tracing::warn!("ffmpeg not available — audio transcoding will fail");
+        if !super::audio_util::ffmpeg_available().await {
+            tracing::warn!(
+                "ffmpeg not available — audio will be sent to Whisper without transcoding. \
+                 Install ffmpeg for reliable format normalization."
+            );
         }
-        Ok(backend_ok && ffmpeg_ok)
+        Ok(backend_ok)
     }
 
     fn name(&self) -> &str {
