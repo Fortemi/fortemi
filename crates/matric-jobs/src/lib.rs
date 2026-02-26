@@ -48,6 +48,8 @@ pub mod media_optimize_handler;
 pub mod pause;
 pub mod relabel_handler;
 pub mod sprite_handler;
+pub mod view_assembly_handler;
+pub mod view_vision_handler;
 pub mod worker;
 
 // Re-export core types
@@ -63,6 +65,8 @@ pub use media_optimize_handler::MediaOptimizeHandler;
 pub use pause::PauseState;
 pub use relabel_handler::{SpeakerConfig, SpeakerRelabelHandler};
 pub use sprite_handler::ThumbnailSpriteHandler;
+pub use view_assembly_handler::ViewAssemblyHandler;
+pub use view_vision_handler::ViewVisionHandler;
 pub use worker::{JobWorker, WorkerBuilder, WorkerConfig, WorkerEvent, WorkerHandle};
 
 // Re-export extraction types

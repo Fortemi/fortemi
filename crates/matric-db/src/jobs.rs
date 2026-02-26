@@ -124,6 +124,8 @@ impl PgJobRepository {
             JobType::ThumbnailSprite => "thumbnail_sprite",
             JobType::KeyframeVision => "keyframe_vision",
             JobType::KeyframeAssembly => "keyframe_assembly",
+            JobType::ViewVision => "view_vision",
+            JobType::ViewAssembly => "view_assembly",
         }
     }
 
@@ -160,6 +162,8 @@ impl PgJobRepository {
             "thumbnail_sprite" => JobType::ThumbnailSprite,
             "keyframe_vision" => JobType::KeyframeVision,
             "keyframe_assembly" => JobType::KeyframeAssembly,
+            "view_vision" => JobType::ViewVision,
+            "view_assembly" => JobType::ViewAssembly,
             _ => JobType::ContextUpdate, // fallback
         }
     }

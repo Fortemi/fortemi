@@ -260,86 +260,101 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             "Describing rendered views"
         );
 
-        // Describe each view using vision backend
+        // When _skip_vision is set, defer vision LLM calls to atomic ViewVision
+        // jobs (#533). The extraction handler will queue one ViewVision job per
+        // rendered view after derived files are persisted.
+        let skip_vision = config
+            .get("_skip_vision")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let mut view_descriptions = Vec::new();
+        let mut composite_description: Option<String> = None;
         let total_views = rendered_views.len();
-        for view in &rendered_views {
-            let prompt = if let Some(custom) = custom_prompt {
-                format!(
-                    "{}\n\nThis is view {} of {} (angle: {:.0}°, elevation: {}) of a 3D model from file '{}'.",
-                    custom, view.index + 1, total_views, view.angle_degrees, view.elevation, filename
-                )
-            } else {
-                format!(
-                    "Describe this rendered view of a 3D model in detail. \
-                     This is view {} of {} (camera angle: {:.0}°, elevation: {}). \
-                     The model file is '{}'. \
-                     Describe the shape, materials, textures, colors, and any notable features visible from this angle.",
-                    view.index + 1, total_views, view.angle_degrees, view.elevation, filename
-                )
-            };
 
-            match self
-                .backend
-                .describe_image(&view.image_data, "image/png", Some(&prompt))
-                .await
-            {
-                Ok(description) => {
-                    view_descriptions.push(json!({
-                        "view_index": view.index,
-                        "angle_degrees": view.angle_degrees,
-                        "elevation": &view.elevation,
-                        "description": description,
-                    }));
-                }
-                Err(e) => {
-                    warn!(view = view.index, error = %e, "View description failed");
-                }
-            }
-        }
-
-        // Synthesize composite description from all views
-        let composite_description = if !view_descriptions.is_empty() {
-            let views_text = view_descriptions
-                .iter()
-                .map(|v| {
+        if !skip_vision {
+            // Inline vision: describe each view immediately (original behavior)
+            for view in &rendered_views {
+                let prompt = if let Some(custom) = custom_prompt {
                     format!(
-                        "View {} ({:.0}°, {}): {}",
-                        v["view_index"], v["angle_degrees"], v["elevation"], v["description"]
+                        "{}\n\nThis is view {} of {} (angle: {:.0}°, elevation: {}) of a 3D model from file '{}'.",
+                        custom, view.index + 1, total_views, view.angle_degrees, view.elevation, filename
                     )
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n");
+                } else {
+                    format!(
+                        "Describe this rendered view of a 3D model in detail. \
+                         This is view {} of {} (camera angle: {:.0}°, elevation: {}). \
+                         The model file is '{}'. \
+                         Describe the shape, materials, textures, colors, and any notable features visible from this angle.",
+                        view.index + 1, total_views, view.angle_degrees, view.elevation, filename
+                    )
+                };
 
-            // Ask vision model to synthesize a unified description
-            let synthesis_prompt = format!(
-                "Below are descriptions of the same 3D model ('{}') viewed from {} different camera angles.\n\n\
-                 {}\n\n\
-                 Provide a single comprehensive description of this 3D model, \
-                 combining information from all views. \
-                 Describe the overall shape, geometry, materials, colors, and purpose of the object.",
-                filename,
-                view_descriptions.len(),
-                views_text
-            );
-
-            // Use a 64×64 placeholder PNG (the prompt contains the real content).
-            // Must be ≥ 32×32 to satisfy vision model image preprocessors.
-            let dummy_png = create_placeholder_png();
-            match self
-                .backend
-                .describe_image(&dummy_png, "image/png", Some(&synthesis_prompt))
-                .await
-            {
-                Ok(synthesis) => Some(synthesis),
-                Err(e) => {
-                    warn!(error = %e, "Synthesis failed, using concatenated descriptions");
-                    Some(views_text)
+                match self
+                    .backend
+                    .describe_image(&view.image_data, "image/png", Some(&prompt))
+                    .await
+                {
+                    Ok(description) => {
+                        view_descriptions.push(json!({
+                            "view_index": view.index,
+                            "angle_degrees": view.angle_degrees,
+                            "elevation": &view.elevation,
+                            "description": description,
+                        }));
+                    }
+                    Err(e) => {
+                        warn!(view = view.index, error = %e, "View description failed");
+                    }
                 }
             }
+
+            // Synthesize composite description from all views
+            composite_description = if !view_descriptions.is_empty() {
+                let views_text = view_descriptions
+                    .iter()
+                    .map(|v| {
+                        format!(
+                            "View {} ({:.0}°, {}): {}",
+                            v["view_index"], v["angle_degrees"], v["elevation"], v["description"]
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+
+                let synthesis_prompt = format!(
+                    "Below are descriptions of the same 3D model ('{}') viewed from {} different camera angles.\n\n\
+                     {}\n\n\
+                     Provide a single comprehensive description of this 3D model, \
+                     combining information from all views. \
+                     Describe the overall shape, geometry, materials, colors, and purpose of the object.",
+                    filename,
+                    view_descriptions.len(),
+                    views_text
+                );
+
+                let dummy_png = create_placeholder_png();
+                match self
+                    .backend
+                    .describe_image(&dummy_png, "image/png", Some(&synthesis_prompt))
+                    .await
+                {
+                    Ok(synthesis) => Some(synthesis),
+                    Err(e) => {
+                        warn!(error = %e, "Synthesis failed, using concatenated descriptions");
+                        Some(views_text)
+                    }
+                }
+            } else {
+                None
+            };
         } else {
-            None
-        };
+            debug!(
+                filename,
+                total_views,
+                "Vision deferred — ViewVision jobs will be queued by extraction handler"
+            );
+        }
 
         // Build derived files from rendered views so they persist as child attachments
         let base_name = filename
@@ -350,7 +365,7 @@ impl ExtractionAdapter for Glb3DModelAdapter {
         let derived_files: Vec<DerivedFile> = rendered_views
             .iter()
             .map(|view| {
-                // Find the matching AI description for this view
+                // Find the matching AI description for this view (None when _skip_vision)
                 let ai_description = view_descriptions
                     .iter()
                     .find(|vd| vd["view_index"].as_u64() == Some(view.index as u64))
@@ -365,7 +380,12 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                     data: view.image_data.clone(),
                     derivation_type: "3d_rendering".to_string(),
                     ai_description,
-                    metadata: None,
+                    metadata: Some(json!({
+                        "view_index": view.index,
+                        "angle_degrees": view.angle_degrees,
+                        "elevation": &view.elevation,
+                        "total_views": total_views,
+                    })),
                     source_path: None,
                 }
             })

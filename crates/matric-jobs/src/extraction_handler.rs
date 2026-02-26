@@ -326,9 +326,14 @@ impl JobHandler for ExtractionHandler {
             }
         }
 
-        // Inject _skip_vision for VideoMultimodal: defer vision LLM calls to
-        // atomic KeyframeVision jobs instead of running them inline (#526).
-        if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+        // Inject _skip_vision for VideoMultimodal and Glb3DModel: defer vision
+        // LLM calls to atomic per-item vision jobs instead of running them inline.
+        // - VideoMultimodal → KeyframeVision jobs (#526)
+        // - Glb3DModel → ViewVision jobs (#533)
+        if matches!(
+            strategy,
+            ExtractionStrategy::VideoMultimodal | ExtractionStrategy::Glb3DModel
+        ) {
             if let Some(obj) = config.as_object_mut() {
                 obj.insert("_skip_vision".to_string(), json!(true));
             }
@@ -1075,6 +1080,138 @@ impl JobHandler for ExtractionHandler {
                             has_keyframes,
                             "VideoMultimodal extraction produced no keyframe derived files — \
                              KeyframeVision and ThumbnailSprite jobs will not be queued"
+                        );
+                    }
+
+                    // Queue atomic ViewVision jobs for 3D model views (#533).
+                    // Mirrors the KeyframeVision fan-out pattern: one job per rendered view,
+                    // last to complete triggers ViewAssembly for composite description.
+                    let has_3d_views = result
+                        .derived_files
+                        .iter()
+                        .any(|f| f.derivation_type == "3d_rendering");
+
+                    if matches!(strategy, ExtractionStrategy::Glb3DModel) && has_3d_views {
+                        if let Some(fs) = self.db.file_storage.as_ref() {
+                            if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                let views: Vec<matric_core::Attachment> = fs
+                                    .list_derived_by_type_tx(&mut tx, att_id, "3d_rendering")
+                                    .await
+                                    .unwrap_or_default();
+                                let _ = tx.commit().await;
+
+                                let total_views = views.len();
+                                if total_views > 0 {
+                                    // Store expected count in parent metadata for fan-in
+                                    if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                        let _ = fs
+                                            .merge_extracted_metadata_tx(
+                                                &mut tx,
+                                                att_id,
+                                                &json!({"expected_view_count": total_views}),
+                                            )
+                                            .await;
+                                        let _ = tx.commit().await;
+                                    }
+
+                                    // Get filename from parent for view prompts
+                                    let parent_filename = result
+                                        .metadata
+                                        .get("filename")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("model.glb");
+
+                                    let mut queued = 0usize;
+                                    for view_att in &views {
+                                        let meta = view_att
+                                            .extracted_metadata
+                                            .as_ref()
+                                            .cloned()
+                                            .unwrap_or(json!({}));
+                                        let view_index = meta
+                                            .get("view_index")
+                                            .and_then(|v| v.as_u64())
+                                            .unwrap_or(0);
+                                        let angle_degrees = meta
+                                            .get("angle_degrees")
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0);
+                                        let elevation = meta
+                                            .get("elevation")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown");
+
+                                        let mut vision_payload = serde_json::Map::new();
+                                        vision_payload.insert(
+                                            "parent_attachment_id".into(),
+                                            json!(att_id.to_string()),
+                                        );
+                                        vision_payload.insert(
+                                            "view_attachment_id".into(),
+                                            json!(view_att.id.to_string()),
+                                        );
+                                        vision_payload
+                                            .insert("view_index".into(), json!(view_index));
+                                        vision_payload
+                                            .insert("angle_degrees".into(), json!(angle_degrees));
+                                        vision_payload.insert("elevation".into(), json!(elevation));
+                                        vision_payload
+                                            .insert("total_views".into(), json!(total_views));
+                                        vision_payload
+                                            .insert("filename".into(), json!(parent_filename));
+                                        if schema != "public" {
+                                            vision_payload.insert("schema".into(), json!(&schema));
+                                        }
+
+                                        match self
+                                            .db
+                                            .jobs
+                                            .queue(
+                                                Some(note_id),
+                                                JobType::ViewVision,
+                                                JobType::ViewVision.default_priority(),
+                                                Some(serde_json::Value::Object(vision_payload)),
+                                                JobType::ViewVision.default_cost_tier(),
+                                            )
+                                            .await
+                                        {
+                                            Ok(job_id) => {
+                                                ctx.emit_job_queued(
+                                                    job_id,
+                                                    JobType::ViewVision,
+                                                    Some(note_id),
+                                                );
+                                                queued += 1;
+                                            }
+                                            Err(e) => {
+                                                warn!(
+                                                    note_id = %note_id,
+                                                    view_index,
+                                                    error = %e,
+                                                    "Failed to queue ViewVision job"
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    info!(
+                                        note_id = %note_id,
+                                        attachment_id = %att_id,
+                                        total_views,
+                                        queued,
+                                        "Queued {} ViewVision jobs",
+                                        queued
+                                    );
+                                }
+                            }
+                        }
+                    } else if matches!(strategy, ExtractionStrategy::Glb3DModel) && !has_3d_views {
+                        info!(
+                            note_id = %note_id,
+                            attachment_id = %att_id,
+                            derived_count = result.derived_files.len(),
+                            "Glb3DModel extraction produced no 3d_rendering derived files — \
+                             ViewVision jobs will not be queued"
                         );
                     }
                 }

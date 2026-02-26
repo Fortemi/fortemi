@@ -1171,6 +1171,30 @@ impl PgFileStorageRepository {
         Ok(row.0)
     }
 
+    /// Count derived attachments of a given type that have been described by vision LLM.
+    ///
+    /// Generic version of `count_described_keyframes_tx` — works for any derivation_type
+    /// (e.g., "3d_rendering", "keyframe"). Used for fan-in checks. (#533)
+    pub async fn count_described_derived_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_attachment_id: Uuid,
+        derivation_type: &str,
+    ) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as(
+            r#"SELECT COUNT(*)
+               FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1
+                 AND extracted_metadata->>'derivation_type' = $2
+                 AND ai_description IS NOT NULL"#,
+        )
+        .bind(parent_attachment_id.to_string())
+        .bind(derivation_type)
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(row.0)
+    }
+
     /// Transaction-aware variant of set_detected_document_type.
     pub async fn set_detected_document_type_tx(
         &self,

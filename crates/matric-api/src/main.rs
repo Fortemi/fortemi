@@ -381,7 +381,7 @@ use matric_jobs::{
     KeyframeVisionHandler, MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter,
     PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter,
     StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter,
-    VisionAdapter, WorkerConfig, WorkerEvent,
+    ViewAssemblyHandler, ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1281,6 +1281,13 @@ async fn main() -> anyhow::Result<()> {
         }
         worker
             .register_handler(KeyframeAssemblyHandler::new(db.clone()))
+            .await;
+        // 3D model view vision pipeline (#533): mirrors keyframe pattern.
+        worker
+            .register_handler(ViewVisionHandler::new(db.clone(), vision_backend.clone()))
+            .await;
+        worker
+            .register_handler(ViewAssemblyHandler::new(db.clone()))
             .await;
 
         let handle = worker.start();
@@ -4114,6 +4121,27 @@ async fn get_knowledge_health(
         }));
     }
 
+    // Blob storage metrics (#531) — uses psql for consistency with get_storage_breakdown
+    let blob_count = get_db_size_via_psql("COUNT(*) FROM attachment_blob").unwrap_or(0);
+    let blob_total_bytes =
+        get_db_size_via_psql("COALESCE(SUM(size_bytes), 0) FROM attachment_blob").unwrap_or(0);
+    let orphaned_blob_count =
+        get_db_size_via_psql("COUNT(*) FROM attachment_blob WHERE reference_count = 0")
+            .unwrap_or(0);
+    let orphaned_blob_bytes = get_db_size_via_psql(
+        "COALESCE(SUM(size_bytes), 0) FROM attachment_blob WHERE reference_count = 0",
+    )
+    .unwrap_or(0);
+
+    if orphaned_blob_count > 0 {
+        recommendations.push(serde_json::json!({
+            "type": "orphaned_blobs",
+            "message": format!("{} orphaned blobs consuming {}", orphaned_blob_count, format_size(orphaned_blob_bytes as u64)),
+            "action": "Run cleanup_orphaned_blobs() or delete unreferenced attachments to reclaim storage",
+            "severity": if orphaned_blob_bytes > 100_000_000 { "high" } else { "medium" }
+        }));
+    }
+
     Ok(Json(serde_json::json!({
         "health_score": health_score,
         "total_notes": total_notes,
@@ -4124,6 +4152,14 @@ async fn get_knowledge_health(
         "orphan_tags": orphan_tag_count,
         "total_tags": all_tags.len(),
         "total_links": all_links.len(),
+        "blob_storage": {
+            "total_blobs": blob_count,
+            "total_size_bytes": blob_total_bytes,
+            "total_size_human": format_size(blob_total_bytes as u64),
+            "orphaned_blobs": orphaned_blob_count,
+            "orphaned_size_bytes": orphaned_blob_bytes,
+            "orphaned_size_human": format_size(orphaned_blob_bytes as u64),
+        },
         "metrics": {
             "stale_ratio": if total_notes > 0 { stale_count as f64 / total_notes as f64 } else { 0.0 },
             "unlinked_ratio": if total_notes > 0 { unlinked_count as f64 / total_notes as f64 } else { 0.0 },
@@ -16929,6 +16965,18 @@ struct StorageBreakdown {
     /// FTS index size
     fts_index_bytes: i64,
     fts_index_human: String,
+    /// Blob storage table size (PostgreSQL relation)
+    blob_table_bytes: i64,
+    blob_table_human: String,
+    /// Total blob content size (aggregate of size_bytes column)
+    blob_content_bytes: i64,
+    blob_content_human: String,
+    /// Number of attachment blobs
+    blob_count: i64,
+    /// Orphaned blobs (reference_count = 0)
+    orphaned_blob_count: i64,
+    orphaned_blob_bytes: i64,
+    orphaned_blob_human: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -17076,6 +17124,20 @@ async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
     // Estimate index size as 20% of table size (rough heuristic)
     let embedding_index_size = embedding_size / 5;
 
+    // Blob storage metrics (#531)
+    let blob_table_size =
+        get_db_size_via_psql("pg_total_relation_size('attachment_blob')").unwrap_or(0);
+    let blob_content_bytes =
+        get_db_size_via_psql("COALESCE(SUM(size_bytes), 0) FROM attachment_blob").unwrap_or(0);
+    let blob_count = get_db_size_via_psql("COUNT(*) FROM attachment_blob").unwrap_or(0);
+    let orphaned_blob_count =
+        get_db_size_via_psql("COUNT(*) FROM attachment_blob WHERE reference_count = 0")
+            .unwrap_or(0);
+    let orphaned_blob_bytes = get_db_size_via_psql(
+        "COALESCE(SUM(size_bytes), 0) FROM attachment_blob WHERE reference_count = 0",
+    )
+    .unwrap_or(0);
+
     StorageBreakdown {
         database_total_bytes: db_size,
         database_total_human: format_size(db_size as u64),
@@ -17087,6 +17149,14 @@ async fn get_storage_breakdown(_db: &Database) -> StorageBreakdown {
         notes_table_human: format_size(notes_size as u64),
         fts_index_bytes: fts_size,
         fts_index_human: format_size(fts_size as u64),
+        blob_table_bytes: blob_table_size,
+        blob_table_human: format_size(blob_table_size as u64),
+        blob_content_bytes,
+        blob_content_human: format_size(blob_content_bytes as u64),
+        blob_count,
+        orphaned_blob_count,
+        orphaned_blob_bytes,
+        orphaned_blob_human: format_size(orphaned_blob_bytes as u64),
     }
 }
 

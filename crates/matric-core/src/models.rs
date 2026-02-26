@@ -2110,6 +2110,10 @@ pub enum JobType {
     KeyframeVision,
     /// Aggregate all keyframe descriptions and rebuild video markdown (#526)
     KeyframeAssembly,
+    /// Describe a single 3D model rendered view using vision LLM (atomic, parallelizable) (#533)
+    ViewVision,
+    /// Aggregate all 3D view descriptions and rebuild model markdown (#533)
+    ViewAssembly,
 }
 
 impl JobType {
@@ -2169,6 +2173,10 @@ impl JobType {
             JobType::KeyframeVision => 4,
             // Keyframe assembly runs after all vision jobs, low priority
             JobType::KeyframeAssembly => 3,
+            // View vision is per-view, medium priority (gates assembly) (#533)
+            JobType::ViewVision => 4,
+            // View assembly runs after all vision jobs, low priority (#533)
+            JobType::ViewAssembly => 3,
         }
     }
 
