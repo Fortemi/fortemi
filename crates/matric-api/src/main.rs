@@ -119,6 +119,16 @@ async fn queue_extraction_job(
         payload["schema"] = serde_json::json!(s);
     }
 
+    // Determine cost tier based on extraction strategy.
+    // Vision and 3D model strategies use Ollama and should be grouped in the
+    // vision GPU tier to avoid VRAM contention.
+    let cost_tier = match strategy {
+        ExtractionStrategy::Vision | ExtractionStrategy::Glb3DModel => {
+            Some(matric_core::cost_tier::VISION_GPU)
+        }
+        _ => None,
+    };
+
     // Use non-deduplicating queue: each attachment needs its own extraction job.
     // queue_deduplicated uses (note_id, job_type) as the dedup key, which would
     // silently drop extraction jobs when multiple attachments are uploaded to the
@@ -130,11 +140,19 @@ async fn queue_extraction_job(
             JobType::Extraction,
             JobType::Extraction.default_priority(),
             Some(payload),
-            None,
+            cost_tier,
         )
         .await
     {
         Ok(job_id) => {
+            info!(
+                %note_id,
+                %attachment_id,
+                %job_id,
+                strategy = %strategy,
+                filename,
+                "Extraction job queued for attachment"
+            );
             event_bus.emit(ServerEvent::JobQueued {
                 job_id,
                 job_type: format!("{:?}", JobType::Extraction),

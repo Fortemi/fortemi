@@ -337,6 +337,11 @@ impl JobHandler for ExtractionHandler {
             if let Some(obj) = config.as_object_mut() {
                 obj.insert("_skip_vision".to_string(), json!(true));
             }
+            debug!(
+                strategy = ?strategy,
+                filename,
+                "_skip_vision injected — vision LLM calls deferred to atomic jobs"
+            );
         }
 
         ctx.report_progress(10, Some("Starting extraction"));
@@ -1101,6 +1106,17 @@ impl JobHandler for ExtractionHandler {
                                 let _ = tx.commit().await;
 
                                 let total_views = views.len();
+                                if total_views == 0 {
+                                    warn!(
+                                        note_id = %note_id,
+                                        attachment_id = %att_id,
+                                        in_memory_views = has_3d_views,
+                                        "No 3d_rendering attachments found in DB — \
+                                         ViewVision jobs will not be queued. \
+                                         This may indicate derived files were not \
+                                         persisted before this check ran."
+                                    );
+                                }
                                 if total_views > 0 {
                                     // Store expected count in parent metadata for fan-in
                                     if let Ok(mut tx) = schema_ctx.begin_tx().await {

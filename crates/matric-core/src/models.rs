@@ -2190,6 +2190,10 @@ impl JobType {
             JobType::ConceptTagging | JobType::ReferenceExtraction => Some(cost_tier::CPU_NER),
             // Fast GPU tier: title gen, metadata extraction
             JobType::TitleGeneration | JobType::MetadataExtraction => Some(cost_tier::FAST_GPU),
+            // Vision GPU tier: per-frame/per-view vision LLM description.
+            // Serialized by default (VISION_MAX_CONCURRENT=1) to prevent
+            // VRAM contention on single-GPU systems.
+            JobType::KeyframeVision | JobType::ViewVision => Some(cost_tier::VISION_GPU),
             // Everything else is tier-agnostic
             _ => None,
         }
@@ -2205,6 +2209,9 @@ pub enum TierGroup {
     FastGpu,
     /// Standard GPU jobs (cost_tier = 2).
     StandardGpu,
+    /// Vision GPU jobs (cost_tier = 3).
+    /// Serialized by default to avoid VRAM contention on single-GPU systems.
+    VisionGpu,
 }
 
 /// Cost tier constants for tiered atomic job architecture.
@@ -2218,6 +2225,10 @@ pub mod cost_tier {
     pub const FAST_GPU: i16 = 1;
     /// Standard GPU tier: gpt-oss:20b fallback extraction (60-105s).
     pub const STANDARD_GPU: i16 = 2;
+    /// Vision GPU tier: vision LLM per-frame/per-view description (10-30s each).
+    /// Serialized by default (`VISION_MAX_CONCURRENT=1`) to avoid VRAM contention
+    /// on single-GPU systems with 6-8GB VRAM.
+    pub const VISION_GPU: i16 = 3;
 }
 
 /// A job in the processing queue.

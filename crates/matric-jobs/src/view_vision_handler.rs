@@ -181,10 +181,19 @@ impl JobHandler for ViewVisionHandler {
         {
             Ok(desc) => desc,
             Err(e) => {
+                warn!(
+                    view_index,
+                    parent = %parent_attachment_id,
+                    view = %view_attachment_id,
+                    model = vision.model_name(),
+                    image_bytes = image_data.len(),
+                    error = %e,
+                    "Vision LLM failed for view — will retry"
+                );
                 return JobResult::Retry(format!(
                     "Vision LLM failed for view {}: {}",
                     view_index, e
-                ))
+                ));
             }
         };
 

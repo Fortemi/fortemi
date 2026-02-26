@@ -265,10 +265,11 @@ impl JobWorker {
         let job_notify = self.db.jobs.job_notify();
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
         let max_concurrent = self.config.max_concurrent_jobs;
+        let gpu_concurrent = matric_core::defaults::gpu_max_concurrent();
 
         info!(
             safety_net_interval_ms = self.config.poll_interval_ms,
-            max_concurrent, "Job worker started (event-driven)"
+            max_concurrent, gpu_concurrent, "Job worker started (event-driven)"
         );
 
         let _ = self.event_tx.send(WorkerEvent::WorkerStarted);
@@ -329,7 +330,9 @@ impl JobWorker {
                     any_processed = true;
                 }
 
-                // Phase 2: Drain tier 1 (fast GPU) with warmup
+                // Phase 2: Drain tier 1 (fast GPU) with warmup.
+                // GPU tiers use gpu_concurrent (default 1 = serial) to avoid
+                // VRAM contention. Set GPU_MAX_CONCURRENT=N for parallel.
                 let tier1_pending = self
                     .db
                     .jobs
@@ -343,7 +346,7 @@ impl JobWorker {
                         }
                     }
                     let drained = self
-                        .drain_tier(TierGroup::FastGpu, max_concurrent, &excluded_archives)
+                        .drain_tier(TierGroup::FastGpu, gpu_concurrent, &excluded_archives)
                         .await;
                     if drained > 0 {
                         any_processed = true;
@@ -364,7 +367,28 @@ impl JobWorker {
                         }
                     }
                     let drained = self
-                        .drain_tier(TierGroup::StandardGpu, max_concurrent, &excluded_archives)
+                        .drain_tier(TierGroup::StandardGpu, gpu_concurrent, &excluded_archives)
+                        .await;
+                    if drained > 0 {
+                        any_processed = true;
+                    }
+                }
+
+                // Phase 4: Drain tier 3 (vision GPU) — per-frame/per-view
+                // vision description jobs, also serialized by gpu_concurrent.
+                let tier3_pending = self
+                    .db
+                    .jobs
+                    .pending_count_for_tier(cost_tier::VISION_GPU)
+                    .await
+                    .unwrap_or(0);
+                if tier3_pending > 0 {
+                    debug!(
+                        pending = tier3_pending,
+                        gpu_concurrent, "Vision GPU tier: draining"
+                    );
+                    let drained = self
+                        .drain_tier(TierGroup::VisionGpu, gpu_concurrent, &excluded_archives)
                         .await;
                     if drained > 0 {
                         any_processed = true;
@@ -546,6 +570,7 @@ impl JobWorkerRef {
             }
         };
 
+        let is_retry = matches!(&result, JobResult::Retry(_));
         match result {
             JobResult::Success(result_data) => {
                 if let Err(e) = self.db.jobs.complete(job_id, result_data).await {
@@ -570,6 +595,7 @@ impl JobWorkerRef {
                         ?job_id,
                         ?job_type,
                         %error,
+                        is_retry,
                         duration_ms = start.elapsed().as_millis() as u64,
                         "Job failed"
                     );

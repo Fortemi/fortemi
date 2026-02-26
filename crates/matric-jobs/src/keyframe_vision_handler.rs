@@ -201,10 +201,19 @@ impl JobHandler for KeyframeVisionHandler {
         {
             Ok(desc) => desc,
             Err(e) => {
+                warn!(
+                    frame_index,
+                    parent = %parent_attachment_id,
+                    keyframe = %keyframe_attachment_id,
+                    model = vision.model_name(),
+                    image_bytes = image_data.len(),
+                    error = %e,
+                    "Vision LLM failed for keyframe — will retry"
+                );
                 return JobResult::Retry(format!(
                     "Vision LLM failed for frame {}: {}",
                     frame_index, e
-                ))
+                ));
             }
         };
 

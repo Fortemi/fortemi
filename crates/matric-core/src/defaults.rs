@@ -160,6 +160,22 @@ pub const JOB_POLL_INTERVAL_MS: u64 = 60_000;
 /// Default maximum concurrent jobs per worker.
 pub const JOB_MAX_CONCURRENT: usize = 4;
 
+/// Default maximum concurrent GPU jobs (any tier that uses Ollama).
+/// Defaults to 1 (serial) to avoid VRAM contention on single-GPU systems
+/// with 6-8GB VRAM. Each Ollama call loads ~4-6GB of model weights.
+/// Set GPU_MAX_CONCURRENT=N to allow parallel GPU jobs if you have
+/// sufficient VRAM (e.g., 2 for 16GB, 4 for 48GB+).
+pub const GPU_MAX_CONCURRENT: usize = 1;
+
+/// Read GPU concurrency limit from env, falling back to the default.
+pub fn gpu_max_concurrent() -> usize {
+    std::env::var("GPU_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|v| v.max(1))
+        .unwrap_or(GPU_MAX_CONCURRENT)
+}
+
 /// Default job execution timeout in seconds (10 minutes).
 /// Configurable via `JOB_TIMEOUT_SECS` env var.
 /// Video multimodal extraction (keyframe extraction + vision model per frame)
