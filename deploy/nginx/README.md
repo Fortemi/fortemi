@@ -60,9 +60,11 @@ When adding new API endpoints, ensure they are routed BEFORE the SPA catch-all:
 |--------------|---------|----------|
 | `/.well-known/*` | API | High (exact match) |
 | `/oauth/*` | API | High |
-| `/api/*` | API | High |
+| `/health`, `/healthz` | API | High (exact match) |
 | `/mcp` | MCP Server | High |
-| `/health` | API | Medium |
+| `/api/v1/notes/:id/attachments/upload` | API (streaming) | High (regex) |
+| `/api/v1/notes/:id/attachments/tus` | API (streaming) | High (regex) |
+| `/api/*` | API | Medium (prefix) |
 | `/*` | SPA | Lowest (catch-all) |
 
 ### Common Mistakes
@@ -170,11 +172,25 @@ Without these, video players will be unable to seek and audio players won't supp
 
 Set to `1024M` (1 GB) to accommodate large video, 3D model, and audio uploads. This must be >= the API's `MATRIC_MAX_UPLOAD_SIZE_BYTES` setting. When uploads exceed this limit, nginx returns 413 Request Entity Too Large before the request reaches the API.
 
-### Upload Endpoint (Streaming)
+### Upload Transport Architecture
 
-File uploads use a dedicated `location` block with `proxy_request_buffering off`, which streams the request body directly to the API without buffering to a temp file. This is necessary because Chrome's HTTP/2 implementation drops connections mid-transfer when nginx tries to buffer large uploads (200+ MB) to temp files.
+Fortemi uses two upload transports based on file size:
 
-The upload location matches `~ ^/api/v1/notes/[^/]+/attachments/upload$` and must appear **before** the general `/api/` location block (nginx evaluates regex locations in order of appearance, and they take priority over prefix matches).
+| Transport | Threshold | Endpoint | Method |
+|-----------|-----------|----------|--------|
+| Direct multipart | ≤50 MB | `/api/v1/notes/:id/attachments/upload` | Single POST |
+| TUS resumable | >50 MB | `/api/v1/notes/:id/attachments/tus` | POST create + PATCH chunks |
+
+The 50 MB boundary is controlled by `MATRIC_MAX_UPLOAD_SIZE_BYTES` (default 50 MB). The frontend should detect file size and route to the appropriate transport automatically.
+
+Both upload endpoints use dedicated `location` blocks with `proxy_request_buffering off`, which streams the request body directly to the API without buffering to a temp file. This is necessary because:
+
+1. **Chrome HTTP/2 bug**: Chrome drops HTTP/2 connections mid-transfer when nginx buffers large uploads (>200 MB) to temp files
+2. **TUS protocol**: PATCH requests send binary chunks that must be streamed without buffering; buffering would break resume offsets
+
+The TUS location also forwards protocol headers (`Tus-Resumable`, `Upload-Offset`, `Upload-Length`, `Upload-Metadata`) and handles all TUS verbs (POST create, PATCH upload, HEAD resume, DELETE cancel, OPTIONS discovery).
+
+Both upload locations must appear **before** the general `/api/` location block (nginx evaluates regex locations in order of appearance, and they take priority over prefix matches).
 
 ### Request Buffering (`proxy_request_buffering on`)
 

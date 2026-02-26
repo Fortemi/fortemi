@@ -1197,7 +1197,8 @@ async fn main() -> anyhow::Result<()> {
             Some(extraction_registry),
         )
         .with_fast_backend(OllamaBackend::fast_from_env())
-        .with_standard_backend(Some(OllamaBackend::from_env()));
+        .with_standard_backend(Some(OllamaBackend::from_env()))
+        .with_vision_backend(vision_backend.clone());
 
         // Wire pause state into worker for global/per-archive pause control (Issue #466).
         if let Some(ref ps) = pause_state {

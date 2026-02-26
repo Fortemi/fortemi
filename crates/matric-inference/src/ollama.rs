@@ -197,6 +197,36 @@ impl OllamaBackend {
         Ok(())
     }
 
+    /// Unload the generation model from VRAM immediately.
+    ///
+    /// Sends `keep_alive: "0"` to tell Ollama to evict the model right now,
+    /// freeing GPU memory for the next tier's model. Called by the job worker
+    /// between tier transitions to avoid VRAM contention.
+    pub async fn unload(&self) -> matric_core::Result<()> {
+        let url = format!("{}/api/generate", self.base_url);
+        let body = serde_json::json!({
+            "model": self.gen_model,
+            "prompt": "",
+            "keep_alive": "0"
+        });
+        info!(model = %self.gen_model, "Unloading generation model from VRAM");
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.client.post(&url).json(&body).send(),
+        )
+        .await
+        .map_err(|_| {
+            matric_core::Error::Internal(format!(
+                "Unload timed out after 10s for model {}",
+                self.gen_model
+            ))
+        })?
+        .map_err(|e| matric_core::Error::Internal(format!("Unload failed: {}", e)))?;
+        let _ = resp.bytes().await;
+        debug!(model = %self.gen_model, "Model unloaded from VRAM");
+        Ok(())
+    }
+
     /// Get the model registry.
     pub fn registry(&self) -> &ModelRegistry {
         &self.registry

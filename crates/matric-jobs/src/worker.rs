@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use matric_core::{cost_tier, JobRepository, JobType, Result, TierGroup};
 use matric_db::Database;
-use matric_inference::OllamaBackend;
+use matric_inference::{OllamaBackend, VisionBackend};
 
 use crate::extraction::ExtractionRegistry;
 use crate::handler::{JobContext, JobHandler, JobResult};
@@ -157,6 +157,9 @@ pub struct JobWorker {
     fast_backend: Option<Arc<OllamaBackend>>,
     /// Standard GPU model backend for tier-2 warmup.
     standard_backend: Option<Arc<OllamaBackend>>,
+    /// Vision GPU model backend for VRAM lifecycle management.
+    /// Used to unload the vision model after the vision tier drains.
+    vision_backend: Option<Arc<dyn VisionBackend>>,
     /// Pause state for global and per-archive job processing control (Issue #466).
     pause_state: Option<PauseState>,
 }
@@ -177,6 +180,7 @@ impl JobWorker {
             extraction_registry: extraction_registry.map(Arc::new),
             fast_backend: None,
             standard_backend: None,
+            vision_backend: None,
             pause_state: None,
         }
     }
@@ -190,6 +194,12 @@ impl JobWorker {
     /// Set the standard GPU model backend for tier-2 warmup.
     pub fn with_standard_backend(mut self, backend: Option<OllamaBackend>) -> Self {
         self.standard_backend = backend.map(Arc::new);
+        self
+    }
+
+    /// Set the vision GPU model backend for VRAM lifecycle management.
+    pub fn with_vision_backend(mut self, backend: Option<Arc<dyn VisionBackend>>) -> Self {
+        self.vision_backend = backend;
         self
     }
 
@@ -350,6 +360,12 @@ impl JobWorker {
                         .await;
                     if drained > 0 {
                         any_processed = true;
+                        // Unload fast model — free VRAM before the next tier loads its model
+                        if let Some(ref fast) = self.fast_backend {
+                            if let Err(e) = fast.unload().await {
+                                warn!(error = %e, "Fast model unload failed");
+                            }
+                        }
                     }
                 }
 
@@ -371,6 +387,12 @@ impl JobWorker {
                         .await;
                     if drained > 0 {
                         any_processed = true;
+                        // Unload standard model — free VRAM before vision/render tiers
+                        if let Some(ref standard) = self.standard_backend {
+                            if let Err(e) = standard.unload().await {
+                                warn!(error = %e, "Standard model unload failed");
+                            }
+                        }
                     }
                 }
 
@@ -415,6 +437,12 @@ impl JobWorker {
                         .await;
                     if drained > 0 {
                         any_processed = true;
+                        // Unload vision model — free VRAM for next cycle's models
+                        if let Some(ref vision) = self.vision_backend {
+                            if let Err(e) = vision.unload().await {
+                                warn!(error = %e, "Vision model unload failed");
+                            }
+                        }
                     }
                 }
 

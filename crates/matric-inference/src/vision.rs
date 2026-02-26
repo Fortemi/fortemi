@@ -20,6 +20,14 @@ pub trait VisionBackend: Send + Sync {
 
     /// Get the model name being used.
     fn model_name(&self) -> &str;
+
+    /// Unload the vision model from VRAM immediately.
+    ///
+    /// Called by the job worker after the vision tier drains to free GPU memory.
+    /// Default implementation is a no-op for backends that don't support unloading.
+    async fn unload(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Ollama-based vision backend (e.g., qwen3-vl, llava).
@@ -133,6 +141,31 @@ impl VisionBackend for OllamaVisionBackend {
 
     fn model_name(&self) -> &str {
         &self.model
+    }
+
+    async fn unload(&self) -> Result<()> {
+        use tracing::{debug, info};
+
+        let url = format!("{}/api/generate", self.base_url);
+        let body = serde_json::json!({
+            "model": self.model,
+            "prompt": "",
+            "keep_alive": "0"
+        });
+        info!(model = %self.model, "Unloading vision model from VRAM");
+        let resp = self
+            .client
+            .post(&url)
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| {
+                matric_core::Error::Internal(format!("Vision model unload failed: {}", e))
+            })?;
+        let _ = resp.bytes().await;
+        debug!(model = %self.model, "Vision model unloaded from VRAM");
+        Ok(())
     }
 }
 
