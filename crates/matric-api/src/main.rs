@@ -433,12 +433,13 @@ use matric_inference::{
     PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
-    ArchiveAdapter, AudioTranscribeAdapter, CodeAstAdapter, EmailAdapter, ExtractionHandler,
-    ExtractionRegistry, Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler,
-    KeyframeVisionHandler, MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter,
-    PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter,
-    StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter,
-    ViewAssemblyHandler, ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
+    ArchiveAdapter, AudioTranscribeAdapter, AudioTranscriptionHandler, CodeAstAdapter,
+    EmailAdapter, ExtractionHandler, ExtractionRegistry, Glb3DModelAdapter, JobWorker,
+    KeyframeAssemblyHandler, KeyframeVisionHandler, MediaOptimizeHandler, OfficeConvertAdapter,
+    PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
+    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler,
+    VideoMultimodalAdapter, ViewAssemblyHandler, ViewVisionHandler, VisionAdapter, WorkerConfig,
+    WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1346,6 +1347,13 @@ async fn main() -> anyhow::Result<()> {
         worker
             .register_handler(ViewAssemblyHandler::new(db.clone()))
             .await;
+        // Audio transcription pipeline (#542): atomic job for fan-in with keyframes.
+        // Always register — handler retries if Whisper backend is unavailable.
+        if let Some(ref backend) = transcription_backend {
+            worker
+                .register_handler(AudioTranscriptionHandler::new(db.clone(), backend.clone()))
+                .await;
+        }
 
         let handle = worker.start();
         info!("Job worker started");
@@ -9954,6 +9962,7 @@ async fn create_job(
         "speaker_diarization" => JobType::SpeakerDiarization,
         "speaker_relabel" => JobType::SpeakerRelabel,
         "media_optimize" => JobType::MediaOptimize,
+        "audio_transcription" => JobType::AudioTranscription,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",

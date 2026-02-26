@@ -2,6 +2,7 @@
 
 pub mod archive;
 pub mod audio_transcribe;
+pub mod audio_util;
 pub mod code_ast;
 pub mod content_summarizer;
 pub mod email;

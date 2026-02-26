@@ -210,6 +210,25 @@ impl JobHandler for SpeakerDiarizationHandler {
             }
         };
 
+        // 3b. Transcode to 16kHz mono PCM WAV for reliable pyannote compatibility.
+        // If already WAV from video pipeline, ffmpeg just resamples (fast no-op).
+        let work_dir = match tempfile::tempdir() {
+            Ok(d) => d,
+            Err(e) => return JobResult::Failed(format!("Failed to create work dir: {}", e)),
+        };
+        let audio_path = match crate::adapters::audio_util::transcode_to_speech_wav(
+            &audio_path,
+            work_dir.path(),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(error = %e, "Audio transcode failed, using original file for diarization");
+                audio_path // Fall back to original if ffmpeg unavailable
+            }
+        };
+
         ctx.report_progress(20, Some("Running speaker diarization"));
 
         // 4. Run diarization

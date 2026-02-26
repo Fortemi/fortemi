@@ -22,6 +22,21 @@ fn format_audio_duration(secs: f64) -> String {
     }
 }
 
+/// Map audio MIME type to a file extension for temp file creation.
+fn mime_type_to_ext(mime_type: &str) -> &str {
+    match mime_type {
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/ogg" | "audio/vorbis" => "ogg",
+        "audio/flac" | "audio/x-flac" => "flac",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/aac" => "aac",
+        "audio/mp4" | "audio/x-m4a" => "m4a",
+        "audio/webm" => "webm",
+        "audio/opus" => "opus",
+        _ => "bin",
+    }
+}
+
 /// Adapter for extracting text from audio files via transcription.
 ///
 /// Uses a TranscriptionBackend (typically WhisperBackend) to transcribe
@@ -66,17 +81,63 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
         // Extract optional language hint from config
         let language = config.get("language").and_then(|v| v.as_str());
 
+        // Resolve the audio source: path-access mode or inline bytes.
+        // Then transcode to 16kHz mono PCM WAV via ffmpeg for reliable
+        // Whisper/pyannote compatibility (eliminates 415 errors).
+        let work_dir = tempfile::tempdir().map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to create work dir: {}", e))
+        })?;
+
+        let source_path = if let Some(path) = config.get("_source_path").and_then(|v| v.as_str()) {
+            // Path-access mode: file already on disk
+            std::path::PathBuf::from(path)
+        } else {
+            // Inline bytes: write to temp file for ffmpeg input
+            let ext = mime_type_to_ext(mime_type);
+            let input_path = work_dir.path().join(format!("input.{}", ext));
+            std::fs::write(&input_path, data).map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to write audio temp file: {}", e))
+            })?;
+            input_path
+        };
+
+        // Transcode to speech WAV (16kHz mono PCM) for universal backend compatibility.
+        // Skip transcode only if _skip_transcode is set (e.g., input is already speech WAV
+        // from a video pipeline that already transcoded).
+        let skip_transcode = config
+            .get("_skip_transcode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let (wav_data, effective_mime) = if skip_transcode {
+            let audio_data = std::fs::read(&source_path).map_err(|e| {
+                matric_core::Error::Internal(format!(
+                    "Failed to read audio from {}: {}",
+                    source_path.display(),
+                    e
+                ))
+            })?;
+            (audio_data, mime_type.to_string())
+        } else {
+            let wav_path =
+                super::audio_util::transcode_to_speech_wav(&source_path, work_dir.path()).await?;
+            let wav_data = std::fs::read(&wav_path).map_err(|e| {
+                matric_core::Error::Internal(format!("Failed to read transcoded WAV: {}", e))
+            })?;
+            (wav_data, "audio/wav".to_string())
+        };
+
         // Perform transcription
         let transcription = self
             .backend
-            .transcribe(data, mime_type, language)
+            .transcribe(&wav_data, &effective_mime, language)
             .await
             .map_err(|e| {
                 matric_core::Error::Internal(format!(
                     "Audio transcription failed (backend: {}, mime: {}, size: {} bytes): {}",
                     self.backend.model_name(),
-                    mime_type,
-                    data.len(),
+                    effective_mime,
+                    wav_data.len(),
                     e
                 ))
             })?;
@@ -141,7 +202,12 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
     }
 
     async fn health_check(&self) -> Result<bool> {
-        self.backend.health_check().await
+        let backend_ok = self.backend.health_check().await?;
+        let ffmpeg_ok = super::audio_util::ffmpeg_available().await;
+        if !ffmpeg_ok {
+            tracing::warn!("ffmpeg not available — audio transcoding will fail");
+        }
+        Ok(backend_ok && ffmpeg_ok)
     }
 
     fn name(&self) -> &str {
@@ -277,7 +343,7 @@ mod tests {
                 b"fake_audio_data",
                 "test.mp3",
                 "audio/mpeg",
-                &serde_json::json!({}),
+                &serde_json::json!({ "_skip_transcode": true }),
             )
             .await
             .unwrap();
@@ -332,7 +398,7 @@ mod tests {
                 b"audio_data",
                 "short.wav",
                 "audio/wav",
-                &serde_json::json!({}),
+                &serde_json::json!({ "_skip_transcode": true }),
             )
             .await
             .unwrap();
@@ -379,7 +445,7 @@ mod tests {
                 b"audio_data",
                 "spanish.ogg",
                 "audio/ogg",
-                &serde_json::json!({ "language": "es" }),
+                &serde_json::json!({ "language": "es", "_skip_transcode": true }),
             )
             .await
             .unwrap();
@@ -412,7 +478,7 @@ mod tests {
                 b"silent_audio",
                 "silence.flac",
                 "audio/flac",
-                &serde_json::json!({}),
+                &serde_json::json!({ "_skip_transcode": true }),
             )
             .await
             .unwrap();
@@ -460,7 +526,7 @@ mod tests {
                 b"data",
                 "test.mp3",
                 "audio/mpeg",
-                &serde_json::json!({ "language": 123 }),
+                &serde_json::json!({ "language": 123, "_skip_transcode": true }),
             )
             .await
             .unwrap();
@@ -507,7 +573,12 @@ mod tests {
 
         let adapter = AudioTranscribeAdapter::new(Arc::new(mock_backend));
         let result = adapter
-            .extract(b"audio", "multi.wav", "audio/wav", &serde_json::json!({}))
+            .extract(
+                b"audio",
+                "multi.wav",
+                "audio/wav",
+                &serde_json::json!({ "_skip_transcode": true }),
+            )
             .await
             .unwrap();
 
@@ -520,5 +591,84 @@ mod tests {
             assert_eq!(segments_json[i]["end_secs"], seg.end_secs);
             assert_eq!(segments_json[i]["text"], seg.text);
         }
+    }
+
+    #[tokio::test]
+    async fn test_extract_with_source_path() {
+        // Write a temp file to simulate path-access mode from extraction handler
+        let tmp_dir = std::env::temp_dir();
+        let tmp_path = tmp_dir.join("test_audio_path_access.raw");
+        std::fs::write(&tmp_path, b"fake_audio_from_file").unwrap();
+
+        let mock_backend = MockTranscriptionBackend {
+            result: TranscriptionResult {
+                full_text: "Path access works.".to_string(),
+                segments: vec![TranscriptionSegment {
+                    start_secs: 0.0,
+                    end_secs: 2.0,
+                    text: "Path access works.".to_string(),
+                    speaker_id: None,
+                    words: None,
+                }],
+                language: Some("en".to_string()),
+                duration_secs: Some(2.0),
+            },
+            health_ok: true,
+        };
+
+        let adapter = AudioTranscribeAdapter::new(Arc::new(mock_backend));
+        let result = adapter
+            .extract(
+                b"", // Empty data — simulates path-access mode
+                "test.mp3",
+                "audio/mpeg",
+                &serde_json::json!({ "_source_path": tmp_path.to_str().unwrap(), "_skip_transcode": true }),
+            )
+            .await
+            .unwrap();
+
+        let text = result.extracted_text.as_deref().unwrap();
+        assert!(
+            text.contains("Path access works."),
+            "should transcribe from file path, not empty data"
+        );
+        assert_eq!(result.metadata["segment_count"], 1);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    #[tokio::test]
+    async fn test_extract_source_path_not_found() {
+        let mock_backend = MockTranscriptionBackend {
+            result: TranscriptionResult {
+                full_text: String::new(),
+                segments: vec![],
+                language: None,
+                duration_secs: None,
+            },
+            health_ok: true,
+        };
+
+        let adapter = AudioTranscribeAdapter::new(Arc::new(mock_backend));
+        let result = adapter
+            .extract(
+                b"",
+                "test.mp3",
+                "audio/mpeg",
+                &serde_json::json!({ "_source_path": "/nonexistent/path/audio.mp3", "_skip_transcode": true }),
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "should fail when source path doesn't exist"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Failed to read audio from"),
+            "error should mention file read failure: {}",
+            err
+        );
     }
 }

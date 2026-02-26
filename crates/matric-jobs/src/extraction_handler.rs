@@ -344,6 +344,19 @@ impl JobHandler for ExtractionHandler {
             );
         }
 
+        // Inject _skip_transcription for VideoMultimodal: defer Whisper transcription
+        // to an atomic AudioTranscription job for fan-in coordination with keyframes. (#542)
+        if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+            if let Some(obj) = config.as_object_mut() {
+                obj.insert("_skip_transcription".to_string(), json!(true));
+            }
+            debug!(
+                strategy = ?strategy,
+                filename,
+                "_skip_transcription injected — transcription deferred to AudioTranscription job"
+            );
+        }
+
         ctx.report_progress(10, Some("Starting extraction"));
 
         // Check adapter availability
@@ -711,6 +724,10 @@ impl JobHandler for ExtractionHandler {
                 // Persist derived files as child attachments (email attachments, etc.)
                 // NOTE: This 84% report is mutually exclusive with transcript persistence above.
                 // Transcripts come from audio/video adapters; derived files from email/archive adapters.
+                // Track audio_track attachment ID across derived file persistence
+                // and downstream job queuing (#542).
+                let mut audio_track_attachment_id: Option<Uuid> = None;
+
                 if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
                     if !result.derived_files.is_empty() {
                         if let Some(file_storage) = self.db.file_storage.as_ref() {
@@ -763,6 +780,11 @@ impl JobHandler for ExtractionHandler {
                                     {
                                         Ok(child_att) => {
                                             stored += 1;
+
+                                            // Track audio_track attachment ID for AudioTranscription job (#542)
+                                            if df.derivation_type == "audio_track" {
+                                                audio_track_attachment_id = Some(child_att.id);
+                                            }
 
                                             // Merge DerivedFile.metadata into extracted_metadata
                                             if let Some(ref extra_meta) = df.metadata {
@@ -835,19 +857,13 @@ impl JobHandler for ExtractionHandler {
 
                 ctx.report_progress(85, Some("Results persisted"));
 
-                // Queue speaker diarization if transcript segments are available (#497).
-                // Only for audio/video strategies when diarization backend is configured.
+                // Queue downstream jobs for audio/video content.
                 let has_transcript_segments = result
                     .metadata
                     .get("transcript_segments")
                     .and_then(|v| v.as_array())
                     .map(|a| !a.is_empty())
                     .unwrap_or(false);
-
-                let is_audio_video = matches!(
-                    strategy,
-                    ExtractionStrategy::AudioTranscribe | ExtractionStrategy::VideoMultimodal
-                );
 
                 let diarization_available =
                     std::env::var(matric_core::defaults::ENV_DIARIZATION_BASE_URL)
@@ -856,61 +872,149 @@ impl JobHandler for ExtractionHandler {
                         .is_some();
 
                 if let (Some(att_id), Some(note_id)) = (attachment_id, ctx.note_id()) {
-                    if is_audio_video && has_transcript_segments && diarization_available {
-                        let mut diar_payload = serde_json::Map::new();
-                        diar_payload.insert("attachment_id".to_string(), json!(att_id.to_string()));
-                        if schema != "public" {
-                            diar_payload.insert("schema".to_string(), json!(&schema));
-                        }
-                        match self
-                            .db
-                            .jobs
-                            .queue_deduplicated(
-                                Some(note_id),
-                                JobType::SpeakerDiarization,
-                                JobType::SpeakerDiarization.default_priority(),
-                                Some(serde_json::Value::Object(diar_payload)),
-                                JobType::SpeakerDiarization.default_cost_tier(),
-                            )
-                            .await
-                        {
-                            Ok(Some(job_id)) => {
-                                ctx.emit_job_queued(
-                                    job_id,
-                                    JobType::SpeakerDiarization,
-                                    Some(note_id),
+                    // VideoMultimodal: queue AudioTranscription job instead of inline diarization.
+                    // AudioTranscriptionHandler will transcribe, persist captions, queue diarization,
+                    // and participate in fan-in with keyframes. (#542)
+                    if matches!(strategy, ExtractionStrategy::VideoMultimodal) {
+                        let has_audio = result
+                            .metadata
+                            .get("has_audio")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        if has_audio {
+                            if let Some(audio_att_id) = audio_track_attachment_id {
+                                let mut at_payload = serde_json::Map::new();
+                                at_payload.insert(
+                                    "parent_attachment_id".into(),
+                                    json!(att_id.to_string()),
                                 );
-                                info!(
-                                    note_id = %note_id,
-                                    attachment_id = %att_id,
-                                    "Speaker diarization job queued"
+                                at_payload.insert(
+                                    "audio_attachment_id".into(),
+                                    json!(audio_att_id.to_string()),
                                 );
-                            }
-                            Ok(None) => {} // Deduplicated
-                            Err(e) => {
+                                at_payload.insert("is_video".into(), json!(true));
+                                if schema != "public" {
+                                    at_payload.insert("schema".into(), json!(&schema));
+                                }
+                                match self
+                                    .db
+                                    .jobs
+                                    .queue_deduplicated(
+                                        Some(note_id),
+                                        JobType::AudioTranscription,
+                                        JobType::AudioTranscription.default_priority(),
+                                        Some(serde_json::Value::Object(at_payload)),
+                                        JobType::AudioTranscription.default_cost_tier(),
+                                    )
+                                    .await
+                                {
+                                    Ok(Some(job_id)) => {
+                                        ctx.emit_job_queued(
+                                            job_id,
+                                            JobType::AudioTranscription,
+                                            Some(note_id),
+                                        );
+                                        info!(
+                                            note_id = %note_id,
+                                            attachment_id = %att_id,
+                                            audio_attachment = %audio_att_id,
+                                            "AudioTranscription job queued for video"
+                                        );
+                                    }
+                                    Ok(None) => {} // Deduplicated
+                                    Err(e) => {
+                                        warn!(
+                                            note_id = %note_id,
+                                            error = %e,
+                                            "Failed to queue AudioTranscription job"
+                                        );
+                                    }
+                                }
+                            } else {
                                 warn!(
                                     note_id = %note_id,
-                                    error = %e,
-                                    "Failed to queue speaker diarization job"
+                                    attachment_id = %att_id,
+                                    "Video has audio but audio_track attachment ID not found — \
+                                     cannot queue AudioTranscription"
                                 );
                             }
+                        } else {
+                            // Video without audio: set transcript_complete=true so fan-in
+                            // isn't blocked waiting for transcription that will never come.
+                            if let Some(fs) = self.db.file_storage.as_ref() {
+                                if let Ok(mut tx) = schema_ctx.begin_tx().await {
+                                    let _ = fs
+                                        .merge_extracted_metadata_tx(
+                                            &mut tx,
+                                            att_id,
+                                            &json!({"transcript_complete": true}),
+                                        )
+                                        .await;
+                                    let _ = tx.commit().await;
+                                }
+                            }
+                            debug!(
+                                note_id = %note_id,
+                                attachment_id = %att_id,
+                                "Video has no audio — transcript_complete set to true for fan-in"
+                            );
                         }
-                    } else if is_audio_video {
-                        // Log why diarization was NOT queued for audio/video content
-                        if !diarization_available {
+                    } else if matches!(strategy, ExtractionStrategy::AudioTranscribe) {
+                        // Standalone audio: queue diarization inline (transcription already done)
+                        if has_transcript_segments && diarization_available {
+                            let mut diar_payload = serde_json::Map::new();
+                            diar_payload
+                                .insert("attachment_id".to_string(), json!(att_id.to_string()));
+                            if schema != "public" {
+                                diar_payload.insert("schema".to_string(), json!(&schema));
+                            }
+                            match self
+                                .db
+                                .jobs
+                                .queue_deduplicated(
+                                    Some(note_id),
+                                    JobType::SpeakerDiarization,
+                                    JobType::SpeakerDiarization.default_priority(),
+                                    Some(serde_json::Value::Object(diar_payload)),
+                                    JobType::SpeakerDiarization.default_cost_tier(),
+                                )
+                                .await
+                            {
+                                Ok(Some(job_id)) => {
+                                    ctx.emit_job_queued(
+                                        job_id,
+                                        JobType::SpeakerDiarization,
+                                        Some(note_id),
+                                    );
+                                    info!(
+                                        note_id = %note_id,
+                                        attachment_id = %att_id,
+                                        "Speaker diarization job queued"
+                                    );
+                                }
+                                Ok(None) => {} // Deduplicated
+                                Err(e) => {
+                                    warn!(
+                                        note_id = %note_id,
+                                        error = %e,
+                                        "Failed to queue speaker diarization job"
+                                    );
+                                }
+                            }
+                        } else if !diarization_available {
                             info!(
                                 note_id = %note_id,
                                 attachment_id = %att_id,
                                 strategy = ?strategy,
-                                "Diarization skipped: DIARIZATION_BASE_URL not set \
-                                 (set this env var to enable speaker diarization)"
+                                "Diarization skipped: DIARIZATION_BASE_URL not set"
                             );
                         } else if !has_transcript_segments {
                             info!(
                                 note_id = %note_id,
                                 attachment_id = %att_id,
                                 strategy = ?strategy,
-                                "Diarization skipped: no transcript segments in extraction result"
+                                "Diarization skipped: no transcript segments"
                             );
                         }
                     }

@@ -2114,6 +2114,8 @@ pub enum JobType {
     ViewVision,
     /// Aggregate all 3D view descriptions and rebuild model markdown (#533)
     ViewAssembly,
+    /// Transcribe audio from a derived attachment via Whisper (atomic, retryable) (#542)
+    AudioTranscription,
 }
 
 impl JobType {
@@ -2177,6 +2179,8 @@ impl JobType {
             JobType::ViewVision => 4,
             // View assembly runs after all vision jobs, low priority (#533)
             JobType::ViewAssembly => 3,
+            // Audio transcription is medium-high priority (gates assembly + diarization) (#542)
+            JobType::AudioTranscription => 6,
         }
     }
 
@@ -2194,6 +2198,8 @@ impl JobType {
             // Serialized by default (VISION_MAX_CONCURRENT=1) to prevent
             // VRAM contention on single-GPU systems.
             JobType::KeyframeVision | JobType::ViewVision => Some(cost_tier::VISION_GPU),
+            // Audio transcription: tier-agnostic (Whisper runs on separate backend)
+            JobType::AudioTranscription => None,
             // Everything else is tier-agnostic
             _ => None,
         }

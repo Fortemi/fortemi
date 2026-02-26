@@ -249,10 +249,11 @@ impl JobHandler for KeyframeVisionHandler {
             description.len()
         );
 
-        // Step 5: Fan-in check — are all sibling keyframes described?
+        // Step 5: Fan-in check — are all sibling keyframes described AND transcript complete?
+        // Both keyframe descriptions and audio transcription must finish before assembly.
         ctx.report_progress(90, Some("Checking fan-in"));
         if total_frames > 0 {
-            let described_count = {
+            let (described_count, transcript_complete) = {
                 let mut tx = match schema_ctx.begin_tx().await {
                     Ok(t) => t,
                     Err(e) => {
@@ -267,20 +268,34 @@ impl JobHandler for KeyframeVisionHandler {
                     .count_described_keyframes_tx(&mut tx, parent_attachment_id)
                     .await
                     .unwrap_or(0);
+                // Check transcript_complete flag from parent's extracted_metadata
+                let tc_row: Option<(Option<serde_json::Value>,)> =
+                    sqlx::query_as("SELECT extracted_metadata FROM attachment WHERE id = $1")
+                        .bind(parent_attachment_id)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .ok()
+                        .flatten();
+                let tc = tc_row
+                    .and_then(|(em,)| em)
+                    .and_then(|em| em.get("transcript_complete")?.as_bool())
+                    .unwrap_or(false);
                 let _ = tx.commit().await;
-                count
+                (count, tc)
             };
 
             debug!(
                 described = described_count,
                 total = total_frames,
-                "Fan-in: {}/{} keyframes described",
+                transcript_complete,
+                "Fan-in: {}/{} keyframes + transcript={}",
                 described_count,
-                total_frames
+                total_frames,
+                transcript_complete
             );
 
-            if described_count >= total_frames {
-                // All frames done — queue assembly
+            if described_count >= total_frames && transcript_complete {
+                // All frames described AND transcript complete — queue assembly
                 let mut assembly_payload = serde_json::Map::new();
                 assembly_payload.insert(
                     "attachment_id".into(),
@@ -305,7 +320,7 @@ impl JobHandler for KeyframeVisionHandler {
                     Ok(Some(job_id)) => {
                         ctx.emit_job_queued(job_id, JobType::KeyframeAssembly, ctx.note_id());
                         info!(
-                            "All {} keyframes described, KeyframeAssembly queued (job {})",
+                            "All {} keyframes + transcript complete, KeyframeAssembly queued (job {})",
                             total_frames, job_id
                         );
                     }

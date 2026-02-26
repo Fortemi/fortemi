@@ -118,30 +118,6 @@ impl VideoMultimodalAdapter {
     }
 }
 
-/// Run a command that may output to files rather than stdout.
-async fn run_cmd_status(cmd: &mut Command, timeout_secs: u64) -> Result<()> {
-    let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
-        .await
-        .map_err(|_| {
-            matric_core::Error::Internal(format!(
-                "External command timed out after {}s",
-                timeout_secs
-            ))
-        })?
-        .map_err(|e| matric_core::Error::Internal(format!("Failed to execute command: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(matric_core::Error::Internal(format!(
-            "Command failed (exit {}): {}",
-            output.status,
-            stderr.trim()
-        )));
-    }
-
-    Ok(())
-}
-
 /// Parse KeyframeStrategy from extraction config JSON.
 fn parse_keyframe_strategy(config: &JsonValue) -> KeyframeStrategy {
     // Try structured strategy first
@@ -314,6 +290,12 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("_skip_vision")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        // When true, skip inline Whisper transcription. AudioTranscription job
+        // will handle it independently, enabling fan-in with keyframes. (#542)
+        let skip_transcription = config
+            .get("_skip_transcription")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
         // Write video to temp file (unless _source_path is provided).
@@ -394,17 +376,21 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                         });
                     }
 
-                    if let Some(ref backend) = self.transcription {
-                        match transcribe_audio(backend.as_ref(), &audio_path).await {
-                            Ok(result) => {
-                                transcript_text = Some(result.full_text);
-                                transcript_language = result.language;
-                                transcript_segments = result.segments;
-                            }
-                            Err(e) => {
-                                warn!(filename, error = %e, "Audio transcription failed");
+                    if !skip_transcription {
+                        if let Some(ref backend) = self.transcription {
+                            match transcribe_audio(backend.as_ref(), &audio_path).await {
+                                Ok(result) => {
+                                    transcript_text = Some(result.full_text);
+                                    transcript_language = result.language;
+                                    transcript_segments = result.segments;
+                                }
+                                Err(e) => {
+                                    warn!(filename, error = %e, "Audio transcription failed");
+                                }
                             }
                         }
+                    } else {
+                        debug!(filename, "Skipping inline transcription — deferred to AudioTranscription job (#542)");
                     }
                 }
                 Err(e) => {
@@ -671,6 +657,11 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
             .get("_skip_vision")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        // When true, skip inline Whisper transcription — deferred to AudioTranscription job (#542)
+        let skip_transcription = config
+            .get("_skip_transcription")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let keyframe_strategy = parse_keyframe_strategy(config);
 
         // Use _source_path if provided (avoid RAM copy), otherwise write to temp file.
@@ -742,20 +733,25 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
                         });
                     }
 
-                    progress(10, Some("Transcribing audio"));
-                    if let Some(ref backend) = self.transcription {
-                        match transcribe_audio(backend.as_ref(), &audio_path).await {
-                            Ok(result) => {
-                                transcript_text = Some(result.full_text);
-                                transcript_language = result.language;
-                                transcript_segments = result.segments;
-                                progress(20, Some("Transcription complete"));
-                            }
-                            Err(e) => {
-                                warn!(filename, error = %e, "Audio transcription failed");
-                                progress(20, Some("Transcription failed, continuing"));
+                    if !skip_transcription {
+                        progress(10, Some("Transcribing audio"));
+                        if let Some(ref backend) = self.transcription {
+                            match transcribe_audio(backend.as_ref(), &audio_path).await {
+                                Ok(result) => {
+                                    transcript_text = Some(result.full_text);
+                                    transcript_language = result.language;
+                                    transcript_segments = result.segments;
+                                    progress(20, Some("Transcription complete"));
+                                }
+                                Err(e) => {
+                                    warn!(filename, error = %e, "Audio transcription failed");
+                                    progress(20, Some("Transcription failed, continuing"));
+                                }
                             }
                         }
+                    } else {
+                        debug!(filename, "Skipping inline transcription — deferred to AudioTranscription job (#542)");
+                        progress(20, Some("Transcription deferred to async job"));
                     }
                 }
                 Err(e) => {
@@ -1208,26 +1204,9 @@ async fn get_video_duration(video_path: &str) -> Result<f64> {
 
 /// Extract audio track from video to WAV format.
 async fn extract_audio_track(video_path: &str, work_dir: &TempDir) -> Result<PathBuf> {
-    let audio_path = work_dir.path().join("audio.wav");
-
-    run_cmd_status(
-        Command::new("ffmpeg")
-            .arg("-i")
-            .arg(video_path)
-            .arg("-vn") // No video
-            .arg("-acodec")
-            .arg("pcm_s16le") // PCM 16-bit
-            .arg("-ar")
-            .arg("16000") // 16kHz sample rate (Whisper standard)
-            .arg("-ac")
-            .arg("1") // Mono
-            .arg("-y") // Overwrite
-            .arg(&audio_path),
-        EXTRACTION_CMD_TIMEOUT_SECS * 2,
-    )
-    .await?;
-
-    Ok(audio_path)
+    // Delegate to shared audio utility for consistent transcode parameters
+    super::audio_util::transcode_to_speech_wav(std::path::Path::new(video_path), work_dir.path())
+        .await
 }
 
 /// Extract keyframes from video using the configured strategy.

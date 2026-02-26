@@ -128,6 +128,7 @@ impl PgJobRepository {
             JobType::KeyframeAssembly => "keyframe_assembly",
             JobType::ViewVision => "view_vision",
             JobType::ViewAssembly => "view_assembly",
+            JobType::AudioTranscription => "audio_transcription",
         }
     }
 
@@ -166,6 +167,7 @@ impl PgJobRepository {
             "keyframe_assembly" => JobType::KeyframeAssembly,
             "view_vision" => JobType::ViewVision,
             "view_assembly" => JobType::ViewAssembly,
+            "audio_transcription" => JobType::AudioTranscription,
             _ => JobType::ContextUpdate, // fallback
         }
     }
