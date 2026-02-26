@@ -428,6 +428,21 @@ impl JobWorker {
                     .await
                     .unwrap_or(0);
                 if tier3_pending > 0 {
+                    // Proactively unload fast/standard models BEFORE loading the
+                    // vision model. These may have been loaded by concurrent API
+                    // calls (AI revision, concept tagging) outside the worker
+                    // loop, so the after-drain unloads above may not have fired.
+                    if let Some(ref fast) = self.fast_backend {
+                        if let Err(e) = fast.unload().await {
+                            warn!(error = %e, "Pre-vision fast model unload failed");
+                        }
+                    }
+                    if let Some(ref standard) = self.standard_backend {
+                        if let Err(e) = standard.unload().await {
+                            warn!(error = %e, "Pre-vision standard model unload failed");
+                        }
+                    }
+
                     debug!(
                         pending = tier3_pending,
                         gpu_concurrent, "Vision GPU tier: draining"
