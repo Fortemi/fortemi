@@ -524,14 +524,14 @@ impl JobHandler for ExtractionHandler {
                     if let Some(file_storage) = self.db.file_storage.as_ref() {
                         ctx.report_progress(83, Some("Persisting thumbnail"));
                         if let Ok(mut tx) = schema_ctx.begin_tx().await {
-                            let thumb_filename = format!("{}_thumbnail.jpg", att_id);
+                            let thumb_filename = format!("{}_thumbnail.png", att_id);
                             match file_storage
                                 .store_derived_attachment_tx(
                                     &mut tx,
                                     note_id,
                                     att_id,
                                     &thumb_filename,
-                                    "image/jpeg",
+                                    "image/png",
                                     thumbnail_bytes,
                                     "thumbnail",
                                 )
@@ -1299,7 +1299,19 @@ impl JobHandler for ExtractionHandler {
 
                     // Re-queue downstream NLP jobs only when note content was
                     // actually updated — otherwise they'd reprocess identical text.
-                    if content_updated {
+                    //
+                    // Skip for fan-out strategies (Glb3DModel, VideoMultimodal):
+                    // their assembly handlers (ViewAssembly, KeyframeAssembly) queue
+                    // downstream NLP after vision analysis completes, producing much
+                    // richer content for NER, concept extraction, and embeddings.
+                    // Queueing here would race ahead on minimal content, and
+                    // queue_deduplicated() would then silently discard the assembly
+                    // handler's re-queue attempt. (#534)
+                    let uses_fanout = matches!(
+                        strategy,
+                        ExtractionStrategy::Glb3DModel | ExtractionStrategy::VideoMultimodal
+                    );
+                    if content_updated && !uses_fanout {
                         let downstream_types = [
                             JobType::Embedding,
                             JobType::Linking,
@@ -1381,6 +1393,14 @@ impl JobHandler for ExtractionHandler {
                             note_id = %note_id,
                             content_len = content.len(),
                             "Propagated extraction content and re-queued downstream jobs"
+                        );
+                    } else if content_updated && uses_fanout {
+                        info!(
+                            note_id = %note_id,
+                            strategy = %strategy,
+                            content_len = content.len(),
+                            "Propagated extraction content but deferred downstream NLP \
+                             to assembly handler (fan-out strategy)"
                         );
                     }
                 }
