@@ -43,6 +43,16 @@ fn renderer_url() -> String {
 #[derive(Deserialize)]
 struct RendererHealthResponse {
     status: String,
+    #[serde(default)]
+    render_test: Option<RenderTestResult>,
+}
+
+/// Result of the renderer's built-in test render (red cube).
+#[derive(Deserialize)]
+struct RenderTestResult {
+    status: String,
+    #[serde(default)]
+    content_ratio: Option<f64>,
 }
 
 /// A rendered view with image data and metadata.
@@ -108,7 +118,30 @@ impl Glb3DModelAdapter {
         }
 
         match response.json::<RendererHealthResponse>().await {
-            Ok(health) if health.status == "healthy" => Ok(()),
+            Ok(health) if health.status == "healthy" => {
+                // Renderer is up and test render passed
+                if let Some(ref test) = health.render_test {
+                    debug!(
+                        test_status = %test.status,
+                        content_ratio = ?test.content_ratio,
+                        "Renderer test render result"
+                    );
+                }
+                Ok(())
+            }
+            Ok(health) if health.status == "degraded" => {
+                // Renderer is up but test render failed — images will be grey
+                let test_detail = health
+                    .render_test
+                    .as_ref()
+                    .map(|t| format!(" (test render: {})", t.status))
+                    .unwrap_or_default();
+                Err(format!(
+                    "3D model renderer at {} is degraded{} — renders may produce blank/grey images. \
+                     Check GPU availability or set OPEN3D_CPU_RENDERING=true",
+                    base_url, test_detail
+                ))
+            }
             Ok(health) => Err(format!(
                 "3D model renderer at {} reports status '{}' — \
                  GPU or CPU rendering may not be available (try setting OPEN3D_CPU_RENDERING=true)",
@@ -180,6 +213,23 @@ impl Glb3DModelAdapter {
             ));
         }
 
+        // Check for blank renders — renderer detected views with no visible model
+        let blank_views: u32 = response
+            .headers()
+            .get("X-Render-Blank-Views")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        if blank_views > 0 {
+            warn!(
+                filename,
+                blank_views,
+                "Renderer reports blank views — model may not be visible. \
+                 Check GPU availability or software rendering configuration."
+            );
+        }
+
         // Extract boundary from content-type header BEFORE consuming response
         let content_type = response
             .headers()
@@ -204,9 +254,34 @@ impl Glb3DModelAdapter {
         // Parse multipart body to extract PNG images
         let rendered_views = parse_multipart_response(&body, &boundary)?;
 
+        // Validate individual view quality via PNG file size heuristic:
+        // A 512×512 uniform-color PNG compresses to ~1-2KB.  A real render
+        // with a visible model is typically 30-200KB.  Views under 10KB are
+        // suspicious and likely blank (just background + grid lines).
+        let mut blank_by_size = 0u32;
+        for view in &rendered_views {
+            if view.image_data.len() < 10_000 {
+                blank_by_size += 1;
+                warn!(
+                    filename,
+                    view = view.index,
+                    png_bytes = view.image_data.len(),
+                    "Rendered view PNG is suspiciously small — likely blank/grey"
+                );
+            }
+        }
+        if blank_by_size > 0 && blank_views == 0 {
+            warn!(
+                filename,
+                blank_by_size, "PNG size heuristic detected blank views not caught by renderer"
+            );
+        }
+
         info!(
             filename,
             num_views = rendered_views.len(),
+            blank_views,
+            blank_by_size,
             "Rendering complete"
         );
         Ok(rendered_views)
@@ -391,8 +466,26 @@ impl ExtractionAdapter for Glb3DModelAdapter {
             })
             .collect();
 
-        // Use the first rendered view (front-facing, low elevation) as preview thumbnail
-        let preview_data = rendered_views.first().map(|v| v.image_data.clone());
+        // Use the first rendered view as preview thumbnail — but only if it
+        // appears to have meaningful content (>10KB).  A blank/grey 512×512
+        // PNG compresses to ~1-2KB; serving it as a thumbnail is worse than
+        // having no thumbnail at all.
+        let blank_count = rendered_views
+            .iter()
+            .filter(|v| v.image_data.len() < 10_000)
+            .count();
+        let preview_data = rendered_views
+            .first()
+            .filter(|v| v.image_data.len() >= 10_000)
+            .map(|v| v.image_data.clone());
+
+        if preview_data.is_none() && !rendered_views.is_empty() {
+            warn!(
+                filename,
+                first_view_bytes = rendered_views[0].image_data.len(),
+                "Skipping thumbnail — first rendered view appears blank"
+            );
+        }
 
         Ok(ExtractionResult {
             extracted_text: None,
@@ -404,6 +497,10 @@ impl ExtractionAdapter for Glb3DModelAdapter {
                 "num_views_rendered": rendered_views.len(),
                 "num_views_described": view_descriptions.len(),
                 "view_descriptions": view_descriptions,
+                "render_quality": {
+                    "blank_views": blank_count,
+                    "total_views": rendered_views.len(),
+                },
             }),
             ai_description: composite_description,
             preview_data,

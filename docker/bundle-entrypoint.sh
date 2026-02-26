@@ -160,11 +160,10 @@ if [ "$RENDERER_AVAILABLE" = true ]; then
     RENDERER_PID=$!
     echo "  Renderer started (PID: $RENDERER_PID) on port $RENDERER_PORT"
 
-    # Wait for renderer to be ready
+    # Wait for renderer to be ready (health check now includes test render)
     echo "  Waiting for renderer to be ready..."
-    for i in {1..15}; do
+    for i in {1..20}; do
         if curl -sf http://localhost:$RENDERER_PORT/health >/dev/null 2>&1; then
-            echo "  Renderer is healthy!"
             RENDERER_READY=true
             break
         fi
@@ -177,8 +176,33 @@ if [ "$RENDERER_AVAILABLE" = true ]; then
         sleep 1
     done
 
-    if [ "$RENDERER_READY" = false ] && kill -0 $RENDERER_PID 2>/dev/null; then
-        echo "  WARNING: Renderer health check timed out after 15s (3D model extraction may not work)"
+    if [ "$RENDERER_READY" = true ]; then
+        # Validate render quality — health endpoint now includes a test render
+        RENDER_STATUS=$(curl -sf http://localhost:$RENDERER_PORT/health | python3 -c "
+import sys, json
+h = json.load(sys.stdin)
+rt = h.get('render_test', {})
+print(rt.get('status', 'unknown'))
+" 2>/dev/null || echo "unknown")
+
+        if [ "$RENDER_STATUS" = "pass" ]; then
+            echo "  Renderer is healthy — test render passed!"
+        elif [ "$RENDER_STATUS" = "fail" ]; then
+            echo "  WARNING: Renderer is running but test render produces BLANK images"
+            echo "  3D model thumbnails will appear grey. Check GPU/software rendering."
+            echo "  Render test details:"
+            curl -sf http://localhost:$RENDERER_PORT/health | python3 -c "
+import sys, json
+h = json.load(sys.stdin)
+rt = h.get('render_test', {})
+for k, v in rt.items():
+    print(f'    {k}: {v}')
+" 2>/dev/null || true
+        else
+            echo "  WARNING: Could not validate render quality (status: $RENDER_STATUS)"
+        fi
+    elif kill -0 $RENDERER_PID 2>/dev/null; then
+        echo "  WARNING: Renderer health check timed out after 20s (3D model extraction may not work)"
         cat /var/log/matric/renderer.log 2>/dev/null | tail -20 || true
     fi
 else
