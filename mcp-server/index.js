@@ -31,7 +31,7 @@ const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://f
 const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (38 tools) or "full" (all)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (41 tools) or "full" (all)
 
 // Core tool surface — high-level agent-friendly tools (issue #365)
 const CORE_TOOLS = new Set([
@@ -59,6 +59,8 @@ const CORE_TOOLS = new Set([
   "manage_jobs", "manage_inference",
   // Bulk operations
   "bulk_reprocess_notes",
+  // Purge (permanent deletion of soft-deleted notes)
+  "purge_note", "purge_notes", "purge_all_notes",
 ]);
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
@@ -1257,8 +1259,8 @@ function createMcpServer() {
           if (!args.confirm) {
             throw new Error("Must set confirm=true to purge all notes");
           }
-          // Get all notes and purge them
-          const allNotes = await apiRequest("GET", `/api/v1/notes?limit=${DEFAULTS.INTERNAL_FETCH_LIMIT}`);
+          // Get all soft-deleted notes and purge them
+          const allNotes = await apiRequest("GET", `/api/v1/notes?filter=deleted&limit=${DEFAULTS.INTERNAL_FETCH_LIMIT}`);
           const purgeAllResults = { queued: [], failed: [], total: (allNotes.notes || []).length };
           for (const note of allNotes.notes || []) {
             try {
