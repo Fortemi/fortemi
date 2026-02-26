@@ -262,6 +262,62 @@ pub fn video_stream_buffer_bytes() -> usize {
         .unwrap_or(VIDEO_STREAM_BUFFER_BYTES)
 }
 
+// =============================================================================
+// AUDIO CHUNKING (Issue #543)
+// =============================================================================
+
+/// Default chunk duration for long audio transcription (30 minutes).
+/// Audio files longer than `AUDIO_CHUNK_THRESHOLD_SECS` are split into
+/// chunks of this duration, transcribed independently, and merged.
+/// Each 30-min chunk of 16kHz mono PCM WAV is ~58 MB in memory.
+/// Configurable via `AUDIO_CHUNK_DURATION_SECS` env var.
+pub const AUDIO_CHUNK_DURATION_SECS: u64 = 1800;
+
+/// Environment variable for configuring audio chunk duration.
+pub const ENV_AUDIO_CHUNK_DURATION_SECS: &str = "AUDIO_CHUNK_DURATION_SECS";
+
+/// Audio files shorter than this threshold (10 minutes) are transcribed
+/// in a single pass. Above this, they are split into chunks.
+/// Configurable via `AUDIO_CHUNK_THRESHOLD_SECS` env var.
+pub const AUDIO_CHUNK_THRESHOLD_SECS: u64 = 600;
+
+/// Environment variable for configuring the chunk threshold.
+pub const ENV_AUDIO_CHUNK_THRESHOLD_SECS: &str = "AUDIO_CHUNK_THRESHOLD_SECS";
+
+/// Default Whisper API timeout per request in seconds (5 minutes).
+/// Configurable via `WHISPER_TIMEOUT_SECS` env var.
+pub const WHISPER_TIMEOUT_SECS: u64 = 300;
+
+/// Environment variable for configuring the Whisper request timeout.
+pub const ENV_WHISPER_TIMEOUT_SECS: &str = "WHISPER_TIMEOUT_SECS";
+
+/// Read audio chunk duration from env, falling back to the default.
+pub fn audio_chunk_duration_secs() -> u64 {
+    std::env::var(ENV_AUDIO_CHUNK_DURATION_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(60, 7200)) // 1 min .. 2 hours
+        .unwrap_or(AUDIO_CHUNK_DURATION_SECS)
+}
+
+/// Read audio chunk threshold from env, falling back to the default.
+pub fn audio_chunk_threshold_secs() -> u64 {
+    std::env::var(ENV_AUDIO_CHUNK_THRESHOLD_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(60, 14400)) // 1 min .. 4 hours
+        .unwrap_or(AUDIO_CHUNK_THRESHOLD_SECS)
+}
+
+/// Read Whisper timeout from env, falling back to the default.
+pub fn whisper_timeout_secs() -> u64 {
+    std::env::var(ENV_WHISPER_TIMEOUT_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.clamp(30, 3600)) // 30s .. 1 hour
+        .unwrap_or(WHISPER_TIMEOUT_SECS)
+}
+
 /// Page threshold for batch PDF extraction.
 pub const LARGE_PDF_PAGE_THRESHOLD: usize = 100;
 

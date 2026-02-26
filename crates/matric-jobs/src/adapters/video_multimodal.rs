@@ -1152,8 +1152,8 @@ pub(crate) fn format_video_markdown(
     language: Option<&str>,
     transcript_segments: Option<&[JsonValue]>,
 ) -> Option<String> {
-    let has_transcript = transcript_text.is_some()
-        || transcript_segments.is_some_and(|s| !s.is_empty());
+    let has_transcript =
+        transcript_text.is_some() || transcript_segments.is_some_and(|s| !s.is_empty());
     let has_frames = !keyframe_descriptions.is_empty();
 
     if !has_transcript && !has_frames {

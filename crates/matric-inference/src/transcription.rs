@@ -69,11 +69,12 @@ pub struct WhisperBackend {
 
 impl WhisperBackend {
     pub fn new(base_url: String, model: String) -> Self {
+        let timeout_secs = matric_core::defaults::whisper_timeout_secs();
         Self {
             base_url,
             model,
             client: reqwest::Client::new(),
-            timeout_secs: 300, // 5 min for long audio
+            timeout_secs,
         }
     }
 

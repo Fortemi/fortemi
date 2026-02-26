@@ -109,7 +109,9 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let (wav_data, effective_mime) = if skip_transcode {
+        let transcription = if skip_transcode {
+            // Already in speech WAV format — transcribe directly (single pass,
+            // since video pipeline chunks at the video level, not audio level).
             let audio_data = std::fs::read(&source_path).map_err(|e| {
                 matric_core::Error::Internal(format!(
                     "Failed to read audio from {}: {}",
@@ -117,30 +119,30 @@ impl ExtractionAdapter for AudioTranscribeAdapter {
                     e
                 ))
             })?;
-            (audio_data, mime_type.to_string())
+            self.backend
+                .transcribe(&audio_data, mime_type, language)
+                .await
+                .map_err(|e| {
+                    matric_core::Error::Internal(format!(
+                        "Audio transcription failed (backend: {}, mime: {}, size: {} bytes): {}",
+                        self.backend.model_name(),
+                        mime_type,
+                        audio_data.len(),
+                        e
+                    ))
+                })?
         } else {
+            // Transcode, then use chunked transcription for long files (Issue #543).
             let wav_path =
                 super::audio_util::transcode_to_speech_wav(&source_path, work_dir.path()).await?;
-            let wav_data = std::fs::read(&wav_path).map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to read transcoded WAV: {}", e))
-            })?;
-            (wav_data, "audio/wav".to_string())
+            super::audio_util::transcribe_with_chunking(
+                &self.backend,
+                &wav_path,
+                work_dir.path(),
+                language,
+            )
+            .await?
         };
-
-        // Perform transcription
-        let transcription = self
-            .backend
-            .transcribe(&wav_data, &effective_mime, language)
-            .await
-            .map_err(|e| {
-                matric_core::Error::Internal(format!(
-                    "Audio transcription failed (backend: {}, mime: {}, size: {} bytes): {}",
-                    self.backend.model_name(),
-                    effective_mime,
-                    wav_data.len(),
-                    e
-                ))
-            })?;
 
         // Build metadata with segments and transcription info
         let segments_json: Vec<JsonValue> = transcription

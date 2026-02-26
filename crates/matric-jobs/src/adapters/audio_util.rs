@@ -1,13 +1,17 @@
 //! Shared audio utilities for transcription and diarization pipelines.
 //!
-//! Provides format normalization via ffmpeg to produce the standard speech
-//! processing format: 16kHz mono PCM WAV (pcm_s16le).
+//! Provides format normalization via ffmpeg, duration probing, audio chunking
+//! for long files, and orchestrated chunked transcription (Issue #543).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use matric_core::defaults::EXTRACTION_CMD_TIMEOUT_SECS;
+use matric_inference::transcription::{
+    TranscriptionBackend, TranscriptionResult, TranscriptionSegment,
+};
 use tokio::process::Command;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// Transcode any audio/video file to 16kHz mono PCM WAV for speech processing.
 ///
@@ -101,6 +105,344 @@ pub async fn ffmpeg_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Probe audio duration in seconds using ffprobe.
+///
+/// Returns the duration of the audio stream without decoding the full file.
+/// Falls back to container-level duration if stream duration is unavailable.
+pub async fn probe_duration(input_path: &Path) -> matric_core::Result<f64> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        Command::new("ffprobe")
+            .arg("-v")
+            .arg("error")
+            .arg("-show_entries")
+            .arg("format=duration")
+            .arg("-of")
+            .arg("default=noprint_wrappers=1:nokey=1")
+            .arg(input_path)
+            .output(),
+    )
+    .await
+    .map_err(|_| matric_core::Error::Internal("ffprobe timed out".into()))?
+    .map_err(|e| matric_core::Error::Internal(format!("Failed to execute ffprobe: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(matric_core::Error::Internal(format!(
+            "ffprobe failed (exit {}): {}",
+            output.status,
+            stderr.trim()
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let duration: f64 = stdout.trim().parse().map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "Failed to parse ffprobe duration '{}': {}",
+            stdout.trim(),
+            e
+        ))
+    })?;
+
+    debug!(
+        path = %input_path.display(),
+        duration_secs = duration,
+        "Audio duration probed"
+    );
+
+    Ok(duration)
+}
+
+/// Split an audio file into chunks of `chunk_secs` duration using ffmpeg.
+///
+/// Uses `-ss` (seek) and `-t` (duration) for each chunk, outputting to
+/// `{output_dir}/chunk_NNNN.wav` in 16kHz mono PCM format.
+///
+/// Returns a sorted list of `(chunk_start_secs, chunk_path)` pairs.
+pub async fn split_audio_chunks(
+    input_path: &Path,
+    output_dir: &Path,
+    total_duration_secs: f64,
+    chunk_secs: u64,
+) -> matric_core::Result<Vec<(f64, PathBuf)>> {
+    let mut chunks = Vec::new();
+    let mut offset: f64 = 0.0;
+    let chunk_dur = chunk_secs as f64;
+    let mut index: u32 = 0;
+
+    while offset < total_duration_secs {
+        let chunk_path = output_dir.join(format!("chunk_{:04}.wav", index));
+        let remaining = total_duration_secs - offset;
+        let this_chunk_dur = remaining.min(chunk_dur);
+
+        debug!(
+            chunk = index,
+            offset_secs = offset,
+            duration_secs = this_chunk_dur,
+            path = %chunk_path.display(),
+            "Splitting audio chunk"
+        );
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(EXTRACTION_CMD_TIMEOUT_SECS),
+            Command::new("ffmpeg")
+                .arg("-ss")
+                .arg(format!("{:.3}", offset))
+                .arg("-i")
+                .arg(input_path)
+                .arg("-t")
+                .arg(format!("{:.3}", this_chunk_dur))
+                .arg("-acodec")
+                .arg("pcm_s16le")
+                .arg("-ar")
+                .arg("16000")
+                .arg("-ac")
+                .arg("1")
+                .arg("-y")
+                .arg(&chunk_path)
+                .output(),
+        )
+        .await
+        .map_err(|_| {
+            matric_core::Error::Internal(format!(
+                "ffmpeg chunk split timed out at offset {:.1}s",
+                offset
+            ))
+        })?
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "Failed to execute ffmpeg for chunk {}: {}",
+                index, e
+            ))
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(matric_core::Error::Internal(format!(
+                "ffmpeg chunk split failed at offset {:.1}s (exit {}): {}",
+                offset,
+                output.status,
+                stderr.trim()
+            )));
+        }
+
+        // Verify chunk file is non-empty
+        let meta = std::fs::metadata(&chunk_path).map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "Chunk file not found at {}: {}",
+                chunk_path.display(),
+                e
+            ))
+        })?;
+
+        if meta.len() > 0 {
+            chunks.push((offset, chunk_path));
+        } else {
+            warn!(chunk = index, offset = offset, "Chunk is empty, skipping");
+        }
+
+        offset += chunk_dur;
+        index += 1;
+    }
+
+    info!(
+        chunk_count = chunks.len(),
+        total_duration = total_duration_secs,
+        chunk_duration = chunk_secs,
+        "Audio split into chunks"
+    );
+
+    Ok(chunks)
+}
+
+/// Merge multiple chunked transcription results into a single result.
+///
+/// Each entry is `(chunk_start_offset_secs, transcription_result)`.
+/// Segment timestamps are adjusted by adding the chunk's start offset.
+/// Full text is concatenated with spaces between chunks.
+pub fn merge_transcriptions(chunk_results: Vec<(f64, TranscriptionResult)>) -> TranscriptionResult {
+    let mut all_segments: Vec<TranscriptionSegment> = Vec::new();
+    let mut full_text_parts: Vec<String> = Vec::new();
+    let mut total_duration: f64 = 0.0;
+    let mut detected_language: Option<String> = None;
+
+    for (offset, result) in chunk_results {
+        if !result.full_text.is_empty() {
+            full_text_parts.push(result.full_text);
+        }
+
+        if let Some(lang) = result.language {
+            detected_language = Some(lang);
+        }
+
+        if let Some(dur) = result.duration_secs {
+            total_duration = (offset + dur).max(total_duration);
+        }
+
+        for mut seg in result.segments {
+            seg.start_secs += offset;
+            seg.end_secs += offset;
+            all_segments.push(seg);
+        }
+    }
+
+    TranscriptionResult {
+        full_text: full_text_parts.join(" "),
+        segments: all_segments,
+        language: detected_language,
+        duration_secs: if total_duration > 0.0 {
+            Some(total_duration)
+        } else {
+            None
+        },
+    }
+}
+
+/// Transcribe audio with automatic chunking for long files (Issue #543).
+///
+/// 1. Probes the audio duration via ffprobe.
+/// 2. If duration <= `AUDIO_CHUNK_THRESHOLD_SECS`, reads the file and
+///    transcribes in a single pass.
+/// 3. If duration > threshold, splits into chunks of `AUDIO_CHUNK_DURATION_SECS`,
+///    transcribes each independently, and merges results with correct
+///    timestamp offsets.
+///
+/// This keeps peak memory bounded (~58 MB per 30-min chunk) regardless of
+/// total audio length, enabling reliable transcription of 2+ hour files.
+///
+/// # Arguments
+/// * `backend` - The transcription backend (Whisper)
+/// * `wav_path` - Path to the transcoded 16kHz mono PCM WAV file
+/// * `work_dir` - Temporary directory for chunk files
+/// * `language` - Optional language hint (ISO 639-1)
+pub async fn transcribe_with_chunking(
+    backend: &Arc<dyn TranscriptionBackend>,
+    wav_path: &Path,
+    work_dir: &Path,
+    language: Option<&str>,
+) -> matric_core::Result<TranscriptionResult> {
+    let chunk_threshold = matric_core::defaults::audio_chunk_threshold_secs();
+    let chunk_duration = matric_core::defaults::audio_chunk_duration_secs();
+
+    // Probe duration — if ffprobe fails, fall back to single-pass
+    let duration = match probe_duration(wav_path).await {
+        Ok(d) => d,
+        Err(e) => {
+            warn!(
+                error = %e,
+                "Failed to probe audio duration, falling back to single-pass transcription"
+            );
+            return transcribe_single_pass(backend, wav_path, language).await;
+        }
+    };
+
+    if duration <= chunk_threshold as f64 {
+        debug!(
+            duration = duration,
+            threshold = chunk_threshold,
+            "Audio below chunk threshold, using single-pass transcription"
+        );
+        return transcribe_single_pass(backend, wav_path, language).await;
+    }
+
+    // Long audio — split and transcribe chunks
+    let num_chunks = (duration / chunk_duration as f64).ceil() as usize;
+    info!(
+        duration_secs = duration,
+        chunk_duration_secs = chunk_duration,
+        num_chunks = num_chunks,
+        "Long audio detected, splitting into chunks for transcription"
+    );
+
+    let chunks = split_audio_chunks(wav_path, work_dir, duration, chunk_duration).await?;
+
+    if chunks.is_empty() {
+        return Err(matric_core::Error::Internal(
+            "Audio split produced no chunks".into(),
+        ));
+    }
+
+    let total_chunks = chunks.len();
+    let mut chunk_results: Vec<(f64, TranscriptionResult)> = Vec::with_capacity(total_chunks);
+
+    for (i, (offset, chunk_path)) in chunks.iter().enumerate() {
+        info!(
+            chunk = i + 1,
+            total = total_chunks,
+            offset_secs = offset,
+            "Transcribing audio chunk"
+        );
+
+        let chunk_data = std::fs::read(chunk_path).map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "Failed to read chunk {}: {}",
+                chunk_path.display(),
+                e
+            ))
+        })?;
+
+        let result = backend
+            .transcribe(&chunk_data, "audio/wav", language)
+            .await
+            .map_err(|e| {
+                matric_core::Error::Internal(format!(
+                    "Transcription failed for chunk {} (offset {:.1}s): {}",
+                    i + 1,
+                    offset,
+                    e
+                ))
+            })?;
+
+        info!(
+            chunk = i + 1,
+            segments = result.segments.len(),
+            "Chunk transcription complete"
+        );
+
+        chunk_results.push((*offset, result));
+    }
+
+    let merged = merge_transcriptions(chunk_results);
+
+    info!(
+        total_segments = merged.segments.len(),
+        duration = ?merged.duration_secs,
+        language = ?merged.language,
+        chunks = total_chunks,
+        "Chunked transcription complete — merged {} chunks",
+        total_chunks
+    );
+
+    Ok(merged)
+}
+
+/// Single-pass transcription: read the entire file and transcribe at once.
+async fn transcribe_single_pass(
+    backend: &Arc<dyn TranscriptionBackend>,
+    wav_path: &Path,
+    language: Option<&str>,
+) -> matric_core::Result<TranscriptionResult> {
+    let wav_data = std::fs::read(wav_path).map_err(|e| {
+        matric_core::Error::Internal(format!(
+            "Failed to read audio from {}: {}",
+            wav_path.display(),
+            e
+        ))
+    })?;
+
+    backend
+        .transcribe(&wav_data, "audio/wav", language)
+        .await
+        .map_err(|e| {
+            matric_core::Error::Internal(format!(
+                "Audio transcription failed (backend: {}, size: {} bytes): {}",
+                backend.model_name(),
+                wav_data.len(),
+                e
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +463,153 @@ mod tests {
         let result =
             transcode_to_speech_wav(Path::new("/nonexistent/audio.mp3"), tmp_dir.path()).await;
         assert!(result.is_err(), "should fail for nonexistent input");
+    }
+
+    #[tokio::test]
+    async fn test_probe_duration_nonexistent() {
+        let result = probe_duration(Path::new("/nonexistent/audio.wav")).await;
+        assert!(result.is_err(), "should fail for nonexistent file");
+    }
+
+    #[test]
+    fn test_merge_transcriptions_single_chunk() {
+        let result = TranscriptionResult {
+            full_text: "Hello world".to_string(),
+            segments: vec![
+                TranscriptionSegment {
+                    start_secs: 0.0,
+                    end_secs: 2.0,
+                    text: "Hello".to_string(),
+                    speaker_id: None,
+                    words: None,
+                },
+                TranscriptionSegment {
+                    start_secs: 2.0,
+                    end_secs: 4.0,
+                    text: "world".to_string(),
+                    speaker_id: None,
+                    words: None,
+                },
+            ],
+            language: Some("en".to_string()),
+            duration_secs: Some(4.0),
+        };
+
+        let merged = merge_transcriptions(vec![(0.0, result)]);
+
+        assert_eq!(merged.full_text, "Hello world");
+        assert_eq!(merged.segments.len(), 2);
+        assert_eq!(merged.segments[0].start_secs, 0.0);
+        assert_eq!(merged.segments[1].end_secs, 4.0);
+        assert_eq!(merged.language, Some("en".to_string()));
+        assert_eq!(merged.duration_secs, Some(4.0));
+    }
+
+    #[test]
+    fn test_merge_transcriptions_multiple_chunks() {
+        let chunk1 = TranscriptionResult {
+            full_text: "First chunk".to_string(),
+            segments: vec![
+                TranscriptionSegment {
+                    start_secs: 0.0,
+                    end_secs: 5.0,
+                    text: "First".to_string(),
+                    speaker_id: None,
+                    words: None,
+                },
+                TranscriptionSegment {
+                    start_secs: 5.0,
+                    end_secs: 10.0,
+                    text: "chunk".to_string(),
+                    speaker_id: None,
+                    words: None,
+                },
+            ],
+            language: Some("en".to_string()),
+            duration_secs: Some(10.0),
+        };
+
+        let chunk2 = TranscriptionResult {
+            full_text: "Second chunk".to_string(),
+            segments: vec![TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 8.0,
+                text: "Second chunk".to_string(),
+                speaker_id: None,
+                words: None,
+            }],
+            language: Some("en".to_string()),
+            duration_secs: Some(8.0),
+        };
+
+        let chunk3 = TranscriptionResult {
+            full_text: "Third chunk".to_string(),
+            segments: vec![TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 5.0,
+                text: "Third chunk".to_string(),
+                speaker_id: None,
+                words: None,
+            }],
+            language: Some("en".to_string()),
+            duration_secs: Some(5.0),
+        };
+
+        // Chunks at offsets: 0s, 1800s (30 min), 3600s (60 min)
+        let merged = merge_transcriptions(vec![(0.0, chunk1), (1800.0, chunk2), (3600.0, chunk3)]);
+
+        assert_eq!(merged.full_text, "First chunk Second chunk Third chunk");
+        assert_eq!(merged.segments.len(), 4);
+
+        // Chunk 1 segments: unchanged (offset 0)
+        assert_eq!(merged.segments[0].start_secs, 0.0);
+        assert_eq!(merged.segments[0].end_secs, 5.0);
+        assert_eq!(merged.segments[1].start_secs, 5.0);
+        assert_eq!(merged.segments[1].end_secs, 10.0);
+
+        // Chunk 2 segment: offset by 1800s
+        assert_eq!(merged.segments[2].start_secs, 1800.0);
+        assert_eq!(merged.segments[2].end_secs, 1808.0);
+
+        // Chunk 3 segment: offset by 3600s
+        assert_eq!(merged.segments[3].start_secs, 3600.0);
+        assert_eq!(merged.segments[3].end_secs, 3605.0);
+
+        // Total duration: max(0+10, 1800+8, 3600+5) = 3605
+        assert_eq!(merged.duration_secs, Some(3605.0));
+        assert_eq!(merged.language, Some("en".to_string()));
+    }
+
+    #[test]
+    fn test_merge_transcriptions_empty() {
+        let merged = merge_transcriptions(vec![]);
+        assert_eq!(merged.full_text, "");
+        assert!(merged.segments.is_empty());
+        assert!(merged.language.is_none());
+        assert!(merged.duration_secs.is_none());
+    }
+
+    #[test]
+    fn test_merge_transcriptions_preserves_speaker_ids() {
+        let chunk = TranscriptionResult {
+            full_text: "Speaker test".to_string(),
+            segments: vec![TranscriptionSegment {
+                start_secs: 0.0,
+                end_secs: 3.0,
+                text: "Speaker test".to_string(),
+                speaker_id: Some("SPEAKER_00".to_string()),
+                words: None,
+            }],
+            language: None,
+            duration_secs: Some(3.0),
+        };
+
+        let merged = merge_transcriptions(vec![(600.0, chunk)]);
+        assert_eq!(merged.segments[0].start_secs, 600.0);
+        assert_eq!(merged.segments[0].end_secs, 603.0);
+        assert_eq!(
+            merged.segments[0].speaker_id,
+            Some("SPEAKER_00".to_string())
+        );
     }
 }

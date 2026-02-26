@@ -151,36 +151,46 @@ impl JobHandler for AudioTranscriptionHandler {
             return JobResult::Failed(format!("Failed to write audio temp file: {}", e));
         }
 
-        let wav_data = match crate::adapters::audio_util::transcode_to_speech_wav(
+        // Transcode, then use chunked transcription for long files (Issue #543).
+        // Chunked transcription probes the duration and splits files longer than
+        // AUDIO_CHUNK_THRESHOLD_SECS into manageable chunks, keeping peak memory
+        // bounded (~58 MB per 30-min chunk) regardless of total audio length.
+        let transcription = match crate::adapters::audio_util::transcode_to_speech_wav(
             &input_path,
             work_dir.path(),
         )
         .await
         {
-            Ok(wav_path) => match std::fs::read(&wav_path) {
-                Ok(data) => data,
-                Err(e) => {
-                    return JobResult::Failed(format!("Failed to read transcoded WAV: {}", e))
+            Ok(wav_path) => {
+                ctx.report_progress(30, Some("Transcribing audio"));
+                match crate::adapters::audio_util::transcribe_with_chunking(
+                    &self.transcription,
+                    &wav_path,
+                    work_dir.path(),
+                    None,
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(e) => {
+                        return JobResult::Retry(format!("Audio transcription failed: {}", e));
+                    }
                 }
-            },
-            Err(e) => {
-                // If transcode fails, try original data directly
-                warn!(error = %e, "Audio transcode failed, using original data");
-                audio_data
             }
-        };
-
-        ctx.report_progress(30, Some("Transcribing audio"));
-
-        // Call Whisper backend
-        let transcription = match self
-            .transcription
-            .transcribe(&wav_data, "audio/wav", None)
-            .await
-        {
-            Ok(result) => result,
             Err(e) => {
-                return JobResult::Retry(format!("Whisper transcription failed: {}", e));
+                // If transcode fails, try original data directly (single pass)
+                warn!(error = %e, "Audio transcode failed, using original data");
+                ctx.report_progress(30, Some("Transcribing audio (fallback)"));
+                match self
+                    .transcription
+                    .transcribe(&audio_data, "audio/wav", None)
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(e2) => {
+                        return JobResult::Retry(format!("Whisper transcription failed: {}", e2));
+                    }
+                }
             }
         };
 

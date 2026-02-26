@@ -21,8 +21,6 @@ use matric_db::{Database, SchemaContext};
 
 use crate::handler::{JobContext, JobHandler, JobResult};
 
-
-
 fn extract_schema(ctx: &JobContext) -> &str {
     ctx.payload()
         .and_then(|p| p.get("schema"))
