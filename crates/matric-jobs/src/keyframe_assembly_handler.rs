@@ -21,8 +21,7 @@ use matric_db::{Database, SchemaContext};
 use crate::adapters::video_multimodal::{build_keyframe_vtt, format_video_markdown};
 use crate::handler::{JobContext, JobHandler, JobResult};
 
-/// Minimum note content length below which we propagate extraction content.
-const MIN_CONTENT_LEN: usize = 100;
+
 
 fn extract_schema(ctx: &JobContext) -> &str {
     ctx.payload()
@@ -86,7 +85,7 @@ impl JobHandler for KeyframeAssemblyHandler {
 
         // Step 1: Load parent attachment metadata (duration, transcript)
         ctx.report_progress(10, Some("Loading parent metadata"));
-        let (duration_secs, _transcript_segments_json, transcript_text, existing_metadata) = {
+        let (duration_secs, transcript_segments_json, transcript_text, existing_metadata) = {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
@@ -184,11 +183,15 @@ impl JobHandler for KeyframeAssemblyHandler {
         let transcript_language = existing_metadata
             .get("transcript_language")
             .and_then(|v| v.as_str());
+        // Parse transcript segments from parent metadata for interleaved output
+        let transcript_segments: Option<Vec<JsonValue>> =
+            transcript_segments_json.and_then(|v| serde_json::from_value(v).ok());
         let full_text = format_video_markdown(
             transcript_text.as_deref(),
             &keyframe_descriptions,
             duration_secs,
             transcript_language,
+            transcript_segments.as_deref(),
         );
 
         // Step 4: Update parent attachment's extracted_text and metadata
@@ -312,25 +315,21 @@ async fn finish_propagation(
     frame_count: usize,
 ) -> JobResult {
     if let Some(content) = full_text {
-        // Update note if currently minimal
+        // Always propagate assembled video content to the note — the keyframe
+        // assembly produces the authoritative representation of the video
+        // (interleaved scenes + dialog) which is far richer than whatever stub
+        // or speaker-config content may already be there.
         let mut content_updated = false;
         match schema_ctx.begin_tx().await {
             Ok(mut tx) => {
-                let should_update = match db.notes.fetch_tx(&mut tx, note_id).await {
-                    Ok(note) => note.original.content.len() < MIN_CONTENT_LEN,
-                    Err(_) => false,
-                };
-
-                if should_update {
-                    match db.notes.update_original_tx(&mut tx, note_id, content).await {
-                        Ok(()) => content_updated = true,
-                        Err(e) => {
-                            error!(
-                                note_id = %note_id,
-                                error = %e,
-                                "Failed to propagate assembly content to note"
-                            );
-                        }
+                match db.notes.update_original_tx(&mut tx, note_id, content).await {
+                    Ok(()) => content_updated = true,
+                    Err(e) => {
+                        error!(
+                            note_id = %note_id,
+                            error = %e,
+                            "Failed to propagate assembly content to note"
+                        );
                     }
                 }
 

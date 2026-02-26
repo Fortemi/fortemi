@@ -9964,6 +9964,11 @@ async fn create_job(
         "speaker_relabel" => JobType::SpeakerRelabel,
         "media_optimize" => JobType::MediaOptimize,
         "audio_transcription" => JobType::AudioTranscription,
+        "keyframe_vision" => JobType::KeyframeVision,
+        "keyframe_assembly" => JobType::KeyframeAssembly,
+        "view_vision" => JobType::ViewVision,
+        "view_assembly" => JobType::ViewAssembly,
+        "thumbnail_sprite" => JobType::ThumbnailSprite,
         _ => {
             return Err(ApiError::BadRequest(format!(
                 "Invalid job type: {}",

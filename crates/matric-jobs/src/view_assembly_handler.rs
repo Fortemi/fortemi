@@ -21,8 +21,7 @@ use matric_db::{Database, SchemaContext};
 
 use crate::handler::{JobContext, JobHandler, JobResult};
 
-/// Minimum note content length below which we propagate extraction content.
-const MIN_CONTENT_LEN: usize = 100;
+
 
 fn extract_schema(ctx: &JobContext) -> &str {
     ctx.payload()
@@ -312,25 +311,20 @@ async fn finish_propagation(
     content: &str,
     view_count: usize,
 ) -> JobResult {
-    // Update note if currently minimal
+    // Always propagate assembled content to the note — the view assembly
+    // produces the authoritative multi-view representation which is far
+    // richer than whatever stub content may already be there.
     let mut content_updated = false;
     match schema_ctx.begin_tx().await {
         Ok(mut tx) => {
-            let should_update = match db.notes.fetch_tx(&mut tx, note_id).await {
-                Ok(note) => note.original.content.len() < MIN_CONTENT_LEN,
-                Err(_) => false,
-            };
-
-            if should_update {
-                match db.notes.update_original_tx(&mut tx, note_id, content).await {
-                    Ok(()) => content_updated = true,
-                    Err(e) => {
-                        error!(
-                            note_id = %note_id,
-                            error = %e,
-                            "Failed to propagate assembly content to note"
-                        );
-                    }
+            match db.notes.update_original_tx(&mut tx, note_id, content).await {
+                Ok(()) => content_updated = true,
+                Err(e) => {
+                    error!(
+                        note_id = %note_id,
+                        error = %e,
+                        "Failed to propagate assembly content to note"
+                    );
                 }
             }
 

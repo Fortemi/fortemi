@@ -299,8 +299,50 @@ impl JobHandler for AiRevisionHandler {
         // Phase 2 (AiRevisionContextual) is queued after saving Phase 1 output.
         let effective_mode = revision_mode.phase1_mode();
 
+        // Detect video timeline content (produced by format_video_markdown with
+        // interleaved scenes + dialog) so we can use a specialized prompt that
+        // produces a scene-by-scene document rather than a generic revision.
+        let is_video_timeline = original_content.contains("### Scene ")
+            && (original_content.contains("**Duration**:")
+                || original_content.contains("**Frames**:"));
+
         // Build prompt based on effective mode (Phase 1 for contextual, or final for non-contextual)
         let prompt = match effective_mode {
+            RevisionMode::Standard if is_video_timeline => {
+                ctx.report_progress(40, Some("Generating AI revision (video timeline)..."));
+
+                // Video timeline mode: produce a scene-by-scene document that
+                // weaves visual descriptions with spoken dialog into a coherent
+                // narrative. Preserves the chronological structure.
+                format!(
+                    r#"You are a video content editor. The following note contains a video timeline with scene descriptions (visual content from keyframes) interleaved with timestamped dialog (speaker transcripts).
+
+Your task is to revise this into a polished, readable scene-by-scene document that weaves the visual descriptions with the spoken dialog into a coherent narrative.
+
+STRICT RULES:
+- Work ONLY with the content provided below
+- Preserve ALL scene boundaries and their approximate timestamps
+- Preserve ALL spoken dialog — do not omit or paraphrase quotes
+- Keep the chronological scene-by-scene structure
+- Merge visual descriptions and dialog into flowing paragraphs within each scene
+- Clean up transcript artifacts (filler words, repeated phrases, unclear segments)
+- Use speaker labels when multiple speakers are present
+- Write scene descriptions in present tense (what the viewer sees)
+- Write dialog naturally with attribution (e.g., "the narrator explains that...")
+
+FORMAT:
+- Use ## for the document title (derived from the overall content)
+- Use ### for each scene heading with timestamp
+- Within each scene: describe what is shown, then integrate the spoken content
+- If the metadata header has duration/frame count, include it at the top
+
+Original Note:
+{}
+
+Output the revised document in clean markdown format. Do not add any labels, markers, or metadata beyond the scene structure."#,
+                    original_content
+                )
+            }
             RevisionMode::Standard => {
                 ctx.report_progress(40, Some("Generating AI revision (standard mode)..."));
 

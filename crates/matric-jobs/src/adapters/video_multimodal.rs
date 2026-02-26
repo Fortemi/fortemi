@@ -570,11 +570,20 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Read all descriptions back from disk for assembly
         let keyframe_descriptions = desc_writer.read_all();
 
+        let segments_json: Vec<JsonValue> = transcript_segments
+            .iter()
+            .filter_map(|s| serde_json::to_value(s).ok())
+            .collect();
         let full_text = format_video_markdown(
             transcript_text.as_deref(),
             &keyframe_descriptions,
             duration_secs,
             transcript_language.as_deref(),
+            if segments_json.is_empty() {
+                None
+            } else {
+                Some(&segments_json)
+            },
         );
 
         // Store bulk keyframe descriptions as a derived manifest file
@@ -937,11 +946,20 @@ impl ExtractionAdapter for VideoMultimodalAdapter {
         // Read all descriptions back from disk for assembly
         let keyframe_descriptions = desc_writer.read_all();
 
+        let segments_json: Vec<JsonValue> = transcript_segments
+            .iter()
+            .filter_map(|s| serde_json::to_value(s).ok())
+            .collect();
         let full_text = format_video_markdown(
             transcript_text.as_deref(),
             &keyframe_descriptions,
             duration_secs,
             transcript_language.as_deref(),
+            if segments_json.is_empty() {
+                None
+            } else {
+                Some(&segments_json)
+            },
         );
 
         // Store bulk keyframe descriptions as a derived manifest file
@@ -1119,13 +1137,23 @@ fn push_keyframe_vtt(
 }
 
 /// Assemble extraction results into properly formatted markdown.
+///
+/// When both keyframe descriptions and transcript segments are available,
+/// the output interleaves scenes with dialog chronologically — each scene
+/// heading is followed by its visual description and the transcript dialog
+/// that falls within that scene's time window.
+///
+/// When transcript segments are unavailable (None or empty), falls back to
+/// plain transcript text and separate visual content sections.
 pub(crate) fn format_video_markdown(
     transcript_text: Option<&str>,
     keyframe_descriptions: &[JsonValue],
     duration_secs: Option<f64>,
     language: Option<&str>,
+    transcript_segments: Option<&[JsonValue]>,
 ) -> Option<String> {
-    let has_transcript = transcript_text.is_some();
+    let has_transcript = transcript_text.is_some()
+        || transcript_segments.is_some_and(|s| !s.is_empty());
     let has_frames = !keyframe_descriptions.is_empty();
 
     if !has_transcript && !has_frames {
@@ -1149,24 +1177,85 @@ pub(crate) fn format_video_markdown(
         parts.push(meta_items.join(" | "));
     }
 
-    // Transcript section
-    if let Some(text) = transcript_text {
-        parts.push("## Transcript".to_string());
-        parts.push(text.to_string());
-    }
-
-    // Visual content section
-    if has_frames {
-        parts.push("## Visual Content".to_string());
+    // Interleaved mode: scenes mixed with dialog when both keyframes and
+    // transcript segments are available.
+    let segments = transcript_segments.unwrap_or(&[]);
+    if has_frames && !segments.is_empty() {
         for (i, kf) in keyframe_descriptions.iter().enumerate() {
-            let ts = kf["timestamp_secs"].as_f64().unwrap_or(0.0);
+            let scene_start = kf["timestamp_secs"].as_f64().unwrap_or(0.0);
+            let scene_end = keyframe_descriptions
+                .get(i + 1)
+                .and_then(|next| next["timestamp_secs"].as_f64())
+                .or(duration_secs)
+                .unwrap_or(f64::MAX);
             let desc = kf["description"].as_str().unwrap_or("");
+
+            // Scene heading + visual description
             parts.push(format!(
                 "### Scene {} \u{2014} {}",
                 i + 1,
-                format_timestamp(ts)
+                format_timestamp(scene_start)
             ));
-            parts.push(desc.to_string());
+            if !desc.is_empty() {
+                parts.push(desc.to_string());
+            }
+
+            // Collect transcript segments that overlap this scene window.
+            // A segment overlaps if it starts before scene_end and ends after scene_start.
+            let scene_dialog: Vec<String> = segments
+                .iter()
+                .filter_map(|seg| {
+                    let seg_start = seg.get("start_secs").and_then(|v| v.as_f64())?;
+                    let seg_end = seg.get("end_secs").and_then(|v| v.as_f64())?;
+                    let text = seg.get("text").and_then(|v| v.as_str())?.trim();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    // Overlap check
+                    if seg_start < scene_end && seg_end > scene_start {
+                        let speaker = seg
+                            .get("speaker_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Speaker");
+                        Some(format!(
+                            "> **{}** ({}\u{2013}{}): {}",
+                            speaker,
+                            format_timestamp(seg_start),
+                            format_timestamp(seg_end),
+                            text
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !scene_dialog.is_empty() {
+                parts.push(scene_dialog.join("\n>\n"));
+            }
+        }
+
+        // Note: trailing segments beyond the last keyframe are already captured
+        // by the main loop, which extends the last scene to duration_secs or MAX.
+    } else {
+        // Fallback: separate sections when we lack structured segments or frames
+        if let Some(text) = transcript_text {
+            parts.push("## Transcript".to_string());
+            parts.push(text.to_string());
+        }
+
+        if has_frames {
+            parts.push("## Visual Content".to_string());
+            for (i, kf) in keyframe_descriptions.iter().enumerate() {
+                let ts = kf["timestamp_secs"].as_f64().unwrap_or(0.0);
+                let desc = kf["description"].as_str().unwrap_or("");
+                parts.push(format!(
+                    "### Scene {} \u{2014} {}",
+                    i + 1,
+                    format_timestamp(ts)
+                ));
+                parts.push(desc.to_string());
+            }
         }
     }
 
