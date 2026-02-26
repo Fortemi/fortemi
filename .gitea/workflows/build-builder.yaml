@@ -105,6 +105,9 @@ jobs:
           # Test Docker CLI
           docker run --rm ${IMAGE}:latest docker --version
 
+          # Test ffmpeg (required by audio/video pipeline)
+          docker run --rm ${IMAGE}:latest ffmpeg -version
+
           echo "All builder tests passed!"
 
       - name: Test testdb image

@@ -42,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     # Docker CLI (for building images)
     docker.io \
+    # Media processing (required by audio/video pipeline)
+    ffmpeg \
     # Node.js for MCP server
     curl \
     gnupg \
