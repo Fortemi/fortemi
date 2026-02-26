@@ -1,0 +1,9 @@
+{
+    "default-runtime": "nvidia",
+    "runtimes": {
+        "nvidia": {
+            "args": [],
+            "path": "nvidia-container-runtime"
+        }
+    }
+}

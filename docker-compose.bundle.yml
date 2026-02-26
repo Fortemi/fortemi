@@ -12,6 +12,16 @@
 # Usage (development - build locally):
 #   docker compose -f docker-compose.bundle.yml up -d --build
 #
+# GPU Setup (REQUIRED for GPU-accelerated features):
+#   1. Install NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#   2. Copy docker/daemon.json to /etc/docker/daemon.json (sets nvidia as default runtime)
+#   3. Restart Docker: sudo systemctl restart docker
+#   4. Verify: docker info | grep "Default Runtime"  →  should show "nvidia"
+#
+# Without this setup, GPU devices appear in containers but NVIDIA libraries are not
+# mounted, causing CUDA to report 0 devices and GPU workloads (Whisper, pyannote,
+# Open3D) to fail silently or with float16/CUDA errors.
+#
 # Audio transcription (Whisper) is enabled by default:
 #   - GPU mode (default): Uses NVIDIA GPU for fast transcription
 #   - No GPU? App still starts, transcription disabled until you enable CPU mode:
