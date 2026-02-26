@@ -95,7 +95,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libosmesa6 \
     libglu1-mesa \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Register NVIDIA EGL ICD so libglvnd dispatches to libEGL_nvidia (injected
+    # by the NVIDIA container toolkit at runtime) instead of Mesa's libEGL_mesa.
+    # Without this, EGL falls back to Mesa which needs /dev/dri (absent under nvidia runtime).
+    && mkdir -p /usr/share/glvnd/egl_vendor.d \
+    && printf '{\n    "file_format_version": "1.0.0",\n    "ICD": {\n        "library_path": "libEGL_nvidia.so.0"\n    }\n}\n' \
+       > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
 
 # Install Python dependencies for 3D renderer
 RUN pip3 install --no-cache-dir --break-system-packages \
