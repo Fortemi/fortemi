@@ -35,8 +35,8 @@ impl Default for RetryConfig {
 impl RetryConfig {
     /// Calculate backoff duration for a given attempt (0-indexed).
     fn backoff_for(&self, attempt: u32) -> Duration {
-        let backoff_ms = self.initial_backoff.as_millis() as f64
-            * self.multiplier.powi(attempt as i32);
+        let backoff_ms =
+            self.initial_backoff.as_millis() as f64 * self.multiplier.powi(attempt as i32);
         let capped = Duration::from_millis(backoff_ms as u64).min(self.max_backoff);
         capped
     }
@@ -213,13 +213,17 @@ mod tests {
 
     #[test]
     fn test_retryable_status_codes() {
-        assert!(is_retryable_status(reqwest::StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
         assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
         assert!(is_retryable_status(reqwest::StatusCode::GATEWAY_TIMEOUT));
         assert!(!is_retryable_status(reqwest::StatusCode::OK));
         assert!(!is_retryable_status(reqwest::StatusCode::BAD_REQUEST));
         assert!(!is_retryable_status(reqwest::StatusCode::NOT_FOUND));
-        assert!(!is_retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
     }
 
     #[tokio::test]

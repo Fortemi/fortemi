@@ -76,6 +76,7 @@ pub use openai::{OpenAIBackend, OpenAIConfig};
 pub use capabilities::{
     known_model_capabilities, Capability, CapabilityRating, ModelCapabilities, QualityTier,
 };
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use diarization::{
     align_speakers, DiarizationBackend, DiarizationResult, DiarizationSegment, PyAnnoteBackend,
 };
@@ -111,13 +112,12 @@ pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use provider::{
     ParsedSlug, ProviderCapability, ProviderConfig, ProviderHealth, ProviderRegistry,
 };
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
-pub use retry::{with_retry, RetryConfig};
 pub use refinement::{
     parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
     reflexion_prompt, self_critique_prompt, Episode, EpisodeOutcome, ReActStep, ReActTrace,
     RefineIteration, ReflexionMemory, SelfRefineConfig, SelfRefineResult,
 };
+pub use retry::{with_retry, RetryConfig};
 pub use selector::{KmOperation, ModelSelection, ModelSelector, RecommendedConfig};
 pub use thinking::{detect_thinking_type, parse_thinking_response, ThinkingResponse};
 pub use transcription::{
