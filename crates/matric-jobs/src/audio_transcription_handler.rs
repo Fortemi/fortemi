@@ -225,7 +225,7 @@ pub(crate) async fn check_video_fan_in(
     parent_attachment_id: Uuid,
     schema: &str,
 ) {
-    let (expected_frames, transcript_done) = {
+    let (expected_frames, transcript_done, expected_passes) = {
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => {
@@ -251,7 +251,11 @@ pub(crate) async fn check_video_fan_in(
             .get("transcript_complete")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        (expected, tc)
+        let passes = att_meta
+            .get("expected_vision_passes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as i64;
+        (expected, tc, passes)
     };
 
     if expected_frames == 0 {
@@ -264,30 +268,48 @@ pub(crate) async fn check_video_fan_in(
         return;
     }
 
-    let described_count: i64 = {
+    // Choose count method based on expected_vision_passes (#550)
+    let vision_ready: bool = {
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(_) => return,
         };
-        let count = file_storage
-            .count_described_keyframes_tx(&mut tx, parent_attachment_id)
-            .await
-            .unwrap_or(0);
+        let ready = if expected_passes >= 3 {
+            let fully_analyzed = file_storage
+                .count_fully_analyzed_keyframes_tx(&mut tx, parent_attachment_id)
+                .await
+                .unwrap_or(0);
+            debug!(
+                fully_analyzed,
+                expected = expected_frames,
+                transcript_done,
+                "Video fan-in (full): {}/{} fully analyzed + transcript={}",
+                fully_analyzed,
+                expected_frames,
+                transcript_done
+            );
+            fully_analyzed >= expected_frames as i64
+        } else {
+            let described_count = file_storage
+                .count_described_keyframes_tx(&mut tx, parent_attachment_id)
+                .await
+                .unwrap_or(0);
+            debug!(
+                described = described_count,
+                expected = expected_frames,
+                transcript_done,
+                "Video fan-in: {}/{} keyframes + transcript={}",
+                described_count,
+                expected_frames,
+                transcript_done
+            );
+            described_count >= expected_frames as i64
+        };
         let _ = tx.commit().await;
-        count
+        ready
     };
 
-    debug!(
-        described = described_count,
-        expected = expected_frames,
-        transcript_done,
-        "Video fan-in: {}/{} keyframes + transcript={}",
-        described_count,
-        expected_frames,
-        transcript_done
-    );
-
-    if described_count >= expected_frames as i64 {
+    if vision_ready {
         let mut assembly_payload = serde_json::Map::new();
         assembly_payload.insert(
             "attachment_id".into(),

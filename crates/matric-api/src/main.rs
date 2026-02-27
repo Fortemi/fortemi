@@ -108,6 +108,7 @@ async fn queue_extraction_job(
     content_type: &str,
     event_bus: &EventBus,
     schema: Option<&str>,
+    vision_mode: Option<&str>,
 ) {
     let mut payload = serde_json::json!({
         "strategy": strategy.to_string(),
@@ -117,6 +118,16 @@ async fn queue_extraction_job(
     });
     if let Some(s) = schema {
         payload["schema"] = serde_json::json!(s);
+    }
+    // Build config object for extraction handler (#550)
+    let mut config = serde_json::Map::new();
+    if let Some(vm) = vision_mode {
+        if vm == "full" || vm == "standard" {
+            config.insert("vision_mode".into(), serde_json::json!(vm));
+        }
+    }
+    if !config.is_empty() {
+        payload["config"] = serde_json::Value::Object(config);
     }
 
     // Determine cost tier based on extraction strategy.
@@ -435,11 +446,12 @@ use matric_inference::{
 use matric_jobs::{
     ArchiveAdapter, AudioChunkTranscriptionHandler, AudioTranscribeAdapter,
     AudioTranscriptionHandler, CodeAstAdapter, EmailAdapter, ExtractionHandler, ExtractionRegistry,
-    Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler, KeyframeVisionHandler,
-    MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter,
-    SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter,
-    TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler,
-    ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
+    Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler, KeyframeCharacterVisionHandler,
+    KeyframeSettingVisionHandler, KeyframeVisionHandler, MediaOptimizeHandler,
+    OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler,
+    SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter,
+    ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler, ViewVisionHandler,
+    VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1347,6 +1359,20 @@ async fn main() -> anyhow::Result<()> {
                  keyframe description jobs will be deferred until OLLAMA_VISION_MODEL is set"
             );
         }
+        // Keyframe character + setting vision handlers (#550): optional enrichment
+        // passes for full analysis mode. Same deferral pattern as scene handler.
+        worker
+            .register_handler(KeyframeCharacterVisionHandler::new(
+                db.clone(),
+                vision_backend.clone(),
+            ))
+            .await;
+        worker
+            .register_handler(KeyframeSettingVisionHandler::new(
+                db.clone(),
+                vision_backend.clone(),
+            ))
+            .await;
         worker
             .register_handler(KeyframeAssemblyHandler::new(db.clone()))
             .await;
@@ -5821,6 +5847,7 @@ async fn bulk_reprocess_notes(
                             &att.content_type,
                             &state.event_bus,
                             Some(&archive_ctx.schema),
+                            None,
                         )
                         .await;
                         jobs_queued += 1;
@@ -12802,6 +12829,8 @@ struct UploadAttachmentQuery {
     document_type_id: Option<Uuid>,
     /// Request media optimization (faststart, web-compatible remux, preview variants) (#506)
     media_optimize: Option<bool>,
+    /// Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)
+    vision_mode: Option<String>,
 }
 
 /// Request body for uploading file attachments
@@ -12815,6 +12844,8 @@ struct UploadAttachmentBody {
     document_type_id: Option<Uuid>,
     /// Request media optimization (faststart, web-compatible remux, preview variants) (#506)
     media_optimize: Option<bool>,
+    /// Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)
+    vision_mode: Option<String>,
 }
 
 /// List all attachments for a note
@@ -12998,6 +13029,10 @@ async fn upload_attachment(
     );
 
     // Queue background extraction job for the uploaded attachment
+    let vision_mode = body
+        .vision_mode
+        .as_deref()
+        .or(att_query.vision_mode.as_deref());
     queue_extraction_job(
         &state.db,
         id,
@@ -13007,6 +13042,7 @@ async fn upload_attachment(
         &content_type,
         &state.event_bus,
         Some(&archive_ctx.schema),
+        vision_mode,
     )
     .await;
 
@@ -13190,6 +13226,7 @@ async fn upload_attachment_multipart(
         &content_type,
         &state.event_bus,
         Some(&archive_ctx.schema),
+        att_query.vision_mode.as_deref(),
     )
     .await;
 
@@ -13944,6 +13981,8 @@ fn tus_headers() -> axum::http::HeaderMap {
 struct TusCreateQuery {
     document_type_id: Option<Uuid>,
     media_optimize: Option<bool>,
+    /// Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)
+    vision_mode: Option<String>,
 }
 
 /// OPTIONS handler: tus capability discovery.
@@ -14062,6 +14101,12 @@ async fn tus_create_upload(
         extra_metadata.insert(
             "media_optimize".to_string(),
             serde_json::Value::Bool(media_opt),
+        );
+    }
+    if let Some(ref vm) = query.vision_mode {
+        extra_metadata.insert(
+            "vision_mode".to_string(),
+            serde_json::Value::String(vm.clone()),
         );
     }
 
@@ -14394,6 +14439,12 @@ async fn tus_patch_upload(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let tus_vision_mode = upload
+            .metadata
+            .get("vision_mode")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         queue_extraction_job(
             &state.db,
             note_id,
@@ -14403,6 +14454,7 @@ async fn tus_patch_upload(
             &content_type,
             &state.event_bus,
             Some(&archive_ctx.schema),
+            tus_vision_mode.as_deref(),
         )
         .await;
         queue_exif_extraction_job(

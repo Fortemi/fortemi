@@ -2108,6 +2108,10 @@ pub enum JobType {
     ThumbnailSprite,
     /// Describe a single video keyframe using vision LLM (atomic, parallelizable) (#526)
     KeyframeVision,
+    /// Identify characters/people in a single video keyframe via vision LLM (#550)
+    KeyframeCharacterVision,
+    /// Identify place, setting, and objects in a single video keyframe via vision LLM (#550)
+    KeyframeSettingVision,
     /// Aggregate all keyframe descriptions and rebuild video markdown (#526)
     KeyframeAssembly,
     /// Describe a single 3D model rendered view using vision LLM (atomic, parallelizable) (#533)
@@ -2174,7 +2178,9 @@ impl JobType {
             // Thumbnail sprite generation runs after extraction, low priority background task
             JobType::ThumbnailSprite => 3,
             // Keyframe vision is per-frame, medium priority (gates assembly)
-            JobType::KeyframeVision => 4,
+            JobType::KeyframeVision
+            | JobType::KeyframeCharacterVision
+            | JobType::KeyframeSettingVision => 4,
             // Keyframe assembly runs after all vision jobs, low priority
             JobType::KeyframeAssembly => 3,
             // View vision is per-view, medium priority (gates assembly) (#533)
@@ -2200,7 +2206,10 @@ impl JobType {
             // Vision GPU tier: per-frame/per-view vision LLM description.
             // Serialized by default (VISION_MAX_CONCURRENT=1) to prevent
             // VRAM contention on single-GPU systems.
-            JobType::KeyframeVision | JobType::ViewVision => Some(cost_tier::VISION_GPU),
+            JobType::KeyframeVision
+            | JobType::KeyframeCharacterVision
+            | JobType::KeyframeSettingVision
+            | JobType::ViewVision => Some(cost_tier::VISION_GPU),
             // Audio transcription: tier-agnostic (Whisper runs on separate backend)
             JobType::AudioTranscription | JobType::AudioChunkTranscription => None,
             // Everything else is tier-agnostic

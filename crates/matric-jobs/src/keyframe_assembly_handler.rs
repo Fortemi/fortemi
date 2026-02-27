@@ -151,12 +151,23 @@ impl JobHandler for KeyframeAssemblyHandler {
                     let frame_index = meta.get("frame_index")?.as_u64()?;
                     let timestamp_secs = meta.get("timestamp_secs")?.as_f64()?;
                     let description = att.ai_description.as_deref().unwrap_or("");
+                    // Read character/setting analysis from extracted_metadata (#550)
+                    let character_analysis = meta
+                        .get("character_analysis")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let setting_analysis = meta
+                        .get("setting_analysis")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     Some((
                         frame_index,
                         json!({
                             "frame_index": frame_index,
                             "timestamp_secs": timestamp_secs,
                             "description": description,
+                            "character_analysis": character_analysis,
+                            "setting_analysis": setting_analysis,
                         }),
                     ))
                 })

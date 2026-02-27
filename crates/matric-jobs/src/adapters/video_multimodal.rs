@@ -1200,6 +1200,16 @@ pub(crate) fn format_video_markdown(
                 parts.push(desc.to_string());
             }
 
+            // Character and setting annotations (#550)
+            let character = kf["character_analysis"].as_str().unwrap_or("");
+            let setting = kf["setting_analysis"].as_str().unwrap_or("");
+            if !character.is_empty() {
+                parts.push(format!("**Characters**: {}", character));
+            }
+            if !setting.is_empty() {
+                parts.push(format!("**Setting**: {}", setting));
+            }
+
             // Collect transcript segments that overlap this scene window.
             // A segment overlaps if it starts before scene_end and ends after scene_start.
             let scene_dialog: Vec<String> = segments
@@ -1255,6 +1265,16 @@ pub(crate) fn format_video_markdown(
                     format_timestamp(ts)
                 ));
                 parts.push(desc.to_string());
+
+                // Character and setting annotations (#550)
+                let character = kf["character_analysis"].as_str().unwrap_or("");
+                let setting = kf["setting_analysis"].as_str().unwrap_or("");
+                if !character.is_empty() {
+                    parts.push(format!("**Characters**: {}", character));
+                }
+                if !setting.is_empty() {
+                    parts.push(format!("**Setting**: {}", setting));
+                }
             }
         }
     }

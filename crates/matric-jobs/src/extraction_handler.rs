@@ -1091,13 +1091,24 @@ impl JobHandler for ExtractionHandler {
                                     );
                                 }
                                 if total_frames > 0 {
-                                    // Store expected count in parent metadata for fan-in
+                                    // Read vision_mode from config (#550)
+                                    let vision_mode = config
+                                        .get("vision_mode")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("standard");
+                                    let expected_vision_passes: u64 =
+                                        if vision_mode == "full" { 3 } else { 1 };
+
+                                    // Store expected count + vision passes in parent metadata for fan-in
                                     if let Ok(mut tx) = schema_ctx.begin_tx().await {
                                         let _ = fs
                                             .merge_extracted_metadata_tx(
                                                 &mut tx,
                                                 att_id,
-                                                &json!({"expected_frame_count": total_frames}),
+                                                &json!({
+                                                    "expected_frame_count": total_frames,
+                                                    "expected_vision_passes": expected_vision_passes,
+                                                }),
                                             )
                                             .await;
                                         let _ = tx.commit().await;
@@ -1146,7 +1157,9 @@ impl JobHandler for ExtractionHandler {
                                                 Some(note_id),
                                                 JobType::KeyframeVision,
                                                 JobType::KeyframeVision.default_priority(),
-                                                Some(serde_json::Value::Object(vision_payload)),
+                                                Some(serde_json::Value::Object(
+                                                    vision_payload.clone(),
+                                                )),
                                                 JobType::KeyframeVision.default_cost_tier(),
                                             )
                                             .await
@@ -1168,16 +1181,76 @@ impl JobHandler for ExtractionHandler {
                                                 );
                                             }
                                         }
+
+                                        // Queue character + setting vision jobs if full mode (#550)
+                                        if vision_mode == "full" {
+                                            if let Ok(job_id) = self
+                                                .db
+                                                .jobs
+                                                .queue(
+                                                    Some(note_id),
+                                                    JobType::KeyframeCharacterVision,
+                                                    JobType::KeyframeCharacterVision
+                                                        .default_priority(),
+                                                    Some(serde_json::Value::Object(
+                                                        vision_payload.clone(),
+                                                    )),
+                                                    JobType::KeyframeCharacterVision
+                                                        .default_cost_tier(),
+                                                )
+                                                .await
+                                            {
+                                                ctx.emit_job_queued(
+                                                    job_id,
+                                                    JobType::KeyframeCharacterVision,
+                                                    Some(note_id),
+                                                );
+                                                queued += 1;
+                                            }
+
+                                            if let Ok(job_id) = self
+                                                .db
+                                                .jobs
+                                                .queue(
+                                                    Some(note_id),
+                                                    JobType::KeyframeSettingVision,
+                                                    JobType::KeyframeSettingVision
+                                                        .default_priority(),
+                                                    Some(serde_json::Value::Object(vision_payload)),
+                                                    JobType::KeyframeSettingVision
+                                                        .default_cost_tier(),
+                                                )
+                                                .await
+                                            {
+                                                ctx.emit_job_queued(
+                                                    job_id,
+                                                    JobType::KeyframeSettingVision,
+                                                    Some(note_id),
+                                                );
+                                                queued += 1;
+                                            }
+                                        }
                                     }
 
-                                    info!(
-                                        note_id = %note_id,
-                                        attachment_id = %att_id,
-                                        total_frames,
-                                        queued,
-                                        "Queued {} KeyframeVision jobs",
-                                        queued
-                                    );
+                                    if vision_mode == "full" {
+                                        info!(
+                                            note_id = %note_id,
+                                            attachment_id = %att_id,
+                                            total_frames,
+                                            queued,
+                                            "Queued {} vision jobs (full mode: scene + character + setting)",
+                                            queued
+                                        );
+                                    } else {
+                                        info!(
+                                            note_id = %note_id,
+                                            attachment_id = %att_id,
+                                            total_frames,
+                                            queued,
+                                            "Queued {} KeyframeVision jobs",
+                                            queued
+                                        );
+                                    }
                                 }
                             }
                         } // if let Some(fs)

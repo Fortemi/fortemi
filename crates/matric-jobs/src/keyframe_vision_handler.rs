@@ -253,7 +253,7 @@ impl JobHandler for KeyframeVisionHandler {
         // Both keyframe descriptions and audio transcription must finish before assembly.
         ctx.report_progress(90, Some("Checking fan-in"));
         if total_frames > 0 {
-            let (described_count, transcript_complete) = {
+            let (vision_ready, transcript_complete) = {
                 let mut tx = match schema_ctx.begin_tx().await {
                     Ok(t) => t,
                     Err(e) => {
@@ -264,11 +264,11 @@ impl JobHandler for KeyframeVisionHandler {
                         })));
                     }
                 };
-                let count = file_storage
+                let described_count = file_storage
                     .count_described_keyframes_tx(&mut tx, parent_attachment_id)
                     .await
                     .unwrap_or(0);
-                // Check transcript_complete flag from parent's extracted_metadata
+                // Check transcript_complete and expected_vision_passes from parent metadata
                 let tc_row: Option<(Option<serde_json::Value>,)> =
                     sqlx::query_as("SELECT extracted_metadata FROM attachment WHERE id = $1")
                         .bind(parent_attachment_id)
@@ -276,25 +276,51 @@ impl JobHandler for KeyframeVisionHandler {
                         .await
                         .ok()
                         .flatten();
-                let tc = tc_row
-                    .and_then(|(em,)| em)
-                    .and_then(|em| em.get("transcript_complete")?.as_bool())
+                let parent_meta = tc_row.and_then(|(em,)| em).unwrap_or_else(|| json!({}));
+                let tc = parent_meta
+                    .get("transcript_complete")
+                    .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let expected_passes = parent_meta
+                    .get("expected_vision_passes")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1) as i64;
+
+                // Choose count method based on expected passes (#550)
+                let ready = if expected_passes >= 3 {
+                    let fully_analyzed = file_storage
+                        .count_fully_analyzed_keyframes_tx(&mut tx, parent_attachment_id)
+                        .await
+                        .unwrap_or(0);
+                    debug!(
+                        fully_analyzed,
+                        described = described_count,
+                        total = total_frames,
+                        transcript_complete = tc,
+                        "Fan-in (full): {}/{} fully analyzed + transcript={}",
+                        fully_analyzed,
+                        total_frames,
+                        tc
+                    );
+                    fully_analyzed >= total_frames
+                } else {
+                    debug!(
+                        described = described_count,
+                        total = total_frames,
+                        transcript_complete = tc,
+                        "Fan-in: {}/{} keyframes + transcript={}",
+                        described_count,
+                        total_frames,
+                        tc
+                    );
+                    described_count >= total_frames
+                };
+
                 let _ = tx.commit().await;
-                (count, tc)
+                (ready, tc)
             };
 
-            debug!(
-                described = described_count,
-                total = total_frames,
-                transcript_complete,
-                "Fan-in: {}/{} keyframes + transcript={}",
-                described_count,
-                total_frames,
-                transcript_complete
-            );
-
-            if described_count >= total_frames && transcript_complete {
+            if vision_ready && transcript_complete {
                 // All frames described AND transcript complete — queue assembly
                 let mut assembly_payload = serde_json::Map::new();
                 assembly_payload.insert(

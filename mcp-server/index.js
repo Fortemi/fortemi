@@ -264,6 +264,9 @@ function createMcpServer() {
             if (args.media_optimize) {
               curlParts.push(`-F "media_optimize=true"`);
             }
+            if (args.vision_mode && args.vision_mode !== "standard") {
+              curlParts.push(`-F "vision_mode=${args.vision_mode}"`);
+            }
             if (args.content_type) {
               curlParts.push(`-F "file=@${fname};type=${args.content_type}"`);
               curlParts.splice(1, 1);
@@ -292,6 +295,9 @@ function createMcpServer() {
             }
             if (args.media_optimize) {
               result.media_optimize = true;
+            }
+            if (args.vision_mode) {
+              result.vision_mode = args.vision_mode;
             }
           } else {
             throw new Error(`Unknown capture_knowledge action: ${action}. Valid: create, bulk_create, from_template, upload`);
@@ -2802,6 +2808,9 @@ function createMcpServer() {
             }
             if (args.media_optimize) {
               maCurlParts.push(`-F "media_optimize=true"`);
+            }
+            if (args.vision_mode && args.vision_mode !== "standard") {
+              maCurlParts.push(`-F "vision_mode=${args.vision_mode}"`);
             }
             if (args.content_type) {
               maCurlParts.push(`-F "file=@${maFilename};type=${args.content_type}"`);

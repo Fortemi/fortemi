@@ -329,6 +329,12 @@ export default [
           "type": "boolean",
           "description": "Request media optimization for audio/video attachments: generates web-streamable variants (faststart MP4, remuxed container, preview clips). Only effective for 'upload' action with audio/video files.",
           "default": false
+        },
+        "vision_mode": {
+          "type": "string",
+          "enum": ["standard", "full"],
+          "description": "Vision analysis depth for video keyframes: 'standard' (scene description only, default) or 'full' (scene + character identification + setting analysis). Only effective for 'upload' action with video files.",
+          "default": "standard"
         }
       },
       "required": [
@@ -990,6 +996,12 @@ export default [
           "type": "boolean",
           "description": "Request media optimization for audio/video uploads: generates web-streamable variants (faststart MP4, remuxed container, preview clips).",
           "default": false
+        },
+        "vision_mode": {
+          "type": "string",
+          "enum": ["standard", "full"],
+          "description": "Vision analysis depth for video keyframes: 'standard' (scene description only, default) or 'full' (scene + character identification + setting analysis). Only effective for video uploads.",
+          "default": "standard"
         }
       },
       "required": [

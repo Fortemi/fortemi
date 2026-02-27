@@ -1171,6 +1171,30 @@ impl PgFileStorageRepository {
         Ok(row.0)
     }
 
+    /// Count keyframe derived attachments where ALL 3 vision passes are complete.
+    ///
+    /// Used for `vision_mode=full` fan-in: when this count equals expected_frame_count,
+    /// all keyframes have scene + character + setting analysis done. (#550)
+    pub async fn count_fully_analyzed_keyframes_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        parent_attachment_id: Uuid,
+    ) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as(
+            r#"SELECT COUNT(*)
+               FROM attachment
+               WHERE extracted_metadata->>'source_attachment_id' = $1
+                 AND extracted_metadata->>'derivation_type' = 'keyframe'
+                 AND ai_description IS NOT NULL
+                 AND (extracted_metadata->>'character_analysis_complete')::boolean = true
+                 AND (extracted_metadata->>'setting_analysis_complete')::boolean = true"#,
+        )
+        .bind(parent_attachment_id.to_string())
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(row.0)
+    }
+
     /// Count derived attachments of a given type that have been described by vision LLM.
     ///
     /// Generic version of `count_described_keyframes_tx` — works for any derivation_type
