@@ -1739,6 +1739,7 @@ async fn main() -> anyhow::Result<()> {
             post(upload_attachment_multipart).layer(DefaultBodyLimit::max(max_upload_size)),
         )
         // Tus resumable upload endpoints (Issue #528)
+        // PATCH chunks need body limit raised above axum's 2 MB default (client sends 5 MB chunks).
         .route(
             "/api/v1/notes/{id}/attachments/tus",
             post(tus_create_upload).options(tus_options),
@@ -1747,7 +1748,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/{id}/attachments/tus/{upload_id}",
             head(tus_head_upload)
                 .patch(tus_patch_upload)
-                .delete(tus_delete_upload),
+                .delete(tus_delete_upload)
+                .layer(DefaultBodyLimit::max(max_upload_size)),
         )
         .route("/api/v1/attachments", get(list_all_attachments))
         .route(
