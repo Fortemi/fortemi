@@ -190,6 +190,20 @@ pub fn gpu_max_concurrent() -> usize {
         .unwrap_or(GPU_MAX_CONCURRENT)
 }
 
+/// Default max concurrent chat requests that hit the GPU.
+/// Defaults to 1 (serial) — same rationale as GPU_MAX_CONCURRENT.
+/// Set CHAT_MAX_CONCURRENT=N for parallel chat if VRAM allows.
+pub const CHAT_MAX_CONCURRENT: usize = 1;
+
+/// Read chat concurrency limit from env, falling back to the default.
+pub fn chat_max_concurrent() -> usize {
+    std::env::var("CHAT_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|v| v.max(1))
+        .unwrap_or(CHAT_MAX_CONCURRENT)
+}
+
 /// Default job execution timeout in seconds (10 minutes).
 /// Configurable via `JOB_TIMEOUT_SECS` env var.
 /// Video multimodal extraction (keyframe extraction + vision model per frame)

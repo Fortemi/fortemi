@@ -4,6 +4,7 @@
 
 pub mod archives;
 pub mod audio;
+pub mod chat;
 pub mod document_types;
 pub mod jobs;
 pub mod models;

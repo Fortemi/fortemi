@@ -332,6 +332,70 @@ impl OllamaBackend {
         }
     }
 
+    /// Multi-turn chat: pass full conversation history to Ollama `/api/chat`.
+    ///
+    /// Messages are `(role, content)` pairs where role is "system", "user", or "assistant".
+    /// Returns the assistant's response content.
+    pub async fn chat_multi_turn(
+        &self,
+        messages: Vec<(String, String)>,
+    ) -> matric_core::Result<String> {
+        let start = Instant::now();
+        let chat_messages: Vec<ChatMessage> = messages
+            .into_iter()
+            .map(|(role, content)| ChatMessage { role, content })
+            .collect();
+
+        let request = ChatRequest {
+            model: self.gen_model.clone(),
+            messages: chat_messages,
+            stream: false,
+            format: None,
+            think: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .timeout(Duration::from_secs(self.gen_timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::Inference(format!("Chat request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(format!(
+                "Ollama returned {}: {}",
+                status, body
+            )));
+        }
+
+        let result: ChatResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Inference(format!("Failed to parse chat response: {}", e)))?;
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        debug!(
+            response_len = result.message.content.len(),
+            duration_ms = elapsed,
+            "Chat multi-turn complete"
+        );
+        Ok(result.message.content)
+    }
+
+    /// Get the current generation model name.
+    pub fn gen_model_name(&self) -> &str {
+        &self.gen_model
+    }
+
+    /// Get the base URL of this backend.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// Internal generation method shared by all generate variants.
     ///
     /// Uses the `/api/chat` endpoint which properly separates thinking/reasoning
