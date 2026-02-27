@@ -207,8 +207,8 @@ services:
       - GLINER_MODEL=${GLINER_MODEL:-urchade/gliner_large-v2.1}
       - GLINER_PORT=8090
       - GLINER_THRESHOLD=${GLINER_THRESHOLD:-0.3}
-    mem_limit: ${GLINER_MEM_LIMIT:-2g}
-    memswap_limit: ${GLINER_MEM_LIMIT:-2g}
+    mem_limit: ${GLINER_MEM_LIMIT:-4g}
+    memswap_limit: ${GLINER_MEM_LIMIT:-4g}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8090/health"]
