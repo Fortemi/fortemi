@@ -38,6 +38,7 @@
 //! ```
 
 pub mod adapters;
+pub mod audio_chunk_handler;
 pub mod audio_transcription_handler;
 pub mod diarization_handler;
 pub mod extraction;
@@ -57,6 +58,7 @@ pub mod worker;
 pub use matric_core::*;
 
 // Re-export job types
+pub use audio_chunk_handler::AudioChunkTranscriptionHandler;
 pub use audio_transcription_handler::AudioTranscriptionHandler;
 pub use diarization_handler::SpeakerDiarizationHandler;
 pub use extraction_handler::ExtractionHandler;

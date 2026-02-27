@@ -2116,6 +2116,8 @@ pub enum JobType {
     ViewAssembly,
     /// Transcribe audio from a derived attachment via Whisper (atomic, retryable) (#542)
     AudioTranscription,
+    /// Transcribe a single audio chunk via Whisper (atomic, parallelizable) (#543)
+    AudioChunkTranscription,
 }
 
 impl JobType {
@@ -2181,6 +2183,7 @@ impl JobType {
             JobType::ViewAssembly => 3,
             // Audio transcription is medium-high priority (gates assembly + diarization) (#542)
             JobType::AudioTranscription => 6,
+            JobType::AudioChunkTranscription => 6,
         }
     }
 
@@ -2199,7 +2202,7 @@ impl JobType {
             // VRAM contention on single-GPU systems.
             JobType::KeyframeVision | JobType::ViewVision => Some(cost_tier::VISION_GPU),
             // Audio transcription: tier-agnostic (Whisper runs on separate backend)
-            JobType::AudioTranscription => None,
+            JobType::AudioTranscription | JobType::AudioChunkTranscription => None,
             // Everything else is tier-agnostic
             _ => None,
         }

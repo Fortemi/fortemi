@@ -433,13 +433,13 @@ use matric_inference::{
     PyAnnoteBackend, VisionBackend,
 };
 use matric_jobs::{
-    ArchiveAdapter, AudioTranscribeAdapter, AudioTranscriptionHandler, CodeAstAdapter,
-    EmailAdapter, ExtractionHandler, ExtractionRegistry, Glb3DModelAdapter, JobWorker,
-    KeyframeAssemblyHandler, KeyframeVisionHandler, MediaOptimizeHandler, OfficeConvertAdapter,
-    PauseState, PdfOcrAdapter, PdfTextAdapter, SpeakerDiarizationHandler, SpeakerRelabelHandler,
-    SpreadsheetAdapter, StructuredExtractAdapter, TextNativeAdapter, ThumbnailSpriteHandler,
-    VideoMultimodalAdapter, ViewAssemblyHandler, ViewVisionHandler, VisionAdapter, WorkerConfig,
-    WorkerEvent,
+    ArchiveAdapter, AudioChunkTranscriptionHandler, AudioTranscribeAdapter,
+    AudioTranscriptionHandler, CodeAstAdapter, EmailAdapter, ExtractionHandler, ExtractionRegistry,
+    Glb3DModelAdapter, JobWorker, KeyframeAssemblyHandler, KeyframeVisionHandler,
+    MediaOptimizeHandler, OfficeConvertAdapter, PauseState, PdfOcrAdapter, PdfTextAdapter,
+    SpeakerDiarizationHandler, SpeakerRelabelHandler, SpreadsheetAdapter, StructuredExtractAdapter,
+    TextNativeAdapter, ThumbnailSpriteHandler, VideoMultimodalAdapter, ViewAssemblyHandler,
+    ViewVisionHandler, VisionAdapter, WorkerConfig, WorkerEvent,
 };
 use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, SearchRequest};
 
@@ -1353,6 +1353,12 @@ async fn main() -> anyhow::Result<()> {
         if let Some(ref backend) = transcription_backend {
             worker
                 .register_handler(AudioTranscriptionHandler::new(db.clone(), backend.clone()))
+                .await;
+            worker
+                .register_handler(AudioChunkTranscriptionHandler::new(
+                    db.clone(),
+                    backend.clone(),
+                ))
                 .await;
         }
 
@@ -9964,6 +9970,7 @@ async fn create_job(
         "speaker_relabel" => JobType::SpeakerRelabel,
         "media_optimize" => JobType::MediaOptimize,
         "audio_transcription" => JobType::AudioTranscription,
+        "audio_chunk_transcription" => JobType::AudioChunkTranscription,
         "keyframe_vision" => JobType::KeyframeVision,
         "keyframe_assembly" => JobType::KeyframeAssembly,
         "view_vision" => JobType::ViewVision,

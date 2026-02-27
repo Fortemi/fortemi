@@ -129,6 +129,7 @@ impl PgJobRepository {
             JobType::ViewVision => "view_vision",
             JobType::ViewAssembly => "view_assembly",
             JobType::AudioTranscription => "audio_transcription",
+            JobType::AudioChunkTranscription => "audio_chunk_transcription",
         }
     }
 
@@ -168,6 +169,7 @@ impl PgJobRepository {
             "view_vision" => JobType::ViewVision,
             "view_assembly" => JobType::ViewAssembly,
             "audio_transcription" => JobType::AudioTranscription,
+            "audio_chunk_transcription" => JobType::AudioChunkTranscription,
             _ => JobType::ContextUpdate, // fallback
         }
     }
