@@ -162,6 +162,18 @@ JOB_POLL_INTERVAL_MS=60000
 JOB_MAX_CONCURRENT=4
 ```
 
+### Chat (Synchronous LLM)
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `CHAT_MAX_CONCURRENT` | Integer | `1` | Maximum concurrent chat requests hitting the GPU. Chat bypasses the job queue and calls Ollama directly via a `tokio::Semaphore`. When all permits are in use, new requests return 503. Increase if VRAM allows parallel inference. |
+
+**Example:**
+```bash
+# Allow 2 concurrent chat sessions (requires sufficient VRAM)
+CHAT_MAX_CONCURRENT=2
+```
+
 ### Real-Time Events
 
 | Variable | Type | Default | Description |

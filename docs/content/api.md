@@ -2963,6 +2963,180 @@ curl -X POST http://localhost:3000/api/v1/audio/transcribe \
   -F "language=en"
 ```
 
+## Chat
+
+Synchronous LLM conversation endpoint. Bypasses the job queue and calls Ollama directly. GPU concurrency is gated by a semaphore (`CHAT_MAX_CONCURRENT`, default 1) — returns 503 when all inference threads are busy.
+
+### Send Chat Message
+
+```http
+POST /api/v1/chat
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "input": "What are the key themes across my recent notes?",
+  "model": "qwen3:8b",
+  "context": {
+    "conversation_history": [
+      {"role": "user", "content": "Tell me about my project notes"},
+      {"role": "assistant", "content": "Based on your recent notes..."}
+    ]
+  }
+}
+```
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `input` | string | Yes | The user's message |
+| `model` | string | No | Ollama model slug override (e.g., `qwen3:8b`). Uses server default if omitted. |
+| `context` | object | No | Optional context for the conversation |
+| `context.note_id` | string | No | Note ID for context (future RAG integration) |
+| `context.collection_id` | string | No | Collection ID for context (future RAG integration) |
+| `context.search_query` | string | No | Search query for context (future RAG integration) |
+| `context.conversation_history` | array | No | Previous messages for multi-turn conversation |
+
+Each message in `conversation_history`:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `role` | string | Yes | `user` or `assistant` |
+| `content` | string | Yes | Message content |
+| `timestamp` | string | No | ISO 8601 timestamp |
+
+**Response (200 OK):**
+
+```json
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Based on your recent notes, the key themes include..."
+    }
+  ],
+  "actions": [],
+  "model_info": {
+    "model": "qwen3:8b",
+    "context_window": 32768,
+    "estimated_available_context": 32568,
+    "max_output_tokens": 8192,
+    "supports_thinking": true,
+    "thinking_type": "explicit_tags",
+    "speed_tok_s": 45.0,
+    "parameter_size": "8B",
+    "family": "qwen3"
+  }
+}
+```
+
+**Model Info Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` | string | Model slug used for generation |
+| `context_window` | integer | Total context window in tokens |
+| `estimated_available_context` | integer | Context remaining after system prompt overhead |
+| `max_output_tokens` | integer | Maximum output tokens per response |
+| `supports_thinking` | boolean | Whether the model supports chain-of-thought reasoning |
+| `thinking_type` | string | One of: `explicit_tags`, `verbose_reasoning`, `pattern_based`, `none`, `not_tested` |
+| `speed_tok_s` | float | Estimated generation speed in tokens/second |
+| `parameter_size` | string | Model parameter count (e.g., `8B`, `70B`) |
+| `family` | string | Model family (e.g., `qwen3`, `llama3`) |
+
+**Errors:**
+
+- `400 Bad Request`: Empty input
+- `503 Service Unavailable`: Chat not configured (Ollama unreachable) or all GPU threads busy
+
+When busy, the 503 response includes:
+```json
+{
+  "error": "Chat service is currently at capacity...",
+  "retry_after": 5
+}
+```
+
+**Example:**
+
+```bash
+# Simple chat
+curl -X POST http://localhost:3000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -d '{"input": "Summarize my recent notes about Rust"}'
+
+# With model selection and conversation history
+curl -X POST http://localhost:3000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mm_key_xxx" \
+  -d '{
+    "input": "Tell me more about the async patterns",
+    "model": "qwen3:8b",
+    "context": {
+      "conversation_history": [
+        {"role": "user", "content": "What Rust topics have I been writing about?"},
+        {"role": "assistant", "content": "Your recent notes cover async patterns, error handling, and trait design."}
+      ]
+    }
+  }'
+```
+
+### List Chat Models
+
+```http
+GET /api/v1/chat/models
+Authorization: Bearer <token>
+```
+
+Returns all installed Ollama models capable of chat (excludes embedding-only models), enriched with metadata from the model registry.
+
+**Response (200 OK):**
+
+```json
+{
+  "models": [
+    {
+      "name": "qwen3:8b",
+      "context_window": 32768,
+      "max_output_tokens": 8192,
+      "supports_thinking": true,
+      "thinking_type": "explicit_tags",
+      "speed_tok_s": 45.0,
+      "parameter_size": "8B",
+      "family": "qwen3",
+      "size_bytes": 5400000000
+    },
+    {
+      "name": "llama3.2:latest",
+      "context_window": 131072,
+      "max_output_tokens": 4096,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "speed_tok_s": 0.0,
+      "parameter_size": "",
+      "family": "",
+      "size_bytes": 2000000000
+    }
+  ],
+  "default_model": "qwen3:8b"
+}
+```
+
+Models without a registry profile return zeroed defaults for numeric fields and empty strings for text fields. The `default_model` field indicates which model the server uses when no `model` is specified in chat requests.
+
+**Errors:**
+
+- `503 Service Unavailable`: Chat not configured (Ollama unreachable)
+
+**Example:**
+
+```bash
+curl http://localhost:3000/api/v1/chat/models \
+  -H "Authorization: Bearer mm_key_xxx"
+```
+
 ## Inference
 
 ### List Models
@@ -3231,10 +3405,20 @@ Returns `200 OK` if the service is healthy. Includes version, database connectiv
   "database": "connected",
   "ollama": "connected",
   "capabilities": {
-    "extraction_strategies": ["pdf", "vision", "text_native", "audio", "code_ast"]
+    "extraction_strategies": ["pdf", "vision", "text_native", "audio", "code_ast"],
+    "chat": {
+      "available": true,
+      "configured": true,
+      "max_concurrent": 1
+    }
   }
 }
 ```
+
+The `chat` capability reports:
+- `configured`: Whether an Ollama generation backend was reachable at startup
+- `available`: Whether at least one GPU semaphore permit is free (i.e., chat is not at capacity)
+- `max_concurrent`: The `CHAT_MAX_CONCURRENT` setting
 
 ### Liveness Probe
 

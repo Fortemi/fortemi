@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- **Synchronous chat endpoint** (#549) — `POST /api/v1/chat` provides direct LLM conversation bypassing the job queue. Supports multi-turn conversation history, model selection from installed Ollama models, and returns model metadata (context window, thinking type, speed). GPU concurrency gated via `tokio::Semaphore` — returns 503 when all inference threads are busy.
+- **Chat model discovery** — `GET /api/v1/chat/models` lists all installed Ollama models capable of chat (filters out embedding-only models) with full metadata from the model registry (context window, thinking type, speed, parameter size, family).
+- **Chat availability in health endpoint** — `GET /health` now includes `capabilities.chat` with `available`, `configured`, and `max_concurrent` fields for client-side availability detection.
+- **`CHAT_MAX_CONCURRENT` configuration** — Controls maximum concurrent chat requests hitting the GPU (default: 1). Separate from job worker GPU concurrency.
+
+### Fixed
+
+- **GLiNER OOM crash loop** — Increased default memory limit from 2GB to 4GB in `docker-compose.bundle.yml`. The deberta-v3-large backbone peaks above 2GB during model loading.
+
 ## [2026.2.13] - 2026-02-23
 
 ### Added

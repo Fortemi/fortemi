@@ -299,6 +299,7 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **TUS resumable uploads** — tus v1.0.0 protocol for reliable large-file uploads with Creation, Termination, and Checksum extensions
 - **Thumbnail sprite sheets** — CSS sprite grids with WebVTT maps for video seek-bar previews
 - **HTTP Range requests** for partial content download of large attachments
+- **Synchronous chat** via `POST /api/v1/chat` with GPU concurrency gating, multi-turn history, model selection, and model metadata
 
 ### Multi-Memory Architecture
 
