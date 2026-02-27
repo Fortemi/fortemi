@@ -36,12 +36,28 @@
 # Then set MCP_CLIENT_ID/MCP_CLIENT_SECRET in .env and recreate container.
 
 services:
+  # Autoheal: restarts containers that fail their Docker healthcheck.
+  # Only containers with label autoheal=true are monitored.
+  # Does NOT monitor matric (contains PostgreSQL — needs human investigation).
+  autoheal:
+    image: willfarrell/autoheal
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=300
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=10
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
   # Redis cache for search query results
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - matric-redis:/data
+    labels:
+      - autoheal=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -55,11 +71,15 @@ services:
     image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    labels:
+      - autoheal=true
     environment:
       - WHISPER__INFERENCE_DEVICE=auto
       - WHISPER__COMPUTE_TYPE=float16
       # Pre-download model on startup (avoids first-request delay)
       - PRELOAD_MODELS=["${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}"]
+    mem_limit: ${WHISPER_MEM_LIMIT:-8g}
+    memswap_limit: ${WHISPER_MEM_LIMIT:-8g}
     deploy:
       resources:
         reservations:
@@ -67,6 +87,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    stop_grace_period: 30s
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
@@ -83,10 +104,14 @@ services:
       - whisper-cpu
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    labels:
+      - autoheal=true
     environment:
       - WHISPER__INFERENCE_DEVICE=cpu
       - WHISPER__COMPUTE_TYPE=int8
       - PRELOAD_MODELS=["${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}"]
+    mem_limit: ${WHISPER_CPU_MEM_LIMIT:-4g}
+    memswap_limit: ${WHISPER_CPU_MEM_LIMIT:-4g}
     networks:
       default:
         aliases:
@@ -109,11 +134,15 @@ services:
       dockerfile: Dockerfile
     volumes:
       - pyannote-models:/root/.cache/huggingface/hub
+    labels:
+      - autoheal=true
     environment:
       - PYANNOTE_MODEL=${DIARIZATION_MODEL:-pyannote/speaker-diarization-3.1}
       - PYANNOTE_PORT=8001
       # HuggingFace token for gated pyannote models (required for first download)
       - HF_TOKEN=${HF_TOKEN:-}
+    mem_limit: ${PYANNOTE_MEM_LIMIT:-6g}
+    memswap_limit: ${PYANNOTE_MEM_LIMIT:-6g}
     deploy:
       resources:
         reservations:
@@ -121,13 +150,14 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    stop_grace_period: 30s
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 300s
 
   # pyannote CPU-only variant (slower but works without NVIDIA GPU)
   # Activate with: docker compose --profile pyannote-cpu up -d
@@ -140,11 +170,15 @@ services:
       - pyannote-cpu
     volumes:
       - pyannote-models:/root/.cache/huggingface/hub
+    labels:
+      - autoheal=true
     environment:
       - PYANNOTE_MODEL=${DIARIZATION_MODEL:-pyannote/speaker-diarization-3.1}
       - PYANNOTE_PORT=8001
       - PYANNOTE_DEVICE=cpu
       - HF_TOKEN=${HF_TOKEN:-}
+    mem_limit: ${PYANNOTE_CPU_MEM_LIMIT:-4g}
+    memswap_limit: ${PYANNOTE_CPU_MEM_LIMIT:-4g}
     networks:
       default:
         aliases:
@@ -155,7 +189,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 180s
+      start_period: 300s
 
   # GLiNER NER sidecar (zero-shot entity extraction, CPU-only)
   # Runs as a separate container; matric connects via GLINER_BASE_URL=http://gliner:8090
@@ -167,10 +201,14 @@ services:
       dockerfile: Dockerfile
     volumes:
       - gliner-models:/root/.cache/huggingface/hub
+    labels:
+      - autoheal=true
     environment:
       - GLINER_MODEL=${GLINER_MODEL:-urchade/gliner_large-v2.1}
       - GLINER_PORT=8090
       - GLINER_THRESHOLD=${GLINER_THRESHOLD:-0.3}
+    mem_limit: ${GLINER_MEM_LIMIT:-2g}
+    memswap_limit: ${GLINER_MEM_LIMIT:-2g}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8090/health"]

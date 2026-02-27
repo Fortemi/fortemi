@@ -16,6 +16,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -110,10 +111,9 @@ async def extract_entities(req: ExtractRequest):
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {
-        "status": "healthy" if model is not None else "loading",
-        "model": MODEL_NAME,
-    }
+    if model is None:
+        return JSONResponse({"status": "loading", "model": MODEL_NAME}, status_code=503)
+    return {"status": "healthy", "model": MODEL_NAME}
 
 
 if __name__ == "__main__":

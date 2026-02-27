@@ -34,6 +34,7 @@
 //! ```
 
 pub mod capabilities;
+pub mod circuit_breaker;
 pub mod diarization;
 pub mod discovery;
 pub mod embedding_models;
@@ -47,6 +48,7 @@ pub mod model_config;
 pub mod profiles;
 pub mod provider;
 pub mod refinement;
+pub mod retry;
 pub mod selector;
 pub mod thinking;
 pub mod transcription;
@@ -109,6 +111,8 @@ pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use provider::{
     ParsedSlug, ProviderCapability, ProviderConfig, ProviderHealth, ProviderRegistry,
 };
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+pub use retry::{with_retry, RetryConfig};
 pub use refinement::{
     parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
     reflexion_prompt, self_critique_prompt, Episode, EpisodeOutcome, ReActStep, ReActTrace,

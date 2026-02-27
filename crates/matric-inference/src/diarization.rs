@@ -89,6 +89,8 @@ pub struct PyAnnoteBackend {
     model: String,
     client: reqwest::Client,
     timeout_secs: u64,
+    retry_config: crate::retry::RetryConfig,
+    circuit_breaker: crate::circuit_breaker::CircuitBreaker,
 }
 
 impl PyAnnoteBackend {
@@ -98,6 +100,10 @@ impl PyAnnoteBackend {
             model,
             client: reqwest::Client::new(),
             timeout_secs: 600, // 10 min for long audio
+            retry_config: crate::retry::RetryConfig::default(),
+            circuit_breaker: crate::circuit_breaker::CircuitBreaker::new(
+                crate::circuit_breaker::CircuitBreakerConfig::new("pyannote"),
+            ),
         }
     }
 
@@ -142,48 +148,65 @@ impl DiarizationBackend for PyAnnoteBackend {
         min_speakers: Option<usize>,
         max_speakers: Option<usize>,
     ) -> Result<DiarizationResult> {
+        self.circuit_breaker.check_request()?;
+
         let url = format!("{}/diarize", self.base_url);
 
         let audio_data = tokio::fs::read(audio_path).await.map_err(|e| {
             matric_core::Error::Internal(format!("Failed to read audio file: {}", e))
         })?;
 
-        let file_part = reqwest::multipart::Part::bytes(audio_data)
-            .file_name(
-                audio_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("audio.wav")
-                    .to_string(),
-            )
-            .mime_str("audio/wav")
-            .map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to create multipart: {}", e))
-            })?;
+        let file_name = audio_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("audio.wav")
+            .to_string();
 
-        let mut form = reqwest::multipart::Form::new()
-            .part("file", file_part)
-            .text("model", self.model.clone());
+        // Build multipart form inside retry closure (forms can't be cloned)
+        let response = crate::retry::with_retry(&self.retry_config, "pyannote", || {
+            let audio = audio_data.clone();
+            let url = url.clone();
+            let model = self.model.clone();
+            let fname = file_name.clone();
+            let client = self.client.clone();
+            let timeout = self.timeout_secs;
+            async move {
+                let file_part = reqwest::multipart::Part::bytes(audio)
+                    .file_name(fname)
+                    .mime_str("audio/wav")
+                    .expect("valid MIME type");
 
-        if let Some(min) = min_speakers {
-            form = form.text("min_speakers", min.to_string());
-        }
-        if let Some(max) = max_speakers {
-            form = form.text("max_speakers", max.to_string());
-        }
+                let mut form = reqwest::multipart::Form::new()
+                    .part("file", file_part)
+                    .text("model", model);
 
-        let response = self
-            .client
-            .post(&url)
-            .multipart(form)
-            .timeout(std::time::Duration::from_secs(self.timeout_secs))
-            .send()
-            .await
-            .map_err(|e| {
-                matric_core::Error::Internal(format!("Diarization request failed: {}", e))
-            })?;
+                if let Some(min) = min_speakers {
+                    form = form.text("min_speakers", min.to_string());
+                }
+                if let Some(max) = max_speakers {
+                    form = form.text("max_speakers", max.to_string());
+                }
+
+                client
+                    .post(&url)
+                    .multipart(form)
+                    .timeout(std::time::Duration::from_secs(timeout))
+                    .send()
+                    .await
+            }
+        })
+        .await;
+
+        let response = match response {
+            Ok(resp) => resp,
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                return Err(e);
+            }
+        };
 
         if !response.status().is_success() {
+            self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(matric_core::Error::Internal(format!(
@@ -191,6 +214,8 @@ impl DiarizationBackend for PyAnnoteBackend {
                 status, body
             )));
         }
+
+        self.circuit_breaker.record_success();
 
         let rttm_output = response.text().await.map_err(|e| {
             matric_core::Error::Internal(format!("Failed to read diarization response: {}", e))

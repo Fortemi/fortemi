@@ -14,6 +14,7 @@ Environment variables:
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -58,21 +59,19 @@ def load_pipeline():
 
 @app.on_event("startup")
 def startup():
-    """Pre-load the pipeline at startup to avoid first-request latency."""
+    """Load the pipeline at startup. Exit on failure so Docker can restart with fresh state."""
     try:
         load_pipeline()
     except Exception as e:
-        print(f"WARNING: Failed to pre-load pipeline: {e}")
-        print("Pipeline will be loaded on first request.")
+        print(f"FATAL: Failed to load pipeline: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok" if _pipeline is not None else "loading",
-        "model": _model_name,
-        "device": get_device(),
-    }
+    if _pipeline is None:
+        return PlainTextResponse("loading", status_code=503)
+    return {"status": "ok", "model": _model_name, "device": get_device()}
 
 
 def _normalize_audio(input_path: str) -> str:

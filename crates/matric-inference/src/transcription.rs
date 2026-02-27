@@ -65,6 +65,8 @@ pub struct WhisperBackend {
     model: String,
     client: reqwest::Client,
     timeout_secs: u64,
+    retry_config: crate::retry::RetryConfig,
+    circuit_breaker: crate::circuit_breaker::CircuitBreaker,
 }
 
 impl WhisperBackend {
@@ -75,6 +77,10 @@ impl WhisperBackend {
             model,
             client: reqwest::Client::new(),
             timeout_secs,
+            retry_config: crate::retry::RetryConfig::default(),
+            circuit_breaker: crate::circuit_breaker::CircuitBreaker::new(
+                crate::circuit_breaker::CircuitBreakerConfig::new("whisper"),
+            ),
         }
     }
 
@@ -185,6 +191,8 @@ impl TranscriptionBackend for WhisperBackend {
         mime_type: &str,
         language: Option<&str>,
     ) -> Result<TranscriptionResult> {
+        self.circuit_breaker.check_request()?;
+
         let url = format!("{}/v1/audio/transcriptions", self.base_url);
 
         // Determine file extension from MIME type
@@ -198,38 +206,53 @@ impl TranscriptionBackend for WhisperBackend {
             _ => "wav",
         };
 
-        let file_part = reqwest::multipart::Part::bytes(audio_data.to_vec())
-            .file_name(format!("audio.{}", ext))
-            .mime_str(mime_type)
-            .map_err(|e| {
-                matric_core::Error::Internal(format!("Failed to create multipart: {}", e))
-            })?;
+        // Build multipart form inside the retry closure (forms can't be cloned).
+        // mime_str() only fails on invalid MIME strings; we control these via the
+        // match above, so expect() is safe here.
+        let response = crate::retry::with_retry(&self.retry_config, "whisper", || {
+            let audio_vec = audio_data.to_vec();
+            let url = url.clone();
+            let model = self.model.clone();
+            let mime = mime_type.to_string();
+            let extension = ext.to_string();
+            let lang = language.map(|l| l.to_string());
+            let client = self.client.clone();
+            let timeout = self.timeout_secs;
+            async move {
+                let file_part = reqwest::multipart::Part::bytes(audio_vec)
+                    .file_name(format!("audio.{}", extension))
+                    .mime_str(&mime)
+                    .expect("valid MIME type from controlled match");
 
-        let mut form = reqwest::multipart::Form::new()
-            .part("file", file_part)
-            .text("model", self.model.clone())
-            .text("response_format", "verbose_json");
+                let mut form = reqwest::multipart::Form::new()
+                    .part("file", file_part)
+                    .text("model", model)
+                    .text("response_format", "verbose_json");
 
-        if let Some(lang) = language {
-            form = form.text("language", lang.to_string());
-        }
+                if let Some(l) = lang {
+                    form = form.text("language", l);
+                }
 
-        let response = self
-            .client
-            .post(&url)
-            .multipart(form)
-            .timeout(std::time::Duration::from_secs(self.timeout_secs))
-            .send()
-            .await
-            .map_err(|e| {
-                matric_core::Error::Internal(format!(
-                    "Transcription request to {} failed: {} \
-                     (check that WHISPER_BASE_URL is correct and the Whisper service is running)",
-                    self.base_url, e
-                ))
-            })?;
+                client
+                    .post(&url)
+                    .multipart(form)
+                    .timeout(std::time::Duration::from_secs(timeout))
+                    .send()
+                    .await
+            }
+        })
+        .await;
+
+        let response = match response {
+            Ok(resp) => resp,
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                return Err(e);
+            }
+        };
 
         if !response.status().is_success() {
+            self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(matric_core::Error::Internal(format!(
@@ -237,6 +260,8 @@ impl TranscriptionBackend for WhisperBackend {
                 status, body
             )));
         }
+
+        self.circuit_breaker.record_success();
 
         let result: WhisperResponse = response.json().await.map_err(|e| {
             matric_core::Error::Internal(format!("Failed to parse whisper response: {}", e))

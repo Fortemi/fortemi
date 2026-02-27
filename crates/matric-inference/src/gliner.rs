@@ -63,6 +63,8 @@ pub struct GlinerBackend {
     model: String,
     client: reqwest::Client,
     timeout_secs: u64,
+    retry_config: crate::retry::RetryConfig,
+    circuit_breaker: crate::circuit_breaker::CircuitBreaker,
 }
 
 impl GlinerBackend {
@@ -72,6 +74,10 @@ impl GlinerBackend {
             model: String::new(), // Populated on first health check
             client: reqwest::Client::new(),
             timeout_secs: 30,
+            retry_config: crate::retry::RetryConfig::default(),
+            circuit_breaker: crate::circuit_breaker::CircuitBreaker::new(
+                crate::circuit_breaker::CircuitBreakerConfig::new("gliner"),
+            ),
         }
     }
 
@@ -112,24 +118,47 @@ impl NerBackend for GlinerBackend {
         entity_types: &[&str],
         threshold: Option<f32>,
     ) -> Result<NerResult> {
+        self.circuit_breaker.check_request()?;
+
         let url = format!("{}/extract", self.base_url);
 
-        let request = ExtractRequest {
+        // Serialize request body once (JSON is Clone-friendly, unlike multipart)
+        let body = serde_json::to_vec(&ExtractRequest {
             text,
             entity_types,
             threshold,
+        })
+        .map_err(|e| {
+            matric_core::Error::Internal(format!("Failed to serialize GLiNER request: {}", e))
+        })?;
+
+        let response = crate::retry::with_retry(&self.retry_config, "gliner", || {
+            let client = self.client.clone();
+            let url = url.clone();
+            let body = body.clone();
+            let timeout = self.timeout_secs;
+            async move {
+                client
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .body(body)
+                    .timeout(std::time::Duration::from_secs(timeout))
+                    .send()
+                    .await
+            }
+        })
+        .await;
+
+        let response = match response {
+            Ok(resp) => resp,
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                return Err(e);
+            }
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .timeout(std::time::Duration::from_secs(self.timeout_secs))
-            .send()
-            .await
-            .map_err(|e| matric_core::Error::Internal(format!("GLiNER request failed: {}", e)))?;
-
         if !response.status().is_success() {
+            self.circuit_breaker.record_failure();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(matric_core::Error::Internal(format!(
@@ -137,6 +166,8 @@ impl NerBackend for GlinerBackend {
                 status, body
             )));
         }
+
+        self.circuit_breaker.record_success();
 
         let result: NerResult = response.json().await.map_err(|e| {
             matric_core::Error::Internal(format!("Failed to parse GLiNER response: {}", e))
