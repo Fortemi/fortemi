@@ -75,6 +75,13 @@ jobs:
           # Wait for health check (pyannote model loading can be slow)
           HEALTHY=false
           for i in {1..90}; do
+            # Detect early container exit (e.g., missing HF_TOKEN, model load failure)
+            if ! docker inspect -f '{{.State.Running}}' pyannote-verify 2>/dev/null | grep -q true; then
+              echo "ERROR: pyannote container exited prematurely"
+              docker logs pyannote-verify 2>&1 | tail -30
+              docker rm pyannote-verify 2>/dev/null || true
+              exit 1
+            fi
             if docker exec pyannote-verify curl -sf http://localhost:8001/health >/dev/null 2>&1; then
               echo "pyannote is healthy!"
               HEALTHY=true

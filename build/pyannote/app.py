@@ -60,6 +60,11 @@ def load_pipeline():
 @app.on_event("startup")
 def startup():
     """Load the pipeline at startup. Exit on failure so Docker can restart with fresh state."""
+    hf_token = os.environ.get("HF_TOKEN", "")
+    if not hf_token:
+        print("FATAL: HF_TOKEN not set. Required for gated model access.", file=sys.stderr)
+        print("Set HF_TOKEN to a valid HuggingFace token with access to the model.", file=sys.stderr)
+        sys.exit(1)
     try:
         load_pipeline()
     except Exception as e:
