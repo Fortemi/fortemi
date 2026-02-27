@@ -21,7 +21,7 @@ use axum::{
         sse::{Event, KeepAlive},
         IntoResponse, Sse,
     },
-    routing::{delete, get, head, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Form, Json, Router,
 };
 use base64::Engine;
@@ -1746,7 +1746,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/notes/{id}/attachments/tus/{upload_id}",
-            head(tus_head_upload)
+            get(tus_get_upload)
+                .head(tus_head_upload)
                 .patch(tus_patch_upload)
                 .delete(tus_delete_upload)
                 .layer(DefaultBodyLimit::max(max_upload_size)),
@@ -14277,11 +14278,11 @@ async fn tus_patch_upload(
             .await
             .map_err(|e| ApiError::Internal(format!("Failed to read staging file: {}", e)))?;
 
-        // Delete DB record and staging file (pipeline takes ownership)
-        let _ = state.db.tus.delete(&mut tx, upload_id).await;
+        // Commit offset update before finalization
         tx.commit()
             .await
             .map_err(|e| ApiError::Internal(e.to_string()))?;
+        // Remove staging file (pipeline takes ownership of the data)
         let _ = tokio::fs::remove_file(&upload.storage_path).await;
 
         // Store via standard attachment pipeline
@@ -14379,13 +14380,23 @@ async fn tus_patch_upload(
             .await;
         }
 
+        // Mark TUS record as finalized (keeps it for the client GET window)
+        let ctx3 = state.db.for_schema(&archive_ctx.schema)?;
+        let mut tx3 = ctx3.begin_tx().await?;
+        let _ = state
+            .db
+            .tus
+            .mark_finalized(&mut tx3, upload_id, attachment.id)
+            .await;
+        let _ = tx3.commit().await;
+
         // Return 200 with attachment info in body
         let mut resp_headers = tus_headers();
         resp_headers.insert("Upload-Offset", new_offset.to_string().parse().unwrap());
         return Ok((
             axum::http::StatusCode::OK,
             resp_headers,
-            axum::Json(updated),
+            axum::Json(attachment),
         )
             .into_response());
     }
@@ -14446,6 +14457,62 @@ async fn tus_delete_upload(
 
     let headers = tus_headers();
     Ok((axum::http::StatusCode::NO_CONTENT, headers))
+}
+
+/// GET handler: retrieve the finalized attachment after a completed tus upload.
+///
+/// After the final PATCH completes, the TUS record is marked as finalized with
+/// the created `attachment_id` in its metadata. The client's tus library calls
+/// GET on the upload URL to retrieve the attachment JSON.
+#[utoipa::path(get, path = "/api/v1/notes/{id}/attachments/tus/{upload_id}", tag = "Attachments",
+    params(
+        ("id" = Uuid, Path, description = "Note ID"),
+        ("upload_id" = Uuid, Path, description = "Upload session ID"),
+    ),
+    responses(
+        (status = 200, description = "Finalized attachment", body = matric_core::Attachment),
+        (status = 404, description = "Upload not found or not yet finalized"),
+    ))]
+async fn tus_get_upload(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path((_note_id, upload_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let mut tx = ctx.begin_tx().await?;
+    let upload = state
+        .db
+        .tus
+        .get(&mut tx, upload_id)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let _ = tx.commit().await;
+
+    let upload =
+        upload.ok_or_else(|| ApiError::NotFound(format!("Upload {} not found", upload_id)))?;
+
+    // Extract attachment_id from finalized metadata
+    let attachment_id: Uuid = upload
+        .metadata
+        .get("attachment_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| {
+            ApiError::NotFound("Upload not yet finalized (no attachment_id)".to_string())
+        })?;
+
+    // Fetch the full attachment record
+    let file_storage = state
+        .db
+        .file_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("File storage not configured".to_string()))?;
+
+    let mut tx2 = ctx.begin_tx().await?;
+    let attachment = file_storage.get_tx(&mut tx2, attachment_id).await?;
+    drop(tx2);
+
+    Ok(axum::Json(attachment))
 }
 
 /// Decode a base64-encoded tus metadata value.

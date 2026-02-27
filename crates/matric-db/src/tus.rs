@@ -115,6 +115,32 @@ impl PgTusRepository {
         .await
     }
 
+    /// Mark a tus upload as finalized by storing the created attachment_id
+    /// in its metadata. The record is kept for a short window so the client
+    /// can GET the result, then cleaned up by the normal expiry sweep.
+    pub async fn mark_finalized(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        upload_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<TusUpload, sqlx::Error> {
+        sqlx::query_as::<_, TusUpload>(
+            r#"
+            UPDATE tus_upload
+            SET metadata = metadata || jsonb_build_object('attachment_id', $2::text),
+                expires_at = NOW() + INTERVAL '5 minutes'
+            WHERE id = $1
+            RETURNING id, note_id, filename, content_type, total_size,
+                      current_offset, storage_path, metadata,
+                      created_at, updated_at, expires_at
+            "#,
+        )
+        .bind(upload_id)
+        .bind(attachment_id.to_string())
+        .fetch_one(&mut **tx)
+        .await
+    }
+
     /// Delete a tus upload session (cancel or after finalization).
     /// Returns the deleted row (for staging file cleanup).
     pub async fn delete(
