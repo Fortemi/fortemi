@@ -449,7 +449,7 @@ use handlers::{
         list_archives, set_default_archive, update_archive,
     },
     audio::transcribe_audio,
-    chat::chat_handler,
+    chat::{chat_handler, list_chat_models},
     document_types::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
@@ -610,6 +610,7 @@ struct AppState {
         handlers::audio::transcribe_audio,
         // handlers::chat
         handlers::chat::chat_handler,
+        handlers::chat::list_chat_models,
         // handlers::pke
         handlers::pke::pke_keygen, handlers::pke::pke_address,
         handlers::pke::pke_encrypt, handlers::pke::pke_decrypt,
@@ -1635,6 +1636,7 @@ async fn main() -> anyhow::Result<()> {
         )
         // Chat (synchronous LLM conversation, Issue #549)
         .route("/api/v1/chat", post(chat_handler))
+        .route("/api/v1/chat/models", get(list_chat_models))
         // Document Types
         .route(
             "/api/v1/document-types",

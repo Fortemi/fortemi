@@ -387,6 +387,94 @@ fn build_model_info(model_name: &str, registry: &ModelRegistry) -> ChatModelInfo
 }
 
 // =============================================================================
+// LIST CHAT MODELS
+// =============================================================================
+
+/// Response from GET /api/v1/chat/models.
+#[derive(Debug, Serialize)]
+pub struct ListChatModelsResponse {
+    /// All installed Ollama models capable of chat (excludes embedding-only models).
+    pub models: Vec<ChatModelInfo>,
+    /// The server's default chat model slug.
+    pub default_model: String,
+}
+
+/// GET /api/v1/chat/models — list installed models available for chat.
+///
+/// Returns every installed Ollama model that supports text generation (i.e., not
+/// embedding-only), enriched with context window, thinking capability, speed,
+/// and parameter size from the model profile registry.
+#[utoipa::path(
+    get,
+    path = "/api/v1/chat/models",
+    tag = "Chat",
+    responses(
+        (status = 200, description = "Available chat models"),
+        (status = 503, description = "Ollama not reachable"),
+    )
+)]
+pub async fn list_chat_models(State(state): State<AppState>) -> impl IntoResponse {
+    let ollama_base_url = std::env::var("OLLAMA_BASE")
+        .or_else(|_| std::env::var("OLLAMA_URL"))
+        .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string());
+
+    let discovery = ModelDiscovery::new(&ollama_base_url);
+    let discovered = match discovery.discover_models().await {
+        Ok(result) => result,
+        Err(e) => {
+            warn!(error = %e, "Failed to discover Ollama models for chat");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": format!("Cannot reach Ollama: {}", e),
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let registry = ModelRegistry::new();
+
+    // Default model: from generation_backend if configured, else from env
+    let default_model = state
+        .generation_backend
+        .as_ref()
+        .map(|b| b.gen_model_name().to_string())
+        .unwrap_or_else(|| {
+            std::env::var("OLLAMA_GEN_MODEL")
+                .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string())
+        });
+
+    let models: Vec<ChatModelInfo> = discovered
+        .models
+        .iter()
+        .filter(|m| !m.is_likely_embedding())
+        .map(|m| {
+            let mut info = build_model_info(&m.name, &registry);
+            // For models not in the profile registry, fill in what we can from Ollama discovery
+            if info.parameter_size.is_none() {
+                info.parameter_size = m.parameter_size.clone();
+            }
+            if info.family.is_none() {
+                info.family = m.family.clone();
+            }
+            info
+        })
+        .collect();
+
+    let response = ListChatModelsResponse {
+        models,
+        default_model,
+    };
+
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(response).unwrap()),
+    )
+        .into_response()
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 
