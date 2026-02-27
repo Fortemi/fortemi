@@ -390,7 +390,8 @@ STRICT RULES:
 - Do NOT invent details, examples, or context not present in the original
 - Preserve ALL original meaning and information
 - If the content is a transcript, clean it up but preserve the speaker's actual words and meaning
-- Preserve ALL scene boundaries and their approximate timestamps if present
+- If the content contains raw keyframe captures (### Scene N at regular intervals), group consecutive keyframes sharing the same setting into coherent scenes and describe visual progression across frames rather than restating each independently; use time ranges for merged scenes
+- Preserve the chronological order and approximate time coverage
 - Preserve ALL spoken dialog — do not omit or paraphrase quotes
 {continuity}
 Original Note:
@@ -409,32 +410,34 @@ Output the revised document in clean markdown format. Do not add any labels, mar
     // Fallback: no document type or empty required_sections
     if is_video_timeline {
         format!(
-            r#"You are a video content editor. The following note contains a video timeline with scene descriptions (visual content from keyframes) interleaved with timestamped dialog (speaker transcripts).
+            r##"You are a video content editor. The following note contains raw keyframe captures taken at regular intervals (~10 seconds) interleaved with timestamped speaker dialog. Each Scene N heading is a single keyframe snapshot, NOT a true scene boundary.
 
-Your task is to revise this into a polished, readable scene-by-scene document that weaves the visual descriptions with the spoken dialog into a coherent narrative.
+Your task is to revise this into a polished document that groups keyframes into coherent scenes and weaves visual descriptions with dialog into a flowing narrative.
 {summary}
 
-STRICT RULES:
-- Work ONLY with the content provided below
-- Preserve ALL scene boundaries and their approximate timestamps
-- Preserve ALL spoken dialog — do not omit or paraphrase quotes
-- Keep the chronological scene-by-scene structure
-- Merge visual descriptions and dialog into flowing paragraphs within each scene
-- Clean up transcript artifacts (filler words, repeated phrases, unclear segments)
-- Use speaker labels when multiple speakers are present
-- Write scene descriptions in present tense (what the viewer sees)
-- Write dialog naturally with attribution (e.g., "the narrator explains that...")
+SCENE MERGING:
+- Group consecutive keyframes that share the same setting, subject, or visual continuity into a single scene
+- Within each merged scene, describe the visual PROGRESSION across frames -- camera movement, action unfolding, changes in subject -- rather than restating each frame independently
+- Start a new scene only when there is a clear change in location, subject, or topic
+- Title each scene descriptively with a time range (e.g., Opening Montage -- 0:00-0:45)
+- Preserve chronological order
+
+DIALOG INTEGRATION:
+- Weave transcript segments into the visual narrative at the point they occur
+- Attribute dialog to speakers when labels are present
+- Clean up transcript artifacts (filler words, repetition, disfluencies)
+- Use natural attribution (direct quotes or "the host explains...")
+- Preserve ALL spoken dialog -- do not omit or paraphrase quotes
 
 FORMAT:
-- Use ## for the document title (derived from the overall content)
-- Use ### for each scene heading with timestamp
-- Within each scene: describe what is shown, then integrate the spoken content
-- If the metadata header has duration/frame count, include it at the top
+- Use ## for the document title (derived from overall content)
+- Use ### for each merged scene heading with time range
+- Within each scene: flowing prose interleaving what is shown with what is said
 {continuity}
 Original Note:
 {content}
 
-Output the revised document in clean markdown format. Do not add any labels, markers, or metadata."#,
+Output the revised document in clean markdown format. Do not add any labels, markers, or metadata."##,
             summary = summary_instruction,
             continuity = continuity_note,
             content = chunk_content
@@ -7323,7 +7326,7 @@ Quick note about the meeting discussion and action items."#;
 
     #[test]
     fn test_build_prompt_video_timeline_preserved() {
-        // When no doc type but is_video_timeline, should use video timeline prompt
+        // When no doc type but is_video_timeline, should use scene-merging prompt
         let prompt = build_type_aware_prompt(
             None,
             RevisionMode::Standard,
@@ -7334,7 +7337,10 @@ Quick note about the meeting discussion and action items."#;
             true,
         );
         assert!(prompt.contains("video content editor"));
-        assert!(prompt.contains("scene-by-scene"));
+        assert!(prompt.contains("SCENE MERGING"));
+        assert!(prompt.contains("DIALOG INTEGRATION"));
+        assert!(prompt.contains("visual PROGRESSION"));
+        assert!(prompt.contains("merged scene heading with time range"));
         assert!(prompt.contains("## Summary"));
     }
 
@@ -7434,5 +7440,8 @@ Quick note about the meeting discussion and action items."#;
         // Should use the doc type prompt, not the generic video timeline fallback
         assert!(prompt.contains("film analyst"));
         assert!(prompt.contains("Synopsis"));
+        // Doc type branch should include keyframe-merging instructions
+        assert!(prompt.contains("group consecutive keyframes"));
+        assert!(prompt.contains("visual progression"));
     }
 }
