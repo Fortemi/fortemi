@@ -137,6 +137,20 @@ pub const EXTRACTION_CHUNK_SIZE_FALLBACK: usize = 6000;
 /// Minimum chunk size for extraction (below this, don't bother chunking).
 pub const EXTRACTION_CHUNK_SIZE_MIN: usize = 500;
 
+/// Fallback chunk size for AI revision when no model profile is available.
+/// Conservative default for unknown models (~10K tokens at ~4 chars/token).
+/// Actual chunk size is computed from the model's context window at runtime.
+pub const REVISION_CHUNK_SIZE_FALLBACK: usize = 40_000;
+
+/// Minimum chunk size for revision (quality floor — smaller chunks lose
+/// coherence and context, degrading revision quality).
+pub const REVISION_CHUNK_SIZE_MIN: usize = 8_000;
+
+/// Prompt instruction overhead budget in characters for revision prompts.
+/// Accounts for the instruction text, rules, and formatting markers that
+/// surround the actual content in revision prompts.
+pub const REVISION_PROMPT_OVERHEAD: usize = 2_000;
+
 // =============================================================================
 // JOB PROCESSING
 // =============================================================================

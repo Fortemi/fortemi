@@ -164,6 +164,104 @@ fn chunk_for_extraction(content: &str, max_chars: usize) -> Vec<String> {
     chunker.chunk(content).into_iter().map(|c| c.text).collect()
 }
 
+/// Compute revision chunk size from a model's context window.
+///
+/// Revision needs different sizing than extraction because both input content
+/// AND generated output must fit in the context window. The formula:
+///   (native_context_tokens * ~4 chars/token - prompt_overhead) / 2
+/// The /2 accounts for the model needing roughly equal space for input and output.
+///
+/// Capped at 200K chars (above this, chunking adds overhead without benefit)
+/// and floored at 8K chars (below this, chunks lose coherence).
+fn revision_chunk_size(backend: &OllamaBackend) -> usize {
+    if let Some(profile) = backend.gen_model_profile() {
+        let context_chars = profile.native_context * 4;
+        let available =
+            context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
+        let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
+
+        info!(
+            model = %profile.name,
+            context_tokens = profile.native_context,
+            chunk_chars = size,
+            "Computed revision chunk size from model profile"
+        );
+        return size;
+    }
+    matric_core::defaults::REVISION_CHUNK_SIZE_FALLBACK
+}
+
+/// Chunk content for revision if it exceeds the given chunk size.
+///
+/// Uses `SemanticChunker` with zero overlap — revision chunks are independent
+/// prose sections that get concatenated, not array items needing deduplication.
+/// Returns a single chunk for small content.
+fn chunk_for_revision(content: &str, max_chars: usize) -> Vec<String> {
+    if content.len() <= max_chars {
+        return vec![content.to_string()];
+    }
+    let config = ChunkerConfig {
+        max_chunk_size: max_chars,
+        min_chunk_size: (max_chars / 10).max(500),
+        overlap: 0,
+    };
+    let chunker = SemanticChunker::new(config);
+    chunker.chunk(content).into_iter().map(|c| c.text).collect()
+}
+
+/// Chunk video timeline content at scene boundaries for revision.
+///
+/// Video timelines produced by `KeyframeAssemblyHandler` have explicit `### Scene N`
+/// markers. These are natural atomic units that should not be split mid-scene.
+/// Groups consecutive scenes until the chunk budget is reached. The metadata
+/// header (duration, frames) stays with the first chunk.
+///
+/// Falls back to `chunk_for_revision()` if no scene boundaries are found.
+fn chunk_video_timeline(content: &str, max_chars: usize) -> Vec<String> {
+    if content.len() <= max_chars {
+        return vec![content.to_string()];
+    }
+
+    let scene_marker = "### Scene ";
+    let parts: Vec<&str> = content.split(scene_marker).collect();
+
+    if parts.len() <= 1 {
+        // No scene boundaries — fall back to generic chunking
+        return chunk_for_revision(content, max_chars);
+    }
+
+    // First part is the metadata header (before the first scene)
+    let header = parts[0];
+    let scenes: Vec<String> = parts[1..]
+        .iter()
+        .map(|s| format!("{}{}", scene_marker, s))
+        .collect();
+
+    let mut chunks = Vec::new();
+    let mut current_chunk = header.to_string();
+
+    for scene in &scenes {
+        if !current_chunk.is_empty() && current_chunk.len() + scene.len() > max_chars {
+            if !current_chunk.trim().is_empty() {
+                chunks.push(current_chunk);
+            }
+            current_chunk = scene.clone();
+        } else {
+            current_chunk.push_str(scene);
+        }
+    }
+
+    if !current_chunk.trim().is_empty() {
+        chunks.push(current_chunk);
+    }
+
+    if chunks.is_empty() {
+        vec![content.to_string()]
+    } else {
+        chunks
+    }
+}
+
 /// Merge multiple JSON array results from chunked extraction, deduplicating by string value.
 /// Skips chunks that fail to parse rather than failing the entire merge.
 fn merge_json_arrays(results: Vec<String>) -> Vec<String> {
@@ -196,6 +294,173 @@ const MAX_CONTEXT_NOTES: usize = 7;
 /// Capped lower than MAX_CONTEXT_NOTES to keep prompt size manageable
 /// while still respecting Miller's Law bounds (minimum of 5).
 const MAX_PROMPT_SNIPPETS: usize = 5;
+
+/// Build a revision prompt tailored to the note's document type.
+///
+/// When a `DocumentType` is available, uses its `agentic_config.required_sections`
+/// and `generation_prompt` to produce type-specific output (e.g., meeting notes get
+/// Decisions/Action Items, movies get Synopsis/Cast). Falls back to the existing
+/// generic prompt when no type is available. Light mode is always unchanged.
+fn build_type_aware_prompt(
+    doc_type: Option<&matric_core::DocumentType>,
+    mode: RevisionMode,
+    chunk_content: &str,
+    continuity_note: &str,
+    chunk_idx: usize,
+    total_chunks: usize,
+    is_video_timeline: bool,
+) -> String {
+    // Light mode: formatting-only, no summary, no structural additions
+    if mode == RevisionMode::Light {
+        return format!(
+            r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
+{continuity}
+Original Note:
+{content}
+
+STRICT RULES - You MUST follow these:
+1. DO NOT add any technical details, architecture, APIs, or integrations not explicitly stated in the original
+2. DO NOT invent, expand, or elaborate on topics - only reformat what exists
+3. DO NOT add analysis, explanations, or context the author did not provide
+4. DO NOT turn opinions into factual statements or analysis
+5. DO NOT add tables, diagrams, or structured data unless the original clearly warrants it
+
+What you MAY do:
+- Fix grammar and spelling errors
+- Add markdown headers to organize existing content
+- Convert existing lists to cleaner bullet points
+- Improve sentence clarity without changing meaning
+- Add appropriate markdown formatting (bold, italic, code blocks for actual code)
+
+If the note is very short or simple, keep it short and simple. A one-line note should remain approximately one line.
+
+Output the formatted note. Do not add any labels, markers, or metadata."#,
+            continuity = continuity_note,
+            content = chunk_content,
+        );
+    }
+
+    // Standard mode: build type-aware prompt
+    let is_first_chunk = chunk_idx == 0;
+    let is_single_chunk = total_chunks <= 1;
+
+    // Summary instruction: only on first chunk or single-chunk documents
+    let summary_instruction = if is_first_chunk || is_single_chunk {
+        "\n- Begin your output with a ## Summary section (2-4 sentences capturing the essence of this content)"
+    } else {
+        ""
+    };
+
+    // If we have a document type with agentic_config, use it
+    if let Some(dt) = doc_type {
+        let sections = &dt.agentic_config.required_sections;
+        if !sections.is_empty() {
+            // Build role from generation_prompt or category
+            let role = dt
+                .agentic_config
+                .generation_prompt
+                .as_deref()
+                .unwrap_or("You are an intelligent note-taking assistant.");
+
+            // Build required sections list (exclude Summary — handled separately)
+            let sections_list: Vec<&str> = sections
+                .iter()
+                .map(|s| s.as_str())
+                .filter(|s| *s != "Summary")
+                .collect();
+
+            let sections_instruction = if sections_list.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n- After the summary, organize the content into these sections: {}",
+                    sections_list.join(", ")
+                )
+            };
+
+            return format!(
+                r#"{role}
+
+Revise the following content into a polished, well-structured document.
+{summary}{sections}
+
+STRICT RULES:
+- Work ONLY with the content provided below
+- Do NOT reference, infer, or add information from any external source
+- Do NOT invent details, examples, or context not present in the original
+- Preserve ALL original meaning and information
+- If the content is a transcript, clean it up but preserve the speaker's actual words and meaning
+- Preserve ALL scene boundaries and their approximate timestamps if present
+- Preserve ALL spoken dialog — do not omit or paraphrase quotes
+{continuity}
+Original Note:
+{content}
+
+Output the revised document in clean markdown format. Do not add any labels, markers, or metadata."#,
+                role = role,
+                summary = summary_instruction,
+                sections = sections_instruction,
+                continuity = continuity_note,
+                content = chunk_content,
+            );
+        }
+    }
+
+    // Fallback: no document type or empty required_sections
+    if is_video_timeline {
+        format!(
+            r#"You are a video content editor. The following note contains a video timeline with scene descriptions (visual content from keyframes) interleaved with timestamped dialog (speaker transcripts).
+
+Your task is to revise this into a polished, readable scene-by-scene document that weaves the visual descriptions with the spoken dialog into a coherent narrative.
+{summary}
+
+STRICT RULES:
+- Work ONLY with the content provided below
+- Preserve ALL scene boundaries and their approximate timestamps
+- Preserve ALL spoken dialog — do not omit or paraphrase quotes
+- Keep the chronological scene-by-scene structure
+- Merge visual descriptions and dialog into flowing paragraphs within each scene
+- Clean up transcript artifacts (filler words, repeated phrases, unclear segments)
+- Use speaker labels when multiple speakers are present
+- Write scene descriptions in present tense (what the viewer sees)
+- Write dialog naturally with attribution (e.g., "the narrator explains that...")
+
+FORMAT:
+- Use ## for the document title (derived from the overall content)
+- Use ### for each scene heading with timestamp
+- Within each scene: describe what is shown, then integrate the spoken content
+- If the metadata header has duration/frame count, include it at the top
+{continuity}
+Original Note:
+{content}
+
+Output the revised document in clean markdown format. Do not add any labels, markers, or metadata."#,
+            summary = summary_instruction,
+            continuity = continuity_note,
+            content = chunk_content
+        )
+    } else {
+        format!(
+            r#"You are an intelligent note-taking assistant. Revise the following note to improve clarity, structure, and readability. Extract and highlight key concepts.
+{summary}
+
+STRICT RULES:
+- Work ONLY with the content provided below
+- Do NOT reference, infer, or add information from any external source
+- Do NOT invent details, examples, or context not present in the original
+- Preserve ALL original meaning and information
+- If the content is a transcript, clean it up but preserve the speaker's actual words and meaning
+{continuity}
+Original Note:
+{content}
+
+Output the revised note in clean markdown format. Do not add any labels, markers, or metadata."#,
+            summary = summary_instruction,
+            continuity = continuity_note,
+            content = chunk_content
+        )
+    }
+}
 
 /// Handler for AI revision jobs - enhanced with context from related notes.
 pub struct AiRevisionHandler {
@@ -283,6 +548,30 @@ impl JobHandler for AiRevisionHandler {
             return JobResult::Failed("Note has no content to revise".into());
         }
 
+        // Look up document type for type-aware prompt building.
+        // Primary: use the note's assigned document_type_id.
+        // Fallback: heuristic detection from content (first 1000 chars).
+        let doc_type = if let Some(dt_id) = note.note.document_type_id {
+            self.db.document_types.get(dt_id).await.ok().flatten()
+        } else {
+            let preview: String = original_content.chars().take(1000).collect();
+            match self
+                .db
+                .document_types
+                .detect(None, Some(&preview), None)
+                .await
+            {
+                Ok(Some(result)) => self
+                    .db
+                    .document_types
+                    .get(result.document_type.id)
+                    .await
+                    .ok()
+                    .flatten(),
+                _ => None,
+            }
+        };
+
         // Start provenance activity
         let activity_id = self
             .db
@@ -306,103 +595,103 @@ impl JobHandler for AiRevisionHandler {
             && (original_content.contains("**Duration**:")
                 || original_content.contains("**Frames**:"));
 
-        // Build prompt based on effective mode (Phase 1 for contextual, or final for non-contextual)
-        let prompt = match effective_mode {
-            RevisionMode::Standard if is_video_timeline => {
-                ctx.report_progress(40, Some("Generating AI revision (video timeline)..."));
-
-                // Video timeline mode: produce a scene-by-scene document that
-                // weaves visual descriptions with spoken dialog into a coherent
-                // narrative. Preserves the chronological structure.
-                format!(
-                    r#"You are a video content editor. The following note contains a video timeline with scene descriptions (visual content from keyframes) interleaved with timestamped dialog (speaker transcripts).
-
-Your task is to revise this into a polished, readable scene-by-scene document that weaves the visual descriptions with the spoken dialog into a coherent narrative.
-
-STRICT RULES:
-- Work ONLY with the content provided below
-- Preserve ALL scene boundaries and their approximate timestamps
-- Preserve ALL spoken dialog — do not omit or paraphrase quotes
-- Keep the chronological scene-by-scene structure
-- Merge visual descriptions and dialog into flowing paragraphs within each scene
-- Clean up transcript artifacts (filler words, repeated phrases, unclear segments)
-- Use speaker labels when multiple speakers are present
-- Write scene descriptions in present tense (what the viewer sees)
-- Write dialog naturally with attribution (e.g., "the narrator explains that...")
-
-FORMAT:
-- Use ## for the document title (derived from the overall content)
-- Use ### for each scene heading with timestamp
-- Within each scene: describe what is shown, then integrate the spoken content
-- If the metadata header has duration/frame count, include it at the top
-
-Original Note:
-{}
-
-Output the revised document in clean markdown format. Do not add any labels, markers, or metadata beyond the scene structure."#,
-                    original_content
-                )
-            }
-            RevisionMode::Standard => {
-                ctx.report_progress(40, Some("Generating AI revision (standard mode)..."));
-
-                // Standard mode: intelligent revision using ONLY the note's own content
-                format!(
-                    r#"You are an intelligent note-taking assistant. Revise the following note to improve clarity, structure, and readability. Extract and highlight key concepts.
-
-STRICT RULES:
-- Work ONLY with the content provided below
-- Do NOT reference, infer, or add information from any external source
-- Do NOT invent details, examples, or context not present in the original
-- Preserve ALL original meaning and information
-- If the content is a transcript, clean it up but preserve the speaker's actual words and meaning
-
-Original Note:
-{}
-
-Output the revised note in clean markdown format. Do not add any labels, markers, or metadata."#,
-                    original_content
-                )
-            }
-            RevisionMode::Light => {
-                ctx.report_progress(40, Some("Generating AI revision (light mode)..."));
-
-                // Light mode: structure and formatting ONLY, no invented details
-                format!(
-                    r#"You are a formatting assistant. Your task is to improve the structure and readability of the following note WITHOUT adding any new information.
-
-Original Note:
-{}
-
-STRICT RULES - You MUST follow these:
-1. DO NOT add any technical details, architecture, APIs, or integrations not explicitly stated in the original
-2. DO NOT invent, expand, or elaborate on topics - only reformat what exists
-3. DO NOT add analysis, explanations, or context the author did not provide
-4. DO NOT turn opinions into factual statements or analysis
-5. DO NOT add tables, diagrams, or structured data unless the original clearly warrants it
-
-What you MAY do:
-- Fix grammar and spelling errors
-- Add markdown headers to organize existing content
-- Convert existing lists to cleaner bullet points
-- Improve sentence clarity without changing meaning
-- Add appropriate markdown formatting (bold, italic, code blocks for actual code)
-
-If the note is very short or simple, keep it short and simple. A one-line note should remain approximately one line.
-
-Output the formatted note. Do not add any labels, markers, or metadata."#,
-                    original_content
-                )
-            }
-            // None is already handled above; Full/Contextual/ContextualFiltered
-            // are resolved to Standard by phase1_mode()
-            _ => unreachable!(),
+        // Compute chunk budget and split oversized content for revision.
+        // Short notes pass through as a single chunk (no behavior change).
+        let chunk_max = revision_chunk_size(&self.backend);
+        let chunks = if is_video_timeline {
+            chunk_video_timeline(original_content, chunk_max)
+        } else {
+            chunk_for_revision(original_content, chunk_max)
         };
+        let total_chunks = chunks.len();
+        let is_chunked = total_chunks > 1;
 
-        let revised = match backend.generate(&prompt).await {
-            Ok(r) => clean_enhanced_content(r.trim(), &prompt),
-            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
-        };
+        if is_chunked {
+            info!(
+                note_id = %note_id,
+                total_chunks,
+                chunk_max,
+                content_len = original_content.len(),
+                is_video_timeline,
+                "Splitting oversized content for chunked revision"
+            );
+        }
+
+        // Generate revision for each chunk (sequential to preserve ordering)
+        let mut revised_parts: Vec<String> = Vec::with_capacity(total_chunks);
+        for (chunk_idx, chunk_content) in chunks.iter().enumerate() {
+            let chunk_progress: i32 = if is_chunked {
+                40 + ((chunk_idx as i32 * 35) / total_chunks as i32)
+            } else {
+                40
+            };
+            let progress_msg = if is_chunked {
+                format!(
+                    "Generating AI revision (chunk {}/{})...",
+                    chunk_idx + 1,
+                    total_chunks
+                )
+            } else {
+                match effective_mode {
+                    RevisionMode::Standard if is_video_timeline => {
+                        "Generating AI revision (video timeline)...".to_string()
+                    }
+                    RevisionMode::Standard => {
+                        "Generating AI revision (standard mode)...".to_string()
+                    }
+                    RevisionMode::Light => "Generating AI revision (light mode)...".to_string(),
+                    _ => unreachable!(),
+                }
+            };
+            ctx.report_progress(chunk_progress, Some(&progress_msg));
+
+            // Continuity preamble for multi-chunk documents
+            let continuity_note = if is_chunked {
+                format!(
+                    "\nNOTE: This is section {} of {} of a larger document. \
+                     Revise this section while maintaining continuity.\n\n",
+                    chunk_idx + 1,
+                    total_chunks
+                )
+            } else {
+                String::new()
+            };
+
+            // Build prompt based on effective mode and document type
+            let prompt = build_type_aware_prompt(
+                doc_type.as_ref(),
+                effective_mode,
+                chunk_content,
+                &continuity_note,
+                chunk_idx,
+                total_chunks,
+                is_video_timeline,
+            );
+
+            match backend.generate(&prompt).await {
+                Ok(r) => {
+                    let cleaned = clean_enhanced_content(r.trim(), &prompt);
+                    if !cleaned.is_empty() {
+                        revised_parts.push(cleaned);
+                    }
+                }
+                Err(e) => {
+                    if is_chunked {
+                        // Graceful degradation: skip failed chunks rather than failing the job
+                        warn!(
+                            error = %e,
+                            chunk = chunk_idx + 1,
+                            total = total_chunks,
+                            "Chunk revision failed, skipping"
+                        );
+                    } else {
+                        return JobResult::Failed(format!("AI generation failed: {}", e));
+                    }
+                }
+            }
+        }
+
+        let revised = revised_parts.join("\n\n");
 
         if revised.is_empty() {
             let mode_context = if revision_mode.is_contextual() {
@@ -488,6 +777,10 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             if let Some(cf) = ctx.payload().and_then(|p| p.get("context_filter").cloned()) {
                 phase2_payload["context_filter"] = cf;
             }
+            // Pass detected content type so Phase 2 can preserve type-specific structure
+            if let Some(ref dt) = doc_type {
+                phase2_payload["content_type"] = serde_json::json!(dt.name);
+            }
             match self
                 .db
                 .jobs
@@ -561,7 +854,10 @@ Output the formatted note. Do not add any labels, markers, or metadata."#,
             "revised_length": revised.len(),
             "revision_mode": revision_mode,
             "effective_mode": effective_mode,
-            "phase2_queued": revision_mode.is_contextual()
+            "phase2_queued": revision_mode.is_contextual(),
+            "chunked": is_chunked,
+            "chunk_count": total_chunks,
+            "content_type": doc_type.as_ref().map(|dt| &dt.name)
         })))
     }
 }
@@ -686,6 +982,12 @@ impl JobHandler for AiRevisionContextualHandler {
 
         let schema = extract_schema(&ctx);
         let model_override = extract_model_override(&ctx);
+        // Read content_type from Phase 1 payload (if present) to preserve type-specific structure
+        let content_type_name: Option<String> = ctx
+            .payload()
+            .and_then(|p| p.get("content_type"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let schema_ctx = match schema_context(&self.db, schema) {
             Ok(ctx) => ctx,
             Err(e) => return e,
@@ -884,9 +1186,73 @@ impl JobHandler for AiRevisionContextualHandler {
             }
         }
 
-        let prompt = format!(
-            r#"You are an intelligent note-taking assistant performing a contextual revision.
+        // Compute Phase 2 chunk budget, accounting for reference context overhead.
+        // The reference context is included in every chunk's prompt, so it reduces
+        // the space available for the primary content.
+        let base_chunk_size = revision_chunk_size(&self.backend);
+        let reference_overhead = reference_context.len();
+        let chunk_max_phase2 = base_chunk_size
+            .saturating_sub(reference_overhead / 2)
+            .max(matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
+        let chunks = chunk_for_revision(phase1_content, chunk_max_phase2);
+        let total_chunks = chunks.len();
+        let is_chunked = total_chunks > 1;
 
+        if is_chunked {
+            info!(
+                note_id = %note_id,
+                total_chunks,
+                chunk_max = chunk_max_phase2,
+                reference_overhead,
+                content_len = phase1_content.len(),
+                "Splitting Phase 2 content for chunked contextual revision"
+            );
+        }
+
+        // Generate contextual revision for each chunk
+        let mut revised_parts: Vec<String> = Vec::with_capacity(total_chunks);
+        for (chunk_idx, chunk_content) in chunks.iter().enumerate() {
+            let chunk_progress: i32 = if is_chunked {
+                60 + ((chunk_idx as i32 * 15) / total_chunks as i32)
+            } else {
+                60
+            };
+            let progress_msg = if is_chunked {
+                format!(
+                    "Generating contextual revision (chunk {}/{})...",
+                    chunk_idx + 1,
+                    total_chunks
+                )
+            } else {
+                "Generating contextual revision (phase 2)...".to_string()
+            };
+            ctx.report_progress(chunk_progress, Some(&progress_msg));
+
+            let continuity_note = if is_chunked {
+                format!(
+                    "\nNOTE: This is section {} of {} of a larger document. \
+                     The REFERENCE CONTEXT applies to the entire document. \
+                     Revise this section while maintaining continuity.\n\n",
+                    chunk_idx + 1,
+                    total_chunks
+                )
+            } else {
+                String::new()
+            };
+
+            // Add type hint so Phase 2 preserves type-specific structure from Phase 1
+            let type_hint = if let Some(ref ct) = content_type_name {
+                format!(
+                    "\nIMPORTANT: This content is a {}. Preserve the structural sections (Summary, headings, etc.) from the primary content.\n",
+                    ct.replace('-', " ")
+                )
+            } else {
+                String::new()
+            };
+
+            let prompt = format!(
+                r#"You are an intelligent note-taking assistant performing a contextual revision.
+{continuity}{type_hint}
 ## PRIMARY CONTENT (this is the note you are revising — your output MUST be a revision of this):
 {phase1}
 
@@ -907,14 +1273,35 @@ What you MAY do:
 - Improve organization if the connection adds clarity
 
 Output the revised note in clean markdown format. Do not add any labels, markers, or metadata."#,
-            phase1 = phase1_content,
-            context = reference_context
-        );
+                continuity = continuity_note,
+                type_hint = type_hint,
+                phase1 = chunk_content,
+                context = reference_context
+            );
 
-        let revised = match backend.generate(&prompt).await {
-            Ok(r) => clean_enhanced_content(r.trim(), &prompt),
-            Err(e) => return JobResult::Failed(format!("AI generation failed: {}", e)),
-        };
+            match backend.generate(&prompt).await {
+                Ok(r) => {
+                    let cleaned = clean_enhanced_content(r.trim(), &prompt);
+                    if !cleaned.is_empty() {
+                        revised_parts.push(cleaned);
+                    }
+                }
+                Err(e) => {
+                    if is_chunked {
+                        warn!(
+                            error = %e,
+                            chunk = chunk_idx + 1,
+                            total = total_chunks,
+                            "Phase 2 chunk revision failed, skipping"
+                        );
+                    } else {
+                        return JobResult::Failed(format!("AI generation failed: {}", e));
+                    }
+                }
+            }
+        }
+
+        let revised = revised_parts.join("\n\n");
 
         if revised.is_empty() {
             return JobResult::Failed(
@@ -1000,6 +1387,9 @@ Output the revised note in clean markdown format. Do not add any labels, markers
             "revision_mode": revision_mode,
             "related_notes_used": related_count,
             "context_filtered": context_filter.is_some(),
+            "content_type": content_type_name,
+            "chunked": is_chunked,
+            "chunk_count": total_chunks
         })))
     }
 }
@@ -5162,6 +5552,18 @@ fn clean_enhanced_content(content: &str, _original_prompt: &str) -> String {
         "## PRIMARY CONTENT (this is the note you are revising",
         "## REFERENCE CONTEXT (supplementary only",
         "You are an intelligent note-taking assistant performing a contextual revision",
+        // Type-aware revision markers (content-type-aware prompts)
+        "You are a video content editor",
+        "You are a film analyst",
+        "You are a documentary analyst",
+        "You are a meeting analyst",
+        "You are an interview analyst",
+        "You are an academic content analyst",
+        "You are a technical writer",
+        "You are an audio content analyst",
+        "You are an educational content analyst",
+        "Output the revised document in clean markdown format",
+        "Revise the following content into a polished",
     ];
 
     // Remove any lines that match prompt indicators (case-insensitive)
@@ -6474,5 +6876,563 @@ Quick note about the meeting discussion and action items."#;
         // Should deduplicate case-insensitively, keeping the first occurrence
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0], "Science/ML");
+    }
+
+    // =========================================================================
+    // Chunked Revision Tests
+    // =========================================================================
+
+    #[test]
+    fn test_revision_chunk_size_fallback() {
+        // revision_chunk_size requires an OllamaBackend which we can't construct
+        // in unit tests without env, so test the fallback constant directly.
+        assert_eq!(matric_core::defaults::REVISION_CHUNK_SIZE_FALLBACK, 40_000);
+        assert_eq!(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 8_000);
+        assert_eq!(matric_core::defaults::REVISION_PROMPT_OVERHEAD, 2_000);
+    }
+
+    #[test]
+    fn test_revision_chunk_size_formula() {
+        // Verify the formula: (native_context * 4 - overhead) / 2
+        // For gpt-oss:20b (98_376 tokens):
+        //   (98_376 * 4 - 2_000) / 2 = (393_504 - 2_000) / 2 = 195_752
+        // Capped at 200_000, floored at 8_000 → 195_752
+        let context_chars = 98_376_usize * 4;
+        let available =
+            context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
+        let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
+        assert_eq!(size, 195_752);
+
+        // For qwen3:8b (40_960 tokens):
+        //   (40_960 * 4 - 2_000) / 2 = (163_840 - 2_000) / 2 = 80_920
+        let context_chars = 40_960_usize * 4;
+        let available =
+            context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
+        let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
+        assert_eq!(size, 80_920);
+
+        // For gemma2:9b (8_192 tokens):
+        //   (8_192 * 4 - 2_000) / 2 = (32_768 - 2_000) / 2 = 15_384
+        let context_chars = 8_192_usize * 4;
+        let available =
+            context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
+        let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
+        assert_eq!(size, 15_384);
+    }
+
+    #[test]
+    fn test_revision_chunk_size_floor() {
+        // Tiny context should be clamped to REVISION_CHUNK_SIZE_MIN
+        let context_chars = 1_000_usize * 4; // 4000 chars
+        let available =
+            context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
+        let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
+        assert_eq!(size, matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
+    }
+
+    #[test]
+    fn test_chunk_for_revision_small_content() {
+        let small = "A short note about Rust programming.";
+        let chunks = chunk_for_revision(small, 40_000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], small);
+    }
+
+    #[test]
+    fn test_chunk_for_revision_preserves_all_content() {
+        // Generate content larger than chunk size
+        let chunk_size = 2_000;
+        let paragraphs: Vec<String> = (0..20)
+            .map(|i| format!("Paragraph {} with enough content to be meaningful. This discusses topic {} in detail with supporting evidence and examples that span multiple sentences to ensure adequate length.\n\n", i, i))
+            .collect();
+        let content = paragraphs.join("");
+        assert!(content.len() > chunk_size);
+
+        let chunks = chunk_for_revision(&content, chunk_size);
+        assert!(chunks.len() > 1, "Should produce multiple chunks");
+
+        // All original content should be present in the concatenated chunks
+        let reconstructed = chunks.join("");
+        // SemanticChunker may trim whitespace at boundaries, so compare trimmed content
+        let original_words: Vec<&str> = content.split_whitespace().collect();
+        let reconstructed_words: Vec<&str> = reconstructed.split_whitespace().collect();
+        // Every word from the original should appear in the reconstruction
+        for word in &original_words {
+            assert!(reconstructed_words.contains(word), "Missing word: {}", word);
+        }
+    }
+
+    #[test]
+    fn test_chunk_for_revision_no_overlap() {
+        // With overlap=0, chunks should not have overlapping text
+        let chunk_size = 3_000;
+        let content = (0..50)
+            .map(|i| format!("UNIQUE_MARKER_{} some filler text here.\n\n", i))
+            .collect::<String>();
+
+        let chunks = chunk_for_revision(&content, chunk_size);
+        if chunks.len() > 1 {
+            // Count unique markers across all chunks
+            let mut marker_count = 0;
+            for chunk in &chunks {
+                for i in 0..50 {
+                    if chunk.contains(&format!("UNIQUE_MARKER_{} ", i)) {
+                        marker_count += 1;
+                    }
+                }
+            }
+            // Each marker should appear exactly once (no overlap)
+            assert_eq!(
+                marker_count, 50,
+                "Markers should not be duplicated across chunks"
+            );
+        }
+    }
+
+    #[test]
+    fn test_chunk_video_timeline_small_content() {
+        let small = "### Scene 1\nSome scene content.\n\n### Scene 2\nMore content.";
+        let chunks = chunk_video_timeline(small, 100_000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], small);
+    }
+
+    #[test]
+    fn test_chunk_video_timeline_scene_boundaries() {
+        let header = "**Duration**: 90:00\n**Frames**: 60\n\n";
+        let scenes: Vec<String> = (1..=10)
+            .map(|i| {
+                format!(
+                    "### Scene {}\n**Timestamp**: {}:00\nThe camera shows a wide shot of the landscape. \
+                     A narrator explains the history of this location in great detail, providing context \
+                     and background information that spans several sentences to make this scene substantial.\n\n",
+                    i, i * 9
+                )
+            })
+            .collect();
+        let content = format!("{}{}", header, scenes.join(""));
+
+        // Use a chunk size that fits ~3 scenes per chunk
+        let single_scene_size = scenes[0].len();
+        let chunk_max = single_scene_size * 3 + header.len();
+
+        let chunks = chunk_video_timeline(&content, chunk_max);
+        assert!(
+            chunks.len() > 1,
+            "Should produce multiple chunks for 10 scenes"
+        );
+
+        // First chunk should contain the header
+        assert!(
+            chunks[0].contains("**Duration**:"),
+            "First chunk should contain the metadata header"
+        );
+
+        // Every scene should appear in exactly one chunk
+        for i in 1..=10 {
+            let marker = format!("### Scene {}\n", i);
+            let count = chunks.iter().filter(|c| c.contains(&marker)).count();
+            assert_eq!(
+                count, 1,
+                "Scene {} should appear in exactly one chunk, found {}",
+                i, count
+            );
+        }
+
+        // No scene should be split mid-content
+        for chunk in &chunks {
+            if chunk.contains("### Scene ") {
+                // Count scene starts in this chunk
+                let scene_starts: Vec<_> = chunk.match_indices("### Scene ").collect();
+                for (pos, _) in &scene_starts {
+                    // Each scene marker should have content after it
+                    let after = &chunk[*pos..];
+                    assert!(
+                        after.contains("Timestamp"),
+                        "Scene marker without content — scene was split"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_chunk_video_timeline_preserves_header() {
+        let content = "**Duration**: 120:00\n**Frames**: 90\n\n\
+                       ### Scene 1\nFirst scene.\n\n\
+                       ### Scene 2\nSecond scene.\n\n\
+                       ### Scene 3\nThird scene.\n\n";
+
+        // Chunk size that forces splitting
+        let chunks = chunk_video_timeline(content, 60);
+        assert!(chunks.len() > 1);
+        // Header should be in the first chunk
+        assert!(chunks[0].contains("**Duration**:"));
+        assert!(chunks[0].contains("**Frames**:"));
+    }
+
+    #[test]
+    fn test_chunk_video_timeline_oversized_scene() {
+        // A single scene larger than the chunk budget should get its own chunk
+        let large_scene = format!(
+            "### Scene 1\n{}\n\n### Scene 2\nSmall scene.\n\n",
+            "x".repeat(10_000)
+        );
+        let chunks = chunk_video_timeline(&large_scene, 5_000);
+        assert!(chunks.len() >= 2, "Oversized scene should be its own chunk");
+    }
+
+    #[test]
+    fn test_chunk_video_timeline_no_scenes_fallback() {
+        // Content without scene markers should fall through to chunk_for_revision
+        let content = "A ".repeat(5_000);
+        let chunks = chunk_video_timeline(&content, 3_000);
+        assert!(
+            chunks.len() > 1,
+            "Should fall back to generic chunking when no scenes found"
+        );
+    }
+
+    #[test]
+    fn test_phase2_reference_overhead_budget() {
+        // Simulate Phase 2 chunk budget calculation
+        let base_chunk_size = 80_000_usize; // ~qwen3:8b
+        let reference_context = "- Related note snippet one\n- Related note snippet two\n";
+        let reference_overhead = reference_context.len();
+
+        let chunk_max_phase2 = base_chunk_size
+            .saturating_sub(reference_overhead / 2)
+            .max(matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
+
+        // Reference overhead should reduce the chunk budget
+        assert!(chunk_max_phase2 < base_chunk_size);
+        assert!(chunk_max_phase2 >= matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
+    }
+
+    #[test]
+    fn test_phase2_reference_overhead_floor() {
+        // Very large reference context should still respect the minimum chunk size
+        let base_chunk_size = 10_000_usize;
+        let reference_overhead = 50_000; // Huge reference context
+
+        let chunk_max_phase2 = base_chunk_size
+            .saturating_sub(reference_overhead / 2)
+            .max(matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
+
+        assert_eq!(
+            chunk_max_phase2,
+            matric_core::defaults::REVISION_CHUNK_SIZE_MIN
+        );
+    }
+
+    // =========================================================================
+    // Type-Aware Revision Prompt Builder Tests
+    // =========================================================================
+
+    /// Build a minimal DocumentType for testing prompt generation.
+    fn make_doc_type(
+        name: &str,
+        category: matric_core::DocumentCategory,
+        required_sections: Vec<&str>,
+        generation_prompt: Option<&str>,
+    ) -> matric_core::DocumentType {
+        matric_core::DocumentType {
+            id: uuid::Uuid::new_v4(),
+            name: name.to_string(),
+            display_name: name.to_string(),
+            category,
+            description: None,
+            file_extensions: vec![],
+            mime_types: vec![],
+            magic_patterns: vec![],
+            filename_patterns: vec![],
+            chunking_strategy: matric_core::ChunkingStrategy::Semantic,
+            chunk_size_default: 512,
+            chunk_overlap_default: 50,
+            preserve_boundaries: true,
+            chunking_config: serde_json::json!({}),
+            recommended_config_id: None,
+            content_types: vec![],
+            tree_sitter_language: None,
+            extraction_strategy: Default::default(),
+            extraction_config: serde_json::json!({}),
+            requires_attachment: false,
+            attachment_generates_content: false,
+            is_system: true,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            created_by: None,
+            agentic_config: matric_core::AgenticConfig {
+                generation_prompt: generation_prompt.map(|s| s.to_string()),
+                required_sections: required_sections
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                optional_sections: vec![],
+                template_id: None,
+                context_requirements: Default::default(),
+                validation_rules: Default::default(),
+                agent_hints: Default::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_build_prompt_with_no_doc_type() {
+        let prompt = build_type_aware_prompt(
+            None,
+            RevisionMode::Standard,
+            "Some content",
+            "",
+            0,
+            1,
+            false,
+        );
+        // Falls back to generic prompt with summary
+        assert!(prompt.contains("intelligent note-taking assistant"));
+        assert!(prompt.contains("## Summary"));
+        assert!(prompt.contains("Some content"));
+    }
+
+    #[test]
+    fn test_build_prompt_includes_summary_first_chunk() {
+        let dt = make_doc_type(
+            "meeting-recording",
+            matric_core::DocumentCategory::Communication,
+            vec!["Summary", "Decisions", "Action Items"],
+            Some("You are a meeting analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Meeting content here",
+            "",
+            0, // first chunk
+            3,
+            false,
+        );
+        assert!(prompt.contains("## Summary"));
+    }
+
+    #[test]
+    fn test_build_prompt_no_summary_subsequent_chunks() {
+        let dt = make_doc_type(
+            "meeting-recording",
+            matric_core::DocumentCategory::Communication,
+            vec!["Summary", "Decisions", "Action Items"],
+            Some("You are a meeting analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "More content",
+            "",
+            1, // second chunk
+            3,
+            false,
+        );
+        assert!(
+            !prompt.contains("## Summary"),
+            "Summary should not appear on subsequent chunks"
+        );
+    }
+
+    #[test]
+    fn test_build_prompt_light_mode_no_summary() {
+        let dt = make_doc_type(
+            "meeting-recording",
+            matric_core::DocumentCategory::Communication,
+            vec!["Summary", "Decisions"],
+            Some("You are a meeting analyst."),
+        );
+        let prompt =
+            build_type_aware_prompt(Some(&dt), RevisionMode::Light, "Content", "", 0, 1, false);
+        // Light mode should NOT have summary and should be formatting-only
+        assert!(
+            !prompt.contains("## Summary"),
+            "Light mode should not add summary"
+        );
+        assert!(prompt.contains("formatting assistant"));
+        // Should NOT contain meeting analyst role
+        assert!(
+            !prompt.contains("meeting analyst"),
+            "Light mode should not use type-specific role"
+        );
+    }
+
+    #[test]
+    fn test_build_prompt_meeting_sections() {
+        let dt = make_doc_type(
+            "meeting-recording",
+            matric_core::DocumentCategory::Communication,
+            vec![
+                "Summary",
+                "Attendees",
+                "Decisions",
+                "Action Items",
+                "Discussion Points",
+            ],
+            Some("You are a meeting analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Meeting transcript content",
+            "",
+            0,
+            1,
+            false,
+        );
+        assert!(prompt.contains("meeting analyst"));
+        assert!(prompt.contains("Decisions"));
+        assert!(prompt.contains("Action Items"));
+        assert!(prompt.contains("Discussion Points"));
+        assert!(prompt.contains("Attendees"));
+    }
+
+    #[test]
+    fn test_build_prompt_movie_sections() {
+        let dt = make_doc_type(
+            "movie",
+            matric_core::DocumentCategory::Media,
+            vec![
+                "Summary",
+                "Synopsis",
+                "Cast & Characters",
+                "Key Scenes",
+                "Themes",
+            ],
+            Some("You are a film analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Movie timeline content",
+            "",
+            0,
+            1,
+            false,
+        );
+        assert!(prompt.contains("film analyst"));
+        assert!(prompt.contains("Synopsis"));
+        assert!(prompt.contains("Cast & Characters"));
+        assert!(prompt.contains("Key Scenes"));
+        assert!(prompt.contains("Themes"));
+    }
+
+    #[test]
+    fn test_build_prompt_video_timeline_preserved() {
+        // When no doc type but is_video_timeline, should use video timeline prompt
+        let prompt = build_type_aware_prompt(
+            None,
+            RevisionMode::Standard,
+            "### Scene 1\n**Duration**: 5m\nDialog here",
+            "",
+            0,
+            1,
+            true,
+        );
+        assert!(prompt.contains("video content editor"));
+        assert!(prompt.contains("scene-by-scene"));
+        assert!(prompt.contains("## Summary"));
+    }
+
+    #[test]
+    fn test_build_prompt_uses_generation_prompt_hint() {
+        let dt = make_doc_type(
+            "documentary",
+            matric_core::DocumentCategory::Media,
+            vec!["Summary", "Subject Overview", "Key Arguments"],
+            Some("You are a documentary analyst. Produce a structured summary."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Documentary content",
+            "",
+            0,
+            1,
+            false,
+        );
+        assert!(prompt.contains("documentary analyst"));
+        assert!(prompt.contains("Produce a structured summary"));
+    }
+
+    #[test]
+    fn test_build_prompt_educational_sections() {
+        let dt = make_doc_type(
+            "educational-video",
+            matric_core::DocumentCategory::Media,
+            vec![
+                "Summary",
+                "Learning Objectives",
+                "Key Concepts",
+                "Step-by-Step Breakdown",
+            ],
+            Some("You are an educational content analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Educational video content",
+            "",
+            0,
+            1,
+            false,
+        );
+        assert!(prompt.contains("educational content analyst"));
+        assert!(prompt.contains("Learning Objectives"));
+        assert!(prompt.contains("Key Concepts"));
+        assert!(prompt.contains("Step-by-Step Breakdown"));
+    }
+
+    #[test]
+    fn test_build_prompt_required_sections_from_agentic_config() {
+        // Custom document type with unique sections
+        let dt = make_doc_type(
+            "custom-type",
+            matric_core::DocumentCategory::Custom,
+            vec!["Summary", "Alpha", "Beta", "Gamma"],
+            Some("You are a custom analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "Content",
+            "",
+            0,
+            1,
+            false,
+        );
+        // All sections except Summary should appear in the sections instruction
+        assert!(prompt.contains("Alpha"));
+        assert!(prompt.contains("Beta"));
+        assert!(prompt.contains("Gamma"));
+        // Summary is handled separately as ## Summary instruction
+        assert!(prompt.contains("## Summary"));
+    }
+
+    #[test]
+    fn test_build_prompt_doc_type_overrides_video_timeline_fallback() {
+        // When we have a doc type, it should take priority over is_video_timeline fallback
+        let dt = make_doc_type(
+            "movie",
+            matric_core::DocumentCategory::Media,
+            vec!["Summary", "Synopsis", "Cast & Characters"],
+            Some("You are a film analyst."),
+        );
+        let prompt = build_type_aware_prompt(
+            Some(&dt),
+            RevisionMode::Standard,
+            "### Scene 1\n**Duration**: 5m",
+            "",
+            0,
+            1,
+            true, // is_video_timeline=true, but doc_type is present
+        );
+        // Should use the doc type prompt, not the generic video timeline fallback
+        assert!(prompt.contains("film analyst"));
+        assert!(prompt.contains("Synopsis"));
     }
 }
