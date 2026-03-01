@@ -476,19 +476,25 @@ impl PgArchiveRepository {
         Ok(())
     }
 
-    /// Compute the current schema version (count of per-memory tables in public).
+    /// Compute the current schema version from per-memory tables in public.
     ///
-    /// Used to detect when an archive is outdated and needs auto-migration.
+    /// Uses the total column count across all per-memory tables, so both
+    /// new tables AND new columns on existing tables trigger auto-migration.
+    /// Previously this only counted tables, which meant `ALTER TABLE ADD COLUMN`
+    /// migrations were invisible to the version check (Issue #565).
     async fn current_schema_version(&self) -> Result<i32> {
         let shared: Vec<String> = SHARED_TABLES.iter().map(|s| s.to_string()).collect();
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)
-            FROM pg_class c
+            FROM pg_attribute a
+            JOIN pg_class c ON a.attrelid = c.oid
             JOIN pg_namespace n ON c.relnamespace = n.oid
             WHERE n.nspname = 'public'
                 AND c.relkind = 'r'
                 AND c.relname != ALL($1::text[])
+                AND a.attnum > 0
+                AND NOT a.attisdropped
                 AND NOT EXISTS (
                     SELECT 1 FROM pg_depend d
                     WHERE d.objid = c.oid AND d.deptype = 'e'
@@ -551,8 +557,85 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        if missing_tables.is_empty() {
-            // Tables match — just update the version
+        // Step 2: Detect columns in public that are missing from the archive.
+        // This handles ALTER TABLE ADD COLUMN migrations (Issue #565).
+        let all_existing_tables: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT c.relname::text
+            FROM pg_class c
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = $1
+                AND c.relkind = 'r'
+                AND c.relname != ALL($2::text[])
+            "#,
+        )
+        .bind(schema_name)
+        .bind(&shared)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        #[derive(Debug)]
+        struct MissingColumn {
+            table_name: String,
+            column_name: String,
+            column_type: String,
+            is_not_null: bool,
+            column_default: Option<String>,
+        }
+
+        let missing_columns: Vec<MissingColumn> = if all_existing_tables.is_empty() {
+            vec![]
+        } else {
+            let rows = sqlx::query(
+                r#"
+                SELECT
+                    c.relname::text AS table_name,
+                    a.attname::text AS column_name,
+                    format_type(a.atttypid, a.atttypmod) AS column_type,
+                    a.attnotnull AS is_not_null,
+                    pg_get_expr(d.adbin, d.adrelid)::text AS column_default
+                FROM pg_attribute a
+                JOIN pg_class c ON a.attrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+                WHERE n.nspname = 'public'
+                    AND c.relname = ANY($1::text[])
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                    AND a.attgenerated = ''
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_attribute aa
+                        JOIN pg_class ac ON aa.attrelid = ac.oid
+                        JOIN pg_namespace an ON ac.relnamespace = an.oid
+                        WHERE an.nspname = $2
+                            AND ac.relname = c.relname
+                            AND aa.attname = a.attname
+                            AND aa.attnum > 0
+                            AND NOT aa.attisdropped
+                    )
+                ORDER BY c.relname, a.attnum
+                "#,
+            )
+            .bind(&all_existing_tables)
+            .bind(schema_name)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+            rows.iter()
+                .map(|row| MissingColumn {
+                    table_name: row.get("table_name"),
+                    column_name: row.get("column_name"),
+                    column_type: row.get("column_type"),
+                    is_not_null: row.get("is_not_null"),
+                    column_default: row.get("column_default"),
+                })
+                .collect()
+        };
+
+        if missing_tables.is_empty() && missing_columns.is_empty() {
+            // Schema fully matches — just update the version
             sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE name = $2")
                 .bind(current_version)
                 .bind(archive_name)
@@ -703,6 +786,26 @@ impl PgArchiveRepository {
             );
 
             sqlx::query(&new_def)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
+        // Add missing columns on existing tables (Issue #565).
+        // ALTER TABLE ADD COLUMN migrations only run against 'public', so archive
+        // schemas can drift at the column level even when all tables are present.
+        for col in &missing_columns {
+            let mut ddl = format!(
+                "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS {} {}",
+                schema_name, col.table_name, col.column_name, col.column_type
+            );
+            if let Some(ref default) = col.column_default {
+                ddl.push_str(&format!(" DEFAULT {}", default));
+            }
+            if col.is_not_null {
+                ddl.push_str(" NOT NULL");
+            }
+            sqlx::query(&ddl)
                 .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
