@@ -25,6 +25,9 @@ pub struct NoteMeta {
     pub starred: bool,
     pub archived: bool,
     pub last_accessed_at: Option<DateTime<Utc>>,
+    /// Number of times this note has been accessed (read)
+    #[serde(default)]
+    pub access_count: i32,
     pub title: Option<String>,
     pub metadata: JsonValue,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3109,6 +3112,7 @@ mod tests {
             starred: false,
             archived: false,
             last_accessed_at: None,
+            access_count: 0,
             title: None,
             metadata: json!({}),
             chunk_metadata: None,
@@ -3138,6 +3142,7 @@ mod tests {
             starred: false,
             archived: false,
             last_accessed_at: None,
+            access_count: 0,
             title: None,
             metadata: json!({}),
             chunk_metadata: Some(chunk_meta.clone()),
@@ -3161,6 +3166,7 @@ mod tests {
             starred: false,
             archived: false,
             last_accessed_at: None,
+            access_count: 0,
             title: None,
             metadata: json!({}),
             chunk_metadata: None,

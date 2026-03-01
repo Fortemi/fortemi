@@ -693,20 +693,58 @@ impl PgNoteRepository {
 
     /// Fetch a note within an existing transaction.
     pub async fn fetch_tx(&self, tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<NoteFull> {
-        // Update last accessed timestamp
+        self.fetch_tx_with_access(tx, id, "direct_get", None).await
+    }
+
+    /// Fetch a note and record the access event with type and source.
+    pub async fn fetch_tx_with_access(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        access_type: &str,
+        source: Option<&str>,
+    ) -> Result<NoteFull> {
+        let now = Utc::now();
+
+        // Update last accessed timestamp and counter
         sqlx::query(
             "UPDATE note SET last_accessed_at = $1, access_count = access_count + 1 WHERE id = $2",
         )
-        .bind(Utc::now())
+        .bind(now)
         .bind(id)
         .execute(&mut **tx)
         .await
         .map_err(Error::Database)?;
 
+        // Record access event in log (best-effort via savepoint, don't fail the fetch).
+        // The note_access_log table may not exist in older schemas that haven't been
+        // migrated yet — the savepoint ensures the outer transaction survives.
+        let _ = sqlx::query("SAVEPOINT access_log_insert")
+            .execute(&mut **tx)
+            .await;
+        let log_result = sqlx::query(
+            "INSERT INTO note_access_log (note_id, accessed_at, access_type, source) VALUES ($1, $2, $3::note_access_type, $4)",
+        )
+        .bind(id)
+        .bind(now)
+        .bind(access_type)
+        .bind(source)
+        .execute(&mut **tx)
+        .await;
+        if log_result.is_err() {
+            let _ = sqlx::query("ROLLBACK TO SAVEPOINT access_log_insert")
+                .execute(&mut **tx)
+                .await;
+        } else {
+            let _ = sqlx::query("RELEASE SAVEPOINT access_log_insert")
+                .execute(&mut **tx)
+                .await;
+        }
+
         // Fetch note metadata
         let note_row = sqlx::query(
             "SELECT id, collection_id, format, source, created_at_utc, updated_at_utc,
-                    starred, archived, last_accessed_at, title, metadata, chunk_metadata, document_type_id
+                    starred, archived, last_accessed_at, access_count, title, metadata, chunk_metadata, document_type_id
              FROM note WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id)
@@ -821,6 +859,7 @@ impl PgNoteRepository {
                 starred: note_row.get::<Option<bool>, _>("starred").unwrap_or(false),
                 archived: note_row.get::<Option<bool>, _>("archived").unwrap_or(false),
                 last_accessed_at: note_row.get("last_accessed_at"),
+                access_count: note_row.get::<Option<i32>, _>("access_count").unwrap_or(0),
                 title: note_row.get("title"),
                 metadata: note_row
                     .get::<Option<serde_json::Value>, _>("metadata")

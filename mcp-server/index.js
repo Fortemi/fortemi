@@ -44,7 +44,7 @@ const CORE_TOOLS = new Set([
   // Graph & links
   "explore_graph", "get_topology_stats", "get_graph_diagnostics",
   "capture_diagnostics_snapshot", "list_diagnostics_snapshots", "compare_diagnostics_snapshots",
-  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_note_links", "get_related_notes",
+  "recompute_snn_scores", "pfnet_sparsify", "coarse_community_detection", "trigger_graph_maintenance", "get_cold_spots", "get_note_links", "get_related_notes",
   // Export
   "export_note",
   // System & docs
@@ -54,7 +54,7 @@ const CORE_TOOLS = new Set([
   // Attachments
   "manage_attachments",
   // Observability
-  "get_knowledge_health",
+  "get_knowledge_health", "get_access_frequency",
   // Jobs & inference
   "manage_jobs", "manage_inference",
   // Bulk operations
@@ -355,6 +355,7 @@ function createMcpServer() {
             if (args.mode) params.set("mode", args.mode);
             if (args.set) params.set("set", args.set);
             if (args.collection_id) params.set("collection_id", args.collection_id);
+            if (args.diversity !== undefined && args.diversity !== null) params.set("diversity", args.diversity);
             if (args.required_tags || args.excluded_tags || args.any_tags) {
               const filter = {};
               if (args.required_tags) filter.required_tags = args.required_tags;
@@ -856,6 +857,16 @@ function createMcpServer() {
           const maintenanceBody = {};
           if (args.steps !== undefined) maintenanceBody.steps = args.steps;
           result = await apiRequest("POST", "/api/v1/graph/maintenance", maintenanceBody);
+          break;
+        }
+
+        case "get_cold_spots": {
+          const coldParams = new URLSearchParams();
+          if (args.limit) coldParams.set("limit", args.limit);
+          if (args.cold_days) coldParams.set("cold_days", args.cold_days);
+          if (args.max_accesses) coldParams.set("max_accesses", args.max_accesses);
+          const coldQuery = coldParams.toString();
+          result = await apiRequest("GET", `/api/v1/graph/cold-spots${coldQuery ? `?${coldQuery}` : ""}`);
           break;
         }
 
@@ -2637,6 +2648,16 @@ function createMcpServer() {
           break;
         }
 
+        case "get_access_frequency": {
+          const params = new URLSearchParams();
+          if (args.sort) params.set("sort", args.sort);
+          if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);
+          if (args.min_accesses !== undefined && args.min_accesses !== null) params.set("min_accesses", args.min_accesses);
+          if (args.max_accesses !== undefined && args.max_accesses !== null) params.set("max_accesses", args.max_accesses);
+          result = await apiRequest("GET", `/api/v1/health/access-frequency?${params}`);
+          break;
+        }
+
         // ============================================================================
         // NOTE PROVENANCE & BACKLINKS (#453)
         // ============================================================================
@@ -3663,7 +3684,7 @@ explore_graph({ id: "note-uuid", depth: 2, max_nodes: 50 })
 - **Provenance**: \`get_note_provenance\`, \`get_notes_timeline\`, \`get_notes_activity\`
 - **SKOS**: \`search_concepts\`, \`get_concept\`, \`get_concept_full\`, \`autocomplete_concepts\`, \`get_governance_stats\`, \`export_skos_turtle\`
 - **Versioning**: \`list_note_versions\`, \`get_note_version\`, \`diff_note_versions\`
-- **Health**: \`get_knowledge_health\`, \`get_orphan_tags\`, \`get_stale_notes\`, \`get_unlinked_notes\`, \`get_tag_cooccurrence\`
+- **Health**: \`get_knowledge_health\`, \`get_orphan_tags\`, \`get_stale_notes\`, \`get_unlinked_notes\`, \`get_tag_cooccurrence\`, \`get_access_frequency\`
 - **System**: \`health_check\`, \`get_system_info\`, \`get_available_models\`, \`memory_info\`, \`list_jobs\`, \`get_job\`, \`get_queue_stats\`, \`get_pending_jobs_count\`, \`get_rate_limit_status\`, \`get_extraction_stats\`
 - **Config**: \`list_embedding_configs\`, \`get_embedding_config\`, \`get_default_embedding_config\`, \`list_document_types\`, \`get_document_type\`, \`detect_document_type\`
 - **Export**: \`export_note\`, \`export_all_notes\`, \`export_collection\`, \`list_backups\`, \`get_backup_info\`, \`get_backup_metadata\`, \`memory_backup_download\`

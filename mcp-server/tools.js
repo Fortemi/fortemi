@@ -191,6 +191,12 @@ export default [
           "type": "integer",
           "description": "Maximum results (default: 20)",
           "default": 20
+        },
+        "diversity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity). Reduces redundancy in results by penalizing similarity to already-selected results."
         }
       },
       "required": [
@@ -2347,6 +2353,28 @@ export default [
         }
       }
     },
+  },
+  {
+    name: "get_cold_spots",
+    description: `Detect underexplored knowledge clusters ("cold spots") in the graph. Combines graph isolation (degree 0 — no semantic links) and access coldness (low access count, stale last_accessed_at) to identify notes with valuable but undiscovered knowledge. Returns isolated notes, cold access notes, their overlap, topic summaries, and actionable recommendations. Use to inform proactive exploration or content surfacing.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "description": "Max notes per category (default: 20, max: 100)"
+        },
+        "cold_days": {
+          "type": "number",
+          "description": "Days since last access to be considered 'cold' (default: 30)"
+        },
+        "max_accesses": {
+          "type": "number",
+          "description": "Max access count to be considered 'cold' (default: 2)"
+        }
+      }
+    },
+    annotations: {"readOnlyHint":true},
   },
   {
     name: "list_templates",
@@ -5005,6 +5033,36 @@ export default [
           "type": "number",
           "default": 50,
           "description": "Maximum results"
+        }
+      }
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
+    name: "get_access_frequency",
+    description: `Get note access frequency analytics — hot spots (most accessed), cold spots (least accessed), and recent activity trends. Returns access counts, 7-day and 30-day activity, and summary statistics. Use sort modes to find notes that need attention.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "sort": {
+          "type": "string",
+          "enum": ["most_accessed", "least_accessed", "recent_hot", "recent_cold"],
+          "default": "most_accessed",
+          "description": "Sort mode: most_accessed (hot spots), least_accessed (cold spots), recent_hot (7-day trending), recent_cold (recently inactive)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum results (max 500)"
+        },
+        "min_accesses": {
+          "type": "number",
+          "default": 0,
+          "description": "Only include notes accessed at least this many times"
+        },
+        "max_accesses": {
+          "type": "number",
+          "description": "Only include notes accessed fewer than this many times"
         }
       }
     },

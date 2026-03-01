@@ -17,6 +17,7 @@ use matric_db::Database;
 
 use crate::deduplication::{deduplicate_search_results, DeduplicationConfig, EnhancedSearchHit};
 use crate::fts_flags::FtsFeatureFlags;
+use crate::mmr::mmr_rerank;
 use crate::rrf::rrf_fuse;
 use crate::script_detection::{detect_script, DetectedScript};
 
@@ -60,6 +61,9 @@ pub struct HybridSearchConfig {
     pub script_hint: Option<String>,
     /// Feature flags for multilingual search (controls which features are enabled)
     pub fts_flags: FtsFeatureFlags,
+    /// MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
+    /// When None or 0.0, MMR re-ranking is skipped.
+    pub diversity: Option<f32>,
 }
 
 impl Default for HybridSearchConfig {
@@ -76,6 +80,7 @@ impl Default for HybridSearchConfig {
             lang_hint: None,
             script_hint: None,
             fts_flags: FtsFeatureFlags::default(),
+            diversity: None,
         }
     }
 }
@@ -176,6 +181,12 @@ impl HybridSearchConfig {
         self.fts_flags = flags;
         self
     }
+
+    /// Set MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
+    pub fn with_diversity(mut self, diversity: f32) -> Self {
+        self.diversity = Some(diversity.clamp(0.0, 1.0));
+        self
+    }
 }
 
 /// Trait for hybrid search operations.
@@ -269,6 +280,39 @@ impl HybridSearchEngine {
     /// Get a reference to the underlying database.
     pub fn db(&self) -> &Database {
         &self.db
+    }
+
+    /// Fetch embedding vectors for a batch of note IDs (for MMR re-ranking, issue #561).
+    /// Returns one vector per note (the primary/first embedding).
+    async fn fetch_vectors_for_notes(
+        &self,
+        note_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, Vector>> {
+        if note_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT ON (note_id) note_id, vector
+            FROM embedding
+            WHERE note_id = ANY($1)
+            ORDER BY note_id, id
+            "#,
+        )
+        .bind(note_ids)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(matric_core::Error::Database)?;
+
+        use sqlx::Row;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let note_id: Uuid = row.get("note_id");
+                let vector: Vector = row.get("vector");
+                (note_id, vector)
+            })
+            .collect())
     }
 
     /// Get note IDs that belong to an embedding set (for FTS post-filtering, issue #125).
@@ -733,6 +777,24 @@ impl HybridSearch for HybridSearchEngine {
             "Fusion complete"
         );
 
+        // Apply MMR diversity re-ranking if enabled (issue #561)
+        let diversity = config.diversity.unwrap_or(0.0);
+        if diversity > 0.0 {
+            if let Some(qvec) = query_embedding {
+                let mmr_start = Instant::now();
+                let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
+                let vectors = self.fetch_vectors_for_notes(&note_ids).await?;
+                results = mmr_rerank(results, &vectors, qvec, diversity, (limit as usize) * 3);
+                debug!(
+                    diversity = %diversity,
+                    vectors_fetched = vectors.len(),
+                    result_count = results.len(),
+                    duration_ms = mmr_start.elapsed().as_millis() as u64,
+                    "MMR diversity re-ranking complete"
+                );
+            }
+        }
+
         // Apply minimum score filter
         if config.min_score > 0.0 {
             results.retain(|hit| hit.score >= config.min_score);
@@ -873,6 +935,16 @@ impl HybridSearch for HybridSearchEngine {
         }
 
         let mut results = rrf_fuse(ranked_lists, (limit as usize) * 3);
+
+        // Apply MMR diversity re-ranking if enabled (issue #561)
+        let diversity = config.diversity.unwrap_or(0.0);
+        if diversity > 0.0 {
+            if let Some(qvec) = query_embedding {
+                let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
+                let vectors = self.fetch_vectors_for_notes(&note_ids).await?;
+                results = mmr_rerank(results, &vectors, qvec, diversity, (limit as usize) * 3);
+            }
+        }
 
         if config.min_score > 0.0 {
             results.retain(|hit| hit.score >= config.min_score);

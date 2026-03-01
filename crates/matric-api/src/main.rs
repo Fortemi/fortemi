@@ -311,6 +311,21 @@ async fn queue_nlp_pipeline(
     schema: Option<&str>,
     model: Option<&str>,
 ) {
+    queue_nlp_pipeline_inner(db, note_id, revision_mode, event_bus, schema, model, false).await;
+}
+
+/// Inner pipeline with title generation control.
+/// When `skip_title_gen` is true, TitleGeneration is omitted from Phase 1 jobs.
+/// Used by document types like agent-reflection that are machine-generated. (#563)
+async fn queue_nlp_pipeline_inner(
+    db: &Database,
+    note_id: Uuid,
+    revision_mode: RevisionMode,
+    event_bus: &EventBus,
+    schema: Option<&str>,
+    model: Option<&str>,
+    skip_title_gen: bool,
+) {
     // Queue AI revision with mode and schema in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
         let mut payload = serde_json::json!({
@@ -351,12 +366,15 @@ async fn queue_nlp_pipeline(
     // ConceptTagging is NOT in this list — it chains from AiRevision on completion
     // so it operates on the enriched AI-revised content instead of the raw original.
     // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking (#420, #424, #435, #538).
-    let phase1_jobs = [
+    let phase1_jobs: Vec<JobType> = [
         JobType::TitleGeneration,
         JobType::ReferenceExtraction,
         JobType::MetadataExtraction,
         JobType::DocumentTypeInference,
-    ];
+    ]
+    .into_iter()
+    .filter(|jt| !(skip_title_gen && *jt == JobType::TitleGeneration))
+    .collect();
     for job_type in phase1_jobs {
         // Create payload with schema and optional model override
         let mut payload = serde_json::Map::new();
@@ -568,7 +586,7 @@ struct AppState {
         create_webhook, list_webhooks, get_webhook, update_webhook,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
-        get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence,
+        get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence, get_access_frequency,
         list_notes, create_note, bulk_create_notes, get_note,
         update_note, delete_note, purge_note, update_note_status,
         restore_note, reprocess_note, bulk_reprocess_notes, get_note_tags, set_note_tags,
@@ -583,7 +601,7 @@ struct AppState {
         create_skos_collection, get_skos_collection, update_skos_collection, delete_skos_collection,
         replace_skos_collection_members, add_skos_collection_member, remove_skos_collection_member, list_collections,
         create_collection, get_collection, update_collection, delete_collection,
-        get_collection_notes, export_collection, move_note_to_collection, explore_graph, graph_topology_stats,
+        get_collection_notes, export_collection, move_note_to_collection, explore_graph, graph_topology_stats, get_cold_spots,
         list_templates, create_template, get_template, update_template,
         delete_template, instantiate_template, get_note_links, get_note_backlinks,
         get_note_provenance, search_memories, get_memory_provenance_handler, export_note,
@@ -1633,6 +1651,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/health/stale-notes", get(get_stale_notes))
         .route("/api/v1/health/unlinked-notes", get(get_unlinked_notes))
         .route("/api/v1/health/tag-cooccurrence", get(get_tag_cooccurrence))
+        .route("/api/v1/health/access-frequency", get(get_access_frequency))
         // Note status shortcut
         .route("/api/v1/notes/{id}/status", patch(update_note_status))
         // Jobs
@@ -1942,6 +1961,7 @@ async fn main() -> anyhow::Result<()> {
             post(coarse_community_detection),
         )
         .route("/api/v1/graph/maintenance", post(trigger_graph_maintenance))
+        .route("/api/v1/graph/cold-spots", get(get_cold_spots))
         .route("/api/v1/graph/{id}", get(explore_graph))
         // Templates
         .route(
@@ -4597,6 +4617,193 @@ async fn get_tag_cooccurrence(
     })))
 }
 
+/// Query parameters for access frequency analytics.
+#[derive(Debug, Deserialize)]
+struct AccessFrequencyQuery {
+    /// Number of results (default: 50)
+    limit: Option<i64>,
+    /// Sort mode: "most_accessed" (default), "least_accessed", "recent_hot", "recent_cold"
+    sort: Option<String>,
+    /// Only include notes accessed at least this many times (default: 0)
+    min_accesses: Option<i64>,
+    /// Only include notes accessed fewer than this many times
+    max_accesses: Option<i64>,
+}
+
+/// Get note access frequency analytics.
+///
+/// Returns notes ranked by access patterns: most/least accessed, recently hot/cold.
+/// Supports both the aggregate `access_count` on the note table and the detailed
+/// `note_access_log` for time-windowed analysis.
+#[utoipa::path(
+    get,
+    path = "/api/v1/health/access-frequency",
+    tag = "System",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max results"),
+        ("sort" = Option<String>, Query, description = "Sort mode: most_accessed, least_accessed, recent_hot, recent_cold"),
+        ("min_accesses" = Option<i64>, Query, description = "Minimum access count filter"),
+        ("max_accesses" = Option<i64>, Query, description = "Maximum access count filter"),
+    ),
+    responses(
+        (status = 200, description = "Access frequency report"),
+    )
+)]
+async fn get_access_frequency(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<AccessFrequencyQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(50).min(500);
+    let sort = query.sort.as_deref().unwrap_or("most_accessed");
+    let min_accesses = query.min_accesses.unwrap_or(0);
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    let order_clause = match sort {
+        "least_accessed" => "n.access_count ASC, n.created_at_utc DESC",
+        "recent_hot" => "COALESCE(al.recent_7d, 0) DESC, n.access_count DESC",
+        "recent_cold" => "COALESCE(al.recent_7d, 0) ASC, n.last_accessed_at ASC NULLS FIRST",
+        _ => "n.access_count DESC, n.last_accessed_at DESC NULLS LAST", // most_accessed
+    };
+
+    let max_access_clause = if let Some(max) = query.max_accesses {
+        format!("AND n.access_count < {}", max)
+    } else {
+        String::new()
+    };
+
+    let sql = format!(
+        r#"
+        SELECT
+            n.id, n.title, n.access_count, n.last_accessed_at, n.created_at_utc,
+            n.updated_at_utc, n.archived,
+            COALESCE(al.recent_7d, 0)::BIGINT AS recent_7d,
+            COALESCE(al.recent_30d, 0)::BIGINT AS recent_30d
+        FROM note n
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE accessed_at > NOW() - INTERVAL '7 days') AS recent_7d,
+                COUNT(*) FILTER (WHERE accessed_at > NOW() - INTERVAL '30 days') AS recent_30d
+            FROM note_access_log nal
+            WHERE nal.note_id = n.id
+        ) al ON true
+        WHERE n.deleted_at IS NULL
+          AND n.access_count >= $1
+          {max_access_clause}
+        ORDER BY {order_clause}
+        LIMIT $2
+        "#,
+    );
+
+    // Use sqlx::query_as with a typed struct to avoid needing sqlx::Row trait in scope
+    #[derive(sqlx::FromRow)]
+    struct AccessRow {
+        id: Uuid,
+        title: Option<String>,
+        access_count: Option<i32>,
+        last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at_utc: chrono::DateTime<chrono::Utc>,
+        #[allow(dead_code)]
+        updated_at_utc: chrono::DateTime<chrono::Utc>,
+        archived: Option<bool>,
+        recent_7d: i64,
+        recent_30d: i64,
+    }
+
+    let rows: Vec<AccessRow> = ctx
+        .query(move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query_as::<_, AccessRow>(&sql)
+                    .bind(min_accesses)
+                    .bind(limit)
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_core::Error::Database)?;
+                Ok(rows)
+            })
+        })
+        .await?;
+
+    let notes: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            let access_count = r.access_count.unwrap_or(0);
+            let days_since_access = r
+                .last_accessed_at
+                .map(|la| (chrono::Utc::now() - la).num_days())
+                .unwrap_or(-1);
+
+            serde_json::json!({
+                "id": r.id,
+                "title": r.title,
+                "access_count": access_count,
+                "recent_7d": r.recent_7d,
+                "recent_30d": r.recent_30d,
+                "last_accessed_at": r.last_accessed_at,
+                "days_since_access": days_since_access,
+                "created_at": r.created_at_utc,
+                "archived": r.archived.unwrap_or(false),
+            })
+        })
+        .collect();
+
+    // Compute summary stats
+    #[derive(sqlx::FromRow)]
+    struct CountRow {
+        cnt: i64,
+    }
+
+    let total_notes: i64 = {
+        let schema = archive_ctx.schema.clone();
+        let ctx2 = state.db.for_schema(&schema)?;
+        ctx2.query(move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query_as::<_, CountRow>(
+                    "SELECT COUNT(*) as cnt FROM note WHERE deleted_at IS NULL",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                Ok(row.cnt)
+            })
+        })
+        .await?
+    };
+
+    let never_accessed: i64 = {
+        let schema = archive_ctx.schema.clone();
+        let ctx3 = state.db.for_schema(&schema)?;
+        ctx3.query(move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query_as::<_, CountRow>(
+                    "SELECT COUNT(*) as cnt FROM note WHERE deleted_at IS NULL AND access_count = 0",
+                )
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                Ok(row.cnt)
+            })
+        })
+        .await?
+    };
+
+    Ok(Json(serde_json::json!({
+        "sort": sort,
+        "notes": notes,
+        "count": notes.len(),
+        "summary": {
+            "total_notes": total_notes,
+            "never_accessed": never_accessed,
+            "never_accessed_pct": if total_notes > 0 {
+                (never_accessed as f64 / total_notes as f64 * 100.0).round()
+            } else {
+                0.0
+            }
+        }
+    })))
+}
+
 #[derive(Debug, Deserialize)]
 struct ListNotesQuery {
     limit: Option<i64>,
@@ -4718,12 +4925,36 @@ async fn create_note(
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate revision_mode (returns 400 for invalid values)
-    let revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
+    let mut revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
+    let caller_set_revision_mode = body.revision_mode.is_some();
 
-    // Resolve document_type slug to UUID if provided (slug takes precedence over UUID)
+    // Resolve document_type slug to UUID if provided (slug takes precedence over UUID).
+    // Also extract agent_hints that control NLP pipeline behavior (#563).
+    let mut skip_title_gen = false;
     let resolved_doc_type_id = if let Some(ref slug) = body.document_type {
         match state.db.document_types.get_by_name(slug).await? {
-            Some(dt) => Some(dt.id),
+            Some(dt) => {
+                // When the caller didn't explicitly set revision_mode, respect
+                // the document type's agent_hints (e.g. agent-reflection skips
+                // revision and title generation automatically). (#563)
+                if !caller_set_revision_mode
+                    && dt
+                        .agentic_config
+                        .agent_hints
+                        .get("skip_revision")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                {
+                    revision_mode = RevisionMode::None;
+                }
+                skip_title_gen = dt
+                    .agentic_config
+                    .agent_hints
+                    .get("skip_title_generation")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                Some(dt.id)
+            }
             None => {
                 return Err(ApiError::BadRequest(format!(
                     "Unknown document_type '{}'. Use GET /api/v1/document-types to list available types",
@@ -4836,13 +5067,15 @@ async fn create_note(
     }
 
     // Queue NLP pipeline with archive context (Issue #109)
-    queue_nlp_pipeline(
+    // Use inner variant to pass document-type-driven pipeline hints (#563)
+    queue_nlp_pipeline_inner(
         &state.db,
         note_id,
         revision_mode,
         &state.event_bus,
         schema_for_jobs,
         body.model.as_deref(),
+        skip_title_gen,
     )
     .await;
 
@@ -7898,6 +8131,289 @@ struct GraphMaintenanceBody {
 }
 
 // =============================================================================
+// COLD SPOT DETECTION
+// =============================================================================
+
+/// Query parameters for cold spot detection.
+#[derive(Debug, Deserialize)]
+struct ColdSpotQuery {
+    /// Maximum number of notes to return per category (default: 20)
+    limit: Option<i64>,
+    /// Minimum days since last access to consider "cold" (default: 30)
+    cold_days: Option<i64>,
+    /// Maximum access count to consider "cold" (default: 2)
+    max_accesses: Option<i32>,
+}
+
+/// Detect underexplored knowledge clusters ("cold spots") in the graph.
+///
+/// Combines graph isolation (degree 0), low access frequency, and temporal
+/// decay signals to identify notes that may contain valuable but undiscovered
+/// knowledge. Returns isolated notes, cold access notes, their overlap, and
+/// topic summaries.
+#[utoipa::path(
+    get,
+    path = "/api/v1/graph/cold-spots",
+    tag = "Graph",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max notes per category (default: 20, max: 100)"),
+        ("cold_days" = Option<i64>, Query, description = "Days since last access to be 'cold' (default: 30)"),
+        ("max_accesses" = Option<i32>, Query, description = "Max access count to be 'cold' (default: 2)"),
+    ),
+    responses(
+        (status = 200, description = "Cold spot analysis"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_cold_spots(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<ColdSpotQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let cold_days = query.cold_days.unwrap_or(30).max(1);
+    let max_accesses = query.max_accesses.unwrap_or(2).max(0);
+
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+
+    // --- Isolated notes (degree 0 in link graph) ---
+    #[derive(sqlx::FromRow, Debug)]
+    struct ColdNote {
+        id: Uuid,
+        title: Option<String>,
+        access_count: Option<i32>,
+        last_accessed_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at_utc: chrono::DateTime<chrono::Utc>,
+    }
+
+    let isolated: Vec<ColdNote> = {
+        let lim = limit;
+        ctx.query(move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query_as::<_, ColdNote>(
+                    r#"
+                    WITH linked_notes AS (
+                        SELECT DISTINCT from_note_id AS note_id FROM link WHERE kind = 'semantic'
+                        UNION
+                        SELECT DISTINCT to_note_id AS note_id FROM link WHERE kind = 'semantic'
+                    )
+                    SELECT n.id, n.title, n.access_count, n.last_accessed_at, n.created_at_utc
+                    FROM note n
+                    LEFT JOIN linked_notes ln ON ln.note_id = n.id
+                    WHERE n.deleted_at IS NULL
+                      AND ln.note_id IS NULL
+                    ORDER BY n.access_count ASC, n.created_at_utc ASC
+                    LIMIT $1
+                    "#,
+                )
+                .bind(lim)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                Ok(rows)
+            })
+        })
+        .await?
+    };
+
+    // --- Cold access notes (low access, old or never accessed) ---
+    let cold_access: Vec<ColdNote> = {
+        let lim = limit;
+        let cd = cold_days;
+        let ma = max_accesses;
+        let schema = archive_ctx.schema.clone();
+        let ctx2 = state.db.for_schema(&schema)?;
+        ctx2.query(move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query_as::<_, ColdNote>(
+                    r#"
+                    SELECT n.id, n.title, n.access_count, n.last_accessed_at, n.created_at_utc
+                    FROM note n
+                    WHERE n.deleted_at IS NULL
+                      AND n.access_count <= $1
+                      AND (n.last_accessed_at IS NULL
+                           OR n.last_accessed_at < NOW() - make_interval(days => $2::int))
+                    ORDER BY n.access_count ASC, n.last_accessed_at ASC NULLS FIRST
+                    LIMIT $3
+                    "#,
+                )
+                .bind(ma)
+                .bind(cd as i32)
+                .bind(lim)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                Ok(rows)
+            })
+        })
+        .await?
+    };
+
+    // --- Summary stats ---
+    #[derive(sqlx::FromRow)]
+    struct SummaryRow {
+        total_notes: i64,
+        isolated_count: i64,
+        cold_access_count: i64,
+    }
+
+    let summary: SummaryRow = {
+        let cd = cold_days;
+        let ma = max_accesses;
+        let schema = archive_ctx.schema.clone();
+        let ctx3 = state.db.for_schema(&schema)?;
+        ctx3.query(move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query_as::<_, SummaryRow>(
+                    r#"
+                    WITH linked_notes AS (
+                        SELECT DISTINCT from_note_id AS note_id FROM link WHERE kind = 'semantic'
+                        UNION
+                        SELECT DISTINCT to_note_id AS note_id FROM link WHERE kind = 'semantic'
+                    )
+                    SELECT
+                        (SELECT COUNT(*) FROM note WHERE deleted_at IS NULL) AS total_notes,
+                        (SELECT COUNT(*) FROM note n
+                         LEFT JOIN linked_notes ln ON ln.note_id = n.id
+                         WHERE n.deleted_at IS NULL AND ln.note_id IS NULL) AS isolated_count,
+                        (SELECT COUNT(*) FROM note n
+                         WHERE n.deleted_at IS NULL
+                           AND n.access_count <= $1
+                           AND (n.last_accessed_at IS NULL
+                                OR n.last_accessed_at < NOW() - make_interval(days => $2::int))) AS cold_access_count
+                    "#,
+                )
+                .bind(ma)
+                .bind(cd as i32)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                Ok(row)
+            })
+        })
+        .await?
+    };
+
+    // Compute overlap (notes that are both isolated AND cold access)
+    let isolated_ids: std::collections::HashSet<Uuid> =
+        isolated.iter().map(|n| n.id).collect();
+    let cold_access_ids: std::collections::HashSet<Uuid> =
+        cold_access.iter().map(|n| n.id).collect();
+    let overlap_ids: Vec<Uuid> = isolated_ids.intersection(&cold_access_ids).copied().collect();
+
+    // Build topic summaries from titles
+    let isolated_topics = build_topic_summary(&isolated);
+    let cold_topics = build_topic_summary(&cold_access);
+
+    fn build_topic_summary(notes: &[ColdNote]) -> Vec<String> {
+        notes
+            .iter()
+            .filter_map(|n| n.title.as_deref())
+            .filter(|t| !t.is_empty())
+            .take(10)
+            .map(|t| t.to_string())
+            .collect()
+    }
+
+    fn format_cold_note(n: &ColdNote) -> serde_json::Value {
+        let days_since_access = n
+            .last_accessed_at
+            .map(|la| (chrono::Utc::now() - la).num_days())
+            .unwrap_or(-1);
+        serde_json::json!({
+            "id": n.id,
+            "title": n.title,
+            "access_count": n.access_count.unwrap_or(0),
+            "last_accessed_at": n.last_accessed_at,
+            "created_at": n.created_at_utc,
+            "days_since_access": days_since_access,
+        })
+    }
+
+    let isolated_pct = if summary.total_notes > 0 {
+        (summary.isolated_count as f64 / summary.total_notes as f64 * 100.0).round()
+    } else {
+        0.0
+    };
+
+    let cold_pct = if summary.total_notes > 0 {
+        (summary.cold_access_count as f64 / summary.total_notes as f64 * 100.0).round()
+    } else {
+        0.0
+    };
+
+    Ok(Json(serde_json::json!({
+        "summary": {
+            "total_notes": summary.total_notes,
+            "isolated_count": summary.isolated_count,
+            "isolated_pct": isolated_pct,
+            "cold_access_count": summary.cold_access_count,
+            "cold_access_pct": cold_pct,
+            "overlap_count": overlap_ids.len(),
+            "parameters": {
+                "cold_days": cold_days,
+                "max_accesses": max_accesses,
+                "limit": limit,
+            }
+        },
+        "isolated_notes": {
+            "count": summary.isolated_count,
+            "topic_summary": isolated_topics,
+            "sample": isolated.iter().map(format_cold_note).collect::<Vec<_>>(),
+        },
+        "cold_access_notes": {
+            "count": summary.cold_access_count,
+            "topic_summary": cold_topics,
+            "sample": cold_access.iter().map(format_cold_note).collect::<Vec<_>>(),
+        },
+        "overlap": {
+            "description": "Notes that are both graph-isolated AND have cold access patterns",
+            "count": overlap_ids.len(),
+            "note_ids": overlap_ids,
+        },
+        "recommendations": build_recommendations(summary.total_notes, summary.isolated_count, summary.cold_access_count),
+    })))
+}
+
+fn build_recommendations(total: i64, isolated: i64, cold: i64) -> Vec<String> {
+    let mut recs = Vec::new();
+    if total == 0 {
+        return vec!["No notes found in this archive.".to_string()];
+    }
+    let isolated_pct = isolated as f64 / total as f64 * 100.0;
+    let cold_pct = cold as f64 / total as f64 * 100.0;
+
+    if isolated_pct > 50.0 {
+        recs.push(format!(
+            "{:.0}% of notes are graph-isolated. Run graph maintenance (POST /api/v1/graph/maintenance) to create semantic links.",
+            isolated_pct
+        ));
+    } else if isolated_pct > 20.0 {
+        recs.push(format!(
+            "{:.0}% of notes are graph-isolated. Consider re-embedding isolated notes or lowering the linking similarity threshold.",
+            isolated_pct
+        ));
+    }
+
+    if cold_pct > 70.0 {
+        recs.push(format!(
+            "{:.0}% of notes have cold access patterns. Consider surfacing these via search diversification or exploration prompts.",
+            cold_pct
+        ));
+    }
+
+    if isolated > 0 && cold > 0 {
+        recs.push("Notes in the overlap set (isolated + cold) are highest priority for re-engagement.".to_string());
+    }
+
+    if recs.is_empty() {
+        recs.push("Knowledge graph is well-connected and actively accessed.".to_string());
+    }
+
+    recs
+}
+
+// =============================================================================
 // TEMPLATE HANDLERS
 // =============================================================================
 
@@ -9082,6 +9598,10 @@ struct SearchQuery {
     /// Example: {"required_tags":["tag1"],"excluded_tags":["tag2"]}
     #[serde(default)]
     strict_filter: Option<String>,
+    /// MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
+    /// When set, applies Maximal Marginal Relevance re-ranking after RRF fusion
+    /// to balance relevance with result diversity.
+    diversity: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9141,7 +9661,7 @@ async fn search_notes(
         .unwrap_or(matric_core::defaults::PAGE_LIMIT_SEARCH);
 
     // Generate cache key (before expensive operations)
-    // Only cache pure text queries without strict filters or temporal filters
+    // Only cache pure text queries without strict filters, temporal filters, or diversity
     let cache_key = if query.strict_filter.is_none()
         && query.tags.is_none()
         && query.created_after.is_none()
@@ -9149,6 +9669,7 @@ async fn search_notes(
         && query.updated_after.is_none()
         && query.updated_before.is_none()
         && query.since.is_none()
+        && query.diversity.is_none()
     {
         Some(state.search_cache.cache_key(
             &format!("{}:{}", archive_ctx.schema, query.q),
@@ -9172,6 +9693,11 @@ async fn search_notes(
         Some("semantic") => HybridSearchConfig::semantic_only(),
         _ => HybridSearchConfig::default(),
     };
+
+    // Apply MMR diversity if requested (issue #561)
+    if let Some(diversity) = query.diversity {
+        config.diversity = Some(diversity.clamp(0.0, 1.0));
+    }
 
     // Get or create a schema-scoped search engine
     let engine = search_engine_for_schema(&state, &archive_ctx.schema).await?;

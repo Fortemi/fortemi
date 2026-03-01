@@ -39,6 +39,7 @@ pub mod deduplication;
 pub mod fts_flags;
 pub mod hnsw_tuning;
 pub mod hybrid;
+pub mod mmr;
 pub mod rrf;
 pub mod rsf;
 pub mod script_detection;
@@ -58,6 +59,7 @@ pub use hnsw_tuning::{
 pub use hybrid::{
     HybridSearch, HybridSearchConfig, HybridSearchEngine, SearchRequest, SearchStrategy,
 };
+pub use mmr::mmr_rerank;
 pub use matric_db::TokenEmbedding;
 pub use rrf::*;
 pub use rsf::rsf_fuse;
