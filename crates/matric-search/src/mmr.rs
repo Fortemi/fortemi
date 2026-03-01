@@ -240,11 +240,7 @@ mod tests {
         let id2 = Uuid::new_v4();
         let id3 = Uuid::new_v4();
 
-        let candidates = vec![
-            make_hit(id1, 0.9),
-            make_hit(id2, 0.7),
-            make_hit(id3, 0.5),
-        ];
+        let candidates = vec![make_hit(id1, 0.9), make_hit(id2, 0.7), make_hit(id3, 0.5)];
         let vectors = HashMap::new();
         let query = make_vector(&[1.0, 0.0, 0.0]);
 
@@ -270,11 +266,7 @@ mod tests {
         let query = make_vector(&[1.0, 0.0, 0.0]);
 
         // Pure relevance: id1 (0.9) > id2 (0.8) > id3 (0.7)
-        let candidates = vec![
-            make_hit(id1, 0.9),
-            make_hit(id2, 0.8),
-            make_hit(id3, 0.7),
-        ];
+        let candidates = vec![make_hit(id1, 0.9), make_hit(id2, 0.8), make_hit(id3, 0.7)];
 
         // With high diversity, id3 should be promoted over id2
         let results = mmr_rerank(candidates, &vectors, &query, 0.8, 3);
@@ -315,11 +307,7 @@ mod tests {
         vectors.insert(id3, make_vector(&[0.0, 1.0, 0.0]));
         // id2 has no vector
 
-        let candidates = vec![
-            make_hit(id1, 0.9),
-            make_hit(id2, 0.8),
-            make_hit(id3, 0.7),
-        ];
+        let candidates = vec![make_hit(id1, 0.9), make_hit(id2, 0.8), make_hit(id3, 0.7)];
 
         let query = make_vector(&[1.0, 0.0, 0.0]);
         let results = mmr_rerank(candidates, &vectors, &query, 0.5, 10);
@@ -352,11 +340,7 @@ mod tests {
         vectors.insert(id2, make_vector(&[1.0, 0.0, 0.0]));
         vectors.insert(id3, make_vector(&[1.0, 0.0, 0.0]));
 
-        let candidates = vec![
-            make_hit(id1, 0.9),
-            make_hit(id2, 0.7),
-            make_hit(id3, 0.5),
-        ];
+        let candidates = vec![make_hit(id1, 0.9), make_hit(id2, 0.7), make_hit(id3, 0.5)];
 
         let query = make_vector(&[1.0, 0.0, 0.0]);
         // With identical vectors, diversity penalty is the same for all, so

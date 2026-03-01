@@ -8295,11 +8295,13 @@ async fn get_cold_spots(
     };
 
     // Compute overlap (notes that are both isolated AND cold access)
-    let isolated_ids: std::collections::HashSet<Uuid> =
-        isolated.iter().map(|n| n.id).collect();
+    let isolated_ids: std::collections::HashSet<Uuid> = isolated.iter().map(|n| n.id).collect();
     let cold_access_ids: std::collections::HashSet<Uuid> =
         cold_access.iter().map(|n| n.id).collect();
-    let overlap_ids: Vec<Uuid> = isolated_ids.intersection(&cold_access_ids).copied().collect();
+    let overlap_ids: Vec<Uuid> = isolated_ids
+        .intersection(&cold_access_ids)
+        .copied()
+        .collect();
 
     // Build topic summaries from titles
     let isolated_topics = build_topic_summary(&isolated);
@@ -8403,7 +8405,10 @@ fn build_recommendations(total: i64, isolated: i64, cold: i64) -> Vec<String> {
     }
 
     if isolated > 0 && cold > 0 {
-        recs.push("Notes in the overlap set (isolated + cold) are highest priority for re-engagement.".to_string());
+        recs.push(
+            "Notes in the overlap set (isolated + cold) are highest priority for re-engagement."
+                .to_string(),
+        );
     }
 
     if recs.is_empty() {

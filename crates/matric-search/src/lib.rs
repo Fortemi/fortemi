@@ -59,8 +59,8 @@ pub use hnsw_tuning::{
 pub use hybrid::{
     HybridSearch, HybridSearchConfig, HybridSearchEngine, SearchRequest, SearchStrategy,
 };
-pub use mmr::mmr_rerank;
 pub use matric_db::TokenEmbedding;
+pub use mmr::mmr_rerank;
 pub use rrf::*;
 pub use rsf::rsf_fuse;
 pub use script_detection::{detect_script, has_cjk, has_emoji, DetectedScript, ScriptDetection};

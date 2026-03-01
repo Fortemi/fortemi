@@ -1219,6 +1219,7 @@ impl ArchiveRepository for PgArchiveRepository {
                     AND a.attnum > 0
                     AND NOT a.attisdropped
                     AND a.attgenerated = ''
+                    AND a.attidentity = ''
                 ORDER BY a.attnum
                 "#,
             )
