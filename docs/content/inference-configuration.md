@@ -69,7 +69,7 @@ All configuration options can be specified via environment variables:
 #### Ollama Configuration
 
 - `MATRIC_OLLAMA_URL` - Base URL (default: `http://localhost:11434`)
-- `MATRIC_OLLAMA_GENERATION_MODEL` - Model for text generation (default: `gpt-oss:20b`)
+- `MATRIC_OLLAMA_GENERATION_MODEL` - Model for text generation (default: `qwen3.5:27b`)
 - `MATRIC_OLLAMA_EMBEDDING_MODEL` - Model for embeddings (default: `nomic-embed-text`)
 
 #### OpenAI Configuration
@@ -344,8 +344,8 @@ All LLM-backed operations (AI revision, title generation, concept tagging, relat
 [provider:]model_slug
 
 Examples:
-  "qwen3:8b"                                        → default provider (Ollama)
-  "ollama:qwen3:8b"                                  → explicit Ollama
+  "qwen3.5:9b"                                       → default provider (Ollama)
+  "ollama:qwen3.5:9b"                                → explicit Ollama
   "openai:gpt-4o"                                    → OpenAI
   "openai:gpt-4.1-mini"                              → OpenAI budget tier
   "openrouter:anthropic/claude-sonnet-4-20250514"     → OpenRouter
@@ -403,7 +403,7 @@ Returns models grouped by provider with health status:
 ```json
 {
   "models": [
-    { "slug": "qwen3:8b", "provider": "ollama", "type": "generation" },
+    { "slug": "qwen3.5:9b", "provider": "ollama", "type": "generation" },
     { "slug": "gpt-4o", "provider": "openai", "type": "generation" }
   ],
   "providers": [

@@ -556,7 +556,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `OLLAMA_BASE` | `http://127.0.0.1:11434` | Ollama API base URL | `http://host.docker.internal:11434` |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model name | `mxbai-embed-large` |
-| `OLLAMA_GEN_MODEL` | `gpt-oss:20b` | Ollama generation model name | `llama3.2` |
+| `OLLAMA_GEN_MODEL` | `qwen3.5:27b` | Ollama generation model name | `llama3.2` |
 | `OLLAMA_EMBED_DIM` | `768` | Embedding vector dimension | `1024` |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama host for model discovery | `http://ollama:11434` |
 
@@ -580,7 +580,7 @@ All environment variables are optional unless marked as required. The API reads 
 |----------|---------|-------------|---------|
 | `MATRIC_INFERENCE_DEFAULT` | `ollama` | Default inference backend (`ollama` or `openai`) | `openai` |
 | `MATRIC_OLLAMA_URL` | `http://localhost:11434` | Ollama URL (alternative to `OLLAMA_BASE`) | `http://ollama:11434` |
-| `MATRIC_OLLAMA_GENERATION_MODEL` | `gpt-oss:20b` | Ollama generation model | `llama3.2` |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | `qwen3.5:27b` | Ollama generation model | `llama3.2` |
 | `MATRIC_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Ollama embedding model | `mxbai-embed-large` |
 | `MATRIC_OPENAI_URL` | `https://api.openai.com/v1` | OpenAI URL | `https://custom-proxy.example.com/v1` |
 | `MATRIC_OPENAI_API_KEY` | (none) | OpenAI API key | `sk-proj-...` |
@@ -667,7 +667,7 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
 2. Pull required models:
    ```bash
    ollama pull nomic-embed-text
-   ollama pull gpt-oss:20b
+   ollama pull qwen3.5:27b
    ```
 3. Configure Docker to access Ollama:
    ```bash
@@ -681,7 +681,7 @@ AI features (embedding generation, auto-titling, AI revision) require either Oll
    ```
    OLLAMA_BASE=http://host.docker.internal:11434
    OLLAMA_EMBED_MODEL=nomic-embed-text
-   OLLAMA_GEN_MODEL=gpt-oss:20b
+   OLLAMA_GEN_MODEL=qwen3.5:27b
    ```
 
 **Using OpenAI:**

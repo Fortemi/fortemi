@@ -137,11 +137,11 @@ model would produce vectors in an incompatible vector space.
 {
   "models": [
     {
-      "slug": "qwen3:8b",
+      "slug": "qwen3.5:9b",
       "capabilities": ["language"],
       "default_for": ["language"],
-      "parameter_size": "8.2B",
-      "family": "qwen3"
+      "parameter_size": "9B",
+      "family": "qwen3.5"
     },
     {
       "slug": "nomic-embed-text",
@@ -151,9 +151,9 @@ model would produce vectors in an incompatible vector space.
     }
   ],
   "defaults": {
-    "language": "qwen3:8b",
+    "language": "qwen3.5:9b",
     "embedding": "nomic-embed-text",
-    "vision": "qwen3-vl:8b",
+    "vision": "qwen3.5:9b",
     "transcription": "Systran/faster-distil-whisper-large-v3"
   }
 }
@@ -167,8 +167,8 @@ Extend the model slug format to include an optional **provider prefix**:
 [provider:]model_slug
 
 Examples:
-  "qwen3:8b"              → default provider (Ollama local)
-  "ollama:qwen3:8b"       → explicit Ollama
+  "qwen3.5:9b"            → default provider (Ollama local)
+  "ollama:qwen3.5:9b"     → explicit Ollama
   "openai:gpt-4o"         → OpenAI cloud
   "openai:gpt-4.1-mini"   → OpenAI cloud (budget)
   "openrouter:anthropic/claude-sonnet-4-20250514" → OpenRouter
@@ -257,13 +257,13 @@ impl ProviderRegistry {
 
 #### Slug Parsing Edge Cases
 
-Ollama model slugs already contain colons (e.g., `qwen3:8b`, `llava:34b`). The parser
+Ollama model slugs already contain colons (e.g., `qwen3.5:9b`, `llava:34b`). The parser
 must handle this correctly:
 
 | Input | Provider | Model |
 |-------|----------|-------|
-| `qwen3:8b` | default (ollama) | `qwen3:8b` |
-| `ollama:qwen3:8b` | ollama | `qwen3:8b` |
+| `qwen3.5:9b` | default (ollama) | `qwen3.5:9b` |
+| `ollama:qwen3.5:9b` | ollama | `qwen3.5:9b` |
 | `openai:gpt-4o` | openai | `gpt-4o` |
 | `openrouter:anthropic/claude-sonnet-4-20250514` | openrouter | `anthropic/claude-sonnet-4-20250514` |
 
@@ -276,9 +276,9 @@ Ollama model names never collide with provider IDs (`ollama`, `openai`, `openrou
 
 ```bash
 # Default provider (always available, no config needed beyond existing vars)
-OLLAMA_GEN_MODEL=qwen3:8b
+OLLAMA_GEN_MODEL=qwen3.5:27b
 OLLAMA_EMBED_MODEL=nomic-embed-text
-OLLAMA_VISION_MODEL=qwen3-vl:8b
+OLLAMA_VISION_MODEL=qwen3.5:9b
 
 # OpenAI provider (opt-in via feature flag + env vars)
 OPENAI_API_KEY=sk-...

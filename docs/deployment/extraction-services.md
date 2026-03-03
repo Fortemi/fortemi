@@ -21,18 +21,18 @@ The Docker bundle (`docker-compose.bundle.yml`) includes all services with sensi
 ### Requirements
 
 - Ollama installed on the host
-- Vision model pulled (e.g., `qwen3-vl:8b`)
+- Vision model pulled (e.g., `qwen3.5:9b` — natively multimodal, unified generation and vision)
 
 ### Setup
 
 1. Pull the vision model on the host:
    ```bash
-   ollama pull qwen3-vl:8b
+   ollama pull qwen3.5:9b
    ```
 
 2. Configure in `.env`:
    ```bash
-   OLLAMA_VISION_MODEL=qwen3-vl:8b
+   OLLAMA_VISION_MODEL=qwen3.5:9b
    ```
 
 3. Restart the bundle:
@@ -323,7 +323,7 @@ deploy:
 ## Environment Variables Reference
 
 ### Vision Model
-- `OLLAMA_VISION_MODEL` — Vision model name (e.g., `qwen3-vl:8b`). Set to empty to disable.
+- `OLLAMA_VISION_MODEL` — Vision model name (e.g., `qwen3.5:9b`). Set to empty to disable. qwen3.5:9b is natively multimodal (unified generation and vision).
 
 ### Whisper Transcription
 - `WHISPER_BASE_URL` — Whisper service URL (e.g., `http://whisper:8000`). Set to empty to disable.

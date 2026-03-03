@@ -242,26 +242,34 @@ pub fn tier_model_recommendations(tier: HardwareTier) -> Vec<ModelRecommendation
         ],
         HardwareTier::Performance => vec![
             ModelRecommendation::new(
-                "mxbai-embed-large",
+                "nomic-embed-text",
                 "embedding",
-                "Higher quality embeddings",
+                "Optimal balance (upgrade to qwen3-embedding in Phase 2)",
             ),
-            ModelRecommendation::new("qwen2.5:14b", "generation", "Primary generation model"),
+            ModelRecommendation::new(
+                "qwen3.5:27b",
+                "generation",
+                "Primary: 256K context, multimodal, fits 24GB (17GB VRAM)",
+            ),
+            ModelRecommendation::new(
+                "qwen3.5:9b",
+                "generation",
+                "Fast: 256K context, multimodal, unified gen+vision",
+            ),
             ModelRecommendation::new(
                 "gpt-oss:20b",
                 "generation",
-                "Production stable, larger context",
-            ),
-            ModelRecommendation::new(
-                "qwen2.5:32b",
-                "generation",
-                "Highest quality when speed allows",
+                "Fallback: production stable, 98K context",
             ),
         ],
         HardwareTier::Professional => vec![
             ModelRecommendation::new("mxbai-embed-large", "embedding", "Best embedding quality"),
-            ModelRecommendation::new("qwen2.5:32b", "generation", "Optimal quality/speed"),
-            ModelRecommendation::new("gpt-oss:20b", "generation", "Stable production choice"),
+            ModelRecommendation::new(
+                "qwen3.5:27b",
+                "generation",
+                "Primary: 256K context, multimodal, excellent quality",
+            ),
+            ModelRecommendation::new("qwen2.5:32b", "generation", "Highest quality dense model"),
             ModelRecommendation::new(
                 "llama3.1:70b",
                 "generation",

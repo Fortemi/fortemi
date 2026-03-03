@@ -310,10 +310,10 @@ Use this table to select models based on your hardware:
 
 | VRAM | RAM | Generation | Fast | Vision | Embedding |
 |---------|-------|-------------------|------------------|-----------------|------------------|
-| 24 GB+  | any   | `qwen2.5:14b`    | `qwen3:8b`      | `qwen3-vl:8b`  | `nomic-embed-text` |
-| 12-23 GB| any   | `qwen2.5:7b`     | `qwen3:8b`      | _(disable)_     | `nomic-embed-text` |
+| 24 GB+  | any   | `qwen3.5:27b`    | `qwen3.5:9b`    | `qwen3.5:9b`   | `nomic-embed-text` |
+| 12-23 GB| any   | `qwen2.5:7b`     | `qwen3.5:9b`    | _(disable)_     | `nomic-embed-text` |
 | 6-11 GB | any   | `llama3.2:3b`    | _(disable)_      | _(disable)_     | `nomic-embed-text` |
-| none    | 32 GB+| `qwen2.5:7b`     | `qwen3:8b`      | _(disable)_     | `nomic-embed-text` |
+| none    | 32 GB+| `qwen2.5:7b`     | `qwen3.5:9b`    | _(disable)_     | `nomic-embed-text` |
 | none    | 16 GB+| `qwen2.5:7b`     | `llama3.2:3b`   | _(disable)_     | `nomic-embed-text` |
 | none    | 8-15 GB| `llama3.2:3b`   | _(disable)_      | _(disable)_     | `nomic-embed-text` |
 
@@ -332,11 +332,11 @@ ollama pull nomic-embed-text
 # Pull your selected generation model (example for 12-23GB VRAM)
 ollama pull qwen2.5:7b
 
-# Pull fast model if your hardware supports it
-ollama pull qwen3:8b
+# Pull fast model if your hardware supports it (also serves as vision model — natively multimodal)
+ollama pull qwen3.5:9b
 
-# Pull vision model only if you have 24GB+ VRAM
-# ollama pull qwen3-vl:8b
+# Pull vision model: qwen3.5:9b is natively multimodal; pull separately only if using a dedicated vision model
+# ollama pull qwen3.5:9b  # already pulled above for 24GB+ VRAM tier
 ```
 
 Verify models are available:
@@ -358,7 +358,7 @@ cat >> .env << 'EOF'
 # ── Ollama Model Configuration ──────────────────────────────────────────
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_GEN_MODEL=qwen2.5:7b
-MATRIC_FAST_GEN_MODEL=qwen3:8b
+MATRIC_FAST_GEN_MODEL=qwen3.5:9b
 OLLAMA_VISION_MODEL=
 EOF
 ```

@@ -296,6 +296,35 @@ impl ModelRegistry {
             },
         );
 
+        // Qwen3.5 models — natively multimodal (text + vision), 256K context
+        profiles.insert(
+            "qwen3.5:9b".to_string(),
+            ModelProfile {
+                name: "qwen3.5:9b".to_string(),
+                native_context: 262_144,
+                max_output: 8_192,
+                speed_tok_s: 130.0, // Estimated — similar to qwen3:8b at comparable size
+                thinking_type: ThinkingType::None,
+                use_raw_mode: false,
+                family: "qwen3.5".to_string(),
+                size: "9B".to_string(),
+            },
+        );
+
+        profiles.insert(
+            "qwen3.5:27b".to_string(),
+            ModelProfile {
+                name: "qwen3.5:27b".to_string(),
+                native_context: 262_144,
+                max_output: 8_192,
+                speed_tok_s: 55.0, // Estimated — dense 27B model on 24GB GPU
+                thinking_type: ThinkingType::None,
+                use_raw_mode: false,
+                family: "qwen3.5".to_string(),
+                size: "27B".to_string(),
+            },
+        );
+
         profiles.insert(
             "mistral:latest".to_string(),
             ModelProfile {
@@ -453,7 +482,7 @@ impl ModelRegistry {
 
     /// Get the best model for general inference.
     pub fn get_best_general(&self) -> Option<&ModelProfile> {
-        self.get("gpt-oss:20b")
+        self.get("qwen3.5:27b").or_else(|| self.get("gpt-oss:20b"))
     }
 
     /// Get the best model for fast queries.
@@ -473,7 +502,7 @@ impl ModelRegistry {
 
     /// Get the best model for long documents.
     pub fn get_best_long_context(&self) -> Option<&ModelProfile> {
-        self.get("llama3.1:8b")
+        self.get("qwen3.5:27b").or_else(|| self.get("llama3.1:8b"))
     }
 
     /// Get all thinking models.
@@ -713,7 +742,7 @@ mod tests {
         let registry = ModelRegistry::new();
         let best = registry.get_best_general();
         assert!(best.is_some());
-        assert_eq!(best.unwrap().name, "gpt-oss:20b");
+        assert_eq!(best.unwrap().name, "qwen3.5:27b");
     }
 
     #[test]
@@ -748,7 +777,7 @@ mod tests {
         let registry = ModelRegistry::new();
         let best = registry.get_best_long_context();
         assert!(best.is_some());
-        assert_eq!(best.unwrap().name, "llama3.1:8b");
+        assert_eq!(best.unwrap().name, "qwen3.5:27b");
         assert!(best.unwrap().has_large_context());
     }
 
@@ -979,8 +1008,8 @@ mod tests {
         let registry = ModelRegistry::new();
         let largest = registry.get_best_general().unwrap();
 
-        // gpt-oss:20b has the largest context in our set
-        assert!(largest.native_context > 98_000);
+        // qwen3.5:27b has 256K context
+        assert!(largest.native_context > 200_000);
     }
 
     #[test]

@@ -654,7 +654,7 @@ mod tests {
     fn test_default_constants() {
         assert_eq!(DEFAULT_OLLAMA_URL, "http://127.0.0.1:11434");
         assert_eq!(DEFAULT_EMBED_MODEL, "nomic-embed-text");
-        assert_eq!(DEFAULT_GEN_MODEL, "gpt-oss:20b");
+        assert_eq!(DEFAULT_GEN_MODEL, "qwen3.5:27b");
         assert_eq!(DEFAULT_DIMENSION, 768);
         assert_eq!(EMBED_TIMEOUT_SECS, 30);
         assert_eq!(GEN_TIMEOUT_SECS, 120);
@@ -919,7 +919,7 @@ mod tests {
     fn test_use_best_general() {
         let mut backend = OllamaBackend::new();
         backend.use_best_general();
-        assert_eq!(backend.gen_model, "gpt-oss:20b");
+        assert_eq!(backend.gen_model, "qwen3.5:27b");
     }
 
     #[test]
@@ -947,7 +947,7 @@ mod tests {
     fn test_use_best_long_context() {
         let mut backend = OllamaBackend::new();
         backend.use_best_long_context();
-        assert_eq!(backend.gen_model, "llama3.1:8b");
+        assert_eq!(backend.gen_model, "qwen3.5:27b");
     }
 
     #[test]

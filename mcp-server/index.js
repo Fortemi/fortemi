@@ -5385,7 +5385,7 @@ Step 4: Check extraction results
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| \`OLLAMA_VISION_MODEL\` | For frame description | Vision model for keyframe description (e.g., \`qwen3-vl:8b\`) |
+| \`OLLAMA_VISION_MODEL\` | For frame description | Vision model for keyframe description (e.g., \`qwen3.5:9b\` — natively multimodal) |
 | \`WHISPER_BASE_URL\` | For audio transcription | Whisper-compatible API endpoint |
 | ffmpeg | Yes | Must be in PATH for keyframe extraction |
 
@@ -5492,7 +5492,7 @@ Step 4: Check extraction results
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| \`OLLAMA_VISION_MODEL\` | Yes | Vision model for view description (e.g., \`qwen3-vl:8b\`) |
+| \`OLLAMA_VISION_MODEL\` | Yes | Vision model for view description (e.g., \`qwen3.5:9b\` — natively multimodal) |
 | \`RENDERER_URL\` | No | Three.js renderer URL (defaults to \`http://localhost:8080\` bundled renderer) |
 
 The Three.js renderer is bundled in the Docker bundle and runs automatically on port 8080. A vision model is required for 3D model processing.

@@ -504,6 +504,55 @@ pub fn known_model_capabilities(model_name: &str) -> Option<ModelCapabilities> {
             );
         }
 
+        // Qwen3.5:9b — Natively multimodal (text + vision), 256K context
+        // Replaces both qwen3:8b (fast gen) and qwen3-vl:8b (vision)
+        "qwen3.5:9b" => {
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::TitleGeneration,
+                90.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::SemanticUnderstanding,
+                87.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::FormatCompliance,
+                95.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::ContentRevision,
+                88.0,
+            ));
+            caps.add_rating(
+                CapabilityRating::from_score(Capability::FastInference, 88.0).with_latency(400),
+            );
+            caps.add_rating(CapabilityRating::from_score(Capability::LongContext, 98.0));
+        }
+
+        // Qwen3.5:27b — Natively multimodal, 256K context, primary gen model
+        "qwen3.5:27b" => {
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::TitleGeneration,
+                93.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::SemanticUnderstanding,
+                92.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::FormatCompliance,
+                98.0,
+            ));
+            caps.add_rating(CapabilityRating::from_score(
+                Capability::ContentRevision,
+                93.0,
+            ));
+            caps.add_rating(
+                CapabilityRating::from_score(Capability::FastInference, 72.0).with_latency(1200),
+            );
+            caps.add_rating(CapabilityRating::from_score(Capability::LongContext, 98.0));
+        }
+
         // Granite4: Fast extraction model (3B, 244 tok/s, 98K context)
         "granite4:3b" => {
             caps.add_rating(CapabilityRating::from_score(

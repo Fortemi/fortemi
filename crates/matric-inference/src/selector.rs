@@ -118,6 +118,8 @@ impl ModelSelector {
         let known_models = [
             "nomic-embed-text",
             "mxbai-embed-large",
+            "qwen3.5:27b",
+            "qwen3.5:9b",
             "qwen2.5:14b",
             "qwen2.5:7b",
             "gpt-oss:20b",

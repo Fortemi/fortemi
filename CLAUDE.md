@@ -137,7 +137,8 @@ MCP_CLIENT_ID=mm_xxxxx      # Register via POST /oauth/register
 MCP_CLIENT_SECRET=xxxxx
 
 # Vision model for image description (enabled by default, set to empty to disable)
-OLLAMA_VISION_MODEL=qwen3-vl:8b
+# qwen3.5:9b is natively multimodal — unified generation and vision in one model
+OLLAMA_VISION_MODEL=qwen3.5:9b
 
 # Audio transcription backend (enabled by default, set to empty to disable)
 WHISPER_BASE_URL=http://localhost:8000
@@ -286,7 +287,7 @@ See `docs/testing-guide.md` for comprehensive testing documentation.
 - **Document Type Registry** with 131 pre-configured types
 - **Smart chunking** per document type (code uses syntactic, prose uses semantic)
 - **Auto-detection** from filename patterns and magic content
-- **Vision (image description)** via Ollama vision LLM (qwen3-vl, llava)
+- **Vision (image description)** via Ollama vision LLM (qwen3.5:9b natively multimodal, llava)
 - **Audio transcription** via Whisper-compatible backend (attachment pipeline + ad-hoc API)
 - **Speaker diarization** via pyannote sidecar (speaker-labeled captions, editable speaker names)
 - **Video multimodal extraction** via attachment pipeline (keyframe extraction, scene detection, transcription alignment)

@@ -183,7 +183,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL |
 | `OLLAMA_BASE` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `OLLAMA_VISION_MODEL` | `qwen3-vl:8b` | Vision model for image description |
+| `OLLAMA_VISION_MODEL` | `qwen3.5:9b` | Vision model for image description (natively multimodal) |
 | `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
 | `MCP_TOOL_MODE` | `core` | `core` (38 tools) or `full` (all) |

@@ -432,7 +432,7 @@ impl InferenceConfig {
                 base_url: env::var("MATRIC_OLLAMA_URL")
                     .unwrap_or_else(|_| "http://localhost:11434".to_string()),
                 generation_model: env::var("MATRIC_OLLAMA_GENERATION_MODEL")
-                    .unwrap_or_else(|_| "gpt-oss:20b".to_string()),
+                    .unwrap_or_else(|_| "qwen3.5:27b".to_string()),
                 embedding_model: env::var("MATRIC_OLLAMA_EMBEDDING_MODEL")
                     .unwrap_or_else(|_| "nomic-embed-text".to_string()),
             }),

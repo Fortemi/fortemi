@@ -387,7 +387,7 @@ impl VisionAdapter {
 - Ad-hoc `POST /api/v1/vision/describe` HTTP endpoint for direct image description
 - MCP `describe_image` tool for agent access
 - Env var cascade: `OLLAMA_BASE` → `OLLAMA_URL` → default (`http://127.0.0.1:11434`)
-- Configurable via `OLLAMA_VISION_MODEL` (e.g., `qwen3-vl:8b`, `llava`)
+- Configurable via `OLLAMA_VISION_MODEL` (e.g., `qwen3.5:9b` natively multimodal, `llava`)
 
 **Not yet implemented** (future enhancements from original design):
 - EXIF metadata extraction (`exiftool` integration)

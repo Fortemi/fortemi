@@ -314,11 +314,10 @@ services:
       # Increase for large video files or slow GPU inference.
       - JOB_TIMEOUT_SECS=${JOB_TIMEOUT_SECS:-600}
       # Fast model for extraction pipeline (concept tagging, references, titles).
-      # Default: qwen3:8b (144 tok/s, 40K ctx, strong JSON). Set to empty to disable.
-      # Chunk size adapts automatically to model context window via profiles.
-      # For 3B models (e.g., granite4:3b): smaller chunks, more passes.
-      # For 8B+ models: most notes process in a single pass (no chunking).
-      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-qwen3:8b}
+      # Default: qwen3.5:9b (256K ctx, natively multimodal, strong JSON).
+      # Also serves as vision model — eliminates separate qwen3-vl VRAM load.
+      # Set to empty to disable. Chunk size adapts to model context via profiles.
+      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-qwen3.5:9b}
       # Timeout for fast model requests (seconds).
       - MATRIC_FAST_GEN_TIMEOUT_SECS=${MATRIC_FAST_GEN_TIMEOUT_SECS:-60}
 
@@ -327,7 +326,7 @@ services:
       - OLLAMA_BASE=${OLLAMA_BASE:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-      - OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL:-gpt-oss:20b}
+      - OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL:-qwen3.5:27b}
       - OLLAMA_EMBED_DIM=${OLLAMA_EMBED_DIM:-768}
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
@@ -348,7 +347,7 @@ services:
       - RENDERER_PORT=${RENDERER_PORT:-8080}
 
       # ── Extraction Services (enabled by default) ─────────────────────
-      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen3-vl:8b}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen3.5:9b}
       # Whisper is bundled and enabled by default (GPU). Override for remote server.
       - WHISPER_BASE_URL=${WHISPER_BASE_URL:-http://whisper:8000}
       - WHISPER_MODEL=${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}

@@ -3,7 +3,7 @@
 //! Run model evaluations against the matric-memory knowledge management test suite.
 //!
 //! Usage:
-//!   cargo run --bin matric-eval -- --tier smoke --model qwen3:8b
+//!   cargo run --bin matric-eval -- --tier smoke --model qwen3.5:9b
 //!   cargo run --bin matric-eval -- --tier core --output results/
 //!   cargo run --bin matric-eval -- --tier full --model llama3.2:3b --verbose
 
@@ -35,7 +35,7 @@ impl Default for Args {
     fn default() -> Self {
         Self {
             tier: EvalTier::Smoke,
-            model: "qwen3:8b".to_string(),
+            model: "qwen3.5:9b".to_string(),
             output_dir: None,
             verbose: false,
             data_dir: PathBuf::from(DATA_DIR),
@@ -107,7 +107,7 @@ Usage: cargo run --bin matric-eval -- [OPTIONS]
 
 Options:
   -t, --tier <TIER>       Evaluation tier: smoke, core, extended, full (default: smoke)
-  -m, --model <MODEL>     Generation model (default: qwen3:8b)
+  -m, --model <MODEL>     Generation model (default: qwen3.5:9b)
   -o, --output <DIR>      Output directory for reports
   -d, --data-dir <DIR>    Test data directory (default: ~/data/evals/matric)
   -v, --verbose           Verbose output

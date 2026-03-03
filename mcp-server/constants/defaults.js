@@ -45,7 +45,7 @@ export const MCP_DEFAULT_PORT = 3001;
 // =============================================================================
 
 export const OLLAMA_URL = 'http://127.0.0.1:11434';
-export const GEN_MODEL = 'gpt-oss:20b';
+export const GEN_MODEL = 'qwen3.5:27b';
 
 // =============================================================================
 // JOB PROCESSING

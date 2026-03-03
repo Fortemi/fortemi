@@ -48,7 +48,7 @@ These features use LLM inference. They work on CPU via Ollama but are significan
 
 | Feature | Requires | CPU Alternative |
 |---------|----------|-----------------|
-| **Image description** | Ollama + vision model (qwen3-vl:8b) | No CPU vision models available. Disable or use cloud API. |
+| **Image description** | Ollama + vision model (qwen3.5:9b, natively multimodal) | No CPU vision models available. Disable or use cloud API. |
 | **Audio transcription** | Whisper server | CPU variant available (INT8 quantized). Slower but functional. |
 | **Video multimodal** | FFmpeg + Whisper + vision model | Partial: transcription works on CPU Whisper, but keyframe description needs vision model. |
 | **3D model understanding** | Open3D GPU renderer + vision model | No CPU fallback. Disable on CPU-only deployments. |
@@ -373,7 +373,7 @@ Be explicit about what's unavailable so you can plan accordingly:
 
 **Status**: Not available on CPU.
 
-Vision models (qwen3-vl, llava) require GPU for practical inference speeds. On CPU, a single image description would take 30-60+ seconds, making it impractical.
+Vision models (qwen3.5:9b, llava) require GPU for practical inference speeds. On CPU, a single image description would take 30-60+ seconds, making it impractical.
 
 **Impact**: Images uploaded as attachments are stored and served correctly, but won't get AI-generated descriptions. The `ai_description` field will be empty. Full-text search won't find images by their visual content.
 

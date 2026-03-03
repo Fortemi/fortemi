@@ -8,7 +8,7 @@
 
 Inference jobs (title generation, concept extraction) were previously handled with inline model fallback: if the primary model failed, the handler would immediately call the secondary model synchronously before returning. This created several problems:
 
-1. **VRAM contention:** Two models (e.g., fast `granite4:3b` and standard `gpt-oss:20b`) would be loaded into VRAM simultaneously during fallback, exceeding available GPU memory.
+1. **VRAM contention:** Two models (e.g., fast `qwen3.5:9b` and standard `qwen3.5:27b`) would be loaded into VRAM simultaneously during fallback, exceeding available GPU memory.
 2. **Long-running jobs:** Fallback extended job execution time unpredictably; the worker's timeout could trigger before the secondary call completed.
 3. **Lost observability:** Inline retries were invisible to the job queue — the job appeared to be running for its full duration with no record of the escalation.
 4. **No tier separation:** The worker's tiered drain loop (CPU → fast GPU → standard GPU) was bypassed when models were called inline rather than through the queue.
@@ -71,8 +71,8 @@ Replace inline model fallback with queue-based tier escalation: when a job on ti
 | Tier | `cost_tier` Value | Model | Jobs |
 |------|------------------|-------|------|
 | CPU/agnostic | NULL or 0 | CPU models (GLiNER, embeddings) | NER, embedding |
-| Fast GPU | 1 | `granite4:3b` (or configured fast model) | Title gen, concept extraction |
-| Standard GPU | 2 | `gpt-oss:20b` (or configured standard model) | Escalated title/concepts |
+| Fast GPU | 1 | `qwen3.5:9b` (or configured fast model) | Title gen, concept extraction |
+| Standard GPU | 2 | `qwen3.5:27b` (or configured standard model) | Escalated title/concepts |
 
 **Escalation Payload:**
 

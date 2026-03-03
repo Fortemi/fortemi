@@ -2882,7 +2882,7 @@ Analyzes an uploaded image and returns an AI-generated description. No attachmen
 ```json
 {
   "description": "A sunset photograph showing orange and pink clouds over a city skyline...",
-  "model": "qwen3-vl:8b",
+  "model": "qwen3.5:9b",
   "image_size": 2457600
 }
 ```
@@ -2976,7 +2976,7 @@ Authorization: Bearer <token>
 
 {
   "input": "What are the key themes across my recent notes?",
-  "model": "qwen3:8b",
+  "model": "qwen3.5:9b",
   "context": {
     "conversation_history": [
       {"role": "user", "content": "Tell me about my project notes"},
@@ -2991,7 +2991,7 @@ Authorization: Bearer <token>
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `input` | string | Yes | The user's message |
-| `model` | string | No | Ollama model slug override (e.g., `qwen3:8b`). Uses server default if omitted. |
+| `model` | string | No | Ollama model slug override (e.g., `qwen3.5:9b`). Uses server default if omitted. |
 | `context` | object | No | Optional context for the conversation |
 | `context.note_id` | string | No | Note ID for context (future RAG integration) |
 | `context.collection_id` | string | No | Collection ID for context (future RAG integration) |
@@ -3018,15 +3018,15 @@ Each message in `conversation_history`:
   ],
   "actions": [],
   "model_info": {
-    "model": "qwen3:8b",
+    "model": "qwen3.5:9b",
     "context_window": 32768,
     "estimated_available_context": 32568,
     "max_output_tokens": 8192,
     "supports_thinking": true,
     "thinking_type": "explicit_tags",
     "speed_tok_s": 45.0,
-    "parameter_size": "8B",
-    "family": "qwen3"
+    "parameter_size": "9B",
+    "family": "qwen3.5"
   }
 }
 ```
@@ -3073,7 +3073,7 @@ curl -X POST http://localhost:3000/api/v1/chat \
   -H "Authorization: Bearer mm_key_xxx" \
   -d '{
     "input": "Tell me more about the async patterns",
-    "model": "qwen3:8b",
+    "model": "qwen3.5:9b",
     "context": {
       "conversation_history": [
         {"role": "user", "content": "What Rust topics have I been writing about?"},
@@ -3098,14 +3098,14 @@ Returns all installed Ollama models capable of chat (excludes embedding-only mod
 {
   "models": [
     {
-      "name": "qwen3:8b",
+      "name": "qwen3.5:9b",
       "context_window": 32768,
       "max_output_tokens": 8192,
       "supports_thinking": true,
       "thinking_type": "explicit_tags",
       "speed_tok_s": 45.0,
-      "parameter_size": "8B",
-      "family": "qwen3",
+      "parameter_size": "9B",
+      "family": "qwen3.5",
       "size_bytes": 5400000000
     },
     {
@@ -3120,7 +3120,7 @@ Returns all installed Ollama models capable of chat (excludes embedding-only mod
       "size_bytes": 2000000000
     }
   ],
-  "default_model": "qwen3:8b"
+  "default_model": "qwen3.5:9b"
 }
 ```
 

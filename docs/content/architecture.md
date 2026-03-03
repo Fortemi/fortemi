@@ -591,7 +591,7 @@ pub trait ExtractionAdapter {
 
 **GLiNER** is the tier-0 NER backend used for concept extraction (`ConceptTagging`) and reference extraction (`ReferenceExtraction`). It runs entirely on CPU via a sidecar HTTP service (`GLINER_BASE_URL`, default `http://gliner:8090` in Docker bundle), requiring no GPU. GLiNER performs zero-shot named-entity recognition using generative listwise ranking and returns typed entity spans directly from raw text.
 
-When GLiNER is unavailable (health check fails or `GLINER_BASE_URL` is unset), the job escalates to the FAST_GPU tier (qwen3:8b) via the queue-based escalation mechanism described in Tiered Job Architecture above.
+When GLiNER is unavailable (health check fails or `GLINER_BASE_URL` is unset), the job escalates to the FAST_GPU tier (qwen3.5:9b) via the queue-based escalation mechanism described in Tiered Job Architecture above.
 
 ### Available Adapters
 
@@ -834,8 +834,8 @@ Jobs are classified into three compute tiers based on their model requirements. 
 |------|------|-------|--------------------|
 | NULL | agnostic | any / CPU | Most jobs (Embedding, Linking, AiRevision, Extraction, etc.) |
 | 0 | CPU_NER | GLiNER | `ConceptTagging`, `ReferenceExtraction` (CPU-only, no GPU required) |
-| 1 | FAST_GPU | qwen3:8b | `TitleGeneration`, `MetadataExtraction` |
-| 2 | STANDARD_GPU | gpt-oss:20b | Full RAG generation, complex reasoning (via escalation) |
+| 1 | FAST_GPU | qwen3.5:9b | `TitleGeneration`, `MetadataExtraction` |
+| 2 | STANDARD_GPU | qwen3.5:27b | Full RAG generation, complex reasoning (via escalation) |
 
 **Tiered drain order** — the worker processes tiers sequentially to avoid VRAM contention: agnostic/CPU jobs first, then FAST_GPU (with model warmup), then STANDARD_GPU (with model warmup). The worker loops until all tiers are drained before sleeping.
 
@@ -843,8 +843,8 @@ Jobs are classified into three compute tiers based on their model requirements. 
 
 ```
 ConceptTagging (tier 0: GLiNER)
-   └─ insufficient results → enqueue ConceptTagging (tier 1: qwen3:8b)
-                                 └─ insufficient results → enqueue ConceptTagging (tier 2: gpt-oss:20b)
+   └─ insufficient results → enqueue ConceptTagging (tier 1: qwen3.5:9b)
+                                 └─ insufficient results → enqueue ConceptTagging (tier 2: qwen3.5:27b)
 ```
 
 ### Worker Architecture

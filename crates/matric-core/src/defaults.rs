@@ -114,7 +114,8 @@ pub const FILE_INLINE_THRESHOLD: usize = 1024 * 1024;
 pub const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
 /// Default generation model name (Ollama).
-pub const GEN_MODEL: &str = "gpt-oss:20b";
+/// qwen3.5:27b: 256K context, natively multimodal, fits 24GB GPU (17GB VRAM).
+pub const GEN_MODEL: &str = "qwen3.5:27b";
 
 /// Timeout for embedding requests in seconds.
 pub const EMBED_TIMEOUT_SECS: u64 = 30;
@@ -123,9 +124,10 @@ pub const EMBED_TIMEOUT_SECS: u64 = 30;
 pub const GEN_TIMEOUT_SECS: u64 = 120;
 
 /// Default fast generation model for extraction pipeline.
-/// qwen3:8b: 144 tok/s, 40K context, strong JSON instruction following.
+/// qwen3.5:9b: 256K context, natively multimodal (text + vision), strong JSON.
+/// Replaces both qwen3:8b (fast gen) and qwen3-vl:8b (vision) — unified model.
 /// Override with MATRIC_FAST_GEN_MODEL env var (set empty to disable).
-pub const FAST_GEN_MODEL: &str = "qwen3:8b";
+pub const FAST_GEN_MODEL: &str = "qwen3.5:9b";
 
 /// Timeout for fast model generation requests in seconds.
 pub const FAST_GEN_TIMEOUT_SECS: u64 = 60;
@@ -363,7 +365,9 @@ pub const EXTRACTION_CMD_TIMEOUT_SECS: u64 = 60;
 pub const ENV_OLLAMA_VISION_MODEL: &str = "OLLAMA_VISION_MODEL";
 
 /// Default vision model for image description.
-pub const DEFAULT_OLLAMA_VISION_MODEL: &str = "qwen3-vl:8b";
+/// qwen3.5:9b is natively multimodal — unified with FAST_GEN_MODEL.
+/// This eliminates VRAM contention between separate gen and vision models.
+pub const DEFAULT_OLLAMA_VISION_MODEL: &str = "qwen3.5:9b";
 
 /// Environment variable for the Whisper transcription server URL.
 pub const ENV_WHISPER_BASE_URL: &str = "WHISPER_BASE_URL";

@@ -329,7 +329,7 @@ export default [
         },
         "model": {
           "type": "string",
-          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3:8b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
+          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3.5:9b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
         },
         "media_optimize": {
           "type": "boolean",
@@ -5186,7 +5186,7 @@ export default [
         },
         "model": {
           "type": "string",
-          "description": "Language model slug for AI operations (e.g. 'qwen3:8b'). If omitted, uses the globally configured default."
+          "description": "Language model slug for AI operations (e.g. 'qwen3.5:9b'). If omitted, uses the globally configured default."
         },
         "force": {
           "type": "boolean",
@@ -5253,7 +5253,7 @@ When called without note_ids, processes all notes in the current archive (up to 
         },
         "model": {
           "type": "string",
-          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3:8b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
+          "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3.5:9b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
         }
       }
     },

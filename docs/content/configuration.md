@@ -287,13 +287,13 @@ Ollama is the default inference backend for local LLM inference without API cost
 | `OLLAMA_URL` | String | `http://127.0.0.1:11434` | Alias for `OLLAMA_BASE` (checked as fallback by the vision handler and content summarizer) |
 | `OLLAMA_HOST` | String | `http://localhost:11434` | Alias used by the Ollama discovery service |
 | `OLLAMA_EMBED_MODEL` | String | `nomic-embed-text` | Model name for generating embeddings |
-| `OLLAMA_GEN_MODEL` | String | `gpt-oss:20b` | Model name for text generation (standard/failover tier) |
+| `OLLAMA_GEN_MODEL` | String | `qwen3.5:27b` | Model name for text generation (standard/failover tier) |
 | `OLLAMA_EMBED_DIM` | Integer | `768` | Vector dimensionality for embeddings. Must match the model's output dimension. |
 | `MATRIC_EMBED_TIMEOUT_SECS` | Integer | `30` | Timeout in seconds for embedding requests to Ollama |
 | `MATRIC_GEN_TIMEOUT_SECS` | Integer | `120` | Timeout in seconds for generation requests to Ollama |
 | `MATRIC_OLLAMA_URL` | String | `http://127.0.0.1:11434` | Ollama URL used by the TOML-based inference config path |
 | `MATRIC_OLLAMA_EMBEDDING_MODEL` | String | `nomic-embed-text` | Embedding model used by the TOML-based inference config path |
-| `MATRIC_OLLAMA_GENERATION_MODEL` | String | `gpt-oss:20b` | Generation model used by the TOML-based inference config path |
+| `MATRIC_OLLAMA_GENERATION_MODEL` | String | `qwen3.5:27b` | Generation model used by the TOML-based inference config path |
 
 **Example (Docker Desktop - macOS/Windows):**
 ```bash
@@ -495,9 +495,9 @@ These variables control the multi-tier concept extraction cascade: GLiNER (tier 
 | `GLINER_MODEL` | String | (set by GLiNER sidecar) | GLiNER model name, consumed by the GLiNER sidecar container (e.g., `urchade/gliner_large-v2.1`). |
 | `GLINER_THRESHOLD` | Float | (set by GLiNER sidecar) | Entity confidence threshold for the GLiNER sidecar (e.g., `0.3`). |
 | `EXTRACTION_TARGET_CONCEPTS` | Integer | `5` | Target number of concepts to extract per note. GLiNER→fast model escalation triggers when below this threshold; fast→standard model escalation triggers at < target/2 (i.e., 3 with the default of 5). |
-| `MATRIC_FAST_GEN_MODEL` | String | `qwen3:8b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. Set to empty to disable. |
+| `MATRIC_FAST_GEN_MODEL` | String | `qwen3.5:9b` | Fast generation model (tier 1) used for concept tagging and reference extraction when GLiNER yields too few results. Large documents are automatically chunked. Set to empty to disable. |
 | `MATRIC_FAST_GEN_TIMEOUT_SECS` | Integer | `60` | Timeout in seconds for fast model generation requests. |
-| `OLLAMA_GEN_MODEL` | String | `gpt-oss:20b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
+| `OLLAMA_GEN_MODEL` | String | `qwen3.5:27b` | Standard generation model (tier 2) used as failover when the fast model also yields insufficient concepts. |
 
 **Extraction cascade:**
 ```
@@ -512,23 +512,23 @@ GLiNER (tier 0, ~300ms, CPU)
 ```bash
 GLINER_BASE_URL=http://gliner:8090
 EXTRACTION_TARGET_CONCEPTS=5
-MATRIC_FAST_GEN_MODEL=qwen3:8b
-OLLAMA_GEN_MODEL=gpt-oss:20b
+MATRIC_FAST_GEN_MODEL=qwen3.5:9b
+OLLAMA_GEN_MODEL=qwen3.5:27b
 ```
 
 **Example (disable GLiNER, LLM-only extraction):**
 ```bash
 GLINER_BASE_URL=
 EXTRACTION_TARGET_CONCEPTS=5
-MATRIC_FAST_GEN_MODEL=qwen3:8b
-OLLAMA_GEN_MODEL=gpt-oss:20b
+MATRIC_FAST_GEN_MODEL=qwen3.5:9b
+OLLAMA_GEN_MODEL=qwen3.5:27b
 ```
 
 **Example (higher concept density for rich taxonomies):**
 ```bash
 EXTRACTION_TARGET_CONCEPTS=10
-MATRIC_FAST_GEN_MODEL=qwen3:8b
-OLLAMA_GEN_MODEL=gpt-oss:20b
+MATRIC_FAST_GEN_MODEL=qwen3.5:9b
+OLLAMA_GEN_MODEL=qwen3.5:27b
 ```
 
 #### Embedding Enrichment
@@ -548,12 +548,12 @@ EMBED_INSTRUCTION_PREFIX=clustering:
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `OLLAMA_VISION_MODEL` | String | `qwen3-vl:8b` | Ollama vision model for image description and 3D model rendering. Set to empty to disable image extraction. Requires Ollama with a vision-capable model pulled. |
+| `OLLAMA_VISION_MODEL` | String | `qwen3.5:9b` | Ollama vision model for image description and 3D model rendering. Set to empty to disable image extraction. Requires Ollama with a vision-capable model pulled. qwen3.5:9b is natively multimodal (unified generation and vision). |
 
 **Example:**
 ```bash
-OLLAMA_VISION_MODEL=qwen3-vl:8b
-# OLLAMA_VISION_MODEL=llava:7b  # Alternative
+OLLAMA_VISION_MODEL=qwen3.5:9b  # natively multimodal; also used as fast gen model
+# OLLAMA_VISION_MODEL=llava:7b  # Alternative (vision-only model)
 # OLLAMA_VISION_MODEL=          # Disable
 ```
 
