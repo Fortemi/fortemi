@@ -380,11 +380,14 @@ jobs:
     name: Integration Tests (GPU)
     runs-on: titan
     needs: build
-    continue-on-error: true
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
       INFERENCE_BACKEND: ollama
+      # Allow longer timeout for GPU contention — the deployed bundle's
+      # worker may be using Ollama when CI tests run. Ollama serializes
+      # GPU requests, so tests just need to wait their turn.
+      MATRIC_GEN_TIMEOUT_SECS: 300
     steps:
       - name: Checkout
         run: |
