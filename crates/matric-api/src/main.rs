@@ -344,7 +344,7 @@ async fn queue_nlp_pipeline_inner(
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
-                None, // AiRevision is tier-agnostic
+                JobType::AiRevision.default_cost_tier(),
             )
             .await
         {

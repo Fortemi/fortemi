@@ -2206,6 +2206,9 @@ impl JobType {
             JobType::ConceptTagging | JobType::ReferenceExtraction => Some(cost_tier::CPU_NER),
             // Fast GPU tier: title gen, metadata extraction
             JobType::TitleGeneration | JobType::MetadataExtraction => Some(cost_tier::FAST_GPU),
+            // Standard GPU tier: AI revision uses the standard generation model.
+            // Serialized by gpu_concurrent (default 1) to avoid VRAM contention.
+            JobType::AiRevision | JobType::AiRevisionContextual => Some(cost_tier::STANDARD_GPU),
             // Vision GPU tier: per-frame/per-view vision LLM description.
             // Serialized by default (VISION_MAX_CONCURRENT=1) to prevent
             // VRAM contention on single-GPU systems.
@@ -2246,9 +2249,9 @@ pub enum TierGroup {
 pub mod cost_tier {
     /// CPU/NER tier: GLiNER concept extraction, GLiNER reference NER (<300ms).
     pub const CPU_NER: i16 = 0;
-    /// Fast GPU tier: qwen3:8b concept tagging, title generation (5-15s).
+    /// Fast GPU tier: qwen3.5:9b concept tagging, title generation (5-15s).
     pub const FAST_GPU: i16 = 1;
-    /// Standard GPU tier: gpt-oss:20b fallback extraction (60-105s).
+    /// Standard GPU tier: qwen3.5:27b AI revision, fallback extraction (60-105s).
     pub const STANDARD_GPU: i16 = 2;
     /// Vision GPU tier: vision LLM per-frame/per-view description (10-30s each).
     /// Serialized by default (`VISION_MAX_CONCURRENT=1`) to avoid VRAM contention
