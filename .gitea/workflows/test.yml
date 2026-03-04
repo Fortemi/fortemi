@@ -304,7 +304,7 @@ jobs:
 
           # Run matric-inference without the integration feature to get coverage
           # of its unit tests without triggering Ollama-dependent tests.
-          cargo llvm-cov --workspace --package matric-inference --no-clean --lcov --output-path target/coverage/lcov.info
+          cargo llvm-cov --package matric-inference --no-clean --lcov --output-path target/coverage/lcov.info
         timeout-minutes: 45
 
       - name: Generate coverage report
