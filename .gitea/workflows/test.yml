@@ -297,7 +297,14 @@ jobs:
           export INTEGRATION_TEST_DB=1
 
           # Run all other tests with coverage (accumulate with --no-clean)
-          cargo llvm-cov --all-features --workspace --exclude matric-jobs --no-clean --lcov --output-path target/coverage/lcov.info
+          # Exclude matric-inference: its integration tests (behind --all-features)
+          # require a live Ollama server and are already covered by the GPU
+          # integration test job in ci-builder.yaml.
+          cargo llvm-cov --all-features --workspace --exclude matric-jobs --exclude matric-inference --no-clean
+
+          # Run matric-inference without the integration feature to get coverage
+          # of its unit tests without triggering Ollama-dependent tests.
+          cargo llvm-cov --workspace --package matric-inference --no-clean --lcov --output-path target/coverage/lcov.info
         timeout-minutes: 45
 
       - name: Generate coverage report

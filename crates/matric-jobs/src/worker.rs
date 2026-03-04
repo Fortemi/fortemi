@@ -49,7 +49,7 @@ impl WorkerConfig {
     /// | Variable | Default | Description |
     /// |----------|---------|-------------|
     /// | `JOB_WORKER_ENABLED` | `true` | Enable/disable job processing |
-    /// | `JOB_MAX_CONCURRENT` | `4` | Max concurrent jobs |
+    /// | `JOB_MAX_CONCURRENT` | `1` | Max concurrent jobs |
     /// | `JOB_POLL_INTERVAL_MS` | `60000` | Safety-net poll interval (ms) |
     pub fn from_env() -> Self {
         let enabled = std::env::var("JOB_WORKER_ENABLED")
@@ -747,7 +747,7 @@ mod tests {
     fn test_worker_config_default() {
         let config = WorkerConfig::default();
         assert_eq!(config.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS);
-        assert_eq!(config.max_concurrent_jobs, 4);
+        assert_eq!(config.max_concurrent_jobs, 1);
         assert!(config.enabled);
     }
 
@@ -769,7 +769,7 @@ mod tests {
     fn test_worker_config_default_values() {
         let config = WorkerConfig::default();
         assert_eq!(config.poll_interval_ms, 60_000); // DEFAULT_POLL_INTERVAL_MS (safety-net)
-        assert_eq!(config.max_concurrent_jobs, 4);
+        assert_eq!(config.max_concurrent_jobs, 1);
         assert!(config.enabled);
     }
 
@@ -778,7 +778,7 @@ mod tests {
         let config = WorkerConfig::default().with_poll_interval(100);
         assert_eq!(config.poll_interval_ms, 100);
         // Ensure other defaults preserved
-        assert_eq!(config.max_concurrent_jobs, 4);
+        assert_eq!(config.max_concurrent_jobs, 1);
         assert!(config.enabled);
     }
 

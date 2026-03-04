@@ -174,7 +174,11 @@ pub const AUTO_EMBED_PRIORITY: i32 = 5;
 pub const JOB_POLL_INTERVAL_MS: u64 = 60_000;
 
 /// Default maximum concurrent jobs per worker.
-pub const JOB_MAX_CONCURRENT: usize = 4;
+/// Defaults to 1 (serial) to avoid VRAM contention — most job types
+/// touch the GPU (embedding, revision, extraction). Scale up via
+/// `JOB_MAX_CONCURRENT=N` if your workload is CPU-heavy or you have
+/// sufficient VRAM for parallel inference.
+pub const JOB_MAX_CONCURRENT: usize = 1;
 
 /// Default maximum concurrent GPU jobs (any tier that uses Ollama).
 /// Defaults to 1 (serial) to avoid VRAM contention on single-GPU systems
@@ -521,7 +525,7 @@ pub const MEDIA_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 
 /// Maximum concurrent file downloads served simultaneously.
 /// Beyond this limit, requests queue with back-pressure.
-pub const MEDIA_MAX_CONCURRENT_DOWNLOADS: usize = 50;
+pub const MEDIA_MAX_CONCURRENT_DOWNLOADS: usize = 10;
 
 /// Per-download response timeout in seconds.
 /// If a client doesn't consume the response within this window, the connection is dropped.
