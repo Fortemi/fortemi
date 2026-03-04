@@ -1506,8 +1506,11 @@ impl JobHandler for ExtractionHandler {
 
                         // Re-queue AI revision with Standard mode so it operates on
                         // the actual extracted content (not the filename stub). (#494)
+                        // Mark as post_extraction so the handler skips the media-deferral check.
                         let mut revision_payload = serde_json::Map::new();
                         revision_payload.insert("revision_mode".to_string(), json!("standard"));
+                        revision_payload
+                            .insert("post_extraction".to_string(), json!(true));
                         if schema != "public" {
                             revision_payload.insert("schema".to_string(), json!(&schema));
                         }

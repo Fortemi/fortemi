@@ -551,6 +551,52 @@ impl JobHandler for AiRevisionHandler {
             return JobResult::Failed("Note has no content to revise".into());
         }
 
+        // Defer revision for notes with media attachments (video/audio).
+        // The extraction pipeline (ExtractionHandler / KeyframeAssembly) queues
+        // AiRevision after content assembly, producing much richer input.
+        // Running now on stub content wastes GPU time and the dedup guard would
+        // silently discard the extraction pipeline's properly-timed re-queue.
+        //
+        // The extraction pipeline sets `post_extraction: true` in the payload
+        // when re-queuing, so we only defer the initial (note-creation) trigger.
+        let is_post_extraction = ctx
+            .payload()
+            .and_then(|p| p.get("post_extraction"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !is_post_extraction {
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(t) => t,
+                Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
+            };
+            let has_media: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                     SELECT 1 FROM attachment a
+                     JOIN attachment_blob ab ON a.blob_id = ab.id
+                     WHERE a.note_id = $1
+                       AND (ab.content_type LIKE 'video/%' OR ab.content_type LIKE 'audio/%')
+                 )",
+            )
+            .bind(note_id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(false);
+            let _ = tx.commit().await;
+
+            if has_media {
+                info!(
+                    note_id = %note_id,
+                    "Deferring AI revision — note has media attachments; \
+                     extraction pipeline will re-queue after content assembly"
+                );
+                return JobResult::Success(Some(serde_json::json!({
+                    "deferred": true,
+                    "reason": "media attachments present — extraction pipeline owns revision timing"
+                })));
+            }
+        }
+
         // Look up document type for type-aware prompt building.
         // Primary: use the note's assigned document_type_id.
         // Fallback: heuristic detection from content (first 1000 chars).
