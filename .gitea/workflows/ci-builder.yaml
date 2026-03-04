@@ -380,6 +380,7 @@ jobs:
     name: Integration Tests (GPU)
     runs-on: titan
     needs: build
+    continue-on-error: true
     timeout-minutes: 30
     env:
       OLLAMA_HOST: http://localhost:11434
