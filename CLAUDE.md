@@ -1,5 +1,8 @@
 # Matric Memory
 
+
+@AIWG.md
+
 > **Repository**: `fortemi/fortemi` on GitHub
 > **Gitea MCP**: `owner=fortemi`, `repo=fortemi`
 > **NOT** the `roctinam/matric` monorepo - this is the standalone matric-memory project
