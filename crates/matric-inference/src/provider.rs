@@ -363,9 +363,14 @@ impl ProviderRegistry {
         let mut registry = Self::new("ollama".to_string());
 
         // Ollama — always available
+        // Resolution order: OLLAMA_BASE → OLLAMA_URL → OLLAMA_HOST → default.
+        // OLLAMA_HOST is Ollama's native env var, supported as fallback.
         let ollama_base = std::env::var("OLLAMA_BASE")
             .or_else(|_| std::env::var("OLLAMA_URL"))
-            .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string());
+            .or_else(|_| std::env::var("OLLAMA_HOST"))
+            .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string())
+            .trim_end_matches('/')
+            .to_string();
 
         registry.register(ProviderConfig {
             id: "ollama".to_string(),

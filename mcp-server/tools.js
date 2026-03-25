@@ -6176,7 +6176,7 @@ When called without note_ids, processes all notes in the current archive (up to 
   },
   {
     name: "manage_inference",
-    description: `Discover available LLM models, providers, and embedding configurations. Actions: list_models (all models with capabilities and provider health), get_embedding_config (current default embedding config), list_embedding_configs (all embedding configurations).`,
+    description: `Manage LLM inference configuration, models, providers, and connections. Actions: list_models (all models with capabilities and provider health), get_embedding_config (current default embedding config), list_embedding_configs (all embedding configurations), get_config (effective inference config with source attribution), update_config (apply partial config override and hot-swap backend), reset_config (remove DB overrides, revert to env/defaults), test_connection (probe an inference endpoint and auto-detect provider).`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -6185,15 +6185,54 @@ When called without note_ids, processes all notes in the current archive (up to 
           "enum": [
             "list_models",
             "get_embedding_config",
-            "list_embedding_configs"
+            "list_embedding_configs",
+            "get_config",
+            "update_config",
+            "reset_config",
+            "test_connection"
           ],
-          "description": "Action: 'list_models' (all models from all providers), 'get_embedding_config' (default embedding config), 'list_embedding_configs' (all embedding configs)"
+          "description": "Action: 'list_models' (all models from all providers), 'get_embedding_config' (default embedding config), 'list_embedding_configs' (all embedding configs), 'get_config' (effective inference config with source attribution), 'update_config' (apply partial config override), 'reset_config' (remove DB overrides), 'test_connection' (probe inference endpoint)"
+        },
+        "ollama": {
+          "type": "object",
+          "description": "Partial Ollama config override (for update_config action)",
+          "properties": {
+            "base_url": { "type": "string", "description": "Ollama base URL" },
+            "generation_model": { "type": "string", "description": "Generation model slug" },
+            "embedding_model": { "type": "string", "description": "Embedding model slug" }
+          }
+        },
+        "openai": {
+          "type": "object",
+          "description": "Partial OpenAI config override (for update_config action)",
+          "properties": {
+            "base_url": { "type": "string", "description": "OpenAI-compatible base URL" },
+            "api_key": { "type": "string", "description": "API key" },
+            "generation_model": { "type": "string", "description": "Generation model slug" },
+            "embedding_model": { "type": "string", "description": "Embedding model slug" }
+          }
+        },
+        "base_url": {
+          "type": "string",
+          "description": "URL to probe (for test_connection action)"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider hint for test_connection: 'ollama', 'openai', or 'auto' (default: auto)"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Bearer token for test_connection with OpenAI-compatible endpoints"
+        },
+        "validate": {
+          "type": "boolean",
+          "description": "If true, probe endpoint reachability before persisting (for update_config)"
         }
       },
       "required": [
         "action"
       ]
     },
-    annotations: {"readOnlyHint":true},
+    annotations: {},
   },
 ];

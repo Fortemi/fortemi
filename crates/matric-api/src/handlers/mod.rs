@@ -6,6 +6,7 @@ pub mod archives;
 pub mod audio;
 pub mod chat;
 pub mod document_types;
+pub mod inference_config;
 pub mod jobs;
 pub mod models;
 pub mod pke;

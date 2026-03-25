@@ -427,14 +427,23 @@ impl InferenceConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
+        // Resolve Ollama URL: MATRIC_OLLAMA_URL → OLLAMA_BASE → OLLAMA_URL → OLLAMA_HOST → default
+        // OLLAMA_HOST is Ollama's native env var, supported as fallback.
         let ollama = match default {
             InferenceBackend::Ollama => Some(OllamaConfig {
                 base_url: env::var("MATRIC_OLLAMA_URL")
-                    .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+                    .or_else(|_| env::var("OLLAMA_BASE"))
+                    .or_else(|_| env::var("OLLAMA_URL"))
+                    .or_else(|_| env::var("OLLAMA_HOST"))
+                    .unwrap_or_else(|_| matric_core::defaults::OLLAMA_URL.to_string())
+                    .trim_end_matches('/')
+                    .to_string(),
                 generation_model: env::var("MATRIC_OLLAMA_GENERATION_MODEL")
-                    .unwrap_or_else(|_| "qwen3.5:27b".to_string()),
+                    .or_else(|_| env::var("OLLAMA_GEN_MODEL"))
+                    .unwrap_or_else(|_| matric_core::defaults::GEN_MODEL.to_string()),
                 embedding_model: env::var("MATRIC_OLLAMA_EMBEDDING_MODEL")
-                    .unwrap_or_else(|_| "nomic-embed-text".to_string()),
+                    .or_else(|_| env::var("OLLAMA_EMBED_MODEL"))
+                    .unwrap_or_else(|_| matric_core::defaults::EMBED_MODEL.to_string()),
             }),
             InferenceBackend::OpenAI => None,
         };
@@ -442,8 +451,13 @@ impl InferenceConfig {
         let openai = match default {
             InferenceBackend::OpenAI => Some(OpenAIConfig {
                 base_url: env::var("MATRIC_OPENAI_URL")
-                    .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
-                api_key: env::var("MATRIC_OPENAI_API_KEY").ok(),
+                    .or_else(|_| env::var("OPENAI_BASE_URL"))
+                    .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
+                    .trim_end_matches('/')
+                    .to_string(),
+                api_key: env::var("MATRIC_OPENAI_API_KEY")
+                    .or_else(|_| env::var("OPENAI_API_KEY"))
+                    .ok(),
                 generation_model: env::var("MATRIC_OPENAI_GENERATION_MODEL")
                     .unwrap_or_else(|_| "gpt-4o-mini".to_string()),
                 embedding_model: env::var("MATRIC_OPENAI_EMBEDDING_MODEL")

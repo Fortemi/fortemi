@@ -167,7 +167,7 @@ pub async fn chat_handler(
     }
 
     // 2. Check backend is configured
-    let backend = match &state.generation_backend {
+    let backend = match state.generation_backend() {
         Some(b) => b,
         None => {
             return (
@@ -437,7 +437,7 @@ pub async fn list_chat_models(State(state): State<AppState>) -> impl IntoRespons
 
     // Default model: from generation_backend if configured, else from env
     let default_model = state
-        .generation_backend
+        .generation_backend()
         .as_ref()
         .map(|b| b.gen_model_name().to_string())
         .unwrap_or_else(|| {

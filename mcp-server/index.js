@@ -1165,8 +1165,24 @@ function createMcpServer() {
             result = await apiRequest("GET", "/api/v1/embedding-configs/default");
           } else if (miAction === "list_embedding_configs") {
             result = await apiRequest("GET", "/api/v1/embedding-configs");
+          } else if (miAction === "get_config") {
+            result = await apiRequest("GET", "/api/v1/inference/config");
+          } else if (miAction === "update_config") {
+            const body = {};
+            if (args.ollama) body.ollama = args.ollama;
+            if (args.openai) body.openai = args.openai;
+            const qs = args.validate ? "?validate=true" : "";
+            result = await apiRequest("POST", `/api/v1/inference/config${qs}`, body);
+          } else if (miAction === "reset_config") {
+            result = await apiRequest("DELETE", "/api/v1/inference/config");
+          } else if (miAction === "test_connection") {
+            if (!args.base_url) throw new Error("test_connection requires 'base_url'");
+            const body = { base_url: args.base_url };
+            if (args.provider) body.provider = args.provider;
+            if (args.api_key) body.api_key = args.api_key;
+            result = await apiRequest("POST", "/api/v1/inference/test-connection", body);
           } else {
-            throw new Error(`Unknown manage_inference action: ${miAction}. Valid: list_models, get_embedding_config, list_embedding_configs`);
+            throw new Error(`Unknown manage_inference action: ${miAction}. Valid: list_models, get_embedding_config, list_embedding_configs, get_config, update_config, reset_config, test_connection`);
           }
           break;
         }
@@ -3554,7 +3570,7 @@ Matric Memory is an AI-enhanced knowledge base with semantic search, automatic l
 | \`manage_encryption\` | PKE encryption | generate_keypair, get_address, encrypt, decrypt, list_recipients, verify_address, list/create/get_active/set_active/export/import/delete_keyset |
 | \`manage_backups\` | Backup & restore | export_shard, import_shard, snapshot, restore, list, get_info, get_metadata, update_metadata, download_archive, upload_archive, swap, download_memory |
 | \`manage_jobs\` | Job queue monitoring | list, get, create, stats, pending_count, extraction_stats, pause_status, pause, resume |
-| \`manage_inference\` | Model & provider discovery | list_models, get_embedding_config, list_embedding_configs |
+| \`manage_inference\` | Inference config, models & providers | list_models, get_embedding_config, list_embedding_configs, get_config, update_config, reset_config, test_connection |
 
 These high-level tools consolidate the fine-grained tools below. Use the consolidated versions for most workflows.
 

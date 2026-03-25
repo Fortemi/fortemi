@@ -239,24 +239,21 @@ pub async fn list_models(
     }
 
     // Build provider info from the registry
-    let providers: Vec<ProviderInfo> = state
-        .provider_registry
+    let registry = state.provider_registry();
+    let providers: Vec<ProviderInfo> = registry
         .provider_ids()
         .into_iter()
         .filter_map(|id| {
-            state
-                .provider_registry
-                .get_provider(id)
-                .map(|p| ProviderInfo {
-                    id: p.id.clone(),
-                    capabilities: p.capabilities.iter().map(|c| c.to_string()).collect(),
-                    is_default: p.is_default,
-                    health: match p.health {
-                        ProviderHealth::Healthy => "healthy".to_string(),
-                        ProviderHealth::Unknown => "unknown".to_string(),
-                        ProviderHealth::Unhealthy => "unhealthy".to_string(),
-                    },
-                })
+            registry.get_provider(id).map(|p| ProviderInfo {
+                id: p.id.clone(),
+                capabilities: p.capabilities.iter().map(|c| c.to_string()).collect(),
+                is_default: p.is_default,
+                health: match p.health {
+                    ProviderHealth::Healthy => "healthy".to_string(),
+                    ProviderHealth::Unknown => "unknown".to_string(),
+                    ProviderHealth::Unhealthy => "unhealthy".to_string(),
+                },
+            })
         })
         .collect();
 
