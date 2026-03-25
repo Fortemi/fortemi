@@ -191,6 +191,20 @@ fn revision_chunk_size(backend: &OllamaBackend) -> usize {
     matric_core::defaults::REVISION_CHUNK_SIZE_FALLBACK
 }
 
+/// Compute an adaptive timeout for a generation request based on input size.
+///
+/// Scales linearly with content length, clamped between `base_timeout` (or
+/// `GEN_TIMEOUT_MIN_SECS`) and `GEN_TIMEOUT_MAX_SECS`. For short content the
+/// base timeout applies unchanged; for multi-hour video transcripts the
+/// timeout grows proportionally so Ollama has time to finish.
+fn adaptive_timeout_secs(content_len: usize, base_timeout: u64) -> u64 {
+    let scaled = (content_len as u64 * matric_core::defaults::GEN_TIMEOUT_MS_PER_CHAR) / 1000;
+    let minimum = base_timeout.max(matric_core::defaults::GEN_TIMEOUT_MIN_SECS);
+    scaled
+        .max(minimum)
+        .min(matric_core::defaults::GEN_TIMEOUT_MAX_SECS)
+}
+
 /// Chunk content for revision if it exceeds the given chunk size.
 ///
 /// Uses `SemanticChunker` with zero overlap — revision chunks are independent
@@ -648,7 +662,10 @@ impl JobHandler for AiRevisionHandler {
         // Short notes pass through as a single chunk (no behavior change).
         let chunk_max = revision_chunk_size(&self.backend);
         let chunks = if is_video_timeline {
-            chunk_video_timeline(original_content, chunk_max)
+            // Video timelines are self-contained scenes — smaller chunks produce
+            // better results and avoid generation timeouts on multi-hour content.
+            let video_max = chunk_max.min(matric_core::defaults::REVISION_VIDEO_CHUNK_SIZE_MAX);
+            chunk_video_timeline(original_content, video_max)
         } else {
             chunk_for_revision(original_content, chunk_max)
         };
@@ -717,7 +734,21 @@ impl JobHandler for AiRevisionHandler {
                 is_video_timeline,
             );
 
-            match backend.generate(&prompt).await {
+            // Adaptive timeout: scale with content size for large documents.
+            // When a model override is active, use the trait (their timeout).
+            // Otherwise, use the concrete backend with per-chunk adaptive timeout.
+            let chunk_timeout =
+                adaptive_timeout_secs(chunk_content.len(), self.backend.gen_timeout_secs());
+            let result = match &overridden {
+                Some(b) => b.generate(&prompt).await,
+                None => {
+                    self.backend
+                        .generate_with_timeout(&prompt, chunk_timeout)
+                        .await
+                }
+            };
+
+            match result {
                 Ok(r) => {
                     let cleaned = clean_enhanced_content(r.trim(), &prompt);
                     if !cleaned.is_empty() {
@@ -731,6 +762,7 @@ impl JobHandler for AiRevisionHandler {
                             error = %e,
                             chunk = chunk_idx + 1,
                             total = total_chunks,
+                            timeout_secs = chunk_timeout,
                             "Chunk revision failed, skipping"
                         );
                     } else {
@@ -1328,7 +1360,18 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                 context = reference_context
             );
 
-            match backend.generate(&prompt).await {
+            let chunk_timeout =
+                adaptive_timeout_secs(chunk_content.len(), self.backend.gen_timeout_secs());
+            let result = match &overridden {
+                Some(b) => b.generate(&prompt).await,
+                None => {
+                    self.backend
+                        .generate_with_timeout(&prompt, chunk_timeout)
+                        .await
+                }
+            };
+
+            match result {
                 Ok(r) => {
                     let cleaned = clean_enhanced_content(r.trim(), &prompt);
                     if !cleaned.is_empty() {
@@ -1341,6 +1384,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                             error = %e,
                             chunk = chunk_idx + 1,
                             total = total_chunks,
+                            timeout_secs = chunk_timeout,
                             "Phase 2 chunk revision failed, skipping"
                         );
                     } else {
@@ -7172,6 +7216,45 @@ Quick note about the meeting discussion and action items."#;
             chunk_max_phase2,
             matric_core::defaults::REVISION_CHUNK_SIZE_MIN
         );
+    }
+
+    // =========================================================================
+    // Adaptive Timeout Tests
+    // =========================================================================
+
+    #[test]
+    fn test_adaptive_timeout_short_content() {
+        // Short content should use the base timeout
+        let timeout = adaptive_timeout_secs(1_000, 120);
+        assert_eq!(timeout, 120, "Short content should use base timeout");
+    }
+
+    #[test]
+    fn test_adaptive_timeout_medium_content() {
+        // 60K chars at 3ms/char = 180s, which exceeds base 120s
+        let timeout = adaptive_timeout_secs(60_000, 120);
+        assert_eq!(timeout, 180);
+    }
+
+    #[test]
+    fn test_adaptive_timeout_large_content() {
+        // 200K chars at 3ms/char = 600s
+        let timeout = adaptive_timeout_secs(200_000, 120);
+        assert_eq!(timeout, 600);
+    }
+
+    #[test]
+    fn test_adaptive_timeout_capped_at_max() {
+        // Very large content should be capped at GEN_TIMEOUT_MAX_SECS (900)
+        let timeout = adaptive_timeout_secs(500_000, 120);
+        assert_eq!(timeout, matric_core::defaults::GEN_TIMEOUT_MAX_SECS);
+    }
+
+    #[test]
+    fn test_adaptive_timeout_respects_minimum() {
+        // Even with 0 content, should return at least GEN_TIMEOUT_MIN_SECS
+        let timeout = adaptive_timeout_secs(0, 30);
+        assert_eq!(timeout, matric_core::defaults::GEN_TIMEOUT_MIN_SECS);
     }
 
     // =========================================================================

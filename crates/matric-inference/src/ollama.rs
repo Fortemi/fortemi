@@ -108,10 +108,22 @@ impl OllamaBackend {
         }
     }
 
+    /// Resolve the Ollama base URL from environment variables.
+    ///
+    /// Resolution order: `OLLAMA_BASE` → `OLLAMA_URL` → `OLLAMA_HOST` → default.
+    /// `OLLAMA_HOST` is Ollama's native env var, so we support it as a fallback.
+    /// Trailing slashes are stripped to prevent double-slash URLs.
+    fn resolve_base_url() -> String {
+        let url = std::env::var("OLLAMA_BASE")
+            .or_else(|_| std::env::var("OLLAMA_URL"))
+            .or_else(|_| std::env::var("OLLAMA_HOST"))
+            .unwrap_or_else(|_| DEFAULT_OLLAMA_URL.to_string());
+        url.trim_end_matches('/').to_string()
+    }
+
     /// Create from environment variables.
     pub fn from_env() -> Self {
-        let base_url =
-            std::env::var("OLLAMA_BASE").unwrap_or_else(|_| DEFAULT_OLLAMA_URL.to_string());
+        let base_url = Self::resolve_base_url();
         let embed_model =
             std::env::var("OLLAMA_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.to_string());
         let gen_model =
@@ -126,8 +138,7 @@ impl OllamaBackend {
 
     /// Create from environment variables with a specific generation model override.
     pub fn from_env_with_gen_model(gen_model: String) -> Self {
-        let base_url =
-            std::env::var("OLLAMA_BASE").unwrap_or_else(|_| DEFAULT_OLLAMA_URL.to_string());
+        let base_url = Self::resolve_base_url();
         let embed_model =
             std::env::var("OLLAMA_EMBED_MODEL").unwrap_or_else(|_| DEFAULT_EMBED_MODEL.to_string());
         let dimension = std::env::var("OLLAMA_EMBED_DIM")
@@ -396,21 +407,41 @@ impl OllamaBackend {
         &self.base_url
     }
 
+    /// Get the configured generation timeout in seconds.
+    pub fn gen_timeout_secs(&self) -> u64 {
+        self.gen_timeout_secs
+    }
+
+    /// Generate text with an explicit timeout override (seconds).
+    ///
+    /// Used by callers that need content-aware timeouts (e.g., revision of
+    /// large video timelines) without changing the `GenerationBackend` trait.
+    pub async fn generate_with_timeout(&self, prompt: &str, timeout_secs: u64) -> Result<String> {
+        self.generate_internal("", prompt, None, Some(timeout_secs))
+            .await
+    }
+
     /// Internal generation method shared by all generate variants.
     ///
     /// Uses the `/api/chat` endpoint which properly separates thinking/reasoning
     /// from the final response content. This is essential for thinking models
     /// (e.g., gpt-oss, qwen3) where `/api/generate` leaks reasoning into the response.
+    ///
+    /// `timeout_override` allows per-request timeout scaling for large content.
+    /// When `None`, uses the backend's configured `gen_timeout_secs`.
     async fn generate_internal(
         &self,
         system: &str,
         prompt: &str,
         format: Option<serde_json::Value>,
+        timeout_override: Option<u64>,
     ) -> Result<String> {
+        let timeout = timeout_override.unwrap_or(self.gen_timeout_secs);
         let start = Instant::now();
 
         debug!(
             json_format = format.is_some(),
+            timeout_secs = timeout,
             "Starting generation via chat API"
         );
 
@@ -438,7 +469,7 @@ impl OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/chat", self.base_url))
-            .timeout(Duration::from_secs(self.gen_timeout_secs))
+            .timeout(Duration::from_secs(timeout))
             .json(&request)
             .send()
             .await
@@ -596,7 +627,7 @@ impl GenerationBackend for OllamaBackend {
 
     #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate", model = %self.gen_model, prompt_len = prompt.len()))]
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
-        self.generate_internal(system, prompt, None).await
+        self.generate_internal(system, prompt, None, None).await
     }
 
     async fn generate_json(&self, prompt: &str) -> Result<String> {
@@ -605,7 +636,7 @@ impl GenerationBackend for OllamaBackend {
 
     #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "generate_json", model = %self.gen_model, prompt_len = prompt.len()))]
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
-        self.generate_internal(system, prompt, Some(serde_json::json!("json")))
+        self.generate_internal(system, prompt, Some(serde_json::json!("json")), None)
             .await
     }
 

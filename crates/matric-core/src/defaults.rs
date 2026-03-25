@@ -153,6 +153,25 @@ pub const REVISION_CHUNK_SIZE_MIN: usize = 8_000;
 /// surround the actual content in revision prompts.
 pub const REVISION_PROMPT_OVERHEAD: usize = 2_000;
 
+/// Maximum chunk size for video timeline revision (characters).
+/// Video timelines with scene markers are self-contained units that produce
+/// better results with smaller chunks than prose. 60K chars ≈ 15K tokens,
+/// leaving ample room for output in a 128K+ context window.
+pub const REVISION_VIDEO_CHUNK_SIZE_MAX: usize = 60_000;
+
+/// Adaptive timeout: milliseconds of generation time per character of input.
+/// At ~2 tokens/sec generation and ~4 chars/token, 1K input chars needs ~2s.
+/// We use 3ms/char for safety margin (covers thinking overhead, VRAM swaps).
+pub const GEN_TIMEOUT_MS_PER_CHAR: u64 = 3;
+
+/// Minimum generation timeout in seconds. Even tiny prompts need time for
+/// model loading and first-token latency.
+pub const GEN_TIMEOUT_MIN_SECS: u64 = 60;
+
+/// Maximum generation timeout for any single request (seconds).
+/// Safety cap to prevent indefinite hangs. 15 minutes.
+pub const GEN_TIMEOUT_MAX_SECS: u64 = 900;
+
 // =============================================================================
 // JOB PROCESSING
 // =============================================================================
