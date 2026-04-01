@@ -3,7 +3,7 @@
 -- Resolution: per-call > document type > env var > auto-computed from model.
 
 -- Movie/documentary: longer form, larger chunks for coherent scene-level revision
-UPDATE document_types
+UPDATE document_type
 SET agentic_config = jsonb_set(
     COALESCE(agentic_config, '{}'::jsonb),
     '{revision_chunking}',
@@ -12,7 +12,7 @@ SET agentic_config = jsonb_set(
 WHERE name IN ('movie', 'documentary');
 
 -- Meeting recordings and lectures: moderate chunks for structured content
-UPDATE document_types
+UPDATE document_type
 SET agentic_config = jsonb_set(
     COALESCE(agentic_config, '{}'::jsonb),
     '{revision_chunking}',
