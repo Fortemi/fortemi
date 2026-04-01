@@ -597,4 +597,350 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(!json.contains("timestamp"));
     }
+
+    // =========================================================================
+    // HotM Consumer Contract Tests (Issue #549)
+    // =========================================================================
+
+    // --- Request Deserialization Edge Cases ---
+
+    /// Issue #549 test case #6: Empty context object — all fields undefined.
+    #[test]
+    fn test_chat_request_empty_context_object() {
+        let json = r#"{"input": "hello", "context": {}}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.input, "hello");
+        let ctx = req.context.unwrap();
+        assert!(ctx.note_id.is_none());
+        assert!(ctx.collection_id.is_none());
+        assert!(ctx.search_query.is_none());
+        assert!(ctx.conversation_history.is_none());
+    }
+
+    /// Issue #549 test case #7: Partial context — only note_id set.
+    #[test]
+    fn test_chat_request_partial_context_only_note_id() {
+        let json = r#"{"input": "hello", "context": {"note_id": "abc-123"}}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        let ctx = req.context.unwrap();
+        assert_eq!(ctx.note_id.as_deref(), Some("abc-123"));
+        assert!(ctx.collection_id.is_none());
+        assert!(ctx.search_query.is_none());
+        assert!(ctx.conversation_history.is_none());
+    }
+
+    /// Issue #549 test case #8: Long conversation history (20+ messages).
+    #[test]
+    fn test_chat_request_long_conversation_history() {
+        let mut messages = Vec::new();
+        for i in 0..25 {
+            let role = if i % 2 == 0 { "user" } else { "assistant" };
+            messages.push(serde_json::json!({
+                "role": role,
+                "content": format!("Message {}", i)
+            }));
+        }
+        let json = serde_json::json!({
+            "input": "latest message",
+            "context": {
+                "conversation_history": messages
+            }
+        });
+        let req: ChatRequest = serde_json::from_str(&json.to_string()).unwrap();
+        let history = req.context.unwrap().conversation_history.unwrap();
+        assert_eq!(history.len(), 25);
+    }
+
+    /// Issue #549 test case #9: Empty input string deserializes (handler rejects).
+    #[test]
+    fn test_chat_request_empty_input_deserializes() {
+        let json = r#"{"input": ""}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.input, "");
+        // Handler should reject this with 400 — tested at handler level.
+    }
+
+    /// Issue #549 test case #9 variant: Whitespace-only input deserializes.
+    #[test]
+    fn test_chat_request_whitespace_only_input_deserializes() {
+        let json = r#"{"input": "   \t\n  "}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.input.trim(), "");
+        // Handler trims and rejects — tested at handler level.
+    }
+
+    /// Issue #549 test case #10: Large input (5000+ characters).
+    #[test]
+    fn test_chat_request_large_input() {
+        let large_input = "x".repeat(6000);
+        let json = serde_json::json!({"input": large_input});
+        let req: ChatRequest = serde_json::from_str(&json.to_string()).unwrap();
+        assert_eq!(req.input.len(), 6000);
+    }
+
+    /// Issue #549 test case #17: Missing `input` field — deserialization fails.
+    #[test]
+    fn test_chat_request_missing_input_field() {
+        let json = r#"{"context": {"note_id": "abc"}}"#;
+        let result = serde_json::from_str::<ChatRequest>(json);
+        assert!(result.is_err(), "Missing `input` should fail deserialization");
+    }
+
+    /// Issue #549 test case #16: Invalid JSON body — deserialization fails.
+    #[test]
+    fn test_chat_request_invalid_json() {
+        let json = r#"{not valid json"#;
+        let result = serde_json::from_str::<ChatRequest>(json);
+        assert!(result.is_err());
+    }
+
+    /// Context fields explicitly set to null should deserialize as None.
+    #[test]
+    fn test_chat_request_context_with_explicit_nulls() {
+        let json = r#"{
+            "input": "hi",
+            "context": {
+                "note_id": null,
+                "collection_id": null,
+                "search_query": null,
+                "conversation_history": null
+            }
+        }"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        let ctx = req.context.unwrap();
+        assert!(ctx.note_id.is_none());
+        assert!(ctx.collection_id.is_none());
+        assert!(ctx.search_query.is_none());
+        assert!(ctx.conversation_history.is_none());
+    }
+
+    /// HotM sends full context with all fields populated.
+    #[test]
+    fn test_chat_request_full_hotm_payload() {
+        let json = r#"{
+            "input": "find notes about quantum computing",
+            "context": {
+                "note_id": "uuid-of-active-note",
+                "collection_id": "uuid-of-active-collection",
+                "search_query": "last search the user ran",
+                "conversation_history": [
+                    {"role": "user", "content": "previous message"},
+                    {"role": "assistant", "content": "previous reply"},
+                    {"role": "user", "content": "find notes about quantum computing"}
+                ]
+            }
+        }"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.input, "find notes about quantum computing");
+        let ctx = req.context.unwrap();
+        assert_eq!(ctx.note_id.as_deref(), Some("uuid-of-active-note"));
+        assert_eq!(ctx.collection_id.as_deref(), Some("uuid-of-active-collection"));
+        assert_eq!(ctx.search_query.as_deref(), Some("last search the user ran"));
+        let history = ctx.conversation_history.unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[2].content, "find notes about quantum computing");
+    }
+
+    /// ChatMessage with optional timestamp field populated.
+    #[test]
+    fn test_chat_message_with_timestamp() {
+        let json = r#"{"role": "user", "content": "hello", "timestamp": "2026-02-27T14:00:00Z"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "hello");
+        assert_eq!(msg.timestamp.as_deref(), Some("2026-02-27T14:00:00Z"));
+    }
+
+    /// ChatMessage without timestamp deserializes fine.
+    #[test]
+    fn test_chat_message_without_timestamp_deserializes() {
+        let json = r#"{"role": "assistant", "content": "response"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert!(msg.timestamp.is_none());
+    }
+
+    // --- Response Contract Validation ---
+
+    /// Issue #549: Verify response JSON field names exactly match HotM contract.
+    /// HotM expects: `messages`, `actions`, `model_info`.
+    #[test]
+    fn test_chat_response_contract_field_names() {
+        let response = ChatResponse {
+            messages: vec![ChatMessage {
+                role: "assistant".to_string(),
+                content: "test".to_string(),
+                timestamp: Some("2026-02-27T00:00:00Z".to_string()),
+            }],
+            actions: vec![],
+            model_info: ChatModelInfo {
+                model: "test:latest".to_string(),
+                context_window: 4096,
+                estimated_available_context: 3896,
+                max_output_tokens: 2048,
+                supports_thinking: false,
+                thinking_type: "none".to_string(),
+                speed_tok_s: 50.0,
+                parameter_size: None,
+                family: None,
+            },
+        };
+        let val: serde_json::Value = serde_json::to_value(&response).unwrap();
+        let obj = val.as_object().unwrap();
+
+        // Top-level fields HotM expects
+        assert!(obj.contains_key("messages"), "missing 'messages' field");
+        assert!(obj.contains_key("actions"), "missing 'actions' field");
+        assert!(obj.contains_key("model_info"), "missing 'model_info' field");
+
+        // Message fields
+        let msg = &obj["messages"][0];
+        assert!(msg.get("role").is_some(), "message missing 'role'");
+        assert!(msg.get("content").is_some(), "message missing 'content'");
+        assert!(msg.get("timestamp").is_some(), "message missing 'timestamp'");
+
+        // model_info fields
+        let mi = obj["model_info"].as_object().unwrap();
+        assert!(mi.contains_key("model"));
+        assert!(mi.contains_key("context_window"));
+        assert!(mi.contains_key("estimated_available_context"));
+        assert!(mi.contains_key("max_output_tokens"));
+        assert!(mi.contains_key("supports_thinking"));
+        assert!(mi.contains_key("thinking_type"));
+        assert!(mi.contains_key("speed_tok_s"));
+    }
+
+    /// Issue #549: Response with actions populated.
+    #[test]
+    fn test_chat_response_with_actions() {
+        let response = ChatResponse {
+            messages: vec![ChatMessage {
+                role: "assistant".to_string(),
+                content: "Found notes".to_string(),
+                timestamp: None,
+            }],
+            actions: vec![ChatAction {
+                action_type: "search_notes".to_string(),
+                payload: serde_json::json!({
+                    "query": "quantum computing",
+                    "results": [
+                        {"note_id": "abc-123", "title": "Quantum Basics", "score": 0.92}
+                    ]
+                }),
+            }],
+            model_info: ChatModelInfo {
+                model: "test:latest".to_string(),
+                context_window: 0,
+                estimated_available_context: 0,
+                max_output_tokens: 0,
+                supports_thinking: false,
+                thinking_type: "none".to_string(),
+                speed_tok_s: 0.0,
+                parameter_size: None,
+                family: None,
+            },
+        };
+        let val: serde_json::Value = serde_json::to_value(&response).unwrap();
+        let actions = val["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        // ChatAction serializes `action_type` as `type` via #[serde(rename)]
+        assert_eq!(actions[0]["type"], "search_notes");
+        assert!(actions[0]["payload"]["results"].is_array());
+    }
+
+    /// Issue #549 test case #11: Empty messages and actions arrays.
+    #[test]
+    fn test_chat_response_empty_messages_and_actions() {
+        let response = ChatResponse {
+            messages: vec![],
+            actions: vec![],
+            model_info: ChatModelInfo {
+                model: "test:latest".to_string(),
+                context_window: 0,
+                estimated_available_context: 0,
+                max_output_tokens: 0,
+                supports_thinking: false,
+                thinking_type: "none".to_string(),
+                speed_tok_s: 0.0,
+                parameter_size: None,
+                family: None,
+            },
+        };
+        let val: serde_json::Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(val["messages"].as_array().unwrap().len(), 0);
+        assert_eq!(val["actions"].as_array().unwrap().len(), 0);
+    }
+
+    /// Issue #549 test case #15: Message without timestamp — timestamp field absent.
+    #[test]
+    fn test_chat_response_message_without_timestamp_omits_field() {
+        let response = ChatResponse {
+            messages: vec![ChatMessage {
+                role: "assistant".to_string(),
+                content: "response text".to_string(),
+                timestamp: None,
+            }],
+            actions: vec![],
+            model_info: ChatModelInfo {
+                model: "test:latest".to_string(),
+                context_window: 0,
+                estimated_available_context: 0,
+                max_output_tokens: 0,
+                supports_thinking: false,
+                thinking_type: "none".to_string(),
+                speed_tok_s: 0.0,
+                parameter_size: None,
+                family: None,
+            },
+        };
+        let val: serde_json::Value = serde_json::to_value(&response).unwrap();
+        let msg = &val["messages"][0];
+        // timestamp should be absent (skip_serializing_if = None)
+        assert!(msg.get("timestamp").is_none(), "None timestamp should be omitted");
+        // But role and content must still be present
+        assert_eq!(msg["role"], "assistant");
+        assert_eq!(msg["content"], "response text");
+    }
+
+    /// model_info optional fields (`parameter_size`, `family`) are omitted when None.
+    #[test]
+    fn test_chat_model_info_optional_fields_omitted() {
+        let info = ChatModelInfo {
+            model: "unknown:latest".to_string(),
+            context_window: 0,
+            estimated_available_context: 0,
+            max_output_tokens: 0,
+            supports_thinking: false,
+            thinking_type: "unknown".to_string(),
+            speed_tok_s: 0.0,
+            parameter_size: None,
+            family: None,
+        };
+        let val: serde_json::Value = serde_json::to_value(&info).unwrap();
+        let obj = val.as_object().unwrap();
+        assert!(
+            !obj.contains_key("parameter_size"),
+            "None parameter_size should be omitted"
+        );
+        assert!(!obj.contains_key("family"), "None family should be omitted");
+    }
+
+    /// model_info optional fields present when Some.
+    #[test]
+    fn test_chat_model_info_optional_fields_present() {
+        let info = ChatModelInfo {
+            model: "qwen3:8b".to_string(),
+            context_window: 40960,
+            estimated_available_context: 40760,
+            max_output_tokens: 4096,
+            supports_thinking: false,
+            thinking_type: "not_tested".to_string(),
+            speed_tok_s: 144.3,
+            parameter_size: Some("8.2B".to_string()),
+            family: Some("qwen3".to_string()),
+        };
+        let val: serde_json::Value = serde_json::to_value(&info).unwrap();
+        assert_eq!(val["parameter_size"], "8.2B");
+        assert_eq!(val["family"], "qwen3");
+    }
 }
