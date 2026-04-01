@@ -164,27 +164,43 @@ fn chunk_for_extraction(content: &str, max_chars: usize) -> Vec<String> {
     chunker.chunk(content).into_iter().map(|c| c.text).collect()
 }
 
-/// Compute revision chunk size from a model's context window.
+/// Compute revision chunk size from the model's actual context window.
 ///
 /// Revision needs different sizing than extraction because both input content
 /// AND generated output must fit in the context window. The formula:
-///   (native_context_tokens * ~4 chars/token - prompt_overhead) / 2
+///   (context_tokens * ~4 chars/token - prompt_overhead) / 2
 /// The /2 accounts for the model needing roughly equal space for input and output.
 ///
 /// Capped at 200K chars (above this, chunking adds overhead without benefit)
 /// and floored at 8K chars (below this, chunks lose coherence).
-fn revision_chunk_size(backend: &OllamaBackend) -> usize {
+///
+/// `running_ctx` is the actual context Ollama allocated (from `/api/ps`).
+/// When available, it reflects real VRAM constraints. Falls back to the model
+/// profile's native context, which may exceed what VRAM can support.
+fn revision_chunk_size(backend: &OllamaBackend, running_ctx: Option<usize>) -> usize {
     if let Some(profile) = backend.gen_model_profile() {
-        let context_chars = profile.native_context * 4;
+        // Priority: actual running context > OLLAMA_CONTEXT_LENGTH > profile native
+        let effective_ctx = running_ctx
+            .or_else(|| {
+                std::env::var("OLLAMA_CONTEXT_LENGTH")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .filter(|&v| v > 0)
+            })
+            .unwrap_or(profile.native_context);
+
+        let context_chars = effective_ctx * 4;
         let available =
             context_chars.saturating_sub(matric_core::defaults::REVISION_PROMPT_OVERHEAD);
         let size = (available / 2).clamp(matric_core::defaults::REVISION_CHUNK_SIZE_MIN, 200_000);
 
         info!(
             model = %profile.name,
-            context_tokens = profile.native_context,
+            context_tokens = effective_ctx,
+            profile_context = profile.native_context,
+            running_context = running_ctx.unwrap_or(0),
             chunk_chars = size,
-            "Computed revision chunk size from model profile"
+            "Computed revision chunk size from model context"
         );
         return size;
     }
@@ -658,9 +674,14 @@ impl JobHandler for AiRevisionHandler {
             && (original_content.contains("**Duration**:")
                 || original_content.contains("**Frames**:"));
 
+        // Query Ollama's actual context allocation for accurate chunk sizing.
+        // This reflects real VRAM constraints (OLLAMA_CONTEXT_LENGTH, model reload
+        // layer offloading, etc.) rather than the theoretical model maximum.
+        let running_ctx = self.backend.running_context_length().await;
+
         // Compute chunk budget and split oversized content for revision.
         // Short notes pass through as a single chunk (no behavior change).
-        let chunk_max = revision_chunk_size(&self.backend);
+        let chunk_max = revision_chunk_size(&self.backend, running_ctx);
         let chunks = if is_video_timeline {
             // Video timelines are self-contained scenes — smaller chunks produce
             // better results and avoid generation timeouts on multi-hour content.
@@ -1270,7 +1291,8 @@ impl JobHandler for AiRevisionContextualHandler {
         // Compute Phase 2 chunk budget, accounting for reference context overhead.
         // The reference context is included in every chunk's prompt, so it reduces
         // the space available for the primary content.
-        let base_chunk_size = revision_chunk_size(&self.backend);
+        let running_ctx = self.backend.running_context_length().await;
+        let base_chunk_size = revision_chunk_size(&self.backend, running_ctx);
         let reference_overhead = reference_context.len();
         let chunk_max_phase2 = base_chunk_size
             .saturating_sub(reference_overhead / 2)

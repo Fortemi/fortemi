@@ -248,6 +248,36 @@ impl OllamaBackend {
         self.registry.get(&self.gen_model)
     }
 
+    /// Query the actual context length Ollama allocated for the current generation model.
+    ///
+    /// Calls `/api/ps` and returns the `context_length` for the loaded model.
+    /// This reflects the real KV cache allocation (affected by VRAM, OLLAMA_CONTEXT_LENGTH,
+    /// and Modelfile `num_ctx`), not the theoretical model maximum.
+    ///
+    /// Returns `None` if the model is not currently loaded or the request fails.
+    pub async fn running_context_length(&self) -> Option<usize> {
+        let response = self
+            .client
+            .get(format!("{}/api/ps", self.base_url))
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .ok()?;
+
+        let body: serde_json::Value = response.json().await.ok()?;
+        let models = body.get("models")?.as_array()?;
+        for model in models {
+            let name = model.get("name")?.as_str()?;
+            if name == self.gen_model {
+                return model
+                    .get("context_length")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize);
+            }
+        }
+        None
+    }
+
     /// Set the generation model to use.
     pub fn set_gen_model(&mut self, model_name: String) {
         info!(
@@ -357,12 +387,19 @@ impl OllamaBackend {
             .map(|(role, content)| ChatMessage { role, content })
             .collect();
 
+        // Only send num_predict, not num_ctx — see generate_internal() comment.
+        let options = self.gen_model_profile().map(|p| ChatOptions {
+            num_ctx: None,
+            num_predict: Some(p.max_output),
+        });
+
         let request = ChatRequest {
             model: self.gen_model.clone(),
             messages: chat_messages,
             stream: false,
             format: None,
             think: None,
+            options,
         };
 
         let response = self
@@ -458,12 +495,29 @@ impl OllamaBackend {
         });
 
         let think = if format.is_some() { Some(false) } else { None };
+
+        // IMPORTANT: Do NOT send num_ctx per-request. Changing num_ctx between
+        // requests triggers a full model reload in Ollama (~60-90 seconds), which
+        // is catastrophic for multi-chunk revision pipelines.
+        //
+        // Context window should be set via:
+        //   1. OLLAMA_CONTEXT_LENGTH env var (global, Ollama 0.19+)
+        //   2. Custom Modelfile with `PARAMETER num_ctx <value>`
+        //   3. Ollama's VRAM-based auto-calculation (default)
+        //
+        // We only send num_predict to control max output tokens.
+        let options = self.gen_model_profile().map(|p| ChatOptions {
+            num_ctx: None,
+            num_predict: Some(p.max_output),
+        });
+
         let request = ChatRequest {
             model: self.gen_model.clone(),
             messages,
             stream: false,
             format,
             think,
+            options,
         };
 
         let response = self
@@ -545,6 +599,25 @@ struct ChatRequest {
     /// When `false`, suppresses chain-of-thought reasoning in the response.
     #[serde(skip_serializing_if = "Option::is_none")]
     think: Option<bool>,
+    /// Runtime options for model inference. Used to set `num_ctx` (context window)
+    /// and `num_predict` (max output tokens) per-request, overriding Modelfile defaults.
+    /// Without explicit `num_ctx`, Ollama silently caps context to the Modelfile's
+    /// `PARAMETER num_ctx` (often 32K), even when the model supports 256K and VRAM allows more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<ChatOptions>,
+}
+
+/// Runtime options passed to Ollama's `/api/chat` endpoint.
+/// These override the model's Modelfile defaults for this request only.
+#[derive(Serialize)]
+struct ChatOptions {
+    /// Context window size in tokens. Ollama allocates KV cache for this many tokens.
+    /// Must fit in available VRAM (weights + KV cache ≤ GPU memory).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_ctx: Option<usize>,
+    /// Maximum number of tokens to generate in the response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<usize>,
 }
 
 /// Response from the Ollama `/api/chat` endpoint.
@@ -821,6 +894,7 @@ mod tests {
             stream: false,
             format: None,
             think: None,
+            options: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("llama3"));
@@ -830,6 +904,7 @@ mod tests {
         assert!(json.contains("\"role\":\"user\""));
         assert!(!json.contains("format")); // Should not serialize None
         assert!(!json.contains("think")); // Should not serialize None
+        assert!(!json.contains("options")); // Should not serialize None
     }
 
     #[test]
@@ -843,6 +918,7 @@ mod tests {
             stream: false,
             format: Some(serde_json::json!("json")),
             think: Some(false),
+            options: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("\"format\":\"json\""));
@@ -860,10 +936,33 @@ mod tests {
             stream: false,
             format: None,
             think: None,
+            options: None,
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(!json.contains("format")); // Should not serialize None
         assert!(!json.contains("think")); // Should not serialize None
+        assert!(!json.contains("options")); // Should not serialize None
+    }
+
+    #[test]
+    fn test_chat_request_with_options() {
+        let request = ChatRequest {
+            model: "qwen3.5:9b".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            stream: false,
+            format: None,
+            think: None,
+            options: Some(ChatOptions {
+                num_ctx: Some(131072),
+                num_predict: Some(4096),
+            }),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"num_ctx\":131072"));
+        assert!(json.contains("\"num_predict\":4096"));
     }
 
     #[test]
