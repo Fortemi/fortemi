@@ -171,7 +171,10 @@ async fn test_chat_simple_conversation() {
     // Validate HotM contract fields exist
     assert!(body.get("messages").is_some(), "missing 'messages' field");
     assert!(body.get("actions").is_some(), "missing 'actions' field");
-    assert!(body.get("model_info").is_some(), "missing 'model_info' field");
+    assert!(
+        body.get("model_info").is_some(),
+        "missing 'model_info' field"
+    );
 
     // At least one assistant message
     let messages = body["messages"].as_array().unwrap();
@@ -388,10 +391,7 @@ async fn test_list_collections_endpoint_contract() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     // Should be an array of collections
-    assert!(
-        body.is_array(),
-        "Collections list should return an array"
-    );
+    assert!(body.is_array(), "Collections list should return an array");
 }
 
 /// Issue #549 agent-proxy: GET /concepts search returns expected shape.

@@ -737,10 +737,11 @@ impl JobHandler for AiRevisionHandler {
         }
 
         // Compute video-specific max from env or constant.
-        let video_chunk_max = std::env::var(matric_core::defaults::ENV_REVISION_VIDEO_CHUNK_MAX_CHARS)
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(matric_core::defaults::REVISION_VIDEO_CHUNK_SIZE_MAX);
+        let video_chunk_max =
+            std::env::var(matric_core::defaults::ENV_REVISION_VIDEO_CHUNK_MAX_CHARS)
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(matric_core::defaults::REVISION_VIDEO_CHUNK_SIZE_MAX);
 
         let chunks = if is_video_timeline {
             // Video timelines are self-contained scenes — smaller chunks produce

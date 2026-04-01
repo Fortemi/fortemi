@@ -683,7 +683,10 @@ mod tests {
     fn test_chat_request_missing_input_field() {
         let json = r#"{"context": {"note_id": "abc"}}"#;
         let result = serde_json::from_str::<ChatRequest>(json);
-        assert!(result.is_err(), "Missing `input` should fail deserialization");
+        assert!(
+            result.is_err(),
+            "Missing `input` should fail deserialization"
+        );
     }
 
     /// Issue #549 test case #16: Invalid JSON body — deserialization fails.
@@ -734,8 +737,14 @@ mod tests {
         assert_eq!(req.input, "find notes about quantum computing");
         let ctx = req.context.unwrap();
         assert_eq!(ctx.note_id.as_deref(), Some("uuid-of-active-note"));
-        assert_eq!(ctx.collection_id.as_deref(), Some("uuid-of-active-collection"));
-        assert_eq!(ctx.search_query.as_deref(), Some("last search the user ran"));
+        assert_eq!(
+            ctx.collection_id.as_deref(),
+            Some("uuid-of-active-collection")
+        );
+        assert_eq!(
+            ctx.search_query.as_deref(),
+            Some("last search the user ran")
+        );
         let history = ctx.conversation_history.unwrap();
         assert_eq!(history.len(), 3);
         assert_eq!(history[0].role, "user");
@@ -797,7 +806,10 @@ mod tests {
         let msg = &obj["messages"][0];
         assert!(msg.get("role").is_some(), "message missing 'role'");
         assert!(msg.get("content").is_some(), "message missing 'content'");
-        assert!(msg.get("timestamp").is_some(), "message missing 'timestamp'");
+        assert!(
+            msg.get("timestamp").is_some(),
+            "message missing 'timestamp'"
+        );
 
         // model_info fields
         let mi = obj["model_info"].as_object().unwrap();
@@ -896,7 +908,10 @@ mod tests {
         let val: serde_json::Value = serde_json::to_value(&response).unwrap();
         let msg = &val["messages"][0];
         // timestamp should be absent (skip_serializing_if = None)
-        assert!(msg.get("timestamp").is_none(), "None timestamp should be omitted");
+        assert!(
+            msg.get("timestamp").is_none(),
+            "None timestamp should be omitted"
+        );
         // But role and content must still be present
         assert_eq!(msg["role"], "assistant");
         assert_eq!(msg["content"], "response text");

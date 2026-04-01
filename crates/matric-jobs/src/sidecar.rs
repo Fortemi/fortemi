@@ -62,6 +62,12 @@ pub struct DockerSidecarController {
     stop_timeout: Duration,
 }
 
+impl Default for DockerSidecarController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DockerSidecarController {
     pub fn new() -> Self {
         let compose_file = std::env::var(matric_core::defaults::ENV_COMPOSE_FILE)
@@ -69,8 +75,7 @@ impl DockerSidecarController {
         let project_name = std::env::var(matric_core::defaults::ENV_COMPOSE_PROJECT).ok();
         let health_timeout =
             Duration::from_secs(matric_core::defaults::sidecar_health_timeout_secs());
-        let stop_timeout =
-            Duration::from_secs(matric_core::defaults::sidecar_stop_timeout_secs());
+        let stop_timeout = Duration::from_secs(matric_core::defaults::sidecar_stop_timeout_secs());
 
         Self {
             compose_file,
@@ -119,10 +124,8 @@ impl DockerSidecarController {
         let url = match sidecar.health_url() {
             Some(path) => {
                 let base = match sidecar {
-                    Sidecar::Whisper => {
-                        std::env::var("WHISPER_BASE_URL")
-                            .unwrap_or_else(|_| "http://localhost:8000".to_string())
-                    }
+                    Sidecar::Whisper => std::env::var("WHISPER_BASE_URL")
+                        .unwrap_or_else(|_| "http://localhost:8000".to_string()),
                     _ => return Ok(()),
                 };
                 format!("{}{}", base, path)

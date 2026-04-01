@@ -320,9 +320,7 @@ fn validate_chunking_params(
     if let Some(max) = chunk_max_chars {
         // 0 is valid (means disable chunking / single-pass)
         if max > 0 && max < 2000 {
-            return Err(
-                "chunk_max_chars must be 0 (disable chunking) or >= 2000".to_string(),
-            );
+            return Err("chunk_max_chars must be 0 (disable chunking) or >= 2000".to_string());
         }
     }
     if let Some(overlap) = chunk_overlap {
@@ -370,6 +368,7 @@ async fn queue_nlp_pipeline(
 /// Inner pipeline with title generation control.
 /// When `skip_title_gen` is true, TitleGeneration is omitted from Phase 1 jobs.
 /// Used by document types like agent-reflection that are machine-generated. (#563)
+#[allow(clippy::too_many_arguments)]
 async fn queue_nlp_pipeline_inner(
     db: &Database,
     note_id: Uuid,
@@ -5994,8 +5993,7 @@ async fn reprocess_note(
 
     let chunk_max_chars = body.as_ref().and_then(|b| b.chunk_max_chars);
     let chunk_overlap = body.as_ref().and_then(|b| b.chunk_overlap);
-    validate_chunking_params(chunk_max_chars, chunk_overlap)
-        .map_err(ApiError::BadRequest)?;
+    validate_chunking_params(chunk_max_chars, chunk_overlap).map_err(ApiError::BadRequest)?;
 
     // Queue AI revision if requested and mode != None
     if revision_mode != RevisionMode::None && should_run("ai_revision") {
@@ -6200,8 +6198,7 @@ async fn bulk_reprocess_notes(
     let chunk_overlap = body.as_ref().and_then(|b| b.chunk_overlap);
 
     // Validate chunking parameters (#572)
-    validate_chunking_params(chunk_max_chars, chunk_overlap)
-        .map_err(ApiError::BadRequest)?;
+    validate_chunking_params(chunk_max_chars, chunk_overlap).map_err(ApiError::BadRequest)?;
 
     let step_payload = {
         let mut p = serde_json::Map::new();
