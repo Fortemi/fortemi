@@ -217,7 +217,7 @@ async fn test_chat_with_full_context() {
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["messages"].as_array().unwrap().len() >= 1);
+    assert!(!body["messages"].as_array().unwrap().is_empty());
 }
 
 /// Issue #549 test case #5: Timestamp in response is ISO 8601.
