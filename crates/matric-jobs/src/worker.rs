@@ -162,6 +162,9 @@ pub struct JobWorker {
     vision_backend: Option<Arc<dyn VisionBackend>>,
     /// Pause state for global and per-archive job processing control (Issue #466).
     pause_state: Option<PauseState>,
+    /// Sidecar lifecycle controller for GPU-exclusive mode (#576).
+    /// Manages whisper/pyannote container start/stop at audio tier boundaries.
+    sidecar_controller: Arc<dyn crate::sidecar::SidecarController>,
 }
 
 impl JobWorker {
@@ -172,6 +175,14 @@ impl JobWorker {
         extraction_registry: Option<ExtractionRegistry>,
     ) -> Self {
         let (event_tx, _) = broadcast::channel(matric_core::defaults::EVENT_BUS_CAPACITY);
+        // Select sidecar controller based on GPU_EXCLUSIVE_MODE (#576)
+        let sidecar_controller: Arc<dyn crate::sidecar::SidecarController> =
+            if matric_core::defaults::gpu_exclusive_mode() {
+                Arc::new(crate::sidecar::DockerSidecarController::new())
+            } else {
+                Arc::new(crate::sidecar::NoOpSidecarController)
+            };
+
         Self {
             db,
             config,
@@ -182,6 +193,7 @@ impl JobWorker {
             standard_backend: None,
             vision_backend: None,
             pause_state: None,
+            sidecar_controller,
         }
     }
 
@@ -338,6 +350,31 @@ impl JobWorker {
                     .await;
                 if drained > 0 {
                     any_processed = true;
+                }
+
+                // Phase 1b: Drain audio GPU tier with sidecar lifecycle (#576).
+                // When GPU_EXCLUSIVE_MODE is enabled, start whisper+pyannote sidecars
+                // before audio jobs and stop them after, freeing ~6.6 GB VRAM for
+                // subsequent Ollama tiers.
+                let audio_pending = self
+                    .db
+                    .jobs
+                    .pending_count_for_tier(cost_tier::AUDIO_GPU)
+                    .await
+                    .unwrap_or(0);
+                if audio_pending > 0 {
+                    // Start sidecars (no-op if GPU_EXCLUSIVE_MODE=false)
+                    crate::sidecar::start_all_sidecars(self.sidecar_controller.as_ref()).await;
+
+                    let drained = self
+                        .drain_tier(TierGroup::AudioGpu, gpu_concurrent, &excluded_archives)
+                        .await;
+                    if drained > 0 {
+                        any_processed = true;
+                    }
+
+                    // Stop sidecars to free VRAM before Ollama tiers
+                    crate::sidecar::stop_all_sidecars(self.sidecar_controller.as_ref()).await;
                 }
 
                 // Phase 2: Drain tier 1 (fast GPU) with warmup.

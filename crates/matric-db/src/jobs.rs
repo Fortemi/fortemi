@@ -57,6 +57,7 @@ impl PgJobRepository {
 
         let tier_clause = match tier_group {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
+            TierGroup::AudioGpu => "cost_tier = 5",
             TierGroup::FastGpu => "cost_tier = 1",
             TierGroup::StandardGpu => "cost_tier = 2",
             TierGroup::RenderGpu => "cost_tier = 4",
@@ -413,6 +414,7 @@ impl JobRepository for PgJobRepository {
         // Build tier filter clause based on group.
         let tier_clause = match tier_group {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
+            TierGroup::AudioGpu => "cost_tier = 5",
             TierGroup::FastGpu => "cost_tier = 1",
             TierGroup::StandardGpu => "cost_tier = 2",
             TierGroup::RenderGpu => "cost_tier = 4",

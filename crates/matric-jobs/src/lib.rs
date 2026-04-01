@@ -51,6 +51,7 @@ pub mod keyframe_vision_handler;
 pub mod media_optimize_handler;
 pub mod pause;
 pub mod relabel_handler;
+pub mod sidecar;
 pub mod sprite_handler;
 pub mod view_assembly_handler;
 pub mod view_vision_handler;

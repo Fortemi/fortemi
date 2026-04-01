@@ -38,6 +38,7 @@ fn test_agentic_config_serialization() {
         context_requirements,
         validation_rules,
         agent_hints: HashMap::new(),
+        revision_chunking: None,
     };
 
     let json = serde_json::to_value(&config).unwrap();
@@ -155,6 +156,7 @@ fn test_agentic_config_roundtrip() {
         context_requirements: HashMap::new(),
         validation_rules: HashMap::new(),
         agent_hints,
+        revision_chunking: None,
     };
 
     // Serialize to JSON

@@ -223,17 +223,18 @@ fn adaptive_timeout_secs(content_len: usize, base_timeout: u64) -> u64 {
 
 /// Chunk content for revision if it exceeds the given chunk size.
 ///
-/// Uses `SemanticChunker` with zero overlap — revision chunks are independent
-/// prose sections that get concatenated, not array items needing deduplication.
+/// `overlap` controls character overlap between adjacent chunks for context
+/// continuity. Default is 0 — revision chunks are independent prose sections
+/// that get concatenated. Set overlap > 0 when context continuity matters. (#572)
 /// Returns a single chunk for small content.
-fn chunk_for_revision(content: &str, max_chars: usize) -> Vec<String> {
+fn chunk_for_revision(content: &str, max_chars: usize, overlap: usize) -> Vec<String> {
     if content.len() <= max_chars {
         return vec![content.to_string()];
     }
     let config = ChunkerConfig {
         max_chunk_size: max_chars,
         min_chunk_size: (max_chars / 10).max(500),
-        overlap: 0,
+        overlap,
     };
     let chunker = SemanticChunker::new(config);
     chunker.chunk(content).into_iter().map(|c| c.text).collect()
@@ -256,8 +257,8 @@ fn chunk_video_timeline(content: &str, max_chars: usize) -> Vec<String> {
     let parts: Vec<&str> = content.split(scene_marker).collect();
 
     if parts.len() <= 1 {
-        // No scene boundaries — fall back to generic chunking
-        return chunk_for_revision(content, max_chars);
+        // No scene boundaries — fall back to generic chunking (zero overlap for video)
+        return chunk_for_revision(content, max_chars, 0);
     }
 
     // First part is the metadata header (before the first scene)
@@ -674,21 +675,80 @@ impl JobHandler for AiRevisionHandler {
             && (original_content.contains("**Duration**:")
                 || original_content.contains("**Frames**:"));
 
+        // Extract optional per-call chunking overrides from job payload (#572).
+        // Priority: per-call override > auto-computed from model context.
+        let chunk_max_override: Option<usize> = ctx
+            .payload()
+            .and_then(|p| p.get("chunk_max_chars"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+        let chunk_overlap: usize = ctx
+            .payload()
+            .and_then(|p| p.get("chunk_overlap"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(0);
+
         // Query Ollama's actual context allocation for accurate chunk sizing.
         // This reflects real VRAM constraints (OLLAMA_CONTEXT_LENGTH, model reload
         // layer offloading, etc.) rather than the theoretical model maximum.
         let running_ctx = self.backend.running_context_length().await;
 
-        // Compute chunk budget and split oversized content for revision.
-        // Short notes pass through as a single chunk (no behavior change).
-        let chunk_max = revision_chunk_size(&self.backend, running_ctx);
+        // Layered chunk size resolution (#572, #573):
+        //   per-call override → document type default → env var → auto-computed from model
+        // Per-call override: 0 = disable chunking (single-pass), >0 = explicit max.
+        let doc_type_chunking = doc_type
+            .as_ref()
+            .and_then(|dt| dt.agentic_config.revision_chunking.as_ref());
+
+        let chunk_max = chunk_max_override
+            .map(|v| if v == 0 { usize::MAX } else { v })
+            .or_else(|| doc_type_chunking.and_then(|c| c.max_chars))
+            .or_else(|| {
+                std::env::var(matric_core::defaults::ENV_REVISION_CHUNK_MAX_CHARS)
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .map(|v| if v == 0 { usize::MAX } else { v })
+            })
+            .unwrap_or_else(|| revision_chunk_size(&self.backend, running_ctx));
+
+        let chunk_overlap = if chunk_overlap > 0 {
+            chunk_overlap // Per-call override takes precedence
+        } else {
+            doc_type_chunking
+                .and_then(|c| c.overlap)
+                .or_else(|| {
+                    std::env::var(matric_core::defaults::ENV_REVISION_CHUNK_OVERLAP)
+                        .ok()
+                        .and_then(|v| v.parse::<usize>().ok())
+                })
+                .unwrap_or(0)
+        };
+
+        if chunk_max_override.is_some() || doc_type_chunking.is_some() {
+            info!(
+                note_id = %note_id,
+                chunk_max_override = ?chunk_max_override,
+                doc_type_max = ?doc_type_chunking.and_then(|c| c.max_chars),
+                chunk_max,
+                chunk_overlap,
+                "Chunking config resolved (per-call > doc-type > env > auto)"
+            );
+        }
+
+        // Compute video-specific max from env or constant.
+        let video_chunk_max = std::env::var(matric_core::defaults::ENV_REVISION_VIDEO_CHUNK_MAX_CHARS)
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(matric_core::defaults::REVISION_VIDEO_CHUNK_SIZE_MAX);
+
         let chunks = if is_video_timeline {
             // Video timelines are self-contained scenes — smaller chunks produce
             // better results and avoid generation timeouts on multi-hour content.
-            let video_max = chunk_max.min(matric_core::defaults::REVISION_VIDEO_CHUNK_SIZE_MAX);
-            chunk_video_timeline(original_content, video_max)
+            let effective_video_max = chunk_max.min(video_chunk_max);
+            chunk_video_timeline(original_content, effective_video_max)
         } else {
-            chunk_for_revision(original_content, chunk_max)
+            chunk_for_revision(original_content, chunk_max, chunk_overlap)
         };
         let total_chunks = chunks.len();
         let is_chunked = total_chunks > 1;
@@ -1297,7 +1357,7 @@ impl JobHandler for AiRevisionContextualHandler {
         let chunk_max_phase2 = base_chunk_size
             .saturating_sub(reference_overhead / 2)
             .max(matric_core::defaults::REVISION_CHUNK_SIZE_MIN);
-        let chunks = chunk_for_revision(phase1_content, chunk_max_phase2);
+        let chunks = chunk_for_revision(phase1_content, chunk_max_phase2, 0);
         let total_chunks = chunks.len();
         let is_chunked = total_chunks > 1;
 
@@ -7048,7 +7108,7 @@ Quick note about the meeting discussion and action items."#;
     #[test]
     fn test_chunk_for_revision_small_content() {
         let small = "A short note about Rust programming.";
-        let chunks = chunk_for_revision(small, 40_000);
+        let chunks = chunk_for_revision(small, 40_000, 0);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], small);
     }
@@ -7063,7 +7123,7 @@ Quick note about the meeting discussion and action items."#;
         let content = paragraphs.join("");
         assert!(content.len() > chunk_size);
 
-        let chunks = chunk_for_revision(&content, chunk_size);
+        let chunks = chunk_for_revision(&content, chunk_size, 0);
         assert!(chunks.len() > 1, "Should produce multiple chunks");
 
         // All original content should be present in the concatenated chunks
@@ -7085,7 +7145,7 @@ Quick note about the meeting discussion and action items."#;
             .map(|i| format!("UNIQUE_MARKER_{} some filler text here.\n\n", i))
             .collect::<String>();
 
-        let chunks = chunk_for_revision(&content, chunk_size);
+        let chunks = chunk_for_revision(&content, chunk_size, 0);
         if chunks.len() > 1 {
             // Count unique markers across all chunks
             let mut marker_count = 0;
@@ -7328,6 +7388,7 @@ Quick note about the meeting discussion and action items."#;
                 context_requirements: Default::default(),
                 validation_rules: Default::default(),
                 agent_hints: Default::default(),
+                revision_chunking: None,
             },
         }
     }

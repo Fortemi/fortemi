@@ -159,6 +159,19 @@ pub const REVISION_PROMPT_OVERHEAD: usize = 2_000;
 /// leaving ample room for output in a 128K+ context window.
 pub const REVISION_VIDEO_CHUNK_SIZE_MAX: usize = 60_000;
 
+/// Environment variable for global revision chunk max chars override (#573).
+/// When set, overrides the auto-computed value from model context.
+/// Set to "0" to disable chunking globally (single-pass).
+pub const ENV_REVISION_CHUNK_MAX_CHARS: &str = "REVISION_CHUNK_MAX_CHARS";
+
+/// Environment variable for global revision chunk overlap (#573).
+/// Default is 0 (no overlap between revision chunks).
+pub const ENV_REVISION_CHUNK_OVERLAP: &str = "REVISION_CHUNK_OVERLAP";
+
+/// Environment variable for video-specific revision chunk max (#573).
+/// Overrides REVISION_VIDEO_CHUNK_SIZE_MAX when set.
+pub const ENV_REVISION_VIDEO_CHUNK_MAX_CHARS: &str = "REVISION_VIDEO_CHUNK_MAX_CHARS";
+
 /// Adaptive timeout: milliseconds of generation time per character of input.
 /// At ~2 tokens/sec generation and ~4 chars/token, 1K input chars needs ~2s.
 /// We use 3ms/char for safety margin (covers thinking overhead, VRAM swaps).
@@ -925,6 +938,58 @@ pub const DETECT_CONFIDENCE_CONTENT: f32 = 0.7;
 
 /// Confidence for default fallback detection (lowest).
 pub const DETECT_CONFIDENCE_DEFAULT: f32 = 0.1;
+
+// ── GPU-exclusive sidecar lifecycle management (#576) ──────────────
+
+/// Environment variable to enable GPU-exclusive mode.
+/// When true, the worker manages sidecar container lifecycle at tier boundaries
+/// to free VRAM for Ollama. Default: true (optimized for single-GPU systems).
+pub const ENV_GPU_EXCLUSIVE_MODE: &str = "GPU_EXCLUSIVE_MODE";
+
+/// Default GPU exclusive mode. true = manage sidecar lifecycle, false = sidecars always on.
+pub const GPU_EXCLUSIVE_MODE_DEFAULT: bool = true;
+
+/// Seconds to wait for a sidecar health check after starting.
+pub const SIDECAR_HEALTH_TIMEOUT_SECS: u64 = 60;
+
+/// Environment variable to override sidecar health timeout.
+pub const ENV_SIDECAR_HEALTH_TIMEOUT_SECS: &str = "SIDECAR_HEALTH_TIMEOUT_SECS";
+
+/// Seconds to wait for graceful sidecar stop.
+pub const SIDECAR_STOP_TIMEOUT_SECS: u64 = 30;
+
+/// Environment variable to override sidecar stop timeout.
+pub const ENV_SIDECAR_STOP_TIMEOUT_SECS: &str = "SIDECAR_STOP_TIMEOUT_SECS";
+
+/// Environment variable for docker compose file path (for sidecar management).
+pub const ENV_COMPOSE_FILE: &str = "COMPOSE_FILE";
+
+/// Environment variable for docker compose project name (for sidecar management).
+pub const ENV_COMPOSE_PROJECT: &str = "COMPOSE_PROJECT_NAME";
+
+/// Read GPU exclusive mode from env.
+pub fn gpu_exclusive_mode() -> bool {
+    std::env::var(ENV_GPU_EXCLUSIVE_MODE)
+        .ok()
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(GPU_EXCLUSIVE_MODE_DEFAULT)
+}
+
+/// Read sidecar health timeout from env.
+pub fn sidecar_health_timeout_secs() -> u64 {
+    std::env::var(ENV_SIDECAR_HEALTH_TIMEOUT_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(SIDECAR_HEALTH_TIMEOUT_SECS)
+}
+
+/// Read sidecar stop timeout from env.
+pub fn sidecar_stop_timeout_secs() -> u64 {
+    std::env::var(ENV_SIDECAR_STOP_TIMEOUT_SECS)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(SIDECAR_STOP_TIMEOUT_SECS)
+}
 
 #[cfg(test)]
 mod tests {

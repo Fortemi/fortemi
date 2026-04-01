@@ -331,6 +331,14 @@ export default [
           "type": "string",
           "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3.5:9b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
         },
+        "chunk_max_chars": {
+          "type": "integer",
+          "description": "Maximum characters per revision chunk. Overrides the auto-computed value from the model's context window. Set to 0 to disable chunking entirely (single-pass revision). Must be >= 2000 if > 0. Omit for auto-computed default."
+        },
+        "chunk_overlap": {
+          "type": "integer",
+          "description": "Character overlap between adjacent revision chunks for context continuity. Default: 0 (revision chunks are independent)."
+        },
         "media_optimize": {
           "type": "boolean",
           "description": "Request media optimization for audio/video attachments: generates web-streamable variants (faststart MP4, remuxed container, preview clips). Only effective for 'upload' action with audio/video files.",
@@ -5254,6 +5262,14 @@ When called without note_ids, processes all notes in the current archive (up to 
         "model": {
           "type": "string",
           "description": "Language model slug for AI operations. Supports provider-qualified slugs (e.g. 'qwen3.5:9b', 'openai:gpt-4o', 'openrouter:anthropic/claude-sonnet-4-20250514'). If omitted, uses the globally configured default. Bare slugs route to the default provider (Ollama). Use get_available_models to discover available slugs and providers."
+        },
+        "chunk_max_chars": {
+          "type": "integer",
+          "description": "Maximum characters per revision chunk. Set to 0 to disable chunking (single-pass). Must be >= 2000 if > 0. Omit for auto-computed default."
+        },
+        "chunk_overlap": {
+          "type": "integer",
+          "description": "Character overlap between adjacent revision chunks. Default: 0."
         }
       }
     },

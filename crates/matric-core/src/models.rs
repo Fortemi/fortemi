@@ -1013,6 +1013,25 @@ pub struct AgenticConfig {
     /// Agent hints for generation (e.g., prefer_const: true)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub agent_hints: HashMap<String, JsonValue>,
+
+    /// Per-document-type revision chunking configuration (#573).
+    /// When present, overrides system-wide defaults for this document type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_chunking: Option<RevisionChunkingConfig>,
+}
+
+/// Per-document-type revision chunking configuration (#573).
+///
+/// Controls how content is split into chunks for AI revision. Part of the
+/// layered default resolution: per-call → document type → system → auto-computed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RevisionChunkingConfig {
+    /// Maximum characters per revision chunk. Null means use system default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_chars: Option<usize>,
+    /// Character overlap between adjacent chunks. Default: 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlap: Option<usize>,
 }
 
 /// Extraction strategy for processing file attachments (Issue #436).
@@ -2216,8 +2235,11 @@ impl JobType {
             | JobType::KeyframeCharacterVision
             | JobType::KeyframeSettingVision
             | JobType::ViewVision => Some(cost_tier::VISION_GPU),
-            // Audio transcription: tier-agnostic (Whisper runs on separate backend)
-            JobType::AudioTranscription | JobType::AudioChunkTranscription => None,
+            // Audio transcription: dedicated tier for sidecar lifecycle management (#576).
+            // When GPU_EXCLUSIVE_MODE is enabled, sidecars start/stop at tier boundaries.
+            JobType::AudioTranscription
+            | JobType::AudioChunkTranscription
+            | JobType::SpeakerDiarization => Some(cost_tier::AUDIO_GPU),
             // Everything else is tier-agnostic
             _ => None,
         }
@@ -2229,6 +2251,10 @@ impl JobType {
 pub enum TierGroup {
     /// CPU-only and agnostic jobs (cost_tier IS NULL OR cost_tier = 0).
     CpuAndAgnostic,
+    /// Audio GPU jobs (cost_tier = 5): whisper transcription + pyannote diarization.
+    /// When GPU_EXCLUSIVE_MODE is enabled, sidecars are started before this tier
+    /// and stopped after it drains, freeing ~6.6 GB VRAM for subsequent tiers. (#576)
+    AudioGpu,
     /// Fast GPU jobs (cost_tier = 1).
     FastGpu,
     /// Standard GPU jobs (cost_tier = 2).
@@ -2263,6 +2289,10 @@ pub mod cost_tier {
     /// VISION_GPU in the worker loop so all rendered views are available
     /// when vision description jobs start.
     pub const RENDER_GPU: i16 = 4;
+    /// Audio GPU tier: whisper transcription + pyannote diarization (#576).
+    /// When GPU_EXCLUSIVE_MODE is enabled, the worker starts sidecars before
+    /// this tier and stops them after, freeing ~6.6 GB VRAM for Ollama tiers.
+    pub const AUDIO_GPU: i16 = 5;
 }
 
 /// A job in the processing queue.

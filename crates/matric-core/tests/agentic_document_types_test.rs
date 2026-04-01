@@ -32,6 +32,7 @@ fn test_agentic_config_struct_exists() {
         context_requirements: HashMap::new(),
         validation_rules: HashMap::new(),
         agent_hints: HashMap::new(),
+        revision_chunking: None,
     };
 
     assert_eq!(config.generation_prompt, Some("Test prompt".to_string()));
@@ -146,6 +147,7 @@ fn test_agent_definition_type_config() {
         context_requirements: HashMap::new(),
         validation_rules: HashMap::new(),
         agent_hints: HashMap::new(),
+        revision_chunking: None,
     };
 
     assert_eq!(config.required_sections.len(), 4);
@@ -169,6 +171,7 @@ fn test_skill_definition_type_config() {
         context_requirements: HashMap::new(),
         validation_rules: HashMap::new(),
         agent_hints: HashMap::new(),
+        revision_chunking: None,
     };
 
     assert_eq!(config.required_sections.len(), 3);

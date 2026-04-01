@@ -311,6 +311,34 @@ fn parse_revision_mode(mode: Option<&str>) -> Result<RevisionMode, ApiError> {
     }
 }
 
+/// Validate optional chunking parameters for revision. (#572)
+/// Returns an error message string if validation fails.
+fn validate_chunking_params(
+    chunk_max_chars: Option<usize>,
+    chunk_overlap: Option<usize>,
+) -> Result<(), String> {
+    if let Some(max) = chunk_max_chars {
+        // 0 is valid (means disable chunking / single-pass)
+        if max > 0 && max < 2000 {
+            return Err(
+                "chunk_max_chars must be 0 (disable chunking) or >= 2000".to_string(),
+            );
+        }
+    }
+    if let Some(overlap) = chunk_overlap {
+        if let Some(max) = chunk_max_chars {
+            if max > 0 && overlap >= max / 2 {
+                return Err(format!(
+                    "chunk_overlap ({}) must be less than chunk_max_chars / 2 ({})",
+                    overlap,
+                    max / 2
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// This should be called after:
 /// - Creating a new note
 /// - Updating note content
@@ -325,7 +353,18 @@ async fn queue_nlp_pipeline(
     schema: Option<&str>,
     model: Option<&str>,
 ) {
-    queue_nlp_pipeline_inner(db, note_id, revision_mode, event_bus, schema, model, false).await;
+    queue_nlp_pipeline_inner(
+        db,
+        note_id,
+        revision_mode,
+        event_bus,
+        schema,
+        model,
+        false,
+        None,
+        None,
+    )
+    .await;
 }
 
 /// Inner pipeline with title generation control.
@@ -339,6 +378,8 @@ async fn queue_nlp_pipeline_inner(
     schema: Option<&str>,
     model: Option<&str>,
     skip_title_gen: bool,
+    chunk_max_chars: Option<usize>,
+    chunk_overlap: Option<usize>,
 ) {
     // Queue AI revision with mode and schema in payload (unless mode is None)
     if revision_mode != RevisionMode::None {
@@ -350,6 +391,12 @@ async fn queue_nlp_pipeline_inner(
         }
         if let Some(m) = model {
             payload["model"] = serde_json::json!(m);
+        }
+        if let Some(c) = chunk_max_chars {
+            payload["chunk_max_chars"] = serde_json::json!(c);
+        }
+        if let Some(o) = chunk_overlap {
+            payload["chunk_overlap"] = serde_json::json!(o);
         }
         match db
             .jobs
@@ -5010,6 +5057,15 @@ struct CreateNoteBody {
     /// If omitted, uses the globally configured default.
     #[serde(default)]
     model: Option<String>,
+    /// Maximum characters per revision chunk. Overrides the auto-computed value
+    /// from the model's context window. Set to 0 to disable chunking (single-pass).
+    /// Must be >= 2000 if provided and > 0.
+    #[serde(default)]
+    chunk_max_chars: Option<usize>,
+    /// Character overlap between adjacent revision chunks for context continuity.
+    /// Default: 0 (revision chunks are independent).
+    #[serde(default)]
+    chunk_overlap: Option<usize>,
 }
 
 #[utoipa::path(
@@ -5031,6 +5087,10 @@ async fn create_note(
     // Validate revision_mode (returns 400 for invalid values)
     let mut revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
     let caller_set_revision_mode = body.revision_mode.is_some();
+
+    // Validate chunking parameters (#572)
+    validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
+        .map_err(ApiError::BadRequest)?;
 
     // Resolve document_type slug to UUID if provided (slug takes precedence over UUID).
     // Also extract agent_hints that control NLP pipeline behavior (#563).
@@ -5180,6 +5240,8 @@ async fn create_note(
         schema_for_jobs,
         body.model.as_deref(),
         skip_title_gen,
+        body.chunk_max_chars,
+        body.chunk_overlap,
     )
     .await;
 
@@ -5234,6 +5296,12 @@ struct BulkCreateNoteItem {
     /// Source identifier (default: "api_bulk") (#430)
     #[serde(default)]
     source: Option<String>,
+    /// Maximum characters per revision chunk. See CreateNoteBody for details.
+    #[serde(default)]
+    chunk_max_chars: Option<usize>,
+    /// Character overlap between adjacent revision chunks. See CreateNoteBody for details.
+    #[serde(default)]
+    chunk_overlap: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -5262,6 +5330,13 @@ async fn bulk_create_notes(
             StatusCode::OK,
             Json(serde_json::json!({ "ids": [], "count": 0 })),
         ));
+    }
+
+    // Validate chunking parameters for all items (#572)
+    for (idx, item) in body.notes.iter().enumerate() {
+        if let Err(e) = validate_chunking_params(item.chunk_max_chars, item.chunk_overlap) {
+            return Err(ApiError::BadRequest(format!("notes[{}]: {}", idx, e)));
+        }
     }
 
     if body.notes.len() > 100 {
@@ -5421,13 +5496,16 @@ async fn bulk_create_notes(
         // Note: insert_bulk_tx already populates note_revised_current with
         // original content, so no update_revised call needed for any mode.
 
-        queue_nlp_pipeline(
+        queue_nlp_pipeline_inner(
             &state.db,
             *note_id,
             revision_mode,
             &state.event_bus,
             schema_for_jobs,
             None,
+            false,
+            body.notes[i].chunk_max_chars,
+            body.notes[i].chunk_overlap,
         )
         .await;
     }
@@ -5484,6 +5562,12 @@ struct UpdateNoteBody {
     /// If omitted, uses the globally configured default.
     #[serde(default)]
     model: Option<String>,
+    /// Maximum characters per revision chunk. See CreateNoteBody for details.
+    #[serde(default)]
+    chunk_max_chars: Option<usize>,
+    /// Character overlap between adjacent revision chunks. See CreateNoteBody for details.
+    #[serde(default)]
+    chunk_overlap: Option<usize>,
 }
 
 #[utoipa::path(
@@ -5507,6 +5591,10 @@ async fn update_note(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Validate chunking parameters (#572)
+    validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
+        .map_err(ApiError::BadRequest)?;
+
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let pool = state.db.pool.clone();
 
@@ -5591,13 +5679,16 @@ async fn update_note(
         } else {
             None
         };
-        queue_nlp_pipeline(
+        queue_nlp_pipeline_inner(
             &state.db,
             id,
             revision_mode,
             &state.event_bus,
             schema_for_jobs,
             body.model.as_deref(),
+            false,
+            body.chunk_max_chars,
+            body.chunk_overlap,
         )
         .await;
     }
@@ -5846,6 +5937,12 @@ struct ReprocessNoteBody {
     /// Optional language model slug for AI operations (e.g. "qwen3:8b").
     /// If omitted, uses the globally configured default.
     model: Option<String>,
+    /// Maximum characters per revision chunk. See CreateNoteBody for details. (#572)
+    #[serde(default)]
+    chunk_max_chars: Option<usize>,
+    /// Character overlap between adjacent revision chunks. (#572)
+    #[serde(default)]
+    chunk_overlap: Option<usize>,
 }
 
 /// Manually trigger NLP pipeline steps for a note.
@@ -5895,11 +5992,22 @@ async fn reprocess_note(
     let model_override = body.as_ref().and_then(|b| b.model.as_deref());
     let mut jobs_queued = Vec::new();
 
+    let chunk_max_chars = body.as_ref().and_then(|b| b.chunk_max_chars);
+    let chunk_overlap = body.as_ref().and_then(|b| b.chunk_overlap);
+    validate_chunking_params(chunk_max_chars, chunk_overlap)
+        .map_err(ApiError::BadRequest)?;
+
     // Queue AI revision if requested and mode != None
     if revision_mode != RevisionMode::None && should_run("ai_revision") {
         let mut payload = serde_json::json!({ "revision_mode": revision_mode });
         if let Some(m) = model_override {
             payload["model"] = serde_json::json!(m);
+        }
+        if let Some(c) = chunk_max_chars {
+            payload["chunk_max_chars"] = serde_json::json!(c);
+        }
+        if let Some(o) = chunk_overlap {
+            payload["chunk_overlap"] = serde_json::json!(o);
         }
         if let Ok(Some(job_id)) = state
             .db
@@ -5994,6 +6102,12 @@ struct BulkReprocessBody {
     /// Optional language model slug for AI operations (e.g. "qwen3:8b").
     /// If omitted, uses the globally configured default.
     model: Option<String>,
+    /// Maximum characters per revision chunk. See CreateNoteBody for details. (#572)
+    #[serde(default)]
+    chunk_max_chars: Option<usize>,
+    /// Character overlap between adjacent revision chunks. (#572)
+    #[serde(default)]
+    chunk_overlap: Option<usize>,
 }
 
 /// Bulk reprocess notes through the NLP pipeline.
@@ -6082,6 +6196,12 @@ async fn bulk_reprocess_notes(
     ];
 
     let model_override = body.as_ref().and_then(|b| b.model.as_deref());
+    let chunk_max_chars = body.as_ref().and_then(|b| b.chunk_max_chars);
+    let chunk_overlap = body.as_ref().and_then(|b| b.chunk_overlap);
+
+    // Validate chunking parameters (#572)
+    validate_chunking_params(chunk_max_chars, chunk_overlap)
+        .map_err(ApiError::BadRequest)?;
 
     let step_payload = {
         let mut p = serde_json::Map::new();
@@ -6114,6 +6234,12 @@ async fn bulk_reprocess_notes(
             });
             if let Some(m) = model_override {
                 payload["model"] = serde_json::json!(m);
+            }
+            if let Some(c) = chunk_max_chars {
+                payload["chunk_max_chars"] = serde_json::json!(c);
+            }
+            if let Some(o) = chunk_overlap {
+                payload["chunk_overlap"] = serde_json::json!(o);
             }
             job_specs.push((
                 *note_id,

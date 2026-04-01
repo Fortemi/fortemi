@@ -229,6 +229,8 @@ function createMcpServer() {
               metadata: args.metadata,
               model: args.model,
             };
+            if (args.chunk_max_chars !== undefined) createBody.chunk_max_chars = args.chunk_max_chars;
+            if (args.chunk_overlap !== undefined) createBody.chunk_overlap = args.chunk_overlap;
             if (args.document_type) createBody.document_type = args.document_type;
             if (args.document_type_id) createBody.document_type_id = args.document_type_id;
             result = await apiRequest("POST", "/api/v1/notes", createBody);
@@ -2721,6 +2723,8 @@ function createMcpServer() {
           if (args.steps) body.steps = args.steps;
           if (args.limit) body.limit = args.limit;
           if (args.model) body.model = args.model;
+          if (args.chunk_max_chars !== undefined) body.chunk_max_chars = args.chunk_max_chars;
+          if (args.chunk_overlap !== undefined) body.chunk_overlap = args.chunk_overlap;
           result = await apiRequest("POST", `/api/v1/notes/reprocess`, body);
           break;
         }
