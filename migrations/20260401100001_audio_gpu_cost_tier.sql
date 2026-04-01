@@ -5,6 +5,6 @@
 
 UPDATE job_queue
 SET cost_tier = 5
-WHERE job_type IN ('AudioTranscription', 'AudioChunkTranscription', 'SpeakerDiarization')
+WHERE job_type IN ('audio_transcription', 'audio_chunk_transcription', 'speaker_diarization')
   AND status = 'pending'
   AND cost_tier IS NULL;
