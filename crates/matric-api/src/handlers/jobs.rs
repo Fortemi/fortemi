@@ -590,13 +590,19 @@ impl JobHandler for AiRevisionHandler {
         //
         // The extraction pipeline sets `post_extraction: true` in the payload
         // when re-queuing, so we only defer the initial (note-creation) trigger.
+        // The reprocess endpoint sets `force: true` to bypass deferral (#578).
         let is_post_extraction = ctx
             .payload()
             .and_then(|p| p.get("post_extraction"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let is_force = ctx
+            .payload()
+            .and_then(|p| p.get("force"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        if !is_post_extraction {
+        if !is_post_extraction && !is_force {
             let mut tx = match schema_ctx.begin_tx().await {
                 Ok(t) => t,
                 Err(e) => return JobResult::Failed(format!("Schema tx failed: {}", e)),
@@ -1997,8 +2003,13 @@ impl JobHandler for TitleGenerationHandler {
         };
         tx.commit().await.ok();
 
-        // Skip if already has a title
-        if note.note.title.is_some() {
+        // Skip if already has a title (unless force=true from reprocess, #578)
+        let is_force = ctx
+            .payload()
+            .and_then(|p| p.get("force"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if note.note.title.is_some() && !is_force {
             return JobResult::Success(Some(serde_json::json!({"skipped": true})));
         }
 

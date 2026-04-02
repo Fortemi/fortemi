@@ -5997,7 +5997,8 @@ async fn reprocess_note(
 
     // Queue AI revision if requested and mode != None
     if revision_mode != RevisionMode::None && should_run("ai_revision") {
-        let mut payload = serde_json::json!({ "revision_mode": revision_mode });
+        // "force" bypasses media deferral and title-exists skip on reprocess (#578)
+        let mut payload = serde_json::json!({ "revision_mode": revision_mode, "force": true });
         if let Some(m) = model_override {
             payload["model"] = serde_json::json!(m);
         }
@@ -6046,17 +6047,15 @@ async fn reprocess_note(
     for (step_name, job_type) in &step_types {
         if should_run(step_name) {
             let mut step_payload = serde_json::Map::new();
+            // "force" bypasses skip-if-exists guards on reprocess (#578)
+            step_payload.insert("force".to_string(), serde_json::json!(true));
             if archive_ctx.schema != "public" {
                 step_payload.insert("schema".to_string(), serde_json::json!(&archive_ctx.schema));
             }
             if let Some(m) = model_override {
                 step_payload.insert("model".to_string(), serde_json::json!(m));
             }
-            let payload = if step_payload.is_empty() {
-                None
-            } else {
-                Some(serde_json::Value::Object(step_payload))
-            };
+            let payload = Some(serde_json::Value::Object(step_payload));
             if let Ok(Some(job_id)) = state
                 .db
                 .jobs
@@ -6202,17 +6201,15 @@ async fn bulk_reprocess_notes(
 
     let step_payload = {
         let mut p = serde_json::Map::new();
+        // "force" bypasses skip-if-exists guards on bulk reprocess (#578)
+        p.insert("force".to_string(), serde_json::json!(true));
         if archive_ctx.schema != "public" {
             p.insert("schema".to_string(), serde_json::json!(&archive_ctx.schema));
         }
         if let Some(m) = model_override {
             p.insert("model".to_string(), serde_json::json!(m));
         }
-        if p.is_empty() {
-            None
-        } else {
-            Some(serde_json::Value::Object(p))
-        }
+        Some(serde_json::Value::Object(p))
     };
 
     // Collect all job specs, then queue in parallel (Issue #429).
@@ -6225,9 +6222,11 @@ async fn bulk_reprocess_notes(
 
     for note_id in &note_ids {
         if revision_mode != RevisionMode::None && should_run("ai_revision") {
+            // "force" bypasses media deferral on bulk reprocess (#578)
             let mut payload = serde_json::json!({
                 "revision_mode": revision_mode,
                 "schema": &archive_ctx.schema,
+                "force": true,
             });
             if let Some(m) = model_override {
                 payload["model"] = serde_json::json!(m);
