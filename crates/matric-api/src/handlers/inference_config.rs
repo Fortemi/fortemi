@@ -669,28 +669,30 @@ pub async fn update_inference_config(
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let merged_base = partial_llamacpp
-            .base_url
-            .clone()
-            .unwrap_or_else(|| {
-                if cur_base.is_empty() {
-                    matric_core::defaults::LLAMACPP_URL.to_string()
-                } else {
-                    cur_base.to_string()
-                }
-            });
+        let merged_base = partial_llamacpp.base_url.clone().unwrap_or_else(|| {
+            if cur_base.is_empty() {
+                matric_core::defaults::LLAMACPP_URL.to_string()
+            } else {
+                cur_base.to_string()
+            }
+        });
         let merged_gen = partial_llamacpp
             .generation_model
             .clone()
             .unwrap_or_else(|| {
-                if cur_gen.is_empty() { "default".to_string() } else { cur_gen.to_string() }
+                if cur_gen.is_empty() {
+                    "default".to_string()
+                } else {
+                    cur_gen.to_string()
+                }
             });
-        let merged_embed = partial_llamacpp
-            .embedding_model
-            .clone()
-            .unwrap_or_else(|| {
-                if cur_embed.is_empty() { "default".to_string() } else { cur_embed.to_string() }
-            });
+        let merged_embed = partial_llamacpp.embedding_model.clone().unwrap_or_else(|| {
+            if cur_embed.is_empty() {
+                "default".to_string()
+            } else {
+                cur_embed.to_string()
+            }
+        });
 
         let obj = entry.as_object_mut().expect("json object");
         if partial_llamacpp.base_url.is_some() {

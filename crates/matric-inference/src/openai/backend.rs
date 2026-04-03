@@ -372,7 +372,10 @@ impl GenerationBackend for OpenAIBackend {
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
-        debug!("JSON generation complete, response length: {}", content.len());
+        debug!(
+            "JSON generation complete, response length: {}",
+            content.len()
+        );
         Ok(content)
     }
 
