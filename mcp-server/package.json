@@ -21,8 +21,14 @@
   },
   "license": "SEE LICENSE IN ../LICENSE",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^4.18.2",
     "cors": "^2.8.5"
+  },
+  "overrides": {
+    "path-to-regexp@<0.1.13": "0.1.13",
+    "router": {
+      "path-to-regexp": "8.4.0"
+    }
   }
 }

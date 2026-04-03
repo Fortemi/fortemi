@@ -33,7 +33,7 @@ use crate::chunking::{Chunk, Chunker, ChunkerConfig, SemanticChunker};
 use std::collections::HashMap;
 
 #[cfg(feature = "tree-sitter")]
-use tree_sitter::{Node, Parser, Tree};
+use tree_sitter::{Language, Node, Parser, Tree};
 
 /// Kind of code unit extracted from source code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,10 +178,10 @@ impl SyntacticChunker {
     #[cfg(feature = "tree-sitter")]
     fn parse_and_chunk(&self, text: &str, language: &str) -> Result<Vec<CodeChunk>, String> {
         let lang = match language {
-            "rust" => tree_sitter_rust::language(),
-            "python" => tree_sitter_python::language(),
-            "javascript" => tree_sitter_javascript::language(),
-            "typescript" => tree_sitter_typescript::language_typescript(),
+            "rust" => Language::from(tree_sitter_rust::LANGUAGE),
+            "python" => Language::from(tree_sitter_python::LANGUAGE),
+            "javascript" => Language::from(tree_sitter_javascript::LANGUAGE),
+            "typescript" => Language::from(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
             _ => return Err(format!("Unsupported language: {}", language)),
         };
 

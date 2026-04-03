@@ -46,7 +46,7 @@ base64.workspace = true
 urlencoding = "2.1"
 regex = "1"
 kamadak-exif = "0.5"
-lru = "0.12"
+lru = "0.16"
 
 # Redis cache
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
