@@ -82,7 +82,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -152,7 +152,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
                    e.vector AS vector,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -299,7 +299,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -398,7 +398,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -643,7 +643,7 @@ impl PgEmbeddingRepository {
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
@@ -715,7 +715,7 @@ impl PgEmbeddingRepository {
                    e.note_id AS note_id,
                    1.0 - (e.vector <=> $1::vector) AS score,
                    e.vector AS vector,
-                   left(convert_from(convert_to(COALESCE(noc.content, nrc.content), 'UTF8'), 'UTF8'), 200) AS snippet,
+                   substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
                        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
