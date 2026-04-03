@@ -384,10 +384,11 @@ jobs:
     env:
       OLLAMA_HOST: http://localhost:11434
       INFERENCE_BACKEND: ollama
-      # Allow longer timeout for GPU contention — the deployed bundle's
-      # worker may be using Ollama when CI tests run. Ollama serializes
-      # GPU requests, so tests just need to wait their turn.
-      MATRIC_GEN_TIMEOUT_SECS: 300
+      # Use smaller model for CI — the default qwen3.5:27b (22GB) doesn't fit
+      # alongside GPU sidecars (Whisper ~4GB, pyannote ~2.5GB). Tests verify
+      # generation works, not model quality.
+      OLLAMA_GEN_MODEL: qwen3.5:9b
+      MATRIC_GEN_TIMEOUT_SECS: 120
     steps:
       - name: Checkout
         run: |
