@@ -155,9 +155,11 @@ pub const REVISION_PROMPT_OVERHEAD: usize = 2_000;
 
 /// Maximum chunk size for video timeline revision (characters).
 /// Video timelines with scene markers are self-contained units that produce
-/// better results with smaller chunks than prose. 60K chars ≈ 15K tokens,
-/// leaving ample room for output in a 128K+ context window.
-pub const REVISION_VIDEO_CHUNK_SIZE_MAX: usize = 60_000;
+/// better results with smaller chunks than prose. 20K chars ≈ 5K tokens,
+/// sized to complete within adaptive timeout budget and prevent job-level
+/// timeout when processing many chunks sequentially. 60K was causing
+/// multi-chunk jobs to exceed JOB_TIMEOUT_SECS on long video transcripts.
+pub const REVISION_VIDEO_CHUNK_SIZE_MAX: usize = 20_000;
 
 /// Environment variable for global revision chunk max chars override (#573).
 /// When set, overrides the auto-computed value from model context.
@@ -242,11 +244,13 @@ pub fn chat_max_concurrent() -> usize {
         .unwrap_or(CHAT_MAX_CONCURRENT)
 }
 
-/// Default job execution timeout in seconds (10 minutes).
+/// Default job execution timeout in seconds (30 minutes).
 /// Configurable via `JOB_TIMEOUT_SECS` env var.
-/// Video multimodal extraction (keyframe extraction + vision model per frame)
-/// can exceed 5 minutes when multiple jobs compete for GPU.
-pub const JOB_TIMEOUT_SECS: u64 = 600;
+/// Chunked video revision can involve 10-20 sequential LLM calls (20K chars
+/// each at ~60s/chunk = up to ~20 minutes total). Previously 600s was not
+/// enough for multi-chunk jobs; raised to 1800s to cover typical long-form
+/// video transcripts within the existing env-var clamp range.
+pub const JOB_TIMEOUT_SECS: u64 = 1800;
 
 /// Environment variable for configuring the job execution timeout.
 pub const ENV_JOB_TIMEOUT_SECS: &str = "JOB_TIMEOUT_SECS";
@@ -256,7 +260,7 @@ pub fn job_timeout_secs() -> u64 {
     std::env::var(ENV_JOB_TIMEOUT_SECS)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .map(|v| v.clamp(30, 3600))
+        .map(|v| v.clamp(30, 7200))
         .unwrap_or(JOB_TIMEOUT_SECS)
 }
 

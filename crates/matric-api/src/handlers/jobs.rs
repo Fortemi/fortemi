@@ -760,6 +760,23 @@ impl JobHandler for AiRevisionHandler {
         let total_chunks = chunks.len();
         let is_chunked = total_chunks > 1;
 
+        // Compute per-chunk adaptive timeouts up front so we can derive the
+        // total revision budget. Budget = sum(per_chunk_timeout_i), which scales
+        // with both chunk count and individual chunk size:
+        //   10 chunks × 60s = 600s budget
+        //   20 chunks × 60s = 1200s budget
+        // This deadline is checked before each chunk starts, so the worst-case
+        // overshoot is one additional chunk timeout (not the full remaining budget).
+        let base_backend_timeout = self.backend.gen_timeout_secs();
+        let per_chunk_timeouts: Vec<u64> = chunks
+            .iter()
+            .map(|c| adaptive_timeout_secs(c.len(), base_backend_timeout))
+            .collect();
+        let total_revision_secs: u64 = per_chunk_timeouts
+            .iter()
+            .sum::<u64>()
+            .max(matric_core::defaults::GEN_TIMEOUT_MIN_SECS);
+
         if is_chunked {
             info!(
                 note_id = %note_id,
@@ -767,13 +784,37 @@ impl JobHandler for AiRevisionHandler {
                 chunk_max,
                 content_len = original_content.len(),
                 is_video_timeline,
+                total_revision_secs,
                 "Splitting oversized content for chunked revision"
             );
         }
 
-        // Generate revision for each chunk (sequential to preserve ordering)
+        let revision_deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(total_revision_secs);
+
+        // Generate revision for each chunk (sequential to preserve ordering).
+        // `single_chunk_error` captures failures on non-chunked jobs (where we
+        // fail the job rather than gracefully skipping) without an early return
+        // inside the loop body.
         let mut revised_parts: Vec<String> = Vec::with_capacity(total_chunks);
+        let mut single_chunk_error: Option<String> = None;
         for (chunk_idx, chunk_content) in chunks.iter().enumerate() {
+            // Enforce total revision budget: stop before the next chunk if we
+            // have already consumed the computed total time. This prevents
+            // long-running multi-chunk jobs from exceeding the outer worker
+            // timeout when content is unexpectedly dense.
+            if is_chunked && std::time::Instant::now() >= revision_deadline {
+                warn!(
+                    note_id = %note_id,
+                    chunk = chunk_idx + 1,
+                    total = total_chunks,
+                    total_revision_secs,
+                    completed = revised_parts.len(),
+                    "Total revision budget exhausted, stopping early"
+                );
+                break;
+            }
+
             let chunk_progress: i32 = if is_chunked {
                 40 + ((chunk_idx as i32 * 35) / total_chunks as i32)
             } else {
@@ -825,8 +866,7 @@ impl JobHandler for AiRevisionHandler {
             // Adaptive timeout: scale with content size for large documents.
             // When a model override is active, use the trait (their timeout).
             // Otherwise, use the concrete backend with per-chunk adaptive timeout.
-            let chunk_timeout =
-                adaptive_timeout_secs(chunk_content.len(), self.backend.gen_timeout_secs());
+            let chunk_timeout = per_chunk_timeouts[chunk_idx];
             let result = match &overridden {
                 Some(b) => b.generate(&prompt).await,
                 None => {
@@ -854,10 +894,16 @@ impl JobHandler for AiRevisionHandler {
                             "Chunk revision failed, skipping"
                         );
                     } else {
-                        return JobResult::Failed(format!("AI generation failed: {}", e));
+                        single_chunk_error =
+                            Some(format!("AI generation failed: {}", e));
+                        break;
                     }
                 }
             }
+        }
+
+        if let Some(e) = single_chunk_error {
+            return JobResult::Failed(e);
         }
 
         let revised = revised_parts.join("\n\n");
@@ -1368,6 +1414,16 @@ impl JobHandler for AiRevisionContextualHandler {
         let total_chunks = chunks.len();
         let is_chunked = total_chunks > 1;
 
+        let p2_base_timeout = self.backend.gen_timeout_secs();
+        let p2_per_chunk_timeouts: Vec<u64> = chunks
+            .iter()
+            .map(|c| adaptive_timeout_secs(c.len(), p2_base_timeout))
+            .collect();
+        let p2_total_revision_secs: u64 = p2_per_chunk_timeouts
+            .iter()
+            .sum::<u64>()
+            .max(matric_core::defaults::GEN_TIMEOUT_MIN_SECS);
+
         if is_chunked {
             info!(
                 note_id = %note_id,
@@ -1375,13 +1431,30 @@ impl JobHandler for AiRevisionContextualHandler {
                 chunk_max = chunk_max_phase2,
                 reference_overhead,
                 content_len = phase1_content.len(),
+                p2_total_revision_secs,
                 "Splitting Phase 2 content for chunked contextual revision"
             );
         }
 
+        let p2_revision_deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(p2_total_revision_secs);
+
         // Generate contextual revision for each chunk
         let mut revised_parts: Vec<String> = Vec::with_capacity(total_chunks);
+        let mut p2_single_chunk_error: Option<String> = None;
         for (chunk_idx, chunk_content) in chunks.iter().enumerate() {
+            if is_chunked && std::time::Instant::now() >= p2_revision_deadline {
+                warn!(
+                    note_id = %note_id,
+                    chunk = chunk_idx + 1,
+                    total = total_chunks,
+                    p2_total_revision_secs,
+                    completed = revised_parts.len(),
+                    "Phase 2 total revision budget exhausted, stopping early"
+                );
+                break;
+            }
+
             let chunk_progress: i32 = if is_chunked {
                 60 + ((chunk_idx as i32 * 15) / total_chunks as i32)
             } else {
@@ -1449,8 +1522,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                 context = reference_context
             );
 
-            let chunk_timeout =
-                adaptive_timeout_secs(chunk_content.len(), self.backend.gen_timeout_secs());
+            let chunk_timeout = p2_per_chunk_timeouts[chunk_idx];
             let result = match &overridden {
                 Some(b) => b.generate(&prompt).await,
                 None => {
@@ -1477,10 +1549,16 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                             "Phase 2 chunk revision failed, skipping"
                         );
                     } else {
-                        return JobResult::Failed(format!("AI generation failed: {}", e));
+                        p2_single_chunk_error =
+                            Some(format!("AI generation failed: {}", e));
+                        break;
                     }
                 }
             }
+        }
+
+        if let Some(e) = p2_single_chunk_error {
+            return JobResult::Failed(e);
         }
 
         let revised = revised_parts.join("\n\n");
@@ -7325,9 +7403,9 @@ Quick note about the meeting discussion and action items."#;
 
     #[test]
     fn test_adaptive_timeout_medium_content() {
-        // 60K chars at 3ms/char = 180s, which exceeds base 120s
-        let timeout = adaptive_timeout_secs(60_000, 120);
-        assert_eq!(timeout, 180);
+        // 20K chars at 3ms/char = 60s, which is below base 120s so base wins
+        let timeout = adaptive_timeout_secs(20_000, 120);
+        assert_eq!(timeout, 120);
     }
 
     #[test]

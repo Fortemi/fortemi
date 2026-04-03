@@ -5999,6 +5999,9 @@ async fn reprocess_note(
     if revision_mode != RevisionMode::None && should_run("ai_revision") {
         // "force" bypasses media deferral and title-exists skip on reprocess (#578)
         let mut payload = serde_json::json!({ "revision_mode": revision_mode, "force": true });
+        if archive_ctx.schema != "public" {
+            payload["schema"] = serde_json::json!(&archive_ctx.schema);
+        }
         if let Some(m) = model_override {
             payload["model"] = serde_json::json!(m);
         }
