@@ -406,7 +406,9 @@ jobs:
       - name: Run integration tests
         run: |
           source ~/.cargo/env
-          cargo test --package matric-inference --features integration
+          # Serial execution: parallel GPU requests can cause empty responses
+          # when Ollama can't serve concurrent chat completions
+          cargo test --package matric-inference --features integration -- --test-threads=1
 
   # Dev image - pushes on every main branch commit
   publish-dev:

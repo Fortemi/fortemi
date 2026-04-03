@@ -494,7 +494,9 @@ impl OllamaBackend {
             content: prompt.to_string(),
         });
 
-        let think = if format.is_some() { Some(false) } else { None };
+        // Always disable thinking mode — we only use message.content, and
+        // thinking models (qwen3.5) can return empty content when think is enabled.
+        let think = Some(false);
 
         // IMPORTANT: Do NOT send num_ctx per-request. Changing num_ctx between
         // requests triggers a full model reload in Ollama (~60-90 seconds), which
