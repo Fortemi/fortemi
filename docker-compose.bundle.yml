@@ -31,9 +31,9 @@
 #   docker compose -f docker-compose.bundle.yml down -v
 #   docker compose -f docker-compose.bundle.yml up -d
 #
-# Environment: Create .env from .env.example, set ISSUER_URL + MCP credentials.
-# After first start, register MCP client: POST /oauth/register
-# Then set MCP_CLIENT_ID/MCP_CLIENT_SECRET in .env and recreate container.
+# Environment: Create .env from .env.example, set ISSUER_URL.
+# MCP OAuth credentials are auto-managed on first boot (persisted at $PGDATA/.fortemi-mcp-credentials).
+# Manual MCP_CLIENT_ID/MCP_CLIENT_SECRET in .env only needed for standalone (non-Docker) deployments.
 
 services:
   # Autoheal: restarts containers that fail their Docker healthcheck.

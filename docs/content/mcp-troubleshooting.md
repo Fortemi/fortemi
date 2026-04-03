@@ -16,7 +16,7 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 
 # 3. Check OAuth protected resource metadata
 curl http://localhost:3001/.well-known/oauth-protected-resource
-# Should return: { "resource": "http://localhost:3000/mcp", ... }
+# Should return: { "resource": "http://localhost:3001", ... }
 
 # 4. Check OAuth authorization server metadata
 curl http://localhost:3000/.well-known/oauth-authorization-server

@@ -84,7 +84,7 @@ The server exposes:
 
 The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-### Core Mode (Default) — 38 Tools
+### Core Mode (Default) — 43 Tools
 
 Agent-optimized surface using consolidated discriminated-union tools. Reduces token overhead by ~82% compared to full mode.
 
@@ -99,13 +99,14 @@ Agent-optimized surface using consolidated discriminated-union tools. Reduces to
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
 | **Multi-memory** | `select_memory`, `get_active_memory` | 2 |
 | **Attachments** | `manage_attachments` | 1 |
-| **Observability** | `get_knowledge_health` | 1 |
+| **Observability** | `get_knowledge_health`, `get_cold_spots`, `get_access_frequency` | 3 |
 | **Jobs & inference** | `manage_jobs`, `manage_inference` | 2 |
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
+| **Purge** | `purge_note`, `purge_notes`, `purge_all_notes` | 3 |
 
-**Total:** 38 tools
+**Total:** 43 tools
 
-### Full Mode — 202 Tools
+### Full Mode — 205 Tools
 
 All granular API operations exposed as individual tools. For backward compatibility and specialized use cases requiring fine-grained control.
 
@@ -231,7 +232,7 @@ Core mode uses discriminated-union tools with an `action` parameter:
 
 ## Advanced Features
 
-Most functionality is available directly through the 38 core tools. A small set of features requires full mode or the REST API:
+Most functionality is available directly through the 43 core tools. A small set of features requires full mode or the REST API:
 
 **Requires full mode or REST API (not in core):**
 - Note versioning (version history, diffs, restore)
@@ -240,7 +241,6 @@ Most functionality is available directly through the 38 core tools. A small set 
 - OAuth client management
 - Embedding configs (model-level configuration)
 - Document types (create, update, delete, detection)
-- Note purge operations (hard delete)
 - Timeline and activity views
 
 Use the `get_documentation` tool to learn about these features:
@@ -252,7 +252,7 @@ get_documentation({ topic: "embedding-sets" }) // Also in core via manage_embedd
 get_documentation({ topic: "skos" })
 ```
 
-Or switch to full mode for all 203 granular tools: `MCP_TOOL_MODE=full`
+Or switch to full mode for all 205 granular tools: `MCP_TOOL_MODE=full`
 
 ## Document Types
 
@@ -434,7 +434,7 @@ Fortémi supports both soft delete and hard delete (purge) operations.
 - Embeddings, links, and tags remain in database
 - Use for normal deletion when you might want to recover
 
-**Hard Delete** (full mode only: `purge_note`, `purge_notes`, `purge_all_notes`):
+**Hard Delete** (`purge_note`, `purge_notes`, `purge_all_notes` — available in core mode):
 - Permanently removes note and ALL related data
 - Cannot be recovered - this is irreversible
 - Deletes embeddings, links, tags, revisions, set memberships
@@ -454,7 +454,7 @@ Fortémi supports both soft delete and hard delete (purge) operations.
 - Permanent removal of sensitive information
 - Bulk cleanup of unwanted content
 
-### Purge Operations (Full Mode)
+### Purge Operations
 
 **Single note purge:**
 ```javascript
@@ -618,9 +618,9 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (38 tools) or `full` (203 granular tools) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (43 tools) or `full` (205 granular tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
-| `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | Base URL for OAuth metadata |
+| `MCP_BASE_URL` | `http://localhost:3001` | Base URL for OAuth protected-resource metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
 | `MCP_CLIENT_ID` | (auto) | OAuth client ID for token introspection (auto-managed) |
 | `MCP_CLIENT_SECRET` | (auto) | OAuth client secret for token introspection (auto-managed) |
@@ -675,7 +675,7 @@ Found 5 notes in ML research set:
 ```
 User: Create a meeting note for today's standup
 
-Claude: [uses capture_knowledge with action="from_template", template_slug="meeting-notes"]
+Claude: [uses capture_knowledge with action="from_template", template_id="<template-uuid>"]
 
 Created note "Standup 2024-03-15" from template with pre-filled sections:
 - Attendees

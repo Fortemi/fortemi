@@ -178,8 +178,8 @@ location /mcp/ {
 
 **API-level rate limiting:**
 
-- Controlled by `RATE_LIMIT_ENABLED` environment variable (default: `false`)
-- When enabled: 100 requests/minute per IP, burst of 200
+- Controlled by `RATE_LIMIT_ENABLED` environment variable (default: `true` for standalone, `false` in Docker bundle)
+- When enabled: 100 requests/minute per IP, burst of 100
 - Applies to all API endpoints including introspection
 - MCP introspection calls are internal (localhost) and not rate limited
 
@@ -360,9 +360,9 @@ curl http://localhost:3001/health
 
 ```json
 {
-  "status": "healthy",
+  "status": "ok",
   "transport": "http",
-  "version": "2026.2.0"
+  "sessions": {}
 }
 ```
 
@@ -376,9 +376,9 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 ```json
 {
-  "resource": "http://localhost:3000/mcp",
+  "resource": "http://localhost:3001",
   "authorization_servers": ["http://localhost:3000"],
-  "scopes_supported": ["read", "write", "mcp"],
+  "scopes_supported": ["mcp"],
   "bearer_methods_supported": ["header"],
   "resource_documentation": "http://localhost:3000/docs"
 }

@@ -4,7 +4,7 @@ This guide covers integrating Fortémi into your application.
 
 ## Prerequisites
 
-- PostgreSQL 14+ with pgvector extension
+- PostgreSQL 18 with pgvector and PostGIS extensions
 - Rust 1.70+ (if building from source)
 - Ollama (optional, for local inference) OR OpenAI API key (for cloud inference)
 
@@ -54,7 +54,7 @@ DATABASE_URL="postgres://user:pass@localhost/matric" sqlx migrate run
 
 ```bash
 curl http://localhost:3000/health
-# {"status":"healthy","version":"0.1.0"}
+# {"status":"healthy","version":"2026.2.13"}
 ```
 
 ## API Integration
@@ -176,7 +176,7 @@ Add to `~/.config/claude/claude_desktop_config.json`:
       "command": "node",
       "args": ["/path/to/Fortémi/mcp-server/index.js"],
       "env": {
-        "MATRIC_MEMORY_URL": "http://localhost:3000"
+        "FORTEMI_URL": "http://localhost:3000"
       }
     }
   }

@@ -28,7 +28,7 @@ annotations: {
 
 ## Tool Classification Tiers
 
-All 97 tools in Fortémi are classified into one of four tiers based on their data modification characteristics.
+All 205 tools in Fortémi are classified into one of four tiers based on their data modification characteristics.
 
 ### Tier 1: Read-Only (`readOnlyHint: true`)
 
@@ -196,7 +196,7 @@ node mcp-server/test-verify-annotations.js
 
 The test suite at `mcp-server/test-verify-annotations.js` validates:
 
-1. All 97 tools have annotations
+1. All 205 tools have annotations
 2. Read-only tools have `readOnlyHint: true`
 3. Non-destructive and soft-delete tools have `destructiveHint: false`
 4. Destructive tools have `destructiveHint: true`

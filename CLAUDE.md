@@ -127,7 +127,7 @@ curl https://your-domain.com/api/v1/notes \
 
 ### Docker Bundle
 
-All-in-one Docker bundle includes PostgreSQL, API, and MCP server in a single container.
+All-in-one Docker bundle includes PostgreSQL, Redis, API, MCP server, and Open3D renderer in a single deployment.
 
 #### Environment Configuration
 
@@ -136,23 +136,22 @@ Create `.env` file with required settings for OAuth/MCP:
 ```bash
 # .env
 ISSUER_URL=https://your-domain.com
-MCP_CLIENT_ID=mm_xxxxx      # Register via POST /oauth/register
-MCP_CLIENT_SECRET=xxxxx
 
 # Vision model for image description (enabled by default, set to empty to disable)
 # qwen3.5:9b is natively multimodal — unified generation and vision in one model
 OLLAMA_VISION_MODEL=qwen3.5:9b
 
 # Audio transcription backend (enabled by default, set to empty to disable)
-WHISPER_BASE_URL=http://localhost:8000
+# Use Docker service name inside the bundle; use localhost for standalone deployments
+WHISPER_BASE_URL=http://whisper:8000
 WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
 ```
 
-**First-time MCP setup:** Register an OAuth client for token introspection:
+**MCP OAuth credentials** are auto-managed: the bundle entrypoint auto-registers an MCP OAuth client on startup if credentials are missing or invalid. Credentials persist at `$PGDATA/.fortemi-mcp-credentials` and survive container restarts. Manual registration is only needed for standalone (non-Docker) deployments:
 ```bash
 curl -X POST https://your-domain.com/oauth/register \
   -H "Content-Type: application/json" \
-  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read"}'
+  -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read write"}'
 ```
 
 #### Commands
@@ -183,8 +182,12 @@ docker compose -f docker-compose.bundle.yml up -d
 The bundle automatically:
 - Initializes PostgreSQL on first run
 - Runs all migrations
+- Auto-registers MCP OAuth credentials (persisted across restarts)
+- Starts Redis (required dependency)
 - Starts the API on port 3000
 - Starts the MCP server on port 3001
+- Starts the Open3D renderer on port 8080 (3D model processing)
+- Seeds the support archive in background (unless `DISABLE_SUPPORT_MEMORY` is set)
 
 #### Nginx Reverse Proxy
 
@@ -203,7 +206,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (41 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `get_related_notes`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`, plus purge tools: `purge_note`, `purge_notes`, `purge_all_notes`). Set `MCP_TOOL_MODE=full` for all 203 granular tools.
+**Tool modes:** Default is "core" (43 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `get_related_notes`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`, `get_cold_spots`, `get_access_frequency`, plus purge tools: `purge_note`, `purge_notes`, `purge_all_notes`). Set `MCP_TOOL_MODE=full` for all 205 granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json
