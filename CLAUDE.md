@@ -129,6 +129,30 @@ curl https://your-domain.com/api/v1/notes \
 
 All-in-one Docker bundle includes PostgreSQL, Redis, API, MCP server, and Open3D renderer in a single deployment.
 
+#### Hardware Profiles
+
+Select a profile based on your GPU VRAM. Default (no profile) targets edge hardware:
+
+| Profile | GPU VRAM | Audio/Diarization | Gen Model | Example GPUs |
+|---------|----------|-------------------|-----------|--------------|
+| *(default)* | 6-8GB | CPU | qwen3.5:9b | RTX 3060 8GB, 4060, 5060 |
+| `gpu-12gb` | 12-16GB | GPU | qwen3.5:9b | RTX 3060 12GB, 4070, 5070 |
+| `gpu-24gb` | 24GB+ | GPU | configurable | RTX 3090, 4090, 5090 |
+
+Set `COMPOSE_PROFILES` in `.env` (or pass `--profile` on command line):
+
+```bash
+# Edge (default) — CPU sidecars, works on any GPU 6GB+
+COMPOSE_PROFILES=edge   # in .env
+
+# Mid-range — GPU-accelerated Whisper + pyannote
+COMPOSE_PROFILES=gpu-12gb
+
+# High-end — GPU sidecars + larger models
+COMPOSE_PROFILES=gpu-24gb
+# Also set: OLLAMA_GEN_MODEL=qwen3.5:27b
+```
+
 #### Environment Configuration
 
 Create `.env` file with required settings for OAuth/MCP:
@@ -137,14 +161,9 @@ Create `.env` file with required settings for OAuth/MCP:
 # .env
 ISSUER_URL=https://your-domain.com
 
-# Vision model for image description (enabled by default, set to empty to disable)
-# qwen3.5:9b is natively multimodal — unified generation and vision in one model
-OLLAMA_VISION_MODEL=qwen3.5:9b
-
-# Audio transcription backend (enabled by default, set to empty to disable)
-# Use Docker service name inside the bundle; use localhost for standalone deployments
-WHISPER_BASE_URL=http://whisper:8000
-WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
+# Generation + vision model (qwen3.5:9b is natively multimodal — single VRAM load)
+# Override for 24GB+ GPUs: OLLAMA_GEN_MODEL=qwen3.5:27b
+OLLAMA_GEN_MODEL=qwen3.5:9b
 ```
 
 **MCP OAuth credentials** are auto-managed: the bundle entrypoint auto-registers an MCP OAuth client on startup if credentials are missing or invalid. Credentials persist at `$PGDATA/.fortemi-mcp-credentials` and survive container restarts. Manual registration is only needed for standalone (non-Docker) deployments:

@@ -760,7 +760,7 @@ mod tests {
     fn test_default_constants() {
         assert_eq!(DEFAULT_OLLAMA_URL, "http://127.0.0.1:11434");
         assert_eq!(DEFAULT_EMBED_MODEL, "nomic-embed-text");
-        assert_eq!(DEFAULT_GEN_MODEL, "qwen3.5:27b");
+        assert_eq!(DEFAULT_GEN_MODEL, "qwen3.5:9b");
         assert_eq!(DEFAULT_DIMENSION, 768);
         assert_eq!(EMBED_TIMEOUT_SECS, 30);
         assert_eq!(GEN_TIMEOUT_SECS, 120);

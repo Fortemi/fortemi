@@ -22,10 +22,21 @@
 # mounted, causing CUDA to report 0 devices and GPU workloads (Whisper, pyannote,
 # Open3D) to fail silently or with float16/CUDA errors.
 #
-# Audio transcription (Whisper) is enabled by default:
-#   - GPU mode (default): Uses NVIDIA GPU for fast transcription
-#   - No GPU? App still starts, transcription disabled until you enable CPU mode:
-#     docker compose -f docker-compose.bundle.yml --profile whisper-cpu up -d
+# Hardware profiles — select based on your GPU VRAM:
+#
+#   Default (no profile):  6-8GB VRAM (RTX 3060/4060/5060)
+#     - CPU Whisper + CPU pyannote, single qwen3.5:9b model (~6.5GB VRAM)
+#
+#   --profile gpu-12gb:    12-16GB VRAM (RTX 3060 12GB/4070/5070)
+#     - GPU Whisper + GPU pyannote + qwen3.5:9b
+#
+#   --profile gpu-24gb:    24GB+ VRAM (RTX 3090/4090/5090)
+#     - GPU Whisper + GPU pyannote + larger models via OLLAMA_GEN_MODEL
+#
+# Set COMPOSE_PROFILES in .env (recommended) or pass --profile on command line:
+#   COMPOSE_PROFILES=edge       # in .env (default)
+#   COMPOSE_PROFILES=gpu-12gb   # in .env (mid-range GPU)
+#   COMPOSE_PROFILES=gpu-24gb   # in .env (high-end GPU)
 #
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
@@ -66,9 +77,16 @@ services:
       retries: 3
 
   # Whisper speech-to-text server (GPU-accelerated, OpenAI-compatible API)
-  # Enabled by default with GPU. For CPU-only: use --profile whisper-cpu instead
-  whisper:
+  # Opt-in via hardware profile: --profile gpu-12gb or --profile gpu-24gb
+  whisper-gpu:
     image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    profiles:
+      - gpu-12gb
+      - gpu-24gb
+    networks:
+      default:
+        aliases:
+          - whisper  # Same alias as CPU variant — matric reaches either as http://whisper:8000
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
     labels:
@@ -96,12 +114,13 @@ services:
       retries: 3
       start_period: 60s
 
-  # Whisper CPU-only variant (slower but works without NVIDIA GPU)
-  # Activate with: docker compose --profile whisper-cpu up -d
-  whisper-cpu:
+  # Whisper CPU variant (edge default — preserves GPU VRAM for inference)
+  # Activated by default via COMPOSE_PROFILES=edge in .env
+  # For GPU-accelerated transcription, set COMPOSE_PROFILES=gpu-12gb or gpu-24gb
+  whisper:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     profiles:
-      - whisper-cpu
+      - edge
     volumes:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
     labels:
@@ -112,10 +131,6 @@ services:
       - PRELOAD_MODELS=["${WHISPER_MODEL:-Systran/faster-distil-whisper-large-v3}"]
     mem_limit: ${WHISPER_CPU_MEM_LIMIT:-4g}
     memswap_limit: ${WHISPER_CPU_MEM_LIMIT:-4g}
-    networks:
-      default:
-        aliases:
-          - whisper  # Allow matric to reach this as http://whisper:8000
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8000/health"]
@@ -125,13 +140,20 @@ services:
       start_period: 120s
 
   # pyannote speaker diarization sidecar (GPU-accelerated)
-  # Runs after transcription to identify and label speakers.
+  # Opt-in via hardware profile: --profile gpu-12gb or --profile gpu-24gb
   # Set DIARIZATION_BASE_URL= (empty) in .env to disable diarization entirely.
-  pyannote:
+  pyannote-gpu:
     image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
+    profiles:
+      - gpu-12gb
+      - gpu-24gb
+    networks:
+      default:
+        aliases:
+          - pyannote  # Same alias as CPU variant — matric reaches either as http://pyannote:8001
     volumes:
       - pyannote-models:/root/.cache/huggingface/hub
     labels:
@@ -159,15 +181,15 @@ services:
       retries: 3
       start_period: 300s
 
-  # pyannote CPU-only variant (slower but works without NVIDIA GPU)
-  # Activate with: docker compose --profile pyannote-cpu up -d
-  pyannote-cpu:
+  # pyannote CPU variant (edge default — preserves GPU VRAM for inference)
+  # Activated by default via COMPOSE_PROFILES=edge in .env
+  pyannote:
     image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_PYANNOTE_TAG:-pyannote-latest}
     build:
       context: build/pyannote
       dockerfile: Dockerfile
     profiles:
-      - pyannote-cpu
+      - edge
     volumes:
       - pyannote-models:/root/.cache/huggingface/hub
     labels:
@@ -179,10 +201,6 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
     mem_limit: ${PYANNOTE_CPU_MEM_LIMIT:-4g}
     memswap_limit: ${PYANNOTE_CPU_MEM_LIMIT:-4g}
-    networks:
-      default:
-        aliases:
-          - pyannote  # Allow matric to reach this as http://pyannote:8001
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://0.0.0.0:8001/health"]
@@ -235,7 +253,7 @@ services:
         condition: service_healthy
       whisper:
         condition: service_healthy
-        required: false  # GPU whisper is optional - matric starts without it
+        required: false  # Whisper is optional - matric starts without it
       gliner:
         condition: service_healthy
         required: false  # GLiNER is optional - matric starts without it (NER disabled)
@@ -326,7 +344,7 @@ services:
       - OLLAMA_BASE=${OLLAMA_BASE:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-      - OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL:-qwen3.5:27b}
+      - OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL:-qwen3.5:9b}
       - OLLAMA_EMBED_DIM=${OLLAMA_EMBED_DIM:-768}
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
