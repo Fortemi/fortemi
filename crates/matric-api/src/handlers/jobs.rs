@@ -789,8 +789,8 @@ impl JobHandler for AiRevisionHandler {
             );
         }
 
-        let revision_deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(total_revision_secs);
+        let revision_deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(total_revision_secs);
 
         // Generate revision for each chunk (sequential to preserve ordering).
         // `single_chunk_error` captures failures on non-chunked jobs (where we
@@ -894,8 +894,7 @@ impl JobHandler for AiRevisionHandler {
                             "Chunk revision failed, skipping"
                         );
                     } else {
-                        single_chunk_error =
-                            Some(format!("AI generation failed: {}", e));
+                        single_chunk_error = Some(format!("AI generation failed: {}", e));
                         break;
                     }
                 }
@@ -1436,8 +1435,8 @@ impl JobHandler for AiRevisionContextualHandler {
             );
         }
 
-        let p2_revision_deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(p2_total_revision_secs);
+        let p2_revision_deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(p2_total_revision_secs);
 
         // Generate contextual revision for each chunk
         let mut revised_parts: Vec<String> = Vec::with_capacity(total_chunks);
@@ -1549,8 +1548,7 @@ Output the revised note in clean markdown format. Do not add any labels, markers
                             "Phase 2 chunk revision failed, skipping"
                         );
                     } else {
-                        p2_single_chunk_error =
-                            Some(format!("AI generation failed: {}", e));
+                        p2_single_chunk_error = Some(format!("AI generation failed: {}", e));
                         break;
                     }
                 }
