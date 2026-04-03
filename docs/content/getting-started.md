@@ -37,7 +37,7 @@ You should see:
 ```json
 {
   "status": "healthy",
-  "version": "2026.2.11",
+  "version": "2026.4.0",
   "database": "connected"
 }
 ```

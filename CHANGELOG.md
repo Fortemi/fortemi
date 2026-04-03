@@ -7,16 +7,42 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.4.0] - 2026-04-03
+
 ### Added
 
-- **Synchronous chat endpoint** (#549) — `POST /api/v1/chat` provides direct LLM conversation bypassing the job queue. Supports multi-turn conversation history, model selection from installed Ollama models, and returns model metadata (context window, thinking type, speed). GPU concurrency gated via `tokio::Semaphore` — returns 503 when all inference threads are busy.
-- **Chat model discovery** — `GET /api/v1/chat/models` lists all installed Ollama models capable of chat (filters out embedding-only models) with full metadata from the model registry (context window, thinking type, speed, parameter size, family).
-- **Chat availability in health endpoint** — `GET /health` now includes `capabilities.chat` with `available`, `configured`, and `max_concurrent` fields for client-side availability detection.
-- **`CHAT_MAX_CONCURRENT` configuration** — Controls maximum concurrent chat requests hitting the GPU (default: 1). Separate from job worker GPU concurrency.
+- **Synchronous chat API** (#549) — `POST /api/v1/chat` provides direct LLM conversation with GPU concurrency semaphore, multi-turn history, and model selection. `GET /api/v1/chat/models` lists available models with metadata. Health endpoint exposes `capabilities.chat` for client availability detection.
+- **Chunked audio transcription** (#540, #541, #542, #543) — Long audio files automatically split into chunks for parallel transcription via fan-out `AudioChunkTranscription` jobs with atomic dual fan-in for video assembly.
+- **Content-type-aware AI revision** (#571) — Revision pipeline produces type-specific output (meetings get Decisions/Action Items, movies get Synopsis/Cast). Adaptive chunking, chunk-count-based revision budgets, and user-configurable `chunk_max_chars`/`chunk_overlap` per request.
+- **Decomposed 3D model extraction** (#531, #533, #534, #535) — Atomic per-view vision jobs with `RENDER_GPU` tier, Open3D EGL GPU support, and AI revision after view assembly.
+- **Video keyframe vision** (#550) — `KeyframeCharacterVision` and `KeyframeSettingVision` job types with improved scene-dialog interleaving and keyframe merging prompts.
+- **MMR diversity search and access analytics** — Maximal Marginal Relevance for search diversity, access frequency tracking, cold-spot detection, and `agent-reflection` document type.
+- **Inference runtime config API** (#568-570) — Runtime Ollama configuration with connection testing via `GET/PUT /api/v1/config/inference`.
+- **Inference resilience** (#545, #546, #547, #548) — Retry with exponential backoff, circuit breaker, fail-fast detection, and memory limits for sidecar services (Whisper, pyannote, GLiNER).
+- **Edge-first hardware profiles** — `COMPOSE_PROFILES` selects deployment tier: `edge` (CPU sidecars, 6-8GB VRAM), `gpu-12gb`, `gpu-24gb`. Defaults target RTX 3060/4060/5060.
+- **Qwen3.5 model family** — Default generation upgraded to `qwen3.5:9b` (262K context, natively multimodal). Single model serves generation, fast extraction, and vision with one ~6.5GB VRAM load.
+- **HotM consumer contract tests** (#549) — Chat endpoint contract tests for HotM integration.
+
+### Changed
+
+- **GPU sidecar defaults** — Whisper and pyannote now run on CPU by default to preserve GPU VRAM for inference. GPU variants available via `--profile gpu-12gb` or `--profile gpu-24gb`. **Breaking:** existing deployments using GPU sidecars must set `COMPOSE_PROFILES=gpu-12gb` or `gpu-24gb`.
+- **GPU job scheduling** — GPU jobs serialize by default to prevent VRAM contention. Ollama models proactively unloaded between tier transitions.
+- **Concept tagging pipeline** (#538, #539) — `ConceptTagging` chains from `AiRevision` (operates on enriched content). Enriches with existing DB concepts for better consistency.
+- **Media-aware job ordering** (#578) — AI revision deferred for notes with pending media attachments; bypass on explicit reprocess.
+- **MCP tools** — Purge tools exposed in core toolset (#530). Tool count updated to 43.
+- **PG 18.3** — Reverted PG 18.2 TOAST workaround after upstream fix (#419). All `convert_from(convert_to(...))` instances reverted to `substring()`.
+- **Workspace version**: `2026.2.13` → `2026.4.0`
 
 ### Fixed
 
-- **GLiNER OOM crash loop** — Increased default memory limit from 2GB to 4GB in `docker-compose.bundle.yml`. The deberta-v3-large backbone peaks above 2GB during model loading.
+- **3D rendering** (#538, #539) — Normalize extreme-scale models to prevent blank renders; validate render quality to prevent grey thumbnails; fix thumbnail MIME type.
+- **Inference** — Disable thinking mode for Qwen3.5 generation (prevents empty responses from thinking models).
+- **TUS uploads** (#544) — Add GET handler for upload finalization and `DefaultBodyLimit` on TUS routes.
+- **Migrations** — Use snake_case enum values for `job_type`; use correct singular `document_type` table name.
+- **Archives** — Sync column drift in archive schemas on auto-migration; exclude identity columns from archive clone.
+- **Docker** — Add NVIDIA EGL ICD for GPU rendering; add nvidia default runtime migration (#542).
+- **Dependencies** — Patch security vulnerabilities in npm and Rust dependencies.
+- **GLiNER OOM** — Increased default memory limit from 2GB to 4GB.
 
 ## [2026.2.13] - 2026-02-23
 

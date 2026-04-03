@@ -4,13 +4,13 @@
 
 **Memory that understands.**
 
-Most storage systems are passive—they hold your data and wait for exact queries. Fortémi is different. It's an intelligent memory system that actually comprehends what you store: the meaning behind your notes, the relationships between ideas, and the context that connects them.
+Most storage systems are passive — they hold your data and wait for exact queries. Fortémi is different. It's an intelligent memory system that actually comprehends what you store: the meaning behind your notes, the relationships between ideas, and the context that connects them.
 
-Ask it a question, and it doesn't just search for matching words. It finds answers that are *conceptually relevant*, even when you can't remember the right terminology. Store a document, and it automatically discovers how that knowledge connects to everything else you know. Over time, your knowledge base becomes a living network that grows smarter with every piece of information you add.
+Ask it a question, and it doesn't just search for matching words. It finds answers that are *conceptually relevant*, even when you can't remember the right terminology. Store a document, and it automatically discovers how that knowledge connects to everything else you know. Upload a video, and it extracts scene-by-scene descriptions, transcribes speech, identifies speakers, and weaves it all into searchable knowledge. Over time, your memory becomes a living network that grows smarter with every piece of information you add.
 
-Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency required.
+Built in Rust. Backed by PostgreSQL. Runs on a single GPU. No cloud dependency required.
 
-> **Under the hood:** Hybrid retrieval (BM25 + dense vectors), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, OAuth2 auth, 38 MCP agent tools, and multimodal media processing with 13 extraction adapters. ~85k lines of Rust.
+> **Under the hood:** Hybrid retrieval (BM25 + dense vectors + MMR diversity), automatic knowledge graph, 131 document types, W3C SKOS vocabularies, multi-memory isolation, synchronous chat, OAuth2 auth, 43 MCP agent tools, and multimodal media processing with 13 extraction adapters. Runs on edge hardware (8GB VRAM). ~90k lines of Rust.
 
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](LICENSE)
 
@@ -33,7 +33,9 @@ Built in Rust. Backed by PostgreSQL. Powered by embeddings. No cloud dependency 
 - **Understands meaning** — Semantic search finds related content even without keyword matches
 - **Discovers connections** — Automatically links related notes via embedding similarity
 - **Enhances content** — RAG pipeline enriches notes with context from related knowledge
-- **Processes media** — Extracts knowledge from images, audio, video, 3D models, emails, spreadsheets, and archives
+- **Processes media** — Extracts knowledge from images, audio, video, 3D models, emails, spreadsheets, and archives with speaker diarization and scene-level vision
+- **Talks back** — Synchronous chat API with GPU concurrency gating and multi-turn history
+- **Runs anywhere** — Edge-first defaults work on 8GB GPUs; scales to multi-GPU with hardware profiles
 - **Isolates tenants** — Parallel memory archives with schema-level isolation and federated search
 - **Streams events** — Real-time SSE, WebSocket, and webhook notifications
 
@@ -43,18 +45,20 @@ See [Use Cases](docs/content/use-cases.md) for deployment patterns and [Executiv
 
 | Capability | What It Does |
 |------------|-------------|
-| **Hybrid Search** | RRF fusion of BM25 + dense retrieval ([details](docs/content/search-guide.md)) |
+| **Hybrid Search** | RRF fusion of BM25 + dense retrieval with MMR diversity ([details](docs/content/search-guide.md)) |
+| **Synchronous Chat** | Direct LLM conversation with GPU concurrency gating and multi-turn history |
 | **Multilingual FTS** | CJK bigrams, emoji trigrams, 6+ language stemmers ([details](docs/content/multilingual-fts.md)) |
 | **Knowledge Graph** | Automatic linking at >70% similarity with graph exploration, community detection, and maintenance pipeline ([details](docs/content/knowledge-graph-guide.md)) |
 | **SKOS Vocabularies** | W3C controlled vocabulary with hierarchical concepts ([details](docs/content/tags.md)) |
 | **Multi-Memory** | Schema-isolated archives with federated cross-archive search ([details](docs/content/multi-memory.md)) |
 | **Authentication** | OAuth2 + API keys, opt-in enforcement ([details](docs/content/authentication.md)) |
-| **Media Processing** | Vision, audio, video, 3D model, email, spreadsheet, archive extraction with speaker diarization and streaming optimization ([details](docs/content/file-attachments.md)) |
+| **Media Processing** | Vision, audio, video, 3D model, email, spreadsheet, archive extraction with speaker diarization, chunked transcription, and streaming optimization ([details](docs/content/file-attachments.md)) |
 | **Embedding Sets** | MRL dimensionality reduction, auto-embed, two-stage retrieval ([details](docs/content/embedding-sets.md)) |
 | **Real-Time Events** | SSE + WebSocket + webhook notifications ([details](docs/content/real-time-events.md)) |
 | **Spatial-Temporal** | PostGIS location + time range queries |
 | **Encryption** | X25519/AES-256-GCM public-key encryption ([details](docs/content/encryption.md)) |
-| **131 Document Types** | Auto-detection with optimized chunking per type ([details](docs/content/document-types-guide.md)) |
+| **131 Document Types** | Auto-detection with content-type-aware chunking and revision ([details](docs/content/document-types-guide.md)) |
+| **Edge Hardware** | Runs on 8GB GPUs with hardware profiles for scaling (`edge`, `gpu-12gb`, `gpu-24gb`) |
 
 ---
 
@@ -62,12 +66,18 @@ See [Use Cases](docs/content/use-cases.md) for deployment patterns and [Executiv
 
 ### Docker Bundle (Recommended)
 
-All-in-one container with PostgreSQL, API server, and MCP server. No external dependencies required:
+All-in-one container with PostgreSQL, API server, and MCP server. Runs on any GPU with 6GB+ VRAM:
 
 ```bash
 mkdir -p fortemi && cd fortemi
 curl -fsSL -o docker-compose.bundle.yml \
   https://raw.githubusercontent.com/fortemi/fortemi/main/docker-compose.bundle.yml
+
+# Create .env with your hardware profile
+echo 'COMPOSE_PROFILES=edge' > .env          # 6-8GB VRAM (RTX 3060/4060/5060)
+# echo 'COMPOSE_PROFILES=gpu-12gb' > .env    # 12-16GB VRAM (RTX 4070/5070)
+# echo 'COMPOSE_PROFILES=gpu-24gb' > .env    # 24GB+ VRAM (RTX 4090/5090)
+
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
@@ -80,7 +90,7 @@ curl http://localhost:3000/health
 
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP)
 
-That's it. Full-text search, tagging, collections, graph linking, and the MCP server are ready. For AI features (semantic search, auto-linking), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` — see the [Quickstart Guide](docs/content/quickstart.md) for details.
+That's it. Full-text search, tagging, collections, graph linking, audio transcription, speaker diarization, and the MCP server are ready. For AI features (semantic search, auto-linking, chat), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` + `qwen3.5:9b` — see the [Quickstart Guide](docs/content/quickstart.md) for details.
 
 Clean reset: `docker compose -f docker-compose.bundle.yml down -v && docker compose -f docker-compose.bundle.yml up -d`
 
@@ -127,7 +137,7 @@ See [Getting Started](docs/content/getting-started.md) for the full walkthrough 
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-core     │ Core types, traits, and error handling       │
 ├──────────────────┼──────────────────────────────────────────────┤
-│  mcp-server      │ MCP agent integration (Node.js, 38 tools)    │
+│  mcp-server      │ MCP agent integration (Node.js, 43 tools)    │
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -137,7 +147,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 ## MCP Server
 
-38 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
+43 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001.
 
 **Connect** (`.mcp.json` or Claude Desktop):
 
@@ -151,7 +161,7 @@ See [Architecture](docs/content/architecture.md) for detailed system design with
 
 **Local stdio** (development): `node mcp-server/index.js` with `MATRIC_MEMORY_URL=http://localhost:3000`
 
-Set `MCP_TOOL_MODE=full` for all 203 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
+Set `MCP_TOOL_MODE=full` for all 205 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
 
 ---
 
@@ -177,16 +187,17 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb` |
 | `DATABASE_URL` | `postgres://localhost/matric` | PostgreSQL connection |
 | `PORT` | `3000` | API server port |
 | `REQUIRE_AUTH` | `false` | Enable OAuth2/API key auth |
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL |
 | `OLLAMA_BASE` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation model (also serves vision) |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `OLLAMA_VISION_MODEL` | `qwen3.5:9b` | Vision model for image description (natively multimodal) |
-| `WHISPER_BASE_URL` | `http://localhost:8000` | Audio transcription endpoint |
+| `WHISPER_BASE_URL` | `http://whisper:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (see [capacity planning](docs/content/hardware-planning.md#memory-capacity-planning)) |
-| `MCP_TOOL_MODE` | `core` | `core` (38 tools) or `full` (all) |
+| `MCP_TOOL_MODE` | `core` | `core` (43 tools) or `full` (all) |
 
 ---
 
