@@ -264,6 +264,7 @@ impl GenerationBackend for OpenAIBackend {
             messages,
             temperature: None,
             max_tokens: None,
+            response_format: None,
             stream: false,
         };
 
@@ -301,6 +302,77 @@ impl GenerationBackend for OpenAIBackend {
             .unwrap_or_default();
 
         debug!("Generation complete, response length: {}", content.len());
+        Ok(content)
+    }
+
+    async fn generate_json(&self, prompt: &str) -> Result<String> {
+        self.generate_json_with_system("", prompt).await
+    }
+
+    async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
+        debug!(
+            "Generating JSON with model {}, prompt length: {}",
+            self.config.gen_model,
+            prompt.len()
+        );
+
+        let mut messages = Vec::new();
+        if !system.is_empty() {
+            messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        });
+
+        let request = ChatCompletionRequest {
+            model: self.config.gen_model.clone(),
+            messages,
+            temperature: None,
+            max_tokens: None,
+            response_format: Some(ResponseFormat {
+                format_type: "json_object".to_string(),
+            }),
+            stream: false,
+        };
+
+        let response = self
+            .build_request("/chat/completions")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::Inference(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body: OpenAIErrorResponse = response.json().await.unwrap_or(OpenAIErrorResponse {
+                error: OpenAIError {
+                    message: "Unknown error".to_string(),
+                    error_type: "unknown".to_string(),
+                    code: None,
+                },
+            });
+            return Err(Error::Inference(format!(
+                "OpenAI returned {}: {}",
+                status, body.error.message
+            )));
+        }
+
+        let result: ChatCompletionResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Inference(format!("Failed to parse response: {}", e)))?;
+
+        let content = result
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        debug!("JSON generation complete, response length: {}", content.len());
         Ok(content)
     }
 
@@ -369,6 +441,7 @@ impl StreamingGeneration for OpenAIBackend {
             messages,
             temperature: None,
             max_tokens: None,
+            response_format: None,
             stream: true,
         };
 

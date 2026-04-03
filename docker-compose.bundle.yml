@@ -349,6 +349,17 @@ services:
       - MATRIC_EMBED_TIMEOUT_SECS=${MATRIC_EMBED_TIMEOUT_SECS:-30}
       - MATRIC_GEN_TIMEOUT_SECS=${MATRIC_GEN_TIMEOUT_SECS:-120}
 
+      # ── Inference: llama.cpp (opt-in, OpenAI-compatible protocol) ─────
+      # Set LLAMACPP_BASE_URL to enable. Uses existing OpenAI backend.
+      # Example: LLAMACPP_BASE_URL=http://host.docker.internal:8080/v1
+      - LLAMACPP_BASE_URL=${LLAMACPP_BASE_URL:-}
+      - LLAMACPP_API_KEY=${LLAMACPP_API_KEY:-}
+
+      # ── Inference: OpenAI / OpenRouter (opt-in) ───────────────────────
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+
       # ── NVIDIA GPU (required for Open3D 3D renderer + optional for other GPU workloads)
       # 'all' ensures graphics (EGL), compute (CUDA), and utility (nvidia-smi) are available.
       # For non-GPU deployments: remove the deploy.resources section and set

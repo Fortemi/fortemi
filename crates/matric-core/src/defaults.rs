@@ -113,6 +113,9 @@ pub const FILE_INLINE_THRESHOLD: usize = 1024 * 1024;
 /// Default Ollama base URL.
 pub const OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
+/// Default llama.cpp server base URL (OpenAI-compatible endpoint).
+pub const LLAMACPP_URL: &str = "http://127.0.0.1:8080/v1";
+
 /// Default generation model name (Ollama).
 /// qwen3.5:9b: 262K context, ~6.5GB VRAM (Q4_K_M). Fits on 8GB GPUs with
 /// room for KV cache. Audio sidecars run on CPU by default to preserve VRAM.

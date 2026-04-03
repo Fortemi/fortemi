@@ -302,7 +302,7 @@ impl ProviderRegistry {
                 Ok(Box::new(backend))
             }
             #[cfg(feature = "openai")]
-            "openai" | "openrouter" => {
+            "openai" | "openrouter" | "llamacpp" => {
                 let oai_config = crate::OpenAIConfig {
                     base_url: config.base_url.clone(),
                     api_key: config.api_key.clone(),
@@ -437,6 +437,33 @@ impl ProviderRegistry {
                     health: ProviderHealth::Unknown,
                     http_referer,
                     x_title,
+                });
+            }
+        }
+
+        // llama.cpp — opt-in via LLAMACPP_BASE_URL
+        // Uses the OpenAI-compatible API protocol (/v1/chat/completions, /v1/embeddings).
+        if let Ok(base_url) = std::env::var("LLAMACPP_BASE_URL") {
+            if !base_url.is_empty() {
+                let api_key = std::env::var("LLAMACPP_API_KEY").ok().filter(|k| !k.is_empty());
+                let timeout = std::env::var("LLAMACPP_TIMEOUT")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(300);
+
+                registry.register(ProviderConfig {
+                    id: "llamacpp".to_string(),
+                    base_url,
+                    api_key,
+                    capabilities: vec![
+                        ProviderCapability::Generation,
+                        ProviderCapability::Embedding,
+                    ],
+                    timeout: Duration::from_secs(timeout),
+                    is_default: false,
+                    health: ProviderHealth::Unknown,
+                    http_referer: None,
+                    x_title: None,
                 });
             }
         }

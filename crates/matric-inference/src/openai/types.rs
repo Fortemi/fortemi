@@ -41,6 +41,13 @@ pub struct EmbeddingUsage {
 // CHAT COMPLETION TYPES
 // =============================================================================
 
+/// OpenAI `response_format` for structured output (JSON mode).
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponseFormat {
+    #[serde(rename = "type")]
+    pub format_type: String,
+}
+
 /// Request body for chat completions endpoint.
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionRequest {
@@ -50,6 +57,8 @@ pub struct ChatCompletionRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
     #[serde(default)]
     pub stream: bool,
 }
@@ -195,6 +204,7 @@ mod tests {
             ],
             temperature: Some(0.7),
             max_tokens: None,
+            response_format: None,
             stream: false,
         };
 

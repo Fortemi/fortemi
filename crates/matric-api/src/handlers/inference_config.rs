@@ -59,6 +59,16 @@ pub struct SourcedOpenAIConfig {
     pub embedding_model: SourcedValue,
 }
 
+/// llama.cpp config fields with source attribution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourcedLlamaCppConfig {
+    pub base_url: SourcedValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<SourcedValue>,
+    pub generation_model: SourcedValue,
+    pub embedding_model: SourcedValue,
+}
+
 /// Full effective inference config response with source attribution.
 #[derive(Debug, Serialize)]
 pub struct InferenceConfigResponse {
@@ -67,6 +77,8 @@ pub struct InferenceConfigResponse {
     pub ollama: Option<SourcedOllamaConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<SourcedOpenAIConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llamacpp: Option<SourcedLlamaCppConfig>,
     pub providers: Vec<String>,
 }
 
@@ -79,6 +91,7 @@ pub struct InferenceConfigResponse {
 pub struct UpdateInferenceConfigRequest {
     pub ollama: Option<PartialOllamaConfig>,
     pub openai: Option<PartialOpenAIConfig>,
+    pub llamacpp: Option<PartialLlamaCppConfig>,
 }
 
 /// Partial Ollama config (all fields optional).
@@ -92,6 +105,15 @@ pub struct PartialOllamaConfig {
 /// Partial OpenAI config (all fields optional).
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PartialOpenAIConfig {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub generation_model: Option<String>,
+    pub embedding_model: Option<String>,
+}
+
+/// Partial llama.cpp config (all fields optional).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PartialLlamaCppConfig {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub generation_model: Option<String>,
@@ -317,15 +339,56 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         None
     };
 
+    // llama.cpp only shown if the DB override or env has it configured.
+    let db_llamacpp = db.and_then(|v| v.get("llamacpp"));
+    let env_llamacpp_url = std::env::var("LLAMACPP_BASE_URL").unwrap_or_default();
+    let llamacpp = if db_llamacpp.is_some() || !env_llamacpp_url.is_empty() {
+        let db_base = db_llamacpp
+            .and_then(|o| o.get("base_url"))
+            .and_then(|v| v.as_str());
+        let db_gen = db_llamacpp
+            .and_then(|o| o.get("generation_model"))
+            .and_then(|v| v.as_str());
+        let db_embed = db_llamacpp
+            .and_then(|o| o.get("embedding_model"))
+            .and_then(|v| v.as_str());
+        let db_key = db_llamacpp
+            .and_then(|o| o.get("api_key"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let default_url = matric_core::defaults::LLAMACPP_URL;
+        let default_gen = "default";
+        let default_embed = "default";
+
+        let api_key = db_key.map(|k| SourcedValue {
+            value: redact_api_key(k),
+            source: ConfigSource::DbOverride,
+        });
+
+        Some(SourcedLlamaCppConfig {
+            base_url: pick(db_base, &env_llamacpp_url, default_url),
+            api_key,
+            generation_model: pick(db_gen, "", default_gen),
+            embedding_model: pick(db_embed, "", default_embed),
+        })
+    } else {
+        None
+    };
+
     let mut providers = vec!["ollama".to_string()];
     if openai.is_some() {
         providers.push("openai".to_string());
+    }
+    if llamacpp.is_some() {
+        providers.push("llamacpp".to_string());
     }
 
     InferenceConfigResponse {
         default_backend: "ollama".to_string(),
         ollama,
         openai,
+        llamacpp,
         providers,
     }
 }
@@ -583,6 +646,100 @@ pub async fn update_inference_config(
         if partial_openai.embedding_model.is_some() {
             obj.insert("embedding_model".to_string(), Value::String(merged_embed));
         }
+    }
+
+    if let Some(partial_llamacpp) = &req.llamacpp {
+        let entry = merged
+            .as_object_mut()
+            .expect("json object")
+            .entry("llamacpp")
+            .or_insert(serde_json::json!({}));
+
+        let cur_base = entry.get("base_url").and_then(|v| v.as_str()).unwrap_or("");
+        let cur_gen = entry
+            .get("generation_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let cur_embed = entry
+            .get("embedding_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let cur_key = entry
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let merged_base = partial_llamacpp
+            .base_url
+            .clone()
+            .unwrap_or_else(|| {
+                if cur_base.is_empty() {
+                    matric_core::defaults::LLAMACPP_URL.to_string()
+                } else {
+                    cur_base.to_string()
+                }
+            });
+        let merged_gen = partial_llamacpp
+            .generation_model
+            .clone()
+            .unwrap_or_else(|| {
+                if cur_gen.is_empty() { "default".to_string() } else { cur_gen.to_string() }
+            });
+        let merged_embed = partial_llamacpp
+            .embedding_model
+            .clone()
+            .unwrap_or_else(|| {
+                if cur_embed.is_empty() { "default".to_string() } else { cur_embed.to_string() }
+            });
+
+        let obj = entry.as_object_mut().expect("json object");
+        if partial_llamacpp.base_url.is_some() {
+            obj.insert("base_url".to_string(), Value::String(merged_base));
+        }
+        if let Some(ref key) = partial_llamacpp.api_key.as_deref().or(cur_key.as_deref()) {
+            obj.insert("api_key".to_string(), Value::String(key.to_string()));
+        }
+        if partial_llamacpp.generation_model.is_some() {
+            obj.insert("generation_model".to_string(), Value::String(merged_gen));
+        }
+        if partial_llamacpp.embedding_model.is_some() {
+            obj.insert("embedding_model".to_string(), Value::String(merged_embed));
+        }
+    }
+
+    // Rebuild provider registry from merged config so all providers are hot-swapped.
+    {
+        let mut new_registry = matric_inference::ProviderRegistry::from_env();
+
+        // Layer DB overrides for llama.cpp (env registration may have been empty at startup).
+        if let Some(db_lc) = merged.get("llamacpp") {
+            if let Some(base_url) = db_lc.get("base_url").and_then(|v| v.as_str()) {
+                if !base_url.is_empty() && !new_registry.has_provider("llamacpp") {
+                    new_registry.register(matric_inference::ProviderConfig {
+                        id: "llamacpp".to_string(),
+                        base_url: base_url.to_string(),
+                        api_key: db_lc
+                            .get("api_key")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(String::from),
+                        capabilities: vec![
+                            matric_inference::ProviderCapability::Generation,
+                            matric_inference::ProviderCapability::Embedding,
+                        ],
+                        timeout: std::time::Duration::from_secs(300),
+                        is_default: false,
+                        health: matric_inference::ProviderHealth::Unknown,
+                        http_referer: None,
+                        x_title: None,
+                    });
+                }
+            }
+        }
+
+        let mut rt = state.inference_runtime.write().unwrap();
+        rt.provider_registry = std::sync::Arc::new(new_registry);
+        info!("Provider registry rebuilt from POST /api/v1/inference/config");
     }
 
     // 4. Persist merged config to DB.
