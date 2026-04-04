@@ -1,0 +1,139 @@
+apiVersion: setup.aiwg.io/v1
+kind: SetupManifest
+metadata:
+  name: fortemi
+  version: 2026.4.0
+  description: >-
+    Install Fortémi — AI-enhanced knowledge base with semantic search,
+    automatic linking, and NLP pipelines. Deploys via Docker Compose bundle
+    with PostgreSQL, Redis, Ollama, and MCP server.
+
+platform:
+  os: [linux, macos]
+  distros: [ubuntu, debian]
+  arch: [x86_64, arm64]
+  shell: [bash, zsh]
+
+params:
+  - name: INSTALL_DIR
+    type: path
+    required: true
+    default: /opt/fortemi
+    description: Installation directory for Fortémi
+
+  - name: BRANCH
+    type: string
+    default: main
+    description: Git branch to clone
+
+  - name: DOMAIN
+    type: string
+    default: localhost
+    description: Public domain for the instance (e.g., memory.example.com)
+
+  - name: PROTOCOL
+    type: choice
+    choices: [http, https]
+    default: "$(echo ${DOMAIN} | grep -qE '^(localhost|127\\.0\\.0\\.1)' && echo http || echo https)"
+    description: Protocol for OAuth/API URLs. Defaults to http for localhost.
+
+  - name: COMPOSE_PROFILES
+    type: string
+    default: edge
+    description: >-
+      Hardware profile — edge (6-8GB VRAM), gpu-12gb, or gpu-24gb
+
+  - name: OLLAMA_GEN_MODEL
+    type: string
+    default: "qwen3.5:9b"
+    description: Ollama generation/vision model
+
+  - name: DATA_DIR
+    type: path
+    default: "${INSTALL_DIR}/data"
+    description: Persistent data directory (PostgreSQL, Redis, uploads)
+
+prerequisites:
+  - detect: "command -v git"
+    version_min: "2.30"
+    install_hint: "Install git: sudo apt-get install -y git"
+
+  - detect: "docker version --format '{{.Server.Version}}' 2>/dev/null"
+    version_min: "24.0"
+    install_hint: |
+      Linux: https://docs.docker.com/engine/install/
+      macOS: https://docs.docker.com/desktop/install/mac-install/
+      Then add your user to the docker group: sudo usermod -aG docker $USER
+      Log out and back in for the group change to take effect.
+
+  - detect: "docker compose version 2>/dev/null"
+    version_min: "2.20"
+    install_hint: "Docker Compose v2 is required (bundled with Docker Desktop or docker-compose-plugin)"
+
+  - detect: "command -v curl"
+    install_hint: |
+      Linux: sudo apt-get install -y curl
+      macOS: brew install curl (or use system curl)
+
+  - name: disk-space
+    detect: "df --output=avail -BG / 2>/dev/null | tail -1 | tr -d ' G' || df -g / | tail -1 | awk '{print $4}'"
+    version_min: "20"
+    install_hint: "At least 20GB free disk space required for Docker images and Ollama models"
+
+  - name: ram
+    detect: "awk '/MemTotal/ {printf \"%.0f\", $2/1024/1024}' /proc/meminfo 2>/dev/null || sysctl -n hw.memsize 2>/dev/null | awk '{printf \"%.0f\", $1/1024/1024/1024}'"
+    version_min: "8"
+    install_hint: "At least 8GB RAM recommended. 16GB+ for gpu-12gb/gpu-24gb profiles."
+
+steps:
+  - id: clone
+    type: script
+    description: Clone the Fortémi repository
+    script: installer/scripts/clone.sh
+    verify: "test -d ${INSTALL_DIR}/.git"
+
+  - id: configure
+    type: script
+    description: Generate .env configuration file
+    script: installer/scripts/configure.sh
+    depends_on: [clone]
+    verify: "test -f ${INSTALL_DIR}/.env"
+
+  - id: setup-nvidia
+    type: script
+    description: Configure NVIDIA Container Toolkit (GPU profiles only)
+    script: installer/scripts/setup-nvidia.sh
+    depends_on: [clone]
+    when: "echo ${COMPOSE_PROFILES} | grep -q gpu && test $(uname -s) = Linux"
+
+  - id: check-ports
+    type: script
+    description: Verify required ports are available
+    script: installer/scripts/check-ports.sh
+    depends_on: [configure]
+
+  - id: deploy
+    type: script
+    description: Pull images and start Docker Compose bundle
+    script: installer/scripts/deploy.sh
+    depends_on: [check-ports, setup-nvidia]
+    verify: "curl -sf http://localhost:3000/health >/dev/null 2>&1"
+
+  - id: pull-models
+    type: script
+    description: Pull Ollama models (may take several minutes)
+    script: installer/scripts/pull-models.sh
+    depends_on: [deploy]
+    verify: "docker compose -f ${INSTALL_DIR}/docker-compose.bundle.yml exec ollama ollama list 2>/dev/null | grep -q ${OLLAMA_GEN_MODEL%%:*}"
+
+  - id: verify
+    type: script
+    description: Verify all services are healthy
+    script: installer/scripts/verify.sh
+    depends_on: [pull-models]
+
+recovery_procedures:
+  - id: full-reset
+    description: Stop containers, remove volumes, and redeploy from scratch
+    triggers: [deploy, configure]
+    script: installer/scripts/reset.sh
