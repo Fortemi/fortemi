@@ -44,7 +44,7 @@ Workflows run on `matric-builder` runner with:
 - **crates/matric-core** - Core types, traits, models
 - **crates/matric-db** - PostgreSQL repositories (sqlx)
 - **crates/matric-search** - Hybrid search (FTS + semantic + RRF)
-- **crates/matric-inference** - Ollama embedding/generation
+- **crates/matric-inference** - Multi-provider inference (Ollama, OpenAI, OpenRouter, llama.cpp)
 - **crates/matric-jobs** - Background job worker
 - **mcp-server/** - MCP (Model Context Protocol) server in Node.js
 
@@ -122,6 +122,74 @@ curl https://your-domain.com/api/v1/notes \
 2. Create API keys for existing integrations: `POST /api/v1/api-keys`
 3. Update all clients to include `Authorization: Bearer <token>` headers
 4. Set `REQUIRE_AUTH=true` in `.env` and restart: `docker compose -f docker-compose.bundle.yml up -d`
+
+## Inference Providers
+
+Multi-provider inference with hot-swappable runtime configuration. The default provider is Ollama (always available). External providers are opt-in via environment variables.
+
+### Provider-Qualified Model Slugs
+
+Use provider prefixes to route requests to specific backends:
+
+```
+qwen3:8b                → default provider (Ollama)
+ollama:qwen3:8b         → explicit Ollama
+openai:gpt-4o           → OpenAI
+openrouter:anthropic/claude-sonnet-4-20250514 → OpenRouter
+llamacpp:my-model       → llama.cpp
+```
+
+### Ollama (default)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_BASE` | `http://localhost:11434` | Ollama API URL (also checks `OLLAMA_URL`, `OLLAMA_HOST`) |
+| `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation + vision model |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+
+### llama.cpp
+
+Uses the OpenAI-compatible API protocol (`/v1/chat/completions`, `/v1/embeddings`). Opt-in via `LLAMACPP_BASE_URL`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LLAMACPP_BASE_URL` | Yes (opt-in) | *(none)* | Base URL (e.g., `http://127.0.0.1:8080`) |
+| `LLAMACPP_API_KEY` | No | *(none)* | API key if llama-server started with `--api-key` |
+| `LLAMACPP_TIMEOUT` | No | `300` | Request timeout in seconds |
+
+**Docker bundle networking**: When llama-server runs on the host alongside the Docker bundle, use `http://host.docker.internal:8080` (macOS/Windows) or `http://172.17.0.1:8080` (Linux default bridge) from inside containers.
+
+### OpenAI / OpenRouter
+
+| Variable | Provider | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI | API key |
+| `OPENAI_BASE_URL` | OpenAI | Base URL (default: `https://api.openai.com/v1`) |
+| `OPENROUTER_API_KEY` | OpenRouter | API key |
+
+### Runtime Configuration (hot-swap)
+
+All providers can be reconfigured at runtime without restarting via `POST /api/v1/inference/config`:
+
+```bash
+# View current config (with source attribution: default/env/db_override)
+curl http://localhost:3000/api/v1/inference/config
+
+# Configure llama.cpp at runtime
+curl -X POST http://localhost:3000/api/v1/inference/config \
+  -H "Content-Type: application/json" \
+  -d '{"llamacpp": {"base_url": "http://127.0.0.1:8080"}}'
+
+# Test connection to a backend
+curl -X POST http://localhost:3000/api/v1/inference/test-connection \
+  -H "Content-Type: application/json" \
+  -d '{"base_url": "http://127.0.0.1:8080", "provider": "auto"}'
+
+# Reset all overrides back to env/defaults
+curl -X DELETE http://localhost:3000/api/v1/inference/config
+```
+
+Configuration precedence: `db_override` → `env` → `default`.
 
 ## Deployment
 
