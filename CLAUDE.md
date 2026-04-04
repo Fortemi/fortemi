@@ -164,7 +164,13 @@ ISSUER_URL=https://your-domain.com
 # Generation + vision model (qwen3.5:9b is natively multimodal — single VRAM load)
 # Override for 24GB+ GPUs: OLLAMA_GEN_MODEL=qwen3.5:27b
 OLLAMA_GEN_MODEL=qwen3.5:9b
+
+# llama.cpp provider (optional — enables llamacpp:model-name slugs)
+# LLAMACPP_BASE_URL=http://localhost:8080
+# LLAMACPP_API_KEY=          # omit if not required
 ```
+
+**Guided installer:** `installer/scripts/` provides 8 shell scripts for step-by-step deployment: `clone.sh`, `configure.sh`, `deploy.sh`, `pull-models.sh`, `check-ports.sh`, `setup-nvidia.sh`, `verify.sh`, `reset.sh`. A `setup.manifest.yaml` machine-readable manifest is available for the AIWG installer framework.
 
 **MCP OAuth credentials** are auto-managed: the bundle entrypoint auto-registers an MCP OAuth client on startup if credentials are missing or invalid. Credentials persist at `$PGDATA/.fortemi-mcp-credentials` and survive container restarts. Manual registration is only needed for standalone (non-Docker) deployments:
 ```bash

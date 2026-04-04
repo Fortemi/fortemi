@@ -28,6 +28,8 @@ Fortemi supports multiple LLM inference providers for text generation and embedd
 | `MATRIC_OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model for OpenAI backend |
 | `OPENAI_API_KEY` | — | Fallback API key; also enables OpenRouter auto-discovery |
 | `OPENROUTER_API_KEY` | — | Enables OpenRouter provider for per-request model overrides |
+| `LLAMACPP_BASE_URL` | — | Enables llama.cpp provider (e.g. `http://localhost:8080`) |
+| `LLAMACPP_API_KEY` | — | Optional API key for llama.cpp server |
 
 Legacy variable names (`OLLAMA_BASE`, `OLLAMA_GEN_MODEL`, `OLLAMA_EMBED_MODEL`) remain supported as fallbacks.
 
@@ -120,6 +122,27 @@ curl -X POST http://localhost:3000/api/v1/jobs \
 
 **Pitfall:** OpenRouter does not host embedding models. Configure a separate embedding backend (Ollama or OpenAI) and use `[inference.routing]` to split traffic.
 
+### llama.cpp
+
+llama.cpp's HTTP server exposes an OpenAI-compatible API. Point Fortémi at it with `LLAMACPP_BASE_URL`:
+
+```bash
+LLAMACPP_BASE_URL=http://localhost:8080
+LLAMACPP_API_KEY=         # optional; omit if not required
+```
+
+Use provider-qualified slugs for per-request routing:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"note_id": "...", "job_type": "ai_revision", "model_override": "llamacpp:llama-3.2-3b"}'
+```
+
+llama.cpp supports generation only — use Ollama or OpenAI for embeddings.
+
+**Hot-swap:** Change `LLAMACPP_BASE_URL` at runtime without restarting the server by sending a PUT to the runtime config API (see [Runtime Configuration API](#runtime-configuration-api)).
+
 ### vLLM
 
 vLLM exposes an OpenAI-compatible API. Use the OpenAI backend pointed at the vLLM server.
@@ -182,6 +205,7 @@ Any generation job accepts a `model_override` using a provider-qualified slug:
 | `ollama:qwen3.5:27b` | Explicit Ollama |
 | `openai:gpt-4o` | OpenAI |
 | `openrouter:anthropic/claude-sonnet-4-20250514` | OpenRouter |
+| `llamacpp:model-name` | llama.cpp |
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/jobs \

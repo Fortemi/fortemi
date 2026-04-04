@@ -7,6 +7,7 @@ The Fortémi inference configuration system provides a flexible way to select an
 - **Ollama** (default): Local inference server
 - **OpenAI**: OpenAI API
 - **OpenRouter**: Multi-provider API gateway (Anthropic, Google, Meta, etc.)
+- **llama.cpp**: Local llama.cpp HTTP server (`LLAMACPP_BASE_URL`; generation only)
 - **OpenAI-compatible**: Any OpenAI-compatible endpoint (Azure, LocalAI, vLLM, etc.)
 
 ## Configuration Methods
@@ -23,7 +24,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 ```
 
@@ -48,7 +49,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 
 [inference.openai]
@@ -84,7 +85,7 @@ All configuration options can be specified via environment variables:
 ```bash
 export MATRIC_INFERENCE_DEFAULT=ollama
 export MATRIC_OLLAMA_URL=http://localhost:11434
-export MATRIC_OLLAMA_GENERATION_MODEL=llama3.1:8b
+export MATRIC_OLLAMA_GENERATION_MODEL=qwen3.5:9b
 export MATRIC_OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 ```
 
@@ -159,7 +160,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 ```
 
@@ -228,7 +229,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 
 [inference.openai]
@@ -266,7 +267,7 @@ default = "openai"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 
 [inference.openai]
@@ -316,7 +317,7 @@ default = "ollama"
 
 [inference.ollama]
 base_url = "http://localhost:11434"
-generation_model = "llama3.1:8b"
+generation_model = "qwen3.5:9b"
 embedding_model = "nomic-embed-text"
 
 [inference.openai]
@@ -362,8 +363,9 @@ The `ProviderRegistry` automatically discovers available providers from environm
 | *(always available)* | Ollama (default, local) |
 | `OPENAI_API_KEY` | OpenAI |
 | `OPENROUTER_API_KEY` | OpenRouter |
+| `LLAMACPP_BASE_URL` | llama.cpp |
 
-No additional configuration needed — set the API key and the provider becomes available.
+No additional configuration needed — set the variable and the provider becomes available.
 
 ### Usage Examples
 
@@ -416,6 +418,25 @@ Returns models grouped by provider with health status:
 ### Security
 
 API keys are **never exposed** in job payloads, API responses, or logs. The `ProviderRegistry` resolves keys from environment variables at job execution time.
+
+## Runtime Configuration API
+
+Change inference settings without restarting the server:
+
+```bash
+# View current configuration
+curl http://localhost:3000/api/v1/config/inference
+
+# Update Ollama URL and hot-swap all providers
+curl -X PUT http://localhost:3000/api/v1/config/inference \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ollama": {"base_url": "http://new-gpu-server:11434"},
+    "llamacpp": {"base_url": "http://localhost:8080"}
+  }'
+```
+
+Every PUT rebuilds the full provider registry — effective immediately for all subsequent jobs.
 
 ## Troubleshooting
 

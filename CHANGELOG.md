@@ -17,16 +17,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - **Decomposed 3D model extraction** (#531, #533, #534, #535) — Atomic per-view vision jobs with `RENDER_GPU` tier, Open3D EGL GPU support, and AI revision after view assembly.
 - **Video keyframe vision** (#550) — `KeyframeCharacterVision` and `KeyframeSettingVision` job types with improved scene-dialog interleaving and keyframe merging prompts.
 - **MMR diversity search and access analytics** — Maximal Marginal Relevance for search diversity, access frequency tracking, cold-spot detection, and `agent-reflection` document type.
-- **Inference runtime config API** (#568-570) — Runtime Ollama configuration with connection testing via `GET/PUT /api/v1/config/inference`.
+- **Inference runtime config API** (#568-570) — Runtime Ollama configuration with connection testing via `GET/PUT /api/v1/config/inference`. Extended with llama.cpp section; every PUT rebuilds the full provider registry for hot-swap without server restart.
+- **llama.cpp provider** — Register llama.cpp as a first-class inference provider via `LLAMACPP_BASE_URL`. Routes through the existing `OpenAIBackend` (same HTTP protocol, zero new backend code). Use provider-qualified slugs (`llamacpp:model-name`) for per-request routing. `LLAMACPP_BASE_URL`, `LLAMACPP_API_KEY`, `OPENAI_API_KEY`, and `OPENROUTER_API_KEY` passed through in compose.
 - **Inference resilience** (#545, #546, #547, #548) — Retry with exponential backoff, circuit breaker, fail-fast detection, and memory limits for sidecar services (Whisper, pyannote, GLiNER).
 - **Edge-first hardware profiles** — `COMPOSE_PROFILES` selects deployment tier: `edge` (CPU sidecars, 6-8GB VRAM), `gpu-12gb`, `gpu-24gb`. Defaults target RTX 3060/4060/5060.
 - **Qwen3.5 model family** — Default generation upgraded to `qwen3.5:9b` (262K context, natively multimodal). Single model serves generation, fast extraction, and vision with one ~6.5GB VRAM load.
 - **HotM consumer contract tests** (#549) — Chat endpoint contract tests for HotM integration.
+- **Installer scripts** — `setup.manifest.yaml` machine-readable install manifest for the AIWG installer framework. `installer/scripts/` contains 8 shell scripts for guided deployment: `clone.sh`, `configure.sh`, `deploy.sh`, `pull-models.sh`, `check-ports.sh`, `setup-nvidia.sh`, `verify.sh`, `reset.sh`.
 
 ### Changed
 
 - **GPU sidecar defaults** — Whisper and pyannote now run on CPU by default to preserve GPU VRAM for inference. GPU variants available via `--profile gpu-12gb` or `--profile gpu-24gb`. **Breaking:** existing deployments using GPU sidecars must set `COMPOSE_PROFILES=gpu-12gb` or `gpu-24gb`.
 - **GPU job scheduling** — GPU jobs serialize by default to prevent VRAM contention. Ollama models proactively unloaded between tier transitions.
+- **Video chunk size** — `REVISION_VIDEO_CHUNK_SIZE_MAX` reduced from 60K to 20K characters to prevent job-level timeout on long videos.
+- **Job timeout** — `JOB_TIMEOUT_SECS` default raised from 600s to 1800s; env-var clamp raised to 7200s.
 - **Concept tagging pipeline** (#538, #539) — `ConceptTagging` chains from `AiRevision` (operates on enriched content). Enriches with existing DB concepts for better consistency.
 - **Media-aware job ordering** (#578) — AI revision deferred for notes with pending media attachments; bypass on explicit reprocess.
 - **MCP tools** — Purge tools exposed in core toolset (#530). Tool count updated to 43.
@@ -37,6 +41,8 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 - **3D rendering** (#538, #539) — Normalize extreme-scale models to prevent blank renders; validate render quality to prevent grey thumbnails; fix thumbnail MIME type.
 - **Inference** — Disable thinking mode for Qwen3.5 generation (prevents empty responses from thinking models).
+- **AI revision on non-default archives** — Single-note `reprocess_note` was missing the archive schema in the AI revision job payload, causing "Failed to fetch note" errors on non-default archives.
+- **Video revision budget** — Total revision budget now computed as `Σ(per-chunk adaptive timeouts)`; deadline checked before each chunk so the loop exits cleanly rather than timing out mid-chunk.
 - **TUS uploads** (#544) — Add GET handler for upload finalization and `DefaultBodyLimit` on TUS routes.
 - **Migrations** — Use snake_case enum values for `job_type`; use correct singular `document_type` table name.
 - **Archives** — Sync column drift in archive schemas on auto-migration; exclude identity columns from archive clone.
