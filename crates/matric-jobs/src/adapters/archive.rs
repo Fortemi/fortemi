@@ -4,10 +4,10 @@
 //! - `.zip` via the `zip` crate
 //! - `.tar`, `.tar.gz`, `.tgz` via the `tar` + `flate2` crates
 //!
-//! Security limits:
-//! - Max 1,000 files per archive
-//! - Max 100 MB total extracted bytes
-//! - Max 3 levels of nesting for archives-within-archives
+//! Configurable limits (env var → default):
+//! - `ARCHIVE_MAX_EXTRACT_BYTES` → 1 GB total extracted bytes
+//! - `ARCHIVE_MAX_SINGLE_FILE_BYTES` → 50 MB per file
+//! - `ARCHIVE_MAX_NESTING` → 3 levels of archives-within-archives
 //!
 //! Unsupported formats (.rar, .7z) produce metadata-only output with a note
 //! that extraction was skipped.
@@ -23,22 +23,42 @@ use matric_core::{ExtractionAdapter, ExtractionResult, ExtractionStrategy, Resul
 /// Return type for internal archive extraction: entry list + extracted (name, text) pairs.
 type ExtractOutput = (Vec<EntryInfo>, Vec<(String, String)>);
 
-// ── Security limits ───────────────────────────────────────────────────────────
-
-/// Maximum number of files to process within an archive.
-const MAX_FILES: usize = 1_000;
-
-/// Maximum cumulative uncompressed bytes to extract from text files.
-const MAX_EXTRACT_BYTES: usize = 100 * 1024 * 1024; // 100 MB
+// ── Configurable limits ──────────────────────────────────────────────────────
 
 /// Maximum bytes read from a single file to check for binary content.
 const BINARY_PROBE_BYTES: usize = 8 * 1024; // 8 KB
 
-/// Maximum individual file size to attempt text extraction on.
-///
-/// Files larger than this are treated as binary regardless of extension to
-/// avoid reading huge uncompressed data into memory.
-const MAX_SINGLE_FILE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+/// Default maximum cumulative uncompressed bytes to extract (1 GB).
+const DEFAULT_MAX_EXTRACT_BYTES: usize = 1024 * 1024 * 1024;
+
+/// Default maximum individual file size for text extraction (50 MB).
+const DEFAULT_MAX_SINGLE_FILE_BYTES: usize = 50 * 1024 * 1024;
+
+/// Read a limit from an env var, falling back to the provided default.
+fn env_limit(var: &str, default: usize) -> usize {
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+/// Runtime-resolved extraction limits.
+struct Limits {
+    max_extract_bytes: usize,
+    max_single_file_bytes: usize,
+}
+
+impl Limits {
+    fn from_env() -> Self {
+        Self {
+            max_extract_bytes: env_limit("ARCHIVE_MAX_EXTRACT_BYTES", DEFAULT_MAX_EXTRACT_BYTES),
+            max_single_file_bytes: env_limit(
+                "ARCHIVE_MAX_SINGLE_FILE_BYTES",
+                DEFAULT_MAX_SINGLE_FILE_BYTES,
+            ),
+        }
+    }
+}
 
 // ── Known binary extensions ───────────────────────────────────────────────────
 
@@ -61,9 +81,11 @@ const BINARY_EXTENSIONS: &[&str] = &[
 
 /// Adapter for extracting text content from archive files.
 ///
-/// Enumerates all entries, reads text files (UTF-8, ≤ 10 MB), and skips
-/// binary files. Produces a structured text output with per-file sections
-/// plus a JSON metadata listing every entry.
+/// Enumerates all entries, reads text files (UTF-8), and skips binary files.
+/// Produces a structured text output with per-file sections plus a JSON
+/// metadata listing every entry. Per-file and total extraction byte limits
+/// are configurable via `ARCHIVE_MAX_SINGLE_FILE_BYTES` and
+/// `ARCHIVE_MAX_EXTRACT_BYTES` environment variables.
 pub struct ArchiveAdapter;
 
 /// Detected archive format.
@@ -144,7 +166,7 @@ impl ArchiveAdapter {
     }
 
     /// Extract text and entry metadata from a ZIP archive.
-    fn extract_zip(data: &[u8]) -> Result<ExtractOutput> {
+    fn extract_zip(data: &[u8], limits: &Limits) -> Result<ExtractOutput> {
         let cursor = Cursor::new(data);
         let mut archive = zip::ZipArchive::new(cursor)
             .map_err(|e| matric_core::Error::Internal(format!("Failed to open zip: {e}")))?;
@@ -155,10 +177,6 @@ impl ArchiveAdapter {
         let file_count = archive.len();
 
         for i in 0..file_count {
-            if entries.len() >= MAX_FILES {
-                break;
-            }
-
             let mut file = archive
                 .by_index(i)
                 .map_err(|e| matric_core::Error::Internal(format!("Zip index error: {e}")))?;
@@ -179,7 +197,7 @@ impl ArchiveAdapter {
             }
 
             // Size guard
-            if size as usize > MAX_SINGLE_FILE_BYTES {
+            if size as usize > limits.max_single_file_bytes {
                 entries.push(EntryInfo {
                     name,
                     size,
@@ -191,7 +209,7 @@ impl ArchiveAdapter {
             }
 
             // Total budget guard
-            if total_extracted >= MAX_EXTRACT_BYTES {
+            if total_extracted >= limits.max_extract_bytes {
                 entries.push(EntryInfo {
                     name,
                     size,
@@ -242,7 +260,7 @@ impl ArchiveAdapter {
     }
 
     /// Extract text and entry metadata from a Tar archive (plain or gzip-compressed).
-    fn extract_tar(data: &[u8], gzipped: bool) -> Result<ExtractOutput> {
+    fn extract_tar(data: &[u8], gzipped: bool, limits: &Limits) -> Result<ExtractOutput> {
         let mut entries: Vec<EntryInfo> = Vec::new();
         let mut texts: Vec<(String, String)> = Vec::new();
         let mut total_extracted: usize = 0;
@@ -253,16 +271,14 @@ impl ArchiveAdapter {
             entries: &mut Vec<EntryInfo>,
             texts: &mut Vec<(String, String)>,
             total_extracted: &mut usize,
+            max_single_file_bytes: usize,
+            max_extract_bytes: usize,
         ) -> Result<()> {
             let tar_entries = archive
                 .entries()
                 .map_err(|e| matric_core::Error::Internal(format!("Tar read error: {e}")))?;
 
             for entry_result in tar_entries {
-                if entries.len() >= MAX_FILES {
-                    break;
-                }
-
                 let mut entry = entry_result
                     .map_err(|e| matric_core::Error::Internal(format!("Tar entry error: {e}")))?;
 
@@ -286,7 +302,7 @@ impl ArchiveAdapter {
                 }
 
                 // Size guard
-                if size as usize > MAX_SINGLE_FILE_BYTES {
+                if size as usize > max_single_file_bytes {
                     entries.push(EntryInfo {
                         name: path,
                         size,
@@ -298,7 +314,7 @@ impl ArchiveAdapter {
                 }
 
                 // Budget guard
-                if *total_extracted >= MAX_EXTRACT_BYTES {
+                if *total_extracted >= max_extract_bytes {
                     entries.push(EntryInfo {
                         name: path,
                         size,
@@ -349,10 +365,24 @@ impl ArchiveAdapter {
         if gzipped {
             let gz = GzDecoder::new(Cursor::new(data));
             let mut archive = tar::Archive::new(gz);
-            process(&mut archive, &mut entries, &mut texts, &mut total_extracted)?;
+            process(
+                &mut archive,
+                &mut entries,
+                &mut texts,
+                &mut total_extracted,
+                limits.max_single_file_bytes,
+                limits.max_extract_bytes,
+            )?;
         } else {
             let mut archive = tar::Archive::new(Cursor::new(data));
-            process(&mut archive, &mut entries, &mut texts, &mut total_extracted)?;
+            process(
+                &mut archive,
+                &mut entries,
+                &mut texts,
+                &mut total_extracted,
+                limits.max_single_file_bytes,
+                limits.max_extract_bytes,
+            )?;
         }
 
         Ok((entries, texts))
@@ -481,18 +511,19 @@ impl ExtractionAdapter for ArchiveAdapter {
         }
 
         let format = Self::detect_format(mime_type, filename);
+        let limits = Limits::from_env();
 
         match format {
             ArchiveFormat::Zip => {
-                let (entries, texts) = Self::extract_zip(data)?;
+                let (entries, texts) = Self::extract_zip(data, &limits)?;
                 Ok(Self::build_result(filename, "zip", entries, texts))
             }
             ArchiveFormat::TarGz => {
-                let (entries, texts) = Self::extract_tar(data, true)?;
+                let (entries, texts) = Self::extract_tar(data, true, &limits)?;
                 Ok(Self::build_result(filename, "tar.gz", entries, texts))
             }
             ArchiveFormat::Tar => {
-                let (entries, texts) = Self::extract_tar(data, false)?;
+                let (entries, texts) = Self::extract_tar(data, false, &limits)?;
                 Ok(Self::build_result(filename, "tar", entries, texts))
             }
             ArchiveFormat::Unsupported(fmt) => {
@@ -756,9 +787,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_zip_max_files_limit() {
-        // Create an archive with MAX_FILES + 10 small text files
-        let file_count = MAX_FILES + 10;
+    async fn test_zip_large_file_count() {
+        // Verify archives with many files are fully extracted (no file count cap)
+        let file_count = 2_000;
         let entries: Vec<(String, Vec<u8>)> = (0..file_count)
             .map(|i| (format!("file_{:04}.txt", i), b"x".to_vec()))
             .collect();
@@ -781,13 +812,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Should not exceed MAX_FILES
         let listed = result.metadata["files"].as_array().unwrap().len();
-        assert!(
-            listed <= MAX_FILES,
-            "Listed {} files, expected at most {}",
-            listed,
-            MAX_FILES
+        assert_eq!(
+            listed, file_count,
+            "All {} files should be listed, got {}",
+            file_count, listed
         );
     }
 

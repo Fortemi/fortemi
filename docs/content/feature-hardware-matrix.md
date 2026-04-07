@@ -122,7 +122,7 @@ Provider-qualified model slugs route requests: `ollama:qwen3.5:9b`, `openai:gpt-
 | Office documents (DOCX, PPTX, etc.) | N/A | None | `pandoc` | CPU only; 120s timeout |
 | Email extraction (.eml, .mbox) | N/A | None | None | Pure Rust (mailparse) |
 | Spreadsheet extraction (.xlsx, .xls, .ods) | N/A | None | None | Pure Rust (calamine) |
-| Archive extraction (.zip, .tar, .gz) | N/A | None | None | Pure Rust; max 1000 files, 100MB total |
+| Archive extraction (.zip, .tar, .gz) | N/A | None | None | Pure Rust; configurable limits via env vars |
 | Code AST parsing | N/A | None | None | Pure Rust |
 
 ### Media Processing
