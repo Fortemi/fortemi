@@ -2,12 +2,16 @@
 set -euo pipefail
 
 # Generate .env configuration for Fortémi Docker bundle
-# Params: INSTALL_DIR, DOMAIN, PROTOCOL, COMPOSE_PROFILES, OLLAMA_GEN_MODEL, DATA_DIR
+# Params: INSTALL_DIR, DOMAIN, PROTOCOL, COMPOSE_PROFILES, INFERENCE_PROVIDER,
+#         OLLAMA_GEN_MODEL, OLLAMA_EMBED_MODEL, OPENAI_API_KEY,
+#         OPENROUTER_API_KEY, LLAMACPP_BASE_URL, DATA_DIR
 
 INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 DOMAIN="${DOMAIN:-localhost}"
 COMPOSE_PROFILES="${COMPOSE_PROFILES:-edge}"
+INFERENCE_PROVIDER="${INFERENCE_PROVIDER:-ollama}"
 OLLAMA_GEN_MODEL="${OLLAMA_GEN_MODEL:-qwen3.5:9b}"
+OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 DATA_DIR="${DATA_DIR:-${INSTALL_DIR}/data}"
 
 # Smart protocol default: http for localhost, https otherwise
@@ -27,7 +31,7 @@ if [ -f "${ENV_FILE}" ]; then
 fi
 
 # Create data directories
-if ! mkdir -p "${DATA_DIR}/postgres" "${DATA_DIR}/redis" "${DATA_DIR}/uploads" "${DATA_DIR}/ollama" 2>/dev/null; then
+if ! mkdir -p "${DATA_DIR}/postgres" "${DATA_DIR}/redis" "${DATA_DIR}/uploads" 2>/dev/null; then
     echo "ERROR: Cannot create ${DATA_DIR} — permission denied."
     echo "Either run as root, or set DATA_DIR to a writable path:"
     echo "  DATA_DIR=~/fortemi-data aiwg setup-run"
@@ -44,21 +48,61 @@ ISSUER_URL=${PROTOCOL}://${DOMAIN}
 # Hardware profile: edge | gpu-12gb | gpu-24gb
 COMPOSE_PROFILES=${COMPOSE_PROFILES}
 
-# Generation + vision model
-OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL}
+# Inference provider: ollama | openai | openrouter | llamacpp
+MATRIC_INFERENCE_DEFAULT=${INFERENCE_PROVIDER}
 
 # Data persistence
 PGDATA=${DATA_DIR}/postgres
 REDIS_DATA=${DATA_DIR}/redis
 UPLOAD_DIR=${DATA_DIR}/uploads
-OLLAMA_DATA=${DATA_DIR}/ollama
 
 # Authentication (default: open — enable after registering clients)
 REQUIRE_AUTH=false
 EOF
 
+# Append provider-specific configuration
+case "${INFERENCE_PROVIDER}" in
+    ollama)
+        cat >> "${ENV_FILE}" <<EOF
+
+# Ollama (local inference — runs on the host, not in Docker)
+OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL}
+OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL}
+EOF
+        ;;
+    openai)
+        cat >> "${ENV_FILE}" <<EOF
+
+# OpenAI (cloud inference — no local GPU required)
+OPENAI_API_KEY=${OPENAI_API_KEY:-}
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_GEN_MODEL=gpt-4o-mini
+# OPENAI_EMBED_MODEL=text-embedding-3-small
+EOF
+        ;;
+    openrouter)
+        cat >> "${ENV_FILE}" <<EOF
+
+# OpenRouter (cloud gateway — 100+ models via a single API)
+OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+EOF
+        ;;
+    llamacpp)
+        cat >> "${ENV_FILE}" <<EOF
+
+# llama.cpp (local HTTP server with OpenAI-compatible protocol)
+LLAMACPP_BASE_URL=${LLAMACPP_BASE_URL:-http://127.0.0.1:8080}
+# LLAMACPP_API_KEY=
+EOF
+        ;;
+esac
+
 echo "Configuration written to ${ENV_FILE}"
 echo "  URL:      ${PROTOCOL}://${DOMAIN}"
 echo "  Profile:  ${COMPOSE_PROFILES}"
-echo "  Model:    ${OLLAMA_GEN_MODEL}"
+echo "  Provider: ${INFERENCE_PROVIDER}"
+if [ "${INFERENCE_PROVIDER}" = "ollama" ]; then
+    echo "  Model:    ${OLLAMA_GEN_MODEL}"
+fi
 echo "  Data dir: ${DATA_DIR}"

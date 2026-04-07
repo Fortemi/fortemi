@@ -3,10 +3,12 @@ kind: SetupManifest
 metadata:
   name: fortemi
   version: 2026.4.0
+  install_type: user
   description: >-
     Install Fortémi — AI-enhanced knowledge base with semantic search,
     automatic linking, and NLP pipelines. Deploys via Docker Compose bundle
-    with PostgreSQL, Redis, Ollama, and MCP server.
+    with PostgreSQL, Redis, and MCP server. Supports multiple inference
+    providers: Ollama (default, local GPU), OpenAI, OpenRouter, or llama.cpp.
 
 platform:
   os: [linux, macos]
@@ -38,15 +40,50 @@ params:
     description: Protocol for OAuth/API URLs. Defaults to http for localhost.
 
   - name: COMPOSE_PROFILES
-    type: string
+    type: choice
+    choices: [edge, gpu-12gb, gpu-24gb]
     default: edge
     description: >-
-      Hardware profile — edge (6-8GB VRAM), gpu-12gb, or gpu-24gb
+      Hardware profile — edge (6-8GB VRAM), gpu-12gb (12-16GB), or gpu-24gb (24GB+).
+      GPU profiles only apply to local inference (Ollama/llama.cpp).
 
+  - name: INFERENCE_PROVIDER
+    type: choice
+    choices: [ollama, openai, openrouter, llamacpp]
+    default: ollama
+    description: >-
+      Primary inference provider. Ollama (default) runs locally on the host GPU.
+      OpenAI and OpenRouter are cloud APIs (no local GPU required).
+      llama.cpp uses a local HTTP server with OpenAI-compatible protocol.
+
+  # ── Ollama params (when INFERENCE_PROVIDER=ollama) ──────────────────────
   - name: OLLAMA_GEN_MODEL
     type: string
     default: "qwen3.5:9b"
-    description: Ollama generation/vision model
+    description: Ollama generation/vision model (natively multimodal)
+
+  - name: OLLAMA_EMBED_MODEL
+    type: string
+    default: "nomic-embed-text"
+    description: Ollama embedding model for semantic search
+
+  # ── OpenAI params (when INFERENCE_PROVIDER=openai) ─────────────────────
+  - name: OPENAI_API_KEY
+    type: string
+    default: ""
+    description: OpenAI API key (required when using openai provider)
+
+  # ── OpenRouter params (when INFERENCE_PROVIDER=openrouter) ─────────────
+  - name: OPENROUTER_API_KEY
+    type: string
+    default: ""
+    description: OpenRouter API key (required when using openrouter provider)
+
+  # ── llama.cpp params (when INFERENCE_PROVIDER=llamacpp) ────────────────
+  - name: LLAMACPP_BASE_URL
+    type: string
+    default: ""
+    description: llama.cpp server URL (e.g., http://127.0.0.1:8080)
 
   - name: DATA_DIR
     type: path
@@ -54,11 +91,15 @@ params:
     description: Persistent data directory (PostgreSQL, Redis, uploads)
 
 prerequisites:
-  - detect: "command -v git"
+  - name: git
+    detect: "command -v git"
     version_min: "2.30"
-    install_hint: "Install git: sudo apt-get install -y git"
+    install_hint: |
+      Linux: sudo apt-get install -y git
+      macOS: xcode-select --install (or brew install git)
 
-  - detect: "docker version --format '{{.Server.Version}}' 2>/dev/null"
+  - name: docker
+    detect: "docker version --format '{{.Server.Version}}' 2>/dev/null"
     version_min: "24.0"
     install_hint: |
       Linux: https://docs.docker.com/engine/install/
@@ -66,14 +107,42 @@ prerequisites:
       Then add your user to the docker group: sudo usermod -aG docker $USER
       Log out and back in for the group change to take effect.
 
-  - detect: "docker compose version 2>/dev/null"
+  - name: docker-compose
+    detect: "docker compose version --short 2>/dev/null"
     version_min: "2.20"
     install_hint: "Docker Compose v2 is required (bundled with Docker Desktop or docker-compose-plugin)"
 
-  - detect: "command -v curl"
+  - name: curl
+    detect: "command -v curl"
     install_hint: |
       Linux: sudo apt-get install -y curl
       macOS: brew install curl (or use system curl)
+
+  - name: ollama
+    detect: "curl -sf http://localhost:11434/api/version 2>/dev/null | grep -o '\"version\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4"
+    version_min: "0.6"
+    when: "test ${INFERENCE_PROVIDER} = ollama"
+    install_hint: |
+      Ollama runs on the host (not inside Docker). Install from https://ollama.com
+      Linux: curl -fsSL https://ollama.com/install.sh | sh
+      macOS: brew install ollama
+
+  - name: openai-api-key
+    detect: "test -n \"${OPENAI_API_KEY}\" && echo valid"
+    when: "test ${INFERENCE_PROVIDER} = openai"
+    install_hint: "Set OPENAI_API_KEY. Get a key at https://platform.openai.com/api-keys"
+
+  - name: openrouter-api-key
+    detect: "test -n \"${OPENROUTER_API_KEY}\" && echo valid"
+    when: "test ${INFERENCE_PROVIDER} = openrouter"
+    install_hint: "Set OPENROUTER_API_KEY. Get a key at https://openrouter.ai/keys"
+
+  - name: llamacpp-server
+    detect: "curl -sf ${LLAMACPP_BASE_URL}/v1/models 2>/dev/null | head -c 1"
+    when: "test ${INFERENCE_PROVIDER} = llamacpp"
+    install_hint: |
+      Start a llama.cpp server: llama-server -m your-model.gguf --port 8080
+      Or see https://github.com/ggml-org/llama.cpp/blob/master/examples/server/README.md
 
   - name: disk-space
     detect: "df --output=avail -BG / 2>/dev/null | tail -1 | tr -d ' G' || df -g / | tail -1 | awk '{print $4}'"
@@ -121,16 +190,17 @@ steps:
 
   - id: pull-models
     type: script
-    description: Pull Ollama models (may take several minutes)
+    description: Pull Ollama models via host Ollama (may take several minutes)
     script: installer/scripts/pull-models.sh
     depends_on: [deploy]
-    verify: "docker compose -f ${INSTALL_DIR}/docker-compose.bundle.yml exec ollama ollama list 2>/dev/null | grep -q ${OLLAMA_GEN_MODEL%%:*}"
+    when: "test ${INFERENCE_PROVIDER} = ollama"
+    verify: "curl -sf http://localhost:11434/api/tags 2>/dev/null | grep -q ${OLLAMA_GEN_MODEL%%:*}"
 
   - id: verify
     type: script
     description: Verify all services are healthy
     script: installer/scripts/verify.sh
-    depends_on: [pull-models]
+    depends_on: [deploy]
 
 recovery_procedures:
   - id: full-reset

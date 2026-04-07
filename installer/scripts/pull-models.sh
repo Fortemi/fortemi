@@ -1,45 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pull Ollama models after deployment
-# Params: INSTALL_DIR, OLLAMA_GEN_MODEL
+# Pull Ollama models on the host (Ollama runs on the host, not in the Docker bundle)
+# Params: INSTALL_DIR, OLLAMA_GEN_MODEL, OLLAMA_EMBED_MODEL
 
 INSTALL_DIR="${INSTALL_DIR:?INSTALL_DIR is required}"
 OLLAMA_GEN_MODEL="${OLLAMA_GEN_MODEL:-qwen3.5:9b}"
+OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 
-cd "${INSTALL_DIR}"
-
-# Find the ollama container
-OLLAMA_CONTAINER=$(docker compose -f docker-compose.bundle.yml ps -q ollama 2>/dev/null || true)
-
-if [ -z "${OLLAMA_CONTAINER}" ]; then
-    echo "WARNING: Ollama container not found — skipping model pull."
-    echo "Models will be downloaded on first API request."
-    exit 0
-fi
-
-# Wait for Ollama to be ready
-echo "Waiting for Ollama to be ready..."
-RETRIES=15
-until docker exec "${OLLAMA_CONTAINER}" ollama list &>/dev/null; do
-    RETRIES=$((RETRIES - 1))
-    if [ "${RETRIES}" -le 0 ]; then
-        echo "WARNING: Ollama not responding — skipping model pull."
-        echo "Models will be downloaded on first API request."
+# Check if Ollama is running on the host
+if ! curl -sf http://localhost:11434/api/version &>/dev/null; then
+    if command -v ollama &>/dev/null; then
+        echo "Ollama is installed but not running. Starting..."
+        ollama serve &>/dev/null &
+        sleep 3
+        if ! curl -sf http://localhost:11434/api/version &>/dev/null; then
+            echo "WARNING: Could not start Ollama — skipping model pull."
+            echo "Start Ollama manually and pull models:"
+            echo "  ollama pull ${OLLAMA_GEN_MODEL}"
+            echo "  ollama pull ${OLLAMA_EMBED_MODEL}"
+            exit 0
+        fi
+    else
+        echo "WARNING: Ollama not found — skipping model pull."
+        echo "Install Ollama from https://ollama.com and then pull models:"
+        echo "  ollama pull ${OLLAMA_GEN_MODEL}"
+        echo "  ollama pull ${OLLAMA_EMBED_MODEL}"
         exit 0
     fi
-    sleep 2
-done
+fi
 
 echo "Pulling ${OLLAMA_GEN_MODEL} (this may take several minutes)..."
-docker exec "${OLLAMA_CONTAINER}" ollama pull "${OLLAMA_GEN_MODEL}"
+ollama pull "${OLLAMA_GEN_MODEL}"
 
 # Also pull the embedding model if different
-EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
-if [ "${EMBED_MODEL}" != "${OLLAMA_GEN_MODEL}" ]; then
-    echo "Pulling embedding model ${EMBED_MODEL}..."
-    docker exec "${OLLAMA_CONTAINER}" ollama pull "${EMBED_MODEL}"
+if [ "${OLLAMA_EMBED_MODEL}" != "${OLLAMA_GEN_MODEL}" ]; then
+    echo "Pulling embedding model ${OLLAMA_EMBED_MODEL}..."
+    ollama pull "${OLLAMA_EMBED_MODEL}"
 fi
 
 echo "Models ready."
-docker exec "${OLLAMA_CONTAINER}" ollama list
+ollama list
