@@ -47,7 +47,7 @@ Phases 2 and 3 can run in parallel after Phase 1 completes. Phase 5 requires bot
 
 ## Phase 0: Foundation (Iteration 1-2)
 
-**Goal**: Add ECDSA secp256k1 and Ed25519 signing to matric-crypto (non-MPC, single-key operations).
+**Goal**: Add secp256k1 + Ed25519 signing primitives to matric-crypto (non-MPC, single-key operations), with a clear split: secp256k1 ECDSA for Roko receipt verification and secp256k1/Ed25519 Schnorr-family signing in MPC flows.
 
 ### Deliverables
 
@@ -56,15 +56,15 @@ Phases 2 and 3 can run in parallel after Phase 1 completes. Phase 5 requires bot
 ```
 crates/matric-crypto/src/signing/
     mod.rs          # Public API, re-exports
-    secp256k1.rs    # ECDSA secp256k1 sign/verify
+    secp256k1.rs    # secp256k1 helpers (ECDSA verify/recover + Schnorr verify support)
     ed25519.rs      # Ed25519 sign/verify
     address.rs      # Ethereum address derivation (0x format)
     domain.rs       # Domain separation constants
 ```
 
-- `secp256k1::sign(message, private_key, domain_tag) -> Signature` -- deterministic ECDSA per RFC 6979
-- `secp256k1::verify(message, signature, public_key) -> Result<()>`
-- `secp256k1::recover(message, signature) -> Result<PublicKey>` -- ecrecover for receipt verification
+- `secp256k1::verify_ecdsa(message, signature, public_key) -> Result<()>`
+- `secp256k1::recover_ecdsa(message, signature) -> Result<PublicKey>` -- ecrecover for Roko receipt verification
+- `secp256k1::verify_schnorr(message, signature, public_key) -> Result<()>` -- for FROST secp256k1 signatures
 - `ed25519::sign(message, keypair) -> Signature`
 - `ed25519::verify(message, signature, public_key) -> Result<()>`
 - `ethereum_address(secp256k1_pubkey) -> [u8; 20]` -- keccak256 of uncompressed pubkey, last 20 bytes
@@ -118,7 +118,7 @@ None. This is foundation work that extends matric-crypto without modifying exist
 
 ## Phase 1: FROST MPC Core (Iteration 3-5)
 
-**Goal**: Implement FROST DKG and threshold signing using the `frost-secp256k1` and `frost-ed25519` crates.
+**Goal**: Implement FROST DKG and threshold signing using the `frost-secp256k1-tr` and `frost-ed25519` crates.
 
 ### Deliverables
 
@@ -199,7 +199,7 @@ CREATE TABLE mpc_ceremonies (
 | `GET` | `/api/v1/mpc/wallets/{id}` | Get wallet details |
 
 **Crate dependencies (new)**:
-- `frost-secp256k1` (FROST for secp256k1)
+- `frost-secp256k1-tr` (FROST Schnorr on secp256k1, Taproot-compatible)
 - `frost-ed25519` (FROST for Ed25519)
 - `frost-core` (shared FROST types)
 
@@ -613,6 +613,6 @@ Phase 4 (Roko temporal bridge for time-locked recovery).
 | `ed25519-dalek` | 0 | Ed25519 signatures |
 | `sha3` | 0 | keccak256 for Ethereum address derivation |
 | `frost-core` | 1 | Shared FROST types |
-| `frost-secp256k1` | 1 | FROST threshold signatures on secp256k1 |
+| `frost-secp256k1-tr` | 1 | FROST Schnorr threshold signatures on secp256k1 |
 | `frost-ed25519` | 1 | FROST threshold signatures on Ed25519 |
 | `jsonrpsee` | 4 | Roko RPC client (behind `roko-rpc` feature flag) |

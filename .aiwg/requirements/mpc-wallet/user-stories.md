@@ -310,7 +310,7 @@
 **Story**: As a user, I want to sign data with my identity using threshold signing so that others can verify I authored or approved content without any single device being a point of compromise.
 
 **Acceptance Criteria**:
-- Signing accepts arbitrary byte payloads and produces a standard signature (ECDSA for secp256k1, EdDSA for Ed25519).
+- Signing accepts arbitrary byte payloads and produces a standard signature (BIP-340-compatible Schnorr for secp256k1, EdDSA for Ed25519).
 - The signature is verifiable using the user's aggregate public key (standard verification, no threshold-aware verifier needed).
 - User selects which curve to sign with based on use case (secp256k1 for Roko operations, Ed25519 for general purpose).
 - Signing requires 2-of-3 device quorum and fails cleanly if quorum is unavailable.

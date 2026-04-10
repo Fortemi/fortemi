@@ -70,7 +70,7 @@ DeviceCert {
   wallet_pubkey: [u8; 32],       // Issuing MPC wallet Ed25519 pubkey
   device_pubkey: [u8; 32],       // Device's Ed25519 public key
   device_id: [u8; 16],          // Unique device identifier (UUID)
-  capabilities: u32,             // Bitfield: SIGN_NOTES | SIGN_TRUST | ENROLL_DEVICE | ADMIN
+  capabilities: u32,             // Bitfield: SIGN_NOTES | SIGN_TRUST | ENROLL_DEVICE | REVOKE_DEVICE | READ_ONLY | ROKO_ANCHOR
   issued_at: i64,               // Unix timestamp
   expires_at: i64,              // Unix timestamp
   extensions: Map<i32, Value>,   // Optional CBOR map for future fields
@@ -84,7 +84,7 @@ DeviceCert {
 |-----------|-------------|-----------|
 | Simplicity | 5 | Minimal fields, no abstraction layers, no schema resolution. A single Rust struct with serde derives. The entire implementation fits in one file. No external specification to comply with — the struct IS the specification. |
 | Verification speed | 5 | Single Ed25519 signature verification (~50-80us). No certificate chain traversal, no extension parsing on the hot path. Deserialize CBOR (~5us) + verify signature (~70us) = ~75us total. |
-| Expressiveness | 4 | Capability bitfield covers the known permission model (sign notes, sign trust, enroll devices, admin). Extension map allows adding fields without version bump. Limitation: bitfield caps at 32 capabilities without extending to u64. |
+| Expressiveness | 4 | Capability bitfield covers the known permission model (sign notes, sign trust, enroll/revoke devices, read-only, Roko anchor). Extension map allows adding fields without version bump. Limitation: bitfield caps at 32 capabilities without extending to u64. |
 | Standards alignment | 2 | Proprietary format. Not recognizable by any standard certificate tooling. Cannot be inspected with `openssl`, imported into keystores, or validated by generic verifiers. |
 | Size | 5 | ~185 bytes with CBOR encoding (no extensions). Smallest possible representation for the required fields. |
 
@@ -190,10 +190,9 @@ The capability bitfield (u32) provides 32 discrete permissions, which is suffici
 | 1 | `SIGN_TRUST` | Create trust attestations |
 | 2 | `ENROLL_DEVICE` | Enroll new devices (requires MPC co-sign) |
 | 3 | `REVOKE_DEVICE` | Revoke other device certificates |
-| 4 | `ADMIN` | Full administrative access |
-| 5 | `READ_ONLY` | Read access without signing capability |
-| 6 | `ROKO_ANCHOR` | Submit temporal anchoring requests to Roko |
-| 7-31 | Reserved | Future capabilities |
+| 4 | `READ_ONLY` | Read access without signing capability |
+| 5 | `ROKO_ANCHOR` | Submit temporal anchoring requests to Roko |
+| 6-31 | Reserved | Future capabilities |
 
 ---
 
@@ -215,7 +214,7 @@ The capability bitfield (u32) provides 32 discrete permissions, which is suffici
 
 ### Neutral
 
-- **Expiry enforces rotation**: The `expires_at` field ensures device certificates have a bounded lifetime. Recommended default: 90 days. Devices must periodically request re-certification from the MPC wallet, which serves as a natural key rotation trigger.
+- **Expiry enforces rotation**: The `expires_at` field ensures device certificates have a bounded lifetime. Recommended default: 24 hours (max configurable 72 hours). Devices periodically request re-certification from the MPC wallet.
 - **Extension map provides escape hatch**: The CBOR extension map (`Map<i32, Value>`) allows adding fields without a format version bump. New capabilities beyond the u32 bitfield, device attestation data (TPM quotes), or platform-specific metadata can be added as extensions. Parsers that don't understand an extension simply skip it.
 - **No on-chain storage**: DeviceCerts are not stored on Roko. They are local credentials verified against the MPC wallet public key (which may be anchored on Roko). This keeps the certificate model independent of blockchain storage costs and latency.
 
@@ -245,9 +244,8 @@ bitflags! {
         const SIGN_TRUST    = 0b0000_0010;
         const ENROLL_DEVICE = 0b0000_0100;
         const REVOKE_DEVICE = 0b0000_1000;
-        const ADMIN         = 0b0001_0000;
-        const READ_ONLY     = 0b0010_0000;
-        const ROKO_ANCHOR   = 0b0100_0000;
+        const READ_ONLY     = 0b0001_0000;
+        const ROKO_ANCHOR   = 0b0010_0000;
     }
 }
 

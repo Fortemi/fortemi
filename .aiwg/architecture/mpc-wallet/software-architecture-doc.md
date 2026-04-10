@@ -174,11 +174,11 @@ The same private key is never used for both signing and encryption. This prevent
 
 ### ASR-4: Temporal Anchoring via Roko Receipts
 
-**Statement**: All trust-mutating operations (trust attestation creation, revocation, device cert issuance) MUST be anchored to a Roko temporal receipt before being considered committed.
+**Statement**: Trust-mutating operations (trust attestation creation, revocation, device cert issuance) MUST commit locally first and then transition through explicit anchor states: `pending_anchor`, `anchored`, or `anchor_failed`.
 
-**Rationale**: Temporal receipts provide an immutable, consensus-backed timestamp that prevents backdating trust attestations. The `TemporalReceiptPayload` with its 18 fields (including `time_quality`, `convergence_state`, `mesh_offset_ns`) provides cryptographic proof of when the trust event occurred.
+**Rationale**: Temporal receipts provide an immutable, consensus-backed timestamp that prevents backdating trust attestations when available. Local-first commit avoids coupling trust/device operations to Roko liveness and supports air-gapped or partitioned operation.
 
-**Verification**: Integration test asserting that trust attestations without valid `temporal_receipt_id` foreign keys are rejected at the API layer.
+**Verification**: Integration tests assert state transitions: create -> `pending_anchor`; successful anchor -> `anchored`; repeated failures -> `anchor_failed` with retry metadata.
 
 ### ASR-5: PKE Backward Compatibility
 
@@ -296,7 +296,7 @@ matric-roko
 CREATE TABLE mpc_share_metadata (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_public_key BYTEA NOT NULL,          -- 33 bytes compressed secp256k1
-  group_address TEXT NOT NULL,              -- mm: address of the group key
+  group_address TEXT NOT NULL,              -- mw: address of the group key
   curve TEXT NOT NULL CHECK (curve IN ('secp256k1', 'ed25519')),
   threshold SMALLINT NOT NULL,              -- t (e.g., 2)
   total_shares SMALLINT NOT NULL,           -- n (e.g., 3)
@@ -318,7 +318,7 @@ CREATE TABLE device_certs (
   device_name TEXT NOT NULL,
   device_public_key_signing BYTEA NOT NULL,  -- Ed25519 public key (32 bytes)
   device_public_key_encryption BYTEA,        -- X25519 public key (32 bytes), optional
-  issuer_group_address TEXT NOT NULL,         -- mm: address of issuing MPC wallet
+  issuer_group_address TEXT NOT NULL,         -- mw: address of issuing MPC wallet
   certificate_bytes BYTEA NOT NULL,          -- Signed certificate blob
   not_before TIMESTAMPTZ NOT NULL,
   not_after TIMESTAMPTZ NOT NULL,
@@ -337,8 +337,8 @@ CREATE INDEX idx_device_certs_expiry ON device_certs(not_after) WHERE revoked_at
 ```sql
 CREATE TABLE trust_attestations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  trustor_address TEXT NOT NULL,             -- mm: address of user granting trust
-  trustee_address TEXT NOT NULL,             -- mm: address of user being trusted
+  trustor_address TEXT NOT NULL,             -- mw: address of user granting trust
+  trustee_address TEXT NOT NULL,             -- mw: address of user being trusted
   trust_level TEXT NOT NULL CHECK (trust_level IN ('identity', 'content', 'full')),
   attestation_bytes BYTEA NOT NULL,          -- Signed attestation blob
   context TEXT,                              -- Optional: "verified in person", "via video call"
@@ -435,7 +435,7 @@ The DKG ceremony creates a distributed identity across a user's devices. It runs
 
 #### 4.2.2 Threshold Signing (2-Round FROST)
 
-FROST signing produces a standard Schnorr (Ed25519) or ECDSA (secp256k1) signature that is indistinguishable from a single-signer signature. Any 2 of 3 share holders can participate.
+FROST signing produces a standard Schnorr-family signature (Ed25519 or secp256k1/BIP-340 compatible) that is indistinguishable from a single-signer signature. Any 2 of 3 share holders can participate.
 
 **Round 1 — Preprocessing (Commitment)**:
 1. Coordinator broadcasts signing request with message hash.
@@ -503,7 +503,7 @@ After commissioning, the vast majority of operations use device-local keys with 
 
 | Crate | Responsibility | Dependencies |
 |-------|---------------|--------------|
-| `matric-crypto` | Cryptographic primitives: PKE (existing), MPC (new), signing (new), identity derivation (new) | `frost-secp256k1`, `frost-ed25519`, `k256`, `ed25519-dalek`, existing deps |
+| `matric-crypto` | Cryptographic primitives: PKE (existing), MPC (new), signing (new), identity derivation (new) | `frost-secp256k1-tr`, `frost-ed25519`, `k256`, `ed25519-dalek`, existing deps |
 | `matric-trust` | Trust logic: attestation model, device cert lifecycle, revocation, trust graph queries | `matric-crypto`, `matric-roko` |
 | `matric-roko` | Roko Network bridge: RPC client, receipt types, verification | `matric-crypto` (signing only), `jsonrpsee` |
 | `matric-db` | Database repositories for new tables | `matric-trust` types, `matric-roko` types, `sqlx` |
@@ -549,7 +549,7 @@ New functionality behind Cargo feature flags for incremental adoption:
 default = ["pke"]  # Existing PKE only
 pke = []           # X25519/AES-256-GCM encryption (existing)
 mpc = ["frost"]    # FROST DKG + threshold signing
-frost = ["dep:frost-secp256k1", "dep:frost-ed25519"]
+frost = ["dep:frost-secp256k1-tr", "dep:frost-ed25519"]
 trust = ["mpc"]    # Trust attestations + device certs (requires MPC)
 roko = ["dep:jsonrpsee-client"]  # Roko Network bridge
 full = ["pke", "mpc", "trust", "roko"]
@@ -872,7 +872,7 @@ receipt_hash: 32 bytes (BLAKE2-256 of temporal receipt)
 
 | Crate | Version | Purpose | Audit Status |
 |-------|---------|---------|-------------|
-| `frost-secp256k1` | 2.x | FROST DKG + threshold signing for secp256k1 | ZCash Foundation maintained, audited |
+| `frost-secp256k1-tr` | 2.x | FROST DKG + threshold signing for secp256k1 Schnorr | ZCash Foundation maintained, audited |
 | `frost-ed25519` | 2.x | FROST DKG + threshold signing for Ed25519 | ZCash Foundation maintained, audited |
 | `frost-core` | 2.x | Shared FROST traits and types | ZCash Foundation maintained, audited |
 | `k256` | 0.13 | secp256k1 curve operations (single-device ECDSA) | RustCrypto, widely audited |
@@ -913,7 +913,7 @@ receipt_hash: 32 bytes (BLAKE2-256 of temporal receipt)
 | Domain-separated key derivation | Separate HKDF contexts per curve and purpose: `"fortemi-mpc-secp256k1-signing"`, `"fortemi-mpc-ed25519-signing"`, `"fortemi-device-x25519-encryption"`. |
 | Short-lived device certificates | Max 24h validity. Automatic renewal. No need for revocation distribution infrastructure. |
 | No sign+encrypt with same key | Type system enforces separation: `SigningKey` and `EncryptionKey` are distinct types with no conversion path. |
-| Temporal anchoring | All trust mutations require a valid Roko temporal receipt before commit. DB enforces via NOT NULL FK. |
+| Temporal anchoring | Trust mutations commit locally with anchor status (`pending_anchor`, `anchored`, `anchor_failed`) and reconcile asynchronously. |
 | Encrypted share storage | Key shares on disk use same Argon2id + AES-256-GCM format as existing `MMPKEKEY`. |
 | Anti-replay for device commissioning | CSR includes a nonce. Coordinator rejects duplicate nonces within a time window. |
 
@@ -1022,21 +1022,21 @@ receipt_hash: 32 bytes (BLAKE2-256 of temporal receipt)
 
 ## 10. Implementation Guidelines
 
-### Phase 1: Foundation — ECDSA secp256k1 Signing (Non-MPC)
+### Phase 1: Foundation — secp256k1/Ed25519 Signing Primitives (Non-MPC)
 
-**Scope**: Add single-device secp256k1 ECDSA signing to `matric-crypto`. This is the foundation that later phases build upon.
+**Scope**: Add single-device secp256k1/Ed25519 primitives to `matric-crypto`. In this phase, secp256k1 ECDSA is primarily used for Roko receipt verification (`ecrecover`); threshold signing remains FROST Schnorr in Phase 2.
 
 **Deliverables**:
-- `matric-crypto::signing::ecdsa` module with `k256` crate integration
+- `matric-crypto::signing::secp256k1` module with `k256` crate integration
 - `matric-crypto::signing::ed25519` module with `ed25519-dalek` integration
 - `matric-crypto::signing::traits` with `Signer` trait
 - Unit tests for sign/verify round-trip on both curves
 - `Zeroize` on all new key types
 - No API changes, no DB changes
 
-### Phase 2: FROST DKG + Threshold Signing
+### Phase 2: FROST DKG + Threshold Signing (Schnorr-family)
 
-**Scope**: Integrate `frost-secp256k1` and `frost-ed25519`. Implement DKG ceremony and threshold signing coordinator.
+**Scope**: Integrate `frost-secp256k1-tr` and `frost-ed25519`. Implement DKG ceremony and threshold signing coordinator.
 
 **Deliverables**:
 - `matric-crypto::mpc` module (DKG, signing, share types, coordinator)

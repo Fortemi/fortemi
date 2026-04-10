@@ -200,7 +200,7 @@ Passkeys solve authentication but not identity attestation. They are device-boun
 ### 8.2 Compatibility Constraints
 
 - **PKE backward compatibility**: The `mm:...` address scheme, MMPKE01 file format, and all existing encrypted content must remain fully functional. MPC wallet addresses use a distinct `mw:...` prefix.
-- **Roko secp256k1**: Roko Network uses ECDSA secp256k1 for all on-chain operations. The MPC wallet must produce standard ECDSA signatures that Roko validators accept without protocol changes.
+- **Roko secp256k1**: Roko receipts are verified with ECDSA secp256k1 (`ecrecover`). MPC threshold signing uses FROST Schnorr ciphersuites (Ed25519 and secp256k1-Schnorr); any direct on-chain threshold submission requiring ECDSA is out of scope for initial rollout.
 - **Existing keyset management**: The `pke_keysets` database table and API endpoints continue to manage single-key PKE. MPC wallets get a parallel management path.
 
 ### 8.3 Operational Constraints

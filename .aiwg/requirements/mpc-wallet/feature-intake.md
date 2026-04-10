@@ -199,7 +199,7 @@ This is a cryptographic identity system. Security is not a preference — it is 
    - Multi-curve derivation produces keys that pass each curve's validation
    - X25519 derived key is compatible with existing PKE encryption/decryption
    - Ed25519 signatures verify correctly
-   - secp256k1 signatures are Ethereum-compatible (recoverable ECDSA)
+   - secp256k1 threshold signatures verify as BIP-340 Schnorr (FROST output); Roko receipt verification remains recoverable ECDSA (`ecrecover`)
    - Cross-curve domain separation: derived keys for different curves are independent
 
 2. **MPC Ceremony Tests**
