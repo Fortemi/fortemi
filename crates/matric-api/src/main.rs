@@ -361,13 +361,17 @@ async fn queue_nlp_pipeline(
         false,
         None,
         None,
+        None,
     )
     .await;
 }
 
-/// Inner pipeline with title generation control.
+/// Inner pipeline with title generation control and optional feature filtering.
 /// When `skip_title_gen` is true, TitleGeneration is omitted from Phase 1 jobs.
 /// Used by document types like agent-reflection that are machine-generated. (#563)
+///
+/// When `pipeline` is `Some`, only listed features are queued. Empty = no processing.
+/// When `pipeline` is `None`, full default pipeline runs. (BT6-ARSENAL#56)
 #[allow(clippy::too_many_arguments)]
 async fn queue_nlp_pipeline_inner(
     db: &Database,
@@ -379,9 +383,26 @@ async fn queue_nlp_pipeline_inner(
     skip_title_gen: bool,
     chunk_max_chars: Option<usize>,
     chunk_overlap: Option<usize>,
+    pipeline: Option<&[String]>,
 ) {
+    // If pipeline is explicitly set to empty, skip all AI processing (store only).
+    // BT6-ARSENAL#56: callers opt-in to specific features.
+    if let Some(features) = pipeline {
+        if features.is_empty() {
+            return;
+        }
+    }
+
+    // Helper: check if a feature is enabled (None = all enabled, Some = only listed)
+    let feature_enabled = |name: &str| -> bool {
+        match pipeline {
+            None => true,
+            Some(features) => features.iter().any(|f| f == name),
+        }
+    };
+
     // Queue AI revision with mode and schema in payload (unless mode is None)
-    if revision_mode != RevisionMode::None {
+    if revision_mode != RevisionMode::None && feature_enabled("revision") {
         let mut payload = serde_json::json!({
             "revision_mode": revision_mode
         });
@@ -434,6 +455,13 @@ async fn queue_nlp_pipeline_inner(
     ]
     .into_iter()
     .filter(|jt| !(skip_title_gen && *jt == JobType::TitleGeneration))
+    .filter(|jt| feature_enabled(match jt {
+        JobType::TitleGeneration => "title_generation",
+        JobType::ReferenceExtraction => "reference_extraction",
+        JobType::MetadataExtraction => "metadata_extraction",
+        JobType::DocumentTypeInference => "document_type_inference",
+        _ => "unknown",
+    }))
     .collect();
     for job_type in phase1_jobs {
         // Create payload with schema and optional model override
@@ -475,9 +503,10 @@ async fn queue_nlp_pipeline_inner(
         }
     }
 
-    // When revision is disabled, queue ConceptTagging directly since there's
-    // no AiRevision to chain from. Otherwise AiRevision chains it on completion.
-    if revision_mode == RevisionMode::None {
+    // When revision is disabled (or not requested via pipeline filter), queue
+    // ConceptTagging directly since there's no AiRevision to chain from.
+    // Otherwise AiRevision chains it on completion.
+    if (revision_mode == RevisionMode::None || !feature_enabled("revision")) && feature_enabled("concept_tagging") {
         let mut payload = serde_json::Map::new();
         if let Some(s) = schema {
             payload.insert("schema".to_string(), serde_json::json!(s));
@@ -5065,6 +5094,20 @@ struct CreateNoteBody {
     /// Default: 0 (revision chunks are independent).
     #[serde(default)]
     chunk_overlap: Option<usize>,
+    /// Optional list of pipeline features to run after note creation.
+    /// When omitted or null, the full default pipeline runs (backwards compatible).
+    /// When set to an empty array `[]`, no AI processing runs (store only).
+    /// When set to specific features, only those pipeline stages are queued.
+    ///
+    /// Available features:
+    /// - `"revision"` — AI revision/rewrite of content
+    /// - `"title_generation"` — auto-generate title from content
+    /// - `"reference_extraction"` — extract references from content
+    /// - `"metadata_extraction"` — extract metadata from content
+    /// - `"document_type_inference"` — infer document type
+    /// - `"concept_tagging"` — concept tagging (chains from revision if both enabled)
+    #[serde(default)]
+    pipeline: Option<Vec<String>>,
 }
 
 #[utoipa::path(
@@ -5231,6 +5274,7 @@ async fn create_note(
 
     // Queue NLP pipeline with archive context (Issue #109)
     // Use inner variant to pass document-type-driven pipeline hints (#563)
+    // and caller-defined feature selection (BT6-ARSENAL#56)
     queue_nlp_pipeline_inner(
         &state.db,
         note_id,
@@ -5241,6 +5285,7 @@ async fn create_note(
         skip_title_gen,
         body.chunk_max_chars,
         body.chunk_overlap,
+        body.pipeline.as_deref(),
     )
     .await;
 
@@ -5505,6 +5550,7 @@ async fn bulk_create_notes(
             false,
             body.notes[i].chunk_max_chars,
             body.notes[i].chunk_overlap,
+            None,
         )
         .await;
     }
@@ -5688,6 +5734,7 @@ async fn update_note(
             false,
             body.chunk_max_chars,
             body.chunk_overlap,
+            None,
         )
         .await;
     }
