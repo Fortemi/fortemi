@@ -39,27 +39,55 @@ ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
 
+# Optional component flags — set to "false" to disable
+# Auto-detected by platform where applicable, or override explicitly
+ARG ENABLE_OPEN3D=auto
+ARG ENABLE_POSTGIS=true
+ARG ENABLE_OCR=true
+ARG ENABLE_FFMPEG=true
+
 LABEL org.opencontainers.image.title="fortemi-bundle"
 LABEL org.opencontainers.image.description="AI-enhanced knowledge base - all-in-one with PostgreSQL and MCP"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install runtime dependencies for matric-api, Node.js for MCP server, PostGIS, and extraction toolchain
+# Install runtime dependencies for matric-api and Node.js for MCP server.
+# Optional components are controlled by ENABLE_* build args.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
     gnupg \
-    # Extraction toolchain
+    # Core extraction (always available)
     poppler-utils \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    pandoc \
-    ffmpeg \
-    # PostGIS for spatial/geographic queries (W3C PROV prov:atLocation)
-    postgresql-18-postgis-3 \
-    postgresql-18-postgis-3-scripts \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional: OCR (tesseract + pandoc)
+ARG ENABLE_OCR
+RUN if [ "$ENABLE_OCR" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            tesseract-ocr tesseract-ocr-eng pandoc \
+        && rm -rf /var/lib/apt/lists/*; \
+    else echo "OCR disabled"; fi
+
+# Optional: FFmpeg (video/audio extraction)
+ARG ENABLE_FFMPEG
+RUN if [ "$ENABLE_FFMPEG" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+        && rm -rf /var/lib/apt/lists/*; \
+    else echo "FFmpeg disabled"; fi
+
+# Optional: PostGIS (spatial/geographic queries)
+ARG ENABLE_POSTGIS
+RUN if [ "$ENABLE_POSTGIS" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            postgresql-18-postgis-3 postgresql-18-postgis-3-scripts \
+        && rm -rf /var/lib/apt/lists/*; \
+    else echo "PostGIS disabled"; fi
+
+# Node.js for MCP server (always required)
+RUN apt-get update \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
@@ -84,28 +112,27 @@ COPY mcp-server /app/mcp-server
 WORKDIR /app/mcp-server
 RUN npm ci --omit=dev
 
-# Copy Open3D 3D renderer for GLB/GLTF/OBJ/STL multi-view extraction
+# Optional: Open3D 3D renderer for GLB/GLTF/OBJ/STL multi-view extraction
+# Auto-disables on arm64 (no wheel available). Set ENABLE_OPEN3D=false to skip on any platform.
 COPY docker/open3d-renderer /app/open3d-renderer
 
-# Install Open3D renderer dependencies (GPU rendering via EGL, CPU fallback via OSMesa/llvmpipe)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip \
-    libegl1 \
-    libgl1 \
-    libgomp1 \
-    libosmesa6 \
-    libglu1-mesa \
-    && rm -rf /var/lib/apt/lists/* \
-    # Register NVIDIA EGL ICD so libglvnd dispatches to libEGL_nvidia (injected
-    # by the NVIDIA container toolkit at runtime) instead of Mesa's libEGL_mesa.
-    # Without this, EGL falls back to Mesa which needs /dev/dri (absent under nvidia runtime).
-    && mkdir -p /usr/share/glvnd/egl_vendor.d \
-    && printf '{\n    "file_format_version": "1.0.0",\n    "ICD": {\n        "library_path": "libEGL_nvidia.so.0"\n    }\n}\n' \
-       > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
-
-# Install Python dependencies for 3D renderer
-RUN pip3 install --no-cache-dir --break-system-packages \
-    -r /app/open3d-renderer/requirements.txt
+ARG ENABLE_OPEN3D
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ENABLE_OPEN3D" = "false" ]; then \
+        echo "Open3D disabled by build arg"; \
+    elif [ "$ENABLE_OPEN3D" = "auto" ] && [ "$ARCH" != "amd64" ]; then \
+        echo "Open3D auto-disabled on $ARCH (no arm64 wheel)"; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            python3-pip libegl1 libgl1 libgomp1 libosmesa6 libglu1-mesa \
+        && rm -rf /var/lib/apt/lists/* \
+        && mkdir -p /usr/share/glvnd/egl_vendor.d \
+        && printf '{\n    "file_format_version": "1.0.0",\n    "ICD": {\n        "library_path": "libEGL_nvidia.so.0"\n    }\n}\n' \
+           > /usr/share/glvnd/egl_vendor.d/10_nvidia.json \
+        && pip3 install --no-cache-dir --break-system-packages \
+            -r /app/open3d-renderer/requirements.txt \
+        && echo "Open3D installed on $ARCH"; \
+    fi
 
 WORKDIR /app
 
@@ -147,6 +174,10 @@ ENV RUST_LOG=info
 
 # Rate limiting (disable for development/testing)
 ENV RATE_LIMIT_ENABLED=false
+
+# Redis cache — disabled in bundle (no Redis sidecar). Enable via
+# docker-compose with a Redis service or set REDIS_ENABLED=true + REDIS_URL.
+ENV REDIS_ENABLED=false
 
 # Full-text search: enable multilingual, emoji, and CJK support
 ENV FTS_SCRIPT_DETECTION=true

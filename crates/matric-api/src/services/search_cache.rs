@@ -66,20 +66,36 @@ impl SearchCache {
 
         let connection = if enabled {
             match redis::Client::open(redis_url.as_str()) {
-                Ok(client) => match ConnectionManager::new(client).await {
-                    Ok(conn) => {
-                        info!(
-                            "Redis search cache enabled (TTL: {}s, URL: {})",
-                            ttl_seconds,
-                            redis_url.replace(|c: char| c.is_ascii_alphanumeric(), "*")
-                        );
-                        Some(conn)
+                Ok(client) => {
+                    // Timeout the connection attempt — without Redis the default
+                    // connect blocks for minutes, stalling the entire server startup.
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        ConnectionManager::new(client),
+                    )
+                    .await
+                    {
+                        Ok(Ok(conn)) => {
+                            info!(
+                                "Redis search cache enabled (TTL: {}s, URL: {})",
+                                ttl_seconds,
+                                redis_url.replace(|c: char| c.is_ascii_alphanumeric(), "*")
+                            );
+                            Some(conn)
+                        }
+                        Ok(Err(e)) => {
+                            warn!("Failed to connect to Redis, cache disabled: {}", e);
+                            None
+                        }
+                        Err(_) => {
+                            warn!(
+                                "Redis connection timed out after 5s ({}), cache disabled",
+                                redis_url
+                            );
+                            None
+                        }
                     }
-                    Err(e) => {
-                        warn!("Failed to connect to Redis, cache disabled: {}", e);
-                        None
-                    }
-                },
+                }
                 Err(e) => {
                     warn!("Invalid Redis URL, cache disabled: {}", e);
                     None
