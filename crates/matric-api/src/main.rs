@@ -455,13 +455,15 @@ async fn queue_nlp_pipeline_inner(
     ]
     .into_iter()
     .filter(|jt| !(skip_title_gen && *jt == JobType::TitleGeneration))
-    .filter(|jt| feature_enabled(match jt {
-        JobType::TitleGeneration => "title_generation",
-        JobType::ReferenceExtraction => "reference_extraction",
-        JobType::MetadataExtraction => "metadata_extraction",
-        JobType::DocumentTypeInference => "document_type_inference",
-        _ => "unknown",
-    }))
+    .filter(|jt| {
+        feature_enabled(match jt {
+            JobType::TitleGeneration => "title_generation",
+            JobType::ReferenceExtraction => "reference_extraction",
+            JobType::MetadataExtraction => "metadata_extraction",
+            JobType::DocumentTypeInference => "document_type_inference",
+            _ => "unknown",
+        })
+    })
     .collect();
     for job_type in phase1_jobs {
         // Create payload with schema and optional model override
@@ -506,7 +508,9 @@ async fn queue_nlp_pipeline_inner(
     // When revision is disabled (or not requested via pipeline filter), queue
     // ConceptTagging directly since there's no AiRevision to chain from.
     // Otherwise AiRevision chains it on completion.
-    if (revision_mode == RevisionMode::None || !feature_enabled("revision")) && feature_enabled("concept_tagging") {
+    if (revision_mode == RevisionMode::None || !feature_enabled("revision"))
+        && feature_enabled("concept_tagging")
+    {
         let mut payload = serde_json::Map::new();
         if let Some(s) = schema {
             payload.insert("schema".to_string(), serde_json::json!(s));
