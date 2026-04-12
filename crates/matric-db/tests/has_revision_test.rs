@@ -10,7 +10,7 @@
 
 use matric_core::{CreateNoteRequest, ListNotesRequest, NoteRepository};
 use matric_db::{create_pool, PgNoteRepository};
-use sqlx::PgPool;
+use sqlx::{Executor, PgPool};
 
 async fn setup_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
@@ -145,7 +145,7 @@ async fn test_has_revision_false_after_revision_mode_none() {
     let pool = setup_test_pool().await;
     let repo = PgNoteRepository::new(pool.clone());
 
-    // Create a note
+    // Create a note — insert_tx populates note_revised_current with original content
     let original_content = "# Test Note\n\nContent that won't be revised.".to_string();
     let req = CreateNoteRequest {
         content: original_content.clone(),
@@ -159,15 +159,24 @@ async fn test_has_revision_false_after_revision_mode_none() {
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
 
-    // Simulate revision_mode="none" by copying original to revised
-    // (This is what the API does when revision_mode="none")
-    repo.update_revised(
-        note_id,
-        &original_content,
-        Some("Original preserved (no AI revision)"),
-    )
-    .await
-    .expect("Failed to update revised content");
+    // Issue #625: revision_mode="none" no longer calls update_revised() — no fake
+    // note_revision history entry is created. The seed from insert_tx is sufficient.
+    // Simulate an update with revision_mode=none using sync_revised_to_original_tx
+    // which updates content for FTS without creating revision history.
+    let updated_content = "# Test Note\n\nUpdated content, still no AI revision.".to_string();
+    let mut tx = pool.begin().await.expect("Failed to start tx");
+    // First update the original
+    sqlx::query("UPDATE note_original SET content = $1 WHERE note_id = $2")
+        .bind(&updated_content)
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to update original");
+    // Then sync revised to match (no revision history created)
+    repo.sync_revised_to_original_tx(&mut tx, note_id, &updated_content)
+        .await
+        .expect("Failed to sync revised to original");
+    tx.commit().await.expect("Failed to commit tx");
 
     // Verify via list endpoint that has_revision is false
     let list_req = ListNotesRequest {
@@ -193,11 +202,16 @@ async fn test_has_revision_false_after_revision_mode_none() {
         .find(|n| n.id == note_id)
         .expect("Note not found in list response");
 
-    // Issue #231: has_revision should be false for revision_mode="none"
+    // Issue #625: has_revision should be false for revision_mode="none"
     assert!(
         !note_summary.has_revision,
         "has_revision should be false when revision_mode=none (content identical)"
     );
+
+    // Verify the note is fetchable and content is correct
+    let note = repo.fetch(note_id).await.expect("Failed to fetch note");
+    assert_eq!(note.revised.content, updated_content);
+    assert_eq!(note.original.content, updated_content);
 
     // Clean up
     repo.hard_delete(note_id)

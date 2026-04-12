@@ -1170,6 +1170,26 @@ impl PgNoteRepository {
         Ok(revision_id)
     }
 
+    /// Sync `note_revised_current.content` with the original content without
+    /// creating a `note_revision` history entry. Used when `revision_mode=none`
+    /// to keep FTS up-to-date without implying that AI revision ran (#625).
+    pub async fn sync_revised_to_original_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        content: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE note_revised_current SET content = $1, last_revision_id = NULL WHERE note_id = $2",
+        )
+        .bind(content)
+        .bind(note_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+        Ok(())
+    }
+
     /// Update the rationale of the latest revision for a note.
     ///
     /// Used by Phase 2 of the contextual pipeline to update the revision note

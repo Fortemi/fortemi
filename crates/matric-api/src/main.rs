@@ -5259,18 +5259,9 @@ async fn create_note(
             .await;
     }
 
-    // If mode is "none", copy original to revised (so embedding/search works on it)
-    if revision_mode == RevisionMode::None {
-        let _ = state
-            .db
-            .notes
-            .update_revised(
-                note_id,
-                &req.content,
-                Some("Original preserved (no AI revision)"),
-            )
-            .await;
-    }
+    // When revision_mode is "none", insert_tx already populated note_revised_current
+    // with the original content (for FTS). We intentionally skip update_revised() here
+    // to avoid creating a fake note_revision history entry (#625).
 
     // Queue NLP pipeline with archive context (Issue #109)
     // Use inner variant to pass document-type-driven pipeline hints (#563)
@@ -5696,7 +5687,8 @@ async fn update_note(
             _ => RevisionMode::Standard,
         };
 
-        // If mode is "none", copy original to revised (so embedding/search works on it)
+        // When revision_mode is "none", sync revised content with original for FTS
+        // without creating a fake note_revision history entry (#625).
         if revision_mode == RevisionMode::None {
             if let Some(content) = &body.content {
                 let notes = matric_db::PgNoteRepository::new(pool.clone());
@@ -5705,12 +5697,7 @@ async fn update_note(
                     .execute(move |tx| {
                         Box::pin(async move {
                             notes
-                                .update_revised_tx(
-                                    tx,
-                                    id,
-                                    &content_clone,
-                                    Some("Original preserved (no AI revision)"),
-                                )
+                                .sync_revised_to_original_tx(tx, id, &content_clone)
                                 .await
                         })
                     })
