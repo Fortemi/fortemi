@@ -10,7 +10,7 @@
 
 use matric_core::{CreateNoteRequest, ListNotesRequest, NoteRepository};
 use matric_db::{create_pool, PgNoteRepository};
-use sqlx::{Executor, PgPool};
+use sqlx::PgPool;
 
 async fn setup_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
