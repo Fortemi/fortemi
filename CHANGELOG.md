@@ -7,6 +7,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.4.1] - 2026-04-12
+
+### Added
+
+- **Caller-defined extraction pipeline** — Optional `pipeline` field on `CreateNoteRequest` to opt-in to specific AI processing stages (`revision`, `title_generation`, `concept_tagging`, `reference_extraction`, `metadata_extraction`, `document_type_inference`). Empty array stores the note without any AI processing. Backwards compatible — omitting `pipeline` runs the full default pipeline.
+- **Configurable archive extraction limits** — `ARCHIVE_MAX_EXTRACT_BYTES` (default 1 GB, was 100 MB) and `ARCHIVE_MAX_SINGLE_FILE_BYTES` (default 50 MB, was 10 MB) env vars replace hardcoded constants. `MAX_FILES` cap removed entirely.
+- **Multi-provider installer manifest** — Setup manifest supports configuring multiple inference providers for guided deployment.
+
+### Fixed
+
+- **Revision mode "none" creates fake history** (#625) — Notes created or updated with `revision_mode=none` no longer write misleading `note_revision` records with "Original preserved (no AI revision)" rationale. New `sync_revised_to_original_tx` keeps FTS content synced without creating fake revision history.
+- **Redis connection timeout** (#624) — 5-second timeout on `ConnectionManager::new()` prevents server startup from blocking indefinitely when Redis is unreachable. Bundle image defaults to `REDIS_ENABLED=false`.
+- **arm64 optional components** (#623) — Build args `ENABLE_OPEN3D`, `ENABLE_POSTGIS`, `ENABLE_OCR`, `ENABLE_FFMPEG` allow disabling platform-specific components for cross-architecture builds.
+
 ## [2026.4.0] - 2026-04-04
 
 ### Added
