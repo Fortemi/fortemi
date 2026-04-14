@@ -141,6 +141,10 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 |-----|-------|--------|------|
 | [ADR-083](ADR-083-brand-naming-fortemi.md) | Brand Naming — Fortemi | Accepted | 2026-02-03 |
 
+### Wallet Provider Integration (pending)
+
+Wallet project design and planning moved to [roko/CustodyCore](https://git.integrolabs.net/roko/CustodyCore). Fortemi-side normalization and pluggability ADRs are pending completion of CustodyCore's provider contract design.
+
 ## Status Definitions
 
 | Status | Meaning |
@@ -160,6 +164,7 @@ See [ADR-TEMPLATE.md](ADR-TEMPLATE.md) for the template used when creating new A
 - **Research Foundation:** `../.aiwg/research/citable-claims-index.md`
 - **Implementation:** `crates/` directory
 - **User Documentation:** `docs/content/`
+- **Wallet/CustodyCore:** Migrated to [roko/CustodyCore](https://git.integrolabs.net/roko/CustodyCore)
 
 ## How to Add a New ADR
 
@@ -198,4 +203,7 @@ Job Processing (079, 082, 084)
 
 Data Integrity (085)
 └── Null byte sanitization for untrusted extraction data
+
+Wallet Provider Integration (pending CustodyCore design)
+└── Normalization/pluggability ADRs TBD after roko/CustodyCore provider contract
 ```
