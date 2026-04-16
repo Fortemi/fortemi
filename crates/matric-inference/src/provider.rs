@@ -374,9 +374,10 @@ impl ProviderRegistry {
                 // Start from env-derived backend (picks up OLLAMA_EMBED_MODEL
                 // etc.) then override base_url + gen_model.
                 let mut backend = crate::OllamaBackend::from_env();
-                if let Some(url) = base_url.map(|s| s.trim_end_matches('/').to_string()).or_else(|| {
-                    registered.map(|c| c.base_url.clone())
-                }) {
+                if let Some(url) = base_url
+                    .map(|s| s.trim_end_matches('/').to_string())
+                    .or_else(|| registered.map(|c| c.base_url.clone()))
+                {
                     backend.set_base_url(url);
                 }
                 backend.set_gen_model(model.to_string());
@@ -399,9 +400,7 @@ impl ProviderRegistry {
                     .or_else(|| registered.map(|c| c.base_url.clone()))
                     .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
                     .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-                let timeout = registered
-                    .map(|c| c.timeout.as_secs())
-                    .unwrap_or(300);
+                let timeout = registered.map(|c| c.timeout.as_secs()).unwrap_or(300);
                 let oai_config = crate::OpenAIConfig {
                     base_url: resolved_base,
                     api_key: Some(resolved_key),
@@ -430,9 +429,7 @@ impl ProviderRegistry {
                     .or_else(|| registered.map(|c| c.base_url.clone()))
                     .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
                     .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
-                let timeout = registered
-                    .map(|c| c.timeout.as_secs())
-                    .unwrap_or(300);
+                let timeout = registered.map(|c| c.timeout.as_secs()).unwrap_or(300);
                 let oai_config = crate::OpenAIConfig {
                     base_url: resolved_base,
                     api_key: Some(resolved_key),
@@ -465,9 +462,7 @@ impl ProviderRegistry {
                     .map(|s| s.to_string())
                     .or_else(|| registered.and_then(|c| c.api_key.clone()))
                     .or_else(|| std::env::var("LLAMACPP_API_KEY").ok());
-                let timeout = registered
-                    .map(|c| c.timeout.as_secs())
-                    .unwrap_or(300);
+                let timeout = registered.map(|c| c.timeout.as_secs()).unwrap_or(300);
                 let oai_config = crate::OpenAIConfig {
                     base_url: resolved_base,
                     api_key: resolved_key,

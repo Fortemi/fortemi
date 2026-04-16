@@ -291,7 +291,10 @@ impl OllamaBackend {
     /// different Ollama instance). Trailing slashes are stripped.
     pub fn set_base_url(&mut self, base_url: String) {
         let trimmed = base_url.trim_end_matches('/').to_string();
-        info!("Switching Ollama base URL from {} to {}", self.base_url, trimmed);
+        info!(
+            "Switching Ollama base URL from {} to {}",
+            self.base_url, trimmed
+        );
         self.base_url = trimmed;
     }
 

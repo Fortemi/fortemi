@@ -577,7 +577,10 @@ use handlers::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
     },
-    inference_complete::{complete as inference_complete_handler, list_providers as list_inference_providers, stream as inference_stream_handler},
+    inference_complete::{
+        complete as inference_complete_handler, list_providers as list_inference_providers,
+        stream as inference_stream_handler,
+    },
     inference_config::{
         delete_inference_config, get_inference_config, test_connection, update_inference_config,
     },
@@ -1816,7 +1819,10 @@ async fn main() -> anyhow::Result<()> {
         // Provider-agnostic chat completion (Issue #628) — stateless;
         // accepts optional per-request {provider_id, api_key, base_url}
         // so BT6-ARSENAL's Docker deployment can forward browser BYOK keys
-        .route("/api/v1/inference/complete", post(inference_complete_handler))
+        .route(
+            "/api/v1/inference/complete",
+            post(inference_complete_handler),
+        )
         .route("/api/v1/inference/stream", post(inference_stream_handler))
         .route("/api/v1/inference/providers", get(list_inference_providers))
         // Vision (ad-hoc image description)

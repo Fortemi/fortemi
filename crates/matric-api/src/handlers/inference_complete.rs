@@ -155,11 +155,7 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
                 r#type: cfg.id.clone(),
                 name: display_name.to_string(),
                 base_url: cfg.base_url.clone(),
-                capabilities: cfg
-                    .capabilities
-                    .iter()
-                    .map(|c| c.to_string())
-                    .collect(),
+                capabilities: cfg.capabilities.iter().map(|c| c.to_string()).collect(),
                 server_configured,
                 requires_user_key: requires_key && !server_configured,
             });
@@ -348,8 +344,7 @@ pub async fn stream(
 
         match result {
             Ok(content) => {
-                let delta_payload =
-                    serde_json::json!({"content": content}).to_string();
+                let delta_payload = serde_json::json!({"content": content}).to_string();
                 let _ = tx
                     .send(Ok(Event::default().event("delta").data(delta_payload)))
                     .await;
