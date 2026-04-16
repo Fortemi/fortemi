@@ -608,6 +608,82 @@ jobs:
   # =============================================================================
   # Requires GITHUB_PAT secret with: write:packages, contents:write scopes
 
+  # Dev push to GHCR — rolling :latest + :main + :sha-<short> on every main commit.
+  # Downstream consumers (BT6-ARSENAL docker-compose) pin to :latest for the
+  # team-facing deployment. Mirror of publish-dev but to ghcr.io instead of Gitea.
+  publish-github-dev:
+    name: Publish Dev Image to GitHub (ghcr.io)
+    runs-on: matric-builder
+    needs: [test-container, integration-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GH_PUBLISH_TOKEN }}" | docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+
+      - name: Build and push dev images to ghcr.io
+        run: |
+          IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            while [ $attempt -le $max_attempts ]; do
+              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
+              if docker push "${image}"; then
+                echo "Successfully pushed ${image}"
+                return 0
+              fi
+              echo "Push failed, waiting before retry..."
+              sleep $((attempt * 5))
+              attempt=$((attempt + 1))
+            done
+            echo "Failed to push ${image} after ${max_attempts} attempts"
+            return 1
+          }
+
+          # API-only image (for Kubernetes / external DB / BT6 compose)
+          docker build --no-cache \
+            --build-arg VERSION=dev-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:latest .
+
+          docker tag ${IMAGE}:latest ${IMAGE}:main
+          docker tag ${IMAGE}:latest ${IMAGE}:sha-${SHORT_SHA}
+
+          push_with_retry ${IMAGE}:latest
+          push_with_retry ${IMAGE}:main
+          push_with_retry ${IMAGE}:sha-${SHORT_SHA}
+
+          # Bundle image (all-in-one with embedded PostgreSQL)
+          docker build --no-cache \
+            -f Dockerfile.bundle \
+            --build-arg VERSION=dev-${SHORT_SHA} \
+            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:bundle-latest .
+
+          docker tag ${IMAGE}:bundle-latest ${IMAGE}:bundle-main
+          docker tag ${IMAGE}:bundle-latest ${IMAGE}:bundle-sha-${SHORT_SHA}
+
+          push_with_retry ${IMAGE}:bundle-latest
+          push_with_retry ${IMAGE}:bundle-main
+          push_with_retry ${IMAGE}:bundle-sha-${SHORT_SHA}
+
+          echo ""
+          echo "=== Published dev images to ghcr.io ==="
+          echo "  ${IMAGE}:latest, :main, :sha-${SHORT_SHA}"
+          echo "  ${IMAGE}:bundle-latest, :bundle-main, :bundle-sha-${SHORT_SHA}"
+
   # Push release images to GitHub Container Registry
   publish-github:
     name: Publish to GitHub (ghcr.io)
