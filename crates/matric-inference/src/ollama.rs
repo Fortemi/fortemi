@@ -487,7 +487,7 @@ impl OllamaBackend {
             messages,
             stream: true,
             format: None,
-            think: None,
+            think: Some(false), // suppress thinking tokens so content chunks flow immediately
             options,
         };
 
