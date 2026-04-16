@@ -92,16 +92,56 @@ jobs:
     steps:
       - name: Set up SSH to mutsu
         shell: bash
+        env:
+          MUTSU_SSH_KEY: ${{ secrets.MUTSU_SSH_KEY }}
         run: |
+          set -e
           mkdir -p ~/.ssh
-          echo "${{ secrets.MUTSU_SSH_KEY }}" > ~/.ssh/mutsu_key
+          chmod 700 ~/.ssh
+
+          # Write the key via printf (not echo) so we control the trailing
+          # newline. Gitea/GitHub secret paste commonly strips the trailing
+          # \n and/or introduces CRLF line endings — openssl's parser rejects
+          # both with "error in libcrypto". We strip CRLF and ensure the file
+          # ends with a single LF.
+          printf '%s\n' "${MUTSU_SSH_KEY}" | tr -d '\r' > ~/.ssh/mutsu_key
           chmod 600 ~/.ssh/mutsu_key
+
+          # Sanity check: the key file must start with -----BEGIN and end
+          # with -----END...PRIVATE KEY-----. Fail loud if not, so a bad
+          # secret gets an actionable error instead of a cryptic libcrypto.
+          if ! head -1 ~/.ssh/mutsu_key | grep -q "^-----BEGIN.*PRIVATE KEY-----$"; then
+            echo "ERROR: MUTSU_SSH_KEY secret doesn't look like a PEM private key."
+            echo "First line: $(head -1 ~/.ssh/mutsu_key)"
+            echo "Fix: re-paste the FULL key including -----BEGIN/-----END envelope."
+            exit 1
+          fi
+          if ! tail -1 ~/.ssh/mutsu_key | grep -q "^-----END.*PRIVATE KEY-----$"; then
+            echo "ERROR: MUTSU_SSH_KEY secret doesn't end with -----END line."
+            echo "Last line: $(tail -1 ~/.ssh/mutsu_key)"
+            exit 1
+          fi
+
+          # Self-validate — ssh-keygen can sanity-check the key format
+          # without connecting anywhere. This catches bad paste before we
+          # burn a connection attempt.
+          if ! ssh-keygen -y -f ~/.ssh/mutsu_key >/dev/null 2>&1; then
+            echo "ERROR: MUTSU_SSH_KEY parses as invalid. ssh-keygen says:"
+            ssh-keygen -y -f ~/.ssh/mutsu_key 2>&1 || true
+            exit 1
+          fi
+          echo "SSH key format validated."
+
           ssh-keyscan -t ed25519 10.0.42.41 >> ~/.ssh/known_hosts 2>/dev/null
-          echo "Host mutsu
+          cat > ~/.ssh/config <<'SSH_CONFIG'
+          Host mutsu
             HostName 10.0.42.41
             User manitcor
             IdentityFile ~/.ssh/mutsu_key
-            StrictHostKeyChecking no" >> ~/.ssh/config
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+          SSH_CONFIG
+          chmod 600 ~/.ssh/config
 
       - name: Build on mutsu via SSH
         shell: bash
