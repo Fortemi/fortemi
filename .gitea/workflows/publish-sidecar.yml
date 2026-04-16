@@ -160,7 +160,7 @@ jobs:
           echo "SHA:    ${SHA}"
           echo "Dir:    ${BUILD_DIR}"
 
-          ssh mutsu bash -s << REMOTE_SCRIPT
+          ssh -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no manitcor@10.0.42.41 bash -s << REMOTE_SCRIPT
           set -euo pipefail
 
           # Environment — mutsu's Rust toolchain lives on the build volume
@@ -201,7 +201,7 @@ jobs:
 
           # Pull the binary back to the ubuntu runner for upload-artifact
           mkdir -p /tmp/sidecar-macos
-          scp mutsu:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin /tmp/sidecar-macos/
+          scp -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin /tmp/sidecar-macos/
           ls -lh /tmp/sidecar-macos/
 
           # Copy to working dir so upload-artifact picks it up
