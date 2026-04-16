@@ -339,6 +339,153 @@ impl ProviderRegistry {
         }
     }
 
+    /// Resolve a generation backend from transient credentials.
+    ///
+    /// Unlike [`resolve_generation_boxed`] which reads from the registered
+    /// provider config, this constructs a fresh backend from caller-supplied
+    /// `api_key` + `base_url`. The registry is not mutated and no state is
+    /// cached between calls — each request gets an independent backend.
+    ///
+    /// Missing credentials fall back to the registered provider's config
+    /// when the provider is registered, then to env vars, then error.
+    ///
+    /// Used by `POST /api/v1/inference/complete` and `/stream` for BYOK
+    /// (bring-your-own-key) flows where the API key comes from a browser's
+    /// localStorage or a per-request header rather than server-side env.
+    ///
+    /// See Fortemi#628.
+    pub fn resolve_generation_inline(
+        &self,
+        provider_id: &str,
+        #[cfg_attr(not(feature = "openai"), allow(unused_variables))] api_key: Option<&str>,
+        base_url: Option<&str>,
+        model: &str,
+    ) -> Result<Box<dyn matric_core::GenerationBackend>> {
+        // Pick a config to inherit defaults from if the provider is
+        // registered. If it's not registered, we fall back to per-type
+        // env-var defaults below. This lets `POST /complete` work for
+        // providers that weren't opt-in via env (e.g. user brings an
+        // OpenAI key via browser without OPENAI_API_KEY set).
+        let registered = self.providers.get(provider_id);
+
+        match provider_id {
+            #[cfg(feature = "ollama")]
+            "ollama" => {
+                // Start from env-derived backend (picks up OLLAMA_EMBED_MODEL
+                // etc.) then override base_url + gen_model.
+                let mut backend = crate::OllamaBackend::from_env();
+                if let Some(url) = base_url.map(|s| s.trim_end_matches('/').to_string()).or_else(|| {
+                    registered.map(|c| c.base_url.clone())
+                }) {
+                    backend.set_base_url(url);
+                }
+                backend.set_gen_model(model.to_string());
+                Ok(Box::new(backend))
+            }
+            #[cfg(feature = "openai")]
+            "openai" => {
+                let resolved_key = api_key
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.and_then(|c| c.api_key.clone()))
+                    .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+                    .ok_or_else(|| {
+                        Error::Config(
+                            "openai: no api_key in request, registry, or OPENAI_API_KEY env"
+                                .to_string(),
+                        )
+                    })?;
+                let resolved_base = base_url
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.map(|c| c.base_url.clone()))
+                    .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                let timeout = registered
+                    .map(|c| c.timeout.as_secs())
+                    .unwrap_or(300);
+                let oai_config = crate::OpenAIConfig {
+                    base_url: resolved_base,
+                    api_key: Some(resolved_key),
+                    gen_model: model.to_string(),
+                    http_referer: None,
+                    x_title: None,
+                    timeout_seconds: timeout,
+                    ..Default::default()
+                };
+                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+            }
+            #[cfg(feature = "openai")]
+            "openrouter" => {
+                let resolved_key = api_key
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.and_then(|c| c.api_key.clone()))
+                    .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+                    .ok_or_else(|| {
+                        Error::Config(
+                            "openrouter: no api_key in request, registry, or OPENROUTER_API_KEY env"
+                                .to_string(),
+                        )
+                    })?;
+                let resolved_base = base_url
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.map(|c| c.base_url.clone()))
+                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+                let timeout = registered
+                    .map(|c| c.timeout.as_secs())
+                    .unwrap_or(300);
+                let oai_config = crate::OpenAIConfig {
+                    base_url: resolved_base,
+                    api_key: Some(resolved_key),
+                    gen_model: model.to_string(),
+                    http_referer: registered
+                        .and_then(|c| c.http_referer.clone())
+                        .or_else(|| std::env::var("OPENROUTER_HTTP_REFERER").ok()),
+                    x_title: registered
+                        .and_then(|c| c.x_title.clone())
+                        .or_else(|| std::env::var("OPENROUTER_X_TITLE").ok()),
+                    timeout_seconds: timeout,
+                    ..Default::default()
+                };
+                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+            }
+            #[cfg(feature = "openai")]
+            "llamacpp" => {
+                // llama.cpp: base_url required, api_key optional
+                let resolved_base = base_url
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.map(|c| c.base_url.clone()))
+                    .or_else(|| std::env::var("LLAMACPP_BASE_URL").ok())
+                    .ok_or_else(|| {
+                        Error::Config(
+                            "llamacpp: no base_url in request, registry, or LLAMACPP_BASE_URL env"
+                                .to_string(),
+                        )
+                    })?;
+                let resolved_key = api_key
+                    .map(|s| s.to_string())
+                    .or_else(|| registered.and_then(|c| c.api_key.clone()))
+                    .or_else(|| std::env::var("LLAMACPP_API_KEY").ok());
+                let timeout = registered
+                    .map(|c| c.timeout.as_secs())
+                    .unwrap_or(300);
+                let oai_config = crate::OpenAIConfig {
+                    base_url: resolved_base,
+                    api_key: resolved_key,
+                    gen_model: model.to_string(),
+                    http_referer: None,
+                    x_title: None,
+                    timeout_seconds: timeout,
+                    ..Default::default()
+                };
+                Ok(Box::new(crate::OpenAIBackend::new(oai_config)?))
+            }
+            _ => Err(Error::Config(format!(
+                "Provider '{}' not supported (known: ollama, openai, openrouter, llamacpp)",
+                provider_id
+            ))),
+        }
+    }
+
     /// Check if a slug targets a non-default (external) provider.
     ///
     /// Returns `true` if the slug has a provider prefix pointing to a

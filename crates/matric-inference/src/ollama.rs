@@ -287,6 +287,14 @@ impl OllamaBackend {
         self.gen_model = model_name;
     }
 
+    /// Override the base URL (e.g. for per-request BYOK routing to a
+    /// different Ollama instance). Trailing slashes are stripped.
+    pub fn set_base_url(&mut self, base_url: String) {
+        let trimmed = base_url.trim_end_matches('/').to_string();
+        info!("Switching Ollama base URL from {} to {}", self.base_url, trimmed);
+        self.base_url = trimmed;
+    }
+
     /// Set generation model to the best model for general inference.
     pub fn use_best_general(&mut self) {
         if let Some(profile) = self.registry.get_best_general() {
