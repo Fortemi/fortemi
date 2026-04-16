@@ -76,51 +76,95 @@ jobs:
           path: matric-api-x86_64-unknown-linux-gnu
 
   # ─── macOS aarch64 (mutsu runner) ─────────────────────────────────────
+  # macOS aarch64 build — hybrid via SSH to mutsu (M4 Mac mini).
+  #
+  # Historical note: this used `runs-on: mutsu` (native act_runner on the
+  # Mac). That path has persistently failed task-fetch via gRPC due to
+  # a reverse-proxy issue, causing every sidecar release since 54a2304
+  # (2026-04-14) to be cancelled mid-build. BT6-ARSENAL hit the same
+  # problem for its Tauri macOS builds and switched to the SSH-from-
+  # ubuntu pattern below, which works reliably. Mirroring that here so
+  # we stop falling behind every Fortemi commit.
   build-macos:
     name: Build macOS aarch64
-    runs-on: mutsu
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: Set up SSH to mutsu
+        shell: bash
         run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MUTSU_SSH_KEY }}" > ~/.ssh/mutsu_key
+          chmod 600 ~/.ssh/mutsu_key
+          ssh-keyscan -t ed25519 10.0.42.41 >> ~/.ssh/known_hosts 2>/dev/null
+          echo "Host mutsu
+            HostName 10.0.42.41
+            User manitcor
+            IdentityFile ~/.ssh/mutsu_key
+            StrictHostKeyChecking no" >> ~/.ssh/config
+
+      - name: Build on mutsu via SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO_URL="https://token:${{ github.token }}@git.integrolabs.net/${{ github.repository }}.git"
           BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
-          git checkout ${GITHUB_SHA:-HEAD}
-
-      - name: Verify toolchain
-        run: |
-          # Ensure cargo is on PATH (runner may not source .cargo/env)
-          export PATH="$HOME/.cargo/bin:$PATH"
-          echo "PATH=${PATH}" >> $GITHUB_ENV
-
-          echo "rustc: $(rustc --version)"
-          echo "cargo: $(cargo --version)"
-
-          # Verify this is actually an aarch64 macOS host
-          ARCH=$(uname -m)
-          OS=$(uname -s)
-          if [ "${OS}" != "Darwin" ] || [ "${ARCH}" != "arm64" ]; then
-            echo "ERROR: Expected Darwin/arm64, got ${OS}/${ARCH}"
-            echo "Is this runner actually mutsu (M4 Mac mini)?"
-            exit 1
-          fi
-          echo "Platform: ${OS}/${ARCH} OK"
-
-      - name: Build release binary
-        run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          SHA="${GITHUB_SHA}"
+          RUN_ID="${GITHUB_RUN_ID:-$$}"
+          BUILD_DIR="/Volumes/build/fortemi/builds/sidecar-${RUN_ID}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+          echo "=== macOS sidecar build on mutsu ==="
+          echo "Branch: ${BRANCH}"
+          echo "SHA:    ${SHA}"
+          echo "Dir:    ${BUILD_DIR}"
+
+          ssh mutsu bash -s << REMOTE_SCRIPT
+          set -euo pipefail
+
+          # Environment — mutsu's Rust toolchain lives on the build volume
+          export PATH="/Volumes/build/bt6/cargo/bin:/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH"
+          export CARGO_HOME="/Volumes/build/bt6/cargo"
+          export RUSTUP_HOME="/Volumes/build/bt6/cargo/rustup"
+          . /Volumes/build/bt6/cargo/env 2>/dev/null || true
+
+          # Clean + clone — fresh checkout per run so concurrent builds
+          # don't interfere
+          mkdir -p "${BUILD_DIR}"
+          cd "${BUILD_DIR}"
+          git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" .
+          git checkout "${SHA}"
+
+          echo "rustc: \$(rustc --version)"
+          echo "cargo: \$(cargo --version)"
+
+          # Build matric-api in release mode with version metadata
           MATRIC_VERSION="${GITHUB_REF_NAME}" \
-          MATRIC_GIT_SHA="${GITHUB_SHA}" \
+          MATRIC_GIT_SHA="${SHA}" \
           MATRIC_BUILD_DATE="${BUILD_DATE}" \
-          cargo build --release --package matric-api
+            cargo build --release --package matric-api
 
           cp target/release/matric-api matric-api-aarch64-apple-darwin
           chmod +x matric-api-aarch64-apple-darwin
 
-          # Verify the binary
-          file matric-api-aarch64-apple-darwin
-          ls -lh matric-api-aarch64-apple-darwin
+          # Stage for scp pickup
+          mkdir -p /tmp/fortemi-sidecar-out
+          cp matric-api-aarch64-apple-darwin /tmp/fortemi-sidecar-out/
+
+          echo ""
+          echo "=== Built binary ==="
+          file /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
+          ls -lh /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
+          shasum -a 256 /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
+          REMOTE_SCRIPT
+
+          # Pull the binary back to the ubuntu runner for upload-artifact
+          mkdir -p /tmp/sidecar-macos
+          scp mutsu:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin /tmp/sidecar-macos/
+          ls -lh /tmp/sidecar-macos/
+
+          # Copy to working dir so upload-artifact picks it up
+          cp /tmp/sidecar-macos/matric-api-aarch64-apple-darwin ./matric-api-aarch64-apple-darwin
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
