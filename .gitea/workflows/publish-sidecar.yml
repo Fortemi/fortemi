@@ -31,6 +31,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'migrations/**'
+      - '.gitea/workflows/publish-sidecar.yml'
     tags: ['v*']
   workflow_dispatch:
 
