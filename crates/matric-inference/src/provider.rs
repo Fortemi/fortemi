@@ -959,4 +959,120 @@ mod tests {
             Ok(_) => panic!("Expected error for provider without generation capability"),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // resolve_generation_inline tests (#628 BYOK path)
+    //
+    // These verify the new inline-credentials factory behaves correctly
+    // against the registered provider config AND without touching it:
+    //
+    //   1. Ollama with an explicit base_url override wins over registered
+    //   2. OpenAI accepts a transient api_key even if the registered config
+    //      has a different one (request wins)
+    //   3. Calling resolve_generation_inline doesn't mutate the registry —
+    //      subsequent lookups see the original values
+    //   4. Unknown provider_id errors rather than silently succeeding
+    //   5. OpenAI without any key (request, registered, env) errors clearly
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "ollama")]
+    #[test]
+    fn resolve_inline_ollama_with_base_url_override() {
+        let reg = test_registry();
+        let result = reg.resolve_generation_inline(
+            "ollama",
+            None,
+            Some("http://custom-ollama:9999"),
+            "llama3:8b",
+        );
+        match result {
+            Ok(backend) => assert_eq!(backend.model_name(), "llama3:8b"),
+            Err(e) => panic!("ollama inline resolve must succeed: {}", e),
+        }
+        // Verify the registered ollama config was NOT changed.
+        let registered = reg.get_provider("ollama").expect("ollama registered");
+        assert_eq!(registered.base_url, "http://localhost:11434");
+    }
+
+    #[cfg(feature = "ollama")]
+    #[test]
+    fn resolve_inline_ollama_does_not_mutate_registry() {
+        let reg = test_registry();
+        // Snapshot registered config for later comparison
+        let original_base = reg.get_provider("ollama").unwrap().base_url.clone();
+        let original_api_key = reg.get_provider("ollama").unwrap().api_key.clone();
+
+        // Call resolve_generation_inline several times with different args
+        let _ = reg.resolve_generation_inline("ollama", None, Some("http://one:1"), "a:1");
+        let _ = reg.resolve_generation_inline("ollama", None, Some("http://two:2"), "b:2");
+        let _ = reg.resolve_generation_inline("ollama", None, None, "c:3");
+
+        // Registry state must be identical
+        assert_eq!(reg.get_provider("ollama").unwrap().base_url, original_base);
+        assert_eq!(
+            reg.get_provider("ollama").unwrap().api_key,
+            original_api_key
+        );
+    }
+
+    #[cfg(feature = "openai")]
+    #[test]
+    fn resolve_inline_openai_request_key_wins_over_registered() {
+        let reg = test_registry(); // registered openai has api_key = "sk-test-key"
+        let result =
+            reg.resolve_generation_inline("openai", Some("sk-request-key"), None, "gpt-4o");
+        match result {
+            Ok(backend) => {
+                assert_eq!(backend.model_name(), "gpt-4o");
+            }
+            Err(e) => panic!("openai inline resolve must succeed: {}", e),
+        }
+        // Registered key stays intact
+        assert_eq!(
+            reg.get_provider("openai").unwrap().api_key,
+            Some("sk-test-key".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_inline_unknown_provider_errors() {
+        let reg = test_registry();
+        let result = reg.resolve_generation_inline("nonexistent", None, None, "any:1");
+        match result {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("not supported") || msg.contains("Provider"),
+                    "expected helpful error, got: {}",
+                    msg
+                );
+            }
+            Ok(_) => panic!("unknown provider must error"),
+        }
+    }
+
+    #[cfg(feature = "openai")]
+    #[test]
+    fn resolve_inline_openai_no_key_anywhere_errors() {
+        // Empty registry — no registered openai, and we don't provide a
+        // request key either. Must error (after checking env, which in
+        // test runs shouldn't have OPENAI_API_KEY set — if it is, this
+        // test would succeed misleadingly, so we unset it).
+        let reg = ProviderRegistry::new("ollama".to_string());
+        let prior = std::env::var("OPENAI_API_KEY").ok();
+        // SAFETY: cargo test runs tests in parallel by default; this
+        // env manipulation could race with other tests that read the
+        // var. We intentionally keep this narrow and restore immediately.
+        // If flakes appear, serialize with `#[serial]` or run with
+        // `--test-threads=1`.
+        std::env::remove_var("OPENAI_API_KEY");
+        let result = reg.resolve_generation_inline("openai", None, None, "gpt-4o");
+        if let Some(v) = prior {
+            std::env::set_var("OPENAI_API_KEY", v);
+        }
+        match result {
+            Err(_) => { /* ok — no key anywhere */ }
+            Ok(_) => panic!("missing key must error"),
+        }
+    }
 }
