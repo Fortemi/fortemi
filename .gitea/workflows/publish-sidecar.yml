@@ -143,19 +143,6 @@ jobs:
           SSH_CONFIG
           chmod 600 ~/.ssh/config
 
-      - name: Diagnose SSH connection to mutsu
-        shell: bash
-        run: |
-          echo "=== key fingerprint ==="
-          ssh-keygen -l -f ~/.ssh/mutsu_key
-          echo "=== verbose auth attempt (pubkey only) ==="
-          ssh -v -i ~/.ssh/mutsu_key \
-            -o IdentitiesOnly=yes \
-            -o PasswordAuthentication=no \
-            -o KbdInteractiveAuthentication=no \
-            -o StrictHostKeyChecking=no \
-            manitcor@10.0.42.41 'echo "AUTH OK"' 2>&1 || true
-
       - name: Build on mutsu via SSH
         shell: bash
         run: |
