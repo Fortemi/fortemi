@@ -283,15 +283,18 @@ pub async fn complete(
 
 /// `POST /api/v1/inference/stream` — same shape as `/complete`, returns SSE.
 ///
-/// MVP implementation: invokes the synchronous `generate` and emits a single
-/// `delta` event with the full content followed by `done`. Real per-token
-/// streaming requires a richer trait method (TODO once the trait grows it);
-/// this lets the BT6 web shim wire EventSource end-to-end without waiting.
+/// Uses `GenerationBackend::stream_generate[_with_system]` (#629). For
+/// backends that override with real token streaming (Ollama), this emits
+/// one `delta` event per NDJSON chunk from upstream. Backends that still
+/// use the trait default fall back to a single large `delta` (wire
+/// compatible, just not progressive).
 pub async fn stream(
     State(state): State<AppState>,
     Json(req): Json<CompleteRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<InferenceError>)>
 {
+    use futures::StreamExt;
+
     let provider_id = req
         .provider_id
         .clone()
@@ -331,23 +334,48 @@ pub async fn stream(
 
     let (system, prompt) = flatten_messages(&req.messages);
 
-    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(8);
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(32);
     let model_name = req.model.clone();
     let pid_clone = provider_id.clone();
 
     tokio::spawn(async move {
-        let result = if system.is_empty() {
-            backend.generate(&prompt).await
+        // Ask the backend for a chunk stream. The trait default wraps
+        // generate() in a one-item stream; Ollama and OpenAI overrides
+        // yield many items.
+        let stream_result = if system.is_empty() {
+            backend.stream_generate(&prompt).await
         } else {
-            backend.generate_with_system(&system, &prompt).await
+            backend.stream_generate_with_system(&system, &prompt).await
         };
 
-        match result {
-            Ok(content) => {
-                let delta_payload = serde_json::json!({"content": content}).to_string();
-                let _ = tx
-                    .send(Ok(Event::default().event("delta").data(delta_payload)))
-                    .await;
+        match stream_result {
+            Ok(mut chunks) => {
+                while let Some(chunk) = chunks.next().await {
+                    match chunk {
+                        Ok(content) => {
+                            let payload = serde_json::json!({"content": content}).to_string();
+                            if tx
+                                .send(Ok(Event::default().event("delta").data(payload)))
+                                .await
+                                .is_err()
+                            {
+                                // Receiver closed — client disconnected.
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            let err_payload = serde_json::json!({
+                                "error": e.to_string(),
+                                "code": "INFERENCE_FAILED",
+                            })
+                            .to_string();
+                            let _ = tx
+                                .send(Ok(Event::default().event("error").data(err_payload)))
+                                .await;
+                            return;
+                        }
+                    }
+                }
                 let done_payload = serde_json::json!({
                     "finish_reason": "stop",
                     "model": model_name,

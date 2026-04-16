@@ -38,8 +38,11 @@ regex.workspace = true
 # Base64 encoding for vision backend
 base64.workspace = true
 
-# Streaming (for OpenAI backend)
-futures = { workspace = true, optional = true }
+# Streaming: matric-core exposes GenerationStream unconditionally as of #629,
+# and the Ollama stream_generate_internal uses futures combinators regardless
+# of feature flags. So futures moves from optional-for-openai to unconditional.
+# bytes stays optional — only the OpenAI SSE parser needs it.
+futures = { workspace = true }
 bytes = { version = "1", optional = true }
 
 # Random for mock backend (test only)
@@ -54,7 +57,7 @@ rand.workspace = true
 [features]
 default = ["ollama"]
 ollama = []
-openai = ["futures", "bytes"]
+openai = ["bytes"]
 # Enable all backends
 all-backends = ["ollama", "openai"]
 # Enable integration tests that require live inference server

@@ -445,6 +445,125 @@ impl OllamaBackend {
         Ok(result.message.content)
     }
 
+    /// Streaming chat completion — yields content chunks as they arrive
+    /// from `/api/chat` with `stream: true`. The Ollama response format
+    /// is NDJSON; one object per line:
+    ///
+    /// ```jsonc
+    /// {"message":{"role":"assistant","content":"Hel"},"done":false}
+    /// {"message":{"role":"assistant","content":"lo"},"done":false}
+    /// {"done":true,"total_duration":...}  // no "message" on the final line
+    /// ```
+    ///
+    /// The returned stream yields each chunk's `message.content` and
+    /// terminates when a line with `"done": true` is received or the
+    /// connection closes. See #629.
+    async fn stream_generate_internal(
+        &self,
+        system: &str,
+        prompt: &str,
+    ) -> Result<matric_core::GenerationStream> {
+        use futures::StreamExt;
+
+        let mut messages: Vec<ChatMessage> = Vec::new();
+        if !system.is_empty() {
+            messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        });
+
+        let options = self.gen_model_profile().map(|p| ChatOptions {
+            num_ctx: None,
+            num_predict: Some(p.max_output),
+        });
+
+        let request = ChatRequest {
+            model: self.gen_model.clone(),
+            messages,
+            stream: true,
+            format: None,
+            think: None,
+            options,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .timeout(Duration::from_secs(self.gen_timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::Inference(format!("Streaming chat request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(format!(
+                "Ollama stream returned {}: {}",
+                status, body
+            )));
+        }
+
+        // Accumulate chunks across reads — NDJSON lines can span multiple
+        // bytes_stream() reads. Keep a string buffer, split on '\n' when
+        // new data arrives, parse each complete line.
+        let mut buf = String::new();
+        let byte_stream = response.bytes_stream();
+
+        // Build the output stream. For each incoming byte chunk we
+        // append to buf, split, parse each complete line, and yield
+        // the message content.
+        let out = byte_stream.flat_map(move |res| {
+            let items: Vec<Result<String>> = match res {
+                Ok(bytes) => {
+                    buf.push_str(&String::from_utf8_lossy(&bytes));
+                    let mut out = Vec::new();
+                    // Drain complete lines from buf
+                    while let Some(nl) = buf.find('\n') {
+                        let line = buf[..nl].trim().to_string();
+                        buf.drain(..=nl);
+                        if line.is_empty() {
+                            continue;
+                        }
+                        // Parse the JSON chunk. Ignore any line that
+                        // doesn't have a string content field (e.g. the
+                        // final {"done": true} line).
+                        match serde_json::from_str::<serde_json::Value>(&line) {
+                            Ok(v) => {
+                                if let Some(content) = v
+                                    .get("message")
+                                    .and_then(|m| m.get("content"))
+                                    .and_then(|c| c.as_str())
+                                {
+                                    if !content.is_empty() {
+                                        out.push(Ok(content.to_string()));
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                // Malformed line — skip but don't fail
+                                // the whole stream.
+                            }
+                        }
+                    }
+                    out
+                }
+                Err(e) => vec![Err(Error::Inference(format!(
+                    "Streaming chunk read failed: {}",
+                    e
+                )))],
+            };
+            futures::stream::iter(items)
+        });
+
+        Ok(Box::pin(out))
+    }
+
     /// Get the current generation model name.
     pub fn gen_model_name(&self) -> &str {
         &self.gen_model
@@ -724,6 +843,19 @@ impl GenerationBackend for OllamaBackend {
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         self.generate_internal(system, prompt, Some(serde_json::json!("json")), None)
             .await
+    }
+
+    async fn stream_generate(&self, prompt: &str) -> Result<matric_core::GenerationStream> {
+        self.stream_generate_with_system("", prompt).await
+    }
+
+    #[instrument(skip(self, system, prompt), fields(subsystem = "inference", component = "ollama", op = "stream_generate", model = %self.gen_model, prompt_len = prompt.len()))]
+    async fn stream_generate_with_system(
+        &self,
+        system: &str,
+        prompt: &str,
+    ) -> Result<matric_core::GenerationStream> {
+        self.stream_generate_internal(system, prompt).await
     }
 
     fn model_name(&self) -> &str {

@@ -23,6 +23,9 @@ thiserror.workspace = true
 # Async traits
 async-trait.workspace = true
 
+# Stream type for GenerationBackend::stream_generate (#629)
+futures.workspace = true
+
 # Vector type (shared with pgvector)
 pgvector.workspace = true
 

@@ -385,6 +385,12 @@ pub trait EmbeddingBackend: Send + Sync {
     fn model_name(&self) -> &str;
 }
 
+/// Owned, `Send`able async stream of text chunks — return type for streaming
+/// generation methods. Implementations can build one from any stream via
+/// `Box::pin(my_stream)`.
+pub type GenerationStream =
+    std::pin::Pin<Box<dyn futures::Stream<Item = Result<String>> + Send + 'static>>;
+
 /// Backend for text generation (LLM).
 #[async_trait]
 pub trait GenerationBackend: Send + Sync {
@@ -410,8 +416,89 @@ pub trait GenerationBackend: Send + Sync {
         self.generate_with_system(system, prompt).await
     }
 
+    /// Stream generated text chunk-by-chunk (#629).
+    ///
+    /// Backends that support native streaming (Ollama `stream: true`,
+    /// OpenAI `stream: true` SSE) should override this to emit one item
+    /// per token-ish chunk. The default implementation calls the blocking
+    /// [`generate`] and yields one final chunk — wire-compatible but
+    /// non-progressive.
+    ///
+    /// Consumers (e.g., `POST /api/v1/inference/stream`) emit each chunk
+    /// as an SSE `delta` event, so even the fallback is correct; it just
+    /// doesn't give the progressive UI the user expects.
+    async fn stream_generate(&self, prompt: &str) -> Result<GenerationStream> {
+        let full = self.generate(prompt).await?;
+        Ok(Box::pin(futures::stream::once(async move { Ok(full) })))
+    }
+
+    /// Stream generated text with a system context. See [`stream_generate`].
+    async fn stream_generate_with_system(
+        &self,
+        system: &str,
+        prompt: &str,
+    ) -> Result<GenerationStream> {
+        let full = self.generate_with_system(system, prompt).await?;
+        Ok(Box::pin(futures::stream::once(async move { Ok(full) })))
+    }
+
     /// Get the model name being used.
     fn model_name(&self) -> &str;
+}
+
+#[cfg(test)]
+mod generation_backend_tests {
+    use super::*;
+    use futures::StreamExt;
+
+    /// Minimal backend that counts generate() calls and returns a fixed
+    /// string. Used to verify the default stream_* impls yield exactly
+    /// one chunk and route through the blocking generate path.
+    struct FakeGen {
+        fixed: String,
+    }
+
+    #[async_trait]
+    impl GenerationBackend for FakeGen {
+        async fn generate(&self, _prompt: &str) -> Result<String> {
+            Ok(self.fixed.clone())
+        }
+        async fn generate_with_system(&self, _s: &str, _p: &str) -> Result<String> {
+            Ok(self.fixed.clone())
+        }
+        fn model_name(&self) -> &str {
+            "fake"
+        }
+    }
+
+    #[tokio::test]
+    async fn default_stream_generate_yields_one_chunk() {
+        let g = FakeGen {
+            fixed: "hello world".to_string(),
+        };
+        let mut stream = g.stream_generate("ignored").await.unwrap();
+        let mut chunks = Vec::new();
+        while let Some(item) = stream.next().await {
+            chunks.push(item.unwrap());
+        }
+        assert_eq!(chunks, vec!["hello world".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn default_stream_generate_with_system_yields_one_chunk() {
+        let g = FakeGen {
+            fixed: "with system".to_string(),
+        };
+        let mut stream = g
+            .stream_generate_with_system("sys", "prompt")
+            .await
+            .unwrap();
+        let mut chunks = Vec::new();
+        while let Some(item) = stream.next().await {
+            chunks.push(item.unwrap());
+        }
+        assert_eq!(chunks, vec!["with system".to_string()]);
+    }
 }
 
 /// Combined inference backend supporting both embedding and generation.
