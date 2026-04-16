@@ -1,4 +1,4 @@
-# Publish matric-api Sidecar Binaries
+# Publish matric-api Sidecar Binaries (trigger dfce17d follow-up)
 #
 # Builds native matric-api binaries for BT6-ARSENAL Desktop sidecar use
 # and publishes them as Gitea release assets.
