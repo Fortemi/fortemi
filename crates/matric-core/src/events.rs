@@ -398,6 +398,13 @@ pub enum ServerEvent {
     },
     /// All derived views for a note are ready for search.
     ReadmodelSearchReady { note_id: Uuid },
+
+    // -- Inference provider availability (Issue #630) --
+    /// The inference provider's reachability state changed (e.g. Ollama came
+    /// online or went offline). Emitted by the periodic reachability probe so
+    /// clients can clear or raise an "offline mode" indicator without polling
+    /// `/health`.
+    InferenceAvailabilityChanged { available: bool },
 }
 
 impl ServerEvent {
@@ -452,6 +459,7 @@ impl ServerEvent {
             ServerEvent::IndexFtsUpdated { .. } => "IndexFtsUpdated",
             ServerEvent::ReadmodelGraphUpdated { .. } => "ReadmodelGraphUpdated",
             ServerEvent::ReadmodelSearchReady { .. } => "ReadmodelSearchReady",
+            ServerEvent::InferenceAvailabilityChanged { .. } => "InferenceAvailabilityChanged",
         }
     }
 
@@ -506,6 +514,7 @@ impl ServerEvent {
             ServerEvent::IndexFtsUpdated { .. } => "index.fts.updated",
             ServerEvent::ReadmodelGraphUpdated { .. } => "readmodel.graph.updated",
             ServerEvent::ReadmodelSearchReady { .. } => "readmodel.search.ready",
+            ServerEvent::InferenceAvailabilityChanged { .. } => "inference.availability.changed",
         }
     }
 
@@ -557,6 +566,7 @@ impl ServerEvent {
             | ServerEvent::IndexFtsUpdated { .. }
             | ServerEvent::ReadmodelGraphUpdated { .. }
             | ServerEvent::ReadmodelSearchReady { .. } => Some("index"),
+            ServerEvent::InferenceAvailabilityChanged { .. } => Some("inference"),
         }
     }
 
@@ -612,6 +622,7 @@ impl ServerEvent {
             | ServerEvent::IndexFtsUpdated { note_id, .. }
             | ServerEvent::ReadmodelSearchReady { note_id, .. } => Some(*note_id),
             ServerEvent::ReadmodelGraphUpdated { note_id, .. } => *note_id,
+            ServerEvent::InferenceAvailabilityChanged { .. } => None,
         }
     }
 }
@@ -680,7 +691,8 @@ impl ServerEvent {
             | ServerEvent::IndexLinkingUpdated { .. }
             | ServerEvent::IndexFtsUpdated { .. }
             | ServerEvent::ReadmodelGraphUpdated { .. }
-            | ServerEvent::ReadmodelSearchReady { .. } => EventPriority::Normal,
+            | ServerEvent::ReadmodelSearchReady { .. }
+            | ServerEvent::InferenceAvailabilityChanged { .. } => EventPriority::Normal,
 
             // Telemetry and progress — coalescable
             ServerEvent::QueueStatus { .. }
@@ -790,6 +802,9 @@ impl ServerEvent {
             }
             ServerEvent::ReadmodelSearchReady { .. } => {
                 "All derived views for a note are ready for search"
+            }
+            ServerEvent::InferenceAvailabilityChanged { .. } => {
+                "Inference provider reachability transitioned (online/offline)"
             }
         }
     }
@@ -964,6 +979,8 @@ impl ServerEvent {
             },
             ServerEvent::ReadmodelGraphUpdated { note_id: None },
             ServerEvent::ReadmodelSearchReady { note_id: dummy_id },
+            // Inference availability (Issue #630)
+            ServerEvent::InferenceAvailabilityChanged { available: false },
         ];
 
         variants
@@ -2022,15 +2039,15 @@ mod tests {
         let meta = ServerEvent::all_variants_metadata();
         assert_eq!(
             meta.len(),
-            46,
-            "Expected 46 event variants, got {}",
+            47,
+            "Expected 47 event variants, got {}",
             meta.len()
         );
 
         // All namespaced types should be unique
         let types: std::collections::HashSet<&str> =
             meta.iter().map(|m| m.namespaced_type).collect();
-        assert_eq!(types.len(), 46, "Duplicate namespaced_type found");
+        assert_eq!(types.len(), 47, "Duplicate namespaced_type found");
 
         // All descriptions should be non-empty
         for m in &meta {

@@ -4,6 +4,8 @@
 //! permits are taken (by other chat requests or concurrent GPU usage), the
 //! endpoint returns 503 immediately rather than queuing.
 
+use std::sync::atomic::Ordering;
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -180,6 +182,21 @@ pub async fn chat_handler(
                 .into_response();
         }
     };
+
+    // 2b. Check the provider is currently reachable (#630).
+    // The periodic reachability probe sets this flag; if the provider (e.g.
+    // Ollama) is down or not yet started, fail fast with a retry hint rather
+    // than blocking on a generation request that will time out.
+    if !state.inference_available.load(Ordering::Relaxed) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Chat provider not reachable — retry after inference provider starts",
+                "retry_after": 30
+            })),
+        )
+            .into_response();
+    }
 
     // 3. Try to acquire a semaphore permit (non-blocking)
     let semaphore = match &state.chat_semaphore {

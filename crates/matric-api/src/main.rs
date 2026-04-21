@@ -5,7 +5,7 @@ mod middleware;
 mod query_types;
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use chrono::Datelike;
@@ -67,6 +67,57 @@ use tokio::sync::RwLock;
 pub struct InferenceRuntime {
     pub generation_backend: Option<Arc<OllamaBackend>>,
     pub provider_registry: Arc<matric_inference::ProviderRegistry>,
+}
+
+/// Background task that periodically probes the generation backend for
+/// reachability and updates `inference_available` (#630).
+///
+/// Without this, a one-shot startup probe would latch Fortemi's
+/// `capabilities.chat.available` and `capabilities.inference.available` to
+/// `false` if the provider (e.g. Ollama) was still starting when Fortemi came
+/// up — leaving every client (HotM, Arsenal, etc.) stuck in "offline mode"
+/// until Fortemi was manually restarted.
+///
+/// Interval is `INFERENCE_PROBE_INTERVAL_SECS` (default 30s). A transition in
+/// reachability is logged at INFO level so operators can correlate with
+/// provider availability.
+async fn inference_reachability_probe(
+    runtime: Arc<std::sync::RwLock<InferenceRuntime>>,
+    flag: Arc<AtomicBool>,
+    event_bus: Arc<EventBus>,
+    interval_secs: u64,
+) {
+    use matric_core::InferenceBackend;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+    // First tick fires immediately — skip it since startup already probed.
+    interval.tick().await;
+
+    loop {
+        interval.tick().await;
+
+        let backend = {
+            let rt = runtime.read().unwrap();
+            rt.generation_backend.clone()
+        };
+
+        let reachable = match backend {
+            Some(b) => b.health_check().await.unwrap_or(false),
+            None => false,
+        };
+
+        let previous = flag.swap(reachable, Ordering::Relaxed);
+        if previous != reachable {
+            if reachable {
+                info!("Inference provider became reachable — chat endpoint enabled");
+            } else {
+                warn!("Inference provider became unreachable — chat endpoint disabled");
+            }
+            // Emit SSE event so clients clear/raise offline banners without polling `/health`.
+            event_bus.emit(ServerEvent::InferenceAvailabilityChanged {
+                available: reachable,
+            });
+        }
+    }
 }
 
 // =============================================================================
@@ -667,6 +718,13 @@ struct AppState {
     /// Semaphore limiting concurrent chat requests to avoid VRAM contention (#549).
     /// None if Ollama generation is not configured.
     chat_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    /// Live reachability flag for the inference provider (#630).
+    ///
+    /// Updated by a background probe task (see `inference_reachability_probe`).
+    /// Consumers (chat handler, `/health`) read this rather than relying on the
+    /// one-shot startup probe, so availability recovers automatically when a
+    /// provider (e.g. Ollama) starts after Fortemi.
+    inference_available: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -1637,24 +1695,31 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create chat backend + semaphore (#549).
-    // Reuse OllamaBackend::from_env() and probe health before enabling.
-    let (generation_backend, chat_semaphore) = {
-        let backend = OllamaBackend::from_env();
+    // Always construct the backend from env so `capabilities.inference.configured`
+    // reflects user configuration (not a single startup probe). The
+    // `inference_available` flag below is updated by a periodic probe task (#630)
+    // so transient provider unreachability recovers without a Fortemi restart.
+    let permits = matric_core::defaults::chat_max_concurrent();
+    let generation_backend: Option<Arc<OllamaBackend>> = Some(Arc::new(OllamaBackend::from_env()));
+    let chat_semaphore: Option<Arc<tokio::sync::Semaphore>> =
+        Some(Arc::new(tokio::sync::Semaphore::new(permits)));
+    let inference_available = Arc::new(AtomicBool::new(false));
+
+    // Initial startup probe — populate the flag immediately so a freshly-started
+    // Fortemi with reachable Ollama doesn't wait a full probe interval.
+    if let Some(ref backend) = generation_backend {
         match backend.health_check().await {
             Ok(true) => {
-                let permits = matric_core::defaults::chat_max_concurrent();
                 info!(permits, "Chat endpoint enabled (Ollama reachable)");
-                (
-                    Some(Arc::new(backend)),
-                    Some(Arc::new(tokio::sync::Semaphore::new(permits))),
-                )
+                inference_available.store(true, Ordering::Relaxed);
             }
             _ => {
-                warn!("Ollama not reachable — chat endpoint disabled");
-                (None, None)
+                warn!(
+                    "Ollama not reachable at startup — chat endpoint will re-enable when provider becomes available (#630)"
+                );
             }
         }
-    };
+    }
 
     // Create app state
     let tag_resolver = TagResolver::new(db.clone());
@@ -1703,7 +1768,30 @@ async fn main() -> anyhow::Result<()> {
         tus_staging_path,
         pause_state,
         chat_semaphore,
+        inference_available: inference_available.clone(),
     };
+
+    // Spawn periodic inference reachability probe (#630).
+    // Re-probes the generation backend at a fixed interval so `capabilities.chat.available`
+    // and `capabilities.inference.available` track the provider's live state — recovering
+    // automatically when a provider (e.g. Ollama) becomes reachable after Fortemi startup.
+    {
+        let probe_interval_secs: u64 = std::env::var("INFERENCE_PROBE_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v: &u64| v > 0)
+            .unwrap_or(30);
+        let runtime = state.inference_runtime.clone();
+        let flag = inference_available.clone();
+        let bus = state.event_bus.clone();
+        info!(
+            interval_secs = probe_interval_secs,
+            "Starting periodic inference reachability probe (#630)"
+        );
+        tokio::spawn(async move {
+            inference_reachability_probe(runtime, flag, bus, probe_interval_secs).await;
+        });
+    }
 
     // Read max body size from env var with fallback
     let max_body_size = std::env::var("MATRIC_MAX_BODY_SIZE_BYTES")
@@ -3678,17 +3766,23 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "running"
     };
 
-    // Build inference status for health response (#568)
+    // Build inference status for health response (#568, #630).
+    // `configured` reflects static env/db config; `available` reflects the latest
+    // periodic reachability probe (#630) so transient provider outages don't latch
+    // chat to "offline" for the Fortemi process lifetime.
     let gen_backend = state.generation_backend();
+    let inference_reachable = state.inference_available.load(Ordering::Relaxed);
     let inference_info = match &gen_backend {
         Some(backend) => serde_json::json!({
             "configured": true,
+            "available": inference_reachable,
             "base_url": backend.base_url(),
             "gen_model": GenerationBackend::model_name(backend.as_ref()),
             "embed_model": EmbeddingBackend::model_name(backend.as_ref()),
         }),
         None => serde_json::json!({
             "configured": false,
+            "available": false,
         }),
     };
 
@@ -3706,8 +3800,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
             "chat": {
-                "available": state.chat_semaphore.as_ref()
-                    .map(|s| s.available_permits() > 0).unwrap_or(false),
+                "available": gen_backend.is_some() && inference_reachable,
                 "configured": gen_backend.is_some(),
                 "max_concurrent": matric_core::defaults::chat_max_concurrent(),
             },
@@ -3914,8 +4007,8 @@ async fn health_check_live(State(state): State<AppState>) -> impl IntoResponse {
             "auth_required": state.require_auth,
             "extraction_strategies": state.extraction_strategies,
             "chat": {
-                "available": state.chat_semaphore.as_ref()
-                    .map(|s| s.available_permits() > 0).unwrap_or(false),
+                "available": state.generation_backend().is_some()
+                    && state.inference_available.load(Ordering::Relaxed),
                 "configured": state.generation_backend().is_some(),
                 "max_concurrent": matric_core::defaults::chat_max_concurrent(),
             },
@@ -18748,6 +18841,7 @@ mod tests {
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
+            inference_available: Arc::new(AtomicBool::new(false)),
         };
 
         let router = Router::new()
@@ -19925,6 +20019,7 @@ mod tests {
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
+            inference_available: Arc::new(AtomicBool::new(false)),
         };
 
         let router = Router::new()
@@ -20241,6 +20336,7 @@ mod tests {
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
+            inference_available: Arc::new(AtomicBool::new(false)),
         };
 
         let router = Router::new()
