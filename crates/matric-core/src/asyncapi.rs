@@ -206,22 +206,22 @@ mod tests {
         // Channel
         assert!(spec["channels"]["events"]["address"].as_str().unwrap() == "/api/v1/events");
 
-        // 44 messages
+        // 47 messages
         let messages = spec["channels"]["events"]["messages"]
             .as_object()
             .expect("messages should be an object");
         assert_eq!(
             messages.len(),
-            46,
-            "Expected 46 messages, got {}",
+            47,
+            "Expected 47 messages, got {}",
             messages.len()
         );
 
-        // Operation references all 46 messages
+        // Operation references all 47 messages
         let op_msgs = spec["operations"]["receiveEvents"]["messages"]
             .as_array()
             .expect("operation messages should be an array");
-        assert_eq!(op_msgs.len(), 46);
+        assert_eq!(op_msgs.len(), 47);
 
         // Schemas present
         let schemas = spec["components"]["schemas"]
