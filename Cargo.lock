@@ -2124,6 +2124,7 @@ version = "2026.4.1"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "infer",
  "kamadak-exif 0.6.1",
  "once_cell",

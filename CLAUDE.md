@@ -13,13 +13,16 @@ AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipe
 
 ### Gitea Actions Workflows
 
-Three workflows in `.gitea/workflows/`:
+Six workflows in `.gitea/workflows/`:
 
 | Workflow | Purpose | Trigger |
 |----------|---------|---------|
 | `ci-builder.yaml` | Main CI pipeline (build, test, deploy) | Push to main |
 | `test.yml` | Unit & integration tests with coverage | Push to main, PRs |
 | `build-builder.yaml` | Build the builder Docker image | Manual/tag |
+| `build-gliner.yaml` | Build the GLiNER sidecar image | Manual/tag |
+| `build-pyannote.yaml` | Build the pyannote diarization sidecar image | Manual/tag |
+| `publish-sidecar.yml` | Publish sidecar images to registry | Tag (`sidecar-*-v*`) |
 
 ### Monitoring Builds
 
@@ -45,6 +48,7 @@ Workflows run on `matric-builder` runner with:
 - **crates/matric-db** - PostgreSQL repositories (sqlx)
 - **crates/matric-search** - Hybrid search (FTS + semantic + RRF)
 - **crates/matric-inference** - Multi-provider inference (Ollama, OpenAI, OpenRouter, llama.cpp)
+- **crates/matric-crypto** - PKE encryption for secure note sharing
 - **crates/matric-jobs** - Background job worker
 - **mcp-server/** - MCP (Model Context Protocol) server in Node.js
 
@@ -143,7 +147,7 @@ llamacpp:my-model       → llama.cpp
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_BASE` | `http://localhost:11434` | Ollama API URL (also checks `OLLAMA_URL`, `OLLAMA_HOST`) |
+| `OLLAMA_BASE` | `http://localhost:11434` | Ollama API URL (precedence: `MATRIC_OLLAMA_URL` → `OLLAMA_BASE` → `OLLAMA_URL` → `OLLAMA_HOST`) |
 | `OLLAMA_GEN_MODEL` | `qwen3.5:9b` | Generation + vision model |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 
@@ -299,7 +303,7 @@ Configure nginx to proxy to the container:
 
 The MCP server provides Claude/AI integration. In Docker bundle deployment, it runs automatically on port 3001.
 
-**Tool modes:** Default is "core" (43 agent-friendly tools with discriminated-union pattern: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, and additional graph/observability tools including `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `get_related_notes`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`, `get_cold_spots`, `get_access_frequency`, plus purge tools: `purge_note`, `purge_notes`, `purge_all_notes`). Set `MCP_TOOL_MODE=full` for all 205 granular tools.
+**Tool modes:** Default is "core" (43 agent-friendly tools). Core tools: `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference`, `manage_attachments`, `trigger_graph_maintenance`, `coarse_community_detection`, `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `pfnet_sparsify`, `recompute_snn_scores`, `get_knowledge_health`, `get_related_notes`, `select_memory`, `get_active_memory`, `bulk_reprocess_notes`, `get_cold_spots`, `get_access_frequency`, `purge_note`, `purge_notes`, `purge_all_notes`, `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note`, `export_note`, `get_note_links`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `get_documentation`, `get_system_info`, `health_check`. Set `MCP_TOOL_MODE=full` for all 205 granular tools.
 
 For Claude Code integration, configure `.mcp.json`:
 ```json
@@ -451,6 +455,7 @@ export FTS_SCRIPT_DETECTION=true      # Auto-detect query language
 export FTS_TRIGRAM_FALLBACK=true      # Emoji/symbol search
 export FTS_BIGRAM_CJK=true            # Optimized CJK search
 export FTS_MULTILINGUAL_CONFIGS=true  # Language-specific stemming
+export FTS_WEBSEARCH_TO_TSQUERY=true  # websearch_to_tsquery() search operators (default: true)
 ```
 
 ## Releasing

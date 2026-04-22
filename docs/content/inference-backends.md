@@ -29,9 +29,9 @@ Ollama runs models locally on your hardware. This is the default backend.
 
 ```bash
 # Environment variables
-export OLLAMA_URL=http://localhost:11434   # Default
-export OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-export OLLAMA_GENERATION_MODEL=llama3.2:3b
+export OLLAMA_BASE=http://localhost:11434   # Default (also: MATRIC_OLLAMA_URL > OLLAMA_BASE > OLLAMA_URL > OLLAMA_HOST)
+export OLLAMA_EMBED_MODEL=nomic-embed-text
+export OLLAMA_GEN_MODEL=qwen3.5:9b
 export OLLAMA_EMBEDDING_DIMENSION=768
 ```
 
@@ -41,7 +41,7 @@ Or in your application config:
 [inference.ollama]
 url = "http://localhost:11434"
 embedding_model = "nomic-embed-text"
-generation_model = "llama3.2:3b"
+generation_model = "qwen3.5:9b"
 embedding_dimension = 768
 ```
 
@@ -49,11 +49,11 @@ embedding_dimension = 768
 
 | Task | Model | VRAM | Notes |
 |------|-------|------|-------|
-| Embeddings | `nomic-embed-text` | ~2GB | Best quality/speed balance |
+| Embeddings | `nomic-embed-text` | ~2GB | Best quality/speed balance (default) |
 | Embeddings | `mxbai-embed-large` | ~2GB | Alternative high-quality |
-| Generation | `llama3.2:3b` | ~4GB | Fast, good quality |
-| Generation | `llama3.1:8b` | ~8GB | Better quality, slower |
-| Generation | `qwen2.5:7b` | ~6GB | Strong reasoning |
+| Generation | `qwen3.5:9b` | ~8GB | Default — multimodal, vision-capable |
+| Generation | `qwen2.5:7b` | ~6GB | Alternative, strong reasoning |
+| Generation | `llama3.1:8b` | ~8GB | Alternative, slower |
 | Code | `qwen2.5-coder:7b` | ~6GB | Code-focused tasks |
 
 ### Installing Models
@@ -62,8 +62,8 @@ embedding_dimension = 768
 # Pull embedding model
 ollama pull nomic-embed-text
 
-# Pull generation model
-ollama pull llama3.2:3b
+# Pull generation model (default)
+ollama pull qwen3.5:9b
 
 # List installed models
 ollama list

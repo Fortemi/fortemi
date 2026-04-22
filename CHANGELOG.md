@@ -7,14 +7,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.4.2] - 2026-04-22
+
 ### Added
 
 - **Stateless inference endpoints with per-request BYOK** (#628) — Three new endpoints let downstream UIs (BT6-ARSENAL Docker deployment, external integrations) drive chat completions through Fortemi as a CORS-bypassing proxy without server-side key storage:
   - `POST /api/v1/inference/complete` — provider-agnostic chat completion with optional `{provider_id, api_key, base_url}` in the request body. Falls back to registered config then env vars. Supports `ollama`, `openai`, `openrouter`, `llamacpp`.
-  - `POST /api/v1/inference/stream` — SSE equivalent. MVP emits one `delta` + one `done` event; real token streaming tracked in #629.
+  - `POST /api/v1/inference/stream` — SSE streaming with real token-by-token output for Ollama; one-chunk fallback for other backends pending their streaming implementations.
   - `GET /api/v1/inference/providers` — lists known providers with `server_configured` + `requires_user_key` flags so BYOK UIs know which keys to prompt for.
   - `ProviderRegistry::resolve_generation_inline()` — factory that builds a fresh `Box<dyn GenerationBackend>` from transient credentials without mutating the registry. Never caches between calls.
   - `OllamaBackend::set_base_url()` — new setter for per-request base URL override.
+- **Real token streaming for Ollama** (#629) — `POST /api/v1/inference/stream` now emits one SSE `delta` event per token for Ollama backends. `GenerationBackend` trait gains `stream_generate()` and `stream_generate_with_system()` with default one-chunk fallback for backends without a streaming implementation. Enables per-token visibility in HotM and other downstream UIs.
+- **Periodic inference provider reprobe** (#630) — `capabilities.inference.available` no longer latches false permanently when a provider is unreachable at startup. A background probe re-checks every `INFERENCE_PROBE_INTERVAL_SECS` (default 30s) and updates `AppState.inference_available`. Chat handler returns 503 + `retry_after` when the provider is currently unreachable. Emits `InferenceAvailabilityChanged` SSE event on transitions so clients can clear/raise offline banners without polling `/health`.
+
+### Fixed
+
+- **Think tokens blocked streaming chunks** — Disabled Qwen3.5 `think` mode during streaming so content delta events flow immediately without waiting for the full `<think>…</think>` block to complete.
+- **`:latest` Docker tag overwritten by dev builds** — CI now reserves `:latest` and `:bundle-latest` exclusively for tagged releases. Dev pushes produce `:main` and `:sha-<short>` only. Downstream consumers should pin to `:main` for rolling dev or `:<version>` for pinned releases. Fixes v2026.4.1 being masked on `ghcr.io` by a later main build.
 
 ## [2026.4.1] - 2026-04-12
 
