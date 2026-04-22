@@ -116,26 +116,28 @@ jobs:
 
           echo "Testing testdb image..."
 
-          # Start container and verify extensions
+          # Start container with correct superuser (matric, not postgres)
           docker run -d --name testdb-verify \
+            -e POSTGRES_USER=matric \
             -e POSTGRES_PASSWORD=test \
+            -e POSTGRES_DB=matric \
             ${IMAGE}:latest
 
           # Wait for PostgreSQL
           for i in {1..30}; do
-            if docker exec testdb-verify pg_isready -U postgres 2>/dev/null; then
+            if docker exec testdb-verify pg_isready -U matric 2>/dev/null; then
               break
             fi
             sleep 1
           done
 
-          # Verify pgvector extension
-          docker exec testdb-verify psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
-          echo "pgvector: OK"
-
-          # Verify PostGIS extension
-          docker exec testdb-verify psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-          echo "PostGIS: OK"
+          # Verify extensions were created by init-extensions.sh (SELECT avoids double-load crash)
+          EXTS=$(docker exec testdb-verify psql -U matric -d matric -t -c \
+            "SELECT string_agg(extname, ',') FROM pg_extension WHERE extname IN ('vector','postgis','pg_trgm');")
+          echo "Installed extensions: ${EXTS}"
+          echo "${EXTS}" | grep -q "vector"  && echo "pgvector: OK"  || { echo "pgvector: MISSING"; exit 1; }
+          echo "${EXTS}" | grep -q "postgis" && echo "PostGIS: OK"  || { echo "PostGIS: MISSING"; exit 1; }
+          echo "${EXTS}" | grep -q "pg_trgm" && echo "pg_trgm: OK"  || { echo "pg_trgm: MISSING"; exit 1; }
 
           # Cleanup
           docker stop testdb-verify
