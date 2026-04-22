@@ -7,7 +7,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.4.2] - 2026-04-22
+## [2026.4.1] - 2026-04-22
 
 ### Added
 
@@ -19,25 +19,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   - `OllamaBackend::set_base_url()` — new setter for per-request base URL override.
 - **Real token streaming for Ollama** (#629) — `POST /api/v1/inference/stream` now emits one SSE `delta` event per token for Ollama backends. `GenerationBackend` trait gains `stream_generate()` and `stream_generate_with_system()` with default one-chunk fallback for backends without a streaming implementation. Enables per-token visibility in HotM and other downstream UIs.
 - **Periodic inference provider reprobe** (#630) — `capabilities.inference.available` no longer latches false permanently when a provider is unreachable at startup. A background probe re-checks every `INFERENCE_PROBE_INTERVAL_SECS` (default 30s) and updates `AppState.inference_available`. Chat handler returns 503 + `retry_after` when the provider is currently unreachable. Emits `InferenceAvailabilityChanged` SSE event on transitions so clients can clear/raise offline banners without polling `/health`.
-
-### Fixed
-
-- **Think tokens blocked streaming chunks** — Disabled Qwen3.5 `think` mode during streaming so content delta events flow immediately without waiting for the full `<think>…</think>` block to complete.
-- **`:latest` Docker tag overwritten by dev builds** — CI now reserves `:latest` and `:bundle-latest` exclusively for tagged releases. Dev pushes produce `:main` and `:sha-<short>` only. Downstream consumers should pin to `:main` for rolling dev or `:<version>` for pinned releases. Fixes v2026.4.1 being masked on `ghcr.io` by a later main build.
-
-## [2026.4.1] - 2026-04-12
-
-### Added
-
 - **Caller-defined extraction pipeline** — Optional `pipeline` field on `CreateNoteRequest` to opt-in to specific AI processing stages (`revision`, `title_generation`, `concept_tagging`, `reference_extraction`, `metadata_extraction`, `document_type_inference`). Empty array stores the note without any AI processing. Backwards compatible — omitting `pipeline` runs the full default pipeline.
 - **Configurable archive extraction limits** — `ARCHIVE_MAX_EXTRACT_BYTES` (default 1 GB, was 100 MB) and `ARCHIVE_MAX_SINGLE_FILE_BYTES` (default 50 MB, was 10 MB) env vars replace hardcoded constants. `MAX_FILES` cap removed entirely.
-- **Multi-provider installer manifest** — Setup manifest supports configuring multiple inference providers for guided deployment.
+- **Multi-provider installer manifest** — `setup.manifest.yaml` extended to support configuring multiple inference providers simultaneously during guided deployment. Complements the 8 installer scripts shipped in v2026.4.0.
+- **README redesign** — Restructured with normalized design language: problem/solution framing, ASCII ingest-to-search pipeline diagram, API endpoint tables, full MCP tool table, search capabilities and media processing sections, multi-provider inference slug reference, and security model overview.
+- **Feature and hardware requirements matrix** — New `docs/content/feature-hardware-matrix.md` maps every feature to its minimum hardware requirements, GPU VRAM tiers, and optional dependencies.
 
 ### Fixed
 
 - **Revision mode "none" creates fake history** (#625) — Notes created or updated with `revision_mode=none` no longer write misleading `note_revision` records with "Original preserved (no AI revision)" rationale. New `sync_revised_to_original_tx` keeps FTS content synced without creating fake revision history.
 - **Redis connection timeout** (#624) — 5-second timeout on `ConnectionManager::new()` prevents server startup from blocking indefinitely when Redis is unreachable. Bundle image defaults to `REDIS_ENABLED=false`.
 - **arm64 optional components** (#623) — Build args `ENABLE_OPEN3D`, `ENABLE_POSTGIS`, `ENABLE_OCR`, `ENABLE_FFMPEG` allow disabling platform-specific components for cross-architecture builds.
+- **Think tokens blocked streaming chunks** — Disabled Qwen3.5 `think` mode during streaming so content delta events flow immediately without waiting for the full `<think>…</think>` block to complete.
+- **`:latest` Docker tag overwritten by dev builds** — CI now reserves `:latest` and `:bundle-latest` exclusively for tagged releases. Dev pushes produce `:main` and `:sha-<short>` only. Downstream consumers should pin to `:main` for rolling dev or `:<version>` for pinned releases. Fixes v2026.4.0 being masked on `ghcr.io` by later main builds.
 
 ## [2026.4.0] - 2026-04-04
 
