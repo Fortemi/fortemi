@@ -609,8 +609,8 @@ jobs:
   # Requires GITHUB_PAT secret with: write:packages, contents:write scopes
 
   # Dev push to GHCR — rolling :main + :sha-<short> on every main commit.
-  # Downstream consumers (BT6-ARSENAL docker-compose) pin to :main for the
-  # team-facing deployment. :latest is reserved for tagged releases only
+  # Downstream consumers pin to :main for rolling dev builds.
+  # :latest is reserved for tagged releases only
   # (managed by the publish-github job below).
   publish-github-dev:
     name: Publish Dev Image to GitHub (ghcr.io)
@@ -651,7 +651,7 @@ jobs:
             return 1
           }
 
-          # API-only image (for Kubernetes / external DB / BT6 compose)
+          # API-only image (for Kubernetes / external DB / compose)
           docker build --no-cache \
             --build-arg VERSION=dev-${SHORT_SHA} \
             --build-arg GIT_SHA=${GITHUB_SHA} \

@@ -2,8 +2,8 @@
 //!
 //! Stateless `POST /api/v1/inference/complete` and `/stream` that route to
 //! any registered or BYOK provider. Per-request `api_key` + `base_url` in
-//! the body let the BT6-ARSENAL Docker deployment pass user-supplied keys
-//! from browser localStorage without server-side persistence.
+//! the body allow downstream clients to pass user-supplied keys
+//! without server-side persistence.
 //!
 //! Plus `GET /api/v1/inference/providers` reporting what's available based
 //! on env config + a live Ollama probe.
@@ -36,9 +36,9 @@ pub struct ChatMessage {
 
 /// Request body for `/complete` and `/stream`.
 ///
-/// All fields except `model` and `messages` are optional. The browser shim
-/// in BT6-ARSENAL injects `provider_id` and `api_key` based on localStorage
-/// state before each call.
+/// All fields except `model` and `messages` are optional. BYOK clients
+/// may inject `provider_id` and `api_key` per-request from client-side
+/// state without server-side persistence.
 ///
 /// `temperature`, `max_tokens`, `think` are accepted but not currently
 /// forwarded — the underlying `GenerationBackend` trait doesn't take them.

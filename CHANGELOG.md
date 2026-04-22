@@ -11,7 +11,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
-- **Stateless inference endpoints with per-request BYOK** (#628) — Three new endpoints let downstream UIs (BT6-ARSENAL Docker deployment, external integrations) drive chat completions through Fortemi as a CORS-bypassing proxy without server-side key storage:
+- **Stateless inference endpoints with per-request BYOK** (#628) — Three new endpoints let downstream UIs and external integrations drive chat completions through Fortemi as a CORS-bypassing proxy without server-side key storage:
   - `POST /api/v1/inference/complete` — provider-agnostic chat completion with optional `{provider_id, api_key, base_url}` in the request body. Falls back to registered config then env vars. Supports `ollama`, `openai`, `openrouter`, `llamacpp`.
   - `POST /api/v1/inference/stream` — SSE streaming with real token-by-token output for Ollama; one-chunk fallback for other backends pending their streaming implementations.
   - `GET /api/v1/inference/providers` — lists known providers with `server_configured` + `requires_user_key` flags so BYOK UIs know which keys to prompt for.

@@ -75,7 +75,7 @@ pub struct InferenceRuntime {
 /// Without this, a one-shot startup probe would latch Fortemi's
 /// `capabilities.chat.available` and `capabilities.inference.available` to
 /// `false` if the provider (e.g. Ollama) was still starting when Fortemi came
-/// up — leaving every client (HotM, Arsenal, etc.) stuck in "offline mode"
+/// up — leaving every client stuck in "offline mode"
 /// until Fortemi was manually restarted.
 ///
 /// Interval is `INFERENCE_PROBE_INTERVAL_SECS` (default 30s). A transition in
@@ -422,7 +422,7 @@ async fn queue_nlp_pipeline(
 /// Used by document types like agent-reflection that are machine-generated. (#563)
 ///
 /// When `pipeline` is `Some`, only listed features are queued. Empty = no processing.
-/// When `pipeline` is `None`, full default pipeline runs. (BT6-ARSENAL#56)
+/// When `pipeline` is `None`, full default pipeline runs. (#628)
 #[allow(clippy::too_many_arguments)]
 async fn queue_nlp_pipeline_inner(
     db: &Database,
@@ -437,7 +437,7 @@ async fn queue_nlp_pipeline_inner(
     pipeline: Option<&[String]>,
 ) {
     // If pipeline is explicitly set to empty, skip all AI processing (store only).
-    // BT6-ARSENAL#56: callers opt-in to specific features.
+    // Callers opt-in to specific pipeline features via the `pipeline` field (#628).
     if let Some(features) = pipeline {
         if features.is_empty() {
             return;
@@ -1906,7 +1906,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/inference/test-connection", post(test_connection))
         // Provider-agnostic chat completion (Issue #628) — stateless;
         // accepts optional per-request {provider_id, api_key, base_url}
-        // so BT6-ARSENAL's Docker deployment can forward browser BYOK keys
+        // accepts optional per-request BYOK credentials from downstream clients
         .route(
             "/api/v1/inference/complete",
             post(inference_complete_handler),
@@ -5375,7 +5375,7 @@ async fn create_note(
 
     // Queue NLP pipeline with archive context (Issue #109)
     // Use inner variant to pass document-type-driven pipeline hints (#563)
-    // and caller-defined feature selection (BT6-ARSENAL#56)
+    // and caller-defined feature selection (#628)
     queue_nlp_pipeline_inner(
         &state.db,
         note_id,

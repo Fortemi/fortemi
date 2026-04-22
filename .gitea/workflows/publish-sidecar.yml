@@ -1,6 +1,6 @@
 # Publish matric-api Sidecar Binaries (ci)
 #
-# Builds native matric-api binaries for BT6-ARSENAL Desktop sidecar use
+# Builds native matric-api binaries for Desktop sidecar use
 # and publishes them as Gitea release assets.
 #
 # Targets:
@@ -82,10 +82,8 @@ jobs:
   # Historical note: this used `runs-on: mutsu` (native act_runner on the
   # Mac). That path has persistently failed task-fetch via gRPC due to
   # a reverse-proxy issue, causing every sidecar release since 54a2304
-  # (2026-04-14) to be cancelled mid-build. BT6-ARSENAL hit the same
-  # problem for its Tauri macOS builds and switched to the SSH-from-
-  # ubuntu pattern below, which works reliably. Mirroring that here so
-  # we stop falling behind every Fortemi commit.
+  # (2026-04-14) to be cancelled mid-build. Switched to the SSH-from-
+  # ubuntu pattern below, which works reliably.
   build-macos:
     name: Build macOS aarch64
     runs-on: ubuntu-22.04
