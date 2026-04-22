@@ -126,12 +126,15 @@ jobs:
             -e POSTGRES_DB=matric \
             ${IMAGE}:latest
 
-          # Wait for PostgreSQL
-          for i in {1..30}; do
-            if docker exec testdb-verify pg_isready -U matric 2>/dev/null; then
+          # Wait for the MAIN PostgreSQL server (TCP), not the temporary init-phase
+          # server. The init-phase server listens only on a Unix socket; the main
+          # server starts on TCP only after all /docker-entrypoint-initdb.d scripts
+          # finish. Checking -h localhost therefore guarantees init is complete.
+          for i in {1..60}; do
+            if docker exec testdb-verify pg_isready -h localhost -p 5432 -U matric 2>/dev/null; then
               break
             fi
-            sleep 1
+            sleep 2
           done
 
           # Verify extensions were created by init-extensions.sh (SELECT avoids double-load crash)
