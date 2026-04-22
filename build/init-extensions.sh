@@ -7,11 +7,18 @@
 #   - vector:  pgvector for embedding similarity search
 #   - postgis: PostGIS for spatial/geographic queries
 #   - pg_trgm: Trigram matching for emoji/symbol search (built-in)
+#
+# Each extension is created in a separate psql call so a PostGIS backend
+# restart (it reloads shared libraries on first CREATE EXTENSION) does not
+# abort the subsequent pg_trgm creation.
 
 set -e
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-    CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS postgis;
-    CREATE EXTENSION IF NOT EXISTS pg_trgm;
-EOSQL
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
