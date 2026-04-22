@@ -7,7 +7,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.4.1] - 2026-04-22
+## [2026.4.2] - 2026-04-22
 
 ### Added
 
