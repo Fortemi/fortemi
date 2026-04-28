@@ -43,3 +43,4 @@ node_modules/
 mcp-server/test-embed-debug.js
 
 .codex/
+.agents/
