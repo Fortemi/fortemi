@@ -136,7 +136,15 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 
 ## Quick Start
 
-> **This repo ships Fortemi as a Docker-deployable backend only.** There is no desktop installer here. If you want a native desktop application (Linux `.deb`, Windows `.msi`, macOS `.dmg`) that bundles Fortemi as a sidecar with the [HotM](https://git.integrolabs.net/Fortemi/HotM) UI, install HotM from its own repo — its `.deb` package contains both the HotM React UI and a packaged `matric-api` binary, so end-users do not need Docker. This Fortemi repo is the right choice when you want the headless server (for agents over MCP, custom UIs, multi-user deployments, or air-gapped backends).
+> **This repo ships Fortemi as a Docker-deployable backend only.** There is no desktop installer here. If you want a native desktop application (Linux `.deb`, Windows `.msi`, macOS `.dmg`, AppImage) that bundles Fortemi as a sidecar with the [HotM](https://git.integrolabs.net/Fortemi/HotM) UI, install HotM from its own repo — its packages contain both the HotM React UI and a packaged `matric-api` binary, so end-users do not need Docker.
+>
+> **The HotM repo provides the prereq scripts and install guides** that wire up Postgres + pgvector + PostGIS + Ollama + the default models on Linux and macOS:
+> - Linux: [`scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-linux.sh) — see [`docs/installation/desktop-linux.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
+> - macOS: [`scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-macos.sh) — see [`docs/installation/desktop-macos.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
+> - Windows: `scripts/prereq_once.ps1` (in HotM repo)
+> - Day-2 ops: [`docs/operations/operator-guide.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/operations/operator-guide.md)
+>
+> **This Fortemi repo is the right choice when you want the headless server** — for agents over MCP, custom UIs, multi-user deployments, or air-gapped backends.
 
 ### Docker Bundle (Recommended)
 

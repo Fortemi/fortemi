@@ -1,6 +1,11 @@
 # Quickstart: Deploy Fortemi
 
-> **This is the Docker-only backend deployment path.** If you want a personal-use desktop application that bundles Fortemi as a sidecar, install **[HotM](https://git.integrolabs.net/Fortemi/HotM)** instead — its `.deb` / `.msi` / `.dmg` / AppImage releases include the matric-api binary so no Docker, Postgres, or backend setup is needed. This Fortemi quickstart is for headless server deployments (agents over MCP, custom UIs, multi-user, air-gapped).
+> **This is the Docker-only backend deployment path.** If you want a personal-use desktop application that bundles Fortemi as a sidecar, install **[HotM](https://git.integrolabs.net/Fortemi/HotM)** instead. Its `.deb` / `.msi` / `.dmg` / AppImage releases include the matric-api binary, and one prereq script does the rest:
+>
+> - Linux: `bash scripts/setup-linux.sh` ([source](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-linux.sh) · [guide](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md))
+> - macOS: `bash scripts/setup-macos.sh` ([source](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-macos.sh) · [guide](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md))
+>
+> Both scripts install and configure Postgres 18 + pgvector + PostGIS, create the `matric` role and database, and (unless `--no-ollama`) install Ollama with the default embedding (`nomic-embed-text`) and generation (`qwen3.5:9b`) models. No Docker required. This Fortemi quickstart is for headless server deployments (agents over MCP, custom UIs, multi-user, air-gapped).
 
 Deploy a fully functional Fortemi instance using published container images from GHCR. This guide covers three progressive tiers — each self-contained, each building on the previous:
 
