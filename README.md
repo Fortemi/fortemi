@@ -136,6 +136,8 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 
 ## Quick Start
 
+> **This repo ships Fortemi as a Docker-deployable backend only.** There is no desktop installer here. If you want a native desktop application (Linux `.deb`, Windows `.msi`, macOS `.dmg`) that bundles Fortemi as a sidecar with the [HotM](https://git.integrolabs.net/Fortemi/HotM) UI, install HotM from its own repo — its `.deb` package contains both the HotM React UI and a packaged `matric-api` binary, so end-users do not need Docker. This Fortemi repo is the right choice when you want the headless server (for agents over MCP, custom UIs, multi-user deployments, or air-gapped backends).
+
 ### Docker Bundle (Recommended)
 
 All-in-one container with PostgreSQL, Redis, API server, MCP server, and Open3D renderer. Runs on any GPU with 6GB+ VRAM:

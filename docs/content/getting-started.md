@@ -2,6 +2,8 @@
 
 > **Looking to deploy Fortemi?** See the [Quickstart Guide](./quickstart.md) for step-by-step deployment using published GHCR images, including prerequisite validation, hardware detection, and model selection. This page is a **feature tour** — it assumes you already have a running instance.
 
+> **Native desktop app?** This repo is the **Docker-only backend**. The desktop installer (Linux `.deb`, Windows `.msi`, macOS `.dmg`, AppImage) lives in the **[HotM](https://git.integrolabs.net/Fortemi/HotM)** repository. HotM packages the React UI together with a bundled `matric-api` sidecar so end-users do not need Docker, Postgres, or any backend setup. Choose this Fortemi repo for headless server deployments (MCP-driven agents, custom UIs, multi-user, air-gapped); choose HotM for personal-use desktop installs.
+
 > **Note:** Internal code and configurations use the name `Fortémi` — this is Fortémi.
 
 This guide takes you from a running Fortemi instance to your first search result in 5 minutes. You'll create notes and explore hybrid search combining traditional keyword matching with AI-powered semantic understanding.

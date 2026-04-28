@@ -1,5 +1,7 @@
 # Quickstart: Deploy Fortemi
 
+> **This is the Docker-only backend deployment path.** If you want a personal-use desktop application that bundles Fortemi as a sidecar, install **[HotM](https://git.integrolabs.net/Fortemi/HotM)** instead — its `.deb` / `.msi` / `.dmg` / AppImage releases include the matric-api binary so no Docker, Postgres, or backend setup is needed. This Fortemi quickstart is for headless server deployments (agents over MCP, custom UIs, multi-user, air-gapped).
+
 Deploy a fully functional Fortemi instance using published container images from GHCR. This guide covers three progressive tiers — each self-contained, each building on the previous:
 
 1. **Core** — Full-text search, tagging, graph linking (no AI, no GPU)
