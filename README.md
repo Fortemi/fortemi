@@ -18,9 +18,22 @@ docker compose -f docker-compose.bundle.yml up -d
 [![MCP](https://img.shields.io/badge/MCP-43_tools-purple?style=flat-square)](#mcp-server)
 [![Docker](https://img.shields.io/badge/Docker-Bundle-2496ED?style=flat-square&logo=docker)](#quick-start)
 
-[**Get Started**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**MCP Server**](#mcp-server) · [**API**](#api-endpoints) · [**Documentation**](#documentation)
+[**Get Started**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**MCP Server**](#mcp-server) · [**API**](#api-endpoints) · [**Documentation**](#documentation) · [**🖥️ Desktop App (HotM)**](https://git.integrolabs.net/Fortemi/HotM/releases/latest)
 
 </div>
+
+---
+
+## 🖥️ Looking for a desktop app, not just an API?
+
+**You're probably here because you want to use this — install [HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest) instead.**
+
+| If you want… | Use | Install |
+|---|---|---|
+| **A native desktop app** with editor, knowledge graph, capture, search, attachments — no Docker, no Postgres setup, no backend ops | **HotM** (`.deb` / `.msi` / `.dmg` / `.AppImage`) — UI + Fortemi API bundled in one package | [Download HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest) → run [`setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-linux.sh) or [`setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-macos.sh) → install the bundle |
+| **A headless server** for agents over MCP, custom UIs, multi-user deployments, or air-gapped backends | **Fortemi** (this repo) — Docker bundle | `docker compose -f docker-compose.bundle.yml up -d` (see [Quick Start](#quick-start) below) |
+
+HotM ships the same `matric-api` from this repo as a bundled sidecar, so the two stay in lockstep on features. **Single user with a laptop?** HotM is the right answer. **Team, fleet of agents, or backend service?** Stay here.
 
 ---
 
@@ -136,17 +149,13 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 
 ## Quick Start
 
-> **This repo ships Fortemi as a Docker-deployable backend only.** There is no desktop installer here. If you want a native desktop application (Linux `.deb`, Windows `.msi`, macOS `.dmg`, AppImage) that bundles Fortemi as a sidecar with the [HotM](https://git.integrolabs.net/Fortemi/HotM) UI, install HotM from its own repo — its packages contain both the HotM React UI and a packaged `matric-api` binary, so end-users do not need Docker.
->
-> **The HotM repo provides the prereq scripts and install guides** that wire up Postgres + pgvector + PostGIS + Ollama + the default models on Linux and macOS:
-> - Linux: [`scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-linux.sh) — see [`docs/installation/desktop-linux.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
-> - macOS: [`scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-macos.sh) — see [`docs/installation/desktop-macos.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
-> - Windows: `scripts/prereq_once.ps1` (in HotM repo)
-> - Day-2 ops: [`docs/operations/operator-guide.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/operations/operator-guide.md)
->
-> **This Fortemi repo is the right choice when you want the headless server** — for agents over MCP, custom UIs, multi-user deployments, or air-gapped backends.
+> **Note**: this Quick Start covers the **Docker backend path**. If you want a native desktop app instead, see [the desktop callout above](#-looking-for-a-desktop-app-not-just-an-api) — install [HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest), then run:
+> - **Linux:** [`bash scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-linux.sh) — install guide: [desktop-linux.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
+> - **macOS:** [`bash scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-macos.sh) — install guide: [desktop-macos.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
+> - **Windows:** `scripts/prereq_once.ps1` (in HotM repo)
+> - **Day-2 ops** (any platform): [`operator-guide.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/operations/operator-guide.md)
 
-### Docker Bundle (Recommended)
+### Docker Bundle (headless backend deployment)
 
 All-in-one container with PostgreSQL, Redis, API server, MCP server, and Open3D renderer. Runs on any GPU with 6GB+ VRAM:
 
@@ -618,7 +627,7 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 - **[AIWG](https://github.com/jmagly/aiwg)** — Multi-agent AI framework with 43 Fortémi MCP tools
 - **[Agentic Sandbox](https://github.com/fortemi/agentic-sandbox)** — Runtime isolation for persistent AI agent processes
-- **[HotM](https://github.com/fortemi/hotm)** — Knowledge management frontend
+- **[HotM](https://git.integrolabs.net/Fortemi/HotM)** ([GitHub mirror](https://github.com/Fortemi/HotM)) — first-party desktop app for Fortemi (React 19 SPA + bundled `matric-api` sidecar; Linux `.deb` / Windows `.msi` / macOS `.dmg` / `.AppImage`)
 
 ---
 

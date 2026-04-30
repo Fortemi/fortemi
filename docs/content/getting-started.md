@@ -1,12 +1,17 @@
 # Getting Started
 
-> **Looking to deploy Fortemi?** See the [Quickstart Guide](./quickstart.md) for step-by-step deployment using published GHCR images, including prerequisite validation, hardware detection, and model selection. This page is a **feature tour** — it assumes you already have a running instance.
-
-> **Native desktop app?** This repo is the **Docker-only backend**. The desktop installer (Linux `.deb`, Windows `.msi`, macOS `.dmg`, AppImage) lives in the **[HotM](https://git.integrolabs.net/Fortemi/HotM)** repository. HotM packages the React UI together with a bundled `matric-api` sidecar plus prereq scripts that install Postgres + pgvector + PostGIS + Ollama with sane defaults — end-users do not need Docker, manual Postgres setup, or any backend ops:
-> - Linux: [`scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-linux.sh) → [desktop-linux.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
-> - macOS: [`scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/scripts/setup-macos.sh) → [desktop-macos.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
+> ## 🖥️ Want a desktop app, not an API?
 >
-> Choose this Fortemi repo for headless server deployments (MCP-driven agents, custom UIs, multi-user, air-gapped); choose HotM for personal-use desktop installs.
+> If you want to **use** Fortemi as a knowledge base on your laptop — editor, graph, capture, search — install **[HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest)** instead. HotM is the first-party desktop application: a Linux `.deb` / Windows `.msi` / macOS `.dmg` / `.AppImage` that packages the React UI plus a bundled `matric-api` sidecar. No Docker, no Postgres setup, no backend ops.
+>
+> One prereq script does the rest:
+>
+> - **Linux:** [`bash scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-linux.sh) → [install guide](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
+> - **macOS:** [`bash scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-macos.sh) → [install guide](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
+>
+> **This page (and the rest of this repo) is for the headless backend** — agents over MCP, custom UIs, multi-user deployments, air-gapped servers. If that's what you want, keep reading.
+
+> **Looking to deploy Fortemi as a backend?** See the [Quickstart Guide](./quickstart.md) for step-by-step deployment using published GHCR images, including prerequisite validation, hardware detection, and model selection. This page is a **feature tour** — it assumes you already have a running instance.
 
 > **Note:** Internal code and configurations use the name `Fortémi` — this is Fortémi.
 
