@@ -1161,6 +1161,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     // Validate storage works before accepting uploads (issue #150)
+    // and sweep stale `.bin.tmp` files from crashed prior writes (#631).
     {
         let backend = FilesystemBackend::new(&file_storage_path);
         match backend.validate().await {
@@ -1169,6 +1170,18 @@ async fn main() -> anyhow::Result<()> {
                 "File storage validation FAILED at {}: {}",
                 file_storage_path, e
             ),
+        }
+        // Sweep `*.bin.tmp` orphans older than 5 minutes — they cannot belong
+        // to any committed attachment_blob row and represent crashed writes.
+        let swept = backend
+            .sweep_temp_files(std::time::Duration::from_secs(5 * 60))
+            .await;
+        if swept > 0 {
+            info!(
+                count = swept,
+                base = %file_storage_path,
+                "file_storage: swept stale .bin.tmp files at startup"
+            );
         }
     }
     // Use with_filesystem_storage so Clone reconstructs the real backend (fix #154)
@@ -14299,12 +14312,57 @@ async fn download_attachment(
             .resolve_storage_path(&storage_path)
             .expect("resolve_storage_path checked above");
 
+        // Pre-check existence: if the row references a path that no longer
+        // exists on disk, return a structured 404 BlobMissing so clients can
+        // distinguish "permanently gone, show recovery UI" from a transient
+        // I/O fault (which would still surface as 500 from serve_streaming).
+        // See issue #631.
+        if !tokio::fs::try_exists(&fs_path).await.unwrap_or(false) {
+            warn!(
+                attachment_id = %target_id,
+                expected_path = %storage_path,
+                "attachment_blob row exists but file is missing on disk (issue #631)"
+            );
+            return Err(ApiError::BlobMissing {
+                attachment_id: target_id,
+                expected_path: storage_path,
+                storage_backend: "filesystem".to_string(),
+            });
+        }
+
         serve_streaming(fs_path, total_size, ct_header, cd_header, &req_headers).await
     } else {
         // Buffered path for small files and inline DB blobs
         let data = match info.source {
             FileSource::Inline(bytes) => bytes,
-            FileSource::Filesystem(path) => file_storage.read_file(&path).await?,
+            FileSource::Filesystem(path) => match file_storage.read_file(&path).await {
+                Ok(d) => d,
+                Err(e) => {
+                    // If the underlying error is a "file not found" the row
+                    // is referencing a missing blob — return structured 404
+                    // BlobMissing instead of a generic 500. Other I/O errors
+                    // (permission, EIO) still surface via the normal error
+                    // pathway. See issue #631.
+                    let err_str = e.to_string();
+                    let looks_missing = err_str.contains("No such file or directory")
+                        || err_str.contains("os error 2")
+                        || err_str.to_lowercase().contains("not found");
+                    if looks_missing {
+                        warn!(
+                            attachment_id = %target_id,
+                            expected_path = %path,
+                            error = %err_str,
+                            "attachment_blob row exists but file is missing on disk (issue #631)"
+                        );
+                        return Err(ApiError::BlobMissing {
+                            attachment_id: target_id,
+                            expected_path: path,
+                            storage_backend: "filesystem".to_string(),
+                        });
+                    }
+                    return Err(e.into());
+                }
+            },
         };
         let actual_size = data.len();
         serve_buffered(data, actual_size, ct_header, cd_header, &req_headers)
@@ -15541,6 +15599,15 @@ enum ApiError {
     Conflict(String),
     Internal(String),
     ServiceUnavailable(String),
+    /// Attachment row exists in `attachment_blob` but the on-disk file is gone.
+    /// Distinct from a generic 500 I/O error so clients can surface the
+    /// "permanently lost — show recovery UI" case instead of "transient — retry".
+    /// Returned as HTTP 404 with a structured JSON body. See issue #631.
+    BlobMissing {
+        attachment_id: Uuid,
+        expected_path: String,
+        storage_backend: String,
+    },
 }
 
 impl From<matric_core::Error> for ApiError {
@@ -15594,6 +15661,24 @@ impl From<matric_core::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
+        // BlobMissing returns a structured body distinct from the generic
+        // {"error": <string>} shape so consumers can branch on
+        // `error == "blob_missing"` and surface a recoverable-data UI.
+        if let ApiError::BlobMissing {
+            attachment_id,
+            expected_path,
+            storage_backend,
+        } = &self
+        {
+            let body = Json(serde_json::json!({
+                "error": "blob_missing",
+                "attachment_id": attachment_id,
+                "expected_path": expected_path,
+                "storage_backend": storage_backend,
+            }));
+            return (StatusCode::NOT_FOUND, body).into_response();
+        }
+
         let (status, message) = match self {
             ApiError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
             ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
@@ -15603,6 +15688,7 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ApiError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
+            ApiError::BlobMissing { .. } => unreachable!("handled above"),
         };
 
         let body = Json(serde_json::json!({

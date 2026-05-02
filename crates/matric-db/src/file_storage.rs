@@ -95,6 +95,83 @@ impl FilesystemBackend {
         }
     }
 
+    /// Sweep stale `*.bin.tmp` files left behind by crashed atomic-writes.
+    ///
+    /// Walks `{base_path}/blobs/` recursively and removes any file ending in
+    /// `.bin.tmp` whose mtime is older than `older_than`. Files newer than
+    /// the threshold are left alone — they may belong to an in-flight write
+    /// from another process or this process's own concurrent uploads.
+    ///
+    /// Returns the count of files removed. Errors during traversal are
+    /// logged at WARN and treated as best-effort; the function never fails
+    /// startup. See issue #631.
+    pub async fn sweep_temp_files(&self, older_than: std::time::Duration) -> usize {
+        let blobs_root = self.base_path.join("blobs");
+        if !tokio::fs::try_exists(&blobs_root).await.unwrap_or(false) {
+            return 0;
+        }
+        let cutoff = match std::time::SystemTime::now().checked_sub(older_than) {
+            Some(t) => t,
+            None => return 0,
+        };
+        let mut removed = 0usize;
+        let mut stack = vec![blobs_root];
+        while let Some(dir) = stack.pop() {
+            let mut entries = match tokio::fs::read_dir(&dir).await {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(dir = %dir.display(), error = %e, "file_storage: sweep read_dir failed");
+                    continue;
+                }
+            };
+            loop {
+                let entry = match entries.next_entry().await {
+                    Ok(Some(e)) => e,
+                    Ok(None) => break,
+                    Err(e) => {
+                        warn!(dir = %dir.display(), error = %e, "file_storage: sweep next_entry failed");
+                        break;
+                    }
+                };
+                let path = entry.path();
+                let file_type = match entry.file_type().await {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                if file_type.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !file_type.is_file() {
+                    continue;
+                }
+                // Match `*.bin.tmp` exactly — i.e. file_name ends with `.bin.tmp`.
+                let is_temp = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with(".bin.tmp"))
+                    .unwrap_or(false);
+                if !is_temp {
+                    continue;
+                }
+                let mtime = match entry.metadata().await.and_then(|m| m.modified()) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                if mtime > cutoff {
+                    continue;
+                }
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    warn!(path = %path.display(), error = %e, "file_storage: sweep remove failed");
+                    continue;
+                }
+                debug!(path = %path.display(), "file_storage: swept stale temp file");
+                removed += 1;
+            }
+        }
+        removed
+    }
+
     fn full_path(&self, path: &str) -> PathBuf {
         self.base_path.join(path)
     }
@@ -150,8 +227,27 @@ impl StorageBackend for FilesystemBackend {
             })?;
         }
 
-        // Atomic write: temp file + rename
-        let temp_path = full_path.with_extension("tmp");
+        // Atomic write: temp file (.bin.tmp) -> fsync(file) -> rename -> fsync(parent dir).
+        //
+        // The directory fsync after rename is required on POSIX to make the
+        // metadata change durable across power loss; without it, a crash after
+        // rename can leave the kernel having committed the directory entry to
+        // memory but never to disk, producing a row in attachment_blob whose
+        // file is missing on next boot. See issue #631.
+        //
+        // The temp extension is `.bin.tmp` (not `.tmp`) so the startup sweeper
+        // can discriminate our temp files from any other `.tmp` debris a user
+        // or unrelated tool may leave under FILE_STORAGE_PATH.
+        let temp_path = {
+            let mut p = full_path.clone();
+            let mut name = p
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_default();
+            name.push(".tmp");
+            p.set_file_name(name);
+            p
+        };
         let mut file = fs::File::create(&temp_path).await.map_err(|e| {
             warn!(temp_path = %temp_path.display(), error = %e, "file_storage: File::create failed");
             e
@@ -173,6 +269,23 @@ impl StorageBackend for FilesystemBackend {
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&full_path, std::fs::Permissions::from_mode(0o644)).await?;
+        }
+
+        // fsync(parent dir) so the rename's metadata change is durable.
+        // Best-effort: log a warning on failure but don't fail the write
+        // (the file's contents are already fsynced; only durability of the
+        // rename across crash is at stake).
+        if let Some(parent) = full_path.parent() {
+            match fs::File::open(parent).await {
+                Ok(dir_file) => {
+                    if let Err(e) = dir_file.sync_all().await {
+                        warn!(parent = %parent.display(), error = %e, "file_storage: parent dir fsync failed (rename may not survive crash)");
+                    }
+                }
+                Err(e) => {
+                    warn!(parent = %parent.display(), error = %e, "file_storage: parent dir open failed for fsync");
+                }
+            }
         }
 
         Ok(())
@@ -1530,4 +1643,76 @@ fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment> {
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Atomic-write produces a `.bin.tmp` -> renamed `.bin` and the rename
+    /// is durable (best we can verify in-process: the file exists at the
+    /// final path with the expected contents and no `.bin.tmp` remains).
+    #[tokio::test]
+    async fn write_uses_bin_tmp_and_renames_to_final() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let storage_path = "blobs/01/9d/0199ab.bin";
+        backend.write(storage_path, b"hello").await.unwrap();
+
+        let final_path = tmp.path().join(storage_path);
+        assert!(final_path.exists(), "final .bin should exist");
+        assert_eq!(tokio::fs::read(&final_path).await.unwrap(), b"hello");
+
+        // No `.bin.tmp` left behind on a successful write.
+        let tmp_path = tmp.path().join("blobs/01/9d/0199ab.bin.tmp");
+        assert!(!tmp_path.exists(), "no .bin.tmp orphan after successful write");
+    }
+
+    /// Sweeper removes `.bin.tmp` files older than the threshold and leaves
+    /// fresh `.bin.tmp` files alone (in-flight writes from concurrent uploads).
+    /// Distinguishes "stale" from "fresh" via real-time sleep + the threshold,
+    /// avoiding any platform-specific mtime-manipulation dependency.
+    #[tokio::test]
+    async fn sweep_removes_stale_bin_tmp_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+
+        // Layout:
+        //   blobs/aa/bb/stale.bin.tmp     — written first, MUST be swept after sleep
+        //   blobs/aa/bb/finalized.bin     — committed file, MUST be kept (wrong ext)
+        //   blobs/aa/bb/unrelated.tmp     — not our extension, MUST be kept
+        let blobs = tmp.path().join("blobs/aa/bb");
+        tokio::fs::create_dir_all(&blobs).await.unwrap();
+        let stale = blobs.join("stale.bin.tmp");
+        let final_file = blobs.join("finalized.bin");
+        let unrelated = blobs.join("unrelated.tmp");
+        tokio::fs::write(&stale, b"x").await.unwrap();
+        tokio::fs::write(&final_file, b"x").await.unwrap();
+        tokio::fs::write(&unrelated, b"x").await.unwrap();
+
+        // Wait so `stale` is older than the 100ms threshold.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        // Now create a `fresh.bin.tmp` after the sleep — it must survive
+        // because its mtime is newer than (now - 100ms).
+        let fresh = blobs.join("fresh.bin.tmp");
+        tokio::fs::write(&fresh, b"x").await.unwrap();
+
+        let removed = backend.sweep_temp_files(Duration::from_millis(100)).await;
+        assert_eq!(removed, 1, "exactly 1 stale .bin.tmp swept");
+        assert!(!stale.exists(), "stale .bin.tmp removed");
+        assert!(fresh.exists(), "fresh .bin.tmp kept (in-flight write)");
+        assert!(final_file.exists(), "finalized .bin kept");
+        assert!(unrelated.exists(), "unrelated .tmp not touched");
+    }
+
+    /// Sweeper is safe to run when blobs/ does not yet exist (fresh install).
+    #[tokio::test]
+    async fn sweep_is_safe_on_missing_blobs_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let backend = FilesystemBackend::new(tmp.path());
+        let removed = backend.sweep_temp_files(Duration::from_secs(60)).await;
+        assert_eq!(removed, 0);
+    }
 }
