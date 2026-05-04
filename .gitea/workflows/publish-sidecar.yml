@@ -359,9 +359,18 @@ jobs:
             sleep 10
           done
 
-          # If release doesn't exist after waiting, create it
+          # If release doesn't exist after waiting, create it. Pull body
+          # from CHANGELOG.md so we don't ship boilerplate when this path
+          # wins the race against ci-builder.yaml's create-release job.
           if [ -z "${RELEASE_ID}" ]; then
             echo "Release ${TAG} not found, creating..."
+            VERSION="${TAG#v}"
+            awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" \
+              CHANGELOG.md > release_notes.md || true
+            if [ ! -s release_notes.md ]; then
+              echo "Release ${TAG} (changelog section missing — see CHANGELOG.md)" \
+                > release_notes.md
+            fi
             RELEASE_RESPONSE=$(curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/json" \
@@ -369,7 +378,7 @@ jobs:
               -d "{
                 \"tag_name\": \"${TAG}\",
                 \"name\": \"${TAG}\",
-                \"body\": \"Release ${TAG} with sidecar binaries\",
+                \"body\": $(cat release_notes.md | jq -Rs .),
                 \"draft\": false,
                 \"prerelease\": false
               }")

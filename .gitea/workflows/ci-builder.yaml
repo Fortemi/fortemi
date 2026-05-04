@@ -589,19 +589,40 @@ jobs:
       - name: Create release
         run: |
           VERSION="${GITHUB_REF_NAME}"
+          API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"
+          TOKEN="${{ secrets.BUILD_REPO_TOKEN }}"
+          BODY_JSON=$(cat release_notes.md | jq -Rs .)
 
-          # Create release via Gitea API
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.BUILD_REPO_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/releases" \
-            -d "{
-              \"tag_name\": \"${VERSION}\",
-              \"name\": \"${VERSION}\",
-              \"body\": $(cat release_notes.md | jq -Rs .),
-              \"draft\": false,
-              \"prerelease\": false
-            }" || echo "Release may already exist"
+          # publish-sidecar.yml may have created a release on this tag
+          # before this job ran (it triggers on the same tag push and only
+          # waits 5 minutes for the versioned release before creating one
+          # itself). If so, PATCH the body so the changelog content wins
+          # over any boilerplate.
+          EXISTING=$(curl -sf -H "Authorization: token ${TOKEN}" \
+            "${API}/releases/tags/${VERSION}" 2>/dev/null || true)
+          EXISTING_ID=$(echo "${EXISTING}" | jq -r '.id // empty')
+
+          if [ -n "${EXISTING_ID}" ]; then
+            echo "Release ${VERSION} already exists (id=${EXISTING_ID}); updating body"
+            curl -fsS -X PATCH \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${API}/releases/${EXISTING_ID}" \
+              -d "{\"body\": ${BODY_JSON}}"
+          else
+            echo "Creating release ${VERSION}"
+            curl -fsS -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${API}/releases" \
+              -d "{
+                \"tag_name\": \"${VERSION}\",
+                \"name\": \"${VERSION}\",
+                \"body\": ${BODY_JSON},
+                \"draft\": false,
+                \"prerelease\": false
+              }"
+          fi
 
   # =============================================================================
   # GitHub Publishing (Public Release Target)
