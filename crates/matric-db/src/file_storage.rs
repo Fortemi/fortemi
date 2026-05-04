@@ -240,10 +240,7 @@ impl StorageBackend for FilesystemBackend {
         // or unrelated tool may leave under FILE_STORAGE_PATH.
         let temp_path = {
             let mut p = full_path.clone();
-            let mut name = p
-                .file_name()
-                .map(|n| n.to_os_string())
-                .unwrap_or_default();
+            let mut name = p.file_name().map(|n| n.to_os_string()).unwrap_or_default();
             name.push(".tmp");
             p.set_file_name(name);
             p
@@ -1666,7 +1663,10 @@ mod sweep_tests {
 
         // No `.bin.tmp` left behind on a successful write.
         let tmp_path = tmp.path().join("blobs/01/9d/0199ab.bin.tmp");
-        assert!(!tmp_path.exists(), "no .bin.tmp orphan after successful write");
+        assert!(
+            !tmp_path.exists(),
+            "no .bin.tmp orphan after successful write"
+        );
     }
 
     /// Sweeper removes `.bin.tmp` files older than the threshold and leaves
