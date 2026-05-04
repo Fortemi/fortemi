@@ -31,7 +31,10 @@ ENV CARGO_INCREMENTAL=0
 ENV RUST_BACKTRACE=1
 ENV RUSTFLAGS="-D warnings"
 
-# Install system dependencies
+# Install system dependencies (excluding Docker CLI — installed separately below
+# from Docker's official apt repo so we get a current client. Debian bookworm's
+# docker.io ships CLI 20.10 / API 1.41 which is too old to talk to host daemons
+# running Docker 25.0+ / API 1.44+. See issue #632.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build essentials
     build-essential \
@@ -40,8 +43,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Database
     libpq-dev \
     postgresql-client \
-    # Docker CLI (for building images)
-    docker.io \
     # Media processing (required by audio/video pipeline)
     ffmpeg \
     # Node.js for MCP server
@@ -51,6 +52,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     jq \
     ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install current Docker CLI from Docker's official apt repo. We only need
+# the CLI inside this builder — the daemon lives on the runner host and is
+# reached via /var/run/docker.sock mount. Pinning to the upstream package
+# guarantees the API version tracks the host daemon.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS
