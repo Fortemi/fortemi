@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.0] - 2026-05-03
+
+### Fixed
+
+- **Silent attachment data loss on filesystem backend** (#631) — Three-part hardening of the filesystem-backed attachment write/read path to close the failure mode where `attachment_blob` rows outlived their on-disk files. The atomic write path now performs a best-effort parent-directory fsync after rename and uses a `.bin.tmp` suffix that the startup sweeper can discriminate. `FilesystemBackend::sweep_temp_files()` runs at server boot and removes stale `.bin.tmp` orphans (default threshold 5 minutes) from prior crashed writes. Missing-blob reads now return a structured `404 {error: "blob_missing", attachment_id, expected_path, storage_backend}` distinct from the generic 500, so clients can surface a permanent-loss recovery UI instead of retrying a transient I/O fault.
+- **CI Docker CLI / daemon API mismatch** (#632) — `build/Dockerfile.builder` now installs `docker-ce-cli` + `docker-buildx-plugin` from Docker's official apt repo instead of Debian bookworm's `docker.io` (CLI 20.10, API 1.41). Pins the in-builder CLI to track upstream Docker so it can talk to host daemons running Docker 25.0+ / API 1.44+. Unblocks `test.yml` and `ci-builder.yaml` after the runner host daemon was upgraded to Docker 29.x (API 1.52).
+
+### Changed
+
+- **Docs: surface HotM desktop app prominently** — Public-facing docs now lead with the [HotM (Heart of the Matrix)](https://github.com/jmagly/heart-of-the-matrix) desktop app for end users and clarify that this Fortemi repo is the Docker-only backend service. Adds deep links to HotM prerequisite scripts and install guides.
+
 ## [2026.4.2] - 2026-04-22
 
 ### Added
