@@ -16,7 +16,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Changed
 
-- **Docs: surface HotM desktop app prominently** — Public-facing docs now lead with the [HotM (Heart of the Matrix)](https://github.com/jmagly/heart-of-the-matrix) desktop app for end users and clarify that this Fortemi repo is the Docker-only backend service. Adds deep links to HotM prerequisite scripts and install guides.
+- **Docs: surface HotM desktop app prominently** — Public-facing docs now lead with the [HotM (Hall of the Mind)](https://git.integrolabs.net/Fortemi/HotM) desktop app for end users and clarify that this Fortemi repo is the Docker-only backend service. Adds deep links to HotM prerequisite scripts and install guides.
 
 ## [2026.4.2] - 2026-04-22
 
