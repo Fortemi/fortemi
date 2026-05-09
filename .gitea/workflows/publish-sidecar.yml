@@ -181,6 +181,11 @@ jobs:
           echo "rustc: \$(rustc --version)"
           echo "cargo: \$(cargo --version)"
 
+          # Ensure both Rust std targets are present. Idempotent — rustup
+          # is a no-op if the components are already installed. Protects
+          # against re-provisioned hosts or auto-pruned toolchains.
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
           # Build matric-api for both macOS architectures so downstream
           # consumers (BT6 Arsenal Desktop) can lipo into a universal
           # Tauri sidecar. x86_64-apple-darwin is cross-compiled from the
