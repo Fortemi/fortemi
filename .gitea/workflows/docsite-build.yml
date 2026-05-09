@@ -1,0 +1,68 @@
+# Doc Site Build Validation
+#
+# Validates that the documentation site builds successfully when docs change.
+# Catches broken links, bad config, and build errors before merge.
+#
+# Required secrets: GT_ACCESS_TOKEN
+
+name: Docsite Build
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  pull_request:
+    branches: [main]
+    paths: ['docs/**']
+
+concurrency:
+  group: docsite-build-${{ gitea.head_ref || gitea.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    name: Build Documentation Site
+    runs-on: ubuntu-latest
+    container: node:20
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Fortemi
+        uses: actions/checkout@v4
+
+      - name: Clone dbbuilder
+        run: |
+          git clone https://token:${{ secrets.GT_ACCESS_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
+
+      - name: Install dbbuilder dependencies
+        working-directory: /tmp/dbbuilder/apps/publisher
+        run: npm ci
+
+      - name: Configure tenant
+        run: |
+          cat > /tmp/dbbuilder/apps/publisher/tenants.json <<'TENANTS'
+          {
+            "$schema": "./tenants.schema.json",
+            "tenants": [
+              {
+                "id": "fortemi-docs",
+                "source": {
+                  "type": "local",
+                  "path": "${{ gitea.workspace }}/docs"
+                },
+                "domains": ["docs.fortemi.io"],
+                "strictLinks": true
+              }
+            ]
+          }
+          TENANTS
+
+      - name: Build doc site
+        working-directory: /tmp/dbbuilder/apps/publisher
+        run: node scripts/build-tenants.js fortemi-docs
+
+      - name: Verify build output
+        run: |
+          ls -la /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/
+          test -f /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/index.html
+          echo "Build successful"

@@ -1,0 +1,104 @@
+# Doc Site Deploy
+#
+# Builds and deploys the Fortemi documentation site on new release tags.
+# Runs independently from the sidecar publish and release workflows.
+#
+# Required secrets:
+#   GT_ACCESS_TOKEN  — Gitea token for cloning the private dbbuilder repo
+#   DEPLOY_SSH_KEY   — private key for the deploy user
+#   DEPLOY_HOST      — docs server hostname
+#   DEPLOY_PORT      — docs server SSH port
+#   DEPLOY_USER      — deploy user on the docs server
+#   DEPLOY_PATH      — absolute path on the docs server (with trailing slash)
+
+name: Docsite Deploy
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: docsite-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    name: Build & Deploy Documentation
+    runs-on: ubuntu-latest
+    container: node:20
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Fortemi
+        uses: actions/checkout@v4
+
+      - name: Clone dbbuilder
+        run: |
+          git clone https://token:${{ secrets.GT_ACCESS_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
+
+      - name: Install dbbuilder dependencies
+        working-directory: /tmp/dbbuilder/apps/publisher
+        run: npm ci
+
+      - name: Configure tenant
+        run: |
+          cat > /tmp/dbbuilder/apps/publisher/tenants.json <<'TENANTS'
+          {
+            "$schema": "./tenants.schema.json",
+            "tenants": [
+              {
+                "id": "fortemi-docs",
+                "source": {
+                  "type": "local",
+                  "path": "${{ gitea.workspace }}/docs"
+                },
+                "domains": ["docs.fortemi.io"],
+                "strictLinks": false
+              }
+            ]
+          }
+          TENANTS
+
+      - name: Build doc site
+        working-directory: /tmp/dbbuilder/apps/publisher
+        run: node scripts/build-tenants.js fortemi-docs
+
+      - name: Verify build output
+        run: |
+          test -d /tmp/dbbuilder/apps/publisher/dist/fortemi-docs || { echo "Missing build output directory"; exit 1; }
+          test -f /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/index.html || { echo "Missing index.html"; exit 1; }
+          echo "Build verification passed"
+          ls -lah /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/
+
+      - name: Install SSH tools
+        run: apt-get update && apt-get install -y --no-install-recommends openssh-client rsync
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.DEPLOY_SSH_KEY }}' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy to docs server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
+            /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/ \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}
+
+      - name: Verify deployment
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            'test -f ${{ secrets.DEPLOY_PATH }}index.html && echo "Deploy verified: index.html present" || { echo "Deploy failed: index.html missing"; exit 1; }'
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Log deployment result
+        if: success()
+        run: |
+          echo "Deployed docs.fortemi.io"
+          echo "Tag: ${{ gitea.ref }}"
+          echo "Commit: ${{ gitea.sha }}"
