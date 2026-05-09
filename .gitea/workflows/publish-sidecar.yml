@@ -6,6 +6,9 @@
 # Targets:
 #   - matric-api-x86_64-unknown-linux-gnu  (built on matric-builder)
 #   - matric-api-aarch64-apple-darwin      (built on mutsu via SSH)
+#   - matric-api-x86_64-apple-darwin       (cross-compiled on mutsu via SSH)
+#                                            consumed by BT6-ARSENAL universal
+#                                            DMG build (lipo'd with aarch64).
 #
 # Release strategy:
 #   - Push to main: updates rolling `sidecar-latest` release
@@ -14,6 +17,7 @@
 # Download URLs:
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-x86_64-unknown-linux-gnu
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-aarch64-apple-darwin
+#   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-x86_64-apple-darwin
 #
 # Auth: uses github.token (no extra secrets needed — internal Gitea)
 #
@@ -177,39 +181,63 @@ jobs:
           echo "rustc: \$(rustc --version)"
           echo "cargo: \$(cargo --version)"
 
-          # Build matric-api in release mode with version metadata
-          MATRIC_VERSION="${GITHUB_REF_NAME}" \
-          MATRIC_GIT_SHA="${SHA}" \
-          MATRIC_BUILD_DATE="${BUILD_DATE}" \
-            cargo build --release --package matric-api
+          # Ensure both Rust std targets are present. Idempotent — rustup
+          # is a no-op if the components are already installed. Protects
+          # against re-provisioned hosts or auto-pruned toolchains.
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-          cp target/release/matric-api matric-api-aarch64-apple-darwin
-          chmod +x matric-api-aarch64-apple-darwin
+          # Build matric-api for both macOS architectures so downstream
+          # consumers (BT6 Arsenal Desktop) can lipo into a universal
+          # Tauri sidecar. x86_64-apple-darwin is cross-compiled from the
+          # aarch64 host using the rust-std component for that target.
+          for TARGET in aarch64-apple-darwin x86_64-apple-darwin; do
+            echo ""
+            echo "=== Building matric-api for \${TARGET} ==="
+            MATRIC_VERSION="${GITHUB_REF_NAME}" \
+            MATRIC_GIT_SHA="${SHA}" \
+            MATRIC_BUILD_DATE="${BUILD_DATE}" \
+              cargo build --release --target "\${TARGET}" --package matric-api
+
+            cp "target/\${TARGET}/release/matric-api" "matric-api-\${TARGET}"
+            chmod +x "matric-api-\${TARGET}"
+          done
 
           # Stage for scp pickup
           mkdir -p /tmp/fortemi-sidecar-out
-          cp matric-api-aarch64-apple-darwin /tmp/fortemi-sidecar-out/
+          cp matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin /tmp/fortemi-sidecar-out/
 
           echo ""
-          echo "=== Built binary ==="
-          file /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
-          ls -lh /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
-          shasum -a 256 /tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin
+          echo "=== Built binaries ==="
+          for BIN in matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
+            file "/tmp/fortemi-sidecar-out/\${BIN}"
+            ls -lh "/tmp/fortemi-sidecar-out/\${BIN}"
+            shasum -a 256 "/tmp/fortemi-sidecar-out/\${BIN}"
+          done
           REMOTE_SCRIPT
 
-          # Pull the binary back to the ubuntu runner for upload-artifact
+          # Pull binaries back to the ubuntu runner for upload-artifact
           mkdir -p /tmp/sidecar-macos
-          scp -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin /tmp/sidecar-macos/
+          scp -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+            "manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin" \
+            "manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-x86_64-apple-darwin" \
+            /tmp/sidecar-macos/
           ls -lh /tmp/sidecar-macos/
 
-          # Copy to working dir so upload-artifact picks it up
+          # Copy to working dir so upload-artifact picks them up
           cp /tmp/sidecar-macos/matric-api-aarch64-apple-darwin ./matric-api-aarch64-apple-darwin
+          cp /tmp/sidecar-macos/matric-api-x86_64-apple-darwin ./matric-api-x86_64-apple-darwin
 
-      - name: Upload artifact
+      - name: Upload aarch64 artifact
         uses: actions/upload-artifact@v3
         with:
           name: matric-api-aarch64-apple-darwin
           path: matric-api-aarch64-apple-darwin
+
+      - name: Upload x86_64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: matric-api-x86_64-apple-darwin
+          path: matric-api-x86_64-apple-darwin
 
   # ─── Publish to rolling sidecar-latest release ──────────────────────────
   publish-sidecar-latest:
@@ -233,6 +261,7 @@ jobs:
           # Move binaries to working directory
           cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
           cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
+          cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
           chmod +x matric-api-*
 
           echo "=== Binaries to publish ==="
@@ -266,9 +295,13 @@ jobs:
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-x86_64-unknown-linux-gnu
           chmod +x matric-api-x86_64-unknown-linux-gnu
 
-          # macOS Apple Silicon
+          # macOS Apple Silicon (M1+)
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-aarch64-apple-darwin
           chmod +x matric-api-aarch64-apple-darwin
+
+          # macOS Intel
+          curl -LO https://git.integrolabs.net/${REPO}/releases/download/${TAG}/matric-api-x86_64-apple-darwin
+          chmod +x matric-api-x86_64-apple-darwin
           \`\`\`
 
           Built from commit: ${GITHUB_SHA}
@@ -291,7 +324,7 @@ jobs:
           echo "Created release: id=${RELEASE_ID}"
 
           # Upload binaries as release assets
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin; do
+          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
             echo "Uploading ${BINARY}..."
             curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
@@ -336,6 +369,7 @@ jobs:
           # Move binaries to working directory
           cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
           cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
+          cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
           chmod +x matric-api-*
 
           echo "=== Binaries to publish for ${TAG} ==="
@@ -387,7 +421,7 @@ jobs:
           fi
 
           # Upload binaries as release assets
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin; do
+          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
             echo "Uploading ${BINARY}..."
             curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
@@ -438,9 +472,13 @@ jobs:
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-x86_64-unknown-linux-gnu
           chmod +x matric-api-x86_64-unknown-linux-gnu
 
-          # macOS Apple Silicon
+          # macOS Apple Silicon (M1+)
           curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-aarch64-apple-darwin
           chmod +x matric-api-aarch64-apple-darwin
+
+          # macOS Intel
+          curl -LO https://git.integrolabs.net/${REPO}/releases/download/sidecar-latest/matric-api-x86_64-apple-darwin
+          chmod +x matric-api-x86_64-apple-darwin
           \`\`\`
 
           Tracking release: ${TAG}
@@ -461,7 +499,7 @@ jobs:
 
           LATEST_ID=$(echo "${LATEST_RESPONSE}" | jq -r '.id')
 
-          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin; do
+          for BINARY in matric-api-x86_64-unknown-linux-gnu matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
             curl -sf -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/octet-stream" \
