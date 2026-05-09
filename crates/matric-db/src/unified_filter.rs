@@ -482,7 +482,9 @@ impl UnifiedFilterQueryBuilder {
 
         // Owner filter
         if let Some(owner_id) = security.owner_id {
-            if security.include_shared && security.shared_with_user.is_some() {
+            if let (true, Some(shared_with_user)) =
+                (security.include_shared, security.shared_with_user)
+            {
                 // Include owned OR shared (with active grant check)
                 param_idx += 1;
                 let owner_param = param_idx;
@@ -495,7 +497,7 @@ impl UnifiedFilterQueryBuilder {
                     owner_param, shared_param
                 ));
                 params.push(QueryParam::Uuid(owner_id));
-                params.push(QueryParam::Uuid(security.shared_with_user.unwrap()));
+                params.push(QueryParam::Uuid(shared_with_user));
             } else {
                 param_idx += 1;
                 clauses.push(format!("n.owner_id = ${}", param_idx));

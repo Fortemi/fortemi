@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.1] - 2026-05-09
+
+### Added
+
+- **Sidecar release artifact: `matric-api-x86_64-apple-darwin`** (#644) — `publish-sidecar.yml` now cross-compiles `matric-api` for both `aarch64-apple-darwin` and `x86_64-apple-darwin` on the mutsu (M4 Mac mini) build host and publishes both binaries to `sidecar-latest` and versioned releases. Unblocks BT6 Arsenal Desktop's universal-apple-darwin Tauri build (single `.dmg` for Apple Silicon and Intel via lipo). The `build-macos` job loops over targets in one SSH session, pre-installs both rust-std targets idempotently via `rustup target add`, and uploads two artifacts. Both `publish-sidecar-latest` and `publish-versioned` include the new x86_64 binary in their copy/upload loops; release-body docs updated to advertise all three artifacts (Linux x86_64, macOS aarch64, macOS x86_64).
+- **Doc site CI/CD for docs.fortemi.io** (#645) — Two new Gitea Actions workflows wire the existing `docs/` tree through the [`roctinam/dbbuilder`](https://git.integrolabs.net/roctinam/dbbuilder) publisher. `docsite-build.yml` validates builds on PRs and pushes to `main` when `docs/**` changes (`strictLinks: true` catches broken links at PR review). `docsite-deploy.yml` builds and rsyncs to the docs server on `v*` tag push (`strictLinks: false` so a broken link doesn't block a release). Uses the default dbbuilder template with the existing Fortemi-branded `docs/config.json`. Required secrets: `GT_ACCESS_TOKEN`, `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_PATH`.
+
+### Fixed
+
+- **Clippy `unnecessary_unwrap` in `unified_filter.rs`** — Replaced `is_some()` + `unwrap()` pattern with `if let` destructuring on `(security.include_shared, security.shared_with_user)`. Pre-existing on `main`; fixed in this release so the workspace passes `cargo clippy --workspace --all-targets -- -D warnings`.
+
 ## [2026.5.0] - 2026-05-03
 
 ### Fixed
