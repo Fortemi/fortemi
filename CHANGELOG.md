@@ -7,9 +7,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.5.2-rc.1] - 2026-05-09
+## [2026.5.2] - 2026-05-09
 
-Release candidate for 2026.5.2. Bundles three deployment-experience fixes plus a diagnostic update on a misfiled regression.
+Three deployment-experience fixes plus a diagnostic update on a misfiled regression.
 
 ### Added
 
