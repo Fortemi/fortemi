@@ -25,9 +25,13 @@
 services:
   fortemi:
     environment:
-      # Skip the first-run support-archive indexing to avoid the CPU spike on
-      # cold boot. Re-enable later via:
-      #   docker compose exec fortemi /app/seed-support-archive.sh
+      # Force-skip the support archive even if the operator has
+      # LOAD_SUPPORT_MEMORY=true in their .env. The minimal overlay is
+      # for "make it run on my laptop" — the archive is opt-in
+      # everywhere now (default off as of v2026.5.5), but the legacy
+      # override is the unambiguous way to guarantee skip regardless
+      # of upstream config. Manual seed remains available:
+      #   docker compose ... exec fortemi /app/seed-support-archive.sh
       - DISABLE_SUPPORT_MEMORY=true
 
       # Smaller fast model (~2 GB VRAM/RAM vs ~8 GB for qwen3.5:9b).

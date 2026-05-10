@@ -181,7 +181,7 @@ curl http://localhost:3000/health
 
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer)
 
-The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, seeds the support archive, and launches all services. For AI features (semantic search, auto-linking, chat), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` + `qwen3.5:9b`.
+The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. For AI features (semantic search, auto-linking, chat), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` + `qwen3.5:9b`. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
 
 **Guided installer:** `installer/scripts/` provides 8 shell scripts for step-by-step deployment, plus a `setup.manifest.yaml` for the AIWG installer framework.
 
@@ -456,26 +456,7 @@ Idle footprint of the default Docker bundle:
 | **Default bundle total** | **~10 GB** | with qwen3.5:9b loaded |
 | **Minimal profile total** | **~2 GB** | qwen2.5:3b, no support archive |
 
-Cold boot imports the bundled support archive — the Fortémi docs themselves, available for in-product full-text search. **No embeddings are generated on import**: notes go in, Postgres `tsvector` triggers populate the FTS index, and that's it. Semantic search over the support archive is opt-in (see below). To skip the import entirely:
-
-```bash
-# In .env
-DISABLE_SUPPORT_MEMORY=true
-```
-
-**Enable semantic search over the support archive (opt-in):**
-
-```bash
-# Generate embeddings for the support archive — runs against your
-# configured inference provider. Time/cost depends on the corpus size
-# (~300 notes today) and the embedding model.
-curl -X POST http://localhost:3000/api/v1/notes/reprocess \
-  -H 'X-Fortemi-Memory: fortemi-docs' \
-  -H 'Content-Type: application/json' \
-  -d '{"steps":["embedding"],"revision_mode":"none"}'
-```
-
-You can also enable auto-linking (`"steps":["embedding","linking"]`) or AI revision (drop `revision_mode:"none"`); see [`docs/content/inference-providers.md`](docs/content/inference-providers.md) for cost/quality trade-offs.
+The Docker bundle does **not** auto-load the bundled support archive — it mirrors the native build path. See [Support Archive](#support-archive-fortemi-docs) below to opt in (one command).
 
 Operators on tight resources can stack the minimal overlay:
 
@@ -483,7 +464,82 @@ Operators on tight resources can stack the minimal overlay:
 docker compose -f docker-compose.bundle.yml -f docker-compose.minimal.yml up -d
 ```
 
-The minimal overlay disables support-archive seeding, swaps the fast-extraction model to `qwen2.5:3b`, caps `JOB_MAX_CONCURRENT=1`, and trims `MAX_MEMORIES=2`. Target idle ~2 GB. Trade-off: chat quality with `qwen2.5:3b` is materially lower than the default — this is for "make it run on my laptop", not production.
+The minimal overlay swaps the fast-extraction model to `qwen2.5:3b`, caps `JOB_MAX_CONCURRENT=1`, and trims `MAX_MEMORIES=2`. Target idle ~2 GB. Trade-off: chat quality with `qwen2.5:3b` is materially lower than the default — this is for "make it run on my laptop", not production.
+
+---
+
+## Support Archive (fortemi-docs)
+
+The bundle ships a pre-built `.shard` of the Fortémi documentation as an in-product knowledge base — same content as the docs site, but searchable through the same `/api/v1/search` endpoint as your own notes. Off by default (the Docker bundle mirrors the native build path; neither auto-seeds). Opt in when you want it.
+
+### Add it with one command (running instance)
+
+```bash
+docker compose -f docker-compose.bundle.yml \
+  exec fortemi /app/seed-support-archive.sh
+```
+
+Idempotent — re-running is a no-op once seeded (a flag file on the persistent `pgdata` volume tracks state). Takes ~10–30 seconds depending on disk speed.
+
+### Auto-seed on first boot
+
+If you know up front you want the docs available, set this in `.env` before running `docker compose ... up`:
+
+```bash
+LOAD_SUPPORT_MEMORY=true
+```
+
+The seed runs in the background after the API reports healthy.
+
+### Querying the archive
+
+The seeded data lives at memory `fortemi-docs`. Reach it with the `X-Fortemi-Memory` header:
+
+```bash
+# Full-text search (works immediately after seeding)
+curl -H 'X-Fortemi-Memory: fortemi-docs' \
+  'http://localhost:3000/api/v1/search?q=hybrid+search'
+
+# List notes
+curl -H 'X-Fortemi-Memory: fortemi-docs' \
+  'http://localhost:3000/api/v1/notes?limit=10'
+```
+
+MCP tool clients can scope to the archive via the `memory` argument on most tools.
+
+### Add semantic search over the archive (additional opt-in)
+
+The seed populates Postgres `tsvector` (FTS) only — no embeddings, so the archive is queryable without an inference provider. To enable semantic search over the docs:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/notes/reprocess \
+  -H 'X-Fortemi-Memory: fortemi-docs' \
+  -H 'Content-Type: application/json' \
+  -d '{"steps":["embedding"],"revision_mode":"none"}'
+```
+
+Adds `"linking"` to `steps` for auto-linking; drops `revision_mode:"none"` to also AI-revise notes. Cost depends on your configured inference provider (see [Multi-Provider Inference](#multi-provider-inference) for routing).
+
+### Refreshing on upgrade
+
+The bundle ships a fresh `.shard` baked into each release image (auto-rebuilt in CI from the source tree at the tagged commit; see #652). On upgrade the seed flag persists with your data, so the docs archive stays at whatever version you originally seeded. To pick up the latest docs after an image upgrade:
+
+```bash
+# Drop the existing archive and re-seed from the upgraded image
+docker compose -f docker-compose.bundle.yml exec fortemi \
+  curl -fsS -X DELETE http://localhost:3000/api/v1/archives/fortemi-docs
+docker compose -f docker-compose.bundle.yml exec fortemi \
+  rm -f /var/lib/postgresql/data/.fortemi-docs-seeded
+docker compose -f docker-compose.bundle.yml \
+  exec fortemi /app/seed-support-archive.sh
+```
+
+Your own data in other archives is unaffected.
+
+### Skipping or disabling
+
+- **Don't enable it**: do nothing. Default is off.
+- **Force-skip even if `LOAD_SUPPORT_MEMORY=true` is set**: `DISABLE_SUPPORT_MEMORY=true` (legacy override; useful if you're inheriting an `.env` from before the opt-in flip).
 
 ---
 

@@ -307,10 +307,19 @@ CREDS
     fi
 fi
 
-# --- Seed Support Archive (background, non-blocking) ---
-if [ "${DISABLE_SUPPORT_MEMORY:-false}" != "true" ]; then
-    echo ">>> Seeding support archive (background)..."
-    /app/seed-support-archive.sh &
+# --- Seed Support Archive (opt-in, background, non-blocking) ---
+# Default off so the Docker bundle mirrors the native build path
+# (which never auto-seeds). Operators opt in by setting
+# LOAD_SUPPORT_MEMORY=true in .env, or run the seed script manually
+# inside the running container at any time:
+#   docker compose -f docker-compose.bundle.yml \
+#     exec fortemi /app/seed-support-archive.sh
+# The seed script is idempotent — re-running is a no-op after the
+# first successful seed (flag file on the persistent pgdata volume).
+if [ "${LOAD_SUPPORT_MEMORY:-false}" = "true" ] \
+   && [ "${DISABLE_SUPPORT_MEMORY:-false}" != "true" ]; then
+    echo ">>> Seeding support archive on first boot (LOAD_SUPPORT_MEMORY=true)..."
+    MANUAL_INVOCATION=false /app/seed-support-archive.sh &
     SEED_PID=$!
 fi
 
