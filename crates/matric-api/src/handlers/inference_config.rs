@@ -92,6 +92,13 @@ pub struct SourcedOpenRouterConfig {
 #[derive(Debug, Serialize)]
 pub struct InferenceConfigResponse {
     pub default_backend: String,
+    /// Embedding-route override. `None` (omitted from JSON) means embeddings
+    /// route through `default_backend`. When set, embedding calls go to this
+    /// provider id instead — typical for "OpenRouter for chat, local for
+    /// embeddings" deployments where the chat provider doesn't expose
+    /// embeddings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_backend: Option<SourcedValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ollama: Option<SourcedOllamaConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +121,26 @@ pub struct UpdateInferenceConfigRequest {
     pub openai: Option<PartialOpenAIConfig>,
     pub llamacpp: Option<PartialLlamaCppConfig>,
     pub openrouter: Option<PartialOpenRouterConfig>,
+    /// Independent embedding-route override. Set to a provider id (e.g.
+    /// `"ollama"`, `"openai"`, `"llamacpp"`) to route embedding calls
+    /// through that provider regardless of the active default. Pass `null`
+    /// (the JSON literal) to clear the override; omit the field entirely
+    /// to leave it unchanged. Validated against the live registry — the
+    /// chosen provider must be registered and support embeddings, else
+    /// the call is rejected with 400.
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub embedding_backend: Option<Option<String>>,
+}
+
+/// Custom deserializer that distinguishes "field absent" (`None`) from
+/// "field present and null" (`Some(None)`). Lets clients explicitly clear
+/// the embedding override without touching other fields.
+fn deserialize_optional_field<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(de)?))
 }
 
 /// Partial Ollama config (all fields optional).
@@ -503,8 +530,29 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         providers.push("openrouter".to_string());
     }
 
+    // embedding_backend override: db_override > env > absent.
+    let db_embedding = db
+        .and_then(|v| v.get("embedding_backend"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    let env_embedding = std::env::var("MATRIC_EMBEDDING_PROVIDER")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let embedding_backend = if let Some(v) = db_embedding {
+        Some(SourcedValue {
+            value: v.to_string(),
+            source: ConfigSource::DbOverride,
+        })
+    } else {
+        env_embedding.map(|v| SourcedValue {
+            value: v,
+            source: ConfigSource::Env,
+        })
+    };
+
     InferenceConfigResponse {
         default_backend: "ollama".to_string(),
+        embedding_backend,
         ollama,
         openai,
         llamacpp,
@@ -940,6 +988,64 @@ pub async fn update_inference_config(
         }
     }
 
+    // embedding_backend handling: distinguish "field absent" (leave as-is)
+    // from "field present and null" (clear override) from "field present and
+    // a string" (set override). Validates against the catalog so we reject
+    // non-existent ids and providers that don't support embeddings before
+    // committing.
+    if let Some(opt_provider) = &req.embedding_backend {
+        match opt_provider {
+            None => {
+                // Explicit clear.
+                merged
+                    .as_object_mut()
+                    .expect("json object")
+                    .remove("embedding_backend");
+            }
+            Some(id) => {
+                let trimmed = id.trim();
+                if trimmed.is_empty() {
+                    return err(
+                        StatusCode::BAD_REQUEST,
+                        "embedding_backend cannot be empty; use null to clear it instead",
+                    )
+                    .into_response();
+                }
+                let profile = matric_inference::lookup_provider_profile(trimmed);
+                match profile {
+                    None => {
+                        return err(
+                            StatusCode::BAD_REQUEST,
+                            format!(
+                                "embedding_backend '{}' is not a known provider; \
+                                 valid ids: ollama, openai, llamacpp, openrouter",
+                                trimmed
+                            ),
+                        )
+                        .into_response();
+                    }
+                    Some(p) if !p.supports_embeddings() => {
+                        return err(
+                            StatusCode::BAD_REQUEST,
+                            format!(
+                                "embedding_backend '{}' does not support embeddings; \
+                                 pick a provider with the Embedding capability",
+                                trimmed
+                            ),
+                        )
+                        .into_response();
+                    }
+                    Some(_) => {
+                        merged.as_object_mut().expect("json object").insert(
+                            "embedding_backend".to_string(),
+                            Value::String(trimmed.to_string()),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Atomic-mode pre-flight: probe every backend touched by this request
     // before committing. On any failure, abort with 503 so the live registry
     // and DB stay on the previous good config.
@@ -1142,6 +1248,31 @@ pub async fn update_inference_config(
                     x_title,
                 });
             }
+        }
+
+        // Apply embedding_backend override (DB takes precedence over env;
+        // env was already honored by ProviderRegistry::from_env above).
+        if let Some(embed_id) = merged
+            .get("embedding_backend")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            // Validation already happened earlier in the merge step; if the
+            // provider isn't registered yet (e.g. just-added OpenRouter via
+            // this same POST) we still set it — the registration above ran
+            // first. validate_embedding_routing returns informative warnings.
+            new_registry.set_embedding_provider(Some(embed_id.to_string()));
+            if let Err(e) = new_registry.validate_embedding_routing() {
+                warn!(error = %e, "embedding_backend override fails validation");
+            } else {
+                info!(
+                    embedding_provider = %embed_id,
+                    "Independent embedding routing applied via runtime config"
+                );
+            }
+        } else if merged.get("embedding_backend").is_some() {
+            // Field present but empty — clear override.
+            new_registry.set_embedding_provider(None);
         }
 
         let mut rt = state.inference_runtime.write().unwrap();

@@ -113,6 +113,12 @@ pub struct ParsedSlug {
 pub struct ProviderRegistry {
     providers: HashMap<String, ProviderConfig>,
     default_provider: String,
+    /// Independent embedding-route override. When set, embedding calls
+    /// route through this provider instead of `default_provider`. Set via
+    /// `MATRIC_EMBEDDING_PROVIDER` env var or runtime
+    /// `POST /api/v1/inference/config { "embedding_backend": "<id>" }`.
+    /// `None` means "use the default provider for embeddings too".
+    embedding_provider: Option<String>,
 }
 
 impl ProviderRegistry {
@@ -121,6 +127,7 @@ impl ProviderRegistry {
         Self {
             providers: HashMap::new(),
             default_provider,
+            embedding_provider: None,
         }
     }
 
@@ -142,6 +149,53 @@ impl ProviderRegistry {
     /// Get the default provider ID.
     pub fn default_provider(&self) -> &str {
         &self.default_provider
+    }
+
+    /// Get the embedding provider ID. Falls back to the default provider
+    /// when no independent embedding override is configured.
+    pub fn embedding_provider(&self) -> &str {
+        self.embedding_provider
+            .as_deref()
+            .unwrap_or(&self.default_provider)
+    }
+
+    /// Get the explicit embedding-provider override, if any.
+    /// Returns `None` when embeddings should route through the default.
+    pub fn embedding_provider_override(&self) -> Option<&str> {
+        self.embedding_provider.as_deref()
+    }
+
+    /// Set or clear the independent embedding-route override.
+    /// Pass `None` to revert to "use default for embeddings too".
+    pub fn set_embedding_provider(&mut self, provider: Option<String>) {
+        self.embedding_provider = provider;
+    }
+
+    /// Validate that the embedding provider (if configured) supports
+    /// embeddings. Returns a descriptive error otherwise. Used by the
+    /// runtime config handler to reject misconfigurations early.
+    pub fn validate_embedding_routing(&self) -> std::result::Result<(), String> {
+        if let Some(id) = &self.embedding_provider {
+            match self.providers.get(id) {
+                Some(cfg) => {
+                    if !cfg.capabilities.contains(&ProviderCapability::Embedding) {
+                        return Err(format!(
+                            "embedding_backend '{}' does not support embeddings; \
+                             pick a provider with the Embedding capability",
+                            id
+                        ));
+                    }
+                    Ok(())
+                }
+                None => Err(format!(
+                    "embedding_backend '{}' is not registered; \
+                     configure it via env or POST /api/v1/inference/config first",
+                    id
+                )),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     /// Get all registered provider IDs.
@@ -612,9 +666,42 @@ impl ProviderRegistry {
             }
         }
 
+        // Independent embedding-route override. Honored when it points at a
+        // registered provider with the Embedding capability; logged + ignored
+        // otherwise. The runtime config handler enforces the same check
+        // before applying a hot-swap, so this only fires for env-only
+        // misconfigurations seen at boot.
+        if let Ok(embed_id) = std::env::var("MATRIC_EMBEDDING_PROVIDER") {
+            let trimmed = embed_id.trim().to_string();
+            if !trimmed.is_empty() {
+                if let Some(cfg) = registry.providers.get(&trimmed) {
+                    if cfg.capabilities.contains(&ProviderCapability::Embedding) {
+                        info!(
+                            embedding_provider = %trimmed,
+                            "Independent embedding routing enabled"
+                        );
+                        registry.embedding_provider = Some(trimmed);
+                    } else {
+                        warn!(
+                            embedding_provider = %trimmed,
+                            "MATRIC_EMBEDDING_PROVIDER points at a provider that doesn't \
+                             support embeddings; falling back to default"
+                        );
+                    }
+                } else {
+                    warn!(
+                        embedding_provider = %trimmed,
+                        "MATRIC_EMBEDDING_PROVIDER points at an unregistered provider; \
+                         configure it first or fall back to default"
+                    );
+                }
+            }
+        }
+
         info!(
             providers = ?registry.provider_ids(),
             default = %registry.default_provider,
+            embedding = %registry.embedding_provider(),
             "Provider registry initialized from environment"
         );
 
@@ -1074,5 +1161,72 @@ mod tests {
             Err(_) => { /* ok — no key anywhere */ }
             Ok(_) => panic!("missing key must error"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Independent embedding-route override tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn embedding_provider_falls_back_to_default_when_unset() {
+        let reg = test_registry();
+        assert_eq!(reg.embedding_provider(), "ollama");
+        assert!(reg.embedding_provider_override().is_none());
+    }
+
+    #[test]
+    fn embedding_provider_set_to_openai() {
+        let mut reg = test_registry();
+        reg.set_embedding_provider(Some("openai".to_string()));
+        assert_eq!(reg.embedding_provider(), "openai");
+        assert_eq!(reg.embedding_provider_override(), Some("openai"));
+    }
+
+    #[test]
+    fn embedding_provider_clear_reverts_to_default() {
+        let mut reg = test_registry();
+        reg.set_embedding_provider(Some("openai".to_string()));
+        reg.set_embedding_provider(None);
+        assert_eq!(reg.embedding_provider(), "ollama");
+        assert!(reg.embedding_provider_override().is_none());
+    }
+
+    #[test]
+    fn validate_embedding_routing_passes_when_unset() {
+        let reg = test_registry();
+        assert!(reg.validate_embedding_routing().is_ok());
+    }
+
+    #[test]
+    fn validate_embedding_routing_passes_for_capable_provider() {
+        let mut reg = test_registry();
+        reg.set_embedding_provider(Some("openai".to_string()));
+        assert!(reg.validate_embedding_routing().is_ok());
+    }
+
+    #[test]
+    fn validate_embedding_routing_rejects_openrouter() {
+        // OpenRouter is registered without the Embedding capability —
+        // embedding_backend pointing at it must be rejected.
+        let mut reg = test_registry();
+        reg.set_embedding_provider(Some("openrouter".to_string()));
+        let err = reg.validate_embedding_routing().unwrap_err();
+        assert!(
+            err.contains("does not support embeddings"),
+            "expected capability error, got: {err}"
+        );
+        assert!(err.contains("openrouter"));
+    }
+
+    #[test]
+    fn validate_embedding_routing_rejects_unregistered() {
+        let mut reg = test_registry();
+        reg.set_embedding_provider(Some("vllm".to_string()));
+        let err = reg.validate_embedding_routing().unwrap_err();
+        assert!(
+            err.contains("not registered"),
+            "expected registration error, got: {err}"
+        );
+        assert!(err.contains("vllm"));
     }
 }
