@@ -163,13 +163,35 @@ Uses the OpenAI-compatible API protocol (`/v1/chat/completions`, `/v1/embeddings
 
 **Docker bundle networking**: When llama-server runs on the host alongside the Docker bundle, use `http://host.docker.internal:8080` (macOS/Windows) or `http://172.17.0.1:8080` (Linux default bridge) from inside containers.
 
-### OpenAI / OpenRouter
+### OpenAI
 
-| Variable | Provider | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | OpenAI | API key |
-| `OPENAI_BASE_URL` | OpenAI | Base URL (default: `https://api.openai.com/v1`) |
-| `OPENROUTER_API_KEY` | OpenRouter | API key |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes (opt-in) | *(none)* | API key |
+| `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Override for self-hosted OpenAI-compatible servers (vLLM, LiteLLM, etc.) |
+| `OPENAI_GEN_MODEL` | No | `gpt-4o-mini` | Generation model |
+| `OPENAI_EMBED_MODEL` | No | `text-embedding-3-small` | Embedding model |
+
+### OpenRouter
+
+OpenAI-compatible protocol with mandatory routing/attribution headers. **No embedding support** — pair with `MATRIC_EMBEDDING_PROVIDER` to embed via Ollama or llama.cpp.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | Yes (opt-in) | *(none)* | API key |
+| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Endpoint override |
+| `OPENROUTER_GEN_MODEL` | No | `anthropic/claude-sonnet-4` | Generation model |
+| `OPENROUTER_HTTP_REFERER` | No | `https://fortemi.io` | Routing rules + analytics |
+| `OPENROUTER_APP_NAME` | No | `Fortemi` | App attribution (`X-Title` header) |
+
+### Independent Embedding/Generation Routing
+
+Set `MATRIC_EMBEDDING_PROVIDER` to a different provider id than `MATRIC_INFERENCE_DEFAULT` to route embedding calls separately from chat. The override is validated against the catalog: it must point at a registered provider with the Embedding capability.
+
+```bash
+MATRIC_INFERENCE_DEFAULT=openrouter
+MATRIC_EMBEDDING_PROVIDER=ollama
+```
 
 ### Runtime Configuration (hot-swap)
 
@@ -179,10 +201,38 @@ All providers can be reconfigured at runtime without restarting via `POST /api/v
 # View current config (with source attribution: default/env/db_override)
 curl http://localhost:3000/api/v1/inference/config
 
+# Discover available providers (catalog-driven; reports server_configured + supports_embeddings)
+curl http://localhost:3000/api/v1/inference/providers
+
 # Configure llama.cpp at runtime
 curl -X POST http://localhost:3000/api/v1/inference/config \
   -H "Content-Type: application/json" \
   -d '{"llamacpp": {"base_url": "http://127.0.0.1:8080"}}'
+
+# Configure OpenRouter (OpenAI-compatible + routing headers)
+curl -X POST http://localhost:3000/api/v1/inference/config \
+  -H "Content-Type: application/json" \
+  -d '{"openrouter": {"api_key": "sk-or-v1-...", "generation_model": "anthropic/claude-3.5-sonnet"}}'
+
+# Independent embedding provider (route embeddings to Ollama)
+curl -X POST http://localhost:3000/api/v1/inference/config \
+  -H "Content-Type: application/json" \
+  -d '{"embedding_backend": "ollama"}'
+
+# Clear the embedding override (revert to default for embeddings too)
+curl -X POST http://localhost:3000/api/v1/inference/config \
+  -H "Content-Type: application/json" \
+  -d '{"embedding_backend": null}'
+
+# Dry-run: validate without persisting
+curl -X POST 'http://localhost:3000/api/v1/inference/config?dry_run=true' \
+  -H "Content-Type: application/json" \
+  -d '{"openai": {"api_key": "sk-..."}}'
+
+# Atomic swap: probe every changed backend; abort with 503 on any failure
+curl -X POST 'http://localhost:3000/api/v1/inference/config?atomic=true' \
+  -H "Content-Type: application/json" \
+  -d '{"openrouter": {"api_key": "sk-or-v1-..."}}'
 
 # Test connection to a backend
 curl -X POST http://localhost:3000/api/v1/inference/test-connection \
