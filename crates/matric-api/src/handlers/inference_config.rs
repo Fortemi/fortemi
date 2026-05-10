@@ -87,6 +87,12 @@ pub struct InferenceConfigResponse {
 // =============================================================================
 
 /// Partial update request body (all fields optional).
+///
+/// Note: an `openrouter` field is intentionally absent here. OpenRouter
+/// runtime config is tracked in a follow-up of #654 (PR 2b) so the
+/// catalog wire-up + dry-run/atomic infrastructure can land first
+/// without growing this diff. For now operators using OpenRouter
+/// configure it via env vars only.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateInferenceConfigRequest {
     pub ollama: Option<PartialOllamaConfig>,
@@ -124,8 +130,23 @@ pub struct PartialLlamaCppConfig {
 #[derive(Debug, Deserialize)]
 pub struct UpdateConfigQuery {
     /// If true, probe the Ollama endpoint for reachability before persisting.
+    /// Narrower than `atomic` — kept for backwards compatibility.
     #[serde(default)]
     pub validate: bool,
+    /// If true, validate the merged config and return the would-be effective
+    /// state without persisting or hot-swapping the live registry. Useful for
+    /// pre-flight checks from operator UIs. Mutually composable with
+    /// `atomic`: `dry_run=true&atomic=true` probes every changed backend,
+    /// returns the resolution, and discards.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// If true, probe every backend that this request touches (Ollama,
+    /// OpenAI, OpenRouter, llama.cpp) before committing. On any probe
+    /// failure, abort with 503 and do not persist or hot-swap. Avoids the
+    /// brief error window where a half-applied config serves bad creds while
+    /// the operator notices.
+    #[serde(default)]
+    pub atomic: bool,
 }
 
 /// Response from POST /api/v1/inference/config.
@@ -709,6 +730,110 @@ pub async fn update_inference_config(
         }
     }
 
+    // Atomic-mode pre-flight: probe every backend touched by this request
+    // before committing. On any failure, abort with 503 so the live registry
+    // and DB stay on the previous good config.
+    if params.atomic {
+        let probe_client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to build probe HTTP client: {e}"),
+                )
+                .into_response();
+            }
+        };
+
+        let mut probe_failures: Vec<String> = Vec::new();
+
+        if req.ollama.is_some() {
+            if let Some(o) = merged.get("ollama") {
+                let url = o
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim_end_matches('/');
+                if !url.is_empty() {
+                    if let Err(e) = probe_ollama(&probe_client, url).await {
+                        probe_failures.push(format!("ollama ({}): {}", url, e));
+                    }
+                }
+            }
+        }
+
+        if req.openai.is_some() {
+            if let Some(o) = merged.get("openai") {
+                let url = o
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim_end_matches('/');
+                let api_key = o.get("api_key").and_then(|v| v.as_str());
+                if !url.is_empty() {
+                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                        probe_failures.push(format!("openai ({}): {}", url, e));
+                    }
+                }
+            }
+        }
+
+        if req.llamacpp.is_some() {
+            if let Some(o) = merged.get("llamacpp") {
+                let url = o
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim_end_matches('/');
+                let api_key = o.get("api_key").and_then(|v| v.as_str());
+                if !url.is_empty() {
+                    // llama-server speaks OpenAI-compatible, so probe via
+                    // /v1/models like any other OpenAI-compat endpoint.
+                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                        probe_failures.push(format!("llamacpp ({}): {}", url, e));
+                    }
+                }
+            }
+        }
+
+        if !probe_failures.is_empty() {
+            warn!(
+                failures = ?probe_failures,
+                "Atomic probe failed; aborting config swap"
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "status": "atomic_probe_failed",
+                    "error": "One or more backends failed reachability probe; config not applied",
+                    "failures": probe_failures,
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    // Dry-run short-circuit: surface the would-be effective config without
+    // touching the live registry or DB.
+    if params.dry_run {
+        let current = serde_json::to_value(build_effective_config(Some(&merged))).unwrap();
+        let response = UpdateInferenceConfigResponse {
+            status: "dry_run".to_string(),
+            previous,
+            current,
+            warnings: vec![],
+        };
+        info!("POST /api/v1/inference/config dry-run completed (no changes persisted)");
+        return (
+            StatusCode::OK,
+            Json(serde_json::to_value(response).unwrap()),
+        )
+            .into_response();
+    }
+
     // Rebuild provider registry from merged config so all providers are hot-swapped.
     {
         let mut new_registry = matric_inference::ProviderRegistry::from_env();
@@ -970,14 +1095,29 @@ pub async fn test_connection(
     );
 
     // Choose probe order based on hint or URL pattern.
+    //
+    // The two probe families (`ollama`, `openai`) correspond to the two
+    // wire protocols Fortemi understands. For non-builtin hints we look up
+    // the static profile catalog: anything declared as `BackendKind::Ollama`
+    // probes through the Ollama path; anything OpenAI-compatible (OpenRouter,
+    // llama.cpp, future vLLM/LiteLLM/etc.) probes through the OpenAI path.
     let providers_to_try: Vec<&str> = match req.provider.as_str() {
         "ollama" => vec!["ollama"],
         "openai" => vec!["openai"],
-        _ => match auto_detect_from_url(&base_url) {
-            Some("ollama") => vec!["ollama", "openai"],
-            Some("openai") => vec!["openai", "ollama"],
-            _ => vec!["ollama", "openai"],
-        },
+        other => {
+            if let Some(profile) = matric_inference::lookup_provider_profile(other) {
+                match profile.backend {
+                    matric_inference::BackendKind::Ollama => vec!["ollama"],
+                    matric_inference::BackendKind::OpenAICompatible => vec!["openai"],
+                }
+            } else {
+                match auto_detect_from_url(&base_url) {
+                    Some("ollama") => vec!["ollama", "openai"],
+                    Some("openai") => vec!["openai", "ollama"],
+                    _ => vec!["ollama", "openai"],
+                }
+            }
+        }
     };
 
     for provider in providers_to_try {

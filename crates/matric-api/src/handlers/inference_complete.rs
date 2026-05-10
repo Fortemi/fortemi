@@ -105,6 +105,11 @@ pub struct ProviderInfo {
     /// True when the provider needs an API key the server doesn't have.
     /// UI shows the BYOK form when this is `true`.
     pub requires_user_key: bool,
+    /// True when the profile claims embedding support. UI uses this to gate
+    /// embedding-related actions; the runtime gates embedding requests early
+    /// against this flag to avoid confusing 404s from providers that only
+    /// expose chat completions (e.g. OpenRouter).
+    pub supports_embeddings: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,59 +130,56 @@ pub struct InferenceError {
 
 /// `GET /api/v1/inference/providers` — list providers Fortemi can route for.
 ///
-/// Reads from the live `ProviderRegistry` (which was built from env vars at
-/// startup). No DB. The browser shim merges this with localStorage-side
-/// providers to render the full picker UI.
+/// Driven by the static catalog in `matric_inference::provider_profiles` (the
+/// 4 v1 profiles, plus any future additions). For each known profile we
+/// consult the live `ProviderRegistry` to determine `server_configured` —
+/// providers in the registry have env-var config wired and can be used
+/// without BYOK; profiles in the catalog but not in the registry render as
+/// "available, bring your own key".
 pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse {
+    use matric_inference::provider_profiles;
+
     let registry = state.provider_registry();
     let mut providers = Vec::new();
 
-    // Walk the registered providers — these are the ones Fortemi knows
-    // about via env. We can't iterate a HashMap directly without exposing
-    // it, so we ask for known IDs and look each up.
-    for id in &["ollama", "openai", "openrouter", "llamacpp"] {
-        if let Some(cfg) = registry.get_provider(id) {
-            let (display_name, requires_key) = match *id {
-                "ollama" => ("Ollama (local)", false),
-                "openai" => ("OpenAI", true),
-                "openrouter" => ("OpenRouter", true),
-                "llamacpp" => ("llama.cpp", false),
-                _ => ("Unknown", true),
-            };
-            // server_configured: registered means env was set (for keyless
-            // providers like Ollama) OR an api_key is present (for the rest).
-            let server_configured = match *id {
-                "ollama" | "llamacpp" => true,
-                _ => cfg.api_key.is_some(),
-            };
-            providers.push(ProviderInfo {
-                id: cfg.id.clone(),
-                r#type: cfg.id.clone(),
-                name: display_name.to_string(),
-                base_url: cfg.base_url.clone(),
-                capabilities: cfg.capabilities.iter().map(|c| c.to_string()).collect(),
-                server_configured,
-                requires_user_key: requires_key && !server_configured,
-            });
-        } else {
-            // Provider not registered — surface it as available-but-unconfigured
-            // for the BYOK flow. UI renders an "add your key" form.
-            let (display_name, default_base, requires_key) = match *id {
-                "openai" => ("OpenAI", "https://api.openai.com/v1", true),
-                "openrouter" => ("OpenRouter", "https://openrouter.ai/api/v1", true),
-                "llamacpp" => ("llama.cpp", "", false),
-                _ => continue, // ollama would always be registered
-            };
-            providers.push(ProviderInfo {
-                id: id.to_string(),
-                r#type: id.to_string(),
-                name: display_name.to_string(),
-                base_url: default_base.to_string(),
-                capabilities: vec!["chat".to_string()],
-                server_configured: false,
-                requires_user_key: requires_key,
-            });
-        }
+    for profile in provider_profiles::iter() {
+        // server_configured: the registry was built from env at startup, so
+        // a profile registered there had its credentials/base URL detected.
+        // For keyless providers (Ollama, llama.cpp) just being registered is
+        // sufficient; for keyed providers the api_key must be present.
+        let registered = registry.get_provider(profile.id);
+        let server_configured = match registered {
+            Some(cfg) => !profile.requires_api_key || cfg.api_key.is_some(),
+            None => false,
+        };
+
+        // Use the registered base URL when available so operators see the
+        // effective configured value; fall back to the profile's documented
+        // default for the BYOK render path.
+        let base_url = registered
+            .map(|c| c.base_url.clone())
+            .or_else(|| profile.default_base_url.map(String::from))
+            .unwrap_or_default();
+
+        // Capability list comes from the catalog — it's the source of truth
+        // for what a profile can do, regardless of whether it's currently
+        // configured. The registered ProviderConfig may have a narrower list
+        // (e.g. Ollama loses Vision when no vision model is loaded), but for
+        // the picker UI we want to advertise the profile's full capability
+        // footprint.
+        let capabilities: Vec<String> =
+            profile.capabilities.iter().map(|c| c.to_string()).collect();
+
+        providers.push(ProviderInfo {
+            id: profile.id.to_string(),
+            r#type: profile.id.to_string(),
+            name: profile.display_name.to_string(),
+            base_url,
+            capabilities,
+            server_configured,
+            requires_user_key: profile.requires_api_key && !server_configured,
+            supports_embeddings: profile.supports_embeddings(),
+        });
     }
 
     Json(ProvidersResponse { providers })
