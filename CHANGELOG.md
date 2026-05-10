@@ -7,6 +7,26 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.2-rc.1] - 2026-05-09
+
+Release candidate for 2026.5.2. Bundles three deployment-experience fixes plus a diagnostic update on a misfiled regression.
+
+### Added
+
+- **`docker-compose.llamacpp.yml` — bundled llama.cpp inference sidecar** (#646, PR #649) — `ghcr.io/ggerganov/llama.cpp:server` exposed on `:8080/v1` (OpenAI-compatible protocol). Brought up alongside the bundle via `docker compose -f docker-compose.bundle.yml -f docker-compose.llamacpp.yml up -d`. Tunable through `LLAMACPP_MODEL_FILE`, `LLAMACPP_CTX_SIZE`, `LLAMACPP_GPU_LAYERS`. NVIDIA GPU stanza commented out for opt-in. Unblocks operators who already run llama.cpp on the host and don't want Ollama.
+- **`docker-compose.minimal.yml` — minimal-footprint overlay** (#648, PR #651) — Reduces idle bundle footprint to ~2 GB by disabling support-archive seeding, swapping the fast extraction model from `qwen3.5:9b` (~8 GB) to `qwen2.5:3b` (~2 GB), capping `JOB_MAX_CONCURRENT=1` + `GPU_MAX_CONCURRENT=1`, and trimming `MAX_MEMORIES=2`. Brought up via `docker compose -f docker-compose.bundle.yml -f docker-compose.minimal.yml up -d`. Trade-off: `qwen2.5:3b` chat quality is materially lower than the default — meant for resource-constrained hosts where "make it run" beats "make it good".
+- **README "Bring Your Own LLM" subsection** (#646, PR #649) — Copy-paste `.env` recipes for routing inference to llama.cpp, OpenAI proper, or OpenRouter. Explicit instructions for disabling Ollama entirely (set `MATRIC_INFERENCE_DEFAULT=openai`; the Ollama backend is not constructed when it isn't the default, so `host.docker.internal:11434` is not probed). Ollama is now framed as one option among several, not the assumed default.
+- **README "Resource Requirements" subsection** (#648, PR #651) — Per-component idle RAM table, prominent `DISABLE_SUPPORT_MEMORY=true` callout, minimal-overlay invocation, and the `qwen2.5:3b` chat-quality trade-off note. Surfaces resource expectations for operators sizing hosts.
+- **CONTRIBUTING.md "sqlx compile-time query checks" subsection** (#647, PR #650) — Names the `missing graph`-class failure mode as a class, documents both resolution paths (live `DATABASE_URL` or `cargo sqlx prepare --workspace` + `SQLX_OFFLINE=true`), and explains when to refresh `.sqlx/`. README "From Source" section gets a callout pointing here so users who hit the error in the wild find the fix.
+
+### Investigated, no code change required
+
+- **#647 "missing graph" regression** — Reproducer test showed the codebase does not use `sqlx::query!` / `sqlx::query_as!` / `sqlx::query_scalar!` compile-time macros (only the runtime `sqlx::query("…")` API). `cargo check --workspace` succeeds on a fresh clone with no `DATABASE_URL`, no `.sqlx/`, and no `SQLX_OFFLINE`. `cargo sqlx prepare --workspace` against a clean migrated Postgres reports "no queries found". The error class the issue describes does not reproduce on `main`. Documentation from PR #650 stays merged as preventative coverage; awaiting the verbatim error text from the reporter to identify the actual source. See `crates/matric-jobs/src/pause.rs:173` and `crates/matric-db/src/schema_context.rs:108` for the runtime-only pattern this codebase uses.
+
+### Changed
+
+- **`Cargo.lock` refreshed** for the `2026.5.1` workspace version bump that landed in the prior release commit.
+
 ## [2026.5.1] - 2026-05-09
 
 ### Added
