@@ -47,6 +47,7 @@ pub mod link_types;
 pub mod model_config;
 pub mod profiles;
 pub mod provider;
+pub mod provider_profiles;
 pub mod refinement;
 pub mod retry;
 pub mod selector;
@@ -111,6 +112,13 @@ pub use model_config::{
 pub use profiles::{ModelProfile, ModelRegistry, TaskRequirements, ThinkingType};
 pub use provider::{
     ParsedSlug, ProviderCapability, ProviderConfig, ProviderHealth, ProviderRegistry,
+};
+pub use provider_profiles::{
+    iter as provider_profiles_iter, lookup as lookup_provider_profile,
+    resolve_extra_headers as resolve_provider_extra_headers, resolve_header_value,
+    with_capability as provider_profiles_with_capability, BackendKind, ProfileEnvVars,
+    ProfileHeaderSource, ProviderProfile, DEFAULT_PROFILE_ID, LLAMACPP_PROFILE, OLLAMA_PROFILE,
+    OPENAI_PROFILE, OPENROUTER_PROFILE, PROVIDER_PROFILES,
 };
 pub use refinement::{
     parse_quality_score, parse_react_response, react_revision_prompt, refine_with_critique_prompt,
