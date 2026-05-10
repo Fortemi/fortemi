@@ -302,6 +302,25 @@ echo ""
 echo ""
 echo "  Imported $SUCCESS/$TOTAL files ($FAILED failed)"
 
+# Fail-fast on partial import: if more than 5% failed, the produced shard is
+# definitionally broken (missing the docs the operator was trying to ship).
+# Better to abort the build than silently emit a half-empty .shard file.
+# 5% buffer accounts for stray empty/malformed input files.
+if [ "$TOTAL" -gt 0 ]; then
+    FAIL_PCT=$(( (FAILED * 100) / TOTAL ))
+    if [ "$FAIL_PCT" -gt 5 ]; then
+        echo ""
+        echo "ERROR: $FAILED/$TOTAL imports failed (${FAIL_PCT}%); aborting"
+        echo "       to avoid shipping an incomplete shard. Common causes:"
+        echo "       - Rate limit on the importing API (set RATE_LIMIT_ENABLED=false)"
+        echo "       - Job queue saturation against an unreachable inference"
+        echo "         provider (use revision_mode=none, set OLLAMA_BASE to an"
+        echo "         unreachable host)"
+        echo "       - Disk/connection exhaustion on the API container"
+        exit 1
+    fi
+fi
+
 # ----- Step 4: Export new shard -----
 echo ""
 echo "Step 4: Exporting shard..."
