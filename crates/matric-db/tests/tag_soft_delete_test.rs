@@ -36,6 +36,7 @@ async fn test_tag_count_after_soft_delete() {
             tags: Some(vec![tag_name.clone()]),
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("Failed to create note");
@@ -102,6 +103,7 @@ async fn test_tag_count_with_multiple_notes() {
             tags: Some(vec![tag_name.clone()]),
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("Failed to create note 1");
@@ -115,6 +117,7 @@ async fn test_tag_count_with_multiple_notes() {
             tags: Some(vec![tag_name.clone()]),
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("Failed to create note 2");

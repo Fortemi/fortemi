@@ -31,6 +31,7 @@ async fn create_test_note(db: &Database, content: &str, tags: Vec<String>) -> uu
             tags: Some(tags),
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("Failed to create test note")

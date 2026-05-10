@@ -47,6 +47,7 @@ async fn create_test_notes(
         ]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     note_ids.push(repo.insert(req1).await?);
 
@@ -62,6 +63,7 @@ async fn create_test_notes(
         tags: Some(vec![format!("{}-optimization", unique_prefix)]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     note_ids.push(repo.insert(req2).await?);
 
@@ -74,6 +76,7 @@ async fn create_test_notes(
         tags: Some(vec![format!("{}-marker", unique_prefix)]), // Add marker tag for filtering
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     note_ids.push(repo.insert(req3).await?);
 
@@ -98,6 +101,7 @@ async fn create_test_notes(
         ]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     note_ids.push(repo.insert(req4).await?);
 
@@ -259,6 +263,7 @@ async fn test_tag_ordering_consistency() {
         ]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     let note_id = repo.insert(req).await.expect("Failed to insert note");
 

@@ -32,6 +32,7 @@ async fn test_list_with_no_filters() {
         tags: Some(vec!["test-no-filter".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -85,6 +86,7 @@ async fn test_list_with_tag_filter() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -136,6 +138,7 @@ async fn test_list_with_multiple_tag_filters() {
         tags: Some(vec![tag1.clone(), tag2.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -185,6 +188,7 @@ async fn test_list_with_date_filters() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -238,6 +242,7 @@ async fn test_list_with_starred_filter() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -293,6 +298,7 @@ async fn test_list_with_archived_filter() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -348,6 +354,7 @@ async fn test_list_sort_by_updated_at() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id1 = repo.insert(req1).await.expect("Failed to insert note 1");
@@ -363,6 +370,7 @@ async fn test_list_sort_by_updated_at() {
         tags: Some(vec![unique_tag.clone()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id2 = repo.insert(req2).await.expect("Failed to insert note 2");
@@ -431,6 +439,7 @@ async fn test_list_pagination() {
             tags: Some(vec![unique_tag.clone()]),
             metadata: None,
             document_type_id: None,
+            title: None,
         };
 
         let note_id = repo

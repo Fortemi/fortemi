@@ -215,6 +215,7 @@ impl<'a> TestDataBuilder<'a> {
                 tags: None,
                 metadata: None,
                 document_type_id: None,
+                title: None,
             })
             .await
             .expect("Failed to create test note");
@@ -236,6 +237,7 @@ impl<'a> TestDataBuilder<'a> {
                 tags: Some(tags.iter().map(|s| s.to_string()).collect()),
                 metadata: None,
                 document_type_id: None,
+                title: None,
             })
             .await
             .expect("Failed to create test note");

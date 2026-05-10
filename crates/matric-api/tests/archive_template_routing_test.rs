@@ -287,6 +287,7 @@ async fn test_versioning_list_in_archive_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -330,6 +331,7 @@ async fn test_versioning_get_in_archive_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx

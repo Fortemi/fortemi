@@ -36,6 +36,7 @@ async fn test_note_with_document_type_id() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: Some(document_type_id),
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -65,6 +66,7 @@ async fn test_note_without_document_type_id() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");

@@ -50,6 +50,7 @@ async fn test_note_create_in_archive_schema() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -103,6 +104,7 @@ async fn test_note_list_isolation() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note1_id = ctx1
@@ -123,6 +125,7 @@ async fn test_note_list_isolation() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note2_id = ctx2
@@ -176,6 +179,7 @@ async fn test_note_update_in_archive_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -226,6 +230,7 @@ async fn test_note_delete_in_archive_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -287,6 +292,7 @@ async fn test_note_restore_in_archive_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -350,6 +356,7 @@ async fn test_public_schema_passthrough() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
