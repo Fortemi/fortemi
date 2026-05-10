@@ -7,6 +7,26 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.3] - 2026-05-10
+
+Support-archive pipeline overhaul: always-fresh, never-expensive on first boot.
+
+### Added
+
+- **CI-driven `fortemi-docs.shard` regeneration** (#652, PR #653) — `scripts/ci/rebuild-shard-in-ci.sh` stands up a transient Postgres + freshly-built API stack on an isolated Docker network, runs the existing `scripts/rebuild-docs-shard.sh` against it, sanity-checks the output (≥100 KB), and tears down via `trap cleanup EXIT`. Wired into all three bundle-publish jobs in `ci-builder.yaml` (`publish-dev`, `publish-release`, GitHub publish) so every bundle image is built against a shard regenerated from the source tree at the commit being published. Replaces the previous manual rebuild flow where the shard last updated 2026-02-19 and drifted three months out of date by the v2026.5.2 release. `set -euo pipefail` + size sanity check + cleanup trap means the bundle build fails loudly rather than silently shipping a stale archive. `build/README.md` documents both the automatic CI path and the manual local rebuild for ad-hoc testing.
+
+### Changed
+
+- **First-boot support-archive import is FTS-only by default** (PR #653) — `docker/seed-support-archive.sh` now passes `skip_embedding_regen=true` on `POST /api/v1/backup/knowledge-shard/upload`. Notes are imported and the Postgres `tsvector` triggers populate the FTS index on insert, so full-text search over the support archive works immediately. The NLP pipeline (embedding generation, auto-linking, AI revision, concept tagging) is no longer queued at seed time. This removes the implicit dependency on a working embedding provider for the bundle to be usable on first boot, and removes the cold-start CPU hit from the indexing pass.
+- **Semantic search over the support archive is opt-in.** The seed script prints the opt-in command on import success, and the README "Resource Requirements" section documents it:
+  ```bash
+  curl -X POST http://localhost:3000/api/v1/notes/reprocess \
+    -H 'X-Fortemi-Memory: fortemi-docs' \
+    -H 'Content-Type: application/json' \
+    -d '{"steps":["embedding"],"revision_mode":"none"}'
+  ```
+  Add `"linking"` to the `steps` array for auto-link generation, or drop `revision_mode:"none"` to also re-write notes with AI revision. Cost/quality trade-offs depend on the configured inference provider.
+
 ## [2026.5.2] - 2026-05-09
 
 Three deployment-experience fixes plus a diagnostic update on a misfiled regression.
