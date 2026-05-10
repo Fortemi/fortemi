@@ -9,12 +9,13 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
+use crate::middleware::archive_routing::ArchiveContext;
 use crate::AppState;
 use matric_core::defaults::EMBED_DIMENSION;
 use matric_core::InferenceBackend as InferenceBackendTrait;
@@ -433,6 +434,37 @@ async fn read_db_override(pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Er
     Ok(row.map(|r| r.0))
 }
 
+/// Read the per-archive override blob from `archive_inference_override` (#655).
+/// Returns `None` when no row exists for this schema (archive falls back to
+/// the global config).
+async fn read_archive_override(
+    pool: &sqlx::PgPool,
+    schema: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    let row: Option<(Value,)> =
+        sqlx::query_as("SELECT override FROM archive_inference_override WHERE schema_name = $1")
+            .bind(schema)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// Determine whether the request is archive-scoped. Returns the schema name
+/// when an explicit non-default archive is selected via `X-Fortemi-Memory`,
+/// `None` otherwise (request applies to the global config).
+///
+/// We treat `public` and the configured default-archive schema as "global"
+/// — operators using the default archive interact with the global config,
+/// matching pre-#655 behavior. Per-archive overrides are opt-in by
+/// explicitly addressing a non-default archive via the header.
+fn archive_override_schema(ctx: &ArchiveContext) -> Option<&str> {
+    if ctx.is_default || ctx.schema == "public" {
+        None
+    } else {
+        Some(ctx.schema.as_str())
+    }
+}
+
 /// Build the effective sourced config by layering db > env > default.
 fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
     let env_o = EnvOllama::read();
@@ -659,7 +691,10 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         (status = 500, description = "Database error"),
     )
 )]
-pub async fn get_inference_config(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn get_inference_config(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> impl IntoResponse {
     let db_override = match read_db_override(&state.db.pool).await {
         Ok(v) => v,
         Err(e) => {
@@ -672,12 +707,50 @@ pub async fn get_inference_config(State(state): State<AppState>) -> impl IntoRes
         }
     };
 
-    let effective = build_effective_config(db_override.as_ref());
+    // #655: layer per-archive override on top of global when X-Fortemi-Memory
+    // selects a non-default archive. Merge precedence: archive > global > env >
+    // default. The merge is shallow — a per-archive `openrouter` block fully
+    // replaces the global `openrouter` block rather than field-merging.
+    // Operators get full per-archive isolation; the trade-off is that you
+    // can't inherit the global api_key while overriding the model. (Field-
+    // level merge can be added later if demand surfaces.)
+    let merged = if let Some(schema) = archive_override_schema(&archive_ctx) {
+        match read_archive_override(&state.db.pool, schema).await {
+            Ok(Some(arch)) => Some(merge_archive_over_global(db_override.as_ref(), &arch)),
+            Ok(None) => db_override,
+            Err(e) => {
+                warn!(error = %e, schema = %schema,
+                    "Failed to read archive_inference_override; falling back to global");
+                db_override
+            }
+        }
+    } else {
+        db_override
+    };
+
+    let effective = build_effective_config(merged.as_ref());
     (
         StatusCode::OK,
         Json(serde_json::to_value(effective).unwrap()),
     )
         .into_response()
+}
+
+/// Shallow-merge an archive override on top of the global override.
+///
+/// For each top-level key (`default_backend`, `embedding_backend`, per-
+/// provider blocks), the archive value wins if present. Fields the archive
+/// override doesn't touch fall through to the global. Provider blocks are
+/// replaced wholesale, not field-merged — see `get_inference_config` for the
+/// rationale.
+fn merge_archive_over_global(global: Option<&Value>, archive: &Value) -> Value {
+    let mut out = global.cloned().unwrap_or_else(|| serde_json::json!({}));
+    if let (Some(out_obj), Some(arch_obj)) = (out.as_object_mut(), archive.as_object()) {
+        for (k, v) in arch_obj {
+            out_obj.insert(k.clone(), v.clone());
+        }
+    }
+    out
 }
 
 /// POST /api/v1/inference/config — apply partial override and rebuild backend.
@@ -702,24 +775,59 @@ pub async fn get_inference_config(State(state): State<AppState>) -> impl IntoRes
 )]
 pub async fn update_inference_config(
     State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
     Query(params): Query<UpdateConfigQuery>,
     Json(req): Json<UpdateInferenceConfigRequest>,
 ) -> impl IntoResponse {
-    // 1. Read existing DB override as baseline.
-    let existing_db = match read_db_override(&state.db.pool).await {
-        Ok(v) => v.unwrap_or(serde_json::json!({})),
-        Err(e) => {
-            warn!(error = %e, "Failed to read existing inference_override");
-            return err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            )
-            .into_response();
+    // 0. #655: when X-Fortemi-Memory selects a non-default archive, we
+    // operate on the archive's override row instead of the global one.
+    // Storage path diverges (archive_inference_override vs user_config),
+    // and the live ProviderRegistry hot-swap is skipped — runtime
+    // per-archive routing is a follow-up that needs a per-schema backend
+    // cache.
+    let archive_schema = archive_override_schema(&archive_ctx).map(String::from);
+
+    // 1. Read existing override blob as baseline. For archive-scoped
+    // requests this is the per-schema row; for global it's the
+    // user_config row. Either way, the merge logic below operates on
+    // whatever blob we read.
+    let existing_db = if let Some(ref schema) = archive_schema {
+        match read_archive_override(&state.db.pool, schema).await {
+            Ok(v) => v.unwrap_or(serde_json::json!({})),
+            Err(e) => {
+                warn!(error = %e, schema = %schema,
+                    "Failed to read existing archive_inference_override");
+                return err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {e}"),
+                )
+                .into_response();
+            }
+        }
+    } else {
+        match read_db_override(&state.db.pool).await {
+            Ok(v) => v.unwrap_or(serde_json::json!({})),
+            Err(e) => {
+                warn!(error = %e, "Failed to read existing inference_override");
+                return err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {e}"),
+                )
+                .into_response();
+            }
         }
     };
 
-    // 2. Capture previous effective config for the response.
-    let previous = serde_json::to_value(build_effective_config(Some(&existing_db))).unwrap();
+    // 2. Capture previous effective config for the response. For archive-
+    // scoped reads, layer the archive blob on top of the global so the
+    // returned `previous` reflects the operator's view.
+    let previous = if archive_schema.is_some() {
+        let global = read_db_override(&state.db.pool).await.unwrap_or(None);
+        let layered = merge_archive_over_global(global.as_ref(), &existing_db);
+        serde_json::to_value(build_effective_config(Some(&layered))).unwrap()
+    } else {
+        serde_json::to_value(build_effective_config(Some(&existing_db))).unwrap()
+    };
 
     // 3. Merge new values into existing DB override blob.
     let mut merged = existing_db;
@@ -1248,6 +1356,89 @@ pub async fn update_inference_config(
             .into_response();
     }
 
+    // For archive-scoped requests, skip the global hot-swap path entirely.
+    // The override is persisted to archive_inference_override so subsequent
+    // GETs see it; runtime per-archive routing (resolving the registry for
+    // the archive at request time) is a follow-up — it requires a
+    // per-schema backend cache that's a meaningful addition.
+    if let Some(ref schema) = archive_schema {
+        if let Err(e) = sqlx::query(
+            r#"
+            INSERT INTO archive_inference_override (schema_name, override, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (schema_name) DO UPDATE
+                SET override = EXCLUDED.override, updated_at = NOW()
+            "#,
+        )
+        .bind(schema)
+        .bind(&merged)
+        .execute(&state.db.pool)
+        .await
+        {
+            warn!(error = %e, schema = %schema,
+                "Failed to persist archive_inference_override");
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+            .into_response();
+        }
+        info!(
+            schema = %schema,
+            "archive_inference_override persisted via POST /api/v1/inference/config"
+        );
+
+        // Build "current effective config as the operator sees it" by
+        // layering the new archive blob on top of the global.
+        let global = read_db_override(&state.db.pool).await.unwrap_or(None);
+        let layered = merge_archive_over_global(global.as_ref(), &merged);
+        let current_typed = build_effective_config(Some(&layered));
+        let current = serde_json::to_value(&current_typed).unwrap();
+
+        let changed_fields = diff_changed_fields(&previous, &current);
+        if !changed_fields.is_empty() {
+            let embedding_backend = current_typed
+                .embedding_backend
+                .as_ref()
+                .map(|sv| sv.value.clone());
+            // Note: the event payload doesn't carry the schema today; per-
+            // archive event scoping is filed as a future enhancement on #655.
+            state.event_bus.emit(ServerEvent::InferenceConfigChanged {
+                default_backend: current_typed.default_backend.clone(),
+                embedding_backend,
+                changed_fields,
+            });
+        }
+
+        write_audit_row(
+            &state.db.pool,
+            "set_archive",
+            Some(&previous),
+            Some(&current),
+            None,
+        )
+        .await;
+
+        let response = UpdateInferenceConfigResponse {
+            status: "applied_archive".to_string(),
+            previous,
+            current,
+            warnings: vec![format!(
+                "Per-archive override persisted for schema '{}'. Live runtime \
+                 routing per archive is a follow-up; for now subsequent GETs \
+                 with the same X-Fortemi-Memory header will reflect the override, \
+                 and the global registry continues to serve traffic until the \
+                 per-archive resolver lands.",
+                schema
+            )],
+        };
+        return (
+            StatusCode::OK,
+            Json(serde_json::to_value(response).unwrap()),
+        )
+            .into_response();
+    }
+
     // Rebuild provider registry from merged config so all providers are hot-swapped.
     {
         let mut new_registry = matric_inference::ProviderRegistry::from_env();
@@ -1430,7 +1621,77 @@ pub async fn update_inference_config(
         (status = 500, description = "Database or backend error"),
     )
 )]
-pub async fn delete_inference_config(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn delete_inference_config(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+) -> impl IntoResponse {
+    // #655: archive-scoped DELETE clears just the per-archive override row;
+    // the global config is untouched and continues to serve traffic.
+    if let Some(schema) = archive_override_schema(&archive_ctx) {
+        // Snapshot previous (layered) effective for audit/event.
+        let global = read_db_override(&state.db.pool).await.unwrap_or(None);
+        let prev_archive = read_archive_override(&state.db.pool, schema)
+            .await
+            .unwrap_or(None);
+        let prev_layered = match (&global, &prev_archive) {
+            (g, Some(a)) => merge_archive_over_global(g.as_ref(), a),
+            (Some(g), None) => g.clone(),
+            (None, None) => serde_json::json!({}),
+        };
+        let prev_effective =
+            serde_json::to_value(build_effective_config(Some(&prev_layered))).unwrap();
+
+        if let Err(e) = sqlx::query("DELETE FROM archive_inference_override WHERE schema_name = $1")
+            .bind(schema)
+            .execute(&state.db.pool)
+            .await
+        {
+            warn!(error = %e, schema = %schema,
+                "Failed to delete archive_inference_override");
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+            .into_response();
+        }
+        info!(
+            schema = %schema,
+            "archive_inference_override deleted via DELETE /api/v1/inference/config"
+        );
+
+        // Effective is now just the global config (the archive override is gone).
+        let effective_typed = build_effective_config(global.as_ref());
+        let effective = serde_json::to_value(&effective_typed).unwrap();
+        let embedding_backend = effective_typed
+            .embedding_backend
+            .as_ref()
+            .map(|sv| sv.value.clone());
+        state.event_bus.emit(ServerEvent::InferenceConfigChanged {
+            default_backend: effective_typed.default_backend.clone(),
+            embedding_backend,
+            changed_fields: vec!["__reset_archive__".to_string()],
+        });
+
+        write_audit_row(
+            &state.db.pool,
+            "reset_archive",
+            Some(&prev_effective),
+            Some(&effective),
+            None,
+        )
+        .await;
+
+        let response = ResetInferenceConfigResponse {
+            status: "reset_archive".to_string(),
+            effective,
+        };
+        return (
+            StatusCode::OK,
+            Json(serde_json::to_value(response).unwrap()),
+        )
+            .into_response();
+    }
+
     // 0. Snapshot previous effective config for audit + event payload.
     let prev_effective = match read_db_override(&state.db.pool).await {
         Ok(v) => serde_json::to_value(build_effective_config(v.as_ref())).unwrap(),
