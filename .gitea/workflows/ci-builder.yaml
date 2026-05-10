@@ -465,7 +465,13 @@ jobs:
           push_with_retry ${IMAGE}:sha-${SHORT_SHA}
           push_with_retry ${IMAGE}:main
 
-          # Build bundle image (all-in-one with embedded PostgreSQL)
+          # Regenerate fortemi-docs.shard against the freshly-built API image
+          # so the bundle ships an up-to-date in-product help archive (#652).
+          # Failure here aborts the bundle build — we never ship a stale shard.
+          scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:dev
+
+          # Build bundle image (all-in-one with embedded PostgreSQL).
+          # COPYs docker/seed-data which now contains the fresh shard.
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=dev-${SHORT_SHA} \
@@ -536,7 +542,14 @@ jobs:
           push_with_retry ${IMAGE}:${VERSION}
           push_with_retry ${IMAGE}:latest
 
-          # Build bundle image (all-in-one with embedded PostgreSQL)
+          # Regenerate fortemi-docs.shard against the freshly-built API image
+          # so the bundle ships an up-to-date in-product help archive (#652).
+          # Failure here aborts the bundle build — we never ship a stale shard
+          # in a tagged release.
+          scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:${VERSION}
+
+          # Build bundle image (all-in-one with embedded PostgreSQL).
+          # COPYs docker/seed-data which now contains the fresh shard.
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
@@ -757,7 +770,14 @@ jobs:
           push_with_retry ${IMAGE}:${VERSION}
           push_with_retry ${IMAGE}:latest
 
-          # Build bundle image (all-in-one with embedded PostgreSQL)
+          # Regenerate fortemi-docs.shard against the freshly-built API image
+          # so the bundle ships an up-to-date in-product help archive (#652).
+          # Failure here aborts the bundle build — we never ship a stale shard
+          # in a tagged release.
+          scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:${VERSION}
+
+          # Build bundle image (all-in-one with embedded PostgreSQL).
+          # COPYs docker/seed-data which now contains the fresh shard.
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
