@@ -235,7 +235,12 @@ services:
       retries: 3
       start_period: 30s
 
-  matric:
+  # Service name "fortemi" (was "matric" in v2026.5.4 and earlier — renamed
+  # in v2026.5.6 so `docker compose exec fortemi ...` recipes in the README
+  # and seed-support-archive.sh hints actually work. The container's
+  # Postgres user/database/binary names retain "matric" for back-compat with
+  # existing data volumes and external pg connection strings.)
+  fortemi:
     image: ${FORTEMI_REGISTRY:-ghcr.io}/fortemi/fortemi:${FORTEMI_TAG:-bundle-latest}
     build:
       context: .
@@ -246,8 +251,12 @@ services:
         BUILD_DATE: ${BUILD_DATE:-unknown}
         CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-8}
     ports:
-      - "3000:3000"
-      - "3001:3001"
+      # Host-side port is env-configurable so operators can dodge
+      # collisions with existing services on the host (e.g. another
+      # dashboard on 3001) without needing a docker-compose override file.
+      # Container-side stays fixed.
+      - "${API_HOST_PORT:-3000}:3000"
+      - "${MCP_HOST_PORT:-3001}:3001"
     depends_on:
       redis:
         condition: service_healthy

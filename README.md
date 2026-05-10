@@ -157,7 +157,41 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 
 ### Docker Bundle (headless backend deployment)
 
-All-in-one container with PostgreSQL, Redis, API server, MCP server, and Open3D renderer. Runs on any GPU with 6GB+ VRAM:
+All-in-one container with PostgreSQL, Redis, API server, MCP server, and Open3D renderer. Runs on any GPU with 6GB+ VRAM.
+
+#### Prerequisite: Ollama on the host
+
+Fortémi expects an inference provider. The default is **host-installed Ollama** — the bundle reaches out to your host's Ollama daemon via `host.docker.internal:11434`. For other providers (OpenAI, OpenRouter, llama.cpp, custom OpenAI-compatible) see [Bring Your Own LLM](#bring-your-own-llm) below.
+
+**One-time host setup** (Linux/macOS):
+
+```bash
+# 1. Install Ollama if you don't have it
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Pull the two models the bundle defaults to
+ollama pull qwen3.5:9b           # ~6.5 GB — generation + vision
+ollama pull nomic-embed-text     # ~280 MB — embeddings
+```
+
+**Critical on Linux**: the systemd Ollama service binds `127.0.0.1` by default and rejects container traffic. The Docker bundle can't reach it without one extra step:
+
+```bash
+# Make host Ollama accept connections from Docker containers
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf <<'EOF'
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+On macOS the Ollama desktop app handles this automatically. On Windows with WSL2, follow the Linux steps inside WSL.
+
+If you skip the systemd override, the bundle will start and the API will be healthy, but `GET /health` will report `capabilities.inference.available: false` — no chat, no embeddings, no auto-linking. Full-text search still works.
+
+#### Bring it up
 
 ```bash
 mkdir -p fortemi && cd fortemi
@@ -176,12 +210,14 @@ Wait ~30 seconds for first-time initialization, then verify:
 
 ```bash
 curl http://localhost:3000/health
-# → {"status":"healthy","database":"connected",...}
+# → {"status":"healthy","capabilities":{"inference":{"available":true,...},...}}
 ```
 
-**Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer)
+If `inference.available` is `false`, you likely missed the `OLLAMA_HOST=0.0.0.0` step above — see [Troubleshooting](#troubleshooting-docker--ollama) below.
 
-The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. For AI features (semantic search, auto-linking, chat), install [Ollama](https://ollama.ai) and pull `nomic-embed-text` + `qwen3.5:9b`. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
+**Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). If host port 3001 is taken on your machine, set `MCP_HOST_PORT=3002` in `.env` to remap; `API_HOST_PORT` does the same for the API.
+
+The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
 
 **Guided installer:** `installer/scripts/` provides 8 shell scripts for step-by-step deployment, plus a `setup.manifest.yaml` for the AIWG installer framework.
 
@@ -540,6 +576,51 @@ Your own data in other archives is unaffected.
 
 - **Don't enable it**: do nothing. Default is off.
 - **Force-skip even if `LOAD_SUPPORT_MEMORY=true` is set**: `DISABLE_SUPPORT_MEMORY=true` (legacy override; useful if you're inheriting an `.env` from before the opt-in flip).
+
+---
+
+## Troubleshooting (Docker + Ollama)
+
+### `capabilities.inference.available: false` on `/health`
+
+The bundle started but can't reach Ollama. Three common causes:
+
+1. **Ollama not installed** — `ollama list` from your host shell errors → install via `curl -fsSL https://ollama.com/install.sh | sh`.
+2. **Ollama bound to `127.0.0.1` only** (Linux systemd default) — containers can reach the host gateway but Ollama refuses. Verify with:
+   ```bash
+   # From inside the bundle:
+   docker compose -f docker-compose.bundle.yml exec fortemi \
+     curl -fsS --max-time 3 http://host.docker.internal:11434/api/version
+   # Connection refused → systemd override is missing
+   ```
+   Fix with the `OLLAMA_HOST=0.0.0.0` systemd drop-in from [Prerequisite: Ollama on the host](#prerequisite-ollama-on-the-host).
+3. **Models not pulled** — `ollama list` on the host shows neither `qwen3.5:9b` nor `nomic-embed-text` → pull them. The probe doesn't fail on missing models (the daemon is reachable; the model load happens at first request) but you'll get 404s on the first generation call.
+
+### Bundle port collision
+
+The bundle binds host ports `3000` (API) and `3001` (MCP). On a host already running something on those ports:
+
+```bash
+# In .env
+API_HOST_PORT=3010
+MCP_HOST_PORT=3011
+```
+
+Container-side ports stay fixed; only the host mapping changes. `ISSUER_URL` must match the host-facing address (e.g. `http://localhost:3010`).
+
+### Connecting to a remote Ollama instead of host
+
+Edit `.env`:
+
+```bash
+OLLAMA_BASE=http://your-remote-ollama-host:11434
+```
+
+The bundle's `extra_hosts: host.docker.internal:host-gateway` only matters when reaching the local host. For remote hosts, use the real DNS name or IP. If TLS is in the path, prefix with `https://`.
+
+### Using something other than Ollama entirely
+
+Three native alternatives ship as first-class profiles in `MATRIC_INFERENCE_DEFAULT`: `openai`, `openrouter`, `llamacpp`. See [Bring Your Own LLM](#bring-your-own-llm).
 
 ---
 

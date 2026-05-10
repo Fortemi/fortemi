@@ -44,3 +44,5 @@ mcp-server/test-embed-debug.js
 
 .codex/
 .agents/
+docker-compose.local.yml
+docker-compose.override.yml
