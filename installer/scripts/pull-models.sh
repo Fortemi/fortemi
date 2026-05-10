@@ -41,3 +41,29 @@ fi
 
 echo "Models ready."
 ollama list
+
+# Container-reachability check (Docker bundle): on Linux with the systemd
+# Ollama service, the default OLLAMA_HOST=127.0.0.1 means containers can't
+# reach the daemon through the host gateway. Probe and warn so operators
+# don't end up with a healthy bundle reporting inference.available=false.
+if [ "$(uname -s)" = "Linux" ] \
+    && command -v systemctl &>/dev/null \
+    && systemctl is-active --quiet ollama 2>/dev/null; then
+    HOST_BIND=$(ss -tlnp 2>/dev/null | awk '/:11434 /{print $4}' | head -1)
+    if echo "${HOST_BIND}" | grep -q '^127\.'; then
+        echo ""
+        echo "WARNING: Ollama is bound to ${HOST_BIND} — not reachable from Docker containers."
+        echo "         The bundle will start but inference.available will be false."
+        echo ""
+        echo "Fix (run as a user with sudo):"
+        echo "  sudo mkdir -p /etc/systemd/system/ollama.service.d"
+        echo "  sudo tee /etc/systemd/system/ollama.service.d/override.conf <<'EOF'"
+        echo "  [Service]"
+        echo "  Environment=\"OLLAMA_HOST=0.0.0.0\""
+        echo "  EOF"
+        echo "  sudo systemctl daemon-reload"
+        echo "  sudo systemctl restart ollama"
+        echo ""
+        echo "On macOS the Ollama desktop app handles this automatically."
+    fi
+fi
