@@ -18,6 +18,7 @@ use tracing::{debug, info, warn};
 use crate::AppState;
 use matric_core::defaults::EMBED_DIMENSION;
 use matric_core::InferenceBackend as InferenceBackendTrait;
+use matric_core::ServerEvent;
 use matric_inference::OllamaBackend;
 
 // =============================================================================
@@ -238,6 +239,52 @@ fn redact_api_key(key: &str) -> String {
     } else {
         format!("{}...", &key[..8])
     }
+}
+
+/// Diff two effective-config JSON blobs and return the dotted field names
+/// that changed. Used to populate `InferenceConfigChanged.changed_fields`
+/// (#657) so reactive UIs can render targeted updates without diffing the
+/// full config themselves.
+///
+/// Walks one level into per-provider blocks (`ollama.base_url`,
+/// `openrouter.generation_model`, etc.) and emits top-level field names
+/// (`default_backend`, `embedding_backend`) directly. Identical sub-trees
+/// are not enumerated — we want a flat list of leaves that differ.
+///
+/// API keys are intentionally compared, but the returned list contains
+/// only field _names_ — never values.
+fn diff_changed_fields(prev: &Value, curr: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let prev_obj = prev.as_object();
+    let curr_obj = curr.as_object();
+    let (prev_obj, curr_obj) = match (prev_obj, curr_obj) {
+        (Some(p), Some(c)) => (p, c),
+        _ => return out,
+    };
+
+    let mut keys: std::collections::BTreeSet<&String> = prev_obj.keys().collect();
+    keys.extend(curr_obj.keys());
+
+    for k in keys {
+        let p = prev_obj.get(k);
+        let c = curr_obj.get(k);
+        match (p, c) {
+            (Some(pv), Some(cv)) if pv == cv => {}
+            (Some(pv), Some(cv)) if pv.is_object() && cv.is_object() => {
+                let po = pv.as_object().unwrap();
+                let co = cv.as_object().unwrap();
+                let mut sub: std::collections::BTreeSet<&String> = po.keys().collect();
+                sub.extend(co.keys());
+                for sk in sub {
+                    if po.get(sk) != co.get(sk) {
+                        out.push(format!("{}.{}", k, sk));
+                    }
+                }
+            }
+            _ => out.push(k.clone()),
+        }
+    }
+    out
 }
 
 /// Validate an Ollama base_url and model names. Returns an error message on failure.
@@ -1302,8 +1349,23 @@ pub async fn update_inference_config(
 
     info!("inference_override persisted via POST /api/v1/inference/config");
 
-    // 5. Build and return current effective config.
-    let current = serde_json::to_value(build_effective_config(Some(&merged))).unwrap();
+    // 5. Build current effective config + emit hot-swap event (#657).
+    let current_typed = build_effective_config(Some(&merged));
+    let current = serde_json::to_value(&current_typed).unwrap();
+
+    let changed_fields = diff_changed_fields(&previous, &current);
+    if !changed_fields.is_empty() {
+        let embedding_backend = current_typed
+            .embedding_backend
+            .as_ref()
+            .map(|sv| sv.value.clone());
+        state.event_bus.emit(ServerEvent::InferenceConfigChanged {
+            default_backend: current_typed.default_backend.clone(),
+            embedding_backend,
+            changed_fields,
+        });
+    }
+
     let response = UpdateInferenceConfigResponse {
         status: "applied".to_string(),
         previous,
@@ -1353,8 +1415,24 @@ pub async fn delete_inference_config(State(state): State<AppState>) -> impl Into
         rt.generation_backend = Some(new_backend);
     }
 
-    // 3. Return effective config (now env/default only).
-    let effective = serde_json::to_value(build_effective_config(None)).unwrap();
+    // 3. Build effective config + emit reset event (#657).
+    //
+    // `__reset__` is a sentinel in `changed_fields` — clients that opt into
+    // reactive updates can render a "config reset" notice without parsing
+    // the empty diff (DELETE removes the entire DB override row, so most
+    // fields revert to env/default in one operation).
+    let effective_typed = build_effective_config(None);
+    let effective = serde_json::to_value(&effective_typed).unwrap();
+    let embedding_backend = effective_typed
+        .embedding_backend
+        .as_ref()
+        .map(|sv| sv.value.clone());
+    state.event_bus.emit(ServerEvent::InferenceConfigChanged {
+        default_backend: effective_typed.default_backend.clone(),
+        embedding_backend,
+        changed_fields: vec!["__reset__".to_string()],
+    });
+
     let response = ResetInferenceConfigResponse {
         status: "reset".to_string(),
         effective,
@@ -1938,5 +2016,66 @@ mod tests_connection {
     fn error_for_url_with_port_no_redundant_hint() {
         let (_, suggestions) = classify_connection_error("http://myserver:11434");
         assert!(!suggestions.iter().any(|s| s.contains("port number")));
+    }
+
+    // -----------------------------------------------------------------------
+    // diff_changed_fields tests (#657)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn diff_returns_empty_when_identical() {
+        let v = serde_json::json!({"default_backend": "ollama", "ollama": {"base_url": "x"}});
+        assert!(diff_changed_fields(&v, &v).is_empty());
+    }
+
+    #[test]
+    fn diff_detects_top_level_change() {
+        let prev = serde_json::json!({"default_backend": "ollama"});
+        let curr = serde_json::json!({"default_backend": "openrouter"});
+        let diff = diff_changed_fields(&prev, &curr);
+        assert_eq!(diff, vec!["default_backend".to_string()]);
+    }
+
+    #[test]
+    fn diff_walks_into_provider_blocks() {
+        let prev = serde_json::json!({
+            "ollama": {"base_url": "http://a", "generation_model": "qwen3.5:9b"},
+        });
+        let curr = serde_json::json!({
+            "ollama": {"base_url": "http://b", "generation_model": "qwen3.5:9b"},
+        });
+        let diff = diff_changed_fields(&prev, &curr);
+        assert_eq!(diff, vec!["ollama.base_url".to_string()]);
+    }
+
+    #[test]
+    fn diff_reports_added_provider_block() {
+        let prev = serde_json::json!({});
+        let curr = serde_json::json!({"openrouter": {"api_key": "redacted"}});
+        let diff = diff_changed_fields(&prev, &curr);
+        assert!(diff.iter().any(|f| f.starts_with("openrouter")));
+    }
+
+    #[test]
+    fn diff_reports_embedding_backend_added() {
+        let prev = serde_json::json!({"default_backend": "openrouter"});
+        let curr = serde_json::json!({
+            "default_backend": "openrouter",
+            "embedding_backend": {"value": "ollama", "source": "db_override"}
+        });
+        let diff = diff_changed_fields(&prev, &curr);
+        assert_eq!(diff, vec!["embedding_backend".to_string()]);
+    }
+
+    #[test]
+    fn diff_does_not_carry_values_in_field_names() {
+        // Field names must never include the secret values themselves.
+        let prev = serde_json::json!({"openai": {"api_key": "sk-old"}});
+        let curr = serde_json::json!({"openai": {"api_key": "sk-NEW"}});
+        let diff = diff_changed_fields(&prev, &curr);
+        assert_eq!(diff, vec!["openai.api_key".to_string()]);
+        for f in &diff {
+            assert!(!f.contains("sk-"), "field name must not leak key value");
+        }
     }
 }

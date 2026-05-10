@@ -405,6 +405,30 @@ pub enum ServerEvent {
     /// clients can clear or raise an "offline mode" indicator without polling
     /// `/health`.
     InferenceAvailabilityChanged { available: bool },
+
+    // -- Inference config hot-swap (Issue #657) --
+    /// An operator changed the inference configuration via
+    /// `POST /api/v1/inference/config` or `DELETE /api/v1/inference/config`.
+    /// Lets reactive UIs (HotM provider pill, MCP-tool clients, dashboards)
+    /// update their picture of the active provider without polling
+    /// `GET /api/v1/inference/config`.
+    ///
+    /// The payload deliberately excludes API keys and any field that could
+    /// leak credentials. `changed_fields` carries dotted field names like
+    /// `"openrouter.api_key"` so clients can render targeted UI without
+    /// receiving the value itself.
+    InferenceConfigChanged {
+        /// Active default backend id after the change (e.g. `"ollama"`).
+        default_backend: String,
+        /// Active embedding-route override id, when set independently of the
+        /// default. `None` means embeddings flow through `default_backend`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        embedding_backend: Option<String>,
+        /// Dotted field names that changed in this config update. Examples:
+        /// `["openrouter.api_key", "openrouter.generation_model"]`,
+        /// `["embedding_backend"]`, `["__reset__"]` for `DELETE` events.
+        changed_fields: Vec<String>,
+    },
 }
 
 impl ServerEvent {
@@ -460,6 +484,7 @@ impl ServerEvent {
             ServerEvent::ReadmodelGraphUpdated { .. } => "ReadmodelGraphUpdated",
             ServerEvent::ReadmodelSearchReady { .. } => "ReadmodelSearchReady",
             ServerEvent::InferenceAvailabilityChanged { .. } => "InferenceAvailabilityChanged",
+            ServerEvent::InferenceConfigChanged { .. } => "InferenceConfigChanged",
         }
     }
 
@@ -515,6 +540,7 @@ impl ServerEvent {
             ServerEvent::ReadmodelGraphUpdated { .. } => "readmodel.graph.updated",
             ServerEvent::ReadmodelSearchReady { .. } => "readmodel.search.ready",
             ServerEvent::InferenceAvailabilityChanged { .. } => "inference.availability.changed",
+            ServerEvent::InferenceConfigChanged { .. } => "inference.config.changed",
         }
     }
 
@@ -567,6 +593,7 @@ impl ServerEvent {
             | ServerEvent::ReadmodelGraphUpdated { .. }
             | ServerEvent::ReadmodelSearchReady { .. } => Some("index"),
             ServerEvent::InferenceAvailabilityChanged { .. } => Some("inference"),
+            ServerEvent::InferenceConfigChanged { .. } => Some("inference"),
         }
     }
 
@@ -623,6 +650,7 @@ impl ServerEvent {
             | ServerEvent::ReadmodelSearchReady { note_id, .. } => Some(*note_id),
             ServerEvent::ReadmodelGraphUpdated { note_id, .. } => *note_id,
             ServerEvent::InferenceAvailabilityChanged { .. } => None,
+            ServerEvent::InferenceConfigChanged { .. } => None,
         }
     }
 }
@@ -692,7 +720,8 @@ impl ServerEvent {
             | ServerEvent::IndexFtsUpdated { .. }
             | ServerEvent::ReadmodelGraphUpdated { .. }
             | ServerEvent::ReadmodelSearchReady { .. }
-            | ServerEvent::InferenceAvailabilityChanged { .. } => EventPriority::Normal,
+            | ServerEvent::InferenceAvailabilityChanged { .. }
+            | ServerEvent::InferenceConfigChanged { .. } => EventPriority::Normal,
 
             // Telemetry and progress — coalescable
             ServerEvent::QueueStatus { .. }
@@ -805,6 +834,9 @@ impl ServerEvent {
             }
             ServerEvent::InferenceAvailabilityChanged { .. } => {
                 "Inference provider reachability transitioned (online/offline)"
+            }
+            ServerEvent::InferenceConfigChanged { .. } => {
+                "Inference configuration was changed by an operator (hot-swap)"
             }
         }
     }
@@ -981,6 +1013,12 @@ impl ServerEvent {
             ServerEvent::ReadmodelSearchReady { note_id: dummy_id },
             // Inference availability (Issue #630)
             ServerEvent::InferenceAvailabilityChanged { available: false },
+            // Inference config hot-swap (Issue #657)
+            ServerEvent::InferenceConfigChanged {
+                default_backend: "ollama".to_string(),
+                embedding_backend: None,
+                changed_fields: Vec::new(),
+            },
         ];
 
         variants
