@@ -241,6 +241,40 @@ fn redact_api_key(key: &str) -> String {
     }
 }
 
+/// Write a row to `inference_config_audit` (#656). Best-effort — DB
+/// failure is logged at warn level but never propagates to the caller.
+/// Surface errors must not block the live config change.
+///
+/// `before_json` and `after_json` are passed straight through; the
+/// effective-config builder already redacts API keys via `redact_api_key`,
+/// so anything coming from `build_effective_config` is safe to persist.
+async fn write_audit_row(
+    pool: &sqlx::PgPool,
+    action: &str,
+    before_json: Option<&Value>,
+    after_json: Option<&Value>,
+    source_ip: Option<&str>,
+) {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO inference_config_audit
+            (changed_by, action, before_json, after_json, source_ip)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind("anonymous")
+    .bind(action)
+    .bind(before_json)
+    .bind(after_json)
+    .bind(source_ip)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = result {
+        warn!(error = %e, action = %action, "Failed to write inference_config_audit row");
+    }
+}
+
 /// Diff two effective-config JSON blobs and return the dotted field names
 /// that changed. Used to populate `InferenceConfigChanged.changed_fields`
 /// (#657) so reactive UIs can render targeted updates without diffing the
@@ -1366,6 +1400,10 @@ pub async fn update_inference_config(
         });
     }
 
+    // Audit log entry (#656). Best-effort — a failed insert is logged but
+    // doesn't fail the request.
+    write_audit_row(&state.db.pool, "set", Some(&previous), Some(&current), None).await;
+
     let response = UpdateInferenceConfigResponse {
         status: "applied".to_string(),
         previous,
@@ -1393,6 +1431,12 @@ pub async fn update_inference_config(
     )
 )]
 pub async fn delete_inference_config(State(state): State<AppState>) -> impl IntoResponse {
+    // 0. Snapshot previous effective config for audit + event payload.
+    let prev_effective = match read_db_override(&state.db.pool).await {
+        Ok(v) => serde_json::to_value(build_effective_config(v.as_ref())).unwrap(),
+        Err(_) => serde_json::Value::Null,
+    };
+
     // 1. Delete DB override row.
     if let Err(e) = sqlx::query("DELETE FROM user_config WHERE key = 'inference_override'")
         .execute(&state.db.pool)
@@ -1433,6 +1477,16 @@ pub async fn delete_inference_config(State(state): State<AppState>) -> impl Into
         changed_fields: vec!["__reset__".to_string()],
     });
 
+    // Audit log entry (#656). Best-effort.
+    write_audit_row(
+        &state.db.pool,
+        "reset",
+        Some(&prev_effective),
+        Some(&effective),
+        None,
+    )
+    .await;
+
     let response = ResetInferenceConfigResponse {
         status: "reset".to_string(),
         effective,
@@ -1442,6 +1496,109 @@ pub async fn delete_inference_config(State(state): State<AppState>) -> impl Into
         Json(serde_json::to_value(response).unwrap()),
     )
         .into_response()
+}
+
+// =============================================================================
+// AUDIT LOG ENDPOINT (#656)
+// =============================================================================
+
+/// One row from `inference_config_audit`. API keys in the JSON blobs are
+/// already redacted by the writer; the wire format mirrors the table.
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AuditRow {
+    pub id: i64,
+    pub changed_at: chrono::DateTime<chrono::Utc>,
+    pub changed_by: String,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_json: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_json: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+}
+
+/// Query parameters for the audit log endpoint.
+#[derive(Debug, Deserialize)]
+pub struct AuditQuery {
+    /// Maximum entries to return. Capped at 200 to bound payload size.
+    #[serde(default = "default_audit_limit")]
+    pub limit: i64,
+    /// Filter to a specific actor ("anonymous" or an OAuth subject).
+    pub changed_by: Option<String>,
+    /// Filter to a specific action ("set", "reset", etc.).
+    pub action: Option<String>,
+}
+
+fn default_audit_limit() -> i64 {
+    50
+}
+
+/// `GET /api/v1/inference/config/audit` — return recent audit entries.
+///
+/// Newest first. Default limit 50; max 200. Optional `changed_by` and
+/// `action` filters compose. Returns `{ entries: [...] }`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/inference/config/audit",
+    tag = "Inference",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max entries (default 50, max 200)"),
+        ("changed_by" = Option<String>, Query, description = "Filter by actor"),
+        ("action" = Option<String>, Query, description = "Filter by action type"),
+    ),
+    responses(
+        (status = 200, description = "Audit entries"),
+        (status = 500, description = "Database error"),
+    )
+)]
+pub async fn get_inference_config_audit(
+    State(state): State<AppState>,
+    Query(query): Query<AuditQuery>,
+) -> impl IntoResponse {
+    let limit = query.limit.clamp(1, 200);
+
+    // Three optional filters yield four valid SQL shapes; build dynamically
+    // with bound params to keep things simple and injection-safe.
+    let mut sql = String::from(
+        "SELECT id, changed_at, changed_by, action, before_json, after_json, source_ip \
+         FROM inference_config_audit WHERE 1=1",
+    );
+    let mut binds: Vec<String> = Vec::new();
+    if query.changed_by.is_some() {
+        sql.push_str(&format!(" AND changed_by = ${}", binds.len() + 1));
+        binds.push(query.changed_by.clone().unwrap());
+    }
+    if query.action.is_some() {
+        sql.push_str(&format!(" AND action = ${}", binds.len() + 1));
+        binds.push(query.action.clone().unwrap());
+    }
+    sql.push_str(&format!(
+        " ORDER BY changed_at DESC LIMIT ${}",
+        binds.len() + 1
+    ));
+
+    let mut q = sqlx::query_as::<_, AuditRow>(&sql);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    q = q.bind(limit);
+
+    match q.fetch_all(&state.db.pool).await {
+        Ok(entries) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "entries": entries })),
+        )
+            .into_response(),
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch inference_config_audit");
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+            .into_response()
+        }
+    }
 }
 
 // =============================================================================
