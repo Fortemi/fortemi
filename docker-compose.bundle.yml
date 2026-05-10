@@ -301,6 +301,15 @@ services:
       # - LOG_FORMAT=json
 
       # ── Support Memory Archive ──────────────────────────────────────────
+      # Off by default so the Docker bundle matches the native build
+      # (which never auto-seeds). Set LOAD_SUPPORT_MEMORY=true in .env
+      # to seed on first boot, or run
+      #   docker compose -f docker-compose.bundle.yml \
+      #     exec fortemi /app/seed-support-archive.sh
+      # at any time to seed an already-running instance.
+      - LOAD_SUPPORT_MEMORY=${LOAD_SUPPORT_MEMORY:-false}
+      # Legacy override: forces skip even if LOAD_SUPPORT_MEMORY=true.
+      # Kept for back-compat with bundles that pre-date the opt-in flip.
       - DISABLE_SUPPORT_MEMORY=${DISABLE_SUPPORT_MEMORY:-false}
       - MAX_MEMORIES=${MAX_MEMORIES:-10}
 

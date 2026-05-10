@@ -1,11 +1,21 @@
 #!/bin/bash
-# seed-support-archive.sh - Load the fortemi-docs support archive on first boot
+# seed-support-archive.sh - Load the fortemi-docs support archive
 #
-# Called by bundle-entrypoint.sh after the API is healthy.
-# Idempotent: checks if the archive already exists before creating it.
+# Two invocation modes:
+#   1. Auto: bundle-entrypoint.sh runs this on first boot when
+#      LOAD_SUPPORT_MEMORY=true. Default off — mirrors the native
+#      build path which never seeds.
+#   2. On-demand: operators can run this manually inside an already
+#      deployed bundle to pull in the docs:
+#        docker compose -f docker-compose.bundle.yml \
+#          exec fortemi /app/seed-support-archive.sh
+#      Idempotent — re-running is a no-op once seeded (flag file).
 #
 # Environment:
-#   DISABLE_SUPPORT_MEMORY=true  - Skip support archive creation
+#   LOAD_SUPPORT_MEMORY=true     - Opt-in seeding on first boot
+#   DISABLE_SUPPORT_MEMORY=true  - Legacy: forces skip even if LOAD_* set
+#                                  (kept for back-compat with earlier
+#                                  bundles where seeding was opt-out)
 #   PORT (default: 3000)         - API port
 
 set -euo pipefail
@@ -15,10 +25,26 @@ SEED_DIR="/app/seed-data"
 SHARD_FILE="$SEED_DIR/fortemi-docs.shard"
 FLAG_FILE="${PGDATA:-/var/lib/postgresql/data}/.fortemi-docs-seeded"
 ARCHIVE_NAME="fortemi-docs"
+# When invoked manually (by an operator running this script directly via
+# `docker exec`), force the seed regardless of LOAD_SUPPORT_MEMORY. The
+# entrypoint sets MANUAL_INVOCATION=false; an operator running it
+# directly leaves it unset which is treated as manual.
+MANUAL_INVOCATION="${MANUAL_INVOCATION:-true}"
 
-# Check opt-out
+# Check legacy hard-skip — operators who explicitly disabled the seed
+# in the previous opt-out world keep that behavior.
 if [ "${DISABLE_SUPPORT_MEMORY:-false}" = "true" ]; then
     echo "  Support memory disabled (DISABLE_SUPPORT_MEMORY=true), skipping"
+    return 0 2>/dev/null || exit 0
+fi
+
+# Auto-invocation gate: only proceed automatically when the operator
+# has explicitly opted in. Manual invocations bypass this check.
+if [ "${MANUAL_INVOCATION}" = "false" ] \
+   && [ "${LOAD_SUPPORT_MEMORY:-false}" != "true" ]; then
+    echo "  Support memory not requested (LOAD_SUPPORT_MEMORY!=true), skipping auto-seed"
+    echo "  To seed manually:"
+    echo "    docker compose -f docker-compose.bundle.yml exec fortemi /app/seed-support-archive.sh"
     return 0 2>/dev/null || exit 0
 fi
 
