@@ -69,6 +69,25 @@ pub struct SourcedLlamaCppConfig {
     pub embedding_model: SourcedValue,
 }
 
+/// OpenRouter config fields with source attribution.
+///
+/// OpenRouter speaks the OpenAI-compatible protocol but layers two extra
+/// headers on top: `HTTP-Referer` for routing rules and `X-Title` for app
+/// attribution. Fortemi defaults these to `https://fortemi.io` / `Fortemi`;
+/// operators shipping Fortemi as a sidecar can override per app via
+/// `OPENROUTER_HTTP_REFERER` and `OPENROUTER_APP_NAME` env vars or the
+/// runtime `http_referer` / `app_name` fields. Embeddings are not supported
+/// by OpenRouter; the field is omitted from this struct intentionally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourcedOpenRouterConfig {
+    pub base_url: SourcedValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<SourcedValue>,
+    pub generation_model: SourcedValue,
+    pub http_referer: SourcedValue,
+    pub app_name: SourcedValue,
+}
+
 /// Full effective inference config response with source attribution.
 #[derive(Debug, Serialize)]
 pub struct InferenceConfigResponse {
@@ -79,6 +98,8 @@ pub struct InferenceConfigResponse {
     pub openai: Option<SourcedOpenAIConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub llamacpp: Option<SourcedLlamaCppConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub openrouter: Option<SourcedOpenRouterConfig>,
     pub providers: Vec<String>,
 }
 
@@ -87,17 +108,12 @@ pub struct InferenceConfigResponse {
 // =============================================================================
 
 /// Partial update request body (all fields optional).
-///
-/// Note: an `openrouter` field is intentionally absent here. OpenRouter
-/// runtime config is tracked in a follow-up of #654 (PR 2b) so the
-/// catalog wire-up + dry-run/atomic infrastructure can land first
-/// without growing this diff. For now operators using OpenRouter
-/// configure it via env vars only.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateInferenceConfigRequest {
     pub ollama: Option<PartialOllamaConfig>,
     pub openai: Option<PartialOpenAIConfig>,
     pub llamacpp: Option<PartialLlamaCppConfig>,
+    pub openrouter: Option<PartialOpenRouterConfig>,
 }
 
 /// Partial Ollama config (all fields optional).
@@ -124,6 +140,21 @@ pub struct PartialLlamaCppConfig {
     pub api_key: Option<String>,
     pub generation_model: Option<String>,
     pub embedding_model: Option<String>,
+}
+
+/// Partial OpenRouter config (all fields optional).
+///
+/// `http_referer` and `app_name` override the Fortemi defaults
+/// (`https://fortemi.io` / `Fortemi`) used in OpenRouter's `HTTP-Referer`
+/// and `X-Title` headers. Embeddings are unsupported by OpenRouter so no
+/// embedding-model field is offered.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PartialOpenRouterConfig {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub generation_model: Option<String>,
+    pub http_referer: Option<String>,
+    pub app_name: Option<String>,
 }
 
 /// Query parameters for POST /api/v1/inference/config.
@@ -397,6 +428,70 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
         None
     };
 
+    // OpenRouter only shown if the DB override or env has it configured.
+    let db_openrouter = db.and_then(|v| v.get("openrouter"));
+    let env_openrouter_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+    let openrouter = if db_openrouter.is_some() || !env_openrouter_key.is_empty() {
+        let db_base = db_openrouter
+            .and_then(|o| o.get("base_url"))
+            .and_then(|v| v.as_str());
+        let db_gen = db_openrouter
+            .and_then(|o| o.get("generation_model"))
+            .and_then(|v| v.as_str());
+        let db_key = db_openrouter
+            .and_then(|o| o.get("api_key"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+        let db_referer = db_openrouter
+            .and_then(|o| o.get("http_referer"))
+            .and_then(|v| v.as_str());
+        let db_app = db_openrouter
+            .and_then(|o| o.get("app_name"))
+            .and_then(|v| v.as_str());
+
+        // Pull the catalog defaults so values stay in lockstep with the
+        // static profile registry (see crates/matric-inference/src/provider_profiles.rs).
+        let profile = matric_inference::lookup_provider_profile("openrouter");
+        let default_url = profile
+            .and_then(|p| p.default_base_url)
+            .unwrap_or("https://openrouter.ai/api/v1");
+        let default_gen = profile
+            .and_then(|p| p.default_generation_model)
+            .unwrap_or("anthropic/claude-sonnet-4");
+        // Defaults sourced from the catalog's ProfileHeaderSource::Default
+        // values so changing them in one place updates all reads.
+        let env_referer = std::env::var("OPENROUTER_HTTP_REFERER").unwrap_or_default();
+        let env_app = std::env::var("OPENROUTER_APP_NAME").unwrap_or_default();
+        let default_referer = "https://fortemi.io";
+        let default_app = "Fortemi";
+
+        let api_key = db_key
+            .map(|k| SourcedValue {
+                value: redact_api_key(k),
+                source: ConfigSource::DbOverride,
+            })
+            .or_else(|| {
+                if !env_openrouter_key.is_empty() {
+                    Some(SourcedValue {
+                        value: redact_api_key(&env_openrouter_key),
+                        source: ConfigSource::Env,
+                    })
+                } else {
+                    None
+                }
+            });
+
+        Some(SourcedOpenRouterConfig {
+            base_url: pick(db_base, "", default_url),
+            api_key,
+            generation_model: pick(db_gen, "", default_gen),
+            http_referer: pick(db_referer, &env_referer, default_referer),
+            app_name: pick(db_app, &env_app, default_app),
+        })
+    } else {
+        None
+    };
+
     let mut providers = vec!["ollama".to_string()];
     if openai.is_some() {
         providers.push("openai".to_string());
@@ -404,12 +499,16 @@ fn build_effective_config(db: Option<&Value>) -> InferenceConfigResponse {
     if llamacpp.is_some() {
         providers.push("llamacpp".to_string());
     }
+    if openrouter.is_some() {
+        providers.push("openrouter".to_string());
+    }
 
     InferenceConfigResponse {
         default_backend: "ollama".to_string(),
         ollama,
         openai,
         llamacpp,
+        openrouter,
         providers,
     }
 }
@@ -730,6 +829,117 @@ pub async fn update_inference_config(
         }
     }
 
+    if let Some(partial_or) = &req.openrouter {
+        let entry = merged
+            .as_object_mut()
+            .expect("json object")
+            .entry("openrouter")
+            .or_insert(serde_json::json!({}));
+
+        let cur_base = entry.get("base_url").and_then(|v| v.as_str()).unwrap_or("");
+        let cur_key = entry
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+        let cur_gen = entry
+            .get("generation_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let cur_referer = entry
+            .get("http_referer")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let cur_app = entry.get("app_name").and_then(|v| v.as_str()).unwrap_or("");
+
+        // Defaults pulled from the catalog so they stay in lockstep with
+        // crates/matric-inference/src/provider_profiles.rs::OPENROUTER_PROFILE.
+        let profile = matric_inference::lookup_provider_profile("openrouter");
+        let default_url = profile
+            .and_then(|p| p.default_base_url)
+            .unwrap_or("https://openrouter.ai/api/v1");
+        let default_gen = profile
+            .and_then(|p| p.default_generation_model)
+            .unwrap_or("anthropic/claude-sonnet-4");
+        let env_url = std::env::var("OPENROUTER_BASE_URL").unwrap_or_default();
+        let env_gen = std::env::var("OPENROUTER_GEN_MODEL").unwrap_or_default();
+        let env_referer = std::env::var("OPENROUTER_HTTP_REFERER").unwrap_or_default();
+        let env_app = std::env::var("OPENROUTER_APP_NAME").unwrap_or_default();
+
+        let merged_base = partial_or.base_url.clone().unwrap_or_else(|| {
+            if !cur_base.is_empty() {
+                cur_base.to_string()
+            } else if !env_url.is_empty() {
+                env_url.clone()
+            } else {
+                default_url.to_string()
+            }
+        });
+        let merged_gen = partial_or.generation_model.clone().unwrap_or_else(|| {
+            if !cur_gen.is_empty() {
+                cur_gen.to_string()
+            } else if !env_gen.is_empty() {
+                env_gen.clone()
+            } else {
+                default_gen.to_string()
+            }
+        });
+        let merged_referer = partial_or.http_referer.clone().unwrap_or_else(|| {
+            if !cur_referer.is_empty() {
+                cur_referer.to_string()
+            } else if !env_referer.is_empty() {
+                env_referer.clone()
+            } else {
+                "https://fortemi.io".to_string()
+            }
+        });
+        let merged_app = partial_or.app_name.clone().unwrap_or_else(|| {
+            if !cur_app.is_empty() {
+                cur_app.to_string()
+            } else if !env_app.is_empty() {
+                env_app.clone()
+            } else {
+                "Fortemi".to_string()
+            }
+        });
+
+        if merged_base.is_empty()
+            || (!merged_base.starts_with("http://") && !merged_base.starts_with("https://"))
+        {
+            return err(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "OpenRouter base_url must start with http:// or https://, got: {merged_base}"
+                ),
+            )
+            .into_response();
+        }
+        if merged_gen.is_empty() {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "OpenRouter generation_model cannot be empty".to_string(),
+            )
+            .into_response();
+        }
+
+        let obj = entry.as_object_mut().expect("json object");
+        if partial_or.base_url.is_some() {
+            obj.insert("base_url".to_string(), Value::String(merged_base));
+        }
+        if let Some(ref key) = partial_or.api_key.as_deref().or(cur_key.as_deref()) {
+            obj.insert("api_key".to_string(), Value::String(key.to_string()));
+        }
+        if partial_or.generation_model.is_some() {
+            obj.insert("generation_model".to_string(), Value::String(merged_gen));
+        }
+        if partial_or.http_referer.is_some() {
+            obj.insert("http_referer".to_string(), Value::String(merged_referer));
+        }
+        if partial_or.app_name.is_some() {
+            obj.insert("app_name".to_string(), Value::String(merged_app));
+        }
+    }
+
     // Atomic-mode pre-flight: probe every backend touched by this request
     // before committing. On any failure, abort with 503 so the live registry
     // and DB stay on the previous good config.
@@ -799,6 +1009,23 @@ pub async fn update_inference_config(
             }
         }
 
+        if req.openrouter.is_some() {
+            if let Some(o) = merged.get("openrouter") {
+                let url = o
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim_end_matches('/');
+                let api_key = o.get("api_key").and_then(|v| v.as_str());
+                if !url.is_empty() {
+                    // OpenRouter speaks OpenAI-compatible — same probe path.
+                    if let Err(e) = probe_openai(&probe_client, url, api_key).await {
+                        probe_failures.push(format!("openrouter ({}): {}", url, e));
+                    }
+                }
+            }
+        }
+
         if !probe_failures.is_empty() {
             warn!(
                 failures = ?probe_failures,
@@ -861,6 +1088,59 @@ pub async fn update_inference_config(
                         x_title: None,
                     });
                 }
+            }
+        }
+
+        // Layer DB overrides for OpenRouter. Honors http_referer / app_name
+        // so per-deployment routing rules and X-Title attribution take
+        // effect immediately on hot-swap (defaults are applied by
+        // build_effective_config; here we just propagate whatever the
+        // merged blob holds).
+        if let Some(db_or) = merged.get("openrouter") {
+            let api_key = db_or
+                .get("api_key")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .or_else(|| std::env::var("OPENROUTER_API_KEY").ok());
+            // Without a key we can't make calls — skip registration entirely
+            // rather than stamping a half-built provider into the registry.
+            if api_key.is_some() {
+                let base_url = db_or
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .or_else(|| std::env::var("OPENROUTER_BASE_URL").ok())
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+
+                let http_referer = db_or
+                    .get("http_referer")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .or_else(|| std::env::var("OPENROUTER_HTTP_REFERER").ok())
+                    .or_else(|| Some("https://fortemi.io".to_string()));
+                let x_title = db_or
+                    .get("app_name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .or_else(|| std::env::var("OPENROUTER_APP_NAME").ok())
+                    .or_else(|| Some("Fortemi".to_string()));
+
+                // Replace whatever from_env registered so later overrides win.
+                new_registry.register(matric_inference::ProviderConfig {
+                    id: "openrouter".to_string(),
+                    base_url,
+                    api_key,
+                    capabilities: vec![matric_inference::ProviderCapability::Generation],
+                    timeout: std::time::Duration::from_secs(300),
+                    is_default: false,
+                    health: matric_inference::ProviderHealth::Unknown,
+                    http_referer,
+                    x_title,
+                });
             }
         }
 
