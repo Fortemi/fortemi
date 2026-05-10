@@ -456,12 +456,26 @@ Idle footprint of the default Docker bundle:
 | **Default bundle total** | **~10 GB** | with qwen3.5:9b loaded |
 | **Minimal profile total** | **~2 GB** | qwen2.5:3b, no support archive |
 
-Cold boot also runs a one-shot indexing pass over the bundled support archive (semantic search over the Fortémi docs themselves). It runs **in the background** so the API is responsive immediately, but it does cost CPU for a few minutes on first launch. To skip it entirely:
+Cold boot imports the bundled support archive — the Fortémi docs themselves, available for in-product full-text search. **No embeddings are generated on import**: notes go in, Postgres `tsvector` triggers populate the FTS index, and that's it. Semantic search over the support archive is opt-in (see below). To skip the import entirely:
 
 ```bash
 # In .env
 DISABLE_SUPPORT_MEMORY=true
 ```
+
+**Enable semantic search over the support archive (opt-in):**
+
+```bash
+# Generate embeddings for the support archive — runs against your
+# configured inference provider. Time/cost depends on the corpus size
+# (~300 notes today) and the embedding model.
+curl -X POST http://localhost:3000/api/v1/notes/reprocess \
+  -H 'X-Fortemi-Memory: fortemi-docs' \
+  -H 'Content-Type: application/json' \
+  -d '{"steps":["embedding"],"revision_mode":"none"}'
+```
+
+You can also enable auto-linking (`"steps":["embedding","linking"]`) or AI revision (drop `revision_mode:"none"`); see [`docs/content/inference-providers.md`](docs/content/inference-providers.md) for cost/quality trade-offs.
 
 Operators on tight resources can stack the minimal overlay:
 
