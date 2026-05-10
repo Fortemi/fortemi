@@ -7,6 +7,38 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.4] - 2026-05-10
+
+First-class provider profiles for all advertised inference platforms (#654 series), three runtime-config follow-ups (#655 #656 #657), and CI hardening for the auto-shard-rebuild and release publication paths.
+
+### Added — Inference: first-class provider parity (#654)
+
+- **Provider profile catalog** (#658) — `crates/matric-inference/src/provider_profiles.rs` ships a `&'static [ProviderProfile]` describing the four v1 providers (Ollama, OpenAI, OpenRouter, llama.cpp). Each entry carries the wire protocol family (`BackendKind::Ollama` or `BackendKind::OpenAICompatible`), default base URL, required-vs-optional API key, capability list, env-var conventions, recommended default models, extra-header injection rules, and health/models endpoints. Future providers (vLLM, LiteLLM, LocalAI, Groq, Together, …) become 5-line additions to the catalog with no enum touching, no parser surface.
+- **Catalog-driven `/api/v1/inference/providers`** (#659) — Replaces hard-coded match arms with a single loop over `provider_profiles::iter()`. Response gains a `supports_embeddings` field so BYOK UIs can render the OpenRouter-style "chat only" case correctly.
+- **Profile-aware `/api/v1/inference/test-connection`** (#659) — Hints like `openrouter` or `llamacpp` route to the right wire-protocol probe (`BackendKind::Ollama` vs `OpenAICompatible`) instead of falling through to URL auto-detection.
+- **OpenRouter native runtime config** (#660) — `POST /api/v1/inference/config` accepts an `openrouter` block alongside `ollama`/`openai`/`llamacpp`. `HTTP-Referer` / `X-Title` headers default to `https://fortemi.io` / `Fortemi`; overridable per-deployment via `OPENROUTER_HTTP_REFERER` / `OPENROUTER_APP_NAME` env vars or the runtime `http_referer` / `app_name` fields.
+- **Independent embedding/generation routing** (#661) — `MATRIC_EMBEDDING_PROVIDER` env var and `embedding_backend` field on `POST /api/v1/inference/config` route embedding calls through a different provider than the active default. Killer use case: OpenRouter for chat (no embedding API), local Ollama or llama.cpp for embeddings. Validated against the catalog: pointing at a provider without the Embedding capability returns 400 with a descriptive error before persisting.
+- **Atomic-swap and dry-run modes** (#659) — `POST /api/v1/inference/config?dry_run=true` validates the merged config and returns the would-be effective state without persisting or hot-swapping. `?atomic=true` probes every backend the request touches before committing; on any probe failure, abort with 503 + structured `failures: [...]` array. Avoids the brief error window where a half-applied config serves bad creds.
+
+### Added — Runtime-config follow-ups
+
+- **`InferenceConfigChanged` SSE event on hot-swap** (#657, #663) — New variant on `ServerEvent` emitted from `POST` and `DELETE` `/api/v1/inference/config`. Carries `default_backend`, `embedding_backend`, and a `changed_fields` array of dotted field names (`openrouter.api_key`, `embedding_backend`). API keys never appear in event payloads — only field names. Reactive UIs (HotM provider pill, MCP-tool clients, dashboards) can update without polling. `DELETE` events use the sentinel `changed_fields: ["__reset__"]`.
+- **Inference config audit log** (#656, #664) — New `inference_config_audit` table records every operator-driven mutation: actor, timestamp, action (`set` / `reset` / `set_archive` / `reset_archive`), redacted before/after JSON blobs, source IP. New `GET /api/v1/inference/config/audit?limit=50&changed_by=&action=` endpoint returns recent entries with filter support. Best-effort writer — DB failure logs at `warn` but never blocks the live config change.
+- **Per-archive inference provider override** (#655, #665) — Storage + API surface for multi-tenant routing: new `archive_inference_override` table keyed by `schema_name`. `GET` / `POST` / `DELETE` `/api/v1/inference/config` honor `X-Fortemi-Memory`; archive overrides shallow-merge on top of the global config (precedence: `archive_override > db_override > env > default`). Audit log distinguishes archive operations via `set_archive` / `reset_archive` actions. **Live runtime routing** (per-archive `ProviderRegistry` cache + request-time resolver) is filed as #666 — substantial scope, follow-up.
+
+### Changed — Inference docs (#662)
+
+- **README "Multi-Provider Inference"** rewritten with the catalog-driven profile table (backend protocol, API key requirement, embedding support, default models per profile), runtime reconfiguration recipes (`?dry_run=true`, `?atomic=true` curl examples), and the independent embedding/generation routing story.
+- **README "Bring Your Own LLM"** uses native profile names (`MATRIC_INFERENCE_DEFAULT=llamacpp` / `openrouter`) instead of the legacy `MATRIC_INFERENCE_DEFAULT=openai` escape hatch. Legacy recipe preserved for unknown OpenAI-compatible endpoints (vLLM, LiteLLM, on-prem).
+- **CLAUDE.md "Inference Providers"** expanded: dedicated OpenRouter section with all five env vars, new "Independent Embedding/Generation Routing" subsection, runtime hot-swap recipes for `embedding_backend` set/clear, `dry_run`, and `atomic`.
+- **`.env.example`** — `MATRIC_INFERENCE_DEFAULT` lists all 4 valid ids; new `MATRIC_EMBEDDING_PROVIDER` block; `OPENROUTER_GEN_MODEL` / `OPENROUTER_APP_NAME` (renamed from `_X_TITLE` for runtime-field consistency); new llama.cpp section.
+
+### Fixed
+
+- **`matric-core` event variant count assertions** (#667) — Two test assertions hard-coded `47` for the variant count; #663 added a 48th. Failing CI runs from the prior release surfaced this. Fixed both `events.rs::test_all_variants_metadata_is_complete` and `asyncapi.rs::build_spec_produces_valid_structure` to expect 48.
+- **Auto-shard-rebuild rate-limit** (#668) — `scripts/ci/rebuild-shard-in-ci.sh` now passes `RATE_LIMIT_ENABLED=false` to the transient API container. The rebuild fires ~200 `POST /api/v1/notes` calls in ~4 s; the bundle's default rate limiter (100 req / 60 s) was 429-ing the second half. Companion: `scripts/rebuild-docs-shard.sh` now aborts with `exit 1` if more than 5% of imports fail, so this kind of partial failure aborts loudly instead of silently emitting a half-empty `.shard`.
+- **Release-job tag gating** (#669) — `Create Gitea Release` and `Create GitHub Release` jobs in `ci-builder.yaml` had `needs: publish-release|github` + `if: needs.X.result == 'success'`; on Gitea Actions this didn't propagate `skipped` correctly and `Create GitHub Release` fired on push-to-main, attempting a release with `tag_name: "main"`. Belt-and-suspenders fix adds explicit `startsWith(github.ref, 'refs/tags/v')` to both job conditions.
+
 ## [2026.5.3] - 2026-05-10
 
 Support-archive pipeline overhaul: always-fresh, never-expensive on first boot.
