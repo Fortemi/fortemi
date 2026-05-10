@@ -7,6 +7,41 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.5] - 2026-05-10
+
+Docker bundle behavior change: the bundled `fortemi-docs` support archive is now opt-in to mirror the native build path.
+
+### Changed
+
+- **Support archive is opt-in by default** (#672) — The Docker bundle no longer auto-seeds the bundled Fortémi documentation on first boot. Behavior now matches the native `cargo run` path (which never auto-seeded). Two opt-in routes:
+  - **Auto-seed on first boot**: set `LOAD_SUPPORT_MEMORY=true` in `.env` before `docker compose ... up`.
+  - **One-command seed on a running instance**: `docker compose -f docker-compose.bundle.yml exec fortemi /app/seed-support-archive.sh` (idempotent; flag file on the persistent `pgdata` volume tracks state).
+  - Legacy `DISABLE_SUPPORT_MEMORY=true` still wins as a force-skip — kept for back-compat with bundles that pre-date the flip. Used by `docker-compose.minimal.yml` to guarantee skip regardless of upstream config.
+- **`docker/seed-support-archive.sh` is now safe to invoke manually** at any time inside a running container. The `MANUAL_INVOCATION` flag (default `true`) distinguishes operator-invoked from entrypoint-invoked runs; the entrypoint sets it to `false` so auto-seed requires explicit `LOAD_SUPPORT_MEMORY=true`.
+- **README "Quick Start" updated** — no longer claims the bundle auto-seeds the support archive; points operators at the new dedicated section.
+
+### Added
+
+- **README "Support Archive (fortemi-docs)" section** — what the archive is, both opt-in paths, querying via the `X-Fortemi-Memory: fortemi-docs` header, the additional `POST /api/v1/notes/reprocess` opt-in for semantic search, and the refresh-on-upgrade procedure (drop archive + remove flag file + re-seed).
+- **`.env.example` Support Memory Archive block** rewritten to document both opt-in paths with copy-paste recipes plus a quick search example.
+
+### Migration notes
+
+| Existing `.env` | Behavior after upgrade |
+|---|---|
+| `DISABLE_SUPPORT_MEMORY=true` | Unchanged — still skipped |
+| `DISABLE_SUPPORT_MEMORY=false` (prior default) | **Changed** — no longer auto-seeds. Add `LOAD_SUPPORT_MEMORY=true` to restore. |
+| `DISABLE_SUPPORT_MEMORY` unset | Was never explicit; still no auto-seed |
+| Already-seeded instance (flag file present) | Unchanged — flag file persists across restarts; the existing archive stays |
+
+No data loss for anyone. Worst case is a previously-default operator notices the docs aren't loaded on a fresh deploy and runs the one-command opt-in.
+
+### Fixed (CI infrastructure, already in v2026.5.4 via re-tag but documented here for completeness)
+
+- **`Create Gitea Release` and `Create GitHub Release` tag-gating** (#669) — Belt-and-suspenders `startsWith(github.ref, 'refs/tags/v')` clause on both job conditions. Gitea Actions' `needs.X.result == 'success'` evaluator doesn't propagate `skipped` upstream the way GitHub Actions does, leading to release-creation jobs firing on push-to-main with `tag_name: "main"` (rejected by both registries).
+- **`Publish Dev Image` (Gitea + GitHub) tag-gating** (#670) — Same evaluator quirk; added `!startsWith(github.ref, 'refs/tags/')` to keep dev-publish jobs from running on tag pushes and contending with the proper tag-only release publishes. Also bounded the `Create GitHub Release` curl with `--connect-timeout 10 --max-time 60` so future hangs fail fast.
+- **Shard-rebuild host-port collision** (#671) — `scripts/ci/rebuild-shard-in-ci.sh` now picks a unique host port (`30000 + ($$ % 5000)`) instead of fixed `3000`. The parallel `publish-release` (Gitea) and `publish-github` (ghcr.io) jobs share a runner; both invoke this script; the second-to-arrive previously crashed with "Bind for 0.0.0.0:3000 failed: port is already allocated".
+
 ## [2026.5.4] - 2026-05-10
 
 First-class provider profiles for all advertised inference platforms (#654 series), three runtime-config follow-ups (#655 #656 #657), and CI hardening for the auto-shard-rebuild and release publication paths.

@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2026.5.4"
+version = "2026.5.5"
 edition = "2021"
 license = "BSL-1.1"
 repository = "https://github.com/fortemi/fortemi"
