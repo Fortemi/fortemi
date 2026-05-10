@@ -27,6 +27,16 @@ DB_NAME="shard-rebuild-db-$$"
 API_NAME="shard-rebuild-api-$$"
 TESTDB_IMAGE="matric-testdb:shard-rebuild"
 
+# Unique host port per invocation. Both `publish-release` (Gitea) and
+# `publish-github` (ghcr.io) jobs in ci-builder.yaml run in parallel on
+# the same matric-builder runner; both call this script. A fixed
+# `-p 3000:3000` collides — observed in CI run #1509 ("Bind for
+# 0.0.0.0:3000 failed: port is already allocated"). Pick a port from a
+# wide ephemeral-ish range based on the PID; collision risk is
+# negligible across the two parallel jobs.
+HOST_PORT=$((30000 + ($$ % 5000)))
+API_URL="http://localhost:${HOST_PORT}"
+
 cleanup() {
     echo ">>> Tearing down shard-rebuild stack..."
     docker rm -f "$API_NAME" "$DB_NAME" 2>/dev/null || true
@@ -74,22 +84,22 @@ done
 #   would 429 every request after the first 100. Without this, ~half the
 #   import fails silently, the export step then errors, and the bundle build
 #   aborts. Observed in CI run #1486 (PR #653 first end-to-end run).
-echo ">>> Starting API ($API_NAME) from $API_IMAGE..."
+echo ">>> Starting API ($API_NAME) on host port ${HOST_PORT} from $API_IMAGE..."
 docker run -d --name "$API_NAME" --network "$NETWORK" \
-    -p 3000:3000 \
+    -p "${HOST_PORT}:3000" \
     -e DATABASE_URL="postgres://matric:matric@${DB_NAME}:5432/matric" \
     -e DISABLE_SUPPORT_MEMORY=true \
     -e MATRIC_INFERENCE_DEFAULT=ollama \
     -e OLLAMA_BASE=http://disabled.invalid:11434 \
     -e RATE_LIMIT_ENABLED=false \
-    -e ISSUER_URL=http://localhost:3000 \
+    -e ISSUER_URL="${API_URL}" \
     "$API_IMAGE"
 
 # 5. Wait for /health (API runs sqlx migrations on startup — can take time
 #    on a fresh DB with 100+ migrations)
-echo ">>> Waiting for API /health..."
+echo ">>> Waiting for API /health at ${API_URL}..."
 for i in $(seq 1 60); do
-    if curl -fsS http://localhost:3000/health >/dev/null 2>&1; then
+    if curl -fsS "${API_URL}/health" >/dev/null 2>&1; then
         echo ">>> API ready after ${i}s"
         break
     fi
@@ -106,8 +116,8 @@ done
 
 # 6. Run the rebuild — operates on the host filesystem from the workspace
 #    root, writes docker/seed-data/fortemi-docs.shard
-echo ">>> Running scripts/rebuild-docs-shard.sh..."
-scripts/rebuild-docs-shard.sh http://localhost:3000
+echo ">>> Running scripts/rebuild-docs-shard.sh against ${API_URL}..."
+scripts/rebuild-docs-shard.sh "${API_URL}"
 
 # 7. Verify the shard was actually written and is non-trivially sized
 SHARD="docker/seed-data/fortemi-docs.shard"
