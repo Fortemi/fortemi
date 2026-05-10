@@ -69,6 +69,11 @@ done
 #   the ones generating the seed
 # OLLAMA_BASE pointed at an unreachable host: rebuild script imports notes
 #   with revision_mode=none, so no inference calls are made
+# RATE_LIMIT_ENABLED=false: the rebuild fires ~200 POST /api/v1/notes calls
+#   back-to-back; the bundle's default 100 req / 60 s limit (RATE_LIMIT_*)
+#   would 429 every request after the first 100. Without this, ~half the
+#   import fails silently, the export step then errors, and the bundle build
+#   aborts. Observed in CI run #1486 (PR #653 first end-to-end run).
 echo ">>> Starting API ($API_NAME) from $API_IMAGE..."
 docker run -d --name "$API_NAME" --network "$NETWORK" \
     -p 3000:3000 \
@@ -76,6 +81,7 @@ docker run -d --name "$API_NAME" --network "$NETWORK" \
     -e DISABLE_SUPPORT_MEMORY=true \
     -e MATRIC_INFERENCE_DEFAULT=ollama \
     -e OLLAMA_BASE=http://disabled.invalid:11434 \
+    -e RATE_LIMIT_ENABLED=false \
     -e ISSUER_URL=http://localhost:3000 \
     "$API_IMAGE"
 
