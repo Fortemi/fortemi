@@ -30,6 +30,39 @@ sqlx migrate run
 cargo test --workspace
 ```
 
+### sqlx compile-time query checks
+
+Fortemi uses `sqlx::query!` macros that verify SQL against a real Postgres at **compile time**. The first build on a new machine fails with a confusing "missing graph" error if neither of these is true:
+
+- `DATABASE_URL` is set and points at a Postgres that already has all migrations applied, **or**
+- `.sqlx/` is populated with offline query metadata and `SQLX_OFFLINE=true` is set
+
+Pick one of:
+
+**A) Live database (recommended for active development):**
+
+```bash
+export DATABASE_URL="postgres://matric:matric@localhost:5432/matric"
+sqlx migrate run        # apply migrations
+cargo build             # query!() macros check against the live DB
+```
+
+**B) Offline metadata (recommended for CI / users who just want to compile):**
+
+```bash
+# One-time, against a Postgres with all migrations applied:
+cargo install sqlx-cli
+DATABASE_URL=postgres://matric:matric@localhost:5432/matric \
+    cargo sqlx prepare --workspace
+git add .sqlx/
+git commit -m "chore: refresh sqlx offline metadata"
+
+# Subsequent builds compile without a database:
+SQLX_OFFLINE=true cargo build
+```
+
+Regenerate `.sqlx/` whenever a migration or `query!()` call changes. CI runs `cargo sqlx prepare --check --workspace` to flag drift.
+
 ## Development Workflow
 
 ### Git Hooks

@@ -197,6 +197,8 @@ for f in migrations/*.sql; do psql -d matric -f "$f"; done
 DATABASE_URL="postgres://matric:matric@localhost/matric" cargo run --release -p matric-api
 ```
 
+> **First build fails with "missing graph"?** Fortemi uses `sqlx::query!` compile-time checks. Either `export DATABASE_URL=...` against a Postgres with migrations applied, or generate offline metadata once with `cargo sqlx prepare --workspace` and build with `SQLX_OFFLINE=true`. See [CONTRIBUTING.md → sqlx compile-time query checks](CONTRIBUTING.md#sqlx-compile-time-query-checks).
+
 ### Try It
 
 ```bash
