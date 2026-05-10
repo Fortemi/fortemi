@@ -2077,15 +2077,15 @@ mod tests {
         let meta = ServerEvent::all_variants_metadata();
         assert_eq!(
             meta.len(),
-            47,
-            "Expected 47 event variants, got {}",
+            48,
+            "Expected 48 event variants, got {}",
             meta.len()
         );
 
         // All namespaced types should be unique
         let types: std::collections::HashSet<&str> =
             meta.iter().map(|m| m.namespaced_type).collect();
-        assert_eq!(types.len(), 47, "Duplicate namespaced_type found");
+        assert_eq!(types.len(), 48, "Duplicate namespaced_type found");
 
         // All descriptions should be non-empty
         for m in &meta {
