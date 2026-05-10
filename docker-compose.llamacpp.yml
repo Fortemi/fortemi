@@ -1,0 +1,56 @@
+# docker-compose.llamacpp.yml — bundled llama.cpp inference server
+#
+# Adds a llama.cpp HTTP server to the Fortemi bundle so users who don't want
+# (or can't run) Ollama can run inference locally via the OpenAI-compatible
+# llama.cpp protocol.
+#
+# Usage:
+#   1. Place a GGUF model at ./models/model.gguf (relative to this file)
+#   2. In .env, set:
+#        MATRIC_INFERENCE_DEFAULT=openai
+#        OPENAI_BASE_URL=http://host.docker.internal:8080/v1
+#        OPENAI_API_KEY=anything   # llama-server accepts any key by default
+#   3. Bring up the bundle with both compose files:
+#        docker compose -f docker-compose.bundle.yml -f docker-compose.llamacpp.yml up -d
+#
+# Why MATRIC_INFERENCE_DEFAULT=openai? llama.cpp speaks the OpenAI-compatible
+# protocol (/v1/chat/completions, /v1/embeddings), so the OpenAI backend in
+# matric-inference handles it directly when pointed at the llama.cpp server.
+#
+# To pin a specific build, replace `:server` with a versioned tag from
+# https://github.com/ggerganov/llama.cpp/pkgs/container/llama.cpp.
+
+services:
+  llamacpp:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: fortemi-llamacpp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/models:ro
+    command:
+      - "--model"
+      - "/models/${LLAMACPP_MODEL_FILE:-model.gguf}"
+      - "--port"
+      - "8080"
+      - "--host"
+      - "0.0.0.0"
+      - "--ctx-size"
+      - "${LLAMACPP_CTX_SIZE:-8192}"
+      - "--n-gpu-layers"
+      - "${LLAMACPP_GPU_LAYERS:-99}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    # Uncomment for NVIDIA GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

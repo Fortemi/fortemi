@@ -462,6 +462,36 @@ llamacpp:my-model                  → llama.cpp
 
 Runtime reconfiguration without restart via `POST /api/v1/inference/config`. Configuration precedence: `db_override` → `env` → `default`.
 
+### Bring Your Own LLM
+
+Ollama is the default for the Docker bundle, but it is **one option among several** — Fortemi does not require Ollama. To run the bundle against your own llama.cpp server, an OpenAI-compatible endpoint, or a remote OpenAI/OpenRouter account, override the inference defaults in `.env`:
+
+```bash
+# Use llama.cpp (running on the host or as a sidecar)
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_BASE_URL=http://host.docker.internal:8080/v1
+OPENAI_API_KEY=anything   # llama-server accepts any key by default
+
+# …or use OpenAI proper
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_API_KEY=sk-...
+
+# …or use OpenRouter
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=sk-or-...
+```
+
+To run a llama.cpp sidecar alongside the bundle, place a GGUF model at `./models/model.gguf` and bring up both compose files:
+
+```bash
+docker compose -f docker-compose.bundle.yml -f docker-compose.llamacpp.yml up -d
+```
+
+`docker-compose.llamacpp.yml` ships the `ghcr.io/ggerganov/llama.cpp:server` image with the OpenAI-compatible protocol exposed at `:8080/v1`. See the file header for tunables (`LLAMACPP_MODEL_FILE`, `LLAMACPP_CTX_SIZE`, `LLAMACPP_GPU_LAYERS`).
+
+**Disabling Ollama entirely**: set `MATRIC_INFERENCE_DEFAULT=openai` and leave `OLLAMA_BASE` unset. The Ollama backend isn't constructed when it isn't the default, so a dead `host.docker.internal:11434` won't be probed.
+
 ---
 
 ## Multi-Memory Archives
