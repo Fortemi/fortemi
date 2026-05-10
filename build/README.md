@@ -173,6 +173,24 @@ docker run --rm \
     matric-builder cargo test
 ```
 
+## fortemi-docs Shard Regeneration
+
+The bundle image bakes `docker/seed-data/fortemi-docs.shard` (the in-product support memory archive) into `/app/seed-data` so first-boot seeding has a known-good corpus to import.
+
+**CI rebuild (automatic):** `ci-builder.yaml`'s `publish-dev` and `publish-release` jobs run `scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:<tag>` after building the API-only image and before building the bundle. The helper stands up a transient Postgres + API stack on an isolated Docker network, waits for `/health` (the API auto-runs sqlx migrations on startup), runs `scripts/rebuild-docs-shard.sh` to import the current source tree, and tears the stack down. Bundle builds fail loudly if the rebuild fails — we never ship a stale shard. See issue #652.
+
+**Manual rebuild (ad-hoc testing):** with a Fortémi instance already running locally:
+
+```bash
+scripts/rebuild-docs-shard.sh http://localhost:3000
+git add docker/seed-data/fortemi-docs.shard
+git commit -m "chore(seed): rebuild fortemi-docs shard"
+```
+
+The CI version doesn't commit; it just hands the freshly-written file to the immediately-following `docker build -f Dockerfile.bundle`.
+
+**What the shard contains:** `docs/**/*.md`, `.aiwg/**/*.md`, `CHANGELOG.md`, `README.md` — imported as notes with `revision_mode: "none"` (no inference) and tagged from path-based rules in `scripts/rebuild-docs-shard.sh:69-230`.
+
 ## References
 
 - [Solution Profile](../docs/solution-profile-builder.md) - Architecture decisions
