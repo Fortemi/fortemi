@@ -489,43 +489,89 @@ The minimal overlay disables support-archive seeding, swaps the fast-extraction 
 
 ## Multi-Provider Inference
 
-Hot-swappable inference backends with provider-qualified model slugs:
+Fortemi treats every advertised provider as a first-class peer. The runtime is driven by a static **provider profile catalog** — the four v1 entries below cover hosted (OpenAI, OpenRouter), local-daemon (Ollama), and bring-your-own-server (llama.cpp) inference, all reachable via the same hot-swap API.
+
+### Provider profiles (v1)
+
+| Provider | Backend protocol | API key | Embeddings | Default model |
+|----------|------------------|---------|------------|---------------|
+| **Ollama** | Ollama-native (`/api/generate`) | none | yes | `qwen3.5:9b` / `nomic-embed-text` |
+| **OpenAI** | OpenAI-compatible (`/v1/*`) | required | yes | `gpt-4o-mini` / `text-embedding-3-small` |
+| **OpenRouter** | OpenAI-compatible | required | **no** | `anthropic/claude-sonnet-4` / *(none)* |
+| **llama.cpp** | OpenAI-compatible | optional | depends on build | *(operator-set)* |
+
+Adding new well-known providers (vLLM, LiteLLM, LocalAI, Groq, Together, …) is a 5-line addition to `crates/matric-inference/src/provider_profiles.rs` with no enum or parser changes.
+
+### Provider-qualified slugs
 
 ```
-qwen3:8b                           → default provider (Ollama)
-ollama:qwen3:8b                    → explicit Ollama
-openai:gpt-4o                      → OpenAI
-openrouter:anthropic/claude-sonnet-4-20250514 → OpenRouter
-llamacpp:my-model                  → llama.cpp
+qwen3:8b                                    → default provider
+ollama:qwen3:8b                             → explicit Ollama
+openai:gpt-4o                               → OpenAI
+openrouter:anthropic/claude-sonnet-4        → OpenRouter
+llamacpp:qwen2.5-7b-instruct                → llama.cpp
 ```
 
-| Provider | Opt-in | Configuration |
-|----------|--------|---------------|
-| **Ollama** | Default (always available) | `OLLAMA_BASE`, `OLLAMA_GEN_MODEL`, `OLLAMA_EMBED_MODEL` |
-| **llama.cpp** | `LLAMACPP_BASE_URL` | OpenAI-compatible protocol (`/v1/chat/completions`) |
-| **OpenAI** | `OPENAI_API_KEY` | Standard OpenAI API |
-| **OpenRouter** | `OPENROUTER_API_KEY` | Multi-model routing |
+### Runtime reconfiguration
 
-Runtime reconfiguration without restart via `POST /api/v1/inference/config`. Configuration precedence: `db_override` → `env` → `default`.
+Hot-swap any provider's credentials, model, or routing via `POST /api/v1/inference/config` — no restart required. Configuration precedence: `db_override` → `env` → `default`. Two safety primitives:
+
+- **`?dry_run=true`** — validate the merged config and return the effective state without persisting or hot-swapping. Useful for operator UIs running pre-flight checks.
+- **`?atomic=true`** — probe every backend the request touches before committing. On any probe failure: 503 + structured `failures: [...]` array; the live registry and DB stay on the previous good config. Avoids the brief error window where a half-applied swap serves bad creds.
+
+```bash
+# Validate without applying
+curl -X POST http://localhost:3000/api/v1/inference/config?dry_run=true \
+  -H 'Content-Type: application/json' \
+  -d '{"openrouter":{"api_key":"sk-or-v1-...","generation_model":"anthropic/claude-3.5-sonnet"}}'
+
+# Atomic swap — abort if any probe fails
+curl -X POST 'http://localhost:3000/api/v1/inference/config?atomic=true' \
+  -H 'Content-Type: application/json' \
+  -d '{"openrouter":{"api_key":"sk-or-v1-..."}}'
+```
+
+### Independent embedding/generation routing
+
+OpenRouter doesn't expose embeddings; Groq is API-only with no local model; some operators want to keep embeddings on-device for privacy while paying for hosted chat. Set `MATRIC_EMBEDDING_PROVIDER` (or the `embedding_backend` field on `POST /api/v1/inference/config`) to route embedding calls through a different provider than the active default.
+
+```bash
+# .env: chat through OpenRouter, embed locally via Ollama
+MATRIC_INFERENCE_DEFAULT=openrouter
+MATRIC_EMBEDDING_PROVIDER=ollama
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+The runtime validates the override against the catalog at boot and on every `POST /config` call: pointing `embedding_backend` at OpenRouter (which has no embedding capability) returns 400 with a descriptive error before persisting.
 
 ### Bring Your Own LLM
 
-Ollama is the default for the Docker bundle, but it is **one option among several** — Fortemi does not require Ollama. To run the bundle against your own llama.cpp server, an OpenAI-compatible endpoint, or a remote OpenAI/OpenRouter account, override the inference defaults in `.env`:
+Ollama is the default for the Docker bundle, but it is **one option among four** — Fortemi does not require Ollama. Pick a profile and set the matching `.env` block:
 
 ```bash
-# Use llama.cpp (running on the host or as a sidecar)
-MATRIC_INFERENCE_DEFAULT=openai
-OPENAI_BASE_URL=http://host.docker.internal:8080/v1
-OPENAI_API_KEY=anything   # llama-server accepts any key by default
+# Native llama.cpp profile (recommended for self-hosted local inference)
+MATRIC_INFERENCE_DEFAULT=llamacpp
+LLAMACPP_BASE_URL=http://host.docker.internal:8080/v1
+LLAMACPP_GEN_MODEL=qwen2.5-7b-instruct
+# LLAMACPP_API_KEY=...           # only if llama-server launched with --api-key
 
-# …or use OpenAI proper
+# Native OpenAI proper
 MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_API_KEY=sk-...
+OPENAI_GEN_MODEL=gpt-4o-mini
 
-# …or use OpenRouter
-MATRIC_INFERENCE_DEFAULT=openai
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_API_KEY=sk-or-...
+# Native OpenRouter (chat only — pair with MATRIC_EMBEDDING_PROVIDER for embed)
+MATRIC_INFERENCE_DEFAULT=openrouter
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_GEN_MODEL=anthropic/claude-sonnet-4
+MATRIC_EMBEDDING_PROVIDER=ollama
+```
+
+OpenRouter routing rules and analytics use `HTTP-Referer` and `X-Title` headers; Fortemi defaults them to `https://fortemi.io` / `Fortemi`. Override per-app for downstream tools that ship Fortemi as a sidecar:
+
+```bash
+OPENROUTER_HTTP_REFERER=https://your-app.example.com
+OPENROUTER_APP_NAME=Your App
 ```
 
 To run a llama.cpp sidecar alongside the bundle, place a GGUF model at `./models/model.gguf` and bring up both compose files:
@@ -536,7 +582,15 @@ docker compose -f docker-compose.bundle.yml -f docker-compose.llamacpp.yml up -d
 
 `docker-compose.llamacpp.yml` ships the `ghcr.io/ggerganov/llama.cpp:server` image with the OpenAI-compatible protocol exposed at `:8080/v1`. See the file header for tunables (`LLAMACPP_MODEL_FILE`, `LLAMACPP_CTX_SIZE`, `LLAMACPP_GPU_LAYERS`).
 
-**Disabling Ollama entirely**: set `MATRIC_INFERENCE_DEFAULT=openai` and leave `OLLAMA_BASE` unset. The Ollama backend isn't constructed when it isn't the default, so a dead `host.docker.internal:11434` won't be probed.
+**Custom OpenAI-compatible endpoints** (vLLM, LiteLLM, LocalAI, on-prem providers not yet in the catalog) keep working via the legacy escape hatch:
+
+```bash
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_BASE_URL=http://your-host:8000/v1
+OPENAI_API_KEY=anything-or-real-key
+```
+
+**Disabling Ollama entirely**: set `MATRIC_INFERENCE_DEFAULT` to anything other than `ollama` and leave `OLLAMA_BASE` unset. The Ollama backend isn't constructed when it isn't the default or embedding override, so a dead `host.docker.internal:11434` won't be probed.
 
 ---
 
