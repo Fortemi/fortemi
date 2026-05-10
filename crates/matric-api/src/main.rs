@@ -633,7 +633,8 @@ use handlers::{
         stream as inference_stream_handler,
     },
     inference_config::{
-        delete_inference_config, get_inference_config, test_connection, update_inference_config,
+        delete_inference_config, get_inference_config, get_inference_config_audit, test_connection,
+        update_inference_config,
     },
     models::list_models,
     pke::{
@@ -1914,6 +1915,11 @@ async fn main() -> anyhow::Result<()> {
             get(get_inference_config)
                 .post(update_inference_config)
                 .delete(delete_inference_config),
+        )
+        // Inference config audit log (Issue #656)
+        .route(
+            "/api/v1/inference/config/audit",
+            get(get_inference_config_audit),
         )
         // Inference connection testing (Issue #570)
         .route("/api/v1/inference/test-connection", post(test_connection))
