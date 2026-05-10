@@ -1,0 +1,44 @@
+# docker-compose.minimal.yml — minimal-footprint overlay for the bundle
+#
+# Stacks on top of docker-compose.bundle.yml to reduce idle resource use for
+# operators with little headroom (running their own LLM, low-RAM hosts, etc.).
+#
+# What this overlay does:
+#   - Disables automatic support-archive seeding on first boot (no CPU spike)
+#   - Trims the fast-extraction model down from qwen3.5:9b to qwen2.5:3b
+#   - Caps job concurrency to 1 (serial extraction, lower peak RAM)
+#   - Drops MAX_MEMORIES from 10 to 2 (less per-archive cache)
+#
+# What it does NOT do (operator-controlled):
+#   - Disable Whisper / GLiNER / pyannote sidecars — use COMPOSE_PROFILES to
+#     pick the hardware tier. The default `edge` profile is already CPU-only
+#     for the heavy sidecars; opting out further is a separate compose
+#     concern documented in README.
+#
+# Usage:
+#   docker compose -f docker-compose.bundle.yml -f docker-compose.minimal.yml up -d
+#
+# Target footprint: ~2 GB RAM idle (Postgres + Redis + small embed model).
+# Caveat: chat quality with qwen2.5:3b is materially lower than qwen3.5:9b.
+# This profile is for "I just want it to run" usability, not production.
+
+services:
+  fortemi:
+    environment:
+      # Skip the first-run support-archive indexing to avoid the CPU spike on
+      # cold boot. Re-enable later via:
+      #   docker compose exec fortemi /app/seed-support-archive.sh
+      - DISABLE_SUPPORT_MEMORY=true
+
+      # Smaller fast model (~2 GB VRAM/RAM vs ~8 GB for qwen3.5:9b).
+      # Override per-deployment by setting MATRIC_FAST_GEN_MODEL in .env.
+      - MATRIC_FAST_GEN_MODEL=${MATRIC_FAST_GEN_MODEL:-qwen2.5:3b}
+      - OLLAMA_GEN_MODEL=${OLLAMA_GEN_MODEL:-qwen2.5:3b}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen2.5:3b}
+
+      # Serial extraction, lower peak RAM/VRAM under load.
+      - JOB_MAX_CONCURRENT=${JOB_MAX_CONCURRENT:-1}
+      - GPU_MAX_CONCURRENT=${GPU_MAX_CONCURRENT:-1}
+
+      # Fewer concurrent live archives — drops in-memory caches.
+      - MAX_MEMORIES=${MAX_MEMORIES:-2}

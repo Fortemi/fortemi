@@ -439,6 +439,36 @@ See [Search Guide](docs/content/search-guide.md) · [Multilingual FTS](docs/cont
 | `gpu-12gb` | 12-16GB | GPU | qwen3.5:9b | RTX 3060 12GB, 4070, 5070 |
 | `gpu-24gb` | 24GB+ | GPU | configurable | RTX 3090, 4090, 5090 |
 
+### Resource Requirements
+
+Idle footprint of the default Docker bundle:
+
+| Component | Idle RAM | Notes |
+|-----------|----------|-------|
+| PostgreSQL 18 | ~500 MB | required |
+| Redis | ~256 MB | required |
+| `qwen3.5:9b` (fast gen + vision) | ~8 GB VRAM/RAM | set `MATRIC_FAST_GEN_MODEL=` to disable |
+| `nomic-embed-text` (embeddings) | ~500 MB | required for indexing |
+| Whisper (`gpu-12gb`+ profile) | ~2 GB | optional |
+| GLiNER (`gpu-12gb`+ profile) | ~1 GB | optional |
+| **Default bundle total** | **~10 GB** | with qwen3.5:9b loaded |
+| **Minimal profile total** | **~2 GB** | qwen2.5:3b, no support archive |
+
+Cold boot also runs a one-shot indexing pass over the bundled support archive (semantic search over the Fortémi docs themselves). It runs **in the background** so the API is responsive immediately, but it does cost CPU for a few minutes on first launch. To skip it entirely:
+
+```bash
+# In .env
+DISABLE_SUPPORT_MEMORY=true
+```
+
+Operators on tight resources can stack the minimal overlay:
+
+```bash
+docker compose -f docker-compose.bundle.yml -f docker-compose.minimal.yml up -d
+```
+
+The minimal overlay disables support-archive seeding, swaps the fast-extraction model to `qwen2.5:3b`, caps `JOB_MAX_CONCURRENT=1`, and trims `MAX_MEMORIES=2`. Target idle ~2 GB. Trade-off: chat quality with `qwen2.5:3b` is materially lower than the default — this is for "make it run on my laptop", not production.
+
 ---
 
 ## Multi-Provider Inference
