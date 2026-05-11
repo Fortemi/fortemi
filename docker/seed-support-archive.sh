@@ -16,6 +16,13 @@
 #   DISABLE_SUPPORT_MEMORY=true  - Legacy: forces skip even if LOAD_* set
 #                                  (kept for back-compat with earlier
 #                                  bundles where seeding was opt-out)
+#   SEED_WITH_INFERENCE=true     - Opt-in: also enqueue the full NLP
+#                                  pipeline (embeddings, metadata, NER,
+#                                  linking) for every imported note.
+#                                  Default false — FTS works immediately,
+#                                  semantic backfill is on-demand. Added
+#                                  for #677 to keep the seed from pinning
+#                                  the GPU on resource-constrained hosts.
 #   PORT (default: 3000)         - API port
 
 set -euo pipefail
@@ -79,14 +86,22 @@ CREATE_RESPONSE=$(curl -sf -X POST "$API_URL/api/v1/archives" \
     return 0 2>/dev/null || exit 0
 }
 
-echo "  Archive created. Importing shard (FTS-only, no embeddings)..."
+# Default to deferred inference. SEED_WITH_INFERENCE=true flips both
+# the shard-upload `skip_embedding_regen` flag and the message text.
+if [ "${SEED_WITH_INFERENCE:-false}" = "true" ]; then
+    SKIP_EMBED=false
+    echo "  Archive created. Importing shard (with full NLP pipeline)..."
+else
+    SKIP_EMBED=true
+    echo "  Archive created. Importing shard (FTS-only, no embeddings)..."
+fi
 
 # Import the shard via multipart file upload (no base64 overhead).
-# skip_embedding_regen=true: import data only — no NLP pipeline, no
-# embedding generation, no auto-linking. Postgres tsvector full-text
-# search is populated by table triggers on insert and is fully usable.
-# Operators who want semantic search over the support archive can opt
-# in later with:
+# skip_embedding_regen=true (default): import data only — no NLP
+# pipeline, no embedding generation, no auto-linking. Postgres tsvector
+# full-text search is populated by table triggers on insert and is
+# fully usable. Operators who want semantic search over the support
+# archive can opt in later with:
 #   curl -X POST $API_URL/api/v1/notes/reprocess \
 #     -H 'X-Fortemi-Memory: fortemi-docs' \
 #     -H 'Content-Type: application/json' \
@@ -94,7 +109,7 @@ echo "  Archive created. Importing shard (FTS-only, no embeddings)..."
 IMPORT_RESPONSE=$(curl -sf -X POST \
     -H "X-Fortemi-Memory: $ARCHIVE_NAME" \
     -F "file=@$SHARD_FILE" \
-    "$API_URL/api/v1/backup/knowledge-shard/upload?on_conflict=skip&skip_embedding_regen=true" 2>&1) || {
+    "$API_URL/api/v1/backup/knowledge-shard/upload?on_conflict=skip&skip_embedding_regen=${SKIP_EMBED}" 2>&1) || {
     echo "  WARNING: Shard import failed: $IMPORT_RESPONSE"
     return 0 2>/dev/null || exit 0
 }

@@ -12649,6 +12649,12 @@ struct BackupImportBody {
     /// Conflict resolution strategy
     #[serde(default)]
     on_conflict: ConflictStrategy,
+    /// When true, skip the NLP pipeline (embeddings, metadata, NER,
+    /// linking) for imported notes. Notes land as raw content only —
+    /// FTS works immediately, semantic search needs a later backfill.
+    /// Default false preserves existing behaviour. Added for #677.
+    #[serde(default)]
+    defer_inference: bool,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -12849,16 +12855,18 @@ async fn backup_import(
                         }
                     }
 
-                    // Queue NLP pipeline
-                    queue_nlp_pipeline(
-                        &state.db,
-                        new_id,
-                        RevisionMode::None,
-                        &state.event_bus,
-                        schema_for_jobs.as_deref(),
-                        None,
-                    )
-                    .await;
+                    // Queue NLP pipeline (gated by defer_inference — #677)
+                    if !body.defer_inference {
+                        queue_nlp_pipeline(
+                            &state.db,
+                            new_id,
+                            RevisionMode::None,
+                            &state.event_bus,
+                            schema_for_jobs.as_deref(),
+                            None,
+                        )
+                        .await;
+                    }
 
                     imported.notes += 1;
                 }
