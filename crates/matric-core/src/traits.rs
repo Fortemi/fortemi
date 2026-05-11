@@ -75,6 +75,13 @@ pub struct CreateNoteRequest {
     pub metadata: Option<serde_json::Value>,
     /// Optional document type ID for explicit typing
     pub document_type_id: Option<Uuid>,
+    /// Optional explicit title. When provided, the AI title-generation
+    /// pipeline step is skipped — the caller's value is authoritative.
+    /// When `None`, behavior follows `revision_mode` and document-type
+    /// agent hints. Added for #675 so import paths (shard rebuild,
+    /// bulk-load tools) can set titles deterministically without
+    /// depending on inference.
+    pub title: Option<String>,
 }
 
 /// Repository for note CRUD operations.
@@ -974,6 +981,7 @@ mod tests {
             tags: Some(vec!["test".to_string()]),
             metadata: None,
             document_type_id: None,
+            title: None,
         };
 
         assert_eq!(req.content, "Test content");
@@ -1242,6 +1250,7 @@ mod tests {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         };
 
         let debug_str = format!("{:?}", req);

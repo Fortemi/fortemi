@@ -5199,6 +5199,12 @@ struct CreateNoteBody {
     source: Option<String>,
     collection_id: Option<Uuid>,
     tags: Option<Vec<String>>,
+    /// Optional explicit title. When provided, the AI title-generation
+    /// pipeline step is skipped — caller's value wins. Useful for
+    /// bulk-import paths like the shard rebuild that want deterministic
+    /// titles without depending on inference. Added for #675.
+    #[serde(default)]
+    title: Option<String>,
     /// AI revision mode: "full", "light" (default), or "none"
     #[serde(default)]
     revision_mode: Option<String>,
@@ -5304,6 +5310,13 @@ async fn create_note(
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
 
+    // When the caller supplied an explicit title (#675), skip AI
+    // title generation regardless of the document type's agent hints —
+    // operator-supplied data wins.
+    if body.title.as_deref().is_some_and(|s| !s.is_empty()) {
+        skip_title_gen = true;
+    }
+
     let req = CreateNoteRequest {
         content: body.content,
         format: body.format.unwrap_or_else(|| "markdown".to_string()),
@@ -5312,6 +5325,7 @@ async fn create_note(
         tags: body.tags, // Legacy flat tags still inserted for backwards compatibility
         metadata: body.metadata,
         document_type_id: resolved_doc_type_id,
+        title: body.title,
     };
 
     // Insert note (archive-scoped via SchemaContext)
@@ -5437,6 +5451,9 @@ async fn create_note(
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 struct BulkCreateNoteItem {
     content: String,
+    /// Optional explicit title. See CreateNoteBody for semantics. (#675)
+    #[serde(default)]
+    title: Option<String>,
     tags: Option<Vec<String>>,
     /// Optional JSON metadata for the note
     #[serde(default)]
@@ -5588,6 +5605,7 @@ async fn bulk_create_notes(
             tags: item.tags.clone(),
             metadata: item.metadata.clone(),
             document_type_id: resolved_doc_type_ids[i],
+            title: item.title.clone(),
         })
         .collect();
 
@@ -9009,6 +9027,7 @@ async fn instantiate_template(
         tags,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
     let note_id = ctx
         .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, create_req).await }))
@@ -12781,6 +12800,7 @@ async fn backup_import(
                 tags: note_data.tags.clone(),
                 metadata: None,
                 document_type_id: None,
+                title: note_data.title.clone(),
             };
 
             let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
@@ -16399,6 +16419,13 @@ async fn knowledge_shard_import_internal(
                                 }),
                                 metadata: None,
                                 document_type_id: None,
+                                // Preserve titles from imported shards (#675) so
+                                // the support archive's filepath-derived titles
+                                // survive round-trips through the shard format.
+                                title: note_json
+                                    .get("title")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from),
                             };
 
                             let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());

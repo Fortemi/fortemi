@@ -35,6 +35,7 @@ async fn test_has_revision_false_when_content_identical() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -91,6 +92,7 @@ async fn test_has_revision_true_when_content_differs() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");
@@ -155,6 +157,7 @@ async fn test_has_revision_false_after_revision_mode_none() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = repo.insert(req).await.expect("Failed to insert note");

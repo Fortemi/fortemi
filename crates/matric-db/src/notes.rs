@@ -478,10 +478,13 @@ impl PgNoteRepository {
         // Merge explicit tags with inline hashtags
         let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
 
-        // Insert note metadata
+        // Insert note metadata. `title` is nullable — when the caller doesn't
+        // supply one, the column stays NULL and gets populated later by the
+        // AI title-generation pipeline (unless the caller explicitly skipped
+        // that step via revision_mode:"none" or skip_title_generation).
         sqlx::query(
-            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
-             VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
+            "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id, title)
+             VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7, $8)",
         )
         .bind(note_id)
         .bind(req.collection_id)
@@ -490,6 +493,7 @@ impl PgNoteRepository {
         .bind(now)
         .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
         .bind(req.document_type_id)
+        .bind(req.title.as_deref())
         .execute(&mut **tx)
         .await
         .map_err(Error::Database)?;
@@ -594,10 +598,11 @@ impl PgNoteRepository {
             // Merge explicit tags with inline hashtags
             let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
 
-            // Insert note metadata
+            // Insert note metadata (bulk path; matches single-insert above
+            // for title plumbing — see #675).
             sqlx::query(
-                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id)
-                 VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7)",
+                "INSERT INTO note (id, collection_id, format, source, created_at_utc, updated_at_utc, metadata, document_type_id, title)
+                 VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, '{}'::jsonb), $7, $8)",
             )
             .bind(note_id)
             .bind(req.collection_id)
@@ -606,6 +611,7 @@ impl PgNoteRepository {
             .bind(now)
             .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
             .bind(req.document_type_id)
+            .bind(req.title.as_deref())
             .execute(&mut **tx)
             .await
             .map_err(Error::Database)?;

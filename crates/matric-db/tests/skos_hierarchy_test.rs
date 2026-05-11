@@ -127,6 +127,7 @@ async fn create_test_note(pool: PgPool, content: &str) -> Uuid {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("Failed to create test note")

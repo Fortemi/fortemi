@@ -50,6 +50,7 @@ async fn create_note_in_archive(
         tags,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     ctx.execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req).await }))

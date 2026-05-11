@@ -253,6 +253,7 @@ async fn test_move_note_across_hierarchy_levels() {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .expect("create note");
@@ -335,6 +336,7 @@ async fn test_move_note_to_nonexistent_collection() {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .unwrap();
@@ -446,6 +448,7 @@ async fn test_delete_collection_notes_become_uncategorized() {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .unwrap();
@@ -458,6 +461,7 @@ async fn test_delete_collection_notes_become_uncategorized() {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .unwrap();
@@ -578,6 +582,7 @@ async fn test_delete_collection_with_both_notes_and_children() {
             tags: None,
             metadata: None,
             document_type_id: None,
+            title: None,
         })
         .await
         .unwrap();
@@ -640,6 +645,7 @@ async fn test_collection_note_count() {
                 tags: None,
                 metadata: None,
                 document_type_id: None,
+                title: None,
             })
             .await
             .unwrap();

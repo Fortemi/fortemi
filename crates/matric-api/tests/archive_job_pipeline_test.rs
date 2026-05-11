@@ -58,6 +58,7 @@ async fn test_archive_job_queue_no_fk_violation() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -132,6 +133,7 @@ async fn test_archive_note_embedding_pipeline_e2e() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -280,6 +282,7 @@ async fn test_archive_job_payload_contains_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -353,6 +356,7 @@ async fn test_archive_linking_in_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note1_id = ctx
@@ -369,6 +373,7 @@ async fn test_archive_linking_in_schema() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note2_id = ctx
@@ -463,6 +468,7 @@ async fn test_multiple_archives_independent_job_queues() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note1_id = ctx1
@@ -479,6 +485,7 @@ async fn test_multiple_archives_independent_job_queues() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note2_id = ctx2
@@ -562,6 +569,7 @@ async fn test_job_queue_without_fk_constraint() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx
@@ -632,6 +640,7 @@ async fn test_archive_drop_cleans_up_orphaned_jobs() {
         tags: Some(vec!["test".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = ctx

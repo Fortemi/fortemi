@@ -33,6 +33,7 @@ Use explicit #test-tag too.
         tags: Some(vec!["explicit-tag".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     // Create note
@@ -86,6 +87,7 @@ async fn test_no_inline_hashtags() {
         tags: Some(vec!["explicit-only".to_string()]),
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = db.notes.insert(req).await.expect("Failed to create note");

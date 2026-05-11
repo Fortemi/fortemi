@@ -241,13 +241,47 @@ import_file() {
     local tags
     tags=$(get_tags "$filepath")
 
-    # Build JSON payload via python3 (handles content escaping)
+    # Build JSON payload via python3 (handles content escaping + title
+    # derivation). Title precedence (#675):
+    #   1. First "# H1" line in the markdown (skipping blank lines + the
+    #      conventional YAML front-matter block)
+    #   2. Filepath-derived: basename, strip .md, swap separators for spaces
+    # We never use revision_mode-driven AI title generation here — keeps the
+    # rebuild path inference-free so it runs in CI without Ollama.
     local json_payload
     json_payload=$(python3 -c "
-import json, sys
-content = open(sys.argv[1], 'r').read()
+import json, re, os, sys
+filepath = sys.argv[1]
+content = open(filepath, 'r').read()
 tags = json.loads(sys.argv[2])
+
+def title_from_path(p):
+    stem = os.path.splitext(os.path.basename(p))[0]
+    # Replace separator runs with single spaces; trim.
+    return re.sub(r'[-_]+', ' ', stem).strip() or os.path.basename(p)
+
+def title_from_h1(text):
+    # Skip a leading YAML front-matter block if present, then find the
+    # first '# heading' line. Bound the scan to the first 200 lines so a
+    # huge file doesn't slow the import loop measurably.
+    lines = text.splitlines()
+    i = 0
+    if lines and lines[0].strip() == '---':
+        # YAML front-matter: skip until closing '---'
+        i = 1
+        while i < len(lines) and lines[i].strip() != '---':
+            i += 1
+        i += 1  # past the closing '---'
+    for line in lines[i:i+200]:
+        m = re.match(r'^#\s+(.+?)\s*$', line)
+        if m:
+            return m.group(1).strip()
+    return None
+
+title = title_from_h1(content) or title_from_path(filepath)
+
 payload = {
+    'title': title,
     'content': content,
     'tags': tags,
     'revision_mode': 'none'

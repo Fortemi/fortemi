@@ -206,6 +206,7 @@ async fn test_delete_removes_member_associations() {
         tags: None,
         metadata: None,
         document_type_id: None,
+        title: None,
     };
 
     let note_id = db
