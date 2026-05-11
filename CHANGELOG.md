@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.6] - 2026-05-10
+
+Two small but high-impact fixes to support-archive seeding: imported notes now have titles, and the seed no longer pins the GPU for hours.
+
+### Added
+
+- **`defer_inference` flag on `POST /api/v1/backup/import`** (#677) — When `true`, imported notes land as raw content only; the full NLP pipeline (embeddings, metadata, NER, linking, title generation) is skipped. FTS works immediately via the insert-trigger-maintained tsvector. Semantic backfill is on-demand via `POST /api/v1/notes/reprocess`. Default `false` preserves prior behavior.
+- **`title` field on `CreateNoteRequest` and `POST /api/v1/notes`** (#675) — Optional explicit title. When provided, the AI title-generation pipeline step is skipped (caller's value is authoritative). Bulk-create accepts it on every item. Threaded through to the underlying `INSERT INTO note`.
+- **`SEED_WITH_INFERENCE` env var on `seed-support-archive.sh`** (#677) — Operators who want immediate inference at seed time set `SEED_WITH_INFERENCE=true`. Default `false` — the seed now passes `skip_embedding_regen=true` via env-driven toggle rather than the previously hard-coded flag.
+
+### Fixed
+
+- **Support archive notes had no titles** (#675) — `scripts/rebuild-docs-shard.sh` now derives a title for each doc: first H1 (skipping YAML front-matter) when available, otherwise the filename stem with hyphens/underscores normalised to spaces. Each note in the shard JSON now carries a `title` field that the API persists on insert.
+- **Legacy `/backup/import` enqueued the full NLP pipeline unconditionally** (#677) — In the prior release a manual `/backup/import` of the support archive could produce ~965 background jobs for 193 notes and pin Ollama for hours on edge hardware. The newer `/knowledge-shard/upload` endpoint had `skip_embedding_regen`; `/backup/import` now has the equivalent `defer_inference` gate.
+
 ## [2026.5.5] - 2026-05-10
 
 Docker bundle behavior change: the bundled `fortemi-docs` support archive is now opt-in to mirror the native build path.
