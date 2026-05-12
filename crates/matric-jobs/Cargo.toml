@@ -54,3 +54,13 @@ image.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+rand = { workspace = true }
+
+[[example]]
+name = "poc_outbox"
+path = "examples/poc_outbox.rs"
+
+[[example]]
+name = "poc_consumer"
+path = "examples/poc_consumer.rs"

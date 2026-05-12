@@ -15,10 +15,26 @@ This brief summarizes what's ready to commission, in what order, with what agent
 
 ## TL;DR
 
-- **Recommend commissioning Phase 1** (`#590..#596`, 7 issues) once P-01 and P-02 PoCs pass.
-- **Recommend authorizing 2 PoCs first** (P-01 outbox load, P-02 consumer chaos) to retire R-01 and R-03/R-04 before locking ADR-005/006/007/008.
+- **PoCs P-01 + P-02 complete** (2026-05-12). P-02 ✅ PASS. P-01 ⚠️ CONDITIONAL — architecture sound, but the original 10K/s SLA was edge-tier-impossible. Revised SLA is **tiered** (see feature-plan §2.4). High-end titan run (P-01b) pending.
+- **Recommend commissioning Phase 1 Slate B** (#590, #591) once titan P-01b confirms high-end SLA ceiling. Slates C/D/E hold for the revised SLA + new risks (R-09 writer backpressure, R-10 PEL stranding, R-11 cold-start).
 - **Phase 2 and Phase 3** stay backlog-only until Phase 1 has 2-week production soak data.
-- **Block on user re-auth**: 1 INDUCT issue (C3 Dudycz push-outbox) was denied by the auto-classifier; re-issuing requires your explicit OK.
+- C3 induction filed as `roctinam/research-papers#606` after user re-auth.
+
+## PoC verdict matrix
+
+| PoC | Status | Headline finding | Artifact |
+|---|---|---|---|
+| P-01 outbox load | ⚠️ Conditional | 10K/s edge SLA unachievable; revised to tiered (edge: 1K/s stock, 2.5K/s tuned; high-end TBD) | `poc-results/p01-outbox-load.md` |
+| P-02 consumer chaos | ✅ Pass | F1/F2/F3 pass; consumer-side dedup → 0% observable dup rate; supervised-process requirement surfaced | `poc-results/p02-consumer-chaos.md` |
+| P-01b titan high-end | ⏳ Dispatching | Sets the high-end ceiling for the tiered SLA | `poc-results/p01b-titan-load.md` (pending) |
+
+## New risks added post-PoC
+
+- **R-09** Writer-side backpressure undesigned (Critical, L=4 I=4)
+- **R-10** PEL stranding on consumer restart (High, L=4 I=3)
+- **R-11** Cold-start latency dominates F1 recovery (Medium)
+
+See `risk-register.md` for mitigations.
 
 ## Deliverables produced this session
 

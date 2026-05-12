@@ -2238,6 +2238,8 @@ dependencies = [
  "matric-core",
  "matric-db",
  "matric-inference",
+ "rand 0.8.5",
+ "redis",
  "reqwest",
  "serde",
  "serde_json",

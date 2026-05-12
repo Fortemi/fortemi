@@ -43,6 +43,15 @@ Scored on standard 1–5 likelihood × 1–5 impact. Owners are role labels; ass
 | R-11 | Health metric cardinality explosion (event-type × consumer-group). | 2 | 2 | 4 | Cap to top-N event types; bucket rest. |
 | R-12 | Docker bundle entrypoint sequencing — Redis not ready when publisher starts. | 2 | 2 | 4 | Existing healthcheck dependency in docker-compose.bundle.yml. |
 
+## Discovered during PoCs P-01 / P-02 (2026-05-12)
+
+| ID | Risk | L | I | L×I | Mitigation | Owner | Refs |
+|---|---|---|---|---|---|---|---|
+| R-09 | **Writer-side backpressure undesigned** — if API writers exceed publisher throughput, outbox grows unbounded. Edge tier sustained ceiling is ~1-2.5K/s; bursty API load can exceed this. | 4 | 4 | 16 | Add ADR for writer admission control: 503 + `Retry-After` at API boundary when `outbox_depth > threshold`. Threshold per-tier from feature-plan §2.4 SLA table. | Backend eng | P-01 results, C4, C5 |
+| R-10 | **PEL stranding on naive consumer restart** — same-name consumer respawn does NOT auto-reclaim its own PEL; explicit `XREADGROUP ... STREAMS s 0` replay + `XAUTOCLAIM` reaper daemon required. Not in current #595 scope. | 4 | 3 | 12 | Add to #595 scope: startup replay of own PEL; add new sub-issue for `XAUTOCLAIM` reaper daemon. Update ADR-007. | Reliability eng | P-02 results |
+| R-11 | **Cold-start latency dominates F1 recovery** — subprocess respawn topology cannot meet <5s recovery SLA (PoC measured ~12s). | 3 | 3 | 9 | ADR-007 mandates supervised long-running processes (systemd/tini). No cold-fork respawn in production. | Reliability eng | P-02 F1 results |
+| R-12 | **Edge-tier 10K/s SLA was unachievable** (corrected via tiered SLA in feature-plan §2.4). Mitigation rather than open risk now. | — | — | — | Tiered SLA accepted; titan run will set high-end ceiling. | — | P-01 results |
+
 ## Cross-phase risks (deferred but tracked)
 
 | ID | Risk | Phase | Refs |

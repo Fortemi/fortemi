@@ -77,7 +77,16 @@ ADR-001..004 are locked. This plan is execution-level: components, sequencing, g
 - **Unit**: outbox insert helpers under property-based tests (transactionality invariant: outbox row exists ⟺ data row exists)
 - **Integration**: full publisher loop on test PG + test Redis; verify at-least-once delivery, idempotent re-publish on `published_at` rollback
 - **Chaos**: kill publisher mid-batch; verify no event loss, no double-publish detectable by consumer-side idempotency
-- **Load**: 10K events/sec sustained for 60s; verify outbox lag stays < 1s p99; reference REF-324 (100K/sec achievable on partitioned PG)
+- **Load (tiered SLA — revised post-P-01 2026-05-12)**:
+
+  | Tier | Sustained | Burst (≤5s) | PG config | Status |
+  |---|---|---|---|---|
+  | Edge (stock) | **1K events/sec** @ p99 ≤ 1s | 2.5K/s | default `synchronous_commit=on` | measured P-01 |
+  | Edge (tuned) | **2.5K events/sec** @ p99 ≤ 500ms | 5K/s | `synchronous_commit=off`, `shared_buffers ≥ 1GB` | measured P-01 |
+  | Mid-tier | ~5K/s (extrapolated) | TBD | tuned | not yet measured |
+  | High-end (titan) | target **10K+ events/sec** @ p99 ≤ 1s | 20K/s | tuned | TBD pending P-01b |
+
+  REF-324 (RudderStack 100K/sec partitioned PG) remains the theoretical ceiling under aggressive partitioning + dedicated hardware
 - **Failover**: Redis restart mid-stream; verify XCLAIM recovery; consumer-group resume from last ack
 - Per CLAUDE.md: **NO `#[ignore]`, NO `SKIP_INTEGRATION_TESTS`**. All tests run in CI.
 
