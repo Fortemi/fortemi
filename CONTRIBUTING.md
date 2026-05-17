@@ -63,6 +63,24 @@ SQLX_OFFLINE=true cargo build
 
 Regenerate `.sqlx/` whenever a migration or `query!()` call changes. CI runs `cargo sqlx prepare --check --workspace` to flag drift.
 
+### Dependency checks (workspace-wide)
+
+`scripts/check-deps.sh` runs the same dependency-health checks CI runs — across both the Rust workspace and `mcp-server/` in one command:
+
+```bash
+./scripts/check-deps.sh           # full: cargo check + cargo audit + cargo deny + npm ci + npm audit
+./scripts/check-deps.sh --fast    # skip cargo audit/deny (avoids advisory-DB git fetch)
+```
+
+Run this before pushing PRs that touch `Cargo.toml`, `Cargo.lock`, `mcp-server/package.json`, or `mcp-server/package-lock.json`. CI enforces:
+
+- `cargo audit` — RustSec advisories (allowlist in `.cargo/audit.toml`)
+- `cargo deny check` — advisories + licenses + duplicate versions + sources (policy in `deny.toml`)
+- `npm ci` in `mcp-server/` — lockfile sync verification
+- `npm audit --audit-level=high` in `mcp-server/` — npm advisories
+
+Required tooling: `cargo install --locked cargo-audit cargo-deny` (one-time).
+
 ## Development Workflow
 
 ### Git Hooks

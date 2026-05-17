@@ -127,6 +127,26 @@ jobs:
         # check = advisories + licenses + bans + sources
         run: cargo deny check
 
+  mcp-lockfile-sync:
+    name: mcp-server Lockfile Sync
+    runs-on: matric-builder
+    # Verifies mcp-server/package-lock.json is in sync with package.json.
+    # The audit job already runs `npm ci` implicitly, but this job exists
+    # to surface drift with an explicit, actionable error message instead
+    # of conflating "lockfile drift" with "advisory found".
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Verify mcp-server lockfile in sync
+        working-directory: mcp-server
+        # `npm ci` strictly requires package-lock.json to match package.json.
+        # Drift = non-zero exit with an explicit "out of sync" error.
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
   build:
     name: Build & Unit Test
     runs-on: matric-builder
