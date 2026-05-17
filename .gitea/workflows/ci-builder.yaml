@@ -72,6 +72,38 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  audit:
+    name: Security Audit (deps)
+    runs-on: matric-builder
+    # Advisory scan; runs in parallel with lint.
+    # Fails on high/critical advisories. See .cargo/audit.toml for the allowlist
+    # mechanism (accept individual advisories with documented expiry).
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Install cargo-audit
+        run: |
+          # cargo-audit may already be in the builder image; check before installing
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install --locked cargo-audit
+          fi
+          cargo audit --version
+
+      - name: Audit Rust deps (cargo-audit)
+        # Honors .cargo/audit.toml allowlist for accepted advisories
+        run: cargo audit --deny warnings
+
+      - name: Audit mcp-server npm deps
+        working-directory: mcp-server
+        # --audit-level=high → only fail on high/critical
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+
   build:
     name: Build & Unit Test
     runs-on: matric-builder
