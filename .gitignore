@@ -46,3 +46,11 @@ mcp-server/test-embed-debug.js
 .agents/
 docker-compose.local.yml
 docker-compose.override.yml
+
+# AIWG session/runtime artifacts (regenerated; not project source)
+.aiwg/.index/
+.aiwg/activity.log
+.aiwg/smiths/
+
+# tmux session logs
+tmux-client-*.log
