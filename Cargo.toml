@@ -13,7 +13,7 @@ members = [
 [workspace.package]
 version = "2026.5.6"
 edition = "2021"
-license = "BSL-1.1"
+license = "BUSL-1.1"
 repository = "https://github.com/fortemi/fortemi"
 authors = ["Fortémi Contributors"]
 homepage = "https://github.com/fortemi/fortemi"
