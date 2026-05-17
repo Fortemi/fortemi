@@ -104,6 +104,29 @@ jobs:
           npm ci --ignore-scripts
           npm audit --audit-level=high
 
+  deny:
+    name: Policy Check (cargo-deny)
+    runs-on: matric-builder
+    # License + advisory + duplicate + source policy enforcement.
+    # See deny.toml at repo root for the active policies.
+    steps:
+      - name: Checkout
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          git clone --depth 1 --branch "${BRANCH}" https://token:${{ github.token }}@git.integrolabs.net/${GITHUB_REPOSITORY}.git .
+          git checkout ${GITHUB_SHA:-HEAD}
+
+      - name: Install cargo-deny
+        run: |
+          if ! command -v cargo-deny >/dev/null 2>&1; then
+            cargo install --locked cargo-deny
+          fi
+          cargo deny --version
+
+      - name: cargo deny check
+        # check = advisories + licenses + bans + sources
+        run: cargo deny check
+
   build:
     name: Build & Unit Test
     runs-on: matric-builder
