@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Fortémi! This guide covers devel
 
 ### Prerequisites
 - Rust 1.70+
-- PostgreSQL 18+ with pgvector extension
+- PostgreSQL **18 or later** with pgvector extension — required, not optional. matric-api uses RFC 9562 `uuidv7()` and `uuid_extract_timestamp()` built-ins that ship in PG 18. Older versions are rejected at startup with a clear error pointing at PGDG.
 - Node.js 18+ (for MCP server)
 
 ### Setup

@@ -285,12 +285,43 @@ impl Database {
     }
 
     /// Run pending migrations.
+    ///
+    /// Verifies PostgreSQL 18+ before running migrations (#635). matric-api
+    /// uses RFC 9562 `uuidv7()` and `uuid_extract_timestamp()` built-ins
+    /// shipped in PG 18; older versions are not supported.
     #[cfg(feature = "migrations")]
     pub async fn migrate(&self) -> Result<()> {
+        self.require_postgres_18().await?;
         sqlx::migrate!("../../migrations")
             .run(&self.pool)
             .await
             .map_err(|e| Error::Database(sqlx::Error::Migrate(Box::new(e))))?;
+        Ok(())
+    }
+
+    /// Verify the connected server is PostgreSQL 18 or later (#635).
+    ///
+    /// Returns an `Error::Config` with a clear remediation message
+    /// when the server version is older than 18.0. The migration also
+    /// hard-guards on version as defense-in-depth.
+    pub async fn require_postgres_18(&self) -> Result<()> {
+        let row: (String,) = sqlx::query_as("SHOW server_version_num")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+        let version_num: i32 = row.0.trim().parse().map_err(|_| {
+            Error::Config(format!(
+                "could not parse PostgreSQL server_version_num={:?}",
+                row.0
+            ))
+        })?;
+        if version_num < 180000 {
+            return Err(Error::Config(format!(
+                "matric-api requires PostgreSQL 18 or later (server_version_num={}). \
+                 Install postgresql-18 from PGDG: https://apt.postgresql.org/",
+                version_num
+            )));
+        }
         Ok(())
     }
 
