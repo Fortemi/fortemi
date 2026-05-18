@@ -222,6 +222,13 @@ cmd_status() {
 # ── Commands ──────────────────────────────────────────────────────────
 
 cmd_doctor() {
+  local skip_hotm=false
+  for arg in "$@"; do
+    case "${arg}" in
+      --backend-only) skip_hotm=true ;;
+      *) ;;
+    esac
+  done
   hdr "Pre-flight checks"
   local fail=0
   check_docker        || fail=1
@@ -229,12 +236,20 @@ cmd_doctor() {
   check_compose_file  || fail=1
   check_ports         || fail=1
   check_native_ollama || fail=1
-  check_hotm_sibling  || fail=1
+  if [ "${skip_hotm}" = "true" ]; then
+    info "Skipping HotM sibling check (--backend-only mode)"
+  else
+    check_hotm_sibling  || fail=1
+  fi
   check_gpu           || fail=1
   check_models        || fail=1
   echo ""
   if [ "${fail}" = "0" ]; then
-    ok "All checks passed — ready to run: ${0##*/} up"
+    if [ "${skip_hotm}" = "true" ]; then
+      ok "All checks passed — ready to run: ${0##*/} up --backend-only"
+    else
+      ok "All checks passed — ready to run: ${0##*/} up"
+    fi
   else
     warn "Some checks failed — review messages above before running ${0##*/} up"
   fi
@@ -242,23 +257,31 @@ cmd_doctor() {
 }
 
 cmd_up() {
-  local with_ui=true
+  local mode=ui  # one of: ui, hotm, backend-only
   for arg in "$@"; do
     case "${arg}" in
-      --no-ui|--headless) with_ui=false ;;
-      --ui)               with_ui=true ;;
+      --backend-only) mode=backend-only ;;
+      --no-ui|--headless|--hotm) mode=hotm ;;
+      --ui|--full)              mode=ui ;;
       *) err "Unknown option: ${arg}"; cmd_help; exit 2 ;;
     esac
   done
 
   hdr "Starting workstation stack"
-  if [ "${with_ui}" = "true" ]; then
-    info "Mode: with UI (services: ${ALL_SERVICES[*]})"
-    docker compose -f "${COMPOSE_FILE}" --profile ui up -d
-  else
-    info "Mode: backend only (services: ${CORE_SERVICES[*]})"
-    docker compose -f "${COMPOSE_FILE}" up -d
-  fi
+  case "${mode}" in
+    backend-only)
+      info "Mode: backend-only (services: ollama postgres matric-api — HotM repo NOT required)"
+      docker compose -f "${COMPOSE_FILE}" up -d
+      ;;
+    hotm)
+      info "Mode: with HotM agent-proxy, no UI (services: ollama postgres matric-api agent-proxy)"
+      docker compose -f "${COMPOSE_FILE}" --profile hotm up -d
+      ;;
+    ui)
+      info "Mode: full stack with UI (services: ${ALL_SERVICES[*]})"
+      docker compose -f "${COMPOSE_FILE}" --profile ui up -d
+      ;;
+  esac
 
   hdr "Waiting for services to be healthy (up to 60s)"
   for service in ollama postgres matric-api; do
@@ -282,13 +305,23 @@ cmd_up() {
   echo ""
   cmd_status
   echo ""
-  if [ "${with_ui}" = "true" ]; then
-    info "${BOLD}Open in browser: ${URL_UI}${RESET}"
-    info "Or run: ${0##*/} open"
-  else
-    info "API ready at: ${URL_API}"
-    info "To add UI later: ${0##*/} up --ui"
-  fi
+  case "${mode}" in
+    ui)
+      info "${BOLD}Open in browser: ${URL_UI}${RESET}"
+      info "Or run: ${0##*/} open"
+      ;;
+    hotm)
+      info "API ready at: ${URL_API}"
+      info "Agent proxy at: ${URL_PROXY}"
+      info "To add UI later: ${0##*/} up --ui"
+      ;;
+    backend-only)
+      info "API ready at: ${URL_API}"
+      info "Ollama at: ${URL_OLLAMA}"
+      info "To add HotM agent-proxy: ${0##*/} up --no-ui"
+      info "To add HotM UI:           ${0##*/} up --ui"
+      ;;
+  esac
 }
 
 cmd_down() {
@@ -386,10 +419,17 @@ ${BOLD}USAGE${RESET}
     ${0##*/} <command> [options]
 
 ${BOLD}MAIN COMMANDS${RESET}
-    up [--no-ui]           Start the stack (with UI by default)
+    up [--ui|--no-ui|--backend-only]
+                           Start the stack. Modes:
+                             --ui (default)    full stack with UI
+                             --no-ui           backend + HotM agent-proxy (no UI)
+                             --backend-only    ollama + postgres + matric-api only
+                                               (HotM repo NOT required)
     down                   Stop the stack (preserves data)
     status                 Show what's running and where to reach it
-    doctor                 Pre-flight checks (Docker, GPU, ports, models)
+    doctor [--backend-only]
+                           Pre-flight checks. Pass --backend-only to skip
+                           the HotM-sibling-repo check.
     open                   Open the UI in your browser (http://localhost:4180)
     reset                  Stop + wipe postgres data (asks for confirmation)
 
@@ -405,8 +445,10 @@ ${BOLD}OLLAMA MODELS${RESET}
 
 ${BOLD}EXAMPLES${RESET}
     ${0##*/} doctor                  # Verify your machine is ready
-    ${0##*/} up                      # Start everything with the UI
-    ${0##*/} up --no-ui              # Backend only (matric-api + agent-proxy)
+    ${0##*/} up                      # Full stack with UI (default)
+    ${0##*/} up --no-ui              # Backend + agent-proxy, skip UI
+    ${0##*/} up --backend-only       # Just ollama + db + matric-api (no HotM)
+    ${0##*/} doctor --backend-only   # Skip HotM-sibling check during doctor
     ${0##*/} open                    # Open http://localhost:4180
     ${0##*/} logs matric-api         # Watch matric-api logs
     ${0##*/} status                  # Check who's healthy
@@ -440,7 +482,7 @@ case "${cmd}" in
   down|stop)  cmd_down ;;
   reset|nuke) cmd_reset ;;
   status|ps)  cmd_status ;;
-  doctor|check) cmd_doctor ;;
+  doctor|check) cmd_doctor "$@" ;;
   open|browse) cmd_open ;;
   logs|log)   cmd_logs "$@" ;;
   models)     cmd_models "$@" ;;

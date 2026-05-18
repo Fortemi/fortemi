@@ -45,7 +45,7 @@ git clone https://git.integrolabs.net/Fortemi/HotM.git
 #     HotM/      ← the UI + agent-proxy
 ```
 
-If you only want the API backend (no UI), HotM is still required for the agent-proxy. The workstation builds it from source.
+**Backend-only?** If you only want the API (no HotM UI, no agent-proxy), you can skip cloning HotM and run `./workstation up --backend-only` instead. Everything below stays the same except you'll use the `--backend-only` flag on `up` and `doctor`.
 
 ## Step 2 — Open a terminal in the fortemi/ directory
 
@@ -183,13 +183,14 @@ Once setup is done, you only need a few commands:
 
 | What you want | Command |
 |---|---|
-| Start everything | `./workstation up` |
+| Start everything (full stack with UI) | `./workstation up` |
+| Start API + agent-proxy, no UI | `./workstation up --no-ui` |
+| Start backend only (no HotM repo needed) | `./workstation up --backend-only` |
 | Stop everything | `./workstation down` |
 | Open the UI | `./workstation open` |
 | Check what's running | `./workstation status` |
 | Watch logs (all services) | `./workstation logs` |
 | Watch one service | `./workstation logs matric-api` |
-| Start without the UI (API only) | `./workstation up --no-ui` |
 | Wipe the database and start fresh | `./workstation reset` |
 | See all available commands | `./workstation help` |
 
