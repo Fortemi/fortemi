@@ -7,6 +7,26 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.8] - 2026-05-18
+
+Picking a different LLM backend on the workstation no longer requires editing the compose file. New interactive wizard plus an `.env.workstation` override layer cover the five common cases (Ollama, vLLM, OpenAI, OpenRouter, llama.cpp) without Docker expertise.
+
+### Added
+
+- **`.env.workstation.example`** — Template with five copy-paste-ready provider blocks: `ollama-local` (default), `vllm-local`, `openai-cloud`, `openrouter`, `llamacpp-local`. Each block sets exactly the env vars the matric-api inference router needs, with inline guidance on host-to-container networking and the embedding pairing (cloud providers without embedding support automatically pair with the containerized Ollama). Copy to `.env.workstation` and uncomment one block.
+- **`./workstation configure-llm`** — Interactive wizard that walks through the five options. Prompts API keys silently (no terminal echo), prompts host ports for local-on-host backends, writes `.env.workstation` with mode 600, backs up any existing file to `.env.workstation.bak`. Three aliases: `configure-llm`, `config-llm`, `llm`.
+- **Doctor check #8: LLM backend** — Reports which backend is selected (from `.env.workstation` if present, else "ollama containerized default"), probes the configured endpoint, surfaces friendly remediation when the probe fails. Catches the most common "wrong port" / "vLLM not started" mistakes before `up`.
+- **QUICKSTART Step 3.5** — New optional step with a decision table (have vLLM? have an OpenAI key? …) and a recommendation tree. Stays a skip-by-default step so users who just want the working ollama path see no extra friction.
+
+### Changed
+
+- **`docker-compose.workstation.yml` matric-api service** — Now loads `.env.workstation` via `env_file:` with `required: false` (compose 2.24+ spec), so it's silently no-op for users who don't create the file. When present, the override values supersede the inline `environment:` block. Also adds `extra_hosts: "host.docker.internal:host-gateway"` so vLLM/llama.cpp on the host work on Linux without IP juggling — same URL works on macOS, Windows, and Linux.
+
+### Migration
+
+- **No-op for existing users on Ollama.** `.env.workstation` is gitignored and not auto-created; if it doesn't exist, the workstation behaves exactly as in 2026.5.7.
+- **Switching to a cloud provider now takes ~30 seconds.** `./workstation configure-llm` → pick option 3 or 4 → paste API key → done. No `docker-compose.yml` edits, no Dockerfile rebuild.
+
 ## [2026.5.7] - 2026-05-18
 
 Local developer workstation: one command brings up Fortemi + HotM + Ollama in containers, with a friendly wrapper, pre-flight doctor, and step-by-step quickstart for users who have never touched Docker.

@@ -93,6 +93,49 @@ If you see a **yellow ⚠** about models, that's expected on first run — we'll
 
 ---
 
+## Step 3.5 — (Optional) Pick a different LLM backend
+
+The default is **Ollama running in Docker** — fully self-contained, no API keys, no extra setup. If that's what you want, **skip this step** and go to Step 4.
+
+You'd choose a different backend if you have:
+
+| You have… | Pick |
+|---|---|
+| Just want to try Fortemi end-to-end (no API keys, no extra setup) | **Stay on Ollama** — skip this step |
+| vLLM already running on your machine | **vllm-local** |
+| An OpenAI API key | **openai-cloud** |
+| An OpenRouter API key (multi-provider, including Anthropic models) | **openrouter** |
+| A llama.cpp server you've started yourself | **llamacpp-local** |
+
+Run the wizard:
+
+```bash
+./workstation configure-llm
+```
+
+It will ask which backend you want, prompt for an API key (silently) or a port, and write `.env.workstation` with the right env vars. The compose file picks it up automatically on the next `./workstation up` — no Dockerfile or compose edits needed.
+
+If you prefer editing by hand instead of using the wizard:
+
+```bash
+cp .env.workstation.example .env.workstation
+$EDITOR .env.workstation        # uncomment one provider block
+chmod 600 .env.workstation       # keep API keys readable to you only
+```
+
+**Networking note (vLLM / llama.cpp users):** When the backend runs on your host machine and the workstation runs in Docker, the container has to reach the host via `host.docker.internal`. The compose file wires this up for Linux too (Docker Desktop on macOS/Windows handles it natively). The wizard prefills this for you — you only need to know the host port your LLM is listening on.
+
+**Verify the choice took effect:**
+
+```bash
+./workstation doctor
+# Look for: "✓ LLM backend: <your choice> (from .env.workstation)"
+```
+
+You can switch backends any time. Re-run `configure-llm` (or edit `.env.workstation`) and then `./workstation up` to apply.
+
+---
+
 ## Step 4 — Start everything
 
 One command brings up the whole stack:

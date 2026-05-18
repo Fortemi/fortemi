@@ -20,6 +20,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.workstation
+.env.workstation.bak
 
 # Test database
 *.db

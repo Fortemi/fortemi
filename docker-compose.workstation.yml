@@ -111,6 +111,18 @@ services:
     container_name: workstation-matric-api
     ports:
       - "3000:3000"
+    # Resolve `host.docker.internal` on Linux too (Docker Desktop does this
+    # natively on macOS/Windows). Lets users running vLLM, llama.cpp, or any
+    # other host-side LLM use a single canonical URL regardless of platform.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Optional override file for picking a non-default LLM backend (vLLM,
+    # OpenAI, OpenRouter, llama.cpp). See .env.workstation.example for the
+    # recipes, or run `./workstation configure-llm` for the wizard. Values
+    # in this file OVERRIDE the `environment:` block below.
+    env_file:
+      - path: .env.workstation
+        required: false
     environment:
       - DATABASE_URL=postgres://matric:matric@postgres:5432/matric
       - OLLAMA_BASE=http://ollama:11434

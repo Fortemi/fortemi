@@ -152,6 +152,71 @@ check_hotm_sibling() {
   return 0
 }
 
+check_llm_backend() {
+  local env_file="${SCRIPT_DIR}/.env.workstation"
+  if [ ! -f "${env_file}" ]; then
+    ok "LLM backend: ollama (containerized — default)"
+    echo "    To use vLLM, OpenAI, OpenRouter, or llama.cpp:"
+    echo "      ${0##*/} configure-llm"
+    return 0
+  fi
+  # Extract MATRIC_INFERENCE_DEFAULT — last non-comment match wins
+  local default
+  default=$(grep -E '^\s*MATRIC_INFERENCE_DEFAULT\s*=' "${env_file}" | grep -v '^\s*#' | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+  if [ -z "${default}" ]; then
+    warn ".env.workstation exists but does not set MATRIC_INFERENCE_DEFAULT"
+    echo "    The default (ollama-containerized) will be used."
+    echo "    Run: ${0##*/} configure-llm to set one."
+    return 1
+  fi
+  ok "LLM backend: ${default} (from .env.workstation)"
+  # Reach into .env.workstation for the endpoint we should probe
+  case "${default}" in
+    ollama)
+      # In-container, so reachable only after `up`. Skip probe here.
+      ;;
+    openai)
+      local base
+      base=$(grep -E '^\s*OPENAI_BASE_URL\s*=' "${env_file}" | grep -v '^\s*#' | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+      base="${base:-https://api.openai.com/v1}"
+      # Rewrite host.docker.internal → localhost when probing from the host
+      local host_url="${base/host.docker.internal/localhost}"
+      local code
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "${host_url}/models" 2>/dev/null || echo "000")
+      if [ "${code}" = "200" ] || [ "${code}" = "401" ]; then
+        # 401 is OK — means it answered, just rejected our auth (we sent none in the probe)
+        ok "  endpoint reachable from host (${host_url}, HTTP ${code})"
+      else
+        warn "  endpoint NOT reachable from host (${host_url}, HTTP ${code})"
+        echo "      Is vLLM / your OpenAI-compatible server running? Container will see the same problem."
+      fi
+      ;;
+    openrouter)
+      local code
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "https://openrouter.ai/api/v1/models" 2>/dev/null || echo "000")
+      if [ "${code}" = "200" ]; then
+        ok "  openrouter.ai reachable"
+      else
+        warn "  openrouter.ai NOT reachable (HTTP ${code}) — check your internet connection"
+      fi
+      ;;
+    llamacpp)
+      local base
+      base=$(grep -E '^\s*LLAMACPP_BASE_URL\s*=' "${env_file}" | grep -v '^\s*#' | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+      local host_url="${base/host.docker.internal/localhost}"
+      local code
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "${host_url}/health" 2>/dev/null || echo "000")
+      if [ "${code}" = "200" ]; then
+        ok "  endpoint reachable from host (${host_url})"
+      else
+        warn "  endpoint NOT reachable from host (${host_url}, HTTP ${code})"
+        echo "      Is llama-server running on the host? Container will see the same problem."
+      fi
+      ;;
+  esac
+  return 0
+}
+
 check_models() {
   if [ ! -d "${HOME}/.ollama/models" ]; then
     warn "~/.ollama/models does not exist — no models will be available on first start"
@@ -242,6 +307,7 @@ cmd_doctor() {
     check_hotm_sibling  || fail=1
   fi
   check_gpu           || fail=1
+  check_llm_backend   || fail=1
   check_models        || fail=1
   echo ""
   if [ "${fail}" = "0" ]; then
@@ -411,6 +477,187 @@ cmd_psql() {
   docker exec -it workstation-postgres psql -U matric -d matric "$@"
 }
 
+cmd_configure_llm() {
+  local env_file="${SCRIPT_DIR}/.env.workstation"
+  local example_file="${SCRIPT_DIR}/.env.workstation.example"
+
+  hdr "LLM backend configuration wizard"
+  echo "Pick which LLM the workstation should use. You can switch later by"
+  echo "re-running this command, or by editing .env.workstation by hand."
+  echo ""
+  echo "  ${BOLD}1)${RESET} ollama-local      ${DIM}— Docker-managed Ollama (default, no setup)${RESET}"
+  echo "  ${BOLD}2)${RESET} vllm-local        ${DIM}— vLLM running on your host machine${RESET}"
+  echo "  ${BOLD}3)${RESET} openai-cloud      ${DIM}— Real OpenAI API (paid, needs API key)${RESET}"
+  echo "  ${BOLD}4)${RESET} openrouter        ${DIM}— OpenRouter cloud router (paid, needs API key)${RESET}"
+  echo "  ${BOLD}5)${RESET} llamacpp-local    ${DIM}— llama.cpp server running on your host machine${RESET}"
+  echo ""
+  read -r -p "Choice [1-5, default=1]: " choice
+  choice="${choice:-1}"
+
+  # Back up an existing file before clobbering
+  if [ -f "${env_file}" ]; then
+    cp "${env_file}" "${env_file}.bak"
+    info "Existing .env.workstation backed up to .env.workstation.bak"
+  fi
+
+  case "${choice}" in
+    1|ollama|ollama-local)
+      # Default behavior — remove .env.workstation so compose falls back to the defaults
+      if [ -f "${env_file}" ]; then
+        rm -f "${env_file}"
+        ok "Removed .env.workstation — workstation will use the containerized Ollama default."
+      else
+        ok "No override file written — workstation uses the containerized Ollama default."
+      fi
+      info "Next: ${0##*/} up (or ${0##*/} up --backend-only)"
+      return 0
+      ;;
+    2|vllm|vllm-local)
+      _write_vllm_env "${env_file}"
+      ;;
+    3|openai|openai-cloud)
+      _write_openai_env "${env_file}"
+      ;;
+    4|openrouter)
+      _write_openrouter_env "${env_file}"
+      ;;
+    5|llamacpp|llamacpp-local|llama|llama-cpp)
+      _write_llamacpp_env "${env_file}"
+      ;;
+    *)
+      err "Unknown choice: ${choice}"
+      return 2
+      ;;
+  esac
+
+  chmod 600 "${env_file}"
+  ok "Wrote ${env_file} (mode 600)"
+  echo ""
+  info "Configured backend:"
+  grep -E '^[A-Z_]+=' "${env_file}" | sed 's/\(API_KEY=\).*/\1***/'
+  echo ""
+  info "Next: ${0##*/} up   (or ${0##*/} up --backend-only)"
+  info "      ${0##*/} doctor   to see backend reachability + the full pre-flight"
+}
+
+# ── configure-llm: per-backend writers ────────────────────────────────
+
+_prompt_secret() {
+  # $1 = variable name to display; reads silently from tty; exports to RESULT
+  local prompt="$1"
+  RESULT=""
+  if [ -t 0 ]; then
+    read -r -s -p "${prompt}: " RESULT
+    echo ""
+  else
+    read -r RESULT
+  fi
+}
+
+_write_vllm_env() {
+  local f="$1"
+  echo ""
+  info "vLLM runs on your host machine. The container reaches it via"
+  info "host.docker.internal (we wire this for Linux too via host-gateway)."
+  read -r -p "vLLM port on host [8000]: " port
+  port="${port:-8000}"
+  read -r -p "Generation model name (e.g. meta-llama/Llama-3.1-8B-Instruct): " model
+  model="${model:-meta-llama/Llama-3.1-8B-Instruct}"
+  cat > "${f}" <<EOF
+# Written by '${0##*/} configure-llm' — vllm-local
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_BASE_URL=http://host.docker.internal:${port}/v1
+OPENAI_API_KEY=not-needed-but-required-by-client
+OPENAI_GEN_MODEL=${model}
+# vLLM has no embedding endpoint — embeddings via containerized Ollama:
+MATRIC_EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE=http://ollama:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+EOF
+  warn "Make sure vLLM is running on the host: vllm serve ${model} --port ${port}"
+  warn "Embeddings still route through the containerized Ollama — make sure"
+  warn "nomic-embed-text is pulled (${0##*/} models pull nomic-embed-text)."
+}
+
+_write_openai_env() {
+  local f="$1"
+  echo ""
+  info "Real OpenAI API. Get a key at https://platform.openai.com/api-keys"
+  _prompt_secret "OpenAI API key (sk-...)"
+  local key="${RESULT}"
+  read -r -p "Generation model [gpt-4o-mini]: " gen
+  gen="${gen:-gpt-4o-mini}"
+  read -r -p "Use OpenAI embeddings (paid) or keep local Ollama embeddings? [local/openai, default=local]: " emb_choice
+  emb_choice="${emb_choice:-local}"
+  cat > "${f}" <<EOF
+# Written by '${0##*/} configure-llm' — openai-cloud
+MATRIC_INFERENCE_DEFAULT=openai
+OPENAI_API_KEY=${key}
+OPENAI_GEN_MODEL=${gen}
+EOF
+  if [ "${emb_choice}" = "openai" ]; then
+    cat >> "${f}" <<EOF
+OPENAI_EMBED_MODEL=text-embedding-3-small
+EOF
+  else
+    cat >> "${f}" <<EOF
+# Keep embeddings local & free via containerized Ollama:
+MATRIC_EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE=http://ollama:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+EOF
+  fi
+}
+
+_write_openrouter_env() {
+  local f="$1"
+  echo ""
+  info "OpenRouter cloud router. Get a key at https://openrouter.ai/keys"
+  _prompt_secret "OpenRouter API key (sk-or-v1-...)"
+  local key="${RESULT}"
+  read -r -p "Generation model [anthropic/claude-sonnet-4]: " gen
+  gen="${gen:-anthropic/claude-sonnet-4}"
+  cat > "${f}" <<EOF
+# Written by '${0##*/} configure-llm' — openrouter
+MATRIC_INFERENCE_DEFAULT=openrouter
+OPENROUTER_API_KEY=${key}
+OPENROUTER_GEN_MODEL=${gen}
+OPENROUTER_HTTP_REFERER=https://localhost
+OPENROUTER_APP_NAME=Fortemi-Workstation
+# OpenRouter has no embedding endpoint — embeddings via containerized Ollama:
+MATRIC_EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE=http://ollama:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+EOF
+  warn "Embeddings route through the containerized Ollama — make sure"
+  warn "nomic-embed-text is pulled (${0##*/} models pull nomic-embed-text)."
+}
+
+_write_llamacpp_env() {
+  local f="$1"
+  echo ""
+  info "llama.cpp server running on your host machine."
+  read -r -p "llama-server port on host [8080]: " port
+  port="${port:-8080}"
+  read -r -p "Optional --api-key llama-server was started with (blank if none): " api_key
+  cat > "${f}" <<EOF
+# Written by '${0##*/} configure-llm' — llamacpp-local
+MATRIC_INFERENCE_DEFAULT=llamacpp
+LLAMACPP_BASE_URL=http://host.docker.internal:${port}
+EOF
+  if [ -n "${api_key}" ]; then
+    echo "LLAMACPP_API_KEY=${api_key}" >> "${f}"
+  fi
+  cat >> "${f}" <<EOF
+# llama.cpp embeddings are tricky — keep them on Ollama:
+MATRIC_EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE=http://ollama:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+EOF
+  warn "Make sure llama-server is running on the host:"
+  warn "  llama-server --host 0.0.0.0 --port ${port} --model /path/to/model.gguf"
+}
+
 cmd_help() {
   cat <<EOF
 ${BOLD}fortemi workstation${RESET} — Docker-based dev environment for HotM + Fortemi + Ollama
@@ -442,6 +689,16 @@ ${BOLD}OLLAMA MODELS${RESET}
     models list            Show installed models
     models pull [name...]  Download models (defaults: qwen3.5:9b nomic-embed-text)
     models rm <name>       Remove a model
+
+${BOLD}LLM BACKEND${RESET}
+    configure-llm          Interactive wizard to pick an LLM backend:
+                             1) ollama-local (default)  2) vLLM on host
+                             3) OpenAI cloud            4) OpenRouter cloud
+                             5) llama.cpp on host
+                           Writes .env.workstation (mode 600) which the compose
+                           file loads automatically on next 'up'.
+                           Edit .env.workstation.example by hand if you prefer
+                           not to use the wizard.
 
 ${BOLD}EXAMPLES${RESET}
     ${0##*/} doctor                  # Verify your machine is ready
@@ -486,6 +743,7 @@ case "${cmd}" in
   open|browse) cmd_open ;;
   logs|log)   cmd_logs "$@" ;;
   models)     cmd_models "$@" ;;
+  configure-llm|config-llm|llm) cmd_configure_llm "$@" ;;
   shell|sh)   cmd_shell "$@" ;;
   psql|db)    cmd_psql "$@" ;;
   help|-h|--help) cmd_help ;;
