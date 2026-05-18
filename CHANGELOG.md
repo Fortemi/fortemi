@@ -7,6 +7,32 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.7] - 2026-05-18
+
+Local developer workstation: one command brings up Fortemi + HotM + Ollama in containers, with a friendly wrapper, pre-flight doctor, and step-by-step quickstart for users who have never touched Docker.
+
+### Added
+
+- **`./workstation` wrapper script** (#708) — Named subcommands for the full dev-box workflow: `up`, `down`, `status`, `doctor`, `models pull`, `open`, `logs`, `shell`, `psql`, `reset`, `help`. The `up` command waits for healthy state and prints the URL; `doctor` runs 7 pre-flight checks (Docker, compose, ports, native ollama, HotM sibling repo, GPU passthrough, models) with explicit remediation text for each failure.
+- **`docker-compose.workstation.yml`** (#708) — Single unified stack replacing the fragmented per-repo compose files for local dev. Includes ollama (GPU passthrough, bind-mounted `~/.ollama/`), postgres (pg18 + pgvector + PostGIS), matric-api (auth off, permissive CORS, rate limit disabled), HotM agent-proxy, and the HotM UI. Three profiles select which services come up:
+  - **default** (`./workstation up --backend-only`) — ollama + postgres + matric-api. HotM repo not required.
+  - **`hotm` profile** (`./workstation up --no-ui`) — adds agent-proxy. Useful for API-only integrations.
+  - **`ui` profile** (`./workstation up`, the default) — full stack including HotM UI at `http://localhost:4180`.
+- **QUICKSTART.md** — Five-step walkthrough for users new to Docker. Covers cloning both repos as siblings (or `--backend-only` if you don't want HotM), running doctor, bringing the stack up, pulling models, and verifying in a browser. Includes "what if something breaks?" section for the six most common first-run failures.
+- **WORKSTATION-SETUP.md** — Operations reference manual: full command list, day-2 troubleshooting beyond the happy path, native-ollama removal (the one step that requires `sudo` and a human), volume management, GPU verification.
+- **README "Local workstation" section** — Surfaces the workstation path alongside the bundle and HotM-desktop options so new users know they have three install paths.
+
+### Changed
+
+- **`agent-proxy` is now profile-gated** — Was always-on in earlier workstation drafts; now only starts under `--profile hotm` or `--profile ui`. Users who don't have the HotM sibling repo can run `./workstation up --backend-only` and get a working API without ever pulling HotM.
+- **Workstation host ports remapped** — Postgres on `5434` (was `5432`) and agent-proxy on `3011` (was `3001`) to avoid collisions with native postgres and the sysops dashboard commonly running on `3001`. matric-api stays on `3000`; UI stays on `4180`; ollama stays on `11434`.
+
+### Notes
+
+The workstation stack is for **local development** only. Production deployments continue to use `docker-compose.bundle.yml` (single-host headless backend) or the per-service `ghcr.io/fortemi/*` images. The workstation does not replace either path; it sits alongside them as the third option, optimized for "developer with a GPU laptop who wants to iterate end-to-end without setting up postgres by hand."
+
+The full stack reaches healthy state in roughly **45 seconds** on a clean host with the docker base images already pulled. First-time clean-install (everything pulled from scratch) is dominated by the ollama image (~10.6 GB) and the matric-api Rust build.
+
 ## [2026.5.6] - 2026-05-10
 
 Two small but high-impact fixes to support-archive seeding: imported notes now have titles, and the seed no longer pins the GPU for hours.

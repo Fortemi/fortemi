@@ -58,7 +58,9 @@ You should see your `NVIDIA GeForce RTX 3060 Laptop GPU` in the output. If not, 
 
 ## Day-to-day commands
 
-All commands assume you are in `/home/roctinam/dev/fortemi/` (the meta-workspace root).
+All commands assume you are in the `fortemi/` repo directory — the one that contains `workstation`, `docker-compose.workstation.yml`, and this file. The wrapper expects HotM cloned as a sibling at `../HotM/` (per QUICKSTART step 1) for the `hotm` and `ui` profiles; backend-only mode does not require it.
+
+> Prefer the wrapper. Every section below shows the raw `docker compose` form for reference, but `./workstation <subcommand>` will be shorter, will set the right `--profile` flag, and will print health output. Run `./workstation help` for the full list.
 
 ### Spin up — core (no UI)
 

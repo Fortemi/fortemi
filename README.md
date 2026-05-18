@@ -149,11 +149,44 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 
 ## Quick Start
 
-> **Note**: this Quick Start covers the **Docker backend path**. If you want a native desktop app instead, see [the desktop callout above](#-looking-for-a-desktop-app-not-just-an-api) — install [HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest), then run:
-> - **Linux:** [`bash scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-linux.sh) — install guide: [desktop-linux.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
-> - **macOS:** [`bash scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-macos.sh) — install guide: [desktop-macos.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
-> - **Windows:** `scripts/prereq_once.ps1` (in HotM repo)
-> - **Day-2 ops** (any platform): [`operator-guide.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/operations/operator-guide.md)
+Pick the install path that matches what you're trying to do:
+
+| You want to… | Use | Where to start |
+|---|---|---|
+| Build features end-to-end on a dev box (API + UI + local LLM, single-command up/down) | **Local workstation stack** (this repo's `./workstation` wrapper) | [QUICKSTART.md](./QUICKSTART.md) — five steps, no Docker experience required |
+| Run a headless backend on a server (Docker, GPU, no UI) | **Docker bundle** (`docker-compose.bundle.yml`) | [Docker Bundle section](#docker-bundle-headless-backend-deployment) below |
+| Use Fortémi as a desktop app on your laptop | **HotM** (UI + bundled API as a single installer) | [HotM releases](https://git.integrolabs.net/Fortemi/HotM/releases/latest) — `.deb` / `.msi` / `.dmg` / `.AppImage` |
+| Compile from source for hacking on the Rust crates | **From-source build** | [From Source](#from-source) below + [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+HotM setup scripts (run after downloading the installer):
+- **Linux:** [`bash scripts/setup-linux.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-linux.sh) — install guide: [desktop-linux.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-linux.md)
+- **macOS:** [`bash scripts/setup-macos.sh`](https://git.integrolabs.net/Fortemi/HotM/raw/branch/main/scripts/setup-macos.sh) — install guide: [desktop-macos.md](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/installation/desktop-macos.md)
+- **Windows:** `scripts/prereq_once.ps1` (in HotM repo)
+- **Day-2 ops** (any platform): [`operator-guide.md`](https://git.integrolabs.net/Fortemi/HotM/src/branch/main/docs/operations/operator-guide.md)
+
+### Local Workstation (developer-friendly Docker stack)
+
+The fastest way to get the full backend + UI + local LLM running on your own machine. One unified Docker stack, one wrapper script, no manual postgres or compose juggling.
+
+```bash
+# Clone both repos as siblings (or skip HotM if you only want the API)
+git clone https://git.integrolabs.net/Fortemi/fortemi.git
+git clone https://git.integrolabs.net/Fortemi/HotM.git
+cd fortemi
+
+# Pre-flight check
+./workstation doctor
+
+# Bring everything up (postgres + matric-api + ollama + HotM agent-proxy + UI)
+./workstation up
+
+# Pull the two models the stack uses (~7 GB)
+./workstation models pull
+
+# Open the UI at http://localhost:4180
+```
+
+`./workstation help` lists every subcommand (status, logs, shell, psql, reset, models, …). Need only the API without HotM? Skip cloning HotM and run `./workstation up --backend-only`. Full walkthrough with expected output for every step is in **[QUICKSTART.md](./QUICKSTART.md)**; operations reference is in **[WORKSTATION-SETUP.md](./WORKSTATION-SETUP.md)**.
 
 ### Docker Bundle (headless backend deployment)
 
