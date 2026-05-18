@@ -1,0 +1,172 @@
+# Unified testing stack for HotM + Fortemi + Ollama
+#
+# What this is: a single compose file that brings up everything needed to
+# verify HotM + Fortemi end-to-end via the UI on a developer box. Replaces
+# the fragmented per-repo compose files for testing only (production/CI
+# deployments use the per-repo files).
+#
+# Auth posture: REQUIRE_AUTH=false on matric-api — anonymous access allowed.
+# This is the matric-api built-in dev/test mode; agent-proxy has no JWT
+# verification yet (that's the v0.1.0 fortemi-auth deliverable). Do NOT
+# expose this stack to a public network.
+#
+# Ollama: containerized with GPU passthrough. Bind-mounts the existing
+# ~/.ollama/ directory so the 6.4GB of locally-downloaded models
+# (qwen3.5:9b, nomic-embed-text) are immediately available.
+#
+# Usage:
+#   docker compose -f docker-compose.testing.yml up -d
+#     → core: ollama + postgres + matric-api + agent-proxy (no UI)
+#
+#   docker compose -f docker-compose.testing.yml --profile ui up -d
+#     → core + hotm-ui at http://localhost:4180
+#
+#   docker compose -f docker-compose.testing.yml --profile llm-only up -d
+#     → just ollama at http://localhost:11434 (for raw API testing)
+#
+#   docker compose -f docker-compose.testing.yml down
+#     → stop containers, keep data volumes
+#
+#   docker compose -f docker-compose.testing.yml down -v
+#     → stop AND wipe postgres data (ollama models survive — bind-mounted)
+#
+# Prereqs:
+#   1. Native ollama systemd service stopped: see TESTING-SETUP.md
+#   2. Port 11434 free on host
+#   3. nvidia-container-toolkit installed (for GPU passthrough)
+#   4. ~/.ollama/ exists and contains the model registry
+#
+# Verification:
+#   curl localhost:11434/api/tags          # ollama up, models visible
+#   curl localhost:3000/health             # matric-api up
+#   curl localhost:3001/health             # agent-proxy up
+#   open http://localhost:4180             # UI (only with --profile ui)
+
+services:
+  # ── LLM backend ────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: workstation-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # Bind-mount existing host models — no 6.4GB redownload
+      - ${HOME}/.ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Database ───────────────────────────────────────────────────────────
+  postgres:
+    # matric-api requires PostgreSQL 18+. Use Fortemi's bundled testdb image
+    # which provides pg18 + pgvector + PostGIS + init scripts.
+    build:
+      context: .
+      dockerfile: build/Dockerfile.testdb
+    image: workstation-pg18-pgvector:latest
+    container_name: workstation-postgres
+    profiles: ["", "core", "ui"]
+    environment:
+      POSTGRES_USER: matric
+      POSTGRES_PASSWORD: matric
+      POSTGRES_DB: matric
+    ports:
+      # Host port 5434 to avoid colliding with native postgres on 5432
+      # (matric-api uses the docker network internally — sees postgres:5432)
+      - "5434:5432"
+    volumes:
+      - workstation_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matric"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_preload_libraries='vector'
+      -c max_connections=200
+      -c shared_buffers=256MB
+
+  # ── Fortemi backend (matric-api) ───────────────────────────────────────
+  matric-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: workstation-matric-api
+    profiles: ["", "core", "ui"]
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://matric:matric@postgres:5432/matric
+      - OLLAMA_BASE=http://ollama:11434
+      - OLLAMA_EMBED_MODEL=nomic-embed-text
+      - OLLAMA_GEN_MODEL=qwen3.5:9b
+      - REQUIRE_AUTH=false
+      - ALLOWED_ORIGINS=http://localhost:4180,http://localhost:3000,http://127.0.0.1:4180,http://127.0.0.1:3000
+      - RATE_LIMIT_ENABLED=false
+      - HOST=0.0.0.0
+      - PORT=3000
+      - RUST_LOG=info,matric_api=debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── HotM agent-proxy sidecar ───────────────────────────────────────────
+  agent-proxy:
+    build:
+      context: ../HotM/agent-proxy
+      dockerfile: Dockerfile
+    container_name: workstation-agent-proxy
+    profiles: ["", "core", "ui"]
+    ports:
+      # Host port 3011 to avoid colliding with sysops dashboard on 3001
+      - "3011:3001"
+    environment:
+      - FORTEMI_API_URL=http://matric-api:3000/api/v1
+      - OLLAMA_URL=http://ollama:11434
+      - CORS_ORIGIN=*
+      - PORT=3001
+      - BIND_ADDR=0.0.0.0  # network-exposed for container-to-host port mapping
+    depends_on:
+      matric-api:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── HotM UI (optional, --profile ui) ───────────────────────────────────
+  hotm-ui:
+    profiles: ["ui"]
+    build:
+      context: ../HotM/ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000/api/v1
+        VITE_APP_TITLE: HotM (testing)
+        VITE_DISABLE_WEBSOCKET: "false"
+    container_name: workstation-hotm-ui
+    ports:
+      - "4180:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3000/api/v1
+    depends_on:
+      - agent-proxy
+    restart: unless-stopped
+
+volumes:
+  workstation_pgdata:
+    name: workstation_pgdata
+  # ollama models are bind-mounted from ~/.ollama, no named volume needed

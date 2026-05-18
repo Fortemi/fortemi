@@ -1,0 +1,451 @@
+#!/usr/bin/env bash
+# fortemi workstation — friendly wrapper around docker-compose.workstation.yml
+#
+# For users new to Docker. Wraps the common operations in named subcommands
+# with friendly output and pre-flight checks.
+#
+# Usage: ./workstation <command> [options]
+# Run `./workstation help` for the full command list.
+
+set -euo pipefail
+
+# ── Resolve script directory (works from any cwd) ─────────────────────
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.workstation.yml"
+cd "${SCRIPT_DIR}"
+
+# ── Colors (disabled if not a tty) ────────────────────────────────────
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'
+  BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+else
+  GREEN=''; RED=''; YELLOW=''; BLUE=''; BOLD=''; DIM=''; RESET=''
+fi
+
+ok()    { echo -e "${GREEN}✓${RESET} $*"; }
+warn()  { echo -e "${YELLOW}⚠${RESET} $*"; }
+err()   { echo -e "${RED}✗${RESET} $*" >&2; }
+info()  { echo -e "${BLUE}→${RESET} $*"; }
+hdr()   { echo -e "\n${BOLD}$*${RESET}"; }
+
+# ── Service inventory ─────────────────────────────────────────────────
+CORE_SERVICES=(ollama postgres matric-api agent-proxy)
+ALL_SERVICES=(ollama postgres matric-api agent-proxy hotm-ui)
+
+# ── Endpoints (kept in sync with docker-compose.workstation.yml) ──────
+URL_UI="http://localhost:4180"
+URL_API="http://localhost:3000"
+URL_PROXY="http://localhost:3011"
+URL_OLLAMA="http://localhost:11434"
+HOST_POSTGRES="localhost:5434"
+
+# ── Pre-flight checks ─────────────────────────────────────────────────
+
+check_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    err "Docker is not installed."
+    echo "    Install from: https://docs.docker.com/get-docker/"
+    return 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    err "Docker daemon is not running."
+    echo "    Start Docker Desktop (macOS/Windows) or run: sudo systemctl start docker (Linux)"
+    return 1
+  fi
+  ok "Docker installed and running"
+  return 0
+}
+
+check_compose() {
+  if ! docker compose version >/dev/null 2>&1; then
+    err "Docker Compose plugin not available."
+    echo "    On Linux, install with: sudo apt install docker-compose-plugin"
+    echo "    On macOS/Windows, it ships with Docker Desktop."
+    return 1
+  fi
+  ok "docker compose available"
+  return 0
+}
+
+check_compose_file() {
+  if [ ! -f "${COMPOSE_FILE}" ]; then
+    err "docker-compose.workstation.yml not found at ${COMPOSE_FILE}"
+    return 1
+  fi
+  ok "compose file found"
+  return 0
+}
+
+check_ports() {
+  local conflicts=()
+  for port in 4180 3000 3011 11434 5434; do
+    if ss -tln 2>/dev/null | grep -qE ":${port}\s"; then
+      # Check if it's one of our own containers (acceptable)
+      local container
+      container=$(docker ps --filter "publish=${port}" --format '{{.Names}}' 2>/dev/null | head -1)
+      if [[ -z "${container}" ]] || [[ "${container}" != workstation-* ]]; then
+        conflicts+=("${port}")
+      fi
+    fi
+  done
+  if [ ${#conflicts[@]} -gt 0 ]; then
+    warn "Ports in use by non-workstation processes: ${conflicts[*]}"
+    echo "    Stop those services or remap in docker-compose.workstation.yml before starting."
+    return 1
+  fi
+  ok "required ports free or already held by workstation containers (4180, 3000, 3011, 11434, 5434)"
+  return 0
+}
+
+check_native_ollama() {
+  if command -v ollama >/dev/null 2>&1; then
+    warn "Native ollama binary found at $(command -v ollama)"
+    echo "    It will compete with the container for port 11434."
+    echo "    Remove with:"
+    echo "      sudo systemctl stop ollama.service && sudo systemctl disable ollama.service"
+    echo "      sudo rm -f /usr/local/bin/ollama /etc/systemd/system/ollama.service"
+    echo "      sudo rm -rf /etc/systemd/system/ollama.service.d"
+    echo "      sudo systemctl daemon-reload"
+    return 1
+  fi
+  ok "no native ollama install detected"
+  return 0
+}
+
+check_gpu() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    warn "No nvidia-smi detected — GPU acceleration unavailable"
+    echo "    Models will run on CPU (very slow for 9B+ models)."
+    echo "    If you have an NVIDIA GPU, install nvidia-container-toolkit:"
+    echo "    https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+    return 1
+  fi
+  if ! docker run --rm --gpus all --entrypoint nvidia-smi nvidia/cuda:12.2.0-base-ubuntu22.04 >/dev/null 2>&1; then
+    warn "GPU detected on host but Docker GPU passthrough is not working"
+    echo "    Install nvidia-container-toolkit and restart Docker:"
+    echo "    https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+    return 1
+  fi
+  local gpu
+  gpu=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>&1 | head -1)
+  ok "GPU passthrough working: ${gpu}"
+  return 0
+}
+
+check_hotm_sibling() {
+  local hotm_dir
+  hotm_dir="$( cd "${SCRIPT_DIR}/.." && pwd )/HotM"
+  if [ ! -d "${hotm_dir}" ]; then
+    warn "HotM not found at ${hotm_dir}"
+    echo "    The workstation builds the agent-proxy and UI from the HotM repo."
+    echo "    Clone it next to this one:"
+    echo "      cd $( cd "${SCRIPT_DIR}/.." && pwd )"
+    echo "      git clone https://git.integrolabs.net/Fortemi/HotM.git"
+    return 1
+  fi
+  if [ ! -f "${hotm_dir}/agent-proxy/Dockerfile" ] || [ ! -f "${hotm_dir}/ui/Dockerfile" ]; then
+    warn "HotM found at ${hotm_dir} but is missing expected Dockerfile(s)"
+    echo "    Make sure you cloned the HotM repo (not a partial copy)."
+    return 1
+  fi
+  ok "HotM sibling repo found at ${hotm_dir}"
+  return 0
+}
+
+check_models() {
+  if [ ! -d "${HOME}/.ollama/models" ]; then
+    warn "~/.ollama/models does not exist — no models will be available on first start"
+    echo "    After running '${0##*/} up', run: ${0##*/} models pull"
+    return 1
+  fi
+  local count=0
+  # Prefer asking the container if it's running (authoritative)
+  if docker inspect workstation-ollama >/dev/null 2>&1; then
+    count=$(docker exec workstation-ollama ollama list 2>/dev/null | tail -n +2 | grep -c . || true)
+  fi
+  # Fall back to scanning manifests on disk (works pre-start)
+  if [ "${count}" = "0" ]; then
+    count=$(find "${HOME}/.ollama/models/manifests" -mindepth 1 -maxdepth 5 -type f 2>/dev/null | wc -l)
+  fi
+  if [ "${count}" = "0" ]; then
+    warn "~/.ollama/models exists but contains no models"
+    echo "    Run: ${0##*/} models pull"
+    return 1
+  fi
+  ok "found ${count} ollama model(s) (will be bind-mounted into the container)"
+  return 0
+}
+
+# ── Status / health ────────────────────────────────────────────────────
+
+cmd_status() {
+  hdr "Containers"
+  if ! docker compose -f "${COMPOSE_FILE}" --profile ui ps 2>/dev/null | tail -n +2; then
+    err "Stack is not running. Start it with: ${0##*/} up"
+    return 1
+  fi
+
+  hdr "Service health"
+  for service in "${ALL_SERVICES[@]}"; do
+    local container="workstation-${service}"
+    local state
+    state=$(docker inspect "${container}" --format '{{.State.Status}}' 2>/dev/null || echo "missing")
+    local health
+    health=$(docker inspect "${container}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' 2>/dev/null || echo "n/a")
+    case "${state}" in
+      running)
+        if [ "${health}" = "healthy" ] || [ "${health}" = "n/a" ]; then
+          ok "${service}: running${DIM} (health: ${health})${RESET}"
+        else
+          warn "${service}: running${DIM} (health: ${health})${RESET}"
+        fi
+        ;;
+      missing) info "${service}: ${DIM}not started${RESET}" ;;
+      *)       err "${service}: ${state}${DIM} (health: ${health})${RESET}" ;;
+    esac
+  done
+
+  hdr "Endpoints"
+  for entry in "UI|${URL_UI}" "matric-api|${URL_API}/health" "agent-proxy|${URL_PROXY}/health" "ollama|${URL_OLLAMA}/api/tags"; do
+    local name="${entry%%|*}"
+    local url="${entry##*|}"
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "${url}" 2>/dev/null || echo "000")
+    if [ "${code}" = "200" ]; then
+      ok "${name}: HTTP 200 (${url%%/health*})"
+    else
+      info "${name}: HTTP ${code} ${DIM}(${url})${RESET}"
+    fi
+  done
+}
+
+# ── Commands ──────────────────────────────────────────────────────────
+
+cmd_doctor() {
+  hdr "Pre-flight checks"
+  local fail=0
+  check_docker        || fail=1
+  check_compose       || fail=1
+  check_compose_file  || fail=1
+  check_ports         || fail=1
+  check_native_ollama || fail=1
+  check_hotm_sibling  || fail=1
+  check_gpu           || fail=1
+  check_models        || fail=1
+  echo ""
+  if [ "${fail}" = "0" ]; then
+    ok "All checks passed — ready to run: ${0##*/} up"
+  else
+    warn "Some checks failed — review messages above before running ${0##*/} up"
+  fi
+  return "${fail}"
+}
+
+cmd_up() {
+  local with_ui=true
+  for arg in "$@"; do
+    case "${arg}" in
+      --no-ui|--headless) with_ui=false ;;
+      --ui)               with_ui=true ;;
+      *) err "Unknown option: ${arg}"; cmd_help; exit 2 ;;
+    esac
+  done
+
+  hdr "Starting workstation stack"
+  if [ "${with_ui}" = "true" ]; then
+    info "Mode: with UI (services: ${ALL_SERVICES[*]})"
+    docker compose -f "${COMPOSE_FILE}" --profile ui up -d
+  else
+    info "Mode: backend only (services: ${CORE_SERVICES[*]})"
+    docker compose -f "${COMPOSE_FILE}" up -d
+  fi
+
+  hdr "Waiting for services to be healthy (up to 60s)"
+  for service in ollama postgres matric-api; do
+    local container="workstation-${service}"
+    local attempt=0
+    while [ "${attempt}" -lt 12 ]; do
+      local health
+      health=$(docker inspect "${container}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' 2>/dev/null || echo "missing")
+      if [ "${health}" = "healthy" ]; then
+        ok "${service}: healthy"
+        break
+      fi
+      sleep 5
+      attempt=$((attempt + 1))
+    done
+    if [ "${attempt}" -ge 12 ]; then
+      warn "${service}: did not reach healthy in 60s — run '${0##*/} logs ${service}' to investigate"
+    fi
+  done
+
+  echo ""
+  cmd_status
+  echo ""
+  if [ "${with_ui}" = "true" ]; then
+    info "${BOLD}Open in browser: ${URL_UI}${RESET}"
+    info "Or run: ${0##*/} open"
+  else
+    info "API ready at: ${URL_API}"
+    info "To add UI later: ${0##*/} up --ui"
+  fi
+}
+
+cmd_down() {
+  hdr "Stopping workstation stack"
+  docker compose -f "${COMPOSE_FILE}" --profile ui down
+  ok "Stack stopped (data volumes preserved)"
+  info "To wipe volumes too: ${0##*/} reset"
+}
+
+cmd_reset() {
+  warn "This will WIPE the postgres data volume. Ollama models (bind-mounted from ~/.ollama) survive."
+  read -r -p "Type 'reset' to confirm: " confirm
+  if [ "${confirm}" != "reset" ]; then
+    info "Cancelled."
+    return 0
+  fi
+  hdr "Wiping workstation stack"
+  docker compose -f "${COMPOSE_FILE}" --profile ui down -v
+  ok "Stack and volumes removed. Run '${0##*/} up' to start fresh."
+}
+
+cmd_logs() {
+  if [ "$#" -eq 0 ]; then
+    info "Tailing logs from ALL services (Ctrl-C to stop)"
+    docker compose -f "${COMPOSE_FILE}" --profile ui logs -f --tail 50
+  else
+    info "Tailing logs from: $*"
+    docker compose -f "${COMPOSE_FILE}" --profile ui logs -f --tail 50 "$@"
+  fi
+}
+
+cmd_open() {
+  local url="${URL_UI}"
+  info "Opening ${url}"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "${url}" >/dev/null 2>&1 &
+  elif command -v open >/dev/null 2>&1; then
+    open "${url}" >/dev/null 2>&1 &
+  elif [ -n "${BROWSER:-}" ]; then
+    "${BROWSER}" "${url}" >/dev/null 2>&1 &
+  else
+    warn "Couldn't auto-detect browser. Open manually: ${url}"
+    return 1
+  fi
+}
+
+cmd_models() {
+  local sub="${1:-list}"
+  case "${sub}" in
+    list|ls)
+      info "Models in workstation-ollama:"
+      docker exec workstation-ollama ollama list 2>&1 || err "Container not running. Start with: ${0##*/} up"
+      ;;
+    pull)
+      shift || true
+      local models=("$@")
+      if [ "${#models[@]}" -eq 0 ]; then
+        models=(qwen3.5:9b nomic-embed-text)
+        info "No models specified — pulling defaults: ${models[*]}"
+      fi
+      for model in "${models[@]}"; do
+        info "Pulling ${model} (may take several minutes for first download)..."
+        docker exec workstation-ollama ollama pull "${model}" || err "Failed to pull ${model}"
+      done
+      ok "Done. Run '${0##*/} models list' to verify."
+      ;;
+    rm|remove)
+      shift || true
+      [ "$#" -eq 0 ] && { err "Usage: ${0##*/} models rm <model>"; return 2; }
+      for model in "$@"; do
+        docker exec workstation-ollama ollama rm "${model}" || err "Failed to remove ${model}"
+      done
+      ;;
+    *) err "Unknown subcommand: ${sub}"; cmd_help; return 2 ;;
+  esac
+}
+
+cmd_shell() {
+  local service="${1:-matric-api}"
+  local container="workstation-${service}"
+  info "Opening shell in ${container} (Ctrl-D to exit)"
+  docker exec -it "${container}" sh
+}
+
+cmd_psql() {
+  info "Connecting to postgres (user=matric, db=matric)"
+  docker exec -it workstation-postgres psql -U matric -d matric "$@"
+}
+
+cmd_help() {
+  cat <<EOF
+${BOLD}fortemi workstation${RESET} — Docker-based dev environment for HotM + Fortemi + Ollama
+
+${BOLD}USAGE${RESET}
+    ${0##*/} <command> [options]
+
+${BOLD}MAIN COMMANDS${RESET}
+    up [--no-ui]           Start the stack (with UI by default)
+    down                   Stop the stack (preserves data)
+    status                 Show what's running and where to reach it
+    doctor                 Pre-flight checks (Docker, GPU, ports, models)
+    open                   Open the UI in your browser (http://localhost:4180)
+    reset                  Stop + wipe postgres data (asks for confirmation)
+
+${BOLD}OBSERVATION${RESET}
+    logs [service...]      Tail logs (all services, or only the named ones)
+    shell [service]        Open a shell inside a container (default: matric-api)
+    psql                   Open psql against the postgres container
+
+${BOLD}OLLAMA MODELS${RESET}
+    models list            Show installed models
+    models pull [name...]  Download models (defaults: qwen3.5:9b nomic-embed-text)
+    models rm <name>       Remove a model
+
+${BOLD}EXAMPLES${RESET}
+    ${0##*/} doctor                  # Verify your machine is ready
+    ${0##*/} up                      # Start everything with the UI
+    ${0##*/} up --no-ui              # Backend only (matric-api + agent-proxy)
+    ${0##*/} open                    # Open http://localhost:4180
+    ${0##*/} logs matric-api         # Watch matric-api logs
+    ${0##*/} status                  # Check who's healthy
+    ${0##*/} models pull             # Pull the default models
+    ${0##*/} down                    # Stop everything
+
+${BOLD}SERVICES${RESET}
+    UI:          ${URL_UI}
+    matric-api:  ${URL_API}
+    agent-proxy: ${URL_PROXY}
+    ollama:      ${URL_OLLAMA}
+    postgres:    ${HOST_POSTGRES} (matric / matric / matric)
+
+${BOLD}FILES${RESET}
+    docker-compose.workstation.yml   the actual stack definition
+    WORKSTATION-SETUP.md             detailed operations / troubleshooting reference
+    QUICKSTART.md                    new-user walkthrough
+EOF
+}
+
+# ── Dispatch ──────────────────────────────────────────────────────────
+
+if [ "$#" -eq 0 ]; then
+  cmd_help
+  exit 0
+fi
+
+cmd="$1"; shift || true
+case "${cmd}" in
+  up)         cmd_up "$@" ;;
+  down|stop)  cmd_down ;;
+  reset|nuke) cmd_reset ;;
+  status|ps)  cmd_status ;;
+  doctor|check) cmd_doctor ;;
+  open|browse) cmd_open ;;
+  logs|log)   cmd_logs "$@" ;;
+  models)     cmd_models "$@" ;;
+  shell|sh)   cmd_shell "$@" ;;
+  psql|db)    cmd_psql "$@" ;;
+  help|-h|--help) cmd_help ;;
+  *) err "Unknown command: ${cmd}"; echo ""; cmd_help; exit 2 ;;
+esac
