@@ -7,6 +7,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.11] - 2026-05-18
+
+Maintenance tag. No functional change since 2026.5.10. Cuts a clean release tag that lands correctly on both the Gitea (`origin`) and GitHub (`github`) remotes — the 2026.5.7, 2026.5.8, and 2026.5.10 tags exist on GitHub but point at the pre-LLM-wizard commit (a stale mirror artifact). This release is the first post-workstation tag that is byte-identical across both remotes.
+
+### What the 2026.5.7 → 2026.5.11 sequence delivered (roll-up)
+
+For consumers landing on this changelog and wanting the short version of what shipped under the "workstation" theme:
+
+- **2026.5.7** — `./workstation` wrapper, `docker-compose.workstation.yml` unified stack (Fortemi + HotM + Ollama), QUICKSTART.md, WORKSTATION-SETUP.md, three profiles (`--backend-only`, `--no-ui`, default-ui).
+- **2026.5.8** — Pluggable LLM backend selector: `.env.workstation.example` template + `./workstation configure-llm` wizard covering ollama, vllm, openai, openrouter, llamacpp. `extra_hosts: host.docker.internal:host-gateway` wired into compose so the same URL works on Linux/macOS/Windows. Doctor probes the configured backend.
+- **2026.5.9** — Correctness patch after validating against the `qwen36_vllm_autodeploy_basic.sh` reference: wizard now prompts for the served-model-name (not the HF path), defaults to `qwen3.5:9b` so model strings stay stable across backends.
+- **2026.5.10** — Docs surfacing: WORKSTATION-SETUP.md LLM backend section, README workstation-block callout, docs/content/quickstart.md "Building features on a dev box?" sibling callout, docs/content/inference-backends.md top callout.
+
+### No code changes
+
+Bumped Cargo workspace + mcp-server to 2026.5.11. No schema, no behavior, no docs differ from 2026.5.10.
+
 ## [2026.5.10] - 2026-05-18
 
 Docs-only release. The `configure-llm` wizard and the `.env.workstation` override layer landed in 2026.5.8–2026.5.9, but they were only discoverable via the wrapper's help output. This release threads them through the canonical docs so new users actually find them.
