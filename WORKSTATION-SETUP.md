@@ -166,6 +166,112 @@ curl -s localhost:3000/api/v1/inference/providers | jq
 
 ---
 
+## LLM backend selection
+
+By default the workstation uses **containerized Ollama** with `qwen3.5:9b` and `nomic-embed-text`. The matric-api inference router also speaks OpenAI-compatible APIs (vLLM, llama.cpp, real OpenAI, OpenRouter, LocalAI, LiteLLM), and you can swap which one is active without editing `docker-compose.workstation.yml` or rebuilding any image.
+
+### How it works
+
+The matric-api service in the compose file declares `env_file: .env.workstation` with `required: false`. If the file exists, its values override the inline `environment:` defaults; if it doesn't, the workstation behaves exactly like the no-config Ollama path. `.env.workstation` is gitignored — API keys never get committed.
+
+The compose file also wires `extra_hosts: host.docker.internal:host-gateway` so the same URL (`http://host.docker.internal:<port>`) reaches the host from inside the container on Linux, macOS, and Windows. No more `172.17.0.1` vs `host.docker.internal` juggling.
+
+### The wizard (recommended for new users)
+
+```bash
+./workstation configure-llm
+```
+
+Walks through five backends:
+
+1. **ollama-local** — Docker-managed Ollama (default, no setup needed)
+2. **vllm-local** — vLLM running on your host machine
+3. **openai-cloud** — Real OpenAI API (requires API key)
+4. **openrouter** — OpenRouter cloud router (requires API key)
+5. **llamacpp-local** — llama.cpp server running on your host machine
+
+For cloud providers, the wizard prompts for the API key with no terminal echo and writes `.env.workstation` mode 600. For local-on-host providers (vLLM, llama.cpp), it prompts for the host port and writes the right `host.docker.internal:<port>` URL.
+
+After writing the file, the next `./workstation up` picks it up automatically.
+
+### Edit by hand (power-user path)
+
+```bash
+cp .env.workstation.example .env.workstation
+$EDITOR .env.workstation        # uncomment one provider block
+chmod 600 .env.workstation
+```
+
+`.env.workstation.example` carries five copy-paste-ready blocks with inline guidance on the served-name-vs-HF-path distinction (vLLM), the embedding-pairing pattern (cloud providers route embeddings through the containerized Ollama), and hardware-friendly model recommendations for 8GB to 24GB+ GPUs.
+
+### vLLM specifics
+
+vLLM has two names for any model:
+
+- the **HF path** it loads (e.g. `Qwen/Qwen2.5-7B-Instruct`) — passed as the first positional arg to `vllm serve`
+- the **served-model-name** it exposes (e.g. `qwen3.5:9b`) — passed to `--served-model-name`
+
+`OPENAI_GEN_MODEL` in `.env.workstation` must match the **served-model-name**, not the HF path. matric-api sends `OPENAI_GEN_MODEL` verbatim in the OpenAI `model` field; vLLM compares it against `--served-model-name` and returns 404 on mismatch.
+
+The default served name we recommend is `qwen3.5:9b` — same string as Fortemi's Ollama default, so the chat UI and any agent configuration sees the same model name regardless of which backend you've picked. Start vLLM with whatever HF path you want and label it `qwen3.5:9b`:
+
+```bash
+# Light: fits on most consumer GPUs
+vllm serve Qwen/Qwen2.5-7B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --served-model-name qwen3.5:9b
+
+# Heavy: 35B-on-3×A100 pattern (see qwen36_vllm_autodeploy_basic.sh)
+# port 11436, served as qwen3.6:35b
+```
+
+For the heavy-iron path, the `qwen36_vllm_autodeploy_basic.sh` pattern (auto-selects free A100-class GPUs, tries largest context first, picks an open port from 11436+, runs OpenAI-compatible) is a reasonable template. With that script:
+
+```bash
+./workstation configure-llm
+# → 2 (vllm-local)
+# → port: 11436
+# → served model name: qwen3.6:35b
+```
+
+### Doctor reports the configured backend
+
+```bash
+./workstation doctor
+```
+
+Reports an 8th check, `LLM backend`, that:
+
+- reads `MATRIC_INFERENCE_DEFAULT` from `.env.workstation` (or reports "ollama containerized default" if the file is absent)
+- probes the configured endpoint from the host (rewriting `host.docker.internal` → `localhost` for the host-side probe; the container sees the same URL on the docker network)
+- surfaces friendly remediation when the probe fails ("is vLLM running on the host?", "is the port right?")
+
+This catches the common first-attempt mistakes — wrong port, vLLM not started yet, wrong served-model-name — before you waste time on `up` and chat-call debugging.
+
+### Switching backends
+
+Re-run `./workstation configure-llm` and pick a different option, or edit `.env.workstation` by hand. The change takes effect on the next `./workstation up` (Docker reads `env_file:` at container start). For a running stack:
+
+```bash
+./workstation configure-llm   # write new .env.workstation
+./workstation down            # stop matric-api
+./workstation up              # restart with new env
+```
+
+The `matric-api/v1/inference/config` endpoint also supports runtime hot-swap without a restart (POST `{"openrouter": {"api_key": "..."}}` etc.). That path is for already-running deployments and is documented in `docs/content/inference-providers.md` — the file-based wizard is the easier choice for "before I bring it up the first time."
+
+### Per-backend reminders
+
+| Backend | Common gotcha |
+|---|---|
+| ollama-local | No setup. Ensure `nomic-embed-text` + `qwen3.5:9b` are pulled via `./workstation models pull`. |
+| vllm-local | `OPENAI_GEN_MODEL` must match `--served-model-name`, not the HF path. Embeddings still route through containerized Ollama (vLLM has no embedding endpoint). |
+| openai-cloud | Embeddings are billed the same as generation. Set `MATRIC_EMBEDDING_PROVIDER=ollama` to keep embeddings free and local (the wizard does this for you unless you explicitly opt out). |
+| openrouter | No embedding endpoint at all — must pair with Ollama for embeddings. Wizard wires this for you. |
+| llamacpp-local | llama-server's embedding mode is finicky (the embedding model and generation model must match). Pair with Ollama for embeddings unless you have a specific reason. |
+
+---
+
 ## Troubleshooting
 
 ### "port 11434 already in use"

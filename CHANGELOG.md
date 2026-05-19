@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.10] - 2026-05-18
+
+Docs-only release. The `configure-llm` wizard and the `.env.workstation` override layer landed in 2026.5.8–2026.5.9, but they were only discoverable via the wrapper's help output. This release threads them through the canonical docs so new users actually find them.
+
+### Documentation
+
+- **WORKSTATION-SETUP.md → new "LLM backend selection" section** — Canonical ops reference for the backend layer. Covers the `env_file:` mechanism, the wizard flow, the five backends with per-backend gotcha table, the served-name-vs-HF-path distinction for vLLM (with both the light Qwen2.5-7B and heavy 35B-on-3×A100 patterns), the doctor's backend-probe check, and the switch-backends procedure (file edit + restart, or runtime hot-swap via `/api/v1/inference/config`).
+- **README.md → Local Workstation block** — Added a "Want a different LLM than Ollama?" callout pointing at `configure-llm`. Surfaces the backend flexibility at the discovery layer so users picking the workstation path see it from the start, not after `up`.
+- **docs/content/quickstart.md → new "Building features on a dev box?" callout** — Sibling block to the existing "Looking for a desktop app?" callout. Routes developers at the workstation flow (with the `configure-llm` invocation) instead of the Docker-bundle server path that the rest of this guide covers.
+- **docs/content/inference-backends.md → top callout** — One-line redirect for workstation users so they reach the wizard rather than reading the by-hand env-var guide. The guide itself remains the authoritative reference for Docker-bundle and from-source paths.
+
+### No code changes
+
+No version-affecting code, schema, or behavior changes. The version bump is for tag-gated CI release jobs (release notes are generated from the CHANGELOG entry on tag push).
+
 ## [2026.5.9] - 2026-05-18
 
 Patch follow-up after validating the 2026.5.8 vLLM path against a real autodeploy reference script (Qwen3.6-35B-A3B served as `qwen3.6:35b` on port 11436). Fixed three correctness issues that would have produced HTTP 404 on first chat call against any vLLM instance.

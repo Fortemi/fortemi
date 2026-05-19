@@ -2,6 +2,16 @@
 
 This guide covers configuring and using different LLM inference backends in Fortémi.
 
+> **Running the Local Workstation stack?** You don't have to read this guide to switch backends. The workstation ships an interactive picker:
+>
+> ```bash
+> ./workstation configure-llm
+> ```
+>
+> It walks through five options (ollama / vllm / openai / openrouter / llamacpp), prompts API keys silently, handles host-to-container networking, and writes the right env vars to `.env.workstation`. The doctor probes the configured endpoint to catch misconfigurations before `up`. See [WORKSTATION-SETUP.md → "LLM backend selection"](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/WORKSTATION-SETUP.md) for the full ops reference.
+>
+> Keep reading this guide if you're deploying the **Docker bundle** or **from-source**, where you set the env vars by hand.
+
 ## Overview
 
 Fortémi uses pluggable inference backends for:

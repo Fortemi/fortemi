@@ -11,6 +11,26 @@
 >
 > **This Quickstart is for the headless server path** — Docker bundle for agents over MCP, custom UIs, multi-user, air-gapped backends. If that's what you want, keep reading.
 
+> ## 💻 Building features on a dev box?
+>
+> **You probably want the [Local Workstation stack](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/QUICKSTART.md), not this guide.** The workstation gives you Fortemi + HotM UI + Ollama in containers with a single command:
+>
+> ```bash
+> ./workstation up                   # full stack with UI at http://localhost:4180
+> ./workstation up --backend-only    # just ollama + postgres + matric-api
+> ```
+>
+> Use a different LLM than Ollama:
+>
+> ```bash
+> ./workstation configure-llm        # interactive picker: ollama / vllm / openai / openrouter / llamacpp
+> ```
+>
+> Walkthrough (no Docker experience required): **[QUICKSTART.md](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/QUICKSTART.md)**
+> Operations reference: **[WORKSTATION-SETUP.md](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/WORKSTATION-SETUP.md)**
+>
+> Pick the headless-server Quickstart below if you're deploying to a real server. Pick the workstation if you're hacking on Fortemi or HotM locally.
+
 Deploy a fully functional Fortemi instance using published container images from GHCR. This guide covers three progressive tiers — each self-contained, each building on the previous:
 
 1. **Core** — Full-text search, tagging, graph linking (no AI, no GPU)

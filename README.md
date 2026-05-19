@@ -186,7 +186,11 @@ cd fortemi
 # Open the UI at http://localhost:4180
 ```
 
-`./workstation help` lists every subcommand (status, logs, shell, psql, reset, models, …). Need only the API without HotM? Skip cloning HotM and run `./workstation up --backend-only`. Full walkthrough with expected output for every step is in **[QUICKSTART.md](./QUICKSTART.md)**; operations reference is in **[WORKSTATION-SETUP.md](./WORKSTATION-SETUP.md)**.
+`./workstation help` lists every subcommand (status, logs, shell, psql, reset, models, …). Need only the API without HotM? Skip cloning HotM and run `./workstation up --backend-only`.
+
+**Want a different LLM than Ollama?** Run `./workstation configure-llm` for an interactive picker covering vLLM (on host), real OpenAI, OpenRouter, llama.cpp (on host), or staying with Ollama. Writes `.env.workstation` (gitignored, mode 600); compose loads it automatically on next `up`. No Dockerfile or compose edits needed.
+
+Full walkthrough with expected output for every step is in **[QUICKSTART.md](./QUICKSTART.md)**; operations reference (including a dedicated "LLM backend selection" section with vLLM specifics) is in **[WORKSTATION-SETUP.md](./WORKSTATION-SETUP.md)**.
 
 ### Docker Bundle (headless backend deployment)
 
