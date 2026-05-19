@@ -7,6 +7,25 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.9] - 2026-05-18
+
+Patch follow-up after validating the 2026.5.8 vLLM path against a real autodeploy reference script (Qwen3.6-35B-A3B served as `qwen3.6:35b` on port 11436). Fixed three correctness issues that would have produced HTTP 404 on first chat call against any vLLM instance.
+
+### Fixed
+
+- **vLLM served-name vs HF-path conflation** — The 2026.5.8 wizard prompted for "Generation model name" with default `meta-llama/Llama-3.1-8B-Instruct`. matric-api sends that string in the OpenAI `model` field; vLLM compares it against `--served-model-name`, NOT the HF path. If a user pasted the HF path (the obvious thing to do), every chat call would 404. The wizard now prompts explicitly for the served-model-name with an upfront explanation of the two names, and the template carries the same distinction inline.
+- **Wizard default served name now `qwen3.5:9b`** — matches Fortemi's stable Ollama default. Same model string works across ollama / vllm / openrouter / openai backends, so switching backends doesn't require touching any UI or chat-side configuration. Was `meta-llama/Llama-3.1-8B-Instruct`.
+- **Port hint includes the autodeploy convention** — Wizard prompt is now `vLLM port on host [8000, autodeploy script uses 11436]`. Template documents both common ports.
+
+### Changed
+
+- **`.env.workstation.example` vLLM block** — Expanded with hardware-friendly defaults (Qwen2.5-7B, Llama-3.1-8B, Phi-3.5-mini sized for 8GB-24GB VRAM) plus a heavy-iron section pointing at the `qwen36_vllm_autodeploy_basic.sh`-style 35B-on-3×A100 setup. The serve command in the comment now shows the canonical pattern: `vllm serve <HF/path> --served-model-name qwen3.5:9b`.
+
+### No migration impact
+
+- **2026.5.8 users on Ollama, OpenAI, OpenRouter, or llama.cpp**: nothing changes. Only the vLLM wizard branch and the vLLM section of `.env.workstation.example` are touched.
+- **2026.5.8 users on vLLM**: if you already configured `.env.workstation` and chat works, no action needed. If chat is 404-ing, your `OPENAI_GEN_MODEL` is probably set to a HF path — change it to whatever you passed to vLLM's `--served-model-name`.
+
 ## [2026.5.8] - 2026-05-18
 
 Picking a different LLM backend on the workstation no longer requires editing the compose file. New interactive wizard plus an `.env.workstation` override layer cover the five common cases (Ollama, vLLM, OpenAI, OpenRouter, llama.cpp) without Docker expertise.

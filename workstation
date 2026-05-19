@@ -559,22 +559,34 @@ _write_vllm_env() {
   echo ""
   info "vLLM runs on your host machine. The container reaches it via"
   info "host.docker.internal (we wire this for Linux too via host-gateway)."
-  read -r -p "vLLM port on host [8000]: " port
+  echo ""
+  info "vLLM has TWO names for a model:"
+  echo "    • the HF path it loads          (e.g. Qwen/Qwen2.5-7B-Instruct)"
+  echo "    • the served-model-name it exposes  (e.g. qwen3.5:9b)"
+  echo "    API clients (including Fortemi) reference the SERVED name."
+  echo "    It's whatever you passed to vLLM's --served-model-name flag."
+  echo ""
+  read -r -p "vLLM port on host [8000, autodeploy script uses 11436]: " port
   port="${port:-8000}"
-  read -r -p "Generation model name (e.g. meta-llama/Llama-3.1-8B-Instruct): " model
-  model="${model:-meta-llama/Llama-3.1-8B-Instruct}"
+  read -r -p "Served model name [qwen3.5:9b]: " served
+  served="${served:-qwen3.5:9b}"
   cat > "${f}" <<EOF
 # Written by '${0##*/} configure-llm' — vllm-local
+#
+# IMPORTANT: OPENAI_GEN_MODEL below must match vLLM's --served-model-name
+# (NOT the HF model path that vLLM loads). matric-api sends this exact
+# string in the OpenAI 'model' field; vLLM returns 404 on mismatch.
 MATRIC_INFERENCE_DEFAULT=openai
 OPENAI_BASE_URL=http://host.docker.internal:${port}/v1
 OPENAI_API_KEY=not-needed-but-required-by-client
-OPENAI_GEN_MODEL=${model}
+OPENAI_GEN_MODEL=${served}
 # vLLM has no embedding endpoint — embeddings via containerized Ollama:
 MATRIC_EMBEDDING_PROVIDER=ollama
 OLLAMA_BASE=http://ollama:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 EOF
-  warn "Make sure vLLM is running on the host: vllm serve ${model} --port ${port}"
+  warn "Make sure vLLM is running on the host with the matching served name:"
+  warn "  vllm serve <HF/model-path> --port ${port} --served-model-name ${served}"
   warn "Embeddings still route through the containerized Ollama — make sure"
   warn "nomic-embed-text is pulled (${0##*/} models pull nomic-embed-text)."
 }
