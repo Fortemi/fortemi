@@ -1,0 +1,35 @@
+[package]
+name = "fortemi-enterprise-{{PLUGIN_NAME}}"
+version = "{{INITIAL_VERSION}}"
+edition = "2021"
+license-file = "LICENSE"  # Commercial; do NOT use "BSL-1.1" or open-source SPDX
+description = "Fortemi Enterprise {{PLUGIN_KIND}} plugin: {{PLUGIN_NAME}}"
+repository = "https://github.com/Fortemi-Enterprise/{{PLUGIN_NAME}}"
+publish = ["fortemi-ee"]  # Private registry only; not crates.io
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# Pin to a specific minor of matric-core to lock the plugin ABI
+matric-core = { version = "=2026.5.11", registry = "fortemi-ee", default-features = false }
+
+# Standard plugin dependencies
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync", "io-util", "time"] }
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+# Plugin-specific dependencies go below
+# e.g., for an HTTP audit sink:
+# reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
+mockall = "0.13"
+
+[features]
+default = []
+# Optional features specific to this plugin
