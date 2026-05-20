@@ -99,10 +99,14 @@ CE ships with `AllowAllPolicy` to preserve current behavior. This is documented 
 
 `AuthorizationPolicy` is a **Class A, B, or C plugin** per `.aiwg/architecture/plugin-contract-spec.md`. EE impls include:
 
-- `fortemi-enterprise-rbac` — static role-based policy from configuration
+- `fortemi-enterprise-rbac` — static role-based policy from configuration, consuming the standard role catalog
 - `fortemi-enterprise-rbac-casbin` — Casbin engine, Class A
 - `fortemi-enterprise-rbac-opa` — Open Policy Agent sidecar, Class B
 - Vendor-specific cloud IAM bridges, Class C
+
+### Concrete role and scope vocabulary
+
+The starter role/scope catalog is defined in `.aiwg/architecture/roles-scopes-catalog.md` — six standard roles (`viewer`, `editor`, `power_user`, `archive_admin`, `tenant_admin`, `system_admin`), ~50 scopes across nine surfaces (content, archives, inference, MCP, tenant admin, identity, privacy, system), the role→scope matrix, and a custom-role overlay mechanism. The CE `RoleBasedPolicy` default impl consumes that catalog; EE `fortemi-enterprise-rbac` adds tenant-defined custom roles on top per ADR-090.
 
 ### Obligations
 
