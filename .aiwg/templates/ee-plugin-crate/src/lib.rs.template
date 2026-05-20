@@ -1,0 +1,108 @@
+//! Fortemi Enterprise {{PLUGIN_NAME}} plugin.
+//!
+//! Implements: {{PLUGIN_KIND}} (matric-core trait surface)
+//! Plugin Contract: see `.aiwg/architecture/plugin-contract-spec.md`
+
+use async_trait::async_trait;
+use matric_core::{
+    HealthStatus, Plugin, PLUGIN_ABI_VERSION, Result,
+    // Import the specific trait your plugin implements:
+    // AuditSink, AuthorizationPolicy, UsageMeter, KeyProvider, OAuthProvider, ...
+};
+use std::time::Duration;
+use tracing::{info, warn};
+
+/// Plugin entry point. Construct via `from_config()`.
+pub struct {{PLUGIN_NAME_PASCAL}}Plugin {
+    config: PluginConfig,
+    // Add your runtime state below
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PluginConfig {
+    // Add your plugin-specific configuration fields
+    // Read from `config.plugins.{{PLUGIN_NAME}}` section
+}
+
+impl {{PLUGIN_NAME_PASCAL}}Plugin {
+    /// Construct from the core's configuration.
+    /// Called once at startup.
+    pub async fn from_config(config: &matric_core::Config) -> Result<Self> {
+        // Verify ABI compatibility — this catches mismatches early
+        assert_eq!(
+            PLUGIN_ABI_VERSION, 1,
+            "Plugin built for ABI v1; core is v{PLUGIN_ABI_VERSION}"
+        );
+
+        let plugin_config: PluginConfig = config
+            .plugin_config("{{PLUGIN_NAME}}")
+            .ok_or_else(|| matric_core::Error::Config(
+                "{{PLUGIN_NAME}} plugin config missing".into()
+            ))?;
+
+        info!(plugin = "{{PLUGIN_NAME}}", "Plugin initialized");
+
+        Ok(Self {
+            config: plugin_config,
+        })
+    }
+}
+
+#[async_trait]
+impl Plugin for {{PLUGIN_NAME_PASCAL}}Plugin {
+    fn name(&self) -> &'static str {
+        "{{PLUGIN_NAME}}"
+    }
+
+    fn version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    async fn health_check(&self) -> Result<HealthStatus> {
+        // Implement health check appropriate for your plugin
+        // - For a network-dependent plugin: test the connection
+        // - For an in-process plugin: confirm internal invariants
+        Ok(HealthStatus::Healthy)
+    }
+
+    async fn shutdown(&self, _grace: Duration) -> Result<()> {
+        // Drain in-flight work, flush buffers, close connections
+        info!(plugin = "{{PLUGIN_NAME}}", "Plugin shutting down");
+        Ok(())
+    }
+}
+
+// Implement your target trait below.
+//
+// Example for AuditSink (uncomment and adapt):
+//
+// #[async_trait]
+// impl AuditSink for {{PLUGIN_NAME_PASCAL}}Plugin {
+//     async fn emit(
+//         &self,
+//         events: &[AuditEvent],
+//         idempotency_key: &str,
+//     ) -> Result<(), AuditError> {
+//         // Per the contract:
+//         // - Idempotent under idempotency_key (de-duplicate)
+//         // - No secret material in logs
+//         // - Errors map to AuditError::Transport | Throttled | Permanent
+//         todo!()
+//     }
+//
+//     async fn flush(&self, _grace: Duration) -> Result<(), AuditError> {
+//         todo!()
+//     }
+// }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn plugin_asserts_abi_version() {
+        // Smoke test: construction succeeds with valid config
+        // Real implementations should add tests against the trait contract
+        assert_eq!(PLUGIN_ABI_VERSION, 1);
+    }
+}
