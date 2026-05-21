@@ -5882,8 +5882,23 @@ if (MCP_TRANSPORT === "http") {
       console.log(`[mcp] Reusing pending transport for session ${sessionId}`);
       transport = pendingSession.transport;
       contextSessionId = sessionId;
+    } else if (sessionId) {
+      // Client presented an Mcp-Session-Id we don't recognize — its session was
+      // lost (e.g. this server restarted, emptying the transports map). Per the MCP
+      // Streamable HTTP spec, return 404 so the client transparently starts a NEW
+      // session (InitializeRequest with no session id) and retries. Previously we
+      // built a fresh, uninitialized transport and handed it a non-initialize
+      // request → the SDK replied "Server not initialized" and the client stayed
+      // stuck until a manual /mcp reconnect. This makes matric restarts invisible
+      // to MCP clients.
+      console.log(`[mcp] Unknown session ${sessionId} (likely post-restart) — 404 to trigger client re-init`);
+      return res.status(404).json({
+        jsonrpc: "2.0",
+        error: { code: -32001, message: "Session not found; reinitialize" },
+        id: (req.body && req.body.id) || null,
+      });
     } else {
-      // Create new StreamableHTTP transport with pre-generated sessionId
+      // No session id → fresh client opening a session (initialize). Create transport.
       isNewTransport = true;
       const newSessionId = crypto.randomUUID();
       contextSessionId = newSessionId;
@@ -5956,8 +5971,12 @@ if (MCP_TRANSPORT === "http") {
     const session = sessionId ? transports.get(sessionId) : undefined;
 
     if (!session || session.type !== 'streamable') {
-      return res.status(400).json({
-        error: "Bad Request: No valid session. POST to initialize first, or use /sse for SSE transport."
+      // A presented-but-unknown session id → 404 so the client re-initializes
+      // (spec), instead of a sticky 400. No session id → keep the 400 guidance.
+      return res.status(sessionId ? 404 : 400).json({
+        error: sessionId
+          ? "Session not found; reinitialize"
+          : "Bad Request: No valid session. POST to initialize first, or use /sse for SSE transport."
       });
     }
 
