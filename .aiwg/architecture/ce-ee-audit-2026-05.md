@@ -1,12 +1,23 @@
 ---
 title: Fortemi CE/EE Plugin Viability Audit
 date: 2026-05-20
-status: draft
+last_revised: 2026-05-20
+status: draft (revised to align with HotM ADR-MOBILE-001 + Fortemi/fortemi#707)
 audience: technical leads, open-source contributors
 scope: security, scalability, pluggability across the Fortemi repo family
 ---
 
 # Fortemi CE/EE Plugin Viability Audit
+
+## Revision note (2026-05-20)
+
+Two findings were re-scoped after integrating the upstream HotM ADR-MOBILE-001 and the existing Gitea Fortemi/fortemi#707 epic, which the initial draft did not consult:
+
+- **S-3 (tenancy)** — now shared-schema + Postgres RLS per ADR-090 Rev 1, not schema-per-tenant. Schema-per-tenant is retained as documented escalation trigger only.
+- **S-5 (key custody)** — now KMS-required-at-launch for hosted multi-tenant per ADR-093 Rev 1, not "EE upgrade." `EnvKeyProvider` retained only for HotM desktop sidecar.
+
+All other findings (S-1, S-2, S-4, S-6, S-7, S-8, S-9, Sc-*, P-*) stand. The plug-point ADRs ADR-089, ADR-091, ADR-092, ADR-094, ADR-095, ADR-096, ADR-097, ADR-098, ADR-099, ADR-100 are unaffected.
+
 
 ## 1. Executive Summary
 
@@ -54,13 +65,13 @@ Evidence: `crates/matric-api/src/main.rs:1756` (per survey). The default is docu
 Evidence: `AuthPrincipal` is extractable per ADR-071, but no `can(principal, action, resource)` decision point exists in the request path. Authentication answers *who*; authorization answers *what they may do*. The two are not interchangeable. Risk: any authenticated principal can call any handler their token reaches. Remedy: define an `AuthorizationPolicy` trait, route every handler through it, ship a permissive CE default and an RBAC EE policy. **ADR-089: AuthorizationPolicy trait and policy decision point.**
 
 **S-3. Tenancy is not modeled. [CRITICAL for SaaS]**
-Evidence: `SchemaContext` (ADR-068) wraps `SET LOCAL search_path` per archive, not per tenant. `AuthContext` does not carry `tenant_id`. Risk: in a multi-tenant deployment, any handler that forgets `for_schema()` reads cross-tenant rows. The trap is shape-correct and silent. Remedy: thread `tenant_id` through `AuthContext` → `SchemaContext` and enforce at the connection-acquisition layer, not the handler. A handler that wants un-scoped access must declare it explicitly. **ADR-090: Tenant identity propagation and connection-scoped enforcement.**
+Evidence: `SchemaContext` (ADR-068) wraps `SET LOCAL search_path` per archive, not per tenant. `AuthContext` does not carry `tenant_id`. Risk: in a multi-tenant deployment, any handler that forgets to scope reads cross-tenant rows. The trap is shape-correct and silent. Remedy (per ADR-090 Rev 1, aligned with HotM ADR-MOBILE-001 Decision 6 and Fortemi/fortemi#707): shared-schema + Postgres Row-Level Security with `tenant_id` on every user-data table, `NOSUPERUSER NOBYPASSRLS` connecting role, `FORCE ROW LEVEL SECURITY`, `SET LOCAL app.current_tenant` per request transaction, CI gate via `pg_class`/`pg_policy`, and a `TenantScopedConn` extractor that enforces all of the above at the type level. Schema-per-tenant retained only as documented escalation trigger for compliance regimes or >10k tenants. **ADR-090 Rev 1: Shared-schema + RLS multi-tenancy.**
 
 **S-4. `fortemi-auth` consumed via SSH git deps. [HIGH]**
 Evidence: `fortemi-auth` is on Gitea, MIT-licensed, but pulled by `fortemi` via `git = "ssh://..."` style references. Risk: no checksum verification beyond Cargo's `Cargo.lock` hash; key rotation cost is non-trivial; mirror-and-verify story is informal. This is the same class of failure pattern documented in `.claude/rules/dependency-source-policy.md`. Remedy: vendor `fortemi-auth-core` (the trait crate) into the public workspace, or publish all three `fortemi-auth-*` crates to a private cargo registry with checksum pinning. Document the allowlist. **ADR-096: fortemi-auth distribution and supply-chain hardening.**
 
 **S-5. `agent-proxy` design must not be reused for hosted. [HIGH if violated]**
-Evidence: HotM's `agent-proxy` holds raw cloud API keys and binds localhost-only — appropriate for an Electron/Tauri desktop client where the user *is* the operator. Risk: any future temptation to "just move agent-proxy to the cloud" inherits a design that was never threat-modeled for hosted multi-tenant. Remedy: document the architectural boundary; explicitly require a `KeyProvider` (BYOK/KMS/HSM) for any non-desktop deployment. **ADR-093: KeyProvider trait and BYOK/KMS contract.**
+Evidence: HotM's `agent-proxy` holds raw cloud API keys and binds localhost-only — appropriate for an Electron/Tauri desktop client where the user *is* the operator. Risk: any future temptation to "just move agent-proxy to the cloud" inherits a design that was never threat-modeled for hosted multi-tenant. Remedy (per ADR-093 Rev 1, aligned with HotM ADR-MOBILE-001 Decision 4): hosted multi-tenant **requires KMS at launch** (AWS KMS, GCP KMS, or HashiCorp Vault Transit); "KEK file on disk" launch posture is rejected. `EnvKeyProvider` is retained only for HotM desktop sidecar (single-tenant) and explicit dev opt-out; startup refuses to construct it when `FORTEMI_MULTI_TENANT=true`. BYO-LLM provider keys (per #707 sub-items 5/6) are envelope-encrypted under per-purpose KMS keys with per-tenant `EncryptionContext`. **ADR-093 Rev 1: KMS-required-at-launch for hosted multi-tenant.**
 
 **S-6. No visible CSP/SRI hardening in `fortemi-react`. [MEDIUM, escalates to HIGH on plugin JS]**
 Evidence: `fortemi-react` is browser-only PGlite WASM (AGPL-3.0). No CSP or SRI manifest was located in this audit. Risk: when EE plugins ship JS UI extensions, an unprovisioned CSP becomes a plugin-supply-chain attack surface. Remedy: define CSP and SRI requirements as part of the plugin contract before any plugin JS lands. **ADR-098: Client-side plugin trust boundary (CSP/SRI).**

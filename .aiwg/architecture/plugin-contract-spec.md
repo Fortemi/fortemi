@@ -68,7 +68,7 @@ New traits introduced for EE are BETA until first EE shipment; then promoted to 
 | 18 | `AuthorizationPolicy` | `matric-core` | A, B, C | **Beta** (ADR-089) | `AllowAllPolicy` (CE) | Casbin, OPA, custom RBAC/ABAC | Beta → Stable @ 2026.Q3 |
 | 19 | `AuditSink` | `matric-core` | A, B, C | **Beta** (ADR-091) | `TracingSink` | Splunk, Elastic SIEM, S3-WORM, Datadog | Beta → Stable @ 2026.Q3 |
 | 20 | `UsageMeter` + `QuotaPolicy` | `matric-core` | A, B | **Beta** (ADR-092) | `NoOpMeter` | Stripe Metering, OpenMeter, custom | Beta → Stable @ 2026.Q4 |
-| 21 | `KeyProvider` | `matric-core` (re-exported from `matric-crypto`) | A, B, C | **Beta** (ADR-093) | `EnvKeyProvider` | AWS KMS, GCP KMS, Vault Transit, YubiHSM2 | Beta → Stable @ 2026.Q4 |
+| 21 | `KeyProvider` | `matric-core` (re-exported from `matric-crypto`) | A, B, C | **Beta** (ADR-093 Rev 1) | `KmsKeyProvider` (AWS KMS, GCP KMS, or Vault Transit) for hosted multi-tenant; `EnvKeyProvider` for single-tenant HotM desktop sidecar only | YubiHSM2 (`fortemi-enterprise-kms-yubihsm`), BYOK wrapper (`fortemi-enterprise-kms-byok`) | Beta → Stable @ 2026.Q4 |
 | 22 | `DataSubjectRequestHandler` | `matric-core` | A | **Experimental** (ADR-099) | `NotImplemented` | Privacy automation vendors | Experimental → Beta @ 2026.Q4 |
 | 23 | MCP scope gate (extension of OAuth scope) | `matric-api` | A | **Beta** (ADR-100) | Default scope map | Custom scope policies | Beta → Stable @ 2026.Q3 |
 
@@ -80,7 +80,7 @@ The core promises every plugin the following:
 
 2. **AuthContext on every call.** Every plugin method whose surface area touches user data receives `&AuthContext` (defined in `fortemi-auth-core`). Plugins may enforce their own authorization on top of the core's `AuthorizationPolicy` (defense in depth), but MUST NOT downgrade the core's decision.
 
-3. **Tenant scope is enforced upstream.** Plugins do NOT receive a raw `Database` handle in EE multi-tenant builds. They receive a `TenantScopedDb` (newtype enforced via the type system per ADR-090). Plugins that need cross-tenant access MUST declare `system:tenant_admin` in their manifest and call the explicit `Database::for_system()` constructor, which itself is audit-logged.
+3. **Tenant scope is enforced upstream.** Plugins do NOT receive a raw `Database` handle in multi-tenant mode. They receive a `TenantScopedConn` (per ADR-090 Rev 1) — an extractor that opens a transaction and issues `SET LOCAL app.current_tenant = <tenant_id>` before any tenant-scoped query. RLS policies on every user-data table enforce isolation at the database tier. Plugins that need cross-tenant access MUST declare `system:tenant_admin` in their manifest and call the explicit `SystemScopedConn` extractor, which itself is audit-logged via the `system.cross_tenant_access` event.
 
 4. **Panic containment.** A plugin panic is caught at the call boundary and converted to `ApiError::Plugin { name, kind, source }`. The API process does not crash. Repeated panics trip the per-plugin circuit breaker.
 

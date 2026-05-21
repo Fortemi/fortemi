@@ -1,10 +1,19 @@
 # Multi-Tenant SaaS Threat Model Addendum (Fortemi)
 
-**Status:** Draft for ADR-090 / ADR-089 input
+**Status:** Draft for ADR-090 / ADR-089 input (revised 2026-05-20 to align with HotM ADR-MOBILE-001)
 **Audience:** Security reviewers, EE plugin authors
 **Scope:** Hosted multi-tenant deployment of Fortemi (one PostgreSQL cluster, many tenants)
-**Companion ADRs:** ADR-090 (Multi-Tenancy Model), ADR-089 (Authorization Policy Trait), ADR-091 (Audit Plane), ADR-093 (Key Management Plane), ADR-098 (Quota Plane), ADR-100 (MCP Tool Gating)
+**Companion ADRs:** ADR-090 (Multi-Tenancy Model — RLS), ADR-089 (Authorization Policy Trait), ADR-091 (Audit Plane), ADR-093 (Key Management Plane — KMS at launch), ADR-098 (Quota Plane), ADR-100 (MCP Tool Gating)
 **License context:** BSL-1.1 with a custom "matric-memory Change License" Additional Use Grant whose exact terms are referenced by ADR-090 but not re-asserted here.
+
+## Revision note (2026-05-20)
+
+This document was drafted before HotM ADR-MOBILE-001 and Gitea Fortemi/fortemi#707 were integrated. Two architectural choices have since shifted; treat the revised ADRs as authoritative where they conflict with this document's body:
+
+- **Tenancy isolation** — now shared-schema + Postgres RLS per ADR-090 Rev 1. References to `TenantScopedDb` (a newtype originally proposed for schema-per-tenant) should be read as `TenantScopedConn` (the RLS equivalent — opens a transaction and `SET LOCAL app.current_tenant = ...`). The threat-model rationale (defense-in-depth, type-enforced scope) still applies; the implementation mechanism changed.
+- **Key custody** — KMS at launch per ADR-093 Rev 1; `EnvKeyProvider` is single-tenant-only. References to "KEK rotation procedure" should be read as referring to the KMS-backed rotation path (online, no downtime) rather than the env-key path (manual, requires downtime).
+
+Schema-per-tenant remains a documented escalation trigger; the threat-model section that compares isolation options is still useful for that decision point.
 
 ---
 

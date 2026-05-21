@@ -1,184 +1,241 @@
-# ADR-090: Multi-Tenancy Model — Schema-per-Tenant with Type-Enforced Scope
+# ADR-090: Multi-Tenancy Model — Shared Schema + Postgres RLS
 
-**Status:** Proposed
+**Status:** Accepted (revised 2026-05-20 to align with HotM ADR-MOBILE-001 Decision 6)
 **Date:** 2026-05-20
-**Deciders:** roctinam, security review TBD
-**Related:** ADR-068 (archive isolation routing), ADR-071 (auth middleware), ADR-089 (authorization policy), ADR-094 (fail-closed)
-**Related docs:** `.aiwg/security/multi-tenant-threat-model.md` (full STRIDE)
+**Deciders:** roctinam
+**Related:** ADR-068 (archive isolation), ADR-071 (auth middleware), ADR-089 (authorization), ADR-094 (fail-closed)
+**Upstream:** HotM `.aiwg/architecture/adr-mobile-cloud-architecture.md` (ADR-MOBILE-001) — strategic source
+**Related docs:** `.aiwg/security/multi-tenant-threat-model.md`
+**Related issues:** Fortemi/fortemi#707 (matric-api auth + multi-tenancy epic)
+
+## Revision history
+
+| Rev | Date | Change |
+|---|---|---|
+| 0 | 2026-05-20 | Initial draft proposed schema-per-tenant with `TenantScopedDb` newtype |
+| 1 | 2026-05-20 | **Revised** to match HotM ADR-MOBILE-001 Decision 6 and Gitea Fortemi/fortemi#707: shared-schema with Postgres RLS, `NOSUPERUSER NOBYPASSRLS` role, `SET LOCAL app.current_tenant` per request, FORCE RLS on every tenant-scoped table, CI gate via `pg_class`/`pg_policy`. Schema-per-tenant retained only as documented escalation trigger. |
 
 ## Context
 
-ADR-068 introduced archive isolation via PostgreSQL schemas with `SET LOCAL search_path TO {schema}, public` wrapped by a `SchemaContext`. Today this enables multiple parallel **archives within a single deployment** — same user, different memory contexts.
+ADR-068 introduced archive isolation via PostgreSQL schemas with `SET LOCAL search_path TO {schema}, public` wrapped by a `SchemaContext`. That mechanism enables multiple parallel **archives within a single deployment** — same user, different memory contexts. It does **not** provide multi-tenant SaaS isolation.
 
-For the hosted multi-tenant SaaS (the EE deployment target), we need **tenant isolation** as a distinct concept from archive isolation:
-- A tenant has 1..N archives
-- A user belongs to 1..N tenants
-- A request must be scoped to exactly one tenant
-- Cross-tenant access requires explicit elevation (system admin)
-- "Forgetting to scope" must be a compile error, not a runtime hope
+For the hosted multi-tenant deployment (HotM mobile + HotM cloud-mode desktop), HotM ADR-MOBILE-001 Decision 6 selected the tenancy model after research into AWS, Crunchy, and Supabase guidance: **shared-schema with Postgres Row-Level Security**. The convergent recommendation across all three vendors is shared-schema + RLS for the operational scale HotM targets (well under 10k tenants at launch). Schema-per-tenant is documented as a future escalation path if a specific compliance regime (HIPAA / SOC2) requires per-tenant data separation or if a tenant grows beyond shared-schema's operational ceiling.
 
-The CE/EE audit (finding S-3, HIGH severity) and the multi-tenant threat model both flag this as a launch-blocking gap for hosted EE.
-
-Three architectural options were analyzed in `.aiwg/security/multi-tenant-threat-model.md` §2:
-
-| Option | Isolation | Scale ceiling | Ops complexity |
-|---|---|---|---|
-| (a) Schema-per-tenant | Strong (PG namespace) | ~500 tenants/cluster (practitioner-reported; not benchmarked here) | Moderate — pg_dump and planner stats degrade with many schemas |
-| (b) Row-level via RLS + `tenant_id` everywhere | Strong (PG RLS) if policy correct | Very large | Moderate — every table needs RLS policy + every query needs context |
-| (c) Hybrid: DB-per-large-tenant + schema-per-tenant for the long tail | Strongest for large tenants | Effectively unbounded | High — multi-cluster ops |
+The audit (`ce-ee-audit-2026-05.md`) initially proposed schema-per-tenant before the upstream HotM decision was integrated. This ADR corrects that.
 
 ## Decision
 
-**Adopt schema-per-tenant (option a) as the primary multi-tenancy model up to ~500 tenants per cluster, with a documented graduation path to the hybrid model (c). Enforce tenant scope at the type level via a `TenantScopedDb` newtype.**
+**Adopt shared-schema with Postgres Row-Level Security as the multi-tenancy model. Make RLS load-bearing — not advisory — through six mandatory invariants below. Reserve schema-per-tenant and database-per-tenant as documented escalation triggers.**
 
-### Tenancy primitives
+### The model
+
+Every user-data table carries:
+
+```sql
+CREATE TABLE notes (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    -- ... rest of columns
+);
+
+CREATE INDEX notes_tenant_id_idx ON notes(tenant_id);
+
+ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notes FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY notes_tenant_isolation ON notes
+    USING (tenant_id = current_setting('app.current_tenant')::uuid);
+```
+
+Every request handler wraps its query work in a transaction and sets the tenant scope before any tenant-scoped query runs:
 
 ```rust
-// crates/matric-core/src/tenancy.rs
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct TenantId(String);   // ULID-like opaque id, NOT mutable
-
-impl TenantId {
-    /// Schema name for this tenant. Format: "tenant_<lowercase_alphanum>"
-    pub fn schema_name(&self) -> &str { /* validated at construction */ }
-}
-
-#[derive(Debug, Clone)]
-pub struct TenantContext {
-    pub tenant_id: TenantId,
-    pub principal: AuthPrincipal,
-    pub elevated: bool,           // True if user has system:tenant_admin scope
-}
+let mut tx = pool.begin().await?;
+sqlx::query("SET LOCAL app.current_tenant = $1")
+    .bind(tenant_id)
+    .execute(&mut *tx)
+    .await?;
+// ... handler queries inside this transaction ...
+tx.commit().await?;
 ```
 
-### Type-enforced database scope
+### Six mandatory invariants
+
+These are what make RLS load-bearing instead of advisory. Each is enforced or asserted, not relied upon as discipline.
+
+1. **Database role posture.** `matric-api` connects as a PostgreSQL role with `NOSUPERUSER NOBYPASSRLS`. Startup assertion fails-closed if either attribute is present.
+
+   ```rust
+   // crates/matric-db/src/role_assertion.rs (new)
+   let row = sqlx::query!(
+       "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+   )
+   .fetch_one(pool).await?;
+   if row.rolsuper || row.rolbypassrls {
+       return Err(Error::Config(format!(
+           "Refusing to start: DB role has rolsuper={} rolbypassrls={}",
+           row.rolsuper, row.rolbypassrls
+       )));
+   }
+   ```
+
+2. **FORCE RLS** is set on every tenant-scoped table. Without `FORCE`, RLS does not apply to the table owner — and migrations frequently run as owner.
+
+3. **CI gate via pg_catalog.** A CI step queries `pg_class` and `pg_policy` and fails the build when any table in the tenant-scoped schema lacks `rowsecurity = true` or has no policy referencing `current_setting('app.current_tenant')`. New table without RLS = failed build. See `.aiwg/security/multi-tenant-threat-model.md` §6 for the exact assertion query.
+
+4. **Transaction-mode pooling only.** `SET LOCAL` is transaction-scoped. PgBouncer **session mode is unsafe** (transactions from different requests can share a connection and inherit each other's `app.current_tenant`). Production MUST use transaction-mode pooling (PgBouncer transaction mode, or no pooler at all). Documented in deployment runbook; asserted on startup by reading `application_name` or pool stats.
+
+5. **Set-local-before-query discipline.** Every tenant-scoped query path begins with a transaction + `SET LOCAL app.current_tenant`. This is enforced at the type level by the `TenantScopedConn` newtype (below) and verified by integration tests.
+
+6. **Type-enforced tenant scope (Rust).** The handler signature receives a `TenantScopedConn` extractor, not a raw `&mut PgConnection`. The extractor:
+   - Opens the transaction
+   - Sets `app.current_tenant`
+   - Returns a guard that ensures the transaction commits or rolls back
+
+   ```rust
+   // crates/matric-api/src/extractors/tenant_scoped_conn.rs (new)
+   pub struct TenantScopedConn<'a> {
+       tx: sqlx::Transaction<'a, sqlx::Postgres>,
+       tenant_id: TenantId,
+   }
+
+   #[async_trait]
+   impl<'a> FromRequestParts<AppState> for TenantScopedConn<'a> {
+       async fn from_request_parts(...) -> Result<Self> {
+           let ctx: &AuthContext = parts.extensions.get().ok_or(Error::Unauthorized)?;
+           let mut tx = state.pool.begin().await?;
+           sqlx::query("SET LOCAL app.current_tenant = $1")
+               .bind(ctx.tenant_id().0)
+               .execute(&mut *tx).await?;
+           Ok(TenantScopedConn { tx, tenant_id: ctx.tenant_id().clone() })
+       }
+   }
+   ```
+
+   Handlers that need cross-tenant access (admin endpoints) take a `SystemScopedConn` instead — its constructor requires `principal.has_scope("system:tenant_admin")` and emits a `system.cross_tenant_access` audit event (per ADR-091).
+
+### Tenant ID semantics
 
 ```rust
-// crates/matric-db/src/tenant_scoped_db.rs
+// crates/matric-core/src/tenancy.rs (new)
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct TenantId(pub uuid::Uuid);
 
-/// The only database handle exposed to request handlers in multi-tenant mode.
-/// All queries are automatically prefixed with `SET LOCAL search_path TO {tenant_schema}, public`.
-pub struct TenantScopedDb<'a> {
-    inner: &'a Database,
-    tenant: &'a TenantContext,
-}
-
-impl<'a> TenantScopedDb<'a> {
-    pub fn for_tenant(db: &'a Database, ctx: &'a TenantContext) -> Self { ... }
-
-    /// Cross-tenant access. Requires `ctx.elevated == true`, emits an audit event.
-    pub fn for_system(db: &'a Database, ctx: &'a TenantContext) -> Result<SystemScopedDb<'a>> {
-        if !ctx.elevated {
-            return Err(Error::Forbidden("system scope requires elevation"));
-        }
-        audit::emit(AuditEvent::SystemAccessGranted { principal: ctx.principal.id() });
-        Ok(SystemScopedDb { inner: db, ctx })
-    }
-}
+// Source: extracted from the OAuth JWT claim "tenant_id" by fortemi-auth-core's
+// AuthContext, or from API key metadata.
 ```
 
-### Multi-tenant build feature
+Tenant ID is the **tenant uuid from the OAuth/JWT claim**, not derived from the principal. A user can be a member of multiple tenants; the JWT/API key carries which tenant is active for the current session.
 
-```toml
-# fortemi/crates/matric-api/Cargo.toml
-[features]
-default = ["single-tenant"]
-single-tenant = []
-multi-tenant = []
-```
+### Single-tenant mode (HotM desktop sidecar)
 
-In `multi-tenant` builds:
-- `Database` does **not** implement methods that take raw queries without a `TenantScopedDb` wrapper
-- Direct `state.db` access is compile-error
-- `Database::raw()` is gated behind a separate feature with a loud constant `UNSAFE_RAW_DB_ACCESS = true`
+The HotM desktop local-install path runs `matric-api` in single-tenant mode. Configuration:
 
-In `single-tenant` (CE) builds:
-- `Database` works as today
-- `TenantScopedDb` exists as a thin wrapper that just forwards (so handlers can use one type across builds)
+- `FORTEMI_MULTI_TENANT=false` (default for the desktop sidecar build)
+- Database does not require RLS to be enabled (legacy schema acceptable)
+- A synthetic `tenant_id = '00000000-0000-0000-0000-000000000000'` is used as a constant in all queries to keep code paths uniform
 
-### Tenant context propagation
+Multi-tenant mode (`FORTEMI_MULTI_TENANT=true`):
+- Asserts the six invariants at startup
+- Refuses to start if any assertion fails
+- Required for the hosted deployment HotM mobile + HotM cloud-mode desktop consume
 
-The auth middleware resolves the tenant from the JWT/API key (claim `tenant_id`) and attaches a `TenantContext` to the request extensions. Downstream extractors (analogous to `Auth` / `RequireAuth` extractors) provide `TenantScopedDb` directly to handlers.
+### Migration of existing data
 
-```rust
-async fn list_notes(
-    db: TenantScopedDb,    // Axum extractor; refuses to construct without TenantContext
-    Query(q): Query<ListNotesQuery>,
-) -> Result<Json<ListNotesResponse>> {
-    let notes = db.note_repo().list(&q).await?;
-    Ok(Json(ListNotesResponse { notes }))
-}
-```
+The HotM desktop sidecar has existing notes without `tenant_id`. The migration plan (covered by Fortemi/fortemi#707 sub-item 1):
 
-### Archive within tenant
+1. Add `tenant_id UUID NULL` column to every user-data table
+2. Backfill all existing rows with the synthetic single-tenant UUID
+3. `ALTER COLUMN tenant_id SET NOT NULL`
+4. Add B-tree index `(tenant_id)` on every table
+5. Add RLS policies + `FORCE ROW LEVEL SECURITY`
+6. Test against a snapshot of representative data
+7. Run on production with downtime if the snapshot test surfaces issues
 
-Archives (ADR-068) become nested within tenants. The tenant schema contains an `archive_registry` table; archive schemas are named `tenant_<id>_archive_<name>`. The `for_archive` method on `TenantScopedDb` returns a further-scoped handle.
+### When schema-per-tenant becomes the right answer
 
-### Migration from single-tenant CE to multi-tenant EE
+Document the escalation triggers explicitly so the team does not re-litigate the tenancy model on every operational hiccup:
 
-A CE deployment can be promoted to EE multi-tenant by:
-1. Adding a `tenant_id` column to `archive_registry` (default tenant = `"default"`)
-2. Renaming the public schema content to `tenant_default` via a migration
-3. Rebuilding with `--features multi-tenant`
-
-A separate migration ADR (forthcoming) will detail the data-migration plan.
-
-### Scale ceiling and graduation path
-
-| Tenant count | Strategy |
+| Trigger | Action |
 |---|---|
-| 1..50 | Single cluster, schema-per-tenant, shared connection pool |
-| 50..500 | Single cluster, schema-per-tenant, **per-tenant connection pool budgets**, planner-stats targeted vacuum |
-| 500+ | **Hybrid**: dedicated cluster per "premium" tenant (revenue-justified); shared cluster pool for long-tail. New tenants land in least-loaded cluster. Routing via tenant→cluster map in a control-plane DB. |
+| HIPAA, SOC2 Type II, or PCI-DSS requires per-tenant data separation | Migrate the regulated tenants to schema-per-tenant. Shared-schema remains for unregulated tenants. |
+| Single tenant grows beyond shared-schema ceiling (~10k tenants per cluster cited as the practitioner threshold across AWS/Crunchy/Supabase) | Migrate the largest tenants to dedicated schemas or dedicated databases |
+| Tenant requires data residency (e.g., EU-only) | Region-pinned cluster per residency requirement; shared-schema within the region |
+| Customer signs an MSA requiring "logical isolation guaranteed by separate schema" | Move that customer to schema-per-tenant; document in their contract addendum |
 
-The 500-tenant figure is practitioner-reported and not benchmarked by this work. A benchmarking subtask will land before EE GA to confirm or revise.
+The schema-per-tenant escalation path is **not** the same as ADR-068's archive-per-user pattern — archives are within-tenant memory contexts, not tenant boundaries.
 
 ## Consequences
 
 ### Positive
-- (+) Strong isolation via PostgreSQL namespace — verified by tooling (cannot accidentally SELECT from another schema without explicit qualification)
-- (+) Compile-time enforcement via `TenantScopedDb` — "forgot to scope" is a build error in EE builds
-- (+) Auditable: cross-tenant access requires explicit `for_system()` which audit-logs
-- (+) Extends rather than rewrites ADR-068 — `SchemaContext` machinery is reused
-- (+) Graduation path defined — not boxed in at 500 tenants
+
+- (+) Aligns with HotM ADR-MOBILE-001 Decision 6 and existing Fortemi/fortemi#707 scope
+- (+) Operationally simple — one schema, one connection pool, one backup process
+- (+) Standard Postgres feature; well-understood by ops/DBAs
+- (+) Compatible with pgvector — HNSW/IVFFLAT indexes work; B-tree filter on `tenant_id` runs first
+- (+) RLS provides a hard database-tier wall, not a developer-discipline wall
+- (+) `TenantScopedConn` extractor makes "forgot to scope" a compile error in handler signatures
+- (+) CI gate catches new tables without RLS at PR time, not in production
+- (+) Migration from current single-tenant HotM sidecar to multi-tenant is well-scoped (Fortemi/fortemi#707 sub-item 1)
 
 ### Negative
-- (-) PostgreSQL planner statistics and `pg_dump` degrade as schema count grows; mitigated by per-schema vacuum scheduling but real
-- (-) Connection pool sizing becomes per-tenant or per-cluster, not single global; ops complexity rises
-- (-) Per-tenant DDL changes during migrations require running each schema; mitigated by sqlx migrations runner extended to iterate tenants
-- (-) CE single-tenant and EE multi-tenant builds diverge (feature flag); test matrix doubles
-- (-) Cross-tenant analytics (e.g., usage dashboards across all tenants) require `for_system()` and explicit auditing
+
+- (-) Connection pooling is constrained to transaction mode (PgBouncer session mode forbidden); operational complexity in pool sizing
+- (-) Every query must be inside a `SET LOCAL` transaction; raw `&Pool` use is forbidden in tenant-scoped paths
+- (-) RLS adds a small per-query cost (planner has extra predicate); benchmark before launch confirms acceptable
+- (-) Cross-tenant analytics (admin dashboards over all tenants) require explicit `SystemScopedConn` + audit emission
+- (-) Migration to multi-tenant on a populated database requires a maintenance window
+- (-) If RLS policy is missed on a new table, the CI gate is the only guard — the gate must never be bypassed
 
 ### Neutral
-- (~) Backup/restore strategy shifts to per-tenant schema dumps; ops runbook in `.aiwg/operations/` needed
-- (~) Tenant deletion is reversible (rename + retain) for N days before drop; soft-delete TTL policy needed
+
+- (~) Tenant deletion is soft-delete + N-day retention before hard-delete; operational runbook in `.aiwg/operations/`
+- (~) ADR-068 archive isolation pattern continues to work within tenants — archives are nested under tenants
 
 ## Implementation
 
 **Code location:**
-- Tenancy primitives: `crates/matric-core/src/tenancy.rs` (new)
-- Scoped DB: `crates/matric-db/src/tenant_scoped_db.rs` (new)
-- Middleware: `crates/matric-api/src/middleware/tenant.rs` (new)
-- Extractor: `crates/matric-api/src/extractors/tenant_scoped_db.rs` (new)
+- Tenancy primitives: `crates/matric-core/src/tenancy.rs` (new — `TenantId`, `AuthContext::tenant_id()`)
+- Role assertion: `crates/matric-db/src/role_assertion.rs` (new)
+- TenantScopedConn extractor: `crates/matric-api/src/extractors/tenant_scoped_conn.rs` (new)
+- SystemScopedConn extractor: `crates/matric-api/src/extractors/system_scoped_conn.rs` (new)
+- Migration: `migrations/{date}_add_tenant_id_and_rls.sql` (new)
+- CI gate: `ci/scripts/check-rls-coverage.sh` (new)
 
-**Phases:**
-1. (this ADR + issues) Land `TenantId`, `TenantContext`, `TenantScopedDb` shells with no-op semantics under `multi-tenant` feature
-2. Migrate ADR-068 archive routing under the new scope type
-3. Migrate handler population — batch 1 (read-only routes), batch 2 (write routes), batch 3 (admin)
-4. Add `tenant_admin` and `system` scopes to OAuth/API key surface
-5. Land tenant lifecycle endpoints (create, suspend, delete) — separate ADR for these endpoints
-6. Benchmark schema-per-tenant scaling on representative workload before GA
+**Phases** (mirrors Fortemi/fortemi#707 scope):
 
-**Testing:**
-- Property-based test: random handler + random tenant context never returns data from another tenant
-- Failure mode: handler that bypasses extractor and calls `Database::raw()` is a compile error in multi-tenant builds
+1. Add `tenant_id` column + indexes + backfill to all user-data tables
+2. Add RLS policies + FORCE RLS
+3. Switch DB role to `NOSUPERUSER NOBYPASSRLS`; add startup assertion
+4. Implement `TenantScopedConn` extractor; migrate read-only handlers
+5. Migrate write handlers
+6. Migrate admin handlers to `SystemScopedConn`
+7. Land 10-case isolation test suite (per #707 sub-item 4)
+8. Add CI gate (`pg_class` / `pg_policy` check)
+9. Document operational runbook (tenant create/suspend/delete, backup-per-tenant)
+
+**Testing — the 10 mandatory isolation tests** (verbatim from Fortemi/fortemi#707):
+
+1. `test_user_b_cannot_list_user_a_notes`
+2. `test_user_b_cannot_fetch_user_a_note_by_uuid` (returns 404, not 403)
+3. `test_user_b_cannot_update_user_a_note`
+4. `test_user_b_cannot_delete_user_a_note`
+5. `test_user_b_cannot_insert_into_user_a_collection`
+6. `test_same_connection_reused_between_users_isolates`
+7. `test_sql_injection_in_search_string_cannot_bypass_rls`
+8. `test_vector_similarity_search_filters_by_tenant_before_scoring` (pgvector-specific)
+9. `test_new_table_without_rls_fails_ci` (meta-test via `pg_class`/`pg_policy`)
+10. `test_role_lacks_bypassrls_and_superuser` (startup assertion)
 
 ## References
 
-- ADR-068 — Archive isolation routing (the foundation)
-- ADR-071 — Auth middleware (provides AuthPrincipal)
-- ADR-089 — Authorization policy (uses TenantContext)
-- `.aiwg/security/multi-tenant-threat-model.md` — Full STRIDE analysis
-- PostgreSQL docs, "Schemas" — `https://www.postgresql.org/docs/current/ddl-schemas.html`
-- OWASP ASVS 4.0 §1.11 (multi-tenancy controls)
+- HotM `.aiwg/architecture/adr-mobile-cloud-architecture.md` (ADR-MOBILE-001) — Decision 6 strategic source
+- HotM `.aiwg/research/findings/mobile-multitenant-byo-llm.md` §1, §2 — research backing
+- Fortemi/fortemi#707 — implementation epic
+- ADR-068 — archive isolation (within-tenant; complementary)
+- ADR-071 — auth middleware (provides AuthContext.tenant_id())
+- ADR-089 — AuthorizationPolicy (composes on top of RLS row visibility)
+- ADR-091 — AuditSink (consumes `system.cross_tenant_access` events)
+- PostgreSQL docs, "Row Security Policies" — https://www.postgresql.org/docs/current/ddl-rowsecurity.html
+- AWS Database Blog, "Multi-tenant data isolation with PostgreSQL Row Level Security"
+- Supabase docs, "Row Level Security"
