@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Launchd template for the daily Fortemi NAS backup.
+
+  Installation
+  ============
+    1. Copy this file to ~/Library/LaunchAgents/com.fortemi.backup.plist
+       (no .template suffix in the destination).
+    2. Replace the three "<<TEMPLATE_…>>" placeholders below:
+       - <<TEMPLATE_REPO_PATH>>   absolute path to your local Fortemi checkout
+       - <<TEMPLATE_BACKUP_DEST>> absolute path to a directory on the NAS share
+       - <<TEMPLATE_HOUR>>        hour-of-day (0-23) to run the backup
+                                  (e.g. 4 means 04:30 local time)
+       The <integer>30</integer> Minute key below is the half-hour offset; tune
+       to your preference.
+    3. Load and start:
+         launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.fortemi.backup.plist
+         launchctl kickstart -k gui/$(id -u)/com.fortemi.backup   # optional one-shot test
+    4. Check logs at the paths in StandardOutPath / StandardErrorPath. Each run
+       prepends an ISO-8601 UTC timestamp, so tailing the log shows when each
+       backup ran and how big the dump was.
+
+  Uninstall
+  =========
+    launchctl bootout gui/$(id -u)/com.fortemi.backup
+    rm ~/Library/LaunchAgents/com.fortemi.backup.plist
+
+  Notes
+  =====
+  - RunAtLoad is OFF so reloading the plist doesn't trigger an unexpected
+    backup. The first run happens at the next StartCalendarInterval tick.
+  - KeepAlive is OFF — this is a scheduled one-shot, not a daemon.
+  - The script (`scripts/backup-to-nas.sh`) exits 0 on success and non-zero on
+    failure; the exit code is captured in launchd's `last_exit_code`. Use
+    `launchctl print gui/$(id -u)/com.fortemi.backup` to inspect.
+  - The script refuses to run when the matric container is down or when the
+    BACKUP_DEST directory is missing/unwritable (e.g. NAS unmounted), so a
+    failed mount turns into a non-zero exit + log entry rather than a silent
+    write to the boot disk.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fortemi.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string><<TEMPLATE_REPO_PATH>>/scripts/backup-to-nas.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BACKUP_DEST</key>
+        <string><<TEMPLATE_BACKUP_DEST>></string>
+        <key>BACKUP_RETAIN_DAYS</key>
+        <string>14</string>
+        <key>CONTAINER_NAME</key>
+        <string>fortemi-matric-1</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer><<TEMPLATE_HOUR>></integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string><<TEMPLATE_REPO_PATH>>/backups/backup-to-nas.log</string>
+
+    <key>StandardErrorPath</key>
+    <string><<TEMPLATE_REPO_PATH>>/backups/backup-to-nas.err</string>
+</dict>
+</plist>
