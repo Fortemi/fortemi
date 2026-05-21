@@ -377,6 +377,8 @@ jobs:
             -e RUST_LOG=info \
             -e HOST=0.0.0.0 \
             -e PORT=3000 \
+            -e REQUIRE_AUTH=false \
+            -e I_UNDERSTAND_NO_AUTH=true \
             matric-memory:test
 
           # Wait for API to be healthy (use docker exec for DinD environment)
