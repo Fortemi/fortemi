@@ -56,8 +56,11 @@ PGDATA=${DATA_DIR}/postgres
 REDIS_DATA=${DATA_DIR}/redis
 UPLOAD_DIR=${DATA_DIR}/uploads
 
-# Authentication (default: open — enable after registering clients)
+# Authentication (ADR-094: fail-closed default, fortemi/fortemi#709).
+# Bundle deployments run anonymous by default for single-user setup.
+# Set REQUIRE_AUTH=true to require authentication on all /api/v1/* endpoints.
 REQUIRE_AUTH=false
+I_UNDERSTAND_NO_AUTH=true
 EOF
 
 # Append provider-specific configuration
