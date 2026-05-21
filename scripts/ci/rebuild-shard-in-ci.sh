@@ -84,6 +84,12 @@ done
 #   would 429 every request after the first 100. Without this, ~half the
 #   import fails silently, the export step then errors, and the bundle build
 #   aborts. Observed in CI run #1486 (PR #653 first end-to-end run).
+# REQUIRE_AUTH=false + I_UNDERSTAND_NO_AUTH=true (ADR-094, fortemi/fortemi#709):
+#   Post-ADR-094 the API defaults to fail-closed and rebuild-docs-shard.sh
+#   issues unauthenticated POST /api/v1/archives + POST /api/v1/notes. This
+#   is a throwaway shard-build harness; explicitly opt into anonymous mode
+#   so the import calls succeed. Observed failing in CI run #1698 with
+#   "ERROR: Failed to create archive" (401 from the new fail-closed default).
 echo ">>> Starting API ($API_NAME) on host port ${HOST_PORT} from $API_IMAGE..."
 docker run -d --name "$API_NAME" --network "$NETWORK" \
     -p "${HOST_PORT}:3000" \
@@ -92,6 +98,8 @@ docker run -d --name "$API_NAME" --network "$NETWORK" \
     -e MATRIC_INFERENCE_DEFAULT=ollama \
     -e OLLAMA_BASE=http://disabled.invalid:11434 \
     -e RATE_LIMIT_ENABLED=false \
+    -e REQUIRE_AUTH=false \
+    -e I_UNDERSTAND_NO_AUTH=true \
     -e ISSUER_URL="${API_URL}" \
     "$API_IMAGE"
 
