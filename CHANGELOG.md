@@ -7,6 +7,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Security — Breaking Change
+
+- **Authentication is now fail-closed by default** (ADR-094, fixes Gitea
+  fortemi/fortemi#709). `REQUIRE_AUTH` defaults to `true`. Every `/api/v1/*`
+  endpoint requires a valid Bearer token unless an operator explicitly opts out
+  by setting both `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. The
+  startup gate refuses to launch with `REQUIRE_AUTH=false` unless the
+  acknowledgment is present, and emits a loud warning at boot and every 60
+  seconds for the process lifetime when anonymous mode is active. Multi-tenant
+  builds (`FORTEMI_MULTI_TENANT=true`) refuse anonymous regardless of the
+  acknowledgment — the combination is a startup error.
+
+  **Migration:** existing single-user desktop and local-dev deployments that
+  intentionally run anonymous must add `I_UNDERSTAND_NO_AUTH=true` to their
+  environment. The bundled `docker-compose.bundle.yml` and
+  `docker-compose.workstation.yml` already include the acknowledgment, so users
+  running stock compose files are unaffected. Deployments that previously
+  relied on the implicit `REQUIRE_AUTH=false` default without setting it
+  explicitly will now start in authenticated mode — set `REQUIRE_AUTH=true`
+  with `ISSUER_URL` for proper OAuth issuer configuration, or add the
+  acknowledgment pair to opt into anonymous.
+
 ## [2026.5.11] - 2026-05-18
 
 Maintenance tag. No functional change since 2026.5.10. Cuts a clean release tag that lands correctly on both the Gitea (`origin`) and GitHub (`github`) remotes — the 2026.5.7, 2026.5.8, and 2026.5.10 tags exist on GitHub but point at the pre-LLM-wizard commit (a stale mirror artifact). This release is the first post-workstation tag that is byte-identical across both remotes.

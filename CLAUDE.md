@@ -79,18 +79,28 @@ See `scripts/README.md` for more details.
 
 ## Authentication
 
-The API supports opt-in authentication via the `REQUIRE_AUTH` environment variable.
+Authentication is **fail-closed by default** (ADR-094, fixes Gitea
+fortemi/fortemi#709). The API requires a valid Bearer token on all
+`/api/v1/*` endpoints unless explicitly opted out via a paired acknowledgment.
 
 ### Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REQUIRE_AUTH` | `false` | Set to `true` to require auth on all `/api/v1/*` endpoints |
+| `REQUIRE_AUTH` | `true` | Require a valid Bearer token on all `/api/v1/*` endpoints |
+| `I_UNDERSTAND_NO_AUTH` | `false` | Required acknowledgment to run with `REQUIRE_AUTH=false`. Startup refuses if `REQUIRE_AUTH=false` is set without this flag |
+| `FORTEMI_MULTI_TENANT` | `false` | Multi-tenant deployments must run with auth. Setting both `FORTEMI_MULTI_TENANT=true` and `REQUIRE_AUTH=false` is a startup error |
 | `ISSUER_URL` | `https://localhost:3000` | OAuth2 issuer URL (REQUIRED for OAuth/MCP) |
 | `MAX_MEMORIES` | `10` | Maximum memory archives. Scale with hardware: 10 (8GB), 50 (16GB), 200 (32GB), 500 (64GB+) |
 
-When `REQUIRE_AUTH=false` (default), all endpoints are publicly accessible.
-When `REQUIRE_AUTH=true`, all `/api/v1/*` endpoints require a valid Bearer token.
+**Default (`REQUIRE_AUTH=true`):** every `/api/v1/*` endpoint requires a valid
+Bearer token. Safe for any deployment reachable beyond localhost.
+
+**Anonymous mode (`REQUIRE_AUTH=false` + `I_UNDERSTAND_NO_AUTH=true`):**
+suitable only for single-user desktop sidecar and local development. The
+startup emits a loud warning at boot and every 60 seconds for the process
+lifetime, so the no-auth posture cannot hide in long-running logs. Multi-tenant
+builds refuse anonymous regardless of the acknowledgment.
 
 Public endpoints (always accessible regardless of `REQUIRE_AUTH`):
 - `/health`, `/api/v1/health/*`
@@ -120,12 +130,20 @@ curl https://your-domain.com/api/v1/notes \
   -H "Authorization: Bearer mm_at_xxxx"
 ```
 
-### Enabling Auth on Existing Deployments
+### Migrating from Anonymous to Authenticated
 
-1. Deploy with `REQUIRE_AUTH=false` (default) and register OAuth clients
-2. Create API keys for existing integrations: `POST /api/v1/api-keys`
-3. Update all clients to include `Authorization: Bearer <token>` headers
-4. Set `REQUIRE_AUTH=true` in `.env` and restart: `docker compose -f docker-compose.bundle.yml up -d`
+Pre-existing deployments running anonymous (which was the historical default before
+ADR-094) follow this sequence:
+
+1. Confirm anonymous is currently acknowledged: ensure `REQUIRE_AUTH=false` is paired
+   with `I_UNDERSTAND_NO_AUTH=true` in `.env`. Without the acknowledgment the next
+   restart will refuse to start.
+2. Register OAuth clients and create API keys for existing integrations:
+   `POST /api/v1/api-keys`.
+3. Update all clients to include `Authorization: Bearer <token>` headers.
+4. Flip to authenticated: remove `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`
+   from `.env` (or set `REQUIRE_AUTH=true`), then restart:
+   `docker compose -f docker-compose.bundle.yml up -d`.
 
 ## Inference Providers
 

@@ -129,6 +129,9 @@ services:
       - OLLAMA_EMBED_MODEL=nomic-embed-text
       - OLLAMA_GEN_MODEL=qwen3.5:9b
       - REQUIRE_AUTH=false
+      # ADR-094: anonymous mode is opt-in. Workstation is single-user local dev,
+      # so we acknowledge the no-auth posture. Set REQUIRE_AUTH=true to require authentication.
+      - I_UNDERSTAND_NO_AUTH=true
       - ALLOWED_ORIGINS=http://localhost:4180,http://localhost:3000,http://127.0.0.1:4180,http://127.0.0.1:3000
       - RATE_LIMIT_ENABLED=false
       - HOST=0.0.0.0

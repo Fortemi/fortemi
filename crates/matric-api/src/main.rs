@@ -1141,6 +1141,78 @@ async fn main() -> anyhow::Result<()> {
         rate_limit_period_secs
     );
 
+    // ADR-094: fail-closed authentication default.
+    //
+    // The boolean default for `require_auth` is now `true`. Opt-out requires BOTH
+    // `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. Multi-tenant builds
+    // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
+    let require_auth_env = std::env::var("REQUIRE_AUTH")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(true);
+    let i_understand_no_auth = std::env::var("I_UNDERSTAND_NO_AUTH")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    let multi_tenant = std::env::var("FORTEMI_MULTI_TENANT")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+    if !require_auth_env {
+        if multi_tenant {
+            anyhow::bail!(
+                "Refusing to start: FORTEMI_MULTI_TENANT=true is incompatible with \
+                 REQUIRE_AUTH=false. Multi-tenant deployments cannot run anonymous. \
+                 See ADR-090 Rev 1 and ADR-094."
+            );
+        }
+        if !i_understand_no_auth {
+            anyhow::bail!(
+                "Refusing to start: REQUIRE_AUTH=false but I_UNDERSTAND_NO_AUTH is not set. \
+                 Anonymous mode is opt-in only and exposes every /api/v1/* route without \
+                 authentication. To run anonymous (single-user desktop sidecar, dev): set \
+                 I_UNDERSTAND_NO_AUTH=true. To run with auth: set REQUIRE_AUTH=true and \
+                 configure an OAuth issuer via ISSUER_URL. See ADR-094."
+            );
+        }
+        // Loud, repeating warning so anonymous mode cannot hide in long-running logs.
+        tracing::warn!(
+            target: "fortemi.security",
+            "RUNNING WITHOUT AUTHENTICATION — THIS IS NOT A PRODUCTION CONFIGURATION. \
+             All /api/v1/* endpoints are publicly accessible. Set REQUIRE_AUTH=true to \
+             enable authentication."
+        );
+        let warn_handle = tokio::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                tracing::warn!(
+                    target: "fortemi.security",
+                    "STILL RUNNING WITHOUT AUTHENTICATION — anonymous access remains \
+                     enabled on every /api/v1/* route (I_UNDERSTAND_NO_AUTH=true)."
+                );
+            }
+        });
+        // Detach the warn task; it lives for the process lifetime
+        std::mem::forget(warn_handle);
+    } else {
+        // REQUIRE_AUTH=true: verify an OAuth issuer is configured (not the localhost fallback).
+        let issuer_explicit = std::env::var("ISSUER_URL").is_ok();
+        if !issuer_explicit {
+            tracing::warn!(
+                target: "fortemi.security",
+                "REQUIRE_AUTH=true but ISSUER_URL is not set. Falling back to \
+                 'http://{}:{}' — acceptable for local development only. Set ISSUER_URL \
+                 to your actual OAuth issuer URL before any non-localhost deployment.",
+                host, port
+            );
+        }
+        info!(
+            target: "fortemi.security",
+            "Authentication required (REQUIRE_AUTH=true). Issuer: {}",
+            std::env::var("ISSUER_URL").unwrap_or_else(|_| format!("http://{host}:{port}"))
+        );
+    }
+
     // Connect to database
     info!("Connecting to database...");
     let db = Database::connect(&database_url).await?;
@@ -1755,7 +1827,7 @@ async fn main() -> anyhow::Result<()> {
         ))),
         require_auth: std::env::var("REQUIRE_AUTH")
             .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(false),
+            .unwrap_or(true), // ADR-094: fail-closed default — see startup validation block in main()
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
