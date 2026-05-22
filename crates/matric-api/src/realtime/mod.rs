@@ -15,6 +15,12 @@ use matric_core::{Error, Result};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+pub mod asr;
+pub mod codec;
+
+#[cfg(any(test, feature = "mock-rtp"))]
+pub mod adapters;
+
 /// Boxed media stream used by adapter implementations.
 pub type MediaFrameStream = Pin<Box<dyn Stream<Item = MediaFrame> + Send>>;
 

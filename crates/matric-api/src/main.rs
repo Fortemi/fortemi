@@ -762,6 +762,7 @@ impl AppState {
     servers((url = "http://localhost:3000")),
     paths(
         create_webhook, list_webhooks, get_webhook, update_webhook,
+        get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
         get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence, get_access_frequency,
@@ -860,12 +861,13 @@ impl AppState {
             matric_core::SkosTagSpec, matric_core::StrictTagFilter, matric_core::StrictTagFilterInput,
             matric_core::TagInput, matric_core::TagNoteRequest, matric_core::TimelineGroup,
             matric_core::TimelineResponse, matric_core::TriModalWeights, matric_core::TusUpload,
+            matric_core::CallSession, matric_core::TranscriptSegment,
             matric_core::TwoStageSearchConfig,
             matric_core::UpdateCollectionMembersRequest, matric_core::UpdateConceptRequest, matric_core::UpdateConceptSchemeRequest,
             matric_core::UpdateDocumentTypeRequest, matric_core::UpdateEmbeddingConfigRequest, matric_core::UpdateEmbeddingSetRequest,
             matric_core::UpdateSkosCollectionRequest, AddMemberBody, BackupImportBody,
             BulkCreateNotesBody, CreateNoteBody,
-            PaginationMeta, ReprocessNoteBody, SetTagsBody,
+            CallDetailResponse, TranscriptSegmentsPage, PaginationMeta, ReprocessNoteBody, SetTagsBody,
             UpdateNoteBody, UpdateStatusBody, UpdateWebhookBody,
         )
     ),
@@ -887,7 +889,8 @@ impl AppState {
         (name = "PKE", description = "Public key encryption"),
         (name = "Provenance", description = "W3C PROV provenance tracking"),
         (name = "Archives", description = "Memory archive management"),
-        (name = "DocumentTypes", description = "Document type registry")
+        (name = "DocumentTypes", description = "Document type registry"),
+        (name = "Calls", description = "Real-time call sessions and transcripts")
     )
 )]
 struct ApiDoc;
@@ -936,6 +939,24 @@ pub struct ListResponse<T> {
     pub pagination: PaginationMeta,
 }
 
+#[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
+struct TranscriptSegmentsPage {
+    data: Vec<matric_core::TranscriptSegment>,
+    pagination: PaginationMeta,
+}
+
+#[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
+struct CallDetailResponse {
+    session: matric_core::CallSession,
+    segments: TranscriptSegmentsPage,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+struct CallQuery {
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
 impl<T: Serialize> ListResponse<T> {
     /// Create a new paginated list response.
     ///
@@ -976,6 +997,55 @@ async fn asyncapi_yaml() -> impl IntoResponse {
     );
     let yaml = serde_yaml::to_string(&spec).expect("AsyncAPI YAML generation must not fail");
     ([(header::CONTENT_TYPE, "application/yaml")], yaml)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/calls/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Call session identifier"),
+        CallQuery,
+    ),
+    responses(
+        (status = 200, description = "Call session and paginated final transcript segments", body = CallDetailResponse),
+        (status = 404, description = "Call session not found"),
+    ),
+    tag = "Calls"
+)]
+async fn get_call(
+    Path(id): Path<Uuid>,
+    Query(query): Query<CallQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<CallDetailResponse>, ApiError> {
+    let limit = query.limit.unwrap_or(500).clamp(1, 500);
+    let offset = query.offset.unwrap_or(0);
+
+    let session = state
+        .db
+        .call_sessions
+        .get_session(id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Call session {} not found", id)))?;
+
+    let total = state.db.call_sessions.transcript_segment_count(id).await? as usize;
+    let segments = state
+        .db
+        .call_sessions
+        .list_transcript_segments_page(id, limit as i64, offset as i64)
+        .await?;
+
+    Ok(Json(CallDetailResponse {
+        session,
+        segments: TranscriptSegmentsPage {
+            data: segments,
+            pagination: PaginationMeta {
+                total,
+                limit,
+                offset,
+                has_more: offset.saturating_add(limit) < total,
+            },
+        },
+    }))
 }
 
 // =============================================================================
@@ -1967,6 +2037,7 @@ async fn main() -> anyhow::Result<()> {
         // Note status shortcut
         .route("/api/v1/notes/{id}/status", patch(update_note_status))
         // Jobs
+        .route("/api/v1/calls/{id}", get(get_call))
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/jobs/{id}", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
@@ -18953,6 +19024,134 @@ mod tests {
         assert_eq!(counts.embedding_sets, 0);
         assert_eq!(counts.embedding_set_members, 0);
         assert_eq!(counts.embeddings, 0);
+    }
+
+    async fn build_call_api_test_state(db: Database, database_url: &str) -> AppState {
+        AppState {
+            db: db.clone(),
+            search: Arc::new(matric_search::HybridSearchEngine::new(db.clone())),
+            issuer: "http://localhost:3000".to_string(),
+            rate_limiter: None,
+            tag_resolver: matric_api::services::TagResolver::new(db.clone()),
+            search_cache: matric_api::services::SearchCache::disabled(),
+            event_bus: Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY)),
+            ws_connections: Arc::new(AtomicUsize::new(0)),
+            default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
+            require_auth: false,
+            oauth_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
+            ),
+            oauth_mcp_token_lifetime: chrono::Duration::seconds(
+                matric_core::defaults::OAUTH_MCP_TOKEN_LIFETIME_SECS as i64,
+            ),
+            max_memories: matric_core::defaults::MAX_MEMORIES,
+            max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
+            vision_backend: None,
+            transcription_backend: None,
+            ner_backend: None,
+            diarization_backend: None,
+            git_sha: "test".to_string(),
+            build_date: "test".to_string(),
+            extraction_strategies: Vec::new(),
+            inference_runtime: Arc::new(std::sync::RwLock::new(InferenceRuntime {
+                generation_backend: None,
+                provider_registry: std::sync::Arc::new(
+                    matric_inference::ProviderRegistry::from_env(),
+                ),
+            })),
+            schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            database_url: database_url.to_string(),
+            pause_state: None,
+            tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
+            chat_semaphore: None,
+            inference_available: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_call_returns_session_segments_pagination_and_404() {
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+        let db = Database::connect(&database_url)
+            .await
+            .expect("Failed to connect to test DB");
+        db.migrate().await.expect("migrate test DB");
+
+        let session = db
+            .call_sessions
+            .create_session(matric_core::CreateCallSessionRequest {
+                provider: "mock".to_string(),
+                provider_call_id: format!("api-test-{}", Uuid::new_v4()),
+                started_at: None,
+                asr_backend: Some("mock-asr".to_string()),
+                remote_party: Some("+15551234567".to_string()),
+                archive_id: None,
+                metadata: serde_json::json!({"test": true}),
+            })
+            .await
+            .expect("create call session");
+
+        for sequence in 0..2 {
+            db.call_sessions
+                .create_transcript_segment(matric_core::CreateTranscriptSegmentRequest {
+                    call_id: session.call_id,
+                    speaker_label: Some("speaker_0".to_string()),
+                    text: format!("segment {sequence}"),
+                    start_ts: Some(sequence as f64),
+                    end_ts: Some(sequence as f64 + 0.5),
+                    confidence: Some(0.9),
+                    sequence,
+                })
+                .await
+                .expect("create transcript segment");
+        }
+
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let router = Router::new()
+            .route("/api/v1/calls/{id}", get(get_call))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!(
+                "{}/api/v1/calls/{}?limit=1&offset=1",
+                base_url, session.call_id
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["session"]["call_id"], session.call_id.to_string());
+        assert_eq!(body["segments"]["data"].as_array().unwrap().len(), 1);
+        assert_eq!(body["segments"]["data"][0]["text"], "segment 1");
+        assert_eq!(body["segments"]["pagination"]["total"], 2);
+        assert_eq!(body["segments"]["pagination"]["limit"], 1);
+        assert_eq!(body["segments"]["pagination"]["offset"], 1);
+        assert_eq!(body["segments"]["pagination"]["has_more"], false);
+
+        let missing = client
+            .get(format!("{}/api/v1/calls/{}", base_url, Uuid::new_v4()))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+
+        sqlx::query("DELETE FROM transcript_segments WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup segments");
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup session");
     }
 
     // =========================================================================

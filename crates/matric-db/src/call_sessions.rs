@@ -194,6 +194,31 @@ impl PgCallSessionRepository {
         .map_err(Error::Database)
     }
 
+    /// List persisted final transcript segments for a call with API pagination.
+    pub async fn list_transcript_segments_page(
+        &self,
+        call_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TranscriptSegment>> {
+        sqlx::query_as::<_, TranscriptSegment>(
+            r#"
+            SELECT id, call_id, speaker_label, text, start_ts, end_ts,
+                   confidence, sequence, created_at
+            FROM transcript_segments
+            WHERE call_id = $1
+            ORDER BY sequence ASC, created_at ASC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(call_id)
+        .bind(limit.max(0))
+        .bind(offset.max(0))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::Database)
+    }
+
     /// Return transcript segment count for a call.
     pub async fn transcript_segment_count(&self, call_id: Uuid) -> Result<i64> {
         let row =

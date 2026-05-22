@@ -98,3 +98,6 @@ reqwest = { workspace = true }
 futures = { workspace = true }
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db" }
+
+[features]
+mock-rtp = []
