@@ -19094,8 +19094,6 @@ mod tests {
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
-        db.migrate().await.expect("migrate test DB");
-
         let session = db
             .call_sessions
             .create_session(matric_core::CreateCallSessionRequest {
