@@ -867,7 +867,7 @@ impl AppState {
             matric_core::UpdateDocumentTypeRequest, matric_core::UpdateEmbeddingConfigRequest, matric_core::UpdateEmbeddingSetRequest,
             matric_core::UpdateSkosCollectionRequest, AddMemberBody, BackupImportBody,
             BulkCreateNotesBody, CreateNoteBody,
-            CallDetailResponse, TranscriptSegmentsPage, PaginationMeta, ReprocessNoteBody, SetTagsBody,
+            CallDetailResponse, PaginationMeta, ReprocessNoteBody, SetTagsBody,
             UpdateNoteBody, UpdateStatusBody, UpdateWebhookBody,
         )
     ),
@@ -940,15 +940,21 @@ pub struct ListResponse<T> {
 }
 
 #[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
-struct TranscriptSegmentsPage {
-    data: Vec<matric_core::TranscriptSegment>,
-    pagination: PaginationMeta,
-}
-
-#[derive(Serialize, Deserialize, Debug, utoipa::ToSchema)]
 struct CallDetailResponse {
-    session: matric_core::CallSession,
-    segments: TranscriptSegmentsPage,
+    call_id: Uuid,
+    provider: String,
+    provider_call_id: String,
+    started_at: chrono::DateTime<chrono::Utc>,
+    ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    end_reason: Option<String>,
+    duration_secs: Option<f64>,
+    asr_backend: Option<String>,
+    remote_party: Option<String>,
+    archive_id: Option<Uuid>,
+    metadata: serde_json::Value,
+    segment_count: usize,
+    segments: Vec<matric_core::TranscriptSegment>,
+    pagination: PaginationMeta,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -1034,16 +1040,29 @@ async fn get_call(
         .list_transcript_segments_page(id, limit as i64, offset as i64)
         .await?;
 
+    let duration_secs = session
+        .ended_at
+        .map(|ended_at| (ended_at - session.started_at).num_milliseconds() as f64 / 1000.0);
+
     Ok(Json(CallDetailResponse {
-        session,
-        segments: TranscriptSegmentsPage {
-            data: segments,
-            pagination: PaginationMeta {
-                total,
-                limit,
-                offset,
-                has_more: offset.saturating_add(limit) < total,
-            },
+        call_id: session.call_id,
+        provider: session.provider,
+        provider_call_id: session.provider_call_id,
+        started_at: session.started_at,
+        ended_at: session.ended_at,
+        end_reason: session.end_reason,
+        duration_secs,
+        asr_backend: session.asr_backend,
+        remote_party: session.remote_party,
+        archive_id: session.archive_id,
+        metadata: session.metadata,
+        segment_count: total,
+        segments,
+        pagination: PaginationMeta {
+            total,
+            limit,
+            offset,
+            has_more: offset.saturating_add(limit) < total,
         },
     }))
 }
@@ -19127,13 +19146,15 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(body["session"]["call_id"], session.call_id.to_string());
-        assert_eq!(body["segments"]["data"].as_array().unwrap().len(), 1);
-        assert_eq!(body["segments"]["data"][0]["text"], "segment 1");
-        assert_eq!(body["segments"]["pagination"]["total"], 2);
-        assert_eq!(body["segments"]["pagination"]["limit"], 1);
-        assert_eq!(body["segments"]["pagination"]["offset"], 1);
-        assert_eq!(body["segments"]["pagination"]["has_more"], false);
+        assert_eq!(body["call_id"], session.call_id.to_string());
+        assert_eq!(body["provider"], "mock");
+        assert_eq!(body["segment_count"], 2);
+        assert_eq!(body["segments"].as_array().unwrap().len(), 1);
+        assert_eq!(body["segments"][0]["text"], "segment 1");
+        assert_eq!(body["pagination"]["total"], 2);
+        assert_eq!(body["pagination"]["limit"], 1);
+        assert_eq!(body["pagination"]["offset"], 1);
+        assert_eq!(body["pagination"]["has_more"], false);
 
         let missing = client
             .get(format!("{}/api/v1/calls/{}", base_url, Uuid::new_v4()))
