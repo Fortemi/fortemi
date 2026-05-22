@@ -3,98 +3,127 @@ artifact: feature-plan
 project: fortemi
 cluster: realtime-providers
 epic: Fortemi/fortemi#837
-milestone: 1 — Twilio Voice + Deepgram + outbox
-status: draft-v1
+milestone: 1 — Standards-first adapter scaffold + Twilio adapter + Deepgram + outbox
+status: draft-v2 (standards-first adapter pattern per ADR-RTP-001 v2)
 last-updated: 2026-05-22
 ---
 
-# Milestone 1 — Twilio Voice + Deepgram Streaming + Outbox
+# Milestone 1 — Standards-First Adapter Scaffold + Twilio Adapter + Deepgram + Outbox
 
 ## Goal
 
-Ship the first end-to-end real-time provider integration: caller dials a Fortemi-managed Twilio number, audio streams via Media Streams WSS to Fortemi, Deepgram produces live transcripts, transcripts flow through the outbox to UI consumers, recording is processed in batch post-call for high-quality final transcript.
+Ship the **standards-shaped `CallTransport` abstraction** + the **first concrete adapter** (Twilio Programmable Voice) + the **Mock adapter** (for trait validation) + Deepgram streaming ASR + transcript outbox emission. Caller dials a Fortemi-managed Twilio number; audio flows through the standards-shaped pipeline; Deepgram produces live transcripts; transcripts emit to outbox; UI consumers see them.
+
+The architectural deliverable is the **abstraction**. The Twilio adapter is the first concrete implementation, not the architectural anchor.
 
 ## Acceptance
 
+- **Standards-shaped core in place**: `MediaFrame`, `Codec`, `CallTransport` trait, `CallSession` state machine, `CallControlEvent` shipped under `crates/matric-rtp/` (or `matric-api/src/realtime/`)
+- **Two adapter implementations of `CallTransport`** in milestone 1: Twilio Programmable Voice (production) and Mock (test). CI lint verifies no Twilio-specific identifiers leak outside `adapters/twilio/`.
+- **Adapter swap-ability proven by test**: integration tests run the full pipeline (frames → codec normalizer → ASR → outbox) against the Mock adapter without any external dependency
 - A user can dial a configured Twilio number and have their call audio captured by Fortemi
 - Live partial + final transcripts appear via SSE within ~1 second of speech
 - After the call, the recording is auto-fetched and processed via the existing `AudioTranscriptionHandler` for a high-quality transcript
-- All transcript data is queryable: `GET /api/v1/calls/{call_id}` returns session + segments
+- All transcript data is queryable: `GET /api/v1/calls/{call_id}` returns session + segments. Schema is provider-agnostic; `provider`, `provider_call_id` stored alongside standards-shaped fields.
 - Operational metrics surface on `/api/v1/health/streaming`
 - Documentation: end-to-end setup guide from "I have a Twilio account" to "first call transcribed"
 
 ## Construction Order
 
 ```
-M1.1 RealtimeIngress trait + call session manager
-      └─> M1.2 Twilio Media Streams ingress handler ──┐
-                                                       │
-M1.3 StreamingASRBackend trait                        │
-      └─> M1.4 Deepgram backend impl ─────────────────┤
-                                                       │
-                                                       ▼
-                                          M1.5 Transcript emitter
-                                                  (writes to outbox)
-                                                       │
-M1.6 call_sessions + transcript_segments              │
-       migrations ─────────────────────────────────────┤
-                                                       │
-M1.7 GET /api/v1/calls/{id} REST                      │
-                                                       │
-M1.8 Phase B receiver schemas for Twilio              │
-       webhooks (control plane) ─────────────────────  │
-                                                       │
-M1.9 Post-call batch transcript trigger                │
-       (recording.completed → AudioTranscriptionJob)   │
-                                                       │
-M1.10 Setup documentation + sample TwiML              │
-M1.11 Health metrics + cost-estimate gauge            │
-M1.12 Integration tests (mocked Twilio + Deepgram)
+M1.1 CallTransport trait + standards-shaped core types (matric-rtp)
+      ├─> M1.2 Mock adapter ────────────────────┐
+      │                                          │
+      └─> M1.3 Twilio Programmable Voice ───────┤
+            adapter (WebSocket binding)         │
+                                                 │
+M1.4 StreamingASRBackend trait + codec ─────────┤
+      normalizer                                 │
+      └─> M1.5 Deepgram backend ────────────────┤
+                                                 ▼
+                                    M1.6 Transcript event emitter
+                                          (writes to outbox)
+                                                 │
+M1.7 call_sessions + transcript_segments        │
+      migrations (provider-agnostic schema) ────┤
+                                                 │
+M1.8 GET /api/v1/calls/{id} REST                │
+                                                 │
+M1.9 Phase B receiver schemas for Twilio        │
+      Voice webhooks (control plane) ───────────┤
+                                                 │
+M1.10 Post-call batch transcript trigger         │
+       (recording.completed → AudioTranscriptionJob)
+                                                 │
+M1.11 Setup documentation + sample TwiML        │
+M1.12 Health metrics + cost-estimate gauge      │
+M1.13 Integration tests (Mock adapter path +    │
+       mocked Twilio + mocked Deepgram)         │
+M1.14 Consent disclosure documentation
 ```
+
+Note: child numbering shifted from v1 of this plan — the standards-first revision added M1.2 (Mock adapter) and split the trait + normalizer cleanly. All subsequent items shifted +1 from v1.
 
 ## Child Issues to File
 
 Each becomes an issue under #837. Listed with sizing (S/M/L), priority, dependencies. **Filing happens after this scoping (#838) is approved.**
 
-### M1.1 — `RealtimeIngress` trait + call session manager
+### M1.1 — Standards-shaped core abstraction (`CallTransport` trait + types)
 
-- **Title:** `feat(api): RealtimeIngress trait + call session manager (milestone 1 foundation)`
+- **Title:** `feat(rtp): standards-shaped CallTransport trait + MediaFrame/Codec/CallSession types`
 - **Size:** M
 - **Priority:** P1
 - **Depends on:** none
-- **Body summary:** New module `crates/matric-api/src/realtime/` with the trait, session manager, and call-session state. Trait per ADR-RTP-001 §2.2.
+- **Body summary:** New module/crate (`crates/matric-rtp/` or `matric-api/src/realtime/`) housing the **provider-agnostic** abstraction:
+  - `MediaFrame { codec, timestamp_rtp, sequence, marker, payload }` — RTP-shaped frame
+  - `Codec` enum (IANA-aligned: PcmuG711, PcmaG711, Opus, L16, Telephone)
+  - `CallTransport` async trait — `frames()`, `send_frame()`, `control_events()`, `end_call()`, `adapter_name()`, `provider_call_id()`
+  - `CallSession` state machine (Ringing, EarlyMedia, Active, OnHold, Ended)
+  - `CallControlEvent` (CallStarted, RecordingAvailable, Dropped, DtmfDigit, ...)
+  - `CallSessionManager` — registry of active sessions, lifecycle
+  - CI lint config: no provider-specific identifiers permitted outside `adapters/`
+- Trait surface per ADR-RTP-001 §Trait Surface (Sketched).
+- This is the architectural deliverable of milestone 1 — every subsequent adapter slots into this trait.
 
-### M1.2 — Twilio Media Streams ingress handler
+### M1.2 — Mock adapter (`CallTransport` test impl)
 
-- **Title:** `feat(api): Twilio Media Streams WebSocket ingress handler`
-- **Size:** M
-- **Priority:** P1
-- **Depends on:** M1.1
-- **Body summary:** `crates/matric-api/src/realtime/ingress/twilio.rs`. Accept `wss://.../realtime/twilio/{call_sid}` connections; parse Twilio's JSON-wrapped media frames; decode μ-law → PCM 16 kHz; emit to ASR adapter.
-
-### M1.3 — `StreamingASRBackend` trait
-
-- **Title:** `feat(api): StreamingASRBackend trait + session lifecycle`
+- **Title:** `feat(rtp): Mock adapter implementing CallTransport for tests`
 - **Size:** S
 - **Priority:** P1
 - **Depends on:** M1.1
-- **Body summary:** Trait shape per ADR-RTP-003 §Consequences. Allows pluggable backends.
+- **Body summary:** `crates/matric-rtp/src/adapters/mock/` — deterministic frame stream, configurable codec, simulated call lifecycle events. Used by every integration test in milestone 1 (and forever after). Ships **alongside Twilio** so the trait has two implementations from day one, validating the abstraction isn't accidentally Twilio-shaped.
 
-### M1.4 — Deepgram streaming backend implementation
+### M1.3 — Twilio Programmable Voice adapter
 
-- **Title:** `feat(api): Deepgram Streaming ASR backend (default per ADR-RTP-003)`
+- **Title:** `feat(rtp): Twilio Programmable Voice adapter (WebSocket binding)`
 - **Size:** M
 - **Priority:** P1
-- **Depends on:** M1.3
-- **Body summary:** `crates/matric-api/src/realtime/asr/deepgram.rs`. WebSocket client to Deepgram's streaming API; emit partial/final transcript events; reconnect on drop; failover via configured secondary backend.
+- **Depends on:** M1.1
+- **Body summary:** `crates/matric-rtp/src/adapters/twilio/` — accepts `wss://.../realtime/twilio/{call_sid}` connections; parses Twilio's JSON-wrapped media frames; translates into `MediaFrame { codec: Codec::PcmuG711 { sample_rate: 8000 }, ... }`. Translates Twilio Voice control webhooks (via Phase B receivers, see M1.9) into `CallControlEvent`s. Twilio-specific code is **contained entirely within this adapter** — no Twilio types appear in the public API.
 
-### M1.5 — Transcript event emitter
+### M1.4 — `StreamingASRBackend` trait + codec normalizer
 
-- **Title:** `feat(api): transcript event emitter (writes transcript_partial / transcript_final to outbox)`
+- **Title:** `feat(rtp): StreamingASRBackend trait + codec normalizer (MediaFrame → PCM 16kHz)`
+- **Size:** S
+- **Priority:** P1
+- **Depends on:** M1.1
+- **Body summary:** Trait shape per ADR-RTP-003 §Consequences. Codec normalizer takes `MediaFrame` (any codec) and produces PCM 16 kHz mono — μ-law decode, A-law decode, Opus decode (libopus), L16 pass-through. Normalizer is per-codec; no provider awareness.
+
+### M1.5 — Deepgram streaming backend (concrete `StreamingASRBackend` impl)
+
+- **Title:** `feat(rtp): Deepgram Streaming ASR backend (default per ADR-RTP-003)`
 - **Size:** M
 - **Priority:** P1
-- **Depends on:** M1.4, **#592** (outbox helpers)
-- **Body summary:** Listens to ASR adapter events; writes `transcript_partial` and `transcript_final` events to `event_outbox` (or bypasses for partials per R-RTP-012 mitigation). New event types registered.
+- **Depends on:** M1.4
+- **Body summary:** `crates/matric-rtp/src/asr/deepgram.rs`. WebSocket client to Deepgram's streaming API; emit partial/final transcript events; reconnect on drop; failover via configured secondary backend. Adapter-shaped — same pattern as `CallTransport`. A MockASRBackend ships alongside for tests.
+
+### M1.6 — Transcript event emitter
+
+- **Title:** `feat(rtp): transcript event emitter (writes transcript_partial / transcript_final to outbox)`
+- **Size:** M
+- **Priority:** P1
+- **Depends on:** M1.5, **#592** (outbox helpers)
+- **Body summary:** Listens to `StreamingASRBackend` events; writes `transcript_partial` and `transcript_final` events to `event_outbox` (or bypasses for partials per R-RTP-012 mitigation). Provider-agnostic — emitter sees only standards-shaped events. New outbox event types registered.
 
 ### M1.6 — `call_sessions` + `transcript_segments` migrations
 
@@ -160,15 +189,17 @@ Each becomes an issue under #837. Listed with sizing (S/M/L), priority, dependen
 - **Depends on:** M1.10
 - **Body summary:** Risk R-RTP-005. Document the regulatory landscape, provide a configurable greeting that includes recording disclosure, link to authoritative resources (no legal advice but pointers to it).
 
-## Sizing Summary
+## Sizing Summary (v2 — standards-first revision)
 
-| Size | Count |
-|---|---|
-| S | 6 (M1.3, M1.6, M1.7, M1.8, M1.9, M1.11, M1.13) — 7 with consent docs |
-| M | 5 (M1.1, M1.2, M1.4, M1.5, M1.10, M1.12) |
-| L | 0 |
+| Size | Count | IDs |
+|---|---|---|
+| S | 7 | M1.2 (Mock adapter), M1.4 (ASR trait + codec normalizer), M1.7 (migrations), M1.8 (REST endpoint), M1.9 (Twilio receiver schemas), M1.10 (post-call trigger), M1.12 (metrics), M1.14 (consent docs) |
+| M | 6 | M1.1 (trait + types), M1.3 (Twilio adapter), M1.5 (Deepgram backend), M1.6 (transcript emitter), M1.11 (setup docs), M1.13 (integration tests) |
+| L | 0 | — |
 
-13 children for milestone 1. Roughly 2–4 weeks of engineering effort once dependencies (Phase B receivers #817 family, outbox #591/#592) land.
+**14 children for milestone 1** (one more than v1 — adds M1.2 Mock adapter as a first-class deliverable that proves the trait surface from day one). Roughly 2–4 weeks of engineering effort once dependencies (Phase B receivers #817 family, outbox #591/#592) land.
+
+The Mock-adapter addition is the most important change from v1. Shipping a second `CallTransport` impl alongside Twilio at milestone 1 is the cheap, reliable way to prove the trait surface isn't accidentally Twilio-shaped — exactly the failure mode the standards-first framing exists to prevent.
 
 ## Dependencies on Other Work
 

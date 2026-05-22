@@ -244,16 +244,27 @@ Real-time provider integration has **non-trivial standby cost** because connecti
 - `REALTIME_ASR_BACKEND=hosted` default when providers are enabled (hosted ASR has no GPU cost)
 - Self-hosted whisper streaming is `REALTIME_ASR_BACKEND=whisper-streaming` opt-in
 
-## 9. Conclusions / Direction for ADRs
+## 9. Conclusions / Direction for ADRs (v2 — standards-first framing)
 
-The synthesis points to a phased implementation:
+**Operator direction (2026-05-22): do not bind to any specific provider; build to VoIP standards with adapter pattern for swappability.** The synthesis now points to:
 
-1. **First milestone**: Twilio Media Streams + Deepgram streaming ASR + outbox-emitted partial/final transcripts. Twilio because it's the most-documented telephony shape; Deepgram because hosted ASR sidesteps GPU contention and meets the latency budget on every tier. No SFU needed (Twilio gives raw audio over a WebSocket Fortemi owns).
-2. **Second milestone**: WebRTC via LiveKit (Cloud first, OSS later). Rust SDK lowers integration risk. Adds video capability.
-3. **Third milestone**: SIP direct (via a gateway like Twilio SIP Trunking → Programmable Voice, or a direct SIP gateway). Most operational complexity; lowest broad-user demand initially.
-4. **Fourth milestone (if needed)**: Self-hosted whisper-streaming for cost-sensitive high-end deployments.
+1. **The deliverable is the abstraction.** The standards-shaped core (`MediaFrame`, `Codec`, `CallTransport`, `CallSession`, `CallControlEvent`) is the architectural anchor of milestone 1. Twilio is the **first concrete adapter**, not the architectural anchor. A Mock adapter ships alongside Twilio so the trait surface is exercised by two implementations from day one — preventing accidental Twilio-shaping of the abstraction.
 
-This phasing keeps each milestone shippable independently, mirrors the incoming-streams roadmap's "ship early, then iterate" structure, and respects the cost gate (everything opt-in, hosted ASR by default).
+2. **Milestone 1 stack (the first proof-of-abstraction):**
+   - Standards-shaped core (`crates/matric-rtp/`)
+   - Twilio Programmable Voice adapter (WebSocket binding, per ADR-RTP-002)
+   - Mock adapter (test/CI binding)
+   - Deepgram streaming ASR (hosted, per ADR-RTP-003 — sidesteps #576 GPU contention)
+   - Outbox emission of standards-shaped `transcript_partial` and `transcript_final` events
+   - Hybrid pattern: live transcripts via Deepgram, batch re-transcription via existing `AudioTranscriptionHandler` post-call
+
+3. **Milestone 2: LiveKit adapter (WebRTC binding).** Second concrete adapter; surfaces leaks in the trait that single-adapter milestone 1 couldn't catch. Adds browser/mobile + WebRTC capability. First-party Rust SDK (livekit-rust) lowers integration risk.
+
+4. **Milestone 3: SIP/RTP binding (two adapters).** SIP-direct adapter (Fortemi terminates SIP/RTP — true standards alignment, no vendor dependency) plus Twilio SIP Trunking adapter (SIP-to-Twilio-Voice shim that reuses milestone 1 WS binding). Both ship to address PSTN-without-Twilio-Voice use cases.
+
+5. **Milestone 4+ (as demanded):** Vonage Voice WS, Agora WebRTC, Daily.co, video providers (Mux, IVS), self-hosted whisper-streaming for cost-sensitive deployments. Each is a single adapter slotting into the existing trait — no core changes.
+
+This phasing makes each milestone shippable independently, treats SIP/RTP as a peer transport (not deferred indefinitely), and respects the cost gate (everything opt-in, hosted ASR by default). Most importantly: **the trait surface is the deliverable** — adapters can be added forever without revisiting the architecture.
 
 ## 10. References (so far)
 

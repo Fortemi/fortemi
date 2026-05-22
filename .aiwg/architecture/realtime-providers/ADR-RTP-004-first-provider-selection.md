@@ -1,45 +1,59 @@
-# ADR-RTP-004 — First-Provider Selection
+# ADR-RTP-004 — First Concrete Adapter
 
-**Status:** Proposed (draft) • 2026-05-22
+**Status:** Proposed (draft) • Revised 2026-05-22 (v2 — re-framed as first concrete adapter, not architectural anchor)
 **Epic:** [#837](https://git.integrolabs.net/Fortemi/fortemi/issues/837)
-**Companions:** ADR-RTP-001, ADR-RTP-002, ADR-RTP-003
+**Companions:** ADR-RTP-001 (adapter pattern), ADR-RTP-002 (transport bindings), ADR-RTP-003 (ASR backend)
 
 ## Context
 
-The real-time provider epic spans Twilio Voice, Twilio Messaging, WebRTC providers (LiveKit, Agora, Daily), SIP/PSTN, and video providers (Mux, IVS). All cannot be built simultaneously. Choosing the first provider commits engineering effort and sets architectural precedent for everything that follows.
+Per ADR-RTP-001 the architecture is **adapter-based with a standards-shaped core**. Per ADR-RTP-002 we ship three transport bindings over time (WebSocket → WebRTC → SIP). Each binding gets at least one concrete adapter implementation. This ADR picks **which concrete adapter ships first**.
+
+The choice is not an architectural decision — the core abstraction (ADR-RTP-001) is provider-agnostic. The choice is a sequencing decision: which provider integration validates the trait surface earliest with the lowest engineering risk.
 
 ## Decision
 
-**Twilio Programmable Voice is the first provider integration (milestone 1).**
+**Twilio Programmable Voice is the first concrete adapter (milestone 1).** It is **not** the architectural anchor — `MediaFrame`, `Codec`, `CallTransport`, and the rest of the core are standards-shaped and Twilio-agnostic per ADR-RTP-001. Twilio is the first provider integration the abstraction proves out against; it must not (and architecturally cannot) define the shape.
 
-LiveKit (Cloud and OSS) is milestone 2. SIP direct (without Twilio) is milestone 3 or later. Video ingest is a separate sub-epic to be filed after milestone 2.
+Adapter sequencing:
 
-Twilio Messaging (SMS/WhatsApp webhooks) is **not** a milestone of this epic — it's pure Phase B (#817) work and should be filed against that sub-epic instead. Listed here for clarity that it's not in scope.
+| Milestone | Adapter | Transport binding | Purpose |
+|---|---|---|---|
+| 1 | Twilio Programmable Voice | WebSocket (ADR-RTP-002) | First concrete adapter; validates `CallTransport` trait against a well-documented provider |
+| 2 | LiveKit | WebRTC (ADR-RTP-002) | Second adapter; surfaces leaks in the trait that single-adapter milestone 1 couldn't catch; adds browser/mobile + WebRTC capability |
+| 3 | SIP-direct (Fortemi terminates SIP) + Twilio SIP Trunking shim | SIP/RTP (ADR-RTP-002) | Self-hosted enterprise telephony; PSTN without Twilio Voice |
+| 4+ | Vonage Voice, Agora, Daily.co, Mux video, etc. | Per provider | Continued ecosystem expansion |
+
+The `MockAdapter` (compile-time + test-only) ships **at milestone 1 alongside Twilio** so the trait surface is exercised by two implementations from day one — Twilio for production validation, Mock for testing and trait-shape sanity.
+
+Twilio Messaging (SMS/WhatsApp/webhooks) is explicitly **not** in scope for this epic. Those are HTTP webhook callbacks handled by Phase B receivers (#817 / #818–#823). Listed here for clarity.
 
 ## Rationale
 
-### Why Twilio Voice first
+### Why Twilio as the first concrete adapter
 
-| Criterion | Twilio Voice | LiveKit | SIP direct |
+| Criterion | Twilio Voice | LiveKit | SIP-direct |
 |---|---|---|---|
-| Documented integration | Most complete in the industry | Good but smaller surface | RFC-level docs; less practitioner-friendly |
+| Documented protocol surface | Most complete in the industry (Media Streams spec, Voice webhooks, well-known idioms) | Good but smaller; Rust SDK abstracts the WebRTC details | RFC-level docs; less practitioner-friendly outside telephony specialists |
 | Setup-to-first-call | <1 day (sign up, dial number, point TwiML to URL) | ~1–2 days (account, room create, SDK integration) | Days/weeks (SIP trunk, gateway, NAT) |
-| Engineering match for milestone 1 architecture | Perfect — Twilio dials our WSS URL (ADR-RTP-001 provider-direct, ADR-RTP-002 WebSocket) | Requires WebRTC support which is milestone 2 | Requires SIP stack |
-| Market reach | Vast — telephony is the foundational shape | Growing — WebRTC is browser-native | Vast for enterprise; needs gateway |
-| User-facing value at milestone 1 | "Call your knowledge base on the phone" — concrete | "Embed Fortemi voice in a website" — abstract until UI built | "PBX integration" — niche audience |
-| Rust SDK | None (HTTP API + WSS direct — acceptable) | livekit-rust (first-party) | None production-grade |
+| Engineering match for milestone-1 transport (WS per ADR-RTP-002) | Perfect — Twilio dials our WSS URL | Requires WebRTC binding (milestone 2 per ADR-RTP-002) | Requires SIP/RTP binding (milestone 3) |
+| Market reach | Vast — telephony is the foundational voice shape | Growing — WebRTC is browser-native | Vast for enterprise; needs gateway |
+| User-facing value at milestone 1 | "Call your knowledge base on the phone" — concrete, demonstrable | "Embed Fortemi voice in a website" — abstract until HotM voice UI exists | "PBX integration" — niche near-term audience |
+| Rust SDK | None (HTTP API + WSS direct via tokio-tungstenite/axum — acceptable) | livekit-rust (first-party) — better, but doesn't help if the binding isn't ready yet | None production-grade |
 | Latency profile | Excellent (Media Streams ≈ 50 ms ingress) | Excellent (WebRTC ≈ 30 ms ingress) | Variable |
+| Validates the abstraction against a non-trivial provider | Yes — Twilio's JSON envelope, mark/clear semantics, DTMF, recording lifecycle all exercise the trait | Yes — different from Twilio (WebRTC offer/answer, room participation); good second adapter | Yes — but third adapter is more useful than first for surfacing trait gaps |
 
 ### What "milestone 1" includes
 
 The first iteration ships:
 
-1. **Inbound calls to a Fortemi-managed Twilio number**: caller dials the number, hears a configurable greeting, audio streams to Fortemi via Media Streams WSS, live transcript flows out via SSE to subscribed UI clients
-2. **Control-plane webhooks**: Twilio fires `call.initiated`, `call.completed`, `recording.completed` events to Fortemi; Phase B receivers (#817 family) capture them
-3. **Live transcripts**: Deepgram streaming ASR (per ADR-RTP-003) produces partial + final transcripts; emitted to outbox; consumers see them
-4. **Post-call batch transcript**: when the recording arrives via the `recording.completed` webhook, schedule the existing `AudioTranscriptionHandler` for high-quality offline pass
-5. **Call session persistence**: `call_sessions` and `transcript_segments` tables populated; queryable via REST
-6. **Configuration**: env vars for Twilio account/auth, Deepgram API key, default greeting text, default voice
+1. **Standards-shaped core abstraction**: `MediaFrame`, `Codec`, `CallTransport`, `CallSession`, `CallControlEvent` types in `crates/matric-rtp` (or `matric-api/src/realtime/`). Independent of any provider; CI lint can verify no Twilio-specific identifiers leak outside `adapters/twilio/`.
+2. **Twilio Programmable Voice adapter**: `adapters/twilio/` translates Twilio Media Streams JSON envelopes into `MediaFrame` records; translates Twilio Voice webhooks into `CallControlEvent`s.
+3. **Mock adapter**: `adapters/mock/` exercises the trait with deterministic frame streams for integration tests. **Ships alongside Twilio in milestone 1 so the trait has two implementations from day one.**
+4. **Inbound call walkthrough end-to-end**: caller dials a Fortemi-managed Twilio number → Twilio adapter ingests → standards-shaped frames flow through codec normalizer → ASR adapter (Deepgram per ADR-RTP-003) → transcript emitter → outbox → consumers
+5. **Control-plane webhooks**: Twilio fires `call.initiated`, `call.completed`, `recording.completed` to Phase B receivers (#817 family) with a Twilio-specific schema; the Twilio adapter translates those into standards-shaped `CallControlEvent`s
+6. **Post-call batch transcript**: when `recording.completed` flows through, queue the existing `AudioTranscriptionHandler` against the recording URL — reuses batch pipeline
+7. **Call session persistence**: `call_sessions` and `transcript_segments` tables populated; queryable via REST. Schema is provider-agnostic; provider name + opaque `provider_call_id` stored alongside the standards-shaped fields.
+8. **Configuration**: env vars for Twilio account/auth, Deepgram API key, default greeting text, default voice. Adapter selection is config-driven (`REALTIME_ADAPTERS=twilio,mock`).
 
 ### What milestone 1 does NOT include
 

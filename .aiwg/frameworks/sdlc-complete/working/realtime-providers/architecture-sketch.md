@@ -3,7 +3,7 @@ artifact: architecture-sketch
 project: fortemi
 cluster: realtime-providers
 epic: Fortemi/fortemi#837
-status: draft-v1
+status: draft-v2 (standards-first adapter pattern)
 last-updated: 2026-05-22
 authors:
   - claude-opus-4-7 (orchestrator)
@@ -12,6 +12,53 @@ authors:
 # Real-Time Provider Integration — Architecture Sketch
 
 Companion to `research-synthesis.md`. Captures the boundary lines and the live-audio dataflow. The decisions named here (`<--TBD-->` markers) will be locked by the 4 ADRs.
+
+## 0. Standards-First Adapter Pattern (per ADR-RTP-001 v2)
+
+The internal abstraction is **VoIP-standard-shaped**, not provider-shaped. Every concrete provider integration is an **adapter** that translates the provider's wire format into the standard abstraction. The rest of the system never sees provider-specific types.
+
+```
+                            ┌──────────────────────────────┐
+                            │ STANDARDS-SHAPED INTERNAL    │
+                            │ ABSTRACTION (matric-rtp)     │
+                            │                              │
+                            │   MediaFrame                 │
+                            │   Codec (IANA-aligned)       │
+                            │   CallTransport trait        │
+                            │   CallSession state          │
+                            │   CallControlEvent           │
+                            │                              │
+                            │   ← Provider-agnostic →      │
+                            └──────┬───────────────────────┘
+                                   │
+       ┌───────────────────────────┼───────────────────────────┐
+       │                           │                           │
+       ▼                           ▼                           ▼
+┌─────────────┐           ┌─────────────────┐           ┌─────────────┐
+│ Twilio      │           │ LiveKit         │           │ SIP-direct  │
+│ adapter     │           │ adapter         │           │ adapter     │
+│ (WS         │           │ (WebRTC         │           │ (SIP/RTP    │
+│  binding)   │           │  binding)       │           │  binding)   │
+│ MILESTONE 1 │           │ MILESTONE 2     │           │ MILESTONE 3 │
+└──────┬──────┘           └────────┬────────┘           └──────┬──────┘
+       │                           │                           │
+       │ Twilio's                  │ LiveKit's                 │ raw SIP/
+       │ JSON-wrapped              │ WebRTC tracks             │ RTP packets
+       │ μ-law frames              │ (Opus 48kHz)              │
+       │                           │                           │
+       ▼                           ▼                           ▼
+   Twilio                      LiveKit                    SIP trunk
+   Programmable Voice          Cloud/OSS                  PSTN / PBX
+```
+
+**Key invariants:**
+
+- The core (`MediaFrame`, `CallTransport`, codec normalizer, ASR adapter, transcript emitter, session manager, outbox writers) speaks **only** standards-shaped types
+- Adapters live under `crates/matric-rtp/src/adapters/<provider>/` and contain all provider-specific code
+- A `MockAdapter` ships at milestone 1 alongside Twilio, exercising the trait surface with deterministic test fixtures
+- CI lint enforces: no `twilio::*` / `livekit::*` imports outside `adapters/`
+
+This architecture means swapping the Twilio adapter for a LiveKit adapter changes no downstream code — the codec normalizer, the ASR adapter, the transcript emitter, the consumer-side SSE/WS/webhook fanout (#594/#595/#596) all see the same `MediaFrame` stream regardless of upstream provider.
 
 ## 1. Two Planes
 
