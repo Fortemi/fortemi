@@ -1677,6 +1677,76 @@ pub struct TusUpload {
 }
 
 // =============================================================================
+// REAL-TIME CALL SESSION TYPES
+// =============================================================================
+
+/// Provider-agnostic persisted real-time call session metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+pub struct CallSession {
+    pub call_id: Uuid,
+    pub provider: String,
+    pub provider_call_id: String,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub end_reason: Option<String>,
+    pub asr_backend: Option<String>,
+    pub remote_party: Option<String>,
+    pub archive_id: Option<Uuid>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// Request payload for creating a call session row.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateCallSessionRequest {
+    pub provider: String,
+    pub provider_call_id: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub asr_backend: Option<String>,
+    pub remote_party: Option<String>,
+    pub archive_id: Option<Uuid>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// Partial update payload for ending or annotating a call session.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateCallSessionRequest {
+    pub ended_at: Option<DateTime<Utc>>,
+    pub end_reason: Option<String>,
+    pub asr_backend: Option<String>,
+    pub remote_party: Option<String>,
+    pub archive_id: Option<Uuid>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Final transcript segment persisted for a call session.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, sqlx::FromRow)]
+pub struct TranscriptSegment {
+    pub id: Uuid,
+    pub call_id: Uuid,
+    pub speaker_label: Option<String>,
+    pub text: String,
+    pub start_ts: Option<f64>,
+    pub end_ts: Option<f64>,
+    pub confidence: Option<f32>,
+    pub sequence: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Request payload for persisting a final transcript segment.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateTranscriptSegmentRequest {
+    pub call_id: Uuid,
+    pub speaker_label: Option<String>,
+    pub text: String,
+    pub start_ts: Option<f64>,
+    pub end_ts: Option<f64>,
+    pub confidence: Option<f32>,
+    pub sequence: i32,
+}
+
+// =============================================================================
 // ENTITY TYPES (TRI-MODAL SEARCH)
 // =============================================================================
 
@@ -2903,17 +2973,13 @@ impl AuthPrincipal {
         for granted in scope.split_whitespace() {
             match granted {
                 "admin" => return true, // Admin has all permissions
-                "mcp" => {
-                    // MCP scope includes read and write
-                    if required == "read" || required == "write" || required == "mcp" {
-                        return true;
-                    }
+                "mcp" if required == "read" || required == "write" || required == "mcp" => {
+                    // MCP scope includes read and write.
+                    return true;
                 }
-                "write" => {
-                    // Write scope includes read
-                    if required == "read" || required == "write" {
-                        return true;
-                    }
+                "write" if required == "read" || required == "write" => {
+                    // Write scope includes read.
+                    return true;
                 }
                 s if s == required => return true,
                 _ => {}

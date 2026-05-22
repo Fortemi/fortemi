@@ -32,6 +32,7 @@
 //! }
 //! ```
 pub mod archives;
+pub mod call_sessions;
 pub mod chunking;
 pub mod colbert;
 pub mod collections;
@@ -96,6 +97,7 @@ pub use hashtag_extraction::extract_inline_hashtags;
 
 // Re-export repository implementations
 pub use archives::PgArchiveRepository;
+pub use call_sessions::PgCallSessionRepository;
 pub use colbert::{ColBERTRepository, ColBERTStats, TokenEmbedding};
 pub use collections::PgCollectionRepository;
 pub use document_types::PgDocumentTypeRepository;
@@ -194,6 +196,8 @@ pub struct Database {
     pub pke_keysets: PgPkeKeysetRepository,
     /// Tus resumable upload session repository (Issue #528).
     pub tus: PgTusRepository,
+    /// Provider-agnostic real-time call session repository (Issues #839/#845).
+    pub call_sessions: PgCallSessionRepository,
 }
 
 impl Database {
@@ -227,6 +231,7 @@ impl Database {
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             tus: PgTusRepository::new(pool.clone()),
+            call_sessions: PgCallSessionRepository::new(pool.clone()),
             pool,
         }
     }
@@ -412,6 +417,7 @@ impl Clone for Database {
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
             tus: PgTusRepository::new(self.pool.clone()),
+            call_sessions: PgCallSessionRepository::new(self.pool.clone()),
         }
     }
 }

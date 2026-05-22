@@ -4318,7 +4318,7 @@ async fn get_notes_timeline(
         .collect();
 
     // Sort by period_start descending (most recent first)
-    timeline.sort_by(|a, b| b.period_start.cmp(&a.period_start));
+    timeline.sort_by_key(|entry| std::cmp::Reverse(entry.period_start));
 
     Ok(Json(serde_json::json!({
         "period": period,
@@ -4977,7 +4977,7 @@ async fn get_tag_cooccurrence(
 
     // Sort by frequency and take top pairs
     let mut pairs: Vec<_> = cooccurrence.into_iter().collect();
-    pairs.sort_by(|a, b| b.1.cmp(&a.1));
+    pairs.sort_by_key(|pair| std::cmp::Reverse(pair.1));
 
     let top_pairs: Vec<serde_json::Value> = pairs
         .into_iter()
@@ -10587,7 +10587,7 @@ async fn memories_overview(
     }
 
     // Sort by note_count descending
-    breakdowns.sort_by(|a, b| b.note_count.cmp(&a.note_count));
+    breakdowns.sort_by_key(|breakdown| std::cmp::Reverse(breakdown.note_count));
 
     let memory_count = archives.len() as i64;
     let remaining = (state.max_memories - memory_count).max(0);
@@ -16008,7 +16008,7 @@ async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoRespons
     }
 
     // Sort by modified date, newest first
-    shards.sort_by(|a, b| b.modified.cmp(&a.modified));
+    shards.sort_by_key(|shard| std::cmp::Reverse(shard.modified));
 
     Ok(Json(ListBackupArchivesResponse {
         backup_directory: backup_dir,

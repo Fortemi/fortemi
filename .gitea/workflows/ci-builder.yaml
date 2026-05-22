@@ -69,6 +69,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check realtime provider import boundaries
+        run: bash scripts/ci/forbid-provider-imports.sh .
+
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 

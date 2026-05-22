@@ -2058,7 +2058,7 @@ impl PgLinkRepository {
                 }
             })
             .collect();
-        communities.sort_by(|a, b| b.size.cmp(&a.size));
+        communities.sort_by_key(|community| std::cmp::Reverse(community.size));
 
         Ok(CoarseCommunityResult {
             note_count,
