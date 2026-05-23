@@ -36,6 +36,7 @@ pgvector.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
+serde_urlencoded = "0.7"
 
 # Types
 uuid.workspace = true

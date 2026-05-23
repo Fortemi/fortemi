@@ -18,7 +18,6 @@ use uuid::Uuid;
 pub mod asr;
 pub mod codec;
 
-#[cfg(any(test, feature = "mock-rtp"))]
 pub mod adapters;
 
 /// Boxed media stream used by adapter implementations.
