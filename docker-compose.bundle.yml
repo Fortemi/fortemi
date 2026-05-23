@@ -281,10 +281,11 @@ services:
       # ── Debug ──────────────────────────────────────────────────────────
       - DEBUG_SESSION_CONTEXT=${DEBUG_SESSION_CONTEXT:-}
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-false}
-      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
-      # ADR-094: anonymous mode is opt-in. Bundle defaults to anonymous for
-      # single-user setup. Set REQUIRE_AUTH=true to require authentication.
-      - I_UNDERSTAND_NO_AUTH=${I_UNDERSTAND_NO_AUTH:-true}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # ADR-094: anonymous mode is opt-in only. To run a local single-user
+      # bundle without auth, explicitly set REQUIRE_AUTH=false and
+      # I_UNDERSTAND_NO_AUTH=true in your environment.
+      - I_UNDERSTAND_NO_AUTH=${I_UNDERSTAND_NO_AUTH:-false}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - MATRIC_MAX_BODY_SIZE_BYTES=${MATRIC_MAX_BODY_SIZE_BYTES:-2147483648}
       - MATRIC_MAX_UPLOAD_SIZE_BYTES=${MATRIC_MAX_UPLOAD_SIZE_BYTES:-}

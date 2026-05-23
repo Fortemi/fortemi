@@ -72,6 +72,9 @@ jobs:
       - name: Check realtime provider import boundaries
         run: bash scripts/ci/forbid-provider-imports.sh .
 
+      - name: Check fail-closed auth defaults
+        run: bash scripts/ci/forbid-insecure-auth-defaults.sh .
+
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 

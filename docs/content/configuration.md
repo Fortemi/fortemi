@@ -67,14 +67,14 @@ MATRIC_MAX_UPLOAD_SIZE_BYTES=104857600  # 100 MB
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `REQUIRE_AUTH` | Boolean | `false` | Require authentication on all `/api/v1/*` endpoints. When `false`, all endpoints are publicly accessible. |
+| `REQUIRE_AUTH` | Boolean | `true` | Require authentication on protected endpoints. Anonymous local sidecar/dev mode requires `REQUIRE_AUTH=false` plus `I_UNDERSTAND_NO_AUTH=true`. |
 | `ISSUER_URL` | String | `http://<HOST>:<PORT>` | External base URL for OAuth discovery and MCP (e.g., https://memory.example.com). Required for OAuth/MCP. |
 | `OAUTH_TOKEN_LIFETIME_SECS` | Integer | `3600` | OAuth access token lifetime in seconds (1 hour). Shorter = more secure; longer = less re-authentication friction. |
 | `OAUTH_MCP_TOKEN_LIFETIME_SECS` | Integer | `86400` | MCP OAuth access token lifetime in seconds (24 hours). MCP sessions are interactive — shorter tokens cause mid-session disconnects. |
 
 **Example (Personal Use):**
 ```bash
-REQUIRE_AUTH=false
+REQUIRE_AUTH=true
 ```
 
 **Example (Team Deployment):**
@@ -989,6 +989,7 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_EMBED_DIM=768
 RUST_LOG=info
 REQUIRE_AUTH=false
+I_UNDERSTAND_NO_AUTH=true
 RATE_LIMIT_ENABLED=false
 ```
 

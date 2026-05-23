@@ -220,7 +220,7 @@ Browser `EventSource` cannot set custom headers, so authentication is supported 
 | Query param (preferred for browsers) | `?token=mm_at_xxx` or `?token=mm_key_xxx` |
 | Authorization header | `Authorization: Bearer mm_at_xxx` |
 
-When `REQUIRE_AUTH=true`, one of the above is required. When `REQUIRE_AUTH=false` (default), authentication is optional.
+When `REQUIRE_AUTH=true` (default), one of the above is required. When explicitly running local sidecar/dev mode with `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, authentication is optional.
 
 ### Memory Scoping
 

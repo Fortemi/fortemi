@@ -189,7 +189,7 @@ When enabling authentication on an existing deployment:
 
 ### Pre-Migration Checklist
 
-- [ ] Deploy latest version with `REQUIRE_AUTH=false` (default)
+- [ ] Deploy latest version with `REQUIRE_AUTH=true` (default)
 - [ ] Register OAuth clients for all integrations: `POST /oauth/register`
 - [ ] Create API keys for CLI/automation: `POST /api/v1/api-keys`
 - [ ] Distribute credentials to all clients/users
@@ -207,7 +207,7 @@ When enabling authentication on an existing deployment:
 
 ### Rollback
 
-Set `REQUIRE_AUTH=false` in `.env` and restart to disable auth immediately.
+For local sidecar/dev rollback only, set both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true` in `.env` and restart to disable auth.
 
 ## Automation Status
 

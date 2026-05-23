@@ -1093,6 +1093,14 @@ async fn get_call(
 /// # Development
 /// ALLOWED_ORIGINS=https://your-domain.com,http://localhost:3000,https://staging.example.com
 /// ```
+fn env_flag(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(v) if v.eq_ignore_ascii_case("true") || v == "1" => true,
+        Ok(v) if v.eq_ignore_ascii_case("false") || v == "0" => false,
+        Ok(_) | Err(_) => default,
+    }
+}
+
 fn parse_allowed_origins() -> Vec<HeaderValue> {
     let origins_str =
         std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
@@ -1235,15 +1243,9 @@ async fn main() -> anyhow::Result<()> {
     // The boolean default for `require_auth` is now `true`. Opt-out requires BOTH
     // `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. Multi-tenant builds
     // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
-    let require_auth_env = std::env::var("REQUIRE_AUTH")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(true);
-    let i_understand_no_auth = std::env::var("I_UNDERSTAND_NO_AUTH")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false);
-    let multi_tenant = std::env::var("FORTEMI_MULTI_TENANT")
-        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false);
+    let require_auth_env = env_flag("REQUIRE_AUTH", true);
+    let i_understand_no_auth = env_flag("I_UNDERSTAND_NO_AUTH", false);
+    let multi_tenant = env_flag("FORTEMI_MULTI_TENANT", false);
     if !require_auth_env {
         if multi_tenant {
             anyhow::bail!(
@@ -1295,6 +1297,10 @@ async fn main() -> anyhow::Result<()> {
                 host, port
             );
         }
+        info!(
+            target: "fortemi.security",
+            "AUTH MODE: required"
+        );
         info!(
             target: "fortemi.security",
             "Authentication required (REQUIRE_AUTH=true). Issuer: {}",
@@ -1914,9 +1920,7 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60),
         ))),
-        require_auth: std::env::var("REQUIRE_AUTH")
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(true), // ADR-094: fail-closed default — see startup validation block in main()
+        require_auth: env_flag("REQUIRE_AUTH", true), // ADR-094: fail-closed default — see startup validation block in main()
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -3750,8 +3754,8 @@ async fn auth_middleware(
     let path = request.uri().path().to_string();
     let method = request.method().clone();
 
-    // Public routes bypass all auth
-    if is_public_route(&path) {
+    // Public routes and CORS preflights bypass all auth.
+    if is_auth_exempt(&method, &path) {
         return next.run(request).await;
     }
 
@@ -3871,21 +3875,35 @@ fn check_scope_enforcement(
     None
 }
 
+/// Check if a request is exempt from authentication.
+fn is_auth_exempt(method: &axum::http::Method, path: &str) -> bool {
+    method == axum::http::Method::OPTIONS || is_public_route(path)
+}
+
 /// Check if a route is public (accessible without authentication).
 fn is_public_route(path: &str) -> bool {
-    // Health endpoints
+    // Health endpoints.
     if path.starts_with("/health") || path.starts_with("/api/v1/health") {
         return true;
     }
-    // OAuth endpoints
+    // HotM runtime manifest (#732).
+    if path == "/v1/manifest" {
+        return true;
+    }
+    // OAuth endpoints.
     if path.starts_with("/oauth/") || path.starts_with("/.well-known/") {
         return true;
     }
-    // API documentation
-    if path.starts_with("/swagger-ui") || path.starts_with("/api-docs") {
+    // API documentation.
+    if path == "/openapi.yaml"
+        || path == "/asyncapi.yaml"
+        || path.starts_with("/docs")
+        || path.starts_with("/swagger-ui")
+        || path.starts_with("/api-docs")
+    {
         return true;
     }
-    // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452)
+    // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452).
     if path == "/api/v1/events" || path == "/api/v1/ws" {
         return true;
     }
@@ -19171,6 +19189,36 @@ mod tests {
             .execute(db.pool())
             .await
             .expect("cleanup session");
+    }
+
+    #[test]
+    fn env_flag_defaults_fail_closed() {
+        std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
+        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
+        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "invalid");
+        assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
+        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
+        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "1");
+        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
+        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "true");
+        assert!(env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", false));
+        std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "false");
+        assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
+        std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
+    }
+
+    #[test]
+    fn auth_exemption_list_matches_adr_094() {
+        assert!(is_auth_exempt(&Method::GET, "/health"));
+        assert!(is_auth_exempt(&Method::GET, "/health/live"));
+        assert!(is_auth_exempt(&Method::GET, "/api/v1/health/knowledge"));
+        assert!(is_auth_exempt(&Method::GET, "/v1/manifest"));
+        assert!(is_auth_exempt(&Method::OPTIONS, "/api/v1/notes"));
+        assert!(is_auth_exempt(&Method::GET, "/openapi.yaml"));
+        assert!(is_auth_exempt(&Method::GET, "/docs"));
+        assert!(is_auth_exempt(&Method::GET, "/oauth/token"));
+        assert!(!is_auth_exempt(&Method::GET, "/api/v1/notes"));
+        assert!(!is_auth_exempt(&Method::POST, "/api/v1/notes"));
     }
 
     // =========================================================================

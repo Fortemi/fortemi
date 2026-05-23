@@ -57,10 +57,10 @@ REDIS_DATA=${DATA_DIR}/redis
 UPLOAD_DIR=${DATA_DIR}/uploads
 
 # Authentication (ADR-094: fail-closed default, fortemi/fortemi#709).
-# Bundle deployments run anonymous by default for single-user setup.
-# Set REQUIRE_AUTH=true to require authentication on all /api/v1/* endpoints.
-REQUIRE_AUTH=false
-I_UNDERSTAND_NO_AUTH=true
+# Authentication is required by default. For local single-user sidecar/dev
+# mode only, set REQUIRE_AUTH=false and I_UNDERSTAND_NO_AUTH=true explicitly.
+REQUIRE_AUTH=true
+I_UNDERSTAND_NO_AUTH=false
 EOF
 
 # Append provider-specific configuration
