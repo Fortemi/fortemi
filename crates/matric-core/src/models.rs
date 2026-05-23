@@ -5267,6 +5267,7 @@ pub struct IncomingWebhookReceiver {
     pub slug: String,
     pub provider: String,
     pub schema_ref: String,
+    pub signature_header: String,
     pub secret_set: bool,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
@@ -5280,6 +5281,8 @@ pub struct CreateIncomingWebhookReceiverRequest {
     pub provider: String,
     pub schema_ref: String,
     pub hmac_secret: String,
+    #[serde(default = "default_incoming_webhook_signature_header")]
+    pub signature_header: String,
     #[serde(default = "default_incoming_webhook_active")]
     pub is_active: bool,
 }
@@ -5297,6 +5300,10 @@ pub struct IncomingWebhookValidationResponse {
     pub valid: bool,
     pub schema_ref: String,
     pub errors: Vec<String>,
+}
+
+fn default_incoming_webhook_signature_header() -> String {
+    "X-Fortemi-Signature".to_string()
 }
 
 fn default_incoming_webhook_active() -> bool {

@@ -12,6 +12,7 @@ use chrono::Datelike;
 use query_types::FlexibleDateTime;
 
 use axum::{
+    body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, Extension, Path, Query, State,
@@ -763,7 +764,8 @@ impl AppState {
     paths(
         create_webhook, list_webhooks, get_webhook, update_webhook,
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
-        get_incoming_webhook_receiver, validate_incoming_webhook_payload_handler,
+        get_incoming_webhook_receiver, receive_incoming_webhook,
+        validate_incoming_webhook_payload_handler,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
@@ -2512,7 +2514,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/webhooks/incoming/{slug}",
-            get(get_incoming_webhook_receiver),
+            get(get_incoming_webhook_receiver).post(receive_incoming_webhook),
         )
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
@@ -3593,6 +3595,57 @@ async fn test_webhook(
     Ok(Json(serde_json::json!({ "status": "delivered" })))
 }
 
+fn verify_incoming_signature(
+    headers: &HeaderMap,
+    signature_header: &str,
+    secret: &str,
+    body: &[u8],
+) -> Result<(), ApiError> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+
+    let signature = headers
+        .get(signature_header)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| ApiError::Unauthorized("missing incoming webhook signature".to_string()))?;
+    let signature = signature.strip_prefix("sha256=").ok_or_else(|| {
+        ApiError::Unauthorized("unsupported incoming webhook signature format".to_string())
+    })?;
+    let signature = hex::decode(signature).map_err(|_| {
+        ApiError::Unauthorized("invalid incoming webhook signature encoding".to_string())
+    })?;
+
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| {
+        ApiError::Unauthorized("invalid incoming webhook signature secret".to_string())
+    })?;
+    mac.update(body);
+    mac.verify_slice(&signature)
+        .map_err(|_| ApiError::Unauthorized("invalid incoming webhook signature".to_string()))
+}
+
+fn incoming_payload_from_body(
+    schema_ref: &str,
+    content_type: Option<&HeaderValue>,
+    body: &[u8],
+) -> Result<serde_json::Value, ApiError> {
+    let content_type = content_type
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+
+    if content_type.starts_with("application/x-www-form-urlencoded")
+        || schema_ref == "twilio.voice.v1"
+    {
+        let fields: std::collections::BTreeMap<String, String> = serde_urlencoded::from_bytes(body)
+            .map_err(|err| ApiError::BadRequest(format!("invalid form webhook payload: {err}")))?;
+        return serde_json::to_value(fields)
+            .map_err(|err| ApiError::BadRequest(format!("invalid webhook payload: {err}")));
+    }
+
+    serde_json::from_slice(body)
+        .map_err(|err| ApiError::BadRequest(format!("invalid JSON webhook payload: {err}")))
+}
+
 #[utoipa::path(post, path = "/api/v1/webhooks/incoming", tag = "Incoming Webhooks",
     request_body = matric_core::CreateIncomingWebhookReceiverRequest,
     responses((status = 201, description = "Created")))]
@@ -3627,6 +3680,63 @@ async fn get_incoming_webhook_receiver(
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
     Ok(Json(receiver))
+}
+
+#[utoipa::path(post, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
+    params(("slug" = String, Path, description = "Incoming receiver slug")),
+    request_body(content = String, content_type = "application/octet-stream"),
+    responses(
+        (status = 200, description = "Accepted"),
+        (status = 400, description = "Schema validation failure"),
+        (status = 401, description = "Missing or invalid signature"),
+        (status = 404, description = "Unknown receiver slug")
+    ))]
+async fn receive_incoming_webhook(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    let receiver = state
+        .db
+        .incoming_webhooks
+        .get_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+    if !receiver.is_active {
+        return Err(ApiError::NotFound(format!(
+            "Incoming webhook receiver {slug} not found"
+        )));
+    }
+
+    let secret = state
+        .db
+        .incoming_webhooks
+        .get_active_secret_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+    verify_incoming_signature(&headers, &receiver.signature_header, &secret, &body)?;
+
+    let payload = incoming_payload_from_body(
+        &receiver.schema_ref,
+        headers.get(header::CONTENT_TYPE),
+        &body,
+    )?;
+    let validation = matric_db::validate_incoming_webhook_payload(&receiver.schema_ref, &payload)?;
+    if !validation.valid {
+        return Err(ApiError::BadRequest(format!(
+            "incoming webhook schema validation failed: {}",
+            validation.errors.join("; ")
+        )));
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "accepted",
+        "slug": receiver.slug,
+        "provider": receiver.provider,
+        "schema_ref": receiver.schema_ref,
+        "payload": payload,
+    })))
 }
 
 #[utoipa::path(post, path = "/api/v1/webhooks/incoming/validate", tag = "Incoming Webhooks",
@@ -21760,6 +21870,54 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode([0xFFu8, 0xFEu8]);
         let result = base64_decode_metadata(&encoded);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn incoming_signature_accepts_outbound_hmac_format() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let body = br#"{"CallSid":"CA123","CallStatus":"ringing"}"#;
+        let secret = "super-secret-value";
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
+
+        verify_incoming_signature(&headers, "X-Fortemi-Signature", secret, body).unwrap();
+    }
+
+    #[test]
+    fn incoming_signature_rejects_missing_or_mismatched_signature() {
+        let body = b"payload";
+        let headers = HeaderMap::new();
+        assert!(matches!(
+            verify_incoming_signature(&headers, "X-Fortemi-Signature", "super-secret-value", body),
+            Err(ApiError::Unauthorized(_))
+        ));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Fortemi-Signature", "sha256=00".parse().unwrap());
+        assert!(matches!(
+            verify_incoming_signature(&headers, "X-Fortemi-Signature", "super-secret-value", body),
+            Err(ApiError::Unauthorized(_))
+        ));
+    }
+
+    #[test]
+    fn incoming_form_payload_is_normalized_for_twilio_voice_schema() {
+        let payload = incoming_payload_from_body(
+            "twilio.voice.v1",
+            Some(&"application/x-www-form-urlencoded".parse().unwrap()),
+            b"CallSid=CA123&CallStatus=ringing",
+        )
+        .unwrap();
+
+        assert_eq!(payload["CallSid"], "CA123");
+        assert_eq!(payload["CallStatus"], "ringing");
     }
 
     /// tus_headers() must always include Tus-Resumable: 1.0.0 as required

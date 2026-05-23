@@ -1,7 +1,6 @@
 //! Incoming webhook receiver registration and schema-shape validation.
 
 use chrono::Utc;
-use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
@@ -26,17 +25,17 @@ impl PgIncomingWebhookReceiverRepository {
 
         let id = matric_core::new_v7();
         let now = Utc::now();
-        let secret_hash = hash_hmac_secret(&req.hmac_secret);
         sqlx::query(
             "INSERT INTO incoming_webhook_receiver
-                (id, slug, provider, schema_ref, hmac_secret_hash, is_active, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                (id, slug, provider, schema_ref, hmac_secret, signature_header, is_active, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
         .bind(id)
         .bind(normalize_token(&req.slug))
         .bind(normalize_token(&req.provider))
         .bind(normalize_schema_ref(&req.schema_ref))
-        .bind(secret_hash)
+        .bind(req.hmac_secret.trim())
+        .bind(req.signature_header.trim())
         .bind(req.is_active)
         .bind(now)
         .bind(now)
@@ -48,7 +47,7 @@ impl PgIncomingWebhookReceiverRepository {
 
     pub async fn list(&self) -> Result<Vec<IncomingWebhookReceiver>> {
         let rows = sqlx::query(
-            "SELECT id, slug, provider, schema_ref, hmac_secret_hash, is_active, created_at, updated_at
+            "SELECT id, slug, provider, schema_ref, signature_header, hmac_secret, is_active, created_at, updated_at
              FROM incoming_webhook_receiver ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -60,7 +59,7 @@ impl PgIncomingWebhookReceiverRepository {
 
     pub async fn get_by_slug(&self, slug: &str) -> Result<Option<IncomingWebhookReceiver>> {
         let row = sqlx::query(
-            "SELECT id, slug, provider, schema_ref, hmac_secret_hash, is_active, created_at, updated_at
+            "SELECT id, slug, provider, schema_ref, signature_header, hmac_secret, is_active, created_at, updated_at
              FROM incoming_webhook_receiver WHERE slug = $1",
         )
         .bind(normalize_token(slug))
@@ -71,14 +70,27 @@ impl PgIncomingWebhookReceiverRepository {
         Ok(row.as_ref().map(Self::parse_row))
     }
 
+    pub async fn get_active_secret_by_slug(&self, slug: &str) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "SELECT hmac_secret FROM incoming_webhook_receiver WHERE slug = $1 AND is_active = true",
+        )
+        .bind(normalize_token(slug))
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(row.map(|r| r.get("hmac_secret")))
+    }
+
     fn parse_row(r: &sqlx::postgres::PgRow) -> IncomingWebhookReceiver {
-        let secret_hash: String = r.get("hmac_secret_hash");
+        let secret: String = r.get("hmac_secret");
         IncomingWebhookReceiver {
             id: r.get("id"),
             slug: r.get("slug"),
             provider: r.get("provider"),
             schema_ref: r.get("schema_ref"),
-            secret_set: !secret_hash.is_empty(),
+            signature_header: r.get("signature_header"),
+            secret_set: !secret.is_empty(),
             is_active: r.get("is_active"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
@@ -108,6 +120,11 @@ pub fn validate_incoming_webhook_payload(
 fn validate_receiver_request(req: &CreateIncomingWebhookReceiverRequest) -> Result<()> {
     validate_slug(&req.slug)?;
     validate_provider(&req.provider)?;
+    if req.signature_header.trim().is_empty() {
+        return Err(Error::InvalidInput(
+            "incoming webhook signature_header is required".to_string(),
+        ));
+    }
     if req.hmac_secret.trim().len() < 16 {
         return Err(Error::InvalidInput(
             "incoming webhook hmac_secret must be at least 16 characters".to_string(),
@@ -167,12 +184,6 @@ fn normalize_token(input: &str) -> String {
 
 fn normalize_schema_ref(input: &str) -> String {
     input.trim().to_ascii_lowercase()
-}
-
-fn hash_hmac_secret(secret: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(secret.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 fn validate_twilio_voice_payload(payload: &serde_json::Value) -> Vec<String> {

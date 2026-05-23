@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_receiver (
     slug TEXT NOT NULL UNIQUE,
     provider TEXT NOT NULL,
     schema_ref TEXT NOT NULL,
-    hmac_secret_hash TEXT NOT NULL,
+    hmac_secret TEXT NOT NULL,
+    signature_header TEXT NOT NULL DEFAULT 'X-Fortemi-Signature',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -15,8 +16,10 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_receiver (
         CHECK (provider ~ '^[a-z0-9-]{1,64}$'),
     CONSTRAINT incoming_webhook_receiver_schema_ref_supported
         CHECK (schema_ref IN ('twilio.voice.v1', 'twilio.media-stream.v1')),
-    CONSTRAINT incoming_webhook_receiver_secret_hash_shape
-        CHECK (hmac_secret_hash ~ '^[a-f0-9]{64}$')
+    CONSTRAINT incoming_webhook_receiver_secret_present
+        CHECK (length(trim(hmac_secret)) >= 16),
+    CONSTRAINT incoming_webhook_receiver_signature_header_present
+        CHECK (length(trim(signature_header)) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_incoming_webhook_receiver_provider
