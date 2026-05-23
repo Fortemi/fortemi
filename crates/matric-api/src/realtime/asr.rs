@@ -13,6 +13,8 @@ use matric_core::Result;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+pub mod deepgram;
+
 pub type TranscriptEventStream = Pin<Box<dyn Stream<Item = TranscriptEvent> + Send>>;
 
 #[derive(Debug, Clone, Default)]
