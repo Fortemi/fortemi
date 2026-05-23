@@ -41,6 +41,7 @@ pub mod embedding_sets;
 pub mod embeddings;
 pub mod file_storage;
 pub mod hashtag_extraction;
+pub mod incoming_webhooks;
 pub mod jobs;
 pub mod links;
 pub mod memory_search;
@@ -94,6 +95,9 @@ pub use syntactic_chunker::{CodeChunk, CodeUnitKind, SyntacticChunker};
 
 // Re-export hashtag extraction
 pub use hashtag_extraction::extract_inline_hashtags;
+pub use incoming_webhooks::{
+    validate_incoming_webhook_payload, PgIncomingWebhookReceiverRepository,
+};
 
 // Re-export repository implementations
 pub use archives::PgArchiveRepository;
@@ -190,6 +194,8 @@ pub struct Database {
     pub skos_tags: PgSkosRepository,
     /// Webhook repository for outbound HTTP notifications (Issue #44).
     pub webhooks: PgWebhookRepository,
+    /// Incoming webhook receiver registrations for provider callbacks.
+    pub incoming_webhooks: PgIncomingWebhookReceiverRepository,
     /// PKE public key registry (Issue #113).
     pub pke_keys: PgPkeKeyRepository,
     /// PKE keyset repository for REST API (Issues #328, #332).
@@ -228,6 +234,7 @@ impl Database {
             file_storage_path: None,
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(pool.clone()),
+            incoming_webhooks: PgIncomingWebhookReceiverRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             tus: PgTusRepository::new(pool.clone()),
@@ -414,6 +421,7 @@ impl Clone for Database {
             file_storage_path: self.file_storage_path.clone(),
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(self.pool.clone()),
+            incoming_webhooks: PgIncomingWebhookReceiverRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
             tus: PgTusRepository::new(self.pool.clone()),

@@ -5259,3 +5259,46 @@ pub struct CreateWebhookRequest {
 fn default_max_retries() -> i32 {
     crate::defaults::JOB_MAX_RETRIES
 }
+
+/// Registration for an incoming webhook receiver.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct IncomingWebhookReceiver {
+    pub id: Uuid,
+    pub slug: String,
+    pub provider: String,
+    pub schema_ref: String,
+    pub secret_set: bool,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Request to register an incoming webhook receiver.
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct CreateIncomingWebhookReceiverRequest {
+    pub slug: String,
+    pub provider: String,
+    pub schema_ref: String,
+    pub hmac_secret: String,
+    #[serde(default = "default_incoming_webhook_active")]
+    pub is_active: bool,
+}
+
+/// Request to validate a payload against a registered incoming webhook schema.
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct ValidateIncomingWebhookPayloadRequest {
+    pub schema_ref: String,
+    pub payload: JsonValue,
+}
+
+/// Response returned by incoming webhook schema validation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct IncomingWebhookValidationResponse {
+    pub valid: bool,
+    pub schema_ref: String,
+    pub errors: Vec<String>,
+}
+
+fn default_incoming_webhook_active() -> bool {
+    true
+}

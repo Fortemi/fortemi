@@ -762,6 +762,8 @@ impl AppState {
     servers((url = "http://localhost:3000")),
     paths(
         create_webhook, list_webhooks, get_webhook, update_webhook,
+        create_incoming_webhook_receiver, list_incoming_webhook_receivers,
+        get_incoming_webhook_receiver, validate_incoming_webhook_payload_handler,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
@@ -2500,6 +2502,18 @@ async fn main() -> anyhow::Result<()> {
             get(list_webhook_deliveries),
         )
         .route("/api/v1/webhooks/{id}/test", post(test_webhook))
+        .route(
+            "/api/v1/webhooks/incoming",
+            post(create_incoming_webhook_receiver).get(list_incoming_webhook_receivers),
+        )
+        .route(
+            "/api/v1/webhooks/incoming/validate",
+            post(validate_incoming_webhook_payload_handler),
+        )
+        .route(
+            "/api/v1/webhooks/incoming/{slug}",
+            get(get_incoming_webhook_receiver),
+        )
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
         // Middleware
@@ -3577,6 +3591,57 @@ async fn test_webhook(
     deliver_webhook(&client, &state.db, &webhook, "test", &payload).await;
 
     Ok(Json(serde_json::json!({ "status": "delivered" })))
+}
+
+#[utoipa::path(post, path = "/api/v1/webhooks/incoming", tag = "Incoming Webhooks",
+    request_body = matric_core::CreateIncomingWebhookReceiverRequest,
+    responses((status = 201, description = "Created")))]
+async fn create_incoming_webhook_receiver(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateIncomingWebhookReceiverRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.incoming_webhooks.create(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+#[utoipa::path(get, path = "/api/v1/webhooks/incoming", tag = "Incoming Webhooks",
+    responses((status = 200, description = "Success")))]
+async fn list_incoming_webhook_receivers(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let receivers = state.db.incoming_webhooks.list().await?;
+    Ok(Json(receivers))
+}
+
+#[utoipa::path(get, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
+    params(("slug" = String, Path, description = "Incoming receiver slug")),
+    responses((status = 200, description = "Success")))]
+async fn get_incoming_webhook_receiver(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let receiver = state
+        .db
+        .incoming_webhooks
+        .get_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+    Ok(Json(receiver))
+}
+
+#[utoipa::path(post, path = "/api/v1/webhooks/incoming/validate", tag = "Incoming Webhooks",
+    request_body = matric_core::ValidateIncomingWebhookPayloadRequest,
+    responses((status = 200, description = "Validation result")))]
+async fn validate_incoming_webhook_payload_handler(
+    Json(body): Json<matric_core::ValidateIncomingWebhookPayloadRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let response = matric_db::validate_incoming_webhook_payload(&body.schema_ref, &body.payload)?;
+    let status = if response.valid {
+        StatusCode::OK
+    } else {
+        StatusCode::UNPROCESSABLE_ENTITY
+    };
+    Ok((status, Json(response)))
 }
 
 // =============================================================================
@@ -19325,6 +19390,18 @@ mod tests {
                 get(list_webhook_deliveries),
             )
             .route("/api/v1/webhooks/{id}/test", post(test_webhook))
+            .route(
+                "/api/v1/webhooks/incoming",
+                post(create_incoming_webhook_receiver).get(list_incoming_webhook_receivers),
+            )
+            .route(
+                "/api/v1/webhooks/incoming/validate",
+                post(validate_incoming_webhook_payload_handler),
+            )
+            .route(
+                "/api/v1/webhooks/incoming/{slug}",
+                get(get_incoming_webhook_receiver),
+            )
             .layer(Extension(ArchiveContext::default()))
             .with_state(state);
 
