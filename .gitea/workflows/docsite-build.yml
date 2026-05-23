@@ -3,7 +3,7 @@
 # Validates that the documentation site builds successfully when docs change.
 # Catches broken links, bad config, and build errors before merge.
 #
-# Required secrets: GT_ACCESS_TOKEN
+# Required secrets: BUILD_REPO_TOKEN
 
 name: Docsite Build
 
@@ -32,7 +32,7 @@ jobs:
 
       - name: Clone dbbuilder
         run: |
-          git clone https://token:${{ secrets.GT_ACCESS_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
+          git clone https://token:${{ secrets.BUILD_REPO_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
 
       - name: Install dbbuilder dependencies
         working-directory: /tmp/dbbuilder/apps/publisher

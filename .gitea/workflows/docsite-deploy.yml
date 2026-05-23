@@ -4,7 +4,7 @@
 # Runs independently from the sidecar publish and release workflows.
 #
 # Required secrets:
-#   GT_ACCESS_TOKEN  — Gitea token for cloning the private dbbuilder repo
+#   BUILD_REPO_TOKEN — Gitea token for cloning the private dbbuilder repo
 #   DEPLOY_SSH_KEY   — private key for the deploy user
 #   DEPLOY_HOST      — docs server hostname
 #   DEPLOY_PORT      — docs server SSH port
@@ -34,7 +34,7 @@ jobs:
 
       - name: Clone dbbuilder
         run: |
-          git clone https://token:${{ secrets.GT_ACCESS_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
+          git clone https://token:${{ secrets.BUILD_REPO_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
 
       - name: Install dbbuilder dependencies
         working-directory: /tmp/dbbuilder/apps/publisher
