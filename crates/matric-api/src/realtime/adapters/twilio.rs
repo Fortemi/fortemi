@@ -4,11 +4,16 @@
 //! functions return standards-shaped [`MediaFrame`] and [`CallControlEvent`]
 //! values for the rest of the realtime pipeline.
 
+use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use futures::stream;
 use matric_core::{Error, Result};
 use serde::Deserialize;
 
-use crate::realtime::{CallControlEvent, CallState, Codec, EndReason, MediaFrame};
+use crate::realtime::{
+    CallControlEvent, CallControlEventStream, CallState, CallTransport, Codec, EndReason,
+    MediaFrame, MediaFrameStream,
+};
 
 const TWILIO_PROVIDER: &str = "twilio";
 
@@ -152,6 +157,88 @@ fn with_sequence(
     event
 }
 
+/// Deterministic Twilio Media Streams transport backed by fixture envelopes.
+///
+/// This keeps Twilio wire parsing behind the adapter boundary while allowing
+/// the generic [`CallTransport`] contract to be exercised without a live
+/// Twilio WebSocket. Production sockets should feed received envelopes through
+/// the same translation functions before handing frames to downstream ASR.
+#[derive(Debug, Clone)]
+pub struct TwilioMediaStreamAdapter {
+    provider_call_id: String,
+    frames: Vec<MediaFrame>,
+    control_events: Vec<CallControlEvent>,
+    dropped_on_close: Option<String>,
+    ended: Option<EndReason>,
+}
+
+impl TwilioMediaStreamAdapter {
+    pub fn from_envelopes(
+        provider_call_id: impl Into<String>,
+        envelopes: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<Self> {
+        let provider_call_id = provider_call_id.into();
+        let mut frames = Vec::new();
+        let mut control_events = Vec::new();
+
+        for envelope in envelopes {
+            match translate_media_stream_json(envelope.as_ref())? {
+                TwilioTranslatedEvent::Media(frame) => frames.push(frame),
+                TwilioTranslatedEvent::Control(event) => control_events.push(event),
+            }
+        }
+
+        Ok(Self {
+            provider_call_id,
+            frames,
+            control_events,
+            dropped_on_close: None,
+            ended: None,
+        })
+    }
+
+    pub fn dropped_on_close(mut self, reason: impl Into<String>) -> Self {
+        self.dropped_on_close = Some(reason.into());
+        self
+    }
+}
+
+#[async_trait]
+impl CallTransport for TwilioMediaStreamAdapter {
+    fn adapter_name(&self) -> &str {
+        TWILIO_PROVIDER
+    }
+
+    fn provider_call_id(&self) -> &str {
+        &self.provider_call_id
+    }
+
+    fn frames(&mut self) -> MediaFrameStream {
+        Box::pin(stream::iter(self.frames.clone()))
+    }
+
+    fn control_events(&mut self) -> CallControlEventStream {
+        let mut events = self.control_events.clone();
+        if let Some(reason) = &self.dropped_on_close {
+            events.push(CallControlEvent::Dropped {
+                reason: reason.clone(),
+            });
+        } else if let Some(reason) = &self.ended {
+            events.push(CallControlEvent::StateChanged {
+                state: CallState::Ended {
+                    reason: reason.clone(),
+                },
+            });
+        }
+        Box::pin(stream::iter(events))
+    }
+
+    async fn end_call(&mut self, reason: EndReason) -> Result<()> {
+        self.ended = Some(reason);
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct TwilioVoiceWebhookForm {
@@ -254,6 +341,39 @@ fn remote_party(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::realtime::adapters::MockAdapter;
+    use crate::realtime::asr::{
+        AsrSessionConfig, MockAsrBackend, StreamingASRBackend, TranscriptEvent,
+    };
+    use crate::realtime::codec::normalize_frame_to_pcm16k;
+    use futures::StreamExt;
+
+    async fn run_transport_through_mock_asr(
+        transport: &mut dyn CallTransport,
+    ) -> Vec<TranscriptEvent> {
+        let frames: Vec<_> = transport.frames().collect().await;
+        assert!(!frames.is_empty());
+
+        let backend = MockAsrBackend::default();
+        let mut session = backend
+            .start_session(AsrSessionConfig {
+                sample_rate_hz: 16_000,
+                language: Some("en".to_string()),
+                metadata: serde_json::json!({
+                    "provider": transport.adapter_name(),
+                    "provider_call_id": transport.provider_call_id(),
+                }),
+            })
+            .await
+            .unwrap();
+
+        for frame in frames {
+            let pcm = normalize_frame_to_pcm16k(&frame).unwrap();
+            session.push_pcm16k(&pcm).await.unwrap();
+        }
+        session.close().await.unwrap();
+        session.events().take(1).collect().await
+    }
 
     #[test]
     fn media_envelope_decodes_pcmu_payload() {
@@ -284,6 +404,84 @@ mod tests {
             event,
             TwilioTranslatedEvent::Control(CallControlEvent::DtmfDigit { digit: '#' })
         ));
+    }
+
+    #[tokio::test]
+    async fn fixture_adapter_runs_trait_backed_asr_pipeline() {
+        let mut adapter = TwilioMediaStreamAdapter::from_envelopes(
+            "CA123",
+            [
+                r#"{"event":"start","sequenceNumber":"1","start":{"callSid":"CA123"}}"#,
+                r#"{"event":"media","sequenceNumber":"2","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#,
+                r##"{"event":"dtmf","sequenceNumber":"3","dtmf":{"digit":"#"}}"##,
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(adapter.adapter_name(), "twilio");
+        assert_eq!(adapter.provider_call_id(), "CA123");
+
+        let events: Vec<_> = adapter.control_events().collect().await;
+        assert!(matches!(
+            events.first(),
+            Some(CallControlEvent::CallStarted {
+                provider,
+                provider_call_id
+            }) if provider == "twilio" && provider_call_id == "CA123"
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CallControlEvent::DtmfDigit { digit: '#' })));
+
+        let transcript_events = run_transport_through_mock_asr(&mut adapter).await;
+        assert!(matches!(
+            transcript_events.first(),
+            Some(TranscriptEvent::Final { text, .. }) if text == "mock transcript"
+        ));
+    }
+
+    #[tokio::test]
+    async fn mock_and_twilio_transports_share_the_same_normalized_asr_contract() {
+        let mut mock = MockAdapter::builder().sine_wave(440.0, 20).build();
+        let mut twilio = TwilioMediaStreamAdapter::from_envelopes(
+            "CA456",
+            [r#"{"event":"media","sequenceNumber":"1","media":{"payload":"/////w==","timestamp":"0","chunk":"1"}}"#],
+        )
+        .unwrap();
+
+        let mock_events = run_transport_through_mock_asr(&mut mock).await;
+        let twilio_events = run_transport_through_mock_asr(&mut twilio).await;
+
+        assert_eq!(
+            mock_events
+                .iter()
+                .filter(|event| matches!(event, TranscriptEvent::Final { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            twilio_events
+                .iter()
+                .filter(|event| matches!(event, TranscriptEvent::Final { .. }))
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn fixture_adapter_can_emit_dropped_on_socket_close() {
+        let mut adapter = TwilioMediaStreamAdapter::from_envelopes(
+            "CA789",
+            [r#"{"event":"media","sequenceNumber":"1","media":{"payload":"/////w==","timestamp":"0","chunk":"1"}}"#],
+        )
+        .unwrap()
+        .dropped_on_close("fixture socket closed");
+
+        let events: Vec<_> = adapter.control_events().collect().await;
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CallControlEvent::Dropped { reason } if reason == "fixture socket closed"
+        )));
     }
 
     #[test]
