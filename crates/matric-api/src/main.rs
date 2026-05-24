@@ -765,7 +765,7 @@ impl AppState {
         create_webhook, list_webhooks, get_webhook, update_webhook,
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
         get_incoming_webhook_receiver, receive_incoming_webhook,
-        validate_incoming_webhook_payload_handler,
+        validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, get_notes_timeline, get_notes_activity, get_knowledge_health,
@@ -2065,6 +2065,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/{id}/status", patch(update_note_status))
         // Jobs
         .route("/api/v1/calls/{id}", get(get_call))
+        .route(
+            "/api/v1/realtime/twilio/{provider_call_id}",
+            get(twilio_realtime_ws),
+        )
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/jobs/{id}", get(get_job))
         .route("/api/v1/jobs/pending", get(pending_jobs_count))
@@ -2751,6 +2755,144 @@ async fn emit_periodic_queue_status(event_bus: Arc<EventBus>, db: Database) {
                 pending: stats.pending,
             });
         }
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/realtime/twilio/{provider_call_id}", tag = "Realtime",
+    params(("provider_call_id" = String, Path, description = "Twilio CallSid")),
+    responses(
+        (status = 101, description = "WebSocket upgrade"),
+        (status = 401, description = "Unknown, stale, or ended call session")
+    ))]
+async fn twilio_realtime_ws(
+    Path(provider_call_id): Path<String>,
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let session = state
+        .db
+        .call_sessions
+        .get_session_by_provider_call_id("twilio", &provider_call_id)
+        .await?
+        .ok_or_else(|| ApiError::Unauthorized("unknown Twilio call session".to_string()))?;
+
+    if session.ended_at.is_some() || !is_recent_twilio_session(&session) {
+        return Err(ApiError::Unauthorized(
+            "Twilio call session is not eligible for media stream binding".to_string(),
+        ));
+    }
+
+    let call_id = session.call_id;
+    Ok(ws.on_upgrade(move |socket| {
+        handle_twilio_realtime_connection(socket, state, call_id, provider_call_id)
+    }))
+}
+
+fn is_recent_twilio_session(session: &matric_core::CallSession) -> bool {
+    chrono::Utc::now().signed_duration_since(session.started_at) <= chrono::Duration::seconds(30)
+}
+
+async fn handle_twilio_realtime_connection(
+    mut socket: WebSocket,
+    state: AppState,
+    call_id: Uuid,
+    provider_call_id: String,
+) {
+    while let Some(message) = socket.recv().await {
+        match message {
+            Ok(Message::Text(text)) => {
+                match matric_api::realtime::adapters::twilio::translate_media_stream_json(&text) {
+                    Ok(matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::Media(
+                        frame,
+                    )) => {
+                        tracing::trace!(
+                            %call_id,
+                            %provider_call_id,
+                            sequence = frame.sequence,
+                            timestamp_rtp = frame.timestamp_rtp,
+                            bytes = frame.payload.len(),
+                            "Twilio media frame received"
+                        );
+                    }
+                    Ok(matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::Control(
+                        event,
+                    )) => {
+                        handle_twilio_control_event(&state, call_id, &provider_call_id, event)
+                            .await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(%call_id, %provider_call_id, %error, "Invalid Twilio media envelope");
+                        let _ = socket
+                            .send(Message::Text(
+                                serde_json::json!({"error":"invalid_twilio_media_envelope"})
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await;
+                    }
+                }
+            }
+            Ok(Message::Close(_)) => break,
+            Ok(Message::Ping(payload)) => {
+                let _ = socket.send(Message::Pong(payload)).await;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%call_id, %provider_call_id, %error, "Twilio media stream socket error");
+                break;
+            }
+        }
+    }
+
+    handle_twilio_control_event(
+        &state,
+        call_id,
+        &provider_call_id,
+        matric_api::realtime::CallControlEvent::Dropped {
+            reason: "websocket_closed".to_string(),
+        },
+    )
+    .await;
+}
+
+async fn handle_twilio_control_event(
+    state: &AppState,
+    call_id: Uuid,
+    provider_call_id: &str,
+    event: matric_api::realtime::CallControlEvent,
+) {
+    match event {
+        matric_api::realtime::CallControlEvent::StateChanged {
+            state: matric_api::realtime::CallState::Ended { reason },
+        } => {
+            let _ = state
+                .db
+                .call_sessions
+                .end_session(call_id, twilio_end_reason_label(&reason))
+                .await;
+        }
+        matric_api::realtime::CallControlEvent::Dropped { reason } => {
+            let _ = state.db.call_sessions.end_session(call_id, "dropped").await;
+            tracing::info!(%call_id, %provider_call_id, %reason, "Twilio media stream dropped");
+        }
+        matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
+            tracing::info!(%call_id, %provider_call_id, %url, "Twilio recording available");
+        }
+        matric_api::realtime::CallControlEvent::DtmfDigit { digit } => {
+            tracing::debug!(%call_id, %provider_call_id, %digit, "Twilio DTMF digit received");
+        }
+        matric_api::realtime::CallControlEvent::CallStarted { .. }
+        | matric_api::realtime::CallControlEvent::StateChanged { .. }
+        | matric_api::realtime::CallControlEvent::Custom { .. } => {}
+    }
+}
+
+fn twilio_end_reason_label(reason: &matric_api::realtime::EndReason) -> &'static str {
+    match reason {
+        matric_api::realtime::EndReason::NormalHangup => "normal_hangup",
+        matric_api::realtime::EndReason::Dropped => "dropped",
+        matric_api::realtime::EndReason::Failed => "failed",
+        matric_api::realtime::EndReason::Cancelled => "cancelled",
     }
 }
 
@@ -4079,7 +4221,10 @@ fn is_public_route(path: &str) -> bool {
         return true;
     }
     // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452).
-    if path == "/api/v1/events" || path == "/api/v1/ws" {
+    if path == "/api/v1/events"
+        || path == "/api/v1/ws"
+        || path.starts_with("/api/v1/realtime/twilio/")
+    {
         return true;
     }
     false
@@ -21918,6 +22063,57 @@ mod tests {
 
         assert_eq!(payload["CallSid"], "CA123");
         assert_eq!(payload["CallStatus"], "ringing");
+    }
+
+    #[test]
+    fn twilio_realtime_route_is_auth_exempt_for_provider_ws() {
+        assert!(is_auth_exempt(
+            &Method::GET,
+            "/api/v1/realtime/twilio/CA123"
+        ));
+    }
+
+    #[test]
+    fn recent_twilio_session_window_is_thirty_seconds() {
+        let recent = matric_core::CallSession {
+            call_id: Uuid::nil(),
+            provider: "twilio".to_string(),
+            provider_call_id: "CA123".to_string(),
+            started_at: chrono::Utc::now() - chrono::Duration::seconds(5),
+            ended_at: None,
+            end_reason: None,
+            asr_backend: None,
+            remote_party: None,
+            archive_id: None,
+            metadata: serde_json::Value::Null,
+        };
+        assert!(is_recent_twilio_session(&recent));
+
+        let stale = matric_core::CallSession {
+            started_at: chrono::Utc::now() - chrono::Duration::seconds(31),
+            ..recent
+        };
+        assert!(!is_recent_twilio_session(&stale));
+    }
+
+    #[test]
+    fn twilio_end_reason_labels_are_stable() {
+        assert_eq!(
+            twilio_end_reason_label(&matric_api::realtime::EndReason::NormalHangup),
+            "normal_hangup"
+        );
+        assert_eq!(
+            twilio_end_reason_label(&matric_api::realtime::EndReason::Dropped),
+            "dropped"
+        );
+        assert_eq!(
+            twilio_end_reason_label(&matric_api::realtime::EndReason::Failed),
+            "failed"
+        );
+        assert_eq!(
+            twilio_end_reason_label(&matric_api::realtime::EndReason::Cancelled),
+            "cancelled"
+        );
     }
 
     /// tus_headers() must always include Tus-Resumable: 1.0.0 as required
