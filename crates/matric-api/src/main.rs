@@ -15,9 +15,9 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, Extension, Path, Query, State,
+        DefaultBodyLimit, Extension, OriginalUri, Path, Query, State,
     },
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{
         sse::{Event, KeepAlive},
         IntoResponse, Sse,
@@ -3742,7 +3742,12 @@ fn verify_incoming_signature(
     signature_header: &str,
     secret: &str,
     body: &[u8],
+    uri: Option<&Uri>,
 ) -> Result<(), ApiError> {
+    if signature_header.eq_ignore_ascii_case("X-Twilio-Signature") {
+        return verify_twilio_incoming_signature(headers, secret, body, uri);
+    }
+
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
@@ -3764,6 +3769,70 @@ fn verify_incoming_signature(
     mac.update(body);
     mac.verify_slice(&signature)
         .map_err(|_| ApiError::Unauthorized("invalid incoming webhook signature".to_string()))
+}
+
+fn verify_twilio_incoming_signature(
+    headers: &HeaderMap,
+    secret: &str,
+    body: &[u8],
+    uri: Option<&Uri>,
+) -> Result<(), ApiError> {
+    use hmac::{Hmac, Mac};
+    use sha1::Sha1;
+
+    type HmacSha1 = Hmac<Sha1>;
+
+    let signature = headers
+        .get("X-Twilio-Signature")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| ApiError::Unauthorized("missing incoming webhook signature".to_string()))?;
+    let expected_url = incoming_webhook_external_url(headers, uri).ok_or_else(|| {
+        ApiError::Unauthorized("missing incoming webhook request URL".to_string())
+    })?;
+    let mut params: Vec<(String, String)> = serde_urlencoded::from_bytes(body).map_err(|_| {
+        ApiError::Unauthorized("invalid Twilio webhook form parameters".to_string())
+    })?;
+    params.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+
+    let mut payload = expected_url;
+    for (key, value) in params {
+        payload.push_str(&key);
+        payload.push_str(&value);
+    }
+
+    let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).map_err(|_| {
+        ApiError::Unauthorized("invalid incoming webhook signature secret".to_string())
+    })?;
+    mac.update(payload.as_bytes());
+    let signature = base64::engine::general_purpose::STANDARD
+        .decode(signature)
+        .map_err(|_| {
+            ApiError::Unauthorized("invalid incoming webhook signature encoding".to_string())
+        })?;
+    mac.verify_slice(&signature)
+        .map_err(|_| ApiError::Unauthorized("invalid incoming webhook signature".to_string()))
+}
+
+fn incoming_webhook_external_url(headers: &HeaderMap, uri: Option<&Uri>) -> Option<String> {
+    let uri = uri?;
+    if uri.scheme().is_some() && uri.authority().is_some() {
+        return Some(uri.to_string());
+    }
+
+    let proto = header_str(headers, "X-Forwarded-Proto")
+        .or_else(|| header_str(headers, "X-Forwarded-Protocol"))
+        .unwrap_or("https");
+    let host = header_str(headers, "X-Forwarded-Host").or_else(|| header_str(headers, "Host"))?;
+    Some(format!("{proto}://{host}{uri}"))
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn incoming_payload_from_body(
@@ -3835,6 +3904,7 @@ async fn get_incoming_webhook_receiver(
     ))]
 async fn receive_incoming_webhook(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     Path(slug): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -3857,7 +3927,13 @@ async fn receive_incoming_webhook(
         .get_active_secret_by_slug(&slug)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
-    verify_incoming_signature(&headers, &receiver.signature_header, &secret, &body)?;
+    verify_incoming_signature(
+        &headers,
+        &receiver.signature_header,
+        &secret,
+        &body,
+        Some(&uri),
+    )?;
 
     let payload = incoming_payload_from_body(
         &receiver.schema_ref,
@@ -22136,7 +22212,55 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
 
-        verify_incoming_signature(&headers, "X-Fortemi-Signature", secret, body).unwrap();
+        verify_incoming_signature(&headers, "X-Fortemi-Signature", secret, body, None).unwrap();
+    }
+
+    #[test]
+    fn incoming_signature_accepts_twilio_hmac_sha1_format() {
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        type HmacSha1 = Hmac<Sha1>;
+
+        let secret = "twilio-auth-token-value";
+        let uri: Uri = "/api/v1/webhooks/incoming/twilio-voice-events?retry=1"
+            .parse()
+            .unwrap();
+        let body = b"To=%2B18005551212&CallSid=CA1234567890ABCDE&Digits=1234&From=%2B12349013030&Caller=%2B12349013030";
+        let payload = "https://voice.example.com/api/v1/webhooks/incoming/twilio-voice-events?retry=1CallSidCA1234567890ABCDECaller+12349013030Digits1234From+12349013030To+18005551212";
+        let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(payload.as_bytes());
+        let signature =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Host", "internal.local".parse().unwrap());
+        headers.insert("X-Forwarded-Proto", "https".parse().unwrap());
+        headers.insert("X-Forwarded-Host", "voice.example.com".parse().unwrap());
+        headers.insert("X-Twilio-Signature", signature.parse().unwrap());
+
+        verify_incoming_signature(&headers, "X-Twilio-Signature", secret, body, Some(&uri))
+            .unwrap();
+    }
+
+    #[test]
+    fn incoming_signature_rejects_twilio_mismatched_url() {
+        let uri: Uri = "/api/v1/webhooks/incoming/twilio-voice-events"
+            .parse()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("Host", "voice.example.com".parse().unwrap());
+        headers.insert("X-Twilio-Signature", "invalid".parse().unwrap());
+
+        assert!(matches!(
+            verify_incoming_signature(
+                &headers,
+                "X-Twilio-Signature",
+                "twilio-auth-token-value",
+                b"CallSid=CA1234567890ABCDE&CallStatus=ringing",
+                Some(&uri),
+            ),
+            Err(ApiError::Unauthorized(_))
+        ));
     }
 
     #[test]
@@ -22144,14 +22268,26 @@ mod tests {
         let body = b"payload";
         let headers = HeaderMap::new();
         assert!(matches!(
-            verify_incoming_signature(&headers, "X-Fortemi-Signature", "super-secret-value", body),
+            verify_incoming_signature(
+                &headers,
+                "X-Fortemi-Signature",
+                "super-secret-value",
+                body,
+                None
+            ),
             Err(ApiError::Unauthorized(_))
         ));
 
         let mut headers = HeaderMap::new();
         headers.insert("X-Fortemi-Signature", "sha256=00".parse().unwrap());
         assert!(matches!(
-            verify_incoming_signature(&headers, "X-Fortemi-Signature", "super-secret-value", body),
+            verify_incoming_signature(
+                &headers,
+                "X-Fortemi-Signature",
+                "super-secret-value",
+                body,
+                None
+            ),
             Err(ApiError::Unauthorized(_))
         ));
     }

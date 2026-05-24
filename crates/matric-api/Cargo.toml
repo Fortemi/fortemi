@@ -56,6 +56,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 tar = "0.4"
 flate2 = "1.0"
 sha2 = "0.10"
+sha1 = "0.10"
 hmac = "0.12"
 hex = "0.4"
 

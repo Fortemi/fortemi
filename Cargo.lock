@@ -2099,6 +2099,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "serde_yaml",
+ "sha1",
  "sha2 0.10.9",
  "sqlx",
  "tar",
