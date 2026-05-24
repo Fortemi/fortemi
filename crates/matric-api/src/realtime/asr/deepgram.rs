@@ -522,6 +522,91 @@ mod tests {
         .is_empty());
     }
 
+    #[tokio::test]
+    async fn mocked_websocket_session_sends_audio_and_receives_transcripts() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listen_url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+
+            let audio = socket.next().await.unwrap().unwrap();
+            assert!(audio.is_binary());
+            assert!(!audio.into_data().is_empty());
+
+            socket
+                .send(Message::Text(
+                    r#"{
+                      "type": "Results",
+                      "is_final": false,
+                      "channel": {"alternatives": [{"transcript": "hello wor"}]}
+                    }"#
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    r#"{
+                      "type": "Results",
+                      "is_final": true,
+                      "channel": {"alternatives": [{
+                        "transcript": "hello world",
+                        "confidence": 0.98,
+                        "words": [{"start": 0.0, "end": 0.5, "speaker": 0}]
+                      }]}
+                    }"#
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            let _ = socket.close(None).await;
+        });
+
+        let backend = DeepgramBackend::new(DeepgramConfig {
+            api_key: "test-token-not-logged".to_string(),
+            listen_url,
+            model: "nova-3".to_string(),
+            language: "en".to_string(),
+            encoding: "linear16".to_string(),
+            sample_rate_hz: 16_000,
+        });
+
+        let mut session = backend
+            .start_session(AsrSessionConfig {
+                sample_rate_hz: 16_000,
+                language: Some("en-US".to_string()),
+                metadata: serde_json::json!({"test": true}),
+            })
+            .await
+            .unwrap();
+
+        session.push_pcm16k(&[1, -2, 3, -4]).await.unwrap();
+        let events: Vec<_> = session.events().take(2).collect().await;
+        server.await.unwrap();
+
+        assert!(matches!(
+            events.first(),
+            Some(TranscriptEvent::Partial { text, .. }) if text == "hello wor"
+        ));
+        assert!(matches!(
+            events.get(1),
+            Some(TranscriptEvent::Final {
+                text,
+                speaker_label: Some(speaker),
+                confidence: Some(confidence),
+                ..
+            }) if text == "hello world" && speaker == "speaker_0" && (*confidence - 0.98).abs() < f32::EPSILON
+        ));
+
+        let snapshot = backend.metrics().snapshot();
+        assert_eq!(snapshot.partial_events, 1);
+        assert_eq!(snapshot.final_events, 1);
+    }
+
     #[test]
     fn reconnect_backoff_caps_at_five_seconds() {
         assert_eq!(reconnect_backoff(0), Duration::from_millis(200));
