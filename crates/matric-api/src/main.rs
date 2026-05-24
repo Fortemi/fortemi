@@ -22576,6 +22576,89 @@ mod tests {
         assert_eq!(payload["CallStatus"], "ringing");
     }
 
+    #[tokio::test]
+    async fn twilio_realtime_ws_requires_recent_session_and_marks_drop_on_close() {
+        use futures::SinkExt;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let provider_call_id = format!("CA{}", Uuid::new_v4().simple());
+        let session = db
+            .call_sessions
+            .create_session(matric_core::CreateCallSessionRequest {
+                provider: "twilio".to_string(),
+                provider_call_id: provider_call_id.clone(),
+                started_at: Some(chrono::Utc::now()),
+                asr_backend: Some("deepgram".to_string()),
+                remote_party: Some("+15551234567".to_string()),
+                archive_id: None,
+                metadata: serde_json::json!({"test": "twilio realtime ws"}),
+            })
+            .await
+            .expect("create twilio session");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let router = Router::new()
+            .route(
+                "/api/v1/realtime/twilio/{provider_call_id}",
+                get(twilio_realtime_ws),
+            )
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!(
+            "ws://{}/api/v1/realtime/twilio/{}",
+            listener.local_addr().unwrap(),
+            provider_call_id
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let (mut ws, response) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect("connect Twilio realtime websocket");
+        assert_eq!(response.status(), 101);
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            r#"{"event":"media","sequenceNumber":"1","media":{"payload":"/////w==","timestamp":"160","chunk":"1"}}"#
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("send Twilio media envelope");
+        ws.close(None).await.expect("close websocket");
+
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let current = db
+                    .call_sessions
+                    .get_session_by_provider_call_id("twilio", &provider_call_id)
+                    .await
+                    .expect("load twilio session")
+                    .expect("session exists");
+                if current.ended_at.is_some() {
+                    break current;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("session should be marked dropped after websocket close");
+        assert_eq!(ended.end_reason.as_deref(), Some("dropped"));
+
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup session");
+    }
+
     #[test]
     fn twilio_realtime_route_is_auth_exempt_for_provider_ws() {
         assert!(is_auth_exempt(
