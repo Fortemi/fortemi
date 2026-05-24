@@ -324,6 +324,101 @@ mod tests {
         assert_clone_send_sync::<PgCallSessionRepository>();
     }
 
+    fn backend_seconds(metrics: &RealtimeCallMetrics, backend: &str) -> f64 {
+        metrics
+            .duration_seconds_by_backend
+            .get(backend)
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0)
+    }
+
+    #[tokio::test]
+    async fn realtime_metrics_capture_mock_active_and_completed_sessions() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let repo = PgCallSessionRepository::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let backend = format!("mock-metrics-{suffix}");
+        let active_provider_call_id = format!("active-{suffix}");
+        let completed_provider_call_id = format!("completed-{suffix}");
+        let now = Utc::now();
+
+        let before = repo.realtime_metrics().await.unwrap();
+        let active = repo
+            .create_session(CreateCallSessionRequest {
+                provider: "mock".to_string(),
+                provider_call_id: active_provider_call_id,
+                started_at: Some(now - chrono::Duration::seconds(10)),
+                asr_backend: Some(backend.clone()),
+                remote_party: None,
+                archive_id: None,
+                metadata: serde_json::json!({"test": "active metrics"}),
+            })
+            .await
+            .unwrap();
+        let completed = repo
+            .create_session(CreateCallSessionRequest {
+                provider: "mock".to_string(),
+                provider_call_id: completed_provider_call_id,
+                started_at: Some(now - chrono::Duration::seconds(50)),
+                asr_backend: Some(backend.clone()),
+                remote_party: None,
+                archive_id: None,
+                metadata: serde_json::json!({"test": "completed metrics"}),
+            })
+            .await
+            .unwrap();
+        repo.update_session(
+            completed.call_id,
+            UpdateCallSessionRequest {
+                ended_at: Some(now - chrono::Duration::seconds(5)),
+                end_reason: Some("normal_hangup".to_string()),
+                ..UpdateCallSessionRequest::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let after = repo.realtime_metrics().await.unwrap();
+
+        assert_eq!(after.total_sessions - before.total_sessions, 2);
+        assert_eq!(after.active_sessions - before.active_sessions, 1);
+        assert_eq!(after.completed_sessions - before.completed_sessions, 1);
+        assert_eq!(
+            after.duration_buckets.le_30 - before.duration_buckets.le_30,
+            0
+        );
+        assert_eq!(
+            after.duration_buckets.le_60 - before.duration_buckets.le_60,
+            1
+        );
+        assert_eq!(
+            after.duration_buckets.le_inf - before.duration_buckets.le_inf,
+            1
+        );
+        assert!(
+            (after.completed_duration_sum_seconds - before.completed_duration_sum_seconds) >= 45.0
+        );
+        assert!(backend_seconds(&after, &backend) >= 55.0);
+
+        sqlx::query("DELETE FROM transcript_segments WHERE call_id = ANY($1)")
+            .bind(&[active.call_id, completed.call_id])
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = ANY($1)")
+            .bind(&[active.call_id, completed.call_id])
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn realtime_metrics_query_executes_when_integration_db_is_available() {
         if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
