@@ -178,6 +178,8 @@ impl CallTransport for MockAdapter {
         let mut events = vec![CallControlEvent::CallStarted {
             provider: self.adapter_name().to_string(),
             provider_call_id: self.provider_call_id.clone(),
+            remote_party: None,
+            metadata: serde_json::Value::Null,
         }];
         events.extend(
             self.dtmf

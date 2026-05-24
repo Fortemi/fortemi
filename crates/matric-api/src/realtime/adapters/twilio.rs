@@ -93,6 +93,8 @@ pub fn translate_media_stream_json(input: &str) -> Result<TwilioTranslatedEvent>
             CallControlEvent::CallStarted {
                 provider: TWILIO_PROVIDER.to_string(),
                 provider_call_id: start.call_sid,
+                remote_party: None,
+                metadata: serde_json::json!({"source": "twilio_media_stream"}),
             },
         ))
         .map(|event| with_sequence(event, sequence_number)),
@@ -301,12 +303,11 @@ impl TwilioVoiceWebhookForm {
             .as_deref()
             .ok_or_else(|| Error::InvalidInput("Twilio webhook missing CallStatus".to_string()))?;
         let control_event = match status {
-            "ringing" => CallControlEvent::Custom {
-                event_type: "call_started".to_string(),
-                payload: serde_json::json!({
-                    "provider": TWILIO_PROVIDER,
-                    "provider_call_id": self.call_sid,
-                    "remote_party": remote_party(&self.from, &self.to, &self.direction),
+            "ringing" => CallControlEvent::CallStarted {
+                provider: TWILIO_PROVIDER.to_string(),
+                provider_call_id: self.call_sid,
+                remote_party: remote_party(&self.from, &self.to, &self.direction),
+                metadata: serde_json::json!({
                     "consent_confirmed": consent_truthy(&self.consent_confirmed)
                         || consent_truthy(&self.recording_consent),
                     "disclosure_played": consent_truthy(&self.disclosure_played),
@@ -447,7 +448,8 @@ mod tests {
             events.first(),
             Some(CallControlEvent::CallStarted {
                 provider,
-                provider_call_id
+                provider_call_id,
+                ..
             }) if provider == "twilio" && provider_call_id == "CA123"
         ));
         assert!(events
@@ -515,10 +517,14 @@ mod tests {
         assert_eq!(event.provider_call_id, "CA123");
         assert!(matches!(
             event.control_event,
-            CallControlEvent::Custom { ref event_type, ref payload }
-                if event_type == "call_started"
-                    && payload["provider_call_id"] == "CA123"
-                    && payload["remote_party"] == "+15551230000"
+            CallControlEvent::CallStarted {
+                ref provider,
+                ref provider_call_id,
+                ref remote_party,
+                ..
+            } if provider == "twilio"
+                && provider_call_id == "CA123"
+                && remote_party.as_deref() == Some("+15551230000")
         ));
     }
 
@@ -531,11 +537,10 @@ mod tests {
 
         assert!(matches!(
             event.control_event,
-            CallControlEvent::Custom { ref event_type, ref payload }
-                if event_type == "call_started"
-                    && payload["consent_confirmed"] == true
-                    && payload["disclosure_played"] == true
-                    && payload["disclosure_version"] == "v2026-05"
+            CallControlEvent::CallStarted { ref metadata, .. }
+                if metadata["consent_confirmed"] == true
+                    && metadata["disclosure_played"] == true
+                    && metadata["disclosure_version"] == "v2026-05"
         ));
     }
 

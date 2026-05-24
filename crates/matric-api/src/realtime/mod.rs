@@ -82,6 +82,8 @@ pub enum CallControlEvent {
     CallStarted {
         provider: String,
         provider_call_id: String,
+        remote_party: Option<String>,
+        metadata: serde_json::Value,
     },
     StateChanged {
         state: CallState,

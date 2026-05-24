@@ -408,12 +408,12 @@ mod tests {
         assert!(backend_seconds(&after, &backend) >= 55.0);
 
         sqlx::query("DELETE FROM transcript_segments WHERE call_id = ANY($1)")
-            .bind(&[active.call_id, completed.call_id])
+            .bind([active.call_id, completed.call_id])
             .execute(&pool)
             .await
             .unwrap();
         sqlx::query("DELETE FROM call_sessions WHERE call_id = ANY($1)")
-            .bind(&[active.call_id, completed.call_id])
+            .bind([active.call_id, completed.call_id])
             .execute(&pool)
             .await
             .unwrap();

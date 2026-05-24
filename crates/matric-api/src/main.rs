@@ -4014,12 +4014,14 @@ async fn apply_twilio_voice_webhook(
     let event = matric_api::realtime::adapters::twilio::translate_voice_webhook_form(raw_body)?;
     let provider_call_id = event.provider_call_id.clone();
     match event.control_event {
-        matric_api::realtime::CallControlEvent::Custom {
-            event_type,
-            payload,
-        } if event_type == "call_started" => {
+        matric_api::realtime::CallControlEvent::CallStarted {
+            provider,
+            provider_call_id: _,
+            remote_party,
+            metadata,
+        } if provider == "twilio" => {
             if call_recording_confirmation_required()
-                && !twilio_call_started_consent_confirmed(&payload)
+                && !twilio_call_started_consent_confirmed(&metadata)
             {
                 return Ok(serde_json::json!({
                     "type": "call_session_blocked_consent_required",
@@ -4049,16 +4051,13 @@ async fn apply_twilio_voice_webhook(
                     provider_call_id: provider_call_id.clone(),
                     started_at: Some(chrono::Utc::now()),
                     asr_backend: Some("deepgram".to_string()),
-                    remote_party: payload
-                        .get("remote_party")
-                        .and_then(|value| value.as_str())
-                        .map(ToString::to_string),
+                    remote_party,
                     archive_id: None,
                     metadata: serde_json::json!({
                         "source": "twilio_voice_webhook",
-                        "call_started_payload": payload,
+                        "call_started_metadata": metadata,
                         "recording_disclosure": call_recording_disclosure_config(),
-                        "consent_confirmed": twilio_call_started_consent_confirmed(&payload),
+                        "consent_confirmed": twilio_call_started_consent_confirmed(&metadata),
                     }),
                 })
                 .await?;
