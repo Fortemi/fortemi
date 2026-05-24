@@ -523,6 +523,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_open_failure_can_fail_over_to_mock_backend() {
+        std::env::set_var("REALTIME_ASR_BACKEND_FALLBACK", "mock");
+
+        let backend = DeepgramBackend::new(DeepgramConfig {
+            api_key: "test-token-not-logged".to_string(),
+            listen_url: "ws://127.0.0.1:9/v1/listen".to_string(),
+            model: "nova-3".to_string(),
+            language: "en".to_string(),
+            encoding: "linear16".to_string(),
+            sample_rate_hz: 16_000,
+        })
+        .with_fallback(Arc::new(crate::realtime::asr::MockAsrBackend::default()));
+
+        let mut session = backend
+            .start_session(AsrSessionConfig::default())
+            .await
+            .unwrap();
+        session.push_pcm16k(&[1, 2, 3]).await.unwrap();
+        session.close().await.unwrap();
+        let events: Vec<_> = session.events().take(1).collect().await;
+
+        std::env::remove_var("REALTIME_ASR_BACKEND_FALLBACK");
+
+        assert!(matches!(
+            events.first(),
+            Some(TranscriptEvent::Final { text, .. }) if text == "mock transcript"
+        ));
+        assert_eq!(backend.metrics().snapshot().failover_total, 1);
+    }
+
+    #[tokio::test]
     async fn mocked_websocket_session_sends_audio_and_receives_transcripts() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let listen_url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
