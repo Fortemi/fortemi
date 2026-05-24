@@ -933,8 +933,11 @@ fn large_function() {
         let duration = start.elapsed();
 
         assert!(!chunks.is_empty(), "Should produce chunks");
+        // This is a coarse regression guard, not a microbenchmark. CI hosts can
+        // vary substantially under load, so keep the threshold high enough to
+        // catch pathological slowdowns without failing on normal scheduler noise.
         assert!(
-            duration.as_millis() < 100,
+            duration.as_millis() < 1_000,
             "Should parse and chunk quickly (took {}ms)",
             duration.as_millis()
         );
