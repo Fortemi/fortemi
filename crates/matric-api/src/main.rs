@@ -3872,13 +3872,117 @@ async fn receive_incoming_webhook(
         )));
     }
 
+    let side_effect =
+        apply_incoming_webhook_side_effect(&state, &receiver.schema_ref, &body).await?;
+
     Ok(Json(serde_json::json!({
         "status": "accepted",
         "slug": receiver.slug,
         "provider": receiver.provider,
         "schema_ref": receiver.schema_ref,
         "payload": payload,
+        "side_effect": side_effect,
     })))
+}
+
+async fn apply_incoming_webhook_side_effect(
+    state: &AppState,
+    schema_ref: &str,
+    raw_body: &[u8],
+) -> Result<serde_json::Value, ApiError> {
+    match schema_ref {
+        "twilio.voice.v1" => apply_twilio_voice_webhook(state, raw_body).await,
+        _ => Ok(serde_json::json!({"type":"none"})),
+    }
+}
+
+async fn apply_twilio_voice_webhook(
+    state: &AppState,
+    raw_body: &[u8],
+) -> Result<serde_json::Value, ApiError> {
+    let event = matric_api::realtime::adapters::twilio::translate_voice_webhook_form(raw_body)?;
+    let provider_call_id = event.provider_call_id.clone();
+    match event.control_event {
+        matric_api::realtime::CallControlEvent::Custom {
+            event_type,
+            payload,
+        } if event_type == "call_started" => {
+            let existing = state
+                .db
+                .call_sessions
+                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .await?;
+            if let Some(session) = existing {
+                return Ok(serde_json::json!({
+                    "type": "call_session_existing",
+                    "call_id": session.call_id,
+                    "provider_call_id": provider_call_id,
+                }));
+            }
+
+            let session = state
+                .db
+                .call_sessions
+                .create_session(matric_core::CreateCallSessionRequest {
+                    provider: "twilio".to_string(),
+                    provider_call_id: provider_call_id.clone(),
+                    started_at: Some(chrono::Utc::now()),
+                    asr_backend: Some("deepgram".to_string()),
+                    remote_party: payload
+                        .get("remote_party")
+                        .and_then(|value| value.as_str())
+                        .map(ToString::to_string),
+                    archive_id: None,
+                    metadata: serde_json::json!({
+                        "source": "twilio_voice_webhook",
+                        "call_started_payload": payload,
+                    }),
+                })
+                .await?;
+            Ok(serde_json::json!({
+                "type": "call_session_created",
+                "call_id": session.call_id,
+                "provider_call_id": provider_call_id,
+            }))
+        }
+        matric_api::realtime::CallControlEvent::StateChanged {
+            state: matric_api::realtime::CallState::Ended { reason },
+        } => {
+            if let Some(session) = state
+                .db
+                .call_sessions
+                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .await?
+            {
+                let ended = state
+                    .db
+                    .call_sessions
+                    .end_session(session.call_id, twilio_end_reason_label(&reason))
+                    .await?;
+                return Ok(serde_json::json!({
+                    "type": "call_session_ended",
+                    "call_id": ended.map(|session| session.call_id),
+                    "provider_call_id": provider_call_id,
+                }));
+            }
+            Ok(serde_json::json!({
+                "type": "call_session_missing",
+                "provider_call_id": provider_call_id,
+            }))
+        }
+        matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
+            Ok(serde_json::json!({
+                "type": "recording_available",
+                "provider_call_id": provider_call_id,
+                "url": url,
+            }))
+        }
+        other => Ok(serde_json::json!({
+            "type": "control_event_observed",
+            "provider_call_id": provider_call_id,
+            "event": format!("{:?}", other),
+        })),
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/webhooks/incoming/validate", tag = "Incoming Webhooks",
