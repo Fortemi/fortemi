@@ -12,6 +12,30 @@ Current implementation summary:
 - Deepgram config is read from `DEEPGRAM_*` env vars.
 - Twilio account credentials are not read from process env by the API. Store the Twilio Auth Token in the incoming webhook receiver `hmac_secret`; Fortemi validates `X-Twilio-Signature` with that secret.
 
+## Contract Model
+
+Fortemi keeps the realtime contract provider-neutral so different operators can use the same call lifecycle surface with different telephony, consent, and infrastructure shapes.
+
+| Layer | Stable contract | Provider-specific part |
+|---|---|---|
+| Receiver registration | `slug`, `provider`, `schema_ref`, `signature_header`, active state, and secret presence | The actual signature algorithm and payload shape, selected by `schema_ref` and `signature_header` |
+| Call start | `provider`, `provider_call_id`, optional `remote_party`, metadata, and audit fields | Twilio maps `CallSid`, `From`, `To`, `Direction`, consent, and disclosure fields into that shape |
+| Media stream | `MediaFrame` with codec, RTP timestamp, sequence, marker, and payload | Twilio Media Streams JSON envelopes and PCMU/G.711 payloads stay inside the Twilio adapter |
+| Call lifecycle | `active`, `ended`, `normal_hangup`, `failed`, and `dropped` | Provider status names such as `ringing`, `in-progress`, `completed`, `busy`, and `no-answer` |
+| Transcription backend | Streaming ASR session events: partial, final, and error | Deepgram URL, API key, model, language, reconnect behavior, and fallback accounting |
+
+Recommended deployment profiles:
+
+| Profile | Best fit | Contract choices |
+|---|---|---|
+| Local developer | Testing adapter logic without public traffic | Use mock adapters, local Deepgram-compatible test endpoints, and disabled confirmation gates. |
+| Small team / single tenant | One Twilio number and one Fortemi deployment | Use `twilio-voice-events`, Twilio Auth Token receiver secret, Deepgram env config, and the standard consent metadata fields. |
+| Multi-tenant or agency | Multiple customers, numbers, or legal policies | Use separate receiver slugs per tenant or number, separate secrets, tenant-specific disclosure versions, and metadata that identifies the owning account. |
+| Regulated operator | Healthcare, finance, public sector, or all-party consent regions | Require explicit confirmation, store disclosure versions, minimize retained transcript fields, and verify vendor, retention, and deletion controls before production. |
+| Future provider integration | SIP, LiveKit, or another voice provider | Keep new provider wire fields inside a provider adapter and emit the same call, media, and ASR contracts listed above. |
+
+The slug is an operational routing handle, not the identity boundary by itself. Multi-tenant deployments should carry tenant/account context in receiver configuration, call-session metadata, or an upstream routing layer and should keep secrets separated per tenant or provider account.
+
 References:
 
 - Twilio Media Streams: https://www.twilio.com/docs/voice/media-streams
@@ -149,6 +173,8 @@ Configure the Twilio phone number voice webhook:
 - Status callback method: `POST`
 
 Fortemi expects Twilio's standard URL-encoded Voice webhook fields, including `CallSid`, `CallStatus`, `From`, `To`, and `Direction`. Recording callbacks may include `RecordingSid`, `RecordingStatus`, and `RecordingUrl`.
+
+For multi-tenant deployments, use a distinct receiver slug per tenant or number when secrets, disclosure policies, retention, or billing boundaries differ. Keep the Twilio Account SID and phone-number ownership in your operations inventory or tenant metadata; the Fortemi realtime adapter only needs the signed webhook body and `CallSid` correlation contract.
 
 ## First Call Walkthrough
 
