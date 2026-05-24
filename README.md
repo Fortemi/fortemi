@@ -18,7 +18,7 @@ docker compose -f docker-compose.bundle.yml up -d
 [![MCP](https://img.shields.io/badge/MCP-43_tools-purple?style=flat-square)](#mcp-server)
 [![Docker](https://img.shields.io/badge/Docker-Bundle-2496ED?style=flat-square&logo=docker)](#quick-start)
 
-[**Get Started**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**MCP Server**](#mcp-server) · [**API**](#api-endpoints) · [**Documentation**](#documentation) · [**🖥️ Desktop App (HotM)**](https://git.integrolabs.net/Fortemi/HotM/releases/latest)
+[**Get Started**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**MCP Server**](#mcp-server) · [**API**](#api-endpoints) · [**Realtime Setup**](docs/deployment/realtime-providers.md) · [**Documentation**](#documentation) · [**🖥️ Desktop App (HotM)**](https://git.integrolabs.net/Fortemi/HotM/releases/latest)
 
 </div>
 
@@ -889,6 +889,7 @@ Tests run against real PostgreSQL (not mocks). CI provides dedicated test contai
 - **[Document Types](docs/content/document-types-guide.md)** — 131 types with auto-detection
 - **[File Attachments](docs/content/file-attachments.md)** — Media upload and extraction pipeline
 - **[Real-Time Events](docs/content/real-time-events.md)** — SSE, WebSocket, webhooks
+- **[Realtime Provider Setup](docs/deployment/realtime-providers.md)** — Twilio Voice + Deepgram deployment guide
 - **[Encryption](docs/content/encryption.md)** — PKE for secure sharing
 
 ### Operations

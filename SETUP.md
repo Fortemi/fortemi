@@ -2,7 +2,7 @@
 
 **Audience:** AI coding agents (Claude Code, Codex, Cursor, Windsurf, Copilot, etc.) installing Fortémi on a user's behalf. Read this end-to-end before running any commands.
 
-**Companion docs:** [`README.md`](README.md) (human overview), [`QUICKSTART.md`](QUICKSTART.md) (full workstation walkthrough including HotM UI), [`docs/deployment/bt6-bollard.md`](docs/deployment/bt6-bollard.md) (BT6 Arsenal Desktop embedding).
+**Companion docs:** [`README.md`](README.md) (human overview), [`QUICKSTART.md`](QUICKSTART.md) (full workstation walkthrough including HotM UI), [`docs/deployment/bt6-bollard.md`](docs/deployment/bt6-bollard.md) (BT6 Arsenal Desktop embedding), [`docs/deployment/realtime-providers.md`](docs/deployment/realtime-providers.md) (Twilio Voice + Deepgram realtime setup).
 
 ---
 

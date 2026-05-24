@@ -1,0 +1,247 @@
+# Real-Time Provider Setup: Twilio Voice + Deepgram
+
+This guide connects a Twilio Programmable Voice number to Fortemi's realtime call control path and configures Deepgram as the streaming ASR backend. It is written for the current Fortemi API surface on `main`.
+
+Current implementation summary:
+
+- Twilio media WebSocket endpoint: `GET /api/v1/realtime/twilio/{CallSid}`
+- Twilio Voice webhook receiver path: `POST /api/v1/webhooks/incoming/{slug}`
+- Call lookup path: `GET /api/v1/calls/{call_id}`
+- Supported Twilio receiver schema: `twilio.voice.v1`
+- Supported Twilio media schema: `twilio.media-stream.v1`
+- Deepgram config is read from `DEEPGRAM_*` env vars.
+- Twilio account credentials are not read from process env by the API. Store the Twilio Auth Token in the incoming webhook receiver `hmac_secret`; Fortemi validates `X-Twilio-Signature` with that secret.
+
+References:
+
+- Twilio Media Streams: https://www.twilio.com/docs/voice/media-streams
+- Twilio `<Stream>` TwiML: https://www.twilio.com/docs/voice/twiml/stream
+- Twilio webhook security: https://www.twilio.com/docs/usage/webhooks/webhooks-security
+- Deepgram authentication: https://developers.deepgram.com/reference/authentication
+
+## Prerequisites
+
+You need:
+
+- A running Fortemi API reachable from Twilio over public HTTPS/WSS.
+- A Twilio account with a Voice-capable phone number.
+- The Twilio Account SID and Auth Token from the Twilio Console. The Account SID is useful for operations; the Auth Token is required as the Fortemi receiver secret.
+- A Deepgram project with an API key that is allowed to use live speech-to-text.
+- A decision on call recording/transcription consent for every jurisdiction where callers or operators may be located. See [Consent and Disclosure](#consent-and-disclosure).
+
+## Public Reachability
+
+Twilio must be able to reach both Fortemi endpoints from Twilio's infrastructure:
+
+- Webhook endpoint: `https://<public-host>/api/v1/webhooks/incoming/twilio-voice-events`
+- Media stream endpoint: `wss://<public-host>/api/v1/realtime/twilio/{CallSid}`
+
+Use one of these deployment patterns:
+
+| Pattern | Use when | Notes |
+|---|---|---|
+| Public reverse proxy | Production server | Terminate TLS at nginx, Caddy, Traefik, or an equivalent proxy; forward `Host`, `X-Forwarded-Host`, and `X-Forwarded-Proto`. |
+| Cloudflare Tunnel | Private server behind NAT | Configure the tunnel hostname as the public Fortemi base URL. |
+| ngrok | Development only | Use a fixed paid domain if you need stable Twilio webhook configuration. |
+
+Fortemi validates Twilio webhook signatures against the externally visible URL. If a proxy rewrites the host or scheme, pass the original values with `X-Forwarded-Host` and `X-Forwarded-Proto`; otherwise Twilio signature validation will fail.
+
+## Deepgram Configuration
+
+Set Deepgram credentials in the Fortemi API environment. Prefer secret files for deployed systems.
+
+```bash
+# Preferred in containers or secret-mounted deployments
+DEEPGRAM_API_KEY_FILE=/run/secrets/deepgram_api_key
+
+# Acceptable for local development only
+# DEEPGRAM_API_KEY=dg_...
+
+DEEPGRAM_MODEL=nova-3
+DEEPGRAM_LANGUAGE=en
+DEEPGRAM_ENCODING=linear16
+DEEPGRAM_SAMPLE_RATE_HZ=16000
+
+# Optional: enables fallback accounting in the Deepgram backend when a fallback is configured.
+# REALTIME_ASR_BACKEND_FALLBACK=mock
+```
+
+`DEEPGRAM_LISTEN_URL` defaults to `wss://api.deepgram.com/v1/listen`. Override it only for a local mock server or private Deepgram-compatible endpoint.
+
+Operational controls:
+
+- Configure Deepgram project limits and billing alerts in Deepgram's console before production traffic.
+- Keep the API key server-side. Do not place it in TwiML, browser code, or mobile clients.
+- Rotate the key if it appears in logs, terminal history, or committed files.
+
+## Register The Twilio Voice Receiver
+
+Create the Phase B incoming webhook receiver. Use the Twilio Auth Token as `hmac_secret`; Fortemi uses it to validate `X-Twilio-Signature`.
+
+```bash
+curl -sS -X POST http://localhost:3000/api/v1/webhooks/incoming \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "slug": "twilio-voice-events",
+    "provider": "twilio",
+    "schema_ref": "twilio.voice.v1",
+    "hmac_secret": "<twilio-auth-token>",
+    "signature_header": "X-Twilio-Signature",
+    "is_active": true
+  }'
+```
+
+Confirm registration:
+
+```bash
+curl -sS http://localhost:3000/api/v1/webhooks/incoming/twilio-voice-events
+```
+
+The response intentionally reports `secret_set: true` rather than returning the secret.
+
+## Configure TwiML
+
+Twilio sends lifecycle callbacks to the receiver URL and opens the media WebSocket to Fortemi. Use a TwiML Bin, Twilio Function, or your own TwiML endpoint.
+
+Minimal bidirectional stream TwiML:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://fortemi.example.com/api/v1/realtime/twilio/{CallSid}" />
+  </Connect>
+</Response>
+```
+
+For production, add a disclosure before the stream starts:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">This call may be recorded and transcribed. If you do not consent, please hang up now.</Say>
+  <Pause length="1" />
+  <Connect>
+    <Stream url="wss://fortemi.example.com/api/v1/realtime/twilio/{CallSid}" />
+  </Connect>
+</Response>
+```
+
+Configure the Twilio phone number voice webhook:
+
+- Method: `POST`
+- URL: your TwiML Bin, Twilio Function, or self-hosted TwiML endpoint
+- Status callback URL: `https://fortemi.example.com/api/v1/webhooks/incoming/twilio-voice-events`
+- Status callback method: `POST`
+
+Fortemi expects Twilio's standard URL-encoded Voice webhook fields, including `CallSid`, `CallStatus`, `From`, `To`, and `Direction`. Recording callbacks may include `RecordingSid`, `RecordingStatus`, and `RecordingUrl`.
+
+## First Call Walkthrough
+
+1. Start Fortemi and confirm the base health endpoint is healthy.
+
+   ```bash
+   curl -fsS http://localhost:3000/health
+   ```
+
+2. Confirm the Twilio receiver exists.
+
+   ```bash
+   curl -fsS http://localhost:3000/api/v1/webhooks/incoming/twilio-voice-events
+   ```
+
+3. Dial the Twilio number.
+
+4. Watch Fortemi logs for these events:
+
+   - Twilio Voice webhook accepted.
+   - Call session created for provider `twilio` and the Twilio `CallSid`.
+   - Twilio media WebSocket accepted on `/api/v1/realtime/twilio/{CallSid}`.
+   - Media frames received.
+
+5. Use the call ID from logs or the webhook response side effect to fetch the call.
+
+   ```bash
+   curl -sS 'http://localhost:3000/api/v1/calls/<call_id>?limit=50&offset=0'
+   ```
+
+The call detail response includes the provider call ID, timestamps, end reason, ASR backend, remote party, and persisted final transcript segments when transcript persistence is enabled for the session.
+
+## Event Mapping
+
+Fortemi maps Twilio Voice statuses into standards-shaped call events at the adapter boundary.
+
+| Twilio input | Fortemi side effect |
+|---|---|
+| `CallStatus=ringing` | Create or reuse a `twilio` call session; remote party is taken from `From` or `To` depending on direction. |
+| `CallStatus=answered` or `in-progress` | Treat the session as active. |
+| `CallStatus=completed` | End the session with `normal_hangup`. |
+| `CallStatus=failed`, `busy`, or `no-answer` | End the session with `failed`. |
+| `RecordingStatus=completed` + `RecordingUrl` | Return a `recording_available` side effect for downstream transcription handling. |
+| Twilio Media Streams `media` envelope | Translate PCMU/G.711 8 kHz payloads into Fortemi `MediaFrame` values. |
+| Twilio Media Streams `stop` or socket close | End the call as dropped if no terminal webhook already ended it. |
+
+## Consent and Disclosure
+
+Call recording and live transcription laws vary by jurisdiction. Fortemi provides the transport and persistence tools; operators are responsible for lawful use.
+
+Minimum production practice:
+
+- Play a disclosure before media streaming or recording starts.
+- Record which disclosure text/version was played for each deployment window.
+- Provide an opt-out path before streaming starts, such as hanging up, pressing a key, or routing to a non-recorded line.
+- Disable speaker identification or voice biometric processing unless your legal basis covers it.
+- Keep retention, access control, and deletion policy aligned with your regulatory environment.
+
+Reference points operators must verify with counsel:
+
+| Area | Practical implication |
+|---|---|
+| US federal law | Often described as one-party consent, but state law may impose stricter requirements. |
+| US all-party/two-party consent states | States including California, Florida, Illinois, Maryland, Massachusetts, Montana, Nevada, New Hampshire, Pennsylvania, and Washington may require consent from all parties in common call-recording scenarios. Verify the current list before deployment. |
+| EU GDPR and ePrivacy | Plan for a lawful basis, explicit notice, data minimization, retention limits, access rights, and processor/vendor terms. |
+| Illinois BIPA and similar biometric laws | Speaker identification or voiceprint features can introduce biometric-specific consent and retention obligations. |
+| HIPAA | Healthcare deployments that may include PHI need HIPAA-specific administrative, technical, and vendor controls. |
+
+Fortemi does not currently enforce a process-level consent gate. Implement the disclosure and opt-out behavior in TwiML or your call-routing layer before the `<Connect><Stream>` step.
+
+## Troubleshooting
+
+### Twilio Webhook Returns 401
+
+Likely causes:
+
+- Receiver `signature_header` is not `X-Twilio-Signature`.
+- Receiver `hmac_secret` does not match the Twilio Auth Token.
+- Reverse proxy does not preserve the public host or scheme. Forward `X-Forwarded-Host` and `X-Forwarded-Proto`.
+- Twilio is posting to a different URL than the one Fortemi reconstructs.
+
+### Twilio WebSocket Does Not Connect
+
+Check:
+
+- The URL uses `wss://`, not `https://`.
+- The public hostname routes WebSocket upgrades to Fortemi.
+- The Twilio Voice webhook created a call session within the recent binding window before `<Stream>` connects.
+- The path includes the Twilio `CallSid`: `/api/v1/realtime/twilio/{CallSid}`.
+
+### Deepgram Auth Fails
+
+Check:
+
+- `DEEPGRAM_API_KEY` or `DEEPGRAM_API_KEY_FILE` is set in the Fortemi API process.
+- The file path is readable by the container or service user.
+- The key has not been revoked and the Deepgram project has live transcription access.
+- The API key is not accidentally quoted with trailing whitespace.
+
+### Calls Exist But No Transcript Segments Appear
+
+Check:
+
+- The call session was created and media frames are reaching the Twilio WebSocket endpoint.
+- Deepgram configuration is present and valid.
+- Transcript persistence is enabled in the deployed realtime pipeline. Partial ASR hypotheses may remain ephemeral; `GET /api/v1/calls/{call_id}` returns persisted final transcript segments.
+
+### Recording Callback Arrives But No Transcription Job Starts
+
+Fortemi recognizes `recording.completed` callbacks and returns a `recording_available` side effect. The downstream job handoff to audio transcription is tracked separately from the basic Twilio receiver path.
