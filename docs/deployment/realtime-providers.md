@@ -127,6 +127,20 @@ For production, add a disclosure before the stream starts:
 </Response>
 ```
 
+If you require explicit confirmation, collect it before streaming and include `ConsentConfirmed=true` when your TwiML endpoint posts or redirects into Fortemi's call-start receiver. A Twilio Function or self-hosted TwiML endpoint is usually easier than a static TwiML Bin for this flow. Minimal sketch:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" action="https://voice.example.com/consent" method="POST">
+    <Say voice="alice">This call may be recorded and transcribed. Press 1 to consent, or hang up now.</Say>
+  </Gather>
+  <Hangup />
+</Response>
+```
+
+The `/consent` handler should only return `<Connect><Stream>` after it has recorded the confirmation and posted a call-start webhook body containing `ConsentConfirmed=true`, `DisclosurePlayed=true`, and `DisclosureVersion=<your-version>`.
+
 Configure the Twilio phone number voice webhook:
 
 - Method: `POST`
@@ -203,7 +217,29 @@ Reference points operators must verify with counsel:
 | Illinois BIPA and similar biometric laws | Speaker identification or voiceprint features can introduce biometric-specific consent and retention obligations. |
 | HIPAA | Healthcare deployments that may include PHI need HIPAA-specific administrative, technical, and vendor controls. |
 
-Fortemi does not currently enforce a process-level consent gate. Implement the disclosure and opt-out behavior in TwiML or your call-routing layer before the `<Connect><Stream>` step.
+Fortemi can enforce a call-session gate when your TwiML or call-routing layer posts consent metadata before streaming starts. Configure these API environment variables when you want Fortemi to reject Twilio media WebSocket binding unless consent was confirmed on the Voice webhook that creates the call session:
+
+```bash
+# Text/version are copied into call-session metadata for audit.
+FORTEMI_CALL_RECORDING_DISCLOSURE_TEXT="This call may be recorded and transcribed. If you do not consent, please hang up now."
+FORTEMI_CALL_RECORDING_DISCLOSURE_VERSION="voice-disclosure-2026-05"
+
+# When true, Fortemi will not create the Twilio call session unless the
+# call-start webhook includes ConsentConfirmed=true or RecordingConsent=true.
+FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION=false
+```
+
+When `FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION=true`, the Twilio Voice webhook that starts the call must include one of these URL-encoded fields with a truthy value (`true`, `yes`, `confirmed`, or `1`):
+
+- `ConsentConfirmed`
+- `RecordingConsent`
+
+Optional audit fields:
+
+- `DisclosurePlayed=true` records that your TwiML/call router played the disclosure before posting the call-start event.
+- `DisclosureVersion=<version>` records the exact disclosure copy or policy version used for the call.
+
+If confirmation is required and absent, Fortemi returns a `call_session_blocked_consent_required` side effect and does not create the call session. The later `/api/v1/realtime/twilio/{CallSid}` WebSocket upgrade is then rejected because the recent session-token gate has no matching session.
 
 ## Troubleshooting
 

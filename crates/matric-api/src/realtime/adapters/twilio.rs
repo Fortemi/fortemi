@@ -257,6 +257,14 @@ struct TwilioVoiceWebhookForm {
     recording_url: Option<String>,
     #[serde(default)]
     recording_status: Option<String>,
+    #[serde(default, rename = "ConsentConfirmed")]
+    consent_confirmed: Option<String>,
+    #[serde(default, rename = "RecordingConsent")]
+    recording_consent: Option<String>,
+    #[serde(default, rename = "DisclosurePlayed")]
+    disclosure_played: Option<String>,
+    #[serde(default, rename = "DisclosureVersion")]
+    disclosure_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,6 +307,10 @@ impl TwilioVoiceWebhookForm {
                     "provider": TWILIO_PROVIDER,
                     "provider_call_id": self.call_sid,
                     "remote_party": remote_party(&self.from, &self.to, &self.direction),
+                    "consent_confirmed": consent_truthy(&self.consent_confirmed)
+                        || consent_truthy(&self.recording_consent),
+                    "disclosure_played": consent_truthy(&self.disclosure_played),
+                    "disclosure_version": self.disclosure_version,
                 }),
             },
             "answered" | "in-progress" => CallControlEvent::StateChanged {
@@ -336,6 +348,15 @@ fn remote_party(
         Some("outbound-api") | Some("outbound-dial") => to.clone(),
         _ => from.clone().or_else(|| to.clone()),
     }
+}
+
+fn consent_truthy(value: &Option<String>) -> bool {
+    value.as_deref().map(str::trim).is_some_and(|value| {
+        value.eq_ignore_ascii_case("true")
+            || value.eq_ignore_ascii_case("yes")
+            || value.eq_ignore_ascii_case("confirmed")
+            || value == "1"
+    })
 }
 
 #[cfg(test)]
@@ -498,6 +519,23 @@ mod tests {
                 if event_type == "call_started"
                     && payload["provider_call_id"] == "CA123"
                     && payload["remote_party"] == "+15551230000"
+        ));
+    }
+
+    #[test]
+    fn ringing_webhook_preserves_consent_confirmation_metadata() {
+        let event = translate_voice_webhook_form(
+            b"CallSid=CA123&CallStatus=ringing&ConsentConfirmed=true&DisclosurePlayed=1&DisclosureVersion=v2026-05",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            event.control_event,
+            CallControlEvent::Custom { ref event_type, ref payload }
+                if event_type == "call_started"
+                    && payload["consent_confirmed"] == true
+                    && payload["disclosure_played"] == true
+                    && payload["disclosure_version"] == "v2026-05"
         ));
     }
 

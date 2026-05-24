@@ -1109,6 +1109,25 @@ fn env_flag(name: &str, default: bool) -> bool {
     }
 }
 
+fn call_recording_disclosure_config() -> serde_json::Value {
+    serde_json::json!({
+        "text": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_TEXT").ok(),
+        "version": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_VERSION").ok(),
+        "require_confirmation": env_flag("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", false),
+    })
+}
+
+fn call_recording_confirmation_required() -> bool {
+    env_flag("FORTEMI_CALL_RECORDING_REQUIRE_CONFIRMATION", false)
+}
+
+fn twilio_call_started_consent_confirmed(payload: &serde_json::Value) -> bool {
+    payload
+        .get("consent_confirmed")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 fn parse_allowed_origins() -> Vec<HeaderValue> {
     let origins_str =
         std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
@@ -3990,6 +4009,16 @@ async fn apply_twilio_voice_webhook(
             event_type,
             payload,
         } if event_type == "call_started" => {
+            if call_recording_confirmation_required()
+                && !twilio_call_started_consent_confirmed(&payload)
+            {
+                return Ok(serde_json::json!({
+                    "type": "call_session_blocked_consent_required",
+                    "provider_call_id": provider_call_id,
+                    "disclosure": call_recording_disclosure_config(),
+                }));
+            }
+
             let existing = state
                 .db
                 .call_sessions
@@ -4019,6 +4048,8 @@ async fn apply_twilio_voice_webhook(
                     metadata: serde_json::json!({
                         "source": "twilio_voice_webhook",
                         "call_started_payload": payload,
+                        "recording_disclosure": call_recording_disclosure_config(),
+                        "consent_confirmed": twilio_call_started_consent_confirmed(&payload),
                     }),
                 })
                 .await?;
@@ -19831,6 +19862,18 @@ mod tests {
         std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "false");
         assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
         std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
+    }
+
+    #[test]
+    fn twilio_consent_confirmation_reads_adapter_payload() {
+        let payload = serde_json::json!({"consent_confirmed": true});
+        assert!(twilio_call_started_consent_confirmed(&payload));
+
+        let payload = serde_json::json!({"consent_confirmed": false});
+        assert!(!twilio_call_started_consent_confirmed(&payload));
+
+        let payload = serde_json::json!({});
+        assert!(!twilio_call_started_consent_confirmed(&payload));
     }
 
     #[test]
