@@ -99,6 +99,13 @@ pub struct DeepgramMetrics {
     partial_events: AtomicU64,
     final_events: AtomicU64,
     failover_total: AtomicU64,
+    partial_latency_sum_ms: AtomicU64,
+    partial_latency_le_100: AtomicU64,
+    partial_latency_le_250: AtomicU64,
+    partial_latency_le_500: AtomicU64,
+    partial_latency_le_1000: AtomicU64,
+    partial_latency_le_2500: AtomicU64,
+    partial_latency_le_inf: AtomicU64,
     last_partial_latency_ms: AtomicU64,
 }
 
@@ -108,6 +115,15 @@ impl DeepgramMetrics {
             partial_events: self.partial_events.load(Ordering::Relaxed),
             final_events: self.final_events.load(Ordering::Relaxed),
             failover_total: self.failover_total.load(Ordering::Relaxed),
+            partial_latency_sum_ms: self.partial_latency_sum_ms.load(Ordering::Relaxed),
+            partial_latency_buckets: DeepgramPartialLatencyBuckets {
+                le_100: self.partial_latency_le_100.load(Ordering::Relaxed),
+                le_250: self.partial_latency_le_250.load(Ordering::Relaxed),
+                le_500: self.partial_latency_le_500.load(Ordering::Relaxed),
+                le_1000: self.partial_latency_le_1000.load(Ordering::Relaxed),
+                le_2500: self.partial_latency_le_2500.load(Ordering::Relaxed),
+                le_inf: self.partial_latency_le_inf.load(Ordering::Relaxed),
+            },
             last_partial_latency_ms: self.last_partial_latency_ms.load(Ordering::Relaxed),
         }
     }
@@ -118,7 +134,19 @@ pub struct DeepgramMetricsSnapshot {
     pub partial_events: u64,
     pub final_events: u64,
     pub failover_total: u64,
+    pub partial_latency_sum_ms: u64,
+    pub partial_latency_buckets: DeepgramPartialLatencyBuckets,
     pub last_partial_latency_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeepgramPartialLatencyBuckets {
+    pub le_100: u64,
+    pub le_250: u64,
+    pub le_500: u64,
+    pub le_1000: u64,
+    pub le_2500: u64,
+    pub le_inf: u64,
 }
 
 #[derive(Clone)]
@@ -392,15 +420,50 @@ fn envelope_to_events(
         }]
     } else {
         metrics.partial_events.fetch_add(1, Ordering::Relaxed);
-        metrics.last_partial_latency_ms.store(
-            opened_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-            Ordering::Relaxed,
-        );
+        let latency_ms = opened_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        metrics
+            .partial_latency_sum_ms
+            .fetch_add(latency_ms, Ordering::Relaxed);
+        increment_partial_latency_bucket(metrics, latency_ms);
+        metrics
+            .last_partial_latency_ms
+            .store(latency_ms, Ordering::Relaxed);
         vec![TranscriptEvent::Partial {
             text: transcript,
             ts: chrono::Utc::now(),
         }]
     }
+}
+
+fn increment_partial_latency_bucket(metrics: &DeepgramMetrics, latency_ms: u64) {
+    if latency_ms <= 100 {
+        metrics
+            .partial_latency_le_100
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if latency_ms <= 250 {
+        metrics
+            .partial_latency_le_250
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if latency_ms <= 500 {
+        metrics
+            .partial_latency_le_500
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if latency_ms <= 1000 {
+        metrics
+            .partial_latency_le_1000
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if latency_ms <= 2500 {
+        metrics
+            .partial_latency_le_2500
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    metrics
+        .partial_latency_le_inf
+        .fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn reconnect_backoff(attempt: u32) -> Duration {

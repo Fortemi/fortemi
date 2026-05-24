@@ -699,6 +699,8 @@ struct AppState {
     vision_backend: Option<Arc<dyn VisionBackend>>,
     /// Transcription backend for ad-hoc audio transcription (None if WHISPER_BASE_URL not set).
     transcription_backend: Option<Arc<dyn TranscriptionBackend>>,
+    /// Realtime Deepgram ASR metrics snapshot source, if configured.
+    realtime_deepgram_metrics: Option<Arc<matric_api::realtime::asr::deepgram::DeepgramMetrics>>,
     /// NER backend for named entity recognition (None if GLINER_BASE_URL not set).
     ner_backend: Option<Arc<dyn matric_inference::NerBackend>>,
     /// Diarization backend for speaker identification (None if DIARIZATION_BASE_URL not set).
@@ -1476,6 +1478,12 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Create realtime Deepgram metrics source for /api/v1/health/streaming when configured.
+    let realtime_deepgram_metrics =
+        matric_api::realtime::asr::deepgram::DeepgramBackend::from_env()
+            .map(|backend| backend.metrics())
+            .ok();
+
     // Create NER backend for reference extraction (#437).
     // GLiNER provides 100-200x faster NER than LLM on CPU.
     let ner_backend: Option<Arc<dyn matric_inference::NerBackend>> =
@@ -1960,6 +1968,7 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or(matric_core::defaults::MAX_UPLOAD_SIZE_BYTES),
         vision_backend,
         transcription_backend,
+        realtime_deepgram_metrics,
         ner_backend,
         diarization_backend,
         git_sha: std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
@@ -4558,11 +4567,15 @@ async fn streaming_health_check(
 ) -> Result<impl IntoResponse, ApiError> {
     let call_metrics = state.db.call_sessions.realtime_metrics().await?;
     let deepgram_rate = realtime_asr_deepgram_cost_per_minute();
+    let deepgram_metrics = state
+        .realtime_deepgram_metrics
+        .as_ref()
+        .map(|metrics| metrics.snapshot());
 
     Ok(Json(serde_json::json!({
         "status": "healthy",
         "sse": state.event_bus.metrics.snapshot(),
-        "rtp": build_rtp_metrics(call_metrics, deepgram_rate),
+        "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
     })))
 }
 
@@ -4577,6 +4590,7 @@ fn realtime_asr_deepgram_cost_per_minute() -> f64 {
 fn build_rtp_metrics(
     metrics: matric_db::call_sessions::RealtimeCallMetrics,
     deepgram_rate: f64,
+    deepgram_metrics: Option<matric_api::realtime::asr::deepgram::DeepgramMetricsSnapshot>,
 ) -> serde_json::Value {
     let backend_seconds = metrics
         .duration_seconds_by_backend
@@ -4588,6 +4602,24 @@ fn build_rtp_metrics(
         .and_then(|value| value.as_f64())
         .unwrap_or(0.0);
     let estimated_cost = (deepgram_seconds / 60.0) * deepgram_rate;
+    let deepgram_metrics = deepgram_metrics.unwrap_or(
+        matric_api::realtime::asr::deepgram::DeepgramMetricsSnapshot {
+            partial_events: 0,
+            final_events: 0,
+            failover_total: 0,
+            partial_latency_sum_ms: 0,
+            partial_latency_buckets:
+                matric_api::realtime::asr::deepgram::DeepgramPartialLatencyBuckets {
+                    le_100: 0,
+                    le_250: 0,
+                    le_500: 0,
+                    le_1000: 0,
+                    le_2500: 0,
+                    le_inf: 0,
+                },
+            last_partial_latency_ms: 0,
+        },
+    );
 
     serde_json::json!({
         "rtp_call_active_count": {
@@ -4618,19 +4650,20 @@ fn build_rtp_metrics(
             "type": "histogram",
             "unit": "milliseconds",
             "buckets": [
-                {"le": 100, "count": 0},
-                {"le": 250, "count": 0},
-                {"le": 500, "count": 0},
-                {"le": 1000, "count": 0},
-                {"le": 2500, "count": 0},
-                {"le": "+Inf", "count": 0}
+                {"le": 100, "count": deepgram_metrics.partial_latency_buckets.le_100},
+                {"le": 250, "count": deepgram_metrics.partial_latency_buckets.le_250},
+                {"le": 500, "count": deepgram_metrics.partial_latency_buckets.le_500},
+                {"le": 1000, "count": deepgram_metrics.partial_latency_buckets.le_1000},
+                {"le": 2500, "count": deepgram_metrics.partial_latency_buckets.le_2500},
+                {"le": "+Inf", "count": deepgram_metrics.partial_latency_buckets.le_inf}
             ],
-            "count": 0,
-            "sum": 0
+            "count": deepgram_metrics.partial_events,
+            "sum": deepgram_metrics.partial_latency_sum_ms,
+            "latest": deepgram_metrics.last_partial_latency_ms
         },
         "rtp_asr_failover_total": {
             "type": "counter",
-            "value": 0,
+            "value": deepgram_metrics.failover_total,
             "labels": {"backend": "deepgram"}
         },
         "rtp_outbox_write_failures_total": {
@@ -19742,6 +19775,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            realtime_deepgram_metrics: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -19960,6 +19994,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            realtime_deepgram_metrics: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -21150,6 +21185,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            realtime_deepgram_metrics: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -21467,6 +21503,7 @@ mod tests {
             max_upload_size: matric_core::defaults::MAX_UPLOAD_SIZE_BYTES,
             vision_backend: None,
             transcription_backend: None,
+            realtime_deepgram_metrics: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -22376,10 +22413,35 @@ mod tests {
             }),
         };
 
-        let rtp = build_rtp_metrics(metrics, 0.006);
+        let rtp = build_rtp_metrics(
+            metrics,
+            0.006,
+            Some(
+                matric_api::realtime::asr::deepgram::DeepgramMetricsSnapshot {
+                    partial_events: 3,
+                    final_events: 2,
+                    failover_total: 1,
+                    partial_latency_sum_ms: 450,
+                    partial_latency_buckets:
+                        matric_api::realtime::asr::deepgram::DeepgramPartialLatencyBuckets {
+                            le_100: 1,
+                            le_250: 2,
+                            le_500: 3,
+                            le_1000: 3,
+                            le_2500: 3,
+                            le_inf: 3,
+                        },
+                    last_partial_latency_ms: 180,
+                },
+            ),
+        );
         assert_eq!(rtp["rtp_call_active_count"]["value"], 1);
         assert_eq!(rtp["rtp_audio_frame_latency_ms"]["count"], 7);
         assert_eq!(rtp["rtp_codec_decode_failures_total"]["value"], 2);
+        assert_eq!(rtp["rtp_asr_partial_latency_ms"]["count"], 3);
+        assert_eq!(rtp["rtp_asr_partial_latency_ms"]["sum"], 450);
+        assert_eq!(rtp["rtp_asr_partial_latency_ms"]["latest"], 180);
+        assert_eq!(rtp["rtp_asr_failover_total"]["value"], 1);
         assert_eq!(rtp["rtp_outbox_write_failures_total"]["value"], 1);
         assert_eq!(rtp["rtp_session_duration_seconds"]["count"], 2);
         assert_eq!(rtp["rtp_session_duration_seconds"]["sum"], 150.0);
