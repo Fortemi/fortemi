@@ -4,7 +4,7 @@
 //! provider-agnostic [`StreamingASRBackend`] contract.
 
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -210,34 +210,29 @@ impl DeepgramBackend {
                 .expect("static user-agent header must parse"),
         );
 
-        let (socket, _) = connect_with_retries(request).await?;
-        let (sink, mut source) = socket.split();
-        let sink = Arc::new(Mutex::new(sink));
+        let (socket, _) = connect_with_retries(request.clone()).await?;
+        let (sink, source) = socket.split();
+        let sink = Arc::new(Mutex::new(Some(sink)));
+        let closed = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::unbounded_channel();
         let metrics = self.metrics.clone();
         let opened_at = Instant::now();
 
-        tokio::spawn(async move {
-            while let Some(next) = source.next().await {
-                match next {
-                    Ok(Message::Text(text)) => {
-                        for event in parse_deepgram_message(&text, opened_at, &metrics) {
-                            let _ = tx.send(event);
-                        }
-                    }
-                    Ok(Message::Close(_)) => break,
-                    Ok(_) => {}
-                    Err(err) => {
-                        let _ = tx.send(TranscriptEvent::Error {
-                            reason: format!("Deepgram WebSocket read failed: {err}"),
-                        });
-                        break;
-                    }
-                }
-            }
-        });
+        tokio::spawn(read_deepgram_events_with_reconnect(
+            source,
+            request,
+            sink.clone(),
+            closed.clone(),
+            tx,
+            metrics,
+            opened_at,
+        ));
 
-        Ok(Box::new(DeepgramSession { sink, rx: Some(rx) }))
+        Ok(Box::new(DeepgramSession {
+            sink,
+            closed,
+            rx: Some(rx),
+        }))
     }
 }
 
@@ -288,13 +283,96 @@ async fn connect_with_retries(
     )))
 }
 
-type DeepgramSink = futures::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    Message,
->;
+type DeepgramSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+type DeepgramSink = futures::stream::SplitSink<DeepgramSocket, Message>;
+type DeepgramSource = futures::stream::SplitStream<DeepgramSocket>;
+
+async fn read_deepgram_events_with_reconnect(
+    mut source: DeepgramSource,
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    sink: Arc<Mutex<Option<DeepgramSink>>>,
+    closed: Arc<AtomicBool>,
+    tx: mpsc::UnboundedSender<TranscriptEvent>,
+    metrics: Arc<DeepgramMetrics>,
+    opened_at: Instant,
+) {
+    let mut reconnect_attempt = 0;
+    loop {
+        match source.next().await {
+            Some(Ok(Message::Text(text))) => {
+                reconnect_attempt = 0;
+                for event in parse_deepgram_message(&text, opened_at, &metrics) {
+                    let _ = tx.send(event);
+                }
+            }
+            Some(Ok(Message::Close(_))) | None if closed.load(Ordering::Relaxed) => break,
+            Some(Ok(Message::Close(_))) | None => {
+                if !reconnect_deepgram_source(
+                    &request,
+                    &sink,
+                    &closed,
+                    &mut source,
+                    &mut reconnect_attempt,
+                )
+                .await
+                {
+                    break;
+                }
+            }
+            Some(Ok(_)) => continue,
+            Some(Err(err)) => {
+                let _ = tx.send(TranscriptEvent::Error {
+                    reason: format!("Deepgram WebSocket read failed: {err}"),
+                });
+                if !reconnect_deepgram_source(
+                    &request,
+                    &sink,
+                    &closed,
+                    &mut source,
+                    &mut reconnect_attempt,
+                )
+                .await
+                {
+                    let _ = tx.send(TranscriptEvent::Error {
+                        reason: "Deepgram WebSocket reconnect failed".to_string(),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+}
+
+async fn reconnect_deepgram_source(
+    request: &tokio_tungstenite::tungstenite::http::Request<()>,
+    sink: &Arc<Mutex<Option<DeepgramSink>>>,
+    closed: &Arc<AtomicBool>,
+    source: &mut DeepgramSource,
+    reconnect_attempt: &mut u32,
+) -> bool {
+    if closed.load(Ordering::Relaxed) {
+        return false;
+    }
+
+    tokio::time::sleep(reconnect_backoff(*reconnect_attempt)).await;
+    *reconnect_attempt += 1;
+
+    match connect_with_retries(request.clone()).await {
+        Ok((socket, _)) => {
+            let (new_sink, new_source) = socket.split();
+            *sink.lock().await = Some(new_sink);
+            *source = new_source;
+            true
+        }
+        Err(_) => false,
+    }
+}
 
 pub struct DeepgramSession {
-    sink: Arc<Mutex<DeepgramSink>>,
+    sink: Arc<Mutex<Option<DeepgramSink>>>,
+    closed: Arc<AtomicBool>,
     rx: Option<mpsc::UnboundedReceiver<TranscriptEvent>>,
 }
 
@@ -305,21 +383,25 @@ impl AsrSession for DeepgramSession {
         for sample in samples {
             bytes.extend_from_slice(&sample.to_le_bytes());
         }
-        self.sink
-            .lock()
-            .await
-            .send(Message::Binary(bytes.into()))
+        let mut sink = self.sink.lock().await;
+        let sink = sink
+            .as_mut()
+            .ok_or_else(|| Error::Request("Deepgram WebSocket is not connected".to_string()))?;
+        sink.send(Message::Binary(bytes.into()))
             .await
             .map_err(|err| Error::Request(format!("Deepgram audio send failed: {err}")))
     }
 
     async fn close(&mut self) -> Result<()> {
-        self.sink
-            .lock()
-            .await
-            .send(Message::Close(None))
-            .await
-            .map_err(|err| Error::Request(format!("Deepgram close failed: {err}")))
+        self.closed.store(true, Ordering::Relaxed);
+        let mut sink = self.sink.lock().await;
+        match sink.as_mut() {
+            Some(sink) => {
+                let _ = sink.send(Message::Close(None)).await;
+                Ok(())
+            }
+            None => Ok(()),
+        }
     }
 
     fn events(&mut self) -> TranscriptEventStream {
@@ -699,6 +781,92 @@ mod tests {
         let snapshot = backend.metrics().snapshot();
         assert_eq!(snapshot.partial_events, 1);
         assert_eq!(snapshot.final_events, 1);
+    }
+
+    #[tokio::test]
+    async fn websocket_disconnect_reconnects_and_continues_transcripts() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listen_url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
+
+        let server = tokio::spawn(async move {
+            let (first_stream, _) = listener.accept().await.unwrap();
+            let mut first_socket = tokio_tungstenite::accept_async(first_stream).await.unwrap();
+            first_socket
+                .send(Message::Text(
+                    r#"{
+                      "type": "Results",
+                      "is_final": false,
+                      "channel": {"alternatives": [{"transcript": "reconnect"}]}
+                    }"#
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            let _ = first_socket.close(None).await;
+
+            let (second_stream, _) = listener.accept().await.unwrap();
+            let mut second_socket = tokio_tungstenite::accept_async(second_stream)
+                .await
+                .unwrap();
+            second_socket
+                .send(Message::Text(
+                    r#"{
+                      "type": "Results",
+                      "is_final": true,
+                      "channel": {"alternatives": [{
+                        "transcript": "reconnect complete",
+                        "confidence": 0.91,
+                        "words": [{"start": 0.0, "end": 0.5, "speaker": 1}]
+                      }]}
+                    }"#
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            let _ = second_socket.close(None).await;
+        });
+
+        let backend = DeepgramBackend::new(DeepgramConfig {
+            api_key: "test-token-not-logged".to_string(),
+            listen_url,
+            model: "nova-3".to_string(),
+            language: "en".to_string(),
+            encoding: "linear16".to_string(),
+            sample_rate_hz: 16_000,
+        });
+        let mut session = backend
+            .start_session(AsrSessionConfig {
+                sample_rate_hz: 16_000,
+                language: Some("en-US".to_string()),
+                metadata: serde_json::json!({"test": true}),
+            })
+            .await
+            .unwrap();
+
+        let events = tokio::time::timeout(
+            Duration::from_secs(5),
+            session.events().take(2).collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap();
+        session.close().await.unwrap();
+        server.await.unwrap();
+
+        assert!(matches!(
+            events.first(),
+            Some(TranscriptEvent::Partial { text, .. }) if text == "reconnect"
+        ));
+        assert!(matches!(
+            events.get(1),
+            Some(TranscriptEvent::Final {
+                text,
+                speaker_label: Some(speaker),
+                confidence: Some(confidence),
+                ..
+            }) if text == "reconnect complete" && speaker == "speaker_1" && (*confidence - 0.91).abs() < f32::EPSILON
+        ));
     }
 
     #[test]
