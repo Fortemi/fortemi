@@ -662,6 +662,10 @@ type GlobalRateLimiter = RateLimiter<
     governor::clock::DefaultClock,
 >;
 
+static RTP_AUDIO_FRAMES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static RTP_CODEC_DECODE_FAILURES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static RTP_OUTBOX_WRITE_FAILURES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
 /// Application state shared across handlers.
 #[derive(Clone)]
 struct AppState {
@@ -1989,6 +1993,7 @@ async fn main() -> anyhow::Result<()> {
         // Health check
         .route("/health", get(health_check))
         .route("/health/live", get(health_check_live))
+        .route("/api/v1/health/streaming", get(streaming_health_check))
         // OpenAPI / Swagger UI
         .merge(
             SwaggerUi::new("/docs").config(
@@ -2805,6 +2810,7 @@ async fn handle_twilio_realtime_connection(
                     Ok(matric_api::realtime::adapters::twilio::TwilioTranslatedEvent::Media(
                         frame,
                     )) => {
+                        RTP_AUDIO_FRAMES_TOTAL.fetch_add(1, Ordering::Relaxed);
                         tracing::trace!(
                             %call_id,
                             %provider_call_id,
@@ -2821,6 +2827,7 @@ async fn handle_twilio_realtime_connection(
                             .await;
                     }
                     Err(error) => {
+                        RTP_CODEC_DECODE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
                         tracing::warn!(%call_id, %provider_call_id, %error, "Invalid Twilio media envelope");
                         let _ = socket
                             .send(Message::Text(
@@ -4507,6 +4514,125 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "job_processing": job_processing,
         "sse": state.event_bus.metrics.snapshot(),
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/health/streaming",
+    tag = "System",
+    responses((status = 200, description = "Streaming subsystem health and realtime metrics"))
+)]
+async fn streaming_health_check(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let call_metrics = state.db.call_sessions.realtime_metrics().await?;
+    let deepgram_rate = realtime_asr_deepgram_cost_per_minute();
+
+    Ok(Json(serde_json::json!({
+        "status": "healthy",
+        "sse": state.event_bus.metrics.snapshot(),
+        "rtp": build_rtp_metrics(call_metrics, deepgram_rate),
+    })))
+}
+
+fn realtime_asr_deepgram_cost_per_minute() -> f64 {
+    std::env::var("REALTIME_ASR_COST_DEEPGRAM_DOLLARS_PER_MINUTE")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(0.0036)
+}
+
+fn build_rtp_metrics(
+    metrics: matric_db::call_sessions::RealtimeCallMetrics,
+    deepgram_rate: f64,
+) -> serde_json::Value {
+    let backend_seconds = metrics
+        .duration_seconds_by_backend
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let deepgram_seconds = backend_seconds
+        .get("deepgram")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0);
+    let estimated_cost = (deepgram_seconds / 60.0) * deepgram_rate;
+
+    serde_json::json!({
+        "rtp_call_active_count": {
+            "type": "gauge",
+            "value": metrics.active_sessions,
+            "labels": {}
+        },
+        "rtp_audio_frame_latency_ms": {
+            "type": "histogram",
+            "unit": "milliseconds",
+            "buckets": [
+                {"le": 10, "count": 0},
+                {"le": 25, "count": 0},
+                {"le": 50, "count": 0},
+                {"le": 100, "count": 0},
+                {"le": 250, "count": 0},
+                {"le": "+Inf", "count": 0}
+            ],
+            "count": RTP_AUDIO_FRAMES_TOTAL.load(Ordering::Relaxed),
+            "sum": 0
+        },
+        "rtp_codec_decode_failures_total": {
+            "type": "counter",
+            "value": RTP_CODEC_DECODE_FAILURES_TOTAL.load(Ordering::Relaxed),
+            "labels": {"provider": "twilio"}
+        },
+        "rtp_asr_partial_latency_ms": {
+            "type": "histogram",
+            "unit": "milliseconds",
+            "buckets": [
+                {"le": 100, "count": 0},
+                {"le": 250, "count": 0},
+                {"le": 500, "count": 0},
+                {"le": 1000, "count": 0},
+                {"le": 2500, "count": 0},
+                {"le": "+Inf", "count": 0}
+            ],
+            "count": 0,
+            "sum": 0
+        },
+        "rtp_asr_failover_total": {
+            "type": "counter",
+            "value": 0,
+            "labels": {"backend": "deepgram"}
+        },
+        "rtp_outbox_write_failures_total": {
+            "type": "counter",
+            "value": RTP_OUTBOX_WRITE_FAILURES_TOTAL.load(Ordering::Relaxed)
+        },
+        "rtp_session_duration_seconds": {
+            "type": "histogram",
+            "unit": "seconds",
+            "buckets": [
+                {"le": 30, "count": metrics.duration_buckets.le_30},
+                {"le": 60, "count": metrics.duration_buckets.le_60},
+                {"le": 300, "count": metrics.duration_buckets.le_300},
+                {"le": 900, "count": metrics.duration_buckets.le_900},
+                {"le": 1800, "count": metrics.duration_buckets.le_1800},
+                {"le": 3600, "count": metrics.duration_buckets.le_3600},
+                {"le": "+Inf", "count": metrics.duration_buckets.le_inf}
+            ],
+            "count": metrics.completed_sessions,
+            "sum": metrics.completed_duration_sum_seconds
+        },
+        "rtp_estimated_asr_cost_dollars_total": {
+            "type": "counter",
+            "value": estimated_cost,
+            "rates_per_minute": {"deepgram": deepgram_rate},
+            "duration_seconds_by_backend": backend_seconds
+        },
+        "session_totals": {
+            "total": metrics.total_sessions,
+            "active": metrics.active_sessions,
+            "completed": metrics.completed_sessions
+        }
+    })
 }
 
 /// Live health check endpoint (readiness probe).
@@ -19711,6 +19837,7 @@ mod tests {
     fn auth_exemption_list_matches_adr_094() {
         assert!(is_auth_exempt(&Method::GET, "/health"));
         assert!(is_auth_exempt(&Method::GET, "/health/live"));
+        assert!(is_auth_exempt(&Method::GET, "/api/v1/health/streaming"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/knowledge"));
         assert!(is_auth_exempt(&Method::GET, "/v1/manifest"));
         assert!(is_auth_exempt(&Method::OPTIONS, "/api/v1/notes"));
@@ -22178,6 +22305,46 @@ mod tests {
         let padded = format!("  {}  ", raw);
         let result = base64_decode_metadata(&padded);
         assert_eq!(result, Some("trimmed".to_string()));
+    }
+
+    #[test]
+    fn streaming_health_rtp_metrics_include_rates_and_buckets() {
+        RTP_AUDIO_FRAMES_TOTAL.store(7, Ordering::Relaxed);
+        RTP_CODEC_DECODE_FAILURES_TOTAL.store(2, Ordering::Relaxed);
+        RTP_OUTBOX_WRITE_FAILURES_TOTAL.store(1, Ordering::Relaxed);
+
+        let metrics = matric_db::call_sessions::RealtimeCallMetrics {
+            total_sessions: 3,
+            active_sessions: 1,
+            completed_sessions: 2,
+            completed_duration_sum_seconds: 150.0,
+            duration_buckets: matric_db::call_sessions::RealtimeDurationBuckets {
+                le_30: 1,
+                le_60: 1,
+                le_300: 2,
+                le_900: 2,
+                le_1800: 2,
+                le_3600: 2,
+                le_inf: 2,
+            },
+            duration_seconds_by_backend: serde_json::json!({
+                "deepgram": 120.0,
+                "mock": 30.0
+            }),
+        };
+
+        let rtp = build_rtp_metrics(metrics, 0.006);
+        assert_eq!(rtp["rtp_call_active_count"]["value"], 1);
+        assert_eq!(rtp["rtp_audio_frame_latency_ms"]["count"], 7);
+        assert_eq!(rtp["rtp_codec_decode_failures_total"]["value"], 2);
+        assert_eq!(rtp["rtp_outbox_write_failures_total"]["value"], 1);
+        assert_eq!(rtp["rtp_session_duration_seconds"]["count"], 2);
+        assert_eq!(rtp["rtp_session_duration_seconds"]["sum"], 150.0);
+        assert_eq!(rtp["rtp_estimated_asr_cost_dollars_total"]["value"], 0.012);
+        assert_eq!(
+            rtp["rtp_estimated_asr_cost_dollars_total"]["rates_per_minute"]["deepgram"],
+            0.006
+        );
     }
 
     /// Garbage input that is not valid base64 must return None.

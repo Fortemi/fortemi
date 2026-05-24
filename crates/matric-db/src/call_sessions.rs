@@ -229,6 +229,89 @@ impl PgCallSessionRepository {
                 .map_err(Error::Database)?;
         Ok(row.get("count"))
     }
+
+    /// Aggregate realtime call metrics for `/api/v1/health/streaming`.
+    pub async fn realtime_metrics(&self) -> Result<RealtimeCallMetrics> {
+        let row = sqlx::query(
+            r#"
+            WITH durations AS (
+                SELECT
+                    COALESCE(asr_backend, 'unknown') AS asr_backend,
+                    ended_at IS NULL AS active,
+                    EXTRACT(EPOCH FROM (COALESCE(ended_at, NOW()) - started_at))::DOUBLE PRECISION AS duration_seconds,
+                    CASE WHEN ended_at IS NOT NULL
+                         THEN EXTRACT(EPOCH FROM (ended_at - started_at))::DOUBLE PRECISION
+                         ELSE NULL
+                    END AS completed_duration_seconds
+                FROM call_sessions
+            )
+            SELECT
+                COUNT(*)::BIGINT AS total_sessions,
+                COUNT(*) FILTER (WHERE active)::BIGINT AS active_sessions,
+                COUNT(*) FILTER (WHERE NOT active)::BIGINT AS completed_sessions,
+                COALESCE(SUM(completed_duration_seconds), 0)::DOUBLE PRECISION AS completed_duration_sum_seconds,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 30)::BIGINT AS duration_le_30,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 60)::BIGINT AS duration_le_60,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 300)::BIGINT AS duration_le_300,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 900)::BIGINT AS duration_le_900,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 1800)::BIGINT AS duration_le_1800,
+                COUNT(completed_duration_seconds) FILTER (WHERE completed_duration_seconds <= 3600)::BIGINT AS duration_le_3600,
+                COUNT(completed_duration_seconds)::BIGINT AS duration_le_inf,
+                (
+                    SELECT COALESCE(jsonb_object_agg(asr_backend, total_seconds), '{}'::jsonb)
+                    FROM (
+                        SELECT asr_backend, COALESCE(SUM(duration_seconds), 0)::DOUBLE PRECISION AS total_seconds
+                        FROM durations
+                        GROUP BY asr_backend
+                    ) backend_totals
+                ) AS duration_seconds_by_backend
+            FROM durations
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(RealtimeCallMetrics {
+            total_sessions: row.get("total_sessions"),
+            active_sessions: row.get("active_sessions"),
+            completed_sessions: row.get("completed_sessions"),
+            completed_duration_sum_seconds: row.get("completed_duration_sum_seconds"),
+            duration_buckets: RealtimeDurationBuckets {
+                le_30: row.get("duration_le_30"),
+                le_60: row.get("duration_le_60"),
+                le_300: row.get("duration_le_300"),
+                le_900: row.get("duration_le_900"),
+                le_1800: row.get("duration_le_1800"),
+                le_3600: row.get("duration_le_3600"),
+                le_inf: row.get("duration_le_inf"),
+            },
+            duration_seconds_by_backend: row.get("duration_seconds_by_backend"),
+        })
+    }
+}
+
+/// Aggregated realtime call metrics derived from persisted call sessions.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct RealtimeCallMetrics {
+    pub total_sessions: i64,
+    pub active_sessions: i64,
+    pub completed_sessions: i64,
+    pub completed_duration_sum_seconds: f64,
+    pub duration_buckets: RealtimeDurationBuckets,
+    pub duration_seconds_by_backend: serde_json::Value,
+}
+
+/// Prometheus-style cumulative duration buckets for ended sessions.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct RealtimeDurationBuckets {
+    pub le_30: i64,
+    pub le_60: i64,
+    pub le_300: i64,
+    pub le_900: i64,
+    pub le_1800: i64,
+    pub le_3600: i64,
+    pub le_inf: i64,
 }
 
 #[cfg(test)]
@@ -239,6 +322,24 @@ mod tests {
     fn repository_is_clone_send_sync() {
         fn assert_clone_send_sync<T: Clone + Send + Sync>() {}
         assert_clone_send_sync::<PgCallSessionRepository>();
+    }
+
+    #[tokio::test]
+    async fn realtime_metrics_query_executes_when_integration_db_is_available() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let repo = PgCallSessionRepository::new(pool);
+        let metrics = repo.realtime_metrics().await.unwrap();
+
+        assert!(metrics.total_sessions >= metrics.active_sessions);
+        assert!(metrics.total_sessions >= metrics.completed_sessions);
+        assert!(metrics.duration_buckets.le_inf >= metrics.duration_buckets.le_3600);
     }
 
     #[test]
