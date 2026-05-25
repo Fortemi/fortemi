@@ -4121,6 +4121,163 @@ async fn emit_twilio_call_event_outbox(
     Ok(())
 }
 
+async fn queue_twilio_recording_transcription(
+    state: &AppState,
+    session: &matric_core::CallSession,
+    recording_url: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let file_storage = match state.db.file_storage.as_ref() {
+        Some(file_storage) => file_storage,
+        None => return Ok(None),
+    };
+
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|err| ApiError::Internal(format!("recording HTTP client failed: {err}")))?
+        .get(recording_url)
+        .send()
+        .await
+        .map_err(|err| ApiError::ServiceUnavailable(format!("recording download failed: {err}")))?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::ServiceUnavailable(format!(
+            "recording download returned HTTP {}",
+            response.status()
+        )));
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("audio/wav")
+        .split(';')
+        .next()
+        .unwrap_or("audio/wav")
+        .trim()
+        .to_string();
+    let audio_bytes = response.bytes().await.map_err(|err| {
+        ApiError::ServiceUnavailable(format!("recording body read failed: {err}"))
+    })?;
+    if audio_bytes.is_empty() {
+        return Err(ApiError::BadRequest(
+            "recording download was empty".to_string(),
+        ));
+    }
+
+    let note_id = state
+        .db
+        .notes
+        .insert(CreateNoteRequest {
+            title: Some(format!("Call recording {}", session.provider_call_id)),
+            content: format!(
+                "Call recording imported from {} for provider call {}.",
+                session.provider, session.provider_call_id
+            ),
+            format: "markdown".to_string(),
+            source: "realtime_call_recording".to_string(),
+            collection_id: session.archive_id,
+            tags: Some(vec!["call-recording".to_string(), session.provider.clone()]),
+            metadata: Some(serde_json::json!({
+                "call_id": session.call_id,
+                "provider": session.provider,
+                "provider_call_id": session.provider_call_id,
+                "recording_url": recording_url,
+                "batch_transcript_policy": "append_attachment_transcript",
+            })),
+            document_type_id: None,
+        })
+        .await?;
+
+    let filename = recording_filename(&session.provider_call_id, &content_type);
+    let attachment = {
+        let mut tx = state
+            .db
+            .pool()
+            .begin()
+            .await
+            .map_err(matric_core::Error::Database)?;
+        let attachment = file_storage
+            .store_file_tx(&mut tx, note_id, &filename, &content_type, &audio_bytes)
+            .await?;
+        tx.commit().await.map_err(matric_core::Error::Database)?;
+        attachment
+    };
+
+    let payload = serde_json::json!({
+        "parent_attachment_id": attachment.id.to_string(),
+        "audio_attachment_id": attachment.id.to_string(),
+        "is_video": false,
+        "call_id": session.call_id.to_string(),
+        "provider": session.provider,
+        "provider_call_id": session.provider_call_id,
+        "recording_url": recording_url,
+        "batch_transcript_policy": "append_attachment_transcript",
+    });
+    let job_id = state
+        .db
+        .jobs
+        .queue_deduplicated(
+            Some(note_id),
+            JobType::AudioTranscription,
+            JobType::AudioTranscription.default_priority(),
+            Some(payload),
+            JobType::AudioTranscription.default_cost_tier(),
+        )
+        .await?;
+
+    let mut metadata = session.metadata.clone();
+    if !metadata.is_object() {
+        metadata = serde_json::json!({});
+    }
+    if let Some(obj) = metadata.as_object_mut() {
+        obj.insert(
+            "batch_transcription".to_string(),
+            serde_json::json!({
+                "policy": "append_attachment_transcript",
+                "note_id": note_id,
+                "audio_attachment_id": attachment.id,
+                "job_id": job_id,
+                "recording_url": recording_url,
+            }),
+        );
+    }
+    let _ = state
+        .db
+        .call_sessions
+        .update_session(
+            session.call_id,
+            matric_core::UpdateCallSessionRequest {
+                metadata: Some(metadata),
+                ..matric_core::UpdateCallSessionRequest::default()
+            },
+        )
+        .await?;
+
+    if let Some(job_id) = job_id {
+        state.event_bus.emit(ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", JobType::AudioTranscription),
+            note_id: Some(note_id),
+        });
+    }
+
+    Ok(job_id)
+}
+
+fn recording_filename(provider_call_id: &str, content_type: &str) -> String {
+    let extension = match content_type {
+        "audio/mpeg" => "mp3",
+        "audio/mp4" | "audio/m4a" => "m4a",
+        "audio/ogg" => "ogg",
+        "audio/webm" => "webm",
+        "audio/x-wav" | "audio/wav" | "audio/wave" => "wav",
+        _ => "audio",
+    };
+    format!("{}-recording.{}", provider_call_id, extension)
+}
+
 async fn apply_twilio_voice_webhook(
     state: &AppState,
     raw_body: &[u8],
@@ -4305,6 +4462,7 @@ async fn apply_twilio_voice_webhook(
                     &provider_call_id,
                 )
                 .await?;
+            let mut transcription_job_id = None;
             if let Some(session) = session.as_ref() {
                 if let Some(outbox_event) =
                     matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
@@ -4320,12 +4478,15 @@ async fn apply_twilio_voice_webhook(
                     )
                     .await?;
                 }
+                transcription_job_id =
+                    queue_twilio_recording_transcription(state, session, url).await?;
             }
             Ok(serde_json::json!({
                 "type": "recording_available",
                 "call_id": session.map(|session| session.call_id),
                 "provider_call_id": provider_call_id,
                 "url": url,
+                "audio_transcription_job_id": transcription_job_id,
             }))
         }
         other => Ok(serde_json::json!({
@@ -23146,6 +23307,22 @@ mod tests {
                 &matric_api::realtime::EndReason::Cancelled
             ),
             "cancelled"
+        );
+    }
+
+    #[test]
+    fn recording_filename_uses_audio_content_type_extension() {
+        assert_eq!(
+            recording_filename("CA123", "audio/wav"),
+            "CA123-recording.wav"
+        );
+        assert_eq!(
+            recording_filename("CA123", "audio/mpeg"),
+            "CA123-recording.mp3"
+        );
+        assert_eq!(
+            recording_filename("CA123", "application/octet-stream"),
+            "CA123-recording.audio"
         );
     }
 

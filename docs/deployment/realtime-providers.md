@@ -316,4 +316,11 @@ Check:
 
 ### Recording Callback Arrives But No Transcription Job Starts
 
-Fortemi recognizes `recording.completed` callbacks and returns a `recording_available` side effect. The downstream job handoff to audio transcription is tracked separately from the basic Twilio receiver path.
+Fortemi recognizes `recording.completed` callbacks, emits a durable `recording_available` call event, imports the recording into file storage when file storage is configured, creates a call-recording note/attachment, and queues the existing `AudioTranscription` job with `parent_attachment_id` and `audio_attachment_id`. The batch transcript policy is `append_attachment_transcript`: live realtime segments stay in `transcript_segments`, while the higher-quality batch transcript follows the existing attachment transcript/caption path and is linked back to the call through call-session metadata.
+
+Check:
+
+- File storage is configured for the API process; without it Fortemi cannot create the audio attachment required by `AudioTranscriptionHandler`.
+- The Twilio `RecordingUrl` is reachable by the API process.
+- The recording response has non-empty audio content and a supported audio content type.
+- The worker tier that handles `audio_transcription` jobs is running and has a healthy transcription backend.
