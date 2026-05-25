@@ -185,4 +185,116 @@ mod tests {
         assert_eq!(payload["confidence"], serde_json::json!(0.98_f32));
         assert_eq!(payload["sequence"], 8);
     }
+
+    #[tokio::test]
+    async fn emits_high_volume_transcripts_to_outbox_when_db_is_available() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let suffix = Uuid::new_v4();
+        let session = db
+            .call_sessions
+            .create_session(matric_core::CreateCallSessionRequest {
+                provider: "mock".to_string(),
+                provider_call_id: format!("emitter-{suffix}"),
+                started_at: Some(Utc::now()),
+                asr_backend: Some("mock".to_string()),
+                remote_party: None,
+                archive_id: None,
+                metadata: serde_json::json!({"test": "high volume emitter"}),
+            })
+            .await
+            .expect("create call session");
+
+        let mut events = Vec::new();
+        for index in 0..100 {
+            events.push(TranscriptEvent::Partial {
+                text: format!("partial {index}"),
+                ts: Utc::now(),
+            });
+        }
+        for index in 0..10 {
+            events.push(TranscriptEvent::Final {
+                text: format!("final {index}"),
+                speaker_label: Some(format!("speaker_{}", index % 2)),
+                start_ts: Some(index as f64),
+                end_ts: Some(index as f64 + 0.5),
+                confidence: Some(0.9),
+            });
+        }
+
+        let summary = emit_transcript_events(&db, session.call_id, futures::stream::iter(events))
+            .await
+            .expect("emit transcript events");
+        assert_eq!(summary.partials, 100);
+        assert_eq!(summary.finals, 10);
+        assert_eq!(summary.errors, 0);
+
+        let partial_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM event_outbox WHERE entity_id = $1 AND event_type = 'transcript_partial'",
+        )
+        .bind(session.call_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count partial outbox rows");
+        assert_eq!(partial_count, 100);
+
+        let final_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM event_outbox WHERE entity_id = $1 AND event_type = 'transcript_final'",
+        )
+        .bind(session.call_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count final outbox rows");
+        assert_eq!(final_count, 10);
+
+        let segment_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transcript_segments WHERE call_id = $1")
+                .bind(session.call_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("count transcript segments");
+        assert_eq!(segment_count, 10);
+
+        let final_payload: serde_json::Value = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM event_outbox
+            WHERE entity_id = $1 AND event_type = 'transcript_final'
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(session.call_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("load final payload");
+        assert_eq!(final_payload["call_id"], serde_json::json!(session.call_id));
+        assert_eq!(final_payload["text"], "final 0");
+        assert_eq!(final_payload["sequence"], 101);
+        assert!(final_payload["segment_id"].as_str().is_some());
+
+        sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup outbox rows");
+        sqlx::query("DELETE FROM transcript_segments WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup transcript segments");
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup call session");
+    }
 }
