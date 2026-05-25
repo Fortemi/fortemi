@@ -354,7 +354,18 @@ pub struct RealtimeDurationBuckets {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
     use super::*;
+
+    static CALL_SESSION_DB_TEST_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    async fn call_session_db_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+        CALL_SESSION_DB_TEST_LOCK
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
+    }
 
     #[test]
     fn repository_is_clone_send_sync() {
@@ -379,6 +390,7 @@ mod tests {
             Ok(value) => value,
             Err(_) => return,
         };
+        let _guard = call_session_db_test_guard().await;
         let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
         let repo = PgCallSessionRepository::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
@@ -466,6 +478,7 @@ mod tests {
             Ok(value) => value,
             Err(_) => return,
         };
+        let _guard = call_session_db_test_guard().await;
         let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
         let repo = PgCallSessionRepository::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
