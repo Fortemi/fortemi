@@ -5,8 +5,10 @@ use matric_core::{
     CallSession, CreateCallSessionRequest, CreateTranscriptSegmentRequest, Error, Result,
     TranscriptSegment, UpdateCallSessionRequest,
 };
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
+
+use crate::outbox::{CreateOutboxEvent, PgEventOutboxRepository};
 
 /// PostgreSQL repository for call sessions and final transcript segments.
 #[derive(Clone)]
@@ -147,6 +149,42 @@ impl PgCallSessionRepository {
         &self,
         req: CreateTranscriptSegmentRequest,
     ) -> Result<TranscriptSegment> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let segment = Self::create_transcript_segment_tx(&mut tx, req).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(segment)
+    }
+
+    /// Persist a final transcript segment and emit its durable outbox event atomically.
+    pub async fn create_transcript_segment_with_outbox(
+        &self,
+        req: CreateTranscriptSegmentRequest,
+        event_type: impl Into<String>,
+        mut payload: serde_json::Value,
+        memory: Option<String>,
+    ) -> Result<(TranscriptSegment, crate::outbox::EventOutboxRecord)> {
+        let call_id = req.call_id;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let segment = Self::create_transcript_segment_tx(&mut tx, req).await?;
+
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("call_id".to_string(), serde_json::json!(call_id));
+            obj.insert("segment_id".to_string(), serde_json::json!(segment.id));
+        }
+
+        let outbox = PgEventOutboxRepository::emit_event_tx(
+            &mut tx,
+            CreateOutboxEvent::new(event_type, "call_session", call_id, payload, memory),
+        )
+        .await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok((segment, outbox))
+    }
+
+    async fn create_transcript_segment_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        req: CreateTranscriptSegmentRequest,
+    ) -> Result<TranscriptSegment> {
         if req.text.trim().is_empty() {
             return Err(Error::InvalidInput(
                 "transcript segment text is required".to_string(),
@@ -172,7 +210,7 @@ impl PgCallSessionRepository {
         .bind(req.end_ts)
         .bind(req.confidence)
         .bind(req.sequence)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut **tx)
         .await
         .map_err(Error::Database)
     }
@@ -414,6 +452,85 @@ mod tests {
             .unwrap();
         sqlx::query("DELETE FROM call_sessions WHERE call_id = ANY($1)")
             .bind([active.call_id, completed.call_id])
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn transcript_segment_with_outbox_is_atomic_when_db_is_available() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let repo = PgCallSessionRepository::new(pool.clone());
+        let suffix = uuid::Uuid::new_v4();
+        let provider_call_id = format!("outbox-{suffix}");
+
+        let session = repo
+            .create_session(CreateCallSessionRequest {
+                provider: "mock".to_string(),
+                provider_call_id,
+                started_at: Some(Utc::now()),
+                asr_backend: Some("mock".to_string()),
+                remote_party: None,
+                archive_id: None,
+                metadata: serde_json::json!({"test": "transcript outbox"}),
+            })
+            .await
+            .unwrap();
+
+        let (segment, outbox) = repo
+            .create_transcript_segment_with_outbox(
+                CreateTranscriptSegmentRequest {
+                    call_id: session.call_id,
+                    speaker_label: Some("speaker_0".to_string()),
+                    text: "hello world".to_string(),
+                    start_ts: Some(0.0),
+                    end_ts: Some(1.0),
+                    confidence: Some(0.99),
+                    sequence: 1,
+                },
+                "transcript_final",
+                serde_json::json!({
+                    "text": "hello world",
+                    "speaker": "speaker_0",
+                    "start_ts": 0.0,
+                    "end_ts": 1.0,
+                    "confidence": 0.99,
+                    "sequence": 1,
+                }),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(segment.call_id, session.call_id);
+        assert_eq!(outbox.event_type, "transcript_final");
+        assert_eq!(outbox.entity_type, "call_session");
+        assert_eq!(outbox.entity_id, session.call_id);
+        assert_eq!(
+            outbox.payload["call_id"],
+            serde_json::json!(session.call_id)
+        );
+        assert_eq!(outbox.payload["segment_id"], serde_json::json!(segment.id));
+
+        sqlx::query("DELETE FROM event_outbox WHERE id = $1")
+            .bind(outbox.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM transcript_segments WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(session.call_id)
             .execute(&pool)
             .await
             .unwrap();

@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 pub mod asr;
 pub mod codec;
+pub mod emitter;
 
 pub mod adapters;
 

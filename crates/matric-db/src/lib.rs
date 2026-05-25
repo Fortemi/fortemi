@@ -47,6 +47,7 @@ pub mod links;
 pub mod memory_search;
 pub mod notes;
 pub mod oauth;
+pub mod outbox;
 pub mod pke_keys;
 pub mod pke_keysets;
 pub mod pool;
@@ -119,6 +120,7 @@ pub use links::{
 pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{ListNotesWithFilterRequest, ListNotesWithFilterResponse, PgNoteRepository};
 pub use oauth::PgOAuthRepository;
+pub use outbox::{CreateOutboxEvent, EventOutboxRecord, PgEventOutboxRepository};
 pub use pke_keys::{PgPkeKeyRepository, PkePublicKey};
 pub use pke_keysets::{
     CreateKeysetRequest, ExportedKeyset, PgPkeKeysetRepository, PkeKeyset, PkeKeysetSummary,
@@ -196,6 +198,8 @@ pub struct Database {
     pub webhooks: PgWebhookRepository,
     /// Incoming webhook receiver registrations for provider callbacks.
     pub incoming_webhooks: PgIncomingWebhookReceiverRepository,
+    /// Shared durable event outbox for write-path event publication.
+    pub outbox: PgEventOutboxRepository,
     /// PKE public key registry (Issue #113).
     pub pke_keys: PgPkeKeyRepository,
     /// PKE keyset repository for REST API (Issues #328, #332).
@@ -235,6 +239,7 @@ impl Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(pool.clone()),
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(pool.clone()),
+            outbox: PgEventOutboxRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             tus: PgTusRepository::new(pool.clone()),
@@ -422,6 +427,7 @@ impl Clone for Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(self.pool.clone()),
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(self.pool.clone()),
+            outbox: PgEventOutboxRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
             tus: PgTusRepository::new(self.pool.clone()),
