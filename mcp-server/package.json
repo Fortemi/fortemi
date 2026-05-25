@@ -1,6 +1,6 @@
 {
   "name": "@fortemi/mcp",
-  "version": "2026.5.12",
+  "version": "2026.5.13",
   "description": "MCP server for Fortémi API",
   "main": "index.js",
   "type": "module",
@@ -33,6 +33,7 @@
     "hono": "^4.12.18",
     "@hono/node-server": "^1.19.13",
     "fast-uri": "^3.1.2",
-    "ip-address": "^10.1.1"
+    "ip-address": "^10.1.1",
+    "qs": "^6.15.2"
   }
 }

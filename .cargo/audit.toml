@@ -18,12 +18,4 @@ ignore = [
     # Owner: maintainers
     # Expiry: 2026-12-01 (re-evaluate against sqlx >=0.9 if released)
     "RUSTSEC-2023-0071",
-
-    # RUSTSEC-2026-0097 (rand 0.8.5, 0.9.2): unsoundness only with a custom
-    # logger using rand::rng(). Not exercised by fortemi. The patched line is
-    # rand 0.10.1 (already pinned). 0.8.5 and 0.9.2 ship via tungstenite +
-    # mockito + governor and have no backport. Accepted on stale minor lines.
-    # Owner: maintainers
-    # Expiry: 2026-09-01 (re-evaluate when downstream crates upgrade to rand 0.10)
-    "RUSTSEC-2026-0097",
 ]

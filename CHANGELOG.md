@@ -7,6 +7,29 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.5.13] - 2026-05-25
+
+Security maintenance release for the dependency advisory sweep after 2026.5.12. This release updates vulnerable Rust and npm transitive artifacts, removes obsolete advisory allowlists, and includes the post-2026.5.12 documentation/issue-tracking cleanup commits.
+
+### Security
+
+- **Rust advisory updates** - Updated `openssl` from `0.10.79` to `0.10.80`, `rand` `0.8.5` to `0.8.6`, and `rand` `0.9.2` to `0.9.3` in `Cargo.lock`.
+- **npm advisory update** - Pinned the MCP server dependency graph to `qs` `6.15.2` via `mcp-server/package.json` overrides and lockfile update.
+- **Advisory allowlist cleanup** - Removed the temporary `RUSTSEC-2026-0097` ignores from `cargo audit` and `cargo deny` configuration now that the patched `rand` lines are present.
+- **Supply-chain review completed** - Verified crates.io/npm provenance and artifact integrity for the patched packages, diffed prior and patched artifacts, and closed Fortemi issue #857 with the evidence summary.
+
+### Changed
+
+- **Issue tracking preference** - Updated project guidance to prefer the canonical Gitea tracker.
+- **Planning documentation** - Captured licensing and storage planning updates for the upcoming distribution work.
+
+### Verification
+
+- `cargo audit`
+- `cargo deny check advisories`
+- `npm ls qs`
+- `npm audit --omit=dev`
+
 ## [2026.5.12] - 2026-05-25
 
 Realtime provider integration milestone. This release adds the standards-shaped call transport foundation, the first Twilio Voice adapter, Deepgram live ASR, provider-neutral call event outbox contracts, and the batch transcription bridge for completed Twilio recordings. It also includes fail-closed authentication defaults and the incoming webhook receiver foundation used by provider control-plane callbacks.
@@ -1513,7 +1536,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.5.12...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.5.13...HEAD
+[2026.5.13]: https://github.com/fortemi/fortemi/compare/v2026.5.12...v2026.5.13
 [2026.5.12]: https://github.com/fortemi/fortemi/compare/v2026.5.11...v2026.5.12
 [2026.5.11]: https://github.com/fortemi/fortemi/compare/v2026.5.10...v2026.5.11
 [2026.5.10]: https://github.com/fortemi/fortemi/compare/v2026.5.9...v2026.5.10
