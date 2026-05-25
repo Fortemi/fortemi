@@ -2,7 +2,7 @@
 
 **Audience:** AI coding agents (Claude Code, Codex, Cursor, Windsurf, Copilot, etc.) installing Fortémi on a user's behalf. Read this end-to-end before running any commands.
 
-**Companion docs:** [`README.md`](README.md) (human overview), [`QUICKSTART.md`](QUICKSTART.md) (full workstation walkthrough including HotM UI), [`docs/deployment/bt6-bollard.md`](docs/deployment/bt6-bollard.md) (BT6 Arsenal Desktop embedding), [`docs/deployment/realtime-providers.md`](docs/deployment/realtime-providers.md) (Twilio Voice + Deepgram realtime setup).
+**Companion docs:** [`README.md`](README.md) (human overview), [`QUICKSTART.md`](QUICKSTART.md) (full workstation walkthrough including HotM UI), [`docs/deployment/realtime-providers.md`](docs/deployment/realtime-providers.md) (Twilio Voice + Deepgram realtime setup).
 
 ---
 
@@ -17,7 +17,6 @@ There are **three install paths**. Pick the right one for the user's intent befo
 | "I want an app to take notes / talk to my notes / a desktop app" | **HotM (NOT this repo)** | Redirect to [Fortemi/HotM](https://git.integrolabs.net/Fortemi/HotM/releases/latest) — UI + this API bundled in one installer. Do not proceed in this repo. |
 | "I want the headless API / I want to run MCP tools against my own backend / I want a Docker stack" | **Docker bundle** (this repo) | Section 3 |
 | "I want to develop on Fortémi / build from source / contribute" | **Dev install** (this repo) | Section 4 |
-| "Embed Fortémi inside another desktop app via bollard" | **BT6 Tier 2 Docker** | Read [`docs/deployment/bt6-bollard.md`](docs/deployment/bt6-bollard.md), then Section 3 |
 
 If the user's intent is ambiguous, ask one clarifying question:
 > "Do you want a finished desktop app to use Fortémi (HotM), or are you setting up the backend API for your own UI / agents?"
@@ -340,4 +339,4 @@ If any item fails, do not declare the install complete. Walk back through §6.
 - **Do** read this entire document before running commands. The decision tree forks early (§1).
 - **Do** prefer the **HotM** install path for non-technical users. Most people who land on this repo wanted the desktop app and didn't know it.
 
-If the user asks for something this document doesn't cover, check `QUICKSTART.md` (for the workstation walkthrough), `docs/deployment/bt6-bollard.md` (for desktop-app embedding), or the [issue tracker](https://git.integrolabs.net/Fortemi/fortemi/issues) before improvising.
+If the user asks for something this document doesn't cover, check `QUICKSTART.md` (for the workstation walkthrough), `README.md` (for the backend overview), or the [issue tracker](https://git.integrolabs.net/Fortemi/fortemi/issues) before improvising.

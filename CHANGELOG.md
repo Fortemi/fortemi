@@ -7,27 +7,55 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-### Security — Breaking Change
+## [2026.5.12] - 2026-05-25
 
-- **Authentication is now fail-closed by default** (ADR-094, fixes Gitea
-  fortemi/fortemi#709). `REQUIRE_AUTH` defaults to `true`. Every `/api/v1/*`
-  endpoint requires a valid Bearer token unless an operator explicitly opts out
-  by setting both `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. The
-  startup gate refuses to launch with `REQUIRE_AUTH=false` unless the
-  acknowledgment is present, and emits a loud warning at boot and every 60
-  seconds for the process lifetime when anonymous mode is active. Multi-tenant
-  builds (`FORTEMI_MULTI_TENANT=true`) refuse anonymous regardless of the
-  acknowledgment — the combination is a startup error.
+Realtime provider integration milestone. This release adds the standards-shaped call transport foundation, the first Twilio Voice adapter, Deepgram live ASR, provider-neutral call event outbox contracts, and the batch transcription bridge for completed Twilio recordings. It also includes fail-closed authentication defaults and the incoming webhook receiver foundation used by provider control-plane callbacks.
 
-  **Migration:** existing single-user desktop and local-dev deployments that
-  intentionally run anonymous must add `I_UNDERSTAND_NO_AUTH=true` to their
-  environment. The bundled `docker-compose.bundle.yml` and
-  `docker-compose.workstation.yml` already include the acknowledgment, so users
-  running stock compose files are unaffected. Deployments that previously
-  relied on the implicit `REQUIRE_AUTH=false` default without setting it
-  explicitly will now start in authenticated mode — set `REQUIRE_AUTH=true`
-  with `ISSUER_URL` for proper OAuth issuer configuration, or add the
-  acknowledgment pair to opt into anonymous.
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| Twilio Voice realtime adapter | Fortemi can accept signed Twilio Voice webhooks and Twilio Media Streams WebSocket audio for live call transcription. |
+| Standards-shaped realtime contracts | Provider-specific wire formats stay inside adapters while call lifecycle, media frames, ASR events, and outbox rows stay provider-neutral. |
+| Deepgram streaming ASR | Live call audio can produce partial/final transcript events with reconnect, failover accounting, and health metrics. |
+| Recording-completed batch bridge | Twilio recordings are imported as audio attachments and queued through the existing `AudioTranscriptionHandler` for higher-quality post-call transcripts. |
+| Fail-closed auth default | `/api/v1/*` endpoints now require auth by default unless an operator explicitly opts into anonymous local mode. |
+
+### Added
+
+- **Incoming webhook receivers** — `POST /api/v1/webhooks/incoming`, receiver lookup, payload validation, HMAC verification, and Twilio Voice schema support for provider control-plane callbacks.
+- **Realtime call sessions** — persisted `call_sessions` metadata, call detail lookup at `GET /api/v1/calls/{call_id}`, realtime session metrics, and database coverage for active/completed call aggregation.
+- **Realtime transport foundation** — provider-neutral `MediaFrame`, codec normalization, mock adapter fixtures, mock ASR backend, and Twilio adapter mapping helpers.
+- **Twilio Voice + Media Streams support** — signed Voice webhooks create/update call sessions, `/api/v1/realtime/twilio/{CallSid}` accepts Twilio media streams, and recent-session gating rejects stale or unknown WebSocket attempts.
+- **Deepgram streaming backend** — WebSocket ASR client with secure API-key handling, event parsing, reconnect/backoff behavior, failover to a configured fallback backend, and health metrics.
+- **Transcript outbox foundation** — `event_outbox` table and helpers for realtime transcript/call events, including high-volume transcript emission coverage.
+- **Twilio call-event outbox contract** — adapter-owned mapping for `call_started`, `state_change`, `recording_available`, and `ended` events so downstream consumers are insulated from Twilio status strings.
+- **Twilio recording transcription bridge** — completed recording callbacks download the recording into file storage, create an audio attachment note, queue `AudioTranscription`, and link batch transcript policy metadata back to the call session.
+- **Realtime provider setup documentation** — `docs/deployment/realtime-providers.md` now covers Twilio + Deepgram setup, consent/disclosure, troubleshooting, and contract completeness for local, single-tenant, multi-tenant, regulated, and future provider deployments.
+
+### Changed
+
+- **Authentication defaults are fail-closed** — `REQUIRE_AUTH` now defaults to `true`. Anonymous mode requires both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`; multi-tenant deployments reject anonymous mode regardless of acknowledgment.
+- **CI and pre-commit provider-boundary checks** — realtime provider-specific imports are rejected outside adapter modules.
+- **Docs site workflows** — docsite clone steps use the configured build token for authenticated source access.
+- **Call-session schema stability** — call sessions no longer keep an archive foreign key that could deadlock archive registry operations.
+
+### Fixed
+
+- **Call API response shape** — call detail responses now align with the persisted session/transcript shape used by the realtime pipeline.
+- **Prepared test database use** — call API tests now use the prepared DB path consistently.
+- **Syntactic chunker performance guard** — relaxed an over-strict guard that could fail under noisy CI timing.
+
+### Security
+
+- **Fail-closed API authentication** (ADR-094, fixes Gitea fortemi/fortemi#709). Existing single-user desktop and local-dev deployments that intentionally run anonymous must add `I_UNDERSTAND_NO_AUTH=true` when setting `REQUIRE_AUTH=false`. Stock bundled compose files include that acknowledgment for local profiles.
+- **Twilio webhook verification** — Twilio signatures are validated against the externally visible URL using the receiver secret; proxy deployments must preserve `X-Forwarded-Host` and `X-Forwarded-Proto` for validation to succeed.
+
+### Migration Notes
+
+- **Database migrations included** — this release adds incoming webhook receiver, realtime call-session, and event-outbox tables. Migrations run through the normal startup/migration path.
+- **Auth opt-out must be explicit** — deployments that depended on the old implicit anonymous default will now start authenticated unless they set the two-variable local-mode acknowledgment.
+- **Realtime recording batch transcripts require file storage** — Twilio `recording.completed` callbacks can only queue the batch transcription bridge when the API process has file storage configured and can reach the recording URL.
 
 ## [2026.5.11] - 2026-05-18
 
@@ -252,7 +280,7 @@ Three deployment-experience fixes plus a diagnostic update on a misfiled regress
 
 ### Added
 
-- **Sidecar release artifact: `matric-api-x86_64-apple-darwin`** (#644) — `publish-sidecar.yml` now cross-compiles `matric-api` for both `aarch64-apple-darwin` and `x86_64-apple-darwin` on the mutsu (M4 Mac mini) build host and publishes both binaries to `sidecar-latest` and versioned releases. Unblocks BT6 Arsenal Desktop's universal-apple-darwin Tauri build (single `.dmg` for Apple Silicon and Intel via lipo). The `build-macos` job loops over targets in one SSH session, pre-installs both rust-std targets idempotently via `rustup target add`, and uploads two artifacts. Both `publish-sidecar-latest` and `publish-versioned` include the new x86_64 binary in their copy/upload loops; release-body docs updated to advertise all three artifacts (Linux x86_64, macOS aarch64, macOS x86_64).
+- **Sidecar release artifact: `matric-api-x86_64-apple-darwin`** (#644) — `publish-sidecar.yml` now cross-compiles `matric-api` for both `aarch64-apple-darwin` and `x86_64-apple-darwin` on the mutsu (M4 Mac mini) build host and publishes both binaries to `sidecar-latest` and versioned releases. The `build-macos` job loops over targets in one SSH session, pre-installs both rust-std targets idempotently via `rustup target add`, and uploads two artifacts. Both `publish-sidecar-latest` and `publish-versioned` include the new x86_64 binary in their copy/upload loops; release-body docs updated to advertise all three artifacts (Linux x86_64, macOS aarch64, macOS x86_64).
 - **Doc site CI/CD for docs.fortemi.io** (#645) — Two new Gitea Actions workflows wire the existing `docs/` tree through the [`roctinam/dbbuilder`](https://git.integrolabs.net/roctinam/dbbuilder) publisher. `docsite-build.yml` validates builds on PRs and pushes to `main` when `docs/**` changes (`strictLinks: true` catches broken links at PR review). `docsite-deploy.yml` builds and rsyncs to the docs server on `v*` tag push (`strictLinks: false` so a broken link doesn't block a release). Uses the default dbbuilder template with the existing Fortemi-branded `docs/config.json`. Required secrets: `GT_ACCESS_TOKEN`, `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_PATH`.
 
 ### Fixed
@@ -1485,7 +1513,20 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.2.12...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.5.12...HEAD
+[2026.5.12]: https://github.com/fortemi/fortemi/compare/v2026.5.11...v2026.5.12
+[2026.5.11]: https://github.com/fortemi/fortemi/compare/v2026.5.10...v2026.5.11
+[2026.5.10]: https://github.com/fortemi/fortemi/compare/v2026.5.9...v2026.5.10
+[2026.5.9]: https://github.com/fortemi/fortemi/compare/v2026.5.8...v2026.5.9
+[2026.5.8]: https://github.com/fortemi/fortemi/compare/v2026.5.7...v2026.5.8
+[2026.5.7]: https://github.com/fortemi/fortemi/compare/v2026.5.6...v2026.5.7
+[2026.5.6]: https://github.com/fortemi/fortemi/compare/v2026.5.5...v2026.5.6
+[2026.5.5]: https://github.com/fortemi/fortemi/compare/v2026.5.4...v2026.5.5
+[2026.5.4]: https://github.com/fortemi/fortemi/compare/v2026.5.3...v2026.5.4
+[2026.5.3]: https://github.com/fortemi/fortemi/compare/v2026.5.2...v2026.5.3
+[2026.5.2]: https://github.com/fortemi/fortemi/compare/v2026.5.1...v2026.5.2
+[2026.5.1]: https://github.com/fortemi/fortemi/compare/v2026.5.0...v2026.5.1
+[2026.5.0]: https://github.com/fortemi/fortemi/compare/v2026.4.2...v2026.5.0
 [2026.2.12]: https://github.com/fortemi/fortemi/compare/v2026.2.11...v2026.2.12
 [2026.2.11]: https://github.com/fortemi/fortemi/compare/v2026.2.10...v2026.2.11
 [2026.2.10]: https://github.com/fortemi/fortemi/compare/v2026.2.9...v2026.2.10

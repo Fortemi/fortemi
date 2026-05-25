@@ -1,6 +1,6 @@
 {
   "name": "@fortemi/mcp",
-  "version": "2026.5.11",
+  "version": "2026.5.12",
   "description": "MCP server for Fortémi API",
   "main": "index.js",
   "type": "module",
@@ -19,7 +19,7 @@
     "test:local": "FORTEMI_URL=http://localhost:3000 node test-mcp-connectivity.js",
     "test:oauth": "echo 'Usage: MCP_CLIENT_ID=xxx MCP_CLIENT_SECRET=yyy npm run test'"
   },
-  "license": "SEE LICENSE IN ../LICENSE",
+  "license": "BUSL-1.1",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^4.18.2",

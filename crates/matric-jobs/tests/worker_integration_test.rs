@@ -353,12 +353,12 @@ async fn test_worker_broadcasts_progress_events() {
         tokio::select! {
             event = events.recv() => {
                 match event {
-                    Ok(WorkerEvent::JobProgress { job_id: id, percent, message }) => {
-                        if id == job_id {
-                            progress_events.push((percent, message));
-                            if percent == 100 {
-                                break;
-                            }
+                    Ok(WorkerEvent::JobProgress { job_id: id, percent, message })
+                        if id == job_id =>
+                    {
+                        progress_events.push((percent, message));
+                        if percent == 100 {
+                            break;
                         }
                     }
                     Ok(WorkerEvent::JobCompleted { job_id: id, .. }) if id == job_id => {
