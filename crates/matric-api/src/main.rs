@@ -23112,6 +23112,173 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn twilio_recording_completed_queues_audio_transcription_job_when_db_is_available() {
+        use matric_inference::transcription::{
+            TranscriptionBackend, TranscriptionResult, TranscriptionSegment,
+        };
+        use matric_jobs::JobHandler;
+        use sqlx::Row;
+
+        #[derive(Debug)]
+        struct MockTranscriptionBackend;
+
+        #[async_trait::async_trait]
+        impl TranscriptionBackend for MockTranscriptionBackend {
+            async fn transcribe(
+                &self,
+                _audio_data: &[u8],
+                _mime_type: &str,
+                _language: Option<&str>,
+            ) -> matric_core::Result<TranscriptionResult> {
+                Ok(TranscriptionResult {
+                    full_text: "batch transcript".to_string(),
+                    segments: vec![TranscriptionSegment {
+                        start_secs: 0.0,
+                        end_secs: 1.5,
+                        text: "batch transcript".to_string(),
+                        speaker_id: Some("speaker_0".to_string()),
+                        words: None,
+                    }],
+                    language: Some("en".to_string()),
+                    duration_secs: Some(1.5),
+                })
+            }
+
+            async fn health_check(&self) -> matric_core::Result<bool> {
+                Ok(true)
+            }
+
+            fn model_name(&self) -> &str {
+                "mock-whisper"
+            }
+        }
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let storage_dir = tempfile::tempdir().expect("file storage dir");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(storage_dir.path().to_str().unwrap(), 0);
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let provider_call_id = format!("CA{}", Uuid::new_v4().simple());
+
+        let router = Router::new().route(
+            "/recording.wav",
+            get(|| async { ([(header::CONTENT_TYPE, "audio/wav")], vec![0_u8; 16]) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind recording fixture server");
+        let recording_url = format!("http://{}/recording.wav", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let start_body = format!(
+            "CallSid={provider_call_id}&CallStatus=ringing&From=%2B15551230000&Direction=inbound&ConsentConfirmed=true"
+        );
+        let started = apply_twilio_voice_webhook(&state, start_body.as_bytes())
+            .await
+            .expect("apply started webhook");
+        let call_id = Uuid::parse_str(started["call_id"].as_str().unwrap()).unwrap();
+
+        let recording_body = format!(
+            "CallSid={provider_call_id}&RecordingStatus=completed&RecordingSid=RE123&RecordingUrl={}",
+            urlencoding::encode(&recording_url)
+        );
+        let recording = apply_twilio_voice_webhook(&state, recording_body.as_bytes())
+            .await
+            .expect("apply recording webhook");
+        let job_id = Uuid::parse_str(
+            recording["audio_transcription_job_id"]
+                .as_str()
+                .expect("recording should queue transcription job"),
+        )
+        .expect("job uuid");
+
+        let job = db
+            .jobs
+            .claim_next_for_types(&[JobType::AudioTranscription])
+            .await
+            .expect("claim audio transcription job")
+            .expect("queued audio transcription job");
+        assert_eq!(job.id, job_id);
+        let note_id = job.note_id;
+        let payload = job.payload.as_ref().expect("audio transcription payload");
+        let audio_attachment_id = Uuid::parse_str(
+            payload["audio_attachment_id"]
+                .as_str()
+                .expect("audio attachment id"),
+        )
+        .expect("audio attachment uuid");
+        assert_eq!(
+            payload["batch_transcript_policy"],
+            "append_attachment_transcript"
+        );
+
+        let handler = AudioTranscriptionHandler::new(
+            db.clone(),
+            Arc::new(MockTranscriptionBackend) as Arc<dyn TranscriptionBackend>,
+        );
+        match handler.execute(matric_jobs::JobContext::new(job)).await {
+            matric_jobs::JobResult::Success(_) => {}
+            other => panic!("audio transcription handler failed: {other:?}"),
+        }
+
+        let metadata: serde_json::Value =
+            sqlx::query_scalar("SELECT extracted_metadata FROM attachment WHERE id = $1")
+                .bind(audio_attachment_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("load attachment transcript metadata");
+        assert_eq!(metadata["transcript_complete"], true);
+        assert_eq!(
+            metadata["transcript_segments"][0]["text"],
+            "batch transcript"
+        );
+
+        let session_metadata: serde_json::Value =
+            sqlx::query("SELECT metadata FROM call_sessions WHERE call_id = $1")
+                .bind(call_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("load call session metadata")
+                .get("metadata");
+        assert_eq!(
+            session_metadata["batch_transcription"]["policy"],
+            "append_attachment_transcript"
+        );
+        assert_eq!(
+            session_metadata["batch_transcription"]["audio_attachment_id"],
+            serde_json::json!(audio_attachment_id)
+        );
+
+        sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
+            .bind(call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup outbox events");
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup call session");
+        if let Some(note_id) = note_id {
+            sqlx::query("DELETE FROM note WHERE id = $1")
+                .bind(note_id)
+                .execute(db.pool())
+                .await
+                .expect("cleanup recording note");
+        }
+    }
+
+    #[tokio::test]
     async fn twilio_realtime_ws_requires_recent_session_and_marks_drop_on_close() {
         use futures::SinkExt;
         use sqlx::Row;
