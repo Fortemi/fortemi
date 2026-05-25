@@ -4101,6 +4101,33 @@ async fn apply_incoming_webhook_side_effect(
     }
 }
 
+async fn emit_twilio_call_event_outbox(
+    state: &AppState,
+    call_id: Uuid,
+    provider_call_id: &str,
+    event_type: &str,
+    payload: serde_json::Value,
+) -> Result<(), ApiError> {
+    state
+        .db
+        .outbox
+        .emit_event(matric_db::CreateOutboxEvent::new(
+            "call_event",
+            "call_session",
+            call_id,
+            serde_json::json!({
+                "call_id": call_id,
+                "provider": "twilio",
+                "provider_call_id": provider_call_id,
+                "event_type": event_type,
+                "payload": payload,
+            }),
+            None,
+        ))
+        .await?;
+    Ok(())
+}
+
 async fn apply_twilio_voice_webhook(
     state: &AppState,
     raw_body: &[u8],
@@ -4130,6 +4157,18 @@ async fn apply_twilio_voice_webhook(
                 .get_session_by_provider_call_id("twilio", &provider_call_id)
                 .await?;
             if let Some(session) = existing {
+                emit_twilio_call_event_outbox(
+                    state,
+                    session.call_id,
+                    &provider_call_id,
+                    "call_started",
+                    serde_json::json!({
+                        "remote_party": remote_party,
+                        "metadata": metadata,
+                        "duplicate": true,
+                    }),
+                )
+                .await?;
                 return Ok(serde_json::json!({
                     "type": "call_session_existing",
                     "call_id": session.call_id,
@@ -4145,7 +4184,7 @@ async fn apply_twilio_voice_webhook(
                     provider_call_id: provider_call_id.clone(),
                     started_at: Some(chrono::Utc::now()),
                     asr_backend: Some("deepgram".to_string()),
-                    remote_party,
+                    remote_party: remote_party.clone(),
                     archive_id: None,
                     metadata: serde_json::json!({
                         "source": "twilio_voice_webhook",
@@ -4155,9 +4194,48 @@ async fn apply_twilio_voice_webhook(
                     }),
                 })
                 .await?;
+            emit_twilio_call_event_outbox(
+                state,
+                session.call_id,
+                &provider_call_id,
+                "call_started",
+                serde_json::json!({
+                    "remote_party": remote_party,
+                    "metadata": metadata,
+                }),
+            )
+            .await?;
             Ok(serde_json::json!({
                 "type": "call_session_created",
                 "call_id": session.call_id,
+                "provider_call_id": provider_call_id,
+            }))
+        }
+        matric_api::realtime::CallControlEvent::StateChanged {
+            state: matric_api::realtime::CallState::Active,
+        } => {
+            if let Some(session) = state
+                .db
+                .call_sessions
+                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .await?
+            {
+                emit_twilio_call_event_outbox(
+                    state,
+                    session.call_id,
+                    &provider_call_id,
+                    "state_change",
+                    serde_json::json!({"to": "active"}),
+                )
+                .await?;
+                return Ok(serde_json::json!({
+                    "type": "call_session_active",
+                    "call_id": session.call_id,
+                    "provider_call_id": provider_call_id,
+                }));
+            }
+            Ok(serde_json::json!({
+                "type": "call_session_missing",
                 "provider_call_id": provider_call_id,
             }))
         }
@@ -4175,6 +4253,16 @@ async fn apply_twilio_voice_webhook(
                     .call_sessions
                     .end_session(session.call_id, twilio_end_reason_label(&reason))
                     .await?;
+                if let Some(ended_session) = ended.as_ref() {
+                    emit_twilio_call_event_outbox(
+                        state,
+                        ended_session.call_id,
+                        &provider_call_id,
+                        "ended",
+                        serde_json::json!({"reason": twilio_end_reason_label(&reason)}),
+                    )
+                    .await?;
+                }
                 return Ok(serde_json::json!({
                     "type": "call_session_ended",
                     "call_id": ended.map(|session| session.call_id),
@@ -4187,8 +4275,24 @@ async fn apply_twilio_voice_webhook(
             }))
         }
         matric_api::realtime::CallControlEvent::RecordingAvailable { url } => {
+            let session = state
+                .db
+                .call_sessions
+                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .await?;
+            if let Some(session) = session.as_ref() {
+                emit_twilio_call_event_outbox(
+                    state,
+                    session.call_id,
+                    &provider_call_id,
+                    "recording_available",
+                    serde_json::json!({"url": url}),
+                )
+                .await?;
+            }
             Ok(serde_json::json!({
                 "type": "recording_available",
+                "call_id": session.map(|session| session.call_id),
                 "provider_call_id": provider_call_id,
                 "url": url,
             }))
@@ -22709,6 +22813,110 @@ mod tests {
 
         assert_eq!(payload["CallSid"], "CA123");
         assert_eq!(payload["CallStatus"], "ringing");
+    }
+
+    #[tokio::test]
+    async fn twilio_voice_webhook_emits_call_event_outbox_contract() {
+        use sqlx::Row;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let provider_call_id = format!("CA{}", Uuid::new_v4().simple());
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let start_body = format!(
+            "CallSid={provider_call_id}&CallStatus=ringing&From=%2B15551230000&To=%2B15559870000&Direction=inbound&ConsentConfirmed=true&DisclosurePlayed=true&DisclosureVersion=v2026-05"
+        );
+        let started = apply_twilio_voice_webhook(&state, start_body.as_bytes())
+            .await
+            .expect("apply started webhook");
+        let call_id = Uuid::parse_str(started["call_id"].as_str().unwrap()).unwrap();
+
+        let active_body = format!("CallSid={provider_call_id}&CallStatus=in-progress");
+        apply_twilio_voice_webhook(&state, active_body.as_bytes())
+            .await
+            .expect("apply active webhook");
+
+        let recording_body = format!(
+            "CallSid={provider_call_id}&RecordingStatus=completed&RecordingSid=RE123&RecordingUrl=https%3A%2F%2Fapi.twilio.com%2Frecording.wav"
+        );
+        apply_twilio_voice_webhook(&state, recording_body.as_bytes())
+            .await
+            .expect("apply recording webhook");
+
+        let ended_body = format!("CallSid={provider_call_id}&CallStatus=completed");
+        apply_twilio_voice_webhook(&state, ended_body.as_bytes())
+            .await
+            .expect("apply completed webhook");
+
+        let rows = sqlx::query(
+            r#"
+            SELECT event_type, entity_type, entity_id, payload
+            FROM event_outbox
+            WHERE entity_id = $1
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .bind(call_id)
+        .fetch_all(db.pool())
+        .await
+        .expect("load call event outbox rows");
+        assert_eq!(rows.len(), 4);
+
+        let payloads: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                assert_eq!(row.get::<String, _>("event_type"), "call_event");
+                assert_eq!(row.get::<String, _>("entity_type"), "call_session");
+                assert_eq!(row.get::<Uuid, _>("entity_id"), call_id);
+                row.get::<serde_json::Value, _>("payload")
+            })
+            .collect();
+
+        let event_types: Vec<_> = payloads
+            .iter()
+            .map(|payload| payload["event_type"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            event_types,
+            vec![
+                "call_started",
+                "state_change",
+                "recording_available",
+                "ended"
+            ]
+        );
+        assert!(payloads.iter().all(|payload| {
+            payload["call_id"] == serde_json::json!(call_id)
+                && payload["provider"] == "twilio"
+                && payload["provider_call_id"] == provider_call_id
+        }));
+        assert_eq!(payloads[0]["payload"]["remote_party"], "+15551230000");
+        assert_eq!(payloads[1]["payload"]["to"], "active");
+        assert_eq!(
+            payloads[2]["payload"]["url"],
+            "https://api.twilio.com/recording.wav"
+        );
+        assert_eq!(payloads[3]["payload"]["reason"], "normal_hangup");
+
+        sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
+            .bind(call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup outbox events");
+        sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
+            .bind(call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup session");
     }
 
     #[tokio::test]
