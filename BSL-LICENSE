@@ -8,8 +8,35 @@ stated in this License. This is a paramaterized license. The license parameters 
 on usage, a change date, and the open source license that will govern usage of the software after 
 the change date.
 
+Parameters
+
+Licensor:             Joseph Magly
+
+Licensed Work:        Fortémi (the "Licensed Work")
+                      Copyright (C) 2026 Joseph Magly
+
+Additional Use Grant: You may use the Licensed Work without a separate
+                      commercial license solely as a single-user workstation
+                      tool — that is, run by and for one operator on that
+                      operator's own local machine (a localhost or single-
+                      workstation deployment), including for that operator's
+                      own commercial work — and for development and testing of
+                      applications that are built on, or integrate with, the
+                      Licensed Work.
+
+                      Deploying the Licensed Work as a multi-user, networked,
+                      hosted, or otherwise shared server, or making its
+                      functionality available to other users or over a
+                      network, requires a commercial license from the
+                      Licensor.
+
+Change Date:          February 16, 2030
+
+Change License:       GNU Affero General Public License, version 3.0
+                      (AGPL-3.0), as set out in the LICENSE.txt file.
+
 Business Source License 1.1
-License text copyright © 2017 MariaDB Corporation Ab, All Rights Reserved. "Business Source License" 
+License text copyright © 2017 MariaDB Corporation Ab, All Rights Reserved. "Business Source License"
 is a trademark of MariaDB Corporation Ab.
 
 Terms
@@ -70,7 +97,7 @@ Copyright (C) 2026 Joseph Magly
 Use of this software is governed by the Business Source License included in the BSL-LICENSE
 file and at www.mariadb.com/bsl11.
 
-Change Date: February 16th 2030
+Change Date: February 16, 2030
 
 On the date above, in accordance with the Business Source License, use of this software will be governed by 
 the open source license specified in the LICENSE.txt file.

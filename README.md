@@ -12,7 +12,7 @@ An intelligent knowledge base that comprehends what you store — the meaning be
 docker compose -f docker-compose.bundle.yml up -d
 ```
 
-[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg?style=flat-square)](BSL-LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2021_edition-orange?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org)
 [![MCP](https://img.shields.io/badge/MCP-43_tools-purple?style=flat-square)](#mcp-server)
@@ -938,7 +938,13 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## License
 
-**BSL-1.1** (Business Source License 1.1). See [LICENSE](LICENSE).
+**BSL-1.1** (Business Source License 1.1) — converts to AGPL-3.0 on the Change Date (February 16, 2030).
+
+**Free as a workstation tool.** You may run Fortémi at no cost as a single-user workstation tool on your own local machine (localhost / single-workstation deployment) — including for your own commercial work — and for development and testing of applications that integrate with it.
+
+**Server deployments require a commercial license.** Deploying Fortémi as a multi-user, networked, hosted, or otherwise shared server requires a commercial license from the Licensor. (Think SQL Server Express vs. SQL Server: the workstation edition is free; running it as a server is licensed.)
+
+See [BSL-LICENSE](BSL-LICENSE) for the full terms and the Additional Use Grant, and [LICENSE.txt](LICENSE.txt) for the Change License.
 
 ---
 
