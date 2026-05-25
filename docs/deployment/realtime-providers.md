@@ -36,6 +36,16 @@ Recommended deployment profiles:
 
 The slug is an operational routing handle, not the identity boundary by itself. Multi-tenant deployments should carry tenant/account context in receiver configuration, call-session metadata, or an upstream routing layer and should keep secrets separated per tenant or provider account.
 
+Contract completeness checklist:
+
+| Concern | Contract expectation | Why it matters |
+|---|---|---|
+| Identity | Carry `provider`, `provider_call_id`, internal `call_id`, and optional tenant/account metadata without assuming a single operator. | Local, single-tenant, and multi-tenant users can share the same lifecycle model. |
+| Consent and disclosure | Preserve confirmation status, disclosure version, and policy metadata as structured call metadata. | Regulated and all-party-consent deployments can audit decisions without provider-specific schema changes. |
+| Lifecycle | Emit standards-shaped `call_started`, `state_change`, `recording_available`, and `ended` call events through the outbox. | Downstream jobs and future providers depend on stable events rather than Twilio status strings. |
+| Media | Normalize provider envelopes into `MediaFrame` values before ASR. | Codec and transport choices can evolve independently from transcript persistence. |
+| Batch quality path | Treat recording callbacks as a durable `recording_available` contract. | Live transcripts and later higher-quality batch transcripts can coexist under an explicit policy. |
+
 References:
 
 - Twilio Media Streams: https://www.twilio.com/docs/voice/media-streams

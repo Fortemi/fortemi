@@ -2997,7 +2997,10 @@ async fn handle_twilio_control_event(
             let _ = state
                 .db
                 .call_sessions
-                .end_session(call_id, twilio_end_reason_label(&reason))
+                .end_session(
+                    call_id,
+                    matric_api::realtime::adapters::twilio::end_reason_label(&reason),
+                )
                 .await;
         }
         matric_api::realtime::CallControlEvent::Dropped { reason } => {
@@ -3013,15 +3016,6 @@ async fn handle_twilio_control_event(
         matric_api::realtime::CallControlEvent::CallStarted { .. }
         | matric_api::realtime::CallControlEvent::StateChanged { .. }
         | matric_api::realtime::CallControlEvent::Custom { .. } => {}
-    }
-}
-
-fn twilio_end_reason_label(reason: &matric_api::realtime::EndReason) -> &'static str {
-    match reason {
-        matric_api::realtime::EndReason::NormalHangup => "normal_hangup",
-        matric_api::realtime::EndReason::Dropped => "dropped",
-        matric_api::realtime::EndReason::Failed => "failed",
-        matric_api::realtime::EndReason::Cancelled => "cancelled",
     }
 }
 
@@ -4105,8 +4099,7 @@ async fn emit_twilio_call_event_outbox(
     state: &AppState,
     call_id: Uuid,
     provider_call_id: &str,
-    event_type: &str,
-    payload: serde_json::Value,
+    event: matric_api::realtime::adapters::twilio::TwilioCallEventOutbox,
 ) -> Result<(), ApiError> {
     state
         .db
@@ -4117,10 +4110,10 @@ async fn emit_twilio_call_event_outbox(
             call_id,
             serde_json::json!({
                 "call_id": call_id,
-                "provider": "twilio",
+                "provider": matric_api::realtime::adapters::twilio::provider_name(),
                 "provider_call_id": provider_call_id,
-                "event_type": event_type,
-                "payload": payload,
+                "event_type": event.event_type,
+                "payload": event.payload,
             }),
             None,
         ))
@@ -4134,15 +4127,15 @@ async fn apply_twilio_voice_webhook(
 ) -> Result<serde_json::Value, ApiError> {
     let event = matric_api::realtime::adapters::twilio::translate_voice_webhook_form(raw_body)?;
     let provider_call_id = event.provider_call_id.clone();
-    match event.control_event {
+    match &event.control_event {
         matric_api::realtime::CallControlEvent::CallStarted {
             provider,
-            provider_call_id: _,
             remote_party,
             metadata,
-        } if provider == "twilio" => {
+            ..
+        } if provider == matric_api::realtime::adapters::twilio::provider_name() => {
             if call_recording_confirmation_required()
-                && !twilio_call_started_consent_confirmed(&metadata)
+                && !twilio_call_started_consent_confirmed(metadata)
             {
                 return Ok(serde_json::json!({
                     "type": "call_session_blocked_consent_required",
@@ -4154,21 +4147,26 @@ async fn apply_twilio_voice_webhook(
             let existing = state
                 .db
                 .call_sessions
-                .get_session_by_provider_call_id("twilio", &provider_call_id)
-                .await?;
-            if let Some(session) = existing {
-                emit_twilio_call_event_outbox(
-                    state,
-                    session.call_id,
+                .get_session_by_provider_call_id(
+                    matric_api::realtime::adapters::twilio::provider_name(),
                     &provider_call_id,
-                    "call_started",
-                    serde_json::json!({
-                        "remote_party": remote_party,
-                        "metadata": metadata,
-                        "duplicate": true,
-                    }),
                 )
                 .await?;
+            if let Some(session) = existing {
+                if let Some(outbox_event) =
+                    matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
+                        &event.control_event,
+                        true,
+                    )
+                {
+                    emit_twilio_call_event_outbox(
+                        state,
+                        session.call_id,
+                        &provider_call_id,
+                        outbox_event,
+                    )
+                    .await?;
+                }
                 return Ok(serde_json::json!({
                     "type": "call_session_existing",
                     "call_id": session.call_id,
@@ -4180,7 +4178,7 @@ async fn apply_twilio_voice_webhook(
                 .db
                 .call_sessions
                 .create_session(matric_core::CreateCallSessionRequest {
-                    provider: "twilio".to_string(),
+                    provider: matric_api::realtime::adapters::twilio::provider_name().to_string(),
                     provider_call_id: provider_call_id.clone(),
                     started_at: Some(chrono::Utc::now()),
                     asr_backend: Some("deepgram".to_string()),
@@ -4190,21 +4188,24 @@ async fn apply_twilio_voice_webhook(
                         "source": "twilio_voice_webhook",
                         "call_started_metadata": metadata,
                         "recording_disclosure": call_recording_disclosure_config(),
-                        "consent_confirmed": twilio_call_started_consent_confirmed(&metadata),
+                        "consent_confirmed": twilio_call_started_consent_confirmed(metadata),
                     }),
                 })
                 .await?;
-            emit_twilio_call_event_outbox(
-                state,
-                session.call_id,
-                &provider_call_id,
-                "call_started",
-                serde_json::json!({
-                    "remote_party": remote_party,
-                    "metadata": metadata,
-                }),
-            )
-            .await?;
+            if let Some(outbox_event) =
+                matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
+                    &event.control_event,
+                    false,
+                )
+            {
+                emit_twilio_call_event_outbox(
+                    state,
+                    session.call_id,
+                    &provider_call_id,
+                    outbox_event,
+                )
+                .await?;
+            }
             Ok(serde_json::json!({
                 "type": "call_session_created",
                 "call_id": session.call_id,
@@ -4217,17 +4218,26 @@ async fn apply_twilio_voice_webhook(
             if let Some(session) = state
                 .db
                 .call_sessions
-                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .get_session_by_provider_call_id(
+                    matric_api::realtime::adapters::twilio::provider_name(),
+                    &provider_call_id,
+                )
                 .await?
             {
-                emit_twilio_call_event_outbox(
-                    state,
-                    session.call_id,
-                    &provider_call_id,
-                    "state_change",
-                    serde_json::json!({"to": "active"}),
-                )
-                .await?;
+                if let Some(outbox_event) =
+                    matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
+                        &event.control_event,
+                        false,
+                    )
+                {
+                    emit_twilio_call_event_outbox(
+                        state,
+                        session.call_id,
+                        &provider_call_id,
+                        outbox_event,
+                    )
+                    .await?;
+                }
                 return Ok(serde_json::json!({
                     "type": "call_session_active",
                     "call_id": session.call_id,
@@ -4245,23 +4255,35 @@ async fn apply_twilio_voice_webhook(
             if let Some(session) = state
                 .db
                 .call_sessions
-                .get_session_by_provider_call_id("twilio", &provider_call_id)
+                .get_session_by_provider_call_id(
+                    matric_api::realtime::adapters::twilio::provider_name(),
+                    &provider_call_id,
+                )
                 .await?
             {
                 let ended = state
                     .db
                     .call_sessions
-                    .end_session(session.call_id, twilio_end_reason_label(&reason))
-                    .await?;
-                if let Some(ended_session) = ended.as_ref() {
-                    emit_twilio_call_event_outbox(
-                        state,
-                        ended_session.call_id,
-                        &provider_call_id,
-                        "ended",
-                        serde_json::json!({"reason": twilio_end_reason_label(&reason)}),
+                    .end_session(
+                        session.call_id,
+                        matric_api::realtime::adapters::twilio::end_reason_label(reason),
                     )
                     .await?;
+                if let Some(ended_session) = ended.as_ref() {
+                    if let Some(outbox_event) =
+                        matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
+                            &event.control_event,
+                            false,
+                        )
+                    {
+                        emit_twilio_call_event_outbox(
+                            state,
+                            ended_session.call_id,
+                            &provider_call_id,
+                            outbox_event,
+                        )
+                        .await?;
+                    }
                 }
                 return Ok(serde_json::json!({
                     "type": "call_session_ended",
@@ -4278,17 +4300,26 @@ async fn apply_twilio_voice_webhook(
             let session = state
                 .db
                 .call_sessions
-                .get_session_by_provider_call_id("twilio", &provider_call_id)
-                .await?;
-            if let Some(session) = session.as_ref() {
-                emit_twilio_call_event_outbox(
-                    state,
-                    session.call_id,
+                .get_session_by_provider_call_id(
+                    matric_api::realtime::adapters::twilio::provider_name(),
                     &provider_call_id,
-                    "recording_available",
-                    serde_json::json!({"url": url}),
                 )
                 .await?;
+            if let Some(session) = session.as_ref() {
+                if let Some(outbox_event) =
+                    matric_api::realtime::adapters::twilio::call_event_outbox_for_control_event(
+                        &event.control_event,
+                        false,
+                    )
+                {
+                    emit_twilio_call_event_outbox(
+                        state,
+                        session.call_id,
+                        &provider_call_id,
+                        outbox_event,
+                    )
+                    .await?;
+                }
             }
             Ok(serde_json::json!({
                 "type": "recording_available",
@@ -23093,19 +23124,27 @@ mod tests {
     #[test]
     fn twilio_end_reason_labels_are_stable() {
         assert_eq!(
-            twilio_end_reason_label(&matric_api::realtime::EndReason::NormalHangup),
+            matric_api::realtime::adapters::twilio::end_reason_label(
+                &matric_api::realtime::EndReason::NormalHangup
+            ),
             "normal_hangup"
         );
         assert_eq!(
-            twilio_end_reason_label(&matric_api::realtime::EndReason::Dropped),
+            matric_api::realtime::adapters::twilio::end_reason_label(
+                &matric_api::realtime::EndReason::Dropped
+            ),
             "dropped"
         );
         assert_eq!(
-            twilio_end_reason_label(&matric_api::realtime::EndReason::Failed),
+            matric_api::realtime::adapters::twilio::end_reason_label(
+                &matric_api::realtime::EndReason::Failed
+            ),
             "failed"
         );
         assert_eq!(
-            twilio_end_reason_label(&matric_api::realtime::EndReason::Cancelled),
+            matric_api::realtime::adapters::twilio::end_reason_label(
+                &matric_api::realtime::EndReason::Cancelled
+            ),
             "cancelled"
         );
     }

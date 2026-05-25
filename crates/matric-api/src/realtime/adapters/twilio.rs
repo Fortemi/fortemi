@@ -9,6 +9,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::stream;
 use matric_core::{Error, Result};
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::realtime::{
     CallControlEvent, CallControlEventStream, CallState, CallTransport, Codec, EndReason,
@@ -16,6 +17,10 @@ use crate::realtime::{
 };
 
 const TWILIO_PROVIDER: &str = "twilio";
+
+pub fn provider_name() -> &'static str {
+    TWILIO_PROVIDER
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", rename_all = "lowercase")]
@@ -275,10 +280,72 @@ pub struct TwilioVoiceWebhookEvent {
     pub control_event: CallControlEvent,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TwilioCallEventOutbox {
+    pub event_type: &'static str,
+    pub payload: Value,
+}
+
 pub fn translate_voice_webhook_form(input: &[u8]) -> Result<TwilioVoiceWebhookEvent> {
     let form: TwilioVoiceWebhookForm = serde_urlencoded::from_bytes(input)
         .map_err(|err| Error::InvalidInput(format!("invalid Twilio webhook form: {err}")))?;
     form.into_event()
+}
+
+pub fn call_event_outbox_for_control_event(
+    event: &CallControlEvent,
+    duplicate: bool,
+) -> Option<TwilioCallEventOutbox> {
+    match event {
+        CallControlEvent::CallStarted {
+            provider,
+            remote_party,
+            metadata,
+            ..
+        } if provider == TWILIO_PROVIDER => {
+            let mut payload = serde_json::json!({
+                "remote_party": remote_party,
+                "metadata": metadata,
+            });
+            if duplicate {
+                payload["duplicate"] = serde_json::json!(true);
+            }
+            Some(TwilioCallEventOutbox {
+                event_type: "call_started",
+                payload,
+            })
+        }
+        CallControlEvent::StateChanged {
+            state: CallState::Active,
+        } => Some(TwilioCallEventOutbox {
+            event_type: "state_change",
+            payload: serde_json::json!({"to": "active"}),
+        }),
+        CallControlEvent::StateChanged {
+            state: CallState::Ended { reason },
+        } => Some(TwilioCallEventOutbox {
+            event_type: "ended",
+            payload: serde_json::json!({"reason": end_reason_label(reason)}),
+        }),
+        CallControlEvent::RecordingAvailable { url } => Some(TwilioCallEventOutbox {
+            event_type: "recording_available",
+            payload: serde_json::json!({"url": url}),
+        }),
+        CallControlEvent::Dropped { .. } => Some(TwilioCallEventOutbox {
+            event_type: "ended",
+            payload: serde_json::json!({"reason": end_reason_label(&EndReason::Dropped)}),
+        }),
+        _ => None,
+    }
+}
+
+pub fn end_reason_label(reason: &EndReason) -> &'static str {
+    match reason {
+        EndReason::NormalHangup => "normal_hangup",
+        EndReason::Dropped => "dropped",
+        EndReason::Failed => "failed",
+        EndReason::Cancelled => "cancelled",
+    }
 }
 
 impl TwilioVoiceWebhookForm {
@@ -580,5 +647,38 @@ mod tests {
                 }
             }
         ));
+    }
+
+    #[test]
+    fn webhook_control_events_map_to_call_event_outbox_contract() {
+        let started = translate_voice_webhook_form(
+            b"CallSid=CA123&CallStatus=ringing&From=%2B15551230000&ConsentConfirmed=true",
+        )
+        .unwrap();
+        let started_outbox =
+            call_event_outbox_for_control_event(&started.control_event, false).unwrap();
+        assert_eq!(started_outbox.event_type, "call_started");
+        assert_eq!(started_outbox.payload["remote_party"], "+15551230000");
+        assert_eq!(
+            started_outbox.payload["metadata"]["consent_confirmed"],
+            true
+        );
+
+        let duplicate_started =
+            call_event_outbox_for_control_event(&started.control_event, true).unwrap();
+        assert_eq!(duplicate_started.payload["duplicate"], true);
+
+        let active = translate_voice_webhook_form(b"CallSid=CA123&CallStatus=in-progress").unwrap();
+        let active_outbox = call_event_outbox_for_control_event(&active.control_event, false)
+            .expect("active outbox event");
+        assert_eq!(active_outbox.event_type, "state_change");
+        assert_eq!(active_outbox.payload["to"], "active");
+
+        let completed =
+            translate_voice_webhook_form(b"CallSid=CA123&CallStatus=completed").unwrap();
+        let completed_outbox =
+            call_event_outbox_for_control_event(&completed.control_event, false).unwrap();
+        assert_eq!(completed_outbox.event_type, "ended");
+        assert_eq!(completed_outbox.payload["reason"], "normal_hangup");
     }
 }
