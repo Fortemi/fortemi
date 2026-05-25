@@ -3,8 +3,9 @@
 
 @AIWG.md
 
-> **Repository**: `fortemi/fortemi` on GitHub
-> **Gitea MCP**: `owner=fortemi`, `repo=fortemi`
+> **Repository**: `Fortemi/fortemi` on Gitea (primary remote: `origin`)
+> **Issue Tracker**: Gitea is authoritative. Do not file repository issues on GitHub unless the user explicitly requests a GitHub mirror; close and redirect accidental GitHub issues to Gitea.
+> **Gitea MCP**: `owner=Fortemi`, `repo=fortemi`
 > **NOT** the `roctinam/matric` monorepo - this is the standalone matric-memory project
 
 AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines.
