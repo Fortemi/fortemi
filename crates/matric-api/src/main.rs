@@ -701,6 +701,8 @@ struct AppState {
     transcription_backend: Option<Arc<dyn TranscriptionBackend>>,
     /// Realtime Deepgram ASR metrics snapshot source, if configured.
     realtime_deepgram_metrics: Option<Arc<matric_api::realtime::asr::deepgram::DeepgramMetrics>>,
+    /// Realtime ASR backend used by provider media streams.
+    realtime_asr_backend: Option<Arc<dyn matric_api::realtime::asr::StreamingASRBackend>>,
     /// NER backend for named entity recognition (None if GLINER_BASE_URL not set).
     ner_backend: Option<Arc<dyn matric_inference::NerBackend>>,
     /// Diarization backend for speaker identification (None if DIARIZATION_BASE_URL not set).
@@ -1478,11 +1480,8 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Create realtime Deepgram metrics source for /api/v1/health/streaming when configured.
-    let realtime_deepgram_metrics =
-        matric_api::realtime::asr::deepgram::DeepgramBackend::from_env()
-            .map(|backend| backend.metrics())
-            .ok();
+    // Create realtime ASR backend for provider media streams when configured.
+    let (realtime_asr_backend, realtime_deepgram_metrics) = realtime_asr_backend_from_env();
 
     // Create NER backend for reference extraction (#437).
     // GLiNER provides 100-200x faster NER than LLM on CPU.
@@ -1969,6 +1968,7 @@ async fn main() -> anyhow::Result<()> {
         vision_backend,
         transcription_backend,
         realtime_deepgram_metrics,
+        realtime_asr_backend,
         ner_backend,
         diarization_backend,
         git_sha: std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
@@ -2825,12 +2825,21 @@ fn is_recent_twilio_session(session: &matric_core::CallSession) -> bool {
     chrono::Utc::now().signed_duration_since(session.started_at) <= chrono::Duration::seconds(30)
 }
 
+type TwilioAsrPipeline = (
+    Box<dyn matric_api::realtime::asr::AsrSession>,
+    tokio::task::JoinHandle<
+        matric_core::Result<matric_api::realtime::emitter::TranscriptEmitterSummary>,
+    >,
+);
+
 async fn handle_twilio_realtime_connection(
     mut socket: WebSocket,
     state: AppState,
     call_id: Uuid,
     provider_call_id: String,
 ) {
+    let mut asr_pipeline = start_twilio_asr_pipeline(&state, call_id, &provider_call_id).await;
+
     while let Some(message) = socket.recv().await {
         match message {
             Ok(Message::Text(text)) => {
@@ -2839,6 +2848,20 @@ async fn handle_twilio_realtime_connection(
                         frame,
                     )) => {
                         RTP_AUDIO_FRAMES_TOTAL.fetch_add(1, Ordering::Relaxed);
+                        if let Some((session, _)) = asr_pipeline.as_mut() {
+                            match matric_api::realtime::codec::normalize_frame_to_pcm16k(&frame) {
+                                Ok(samples) if !samples.is_empty() => {
+                                    if let Err(error) = session.push_pcm16k(&samples).await {
+                                        tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR audio push failed");
+                                    }
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    RTP_CODEC_DECODE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
+                                    tracing::warn!(%call_id, %provider_call_id, %error, "Realtime audio normalization failed");
+                                }
+                            }
+                        }
                         tracing::trace!(
                             %call_id,
                             %provider_call_id,
@@ -2879,6 +2902,8 @@ async fn handle_twilio_realtime_connection(
         }
     }
 
+    finish_twilio_asr_pipeline(asr_pipeline, call_id, &provider_call_id).await;
+
     handle_twilio_control_event(
         &state,
         call_id,
@@ -2888,6 +2913,75 @@ async fn handle_twilio_realtime_connection(
         },
     )
     .await;
+}
+
+async fn start_twilio_asr_pipeline(
+    state: &AppState,
+    call_id: Uuid,
+    provider_call_id: &str,
+) -> Option<TwilioAsrPipeline> {
+    let backend = state.realtime_asr_backend.as_ref()?;
+    match backend
+        .start_session(matric_api::realtime::asr::AsrSessionConfig {
+            sample_rate_hz: matric_api::realtime::codec::TARGET_SAMPLE_RATE_HZ,
+            language: None,
+            metadata: serde_json::json!({
+                "provider": "twilio",
+                "provider_call_id": provider_call_id,
+                "call_id": call_id,
+            }),
+        })
+        .await
+    {
+        Ok(mut session) => {
+            let events = session.events();
+            let db = state.db.clone();
+            let handle = tokio::spawn(async move {
+                matric_api::realtime::emitter::emit_transcript_events(&db, call_id, events).await
+            });
+            Some((session, handle))
+        }
+        Err(error) => {
+            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR session start failed");
+            None
+        }
+    }
+}
+
+async fn finish_twilio_asr_pipeline(
+    asr_pipeline: Option<TwilioAsrPipeline>,
+    call_id: Uuid,
+    provider_call_id: &str,
+) {
+    let Some((mut session, handle)) = asr_pipeline else {
+        return;
+    };
+
+    if let Err(error) = session.close().await {
+        tracing::warn!(%call_id, %provider_call_id, %error, "Realtime ASR session close failed");
+    }
+    drop(session);
+
+    match handle.await {
+        Ok(Ok(summary)) => {
+            tracing::info!(
+                %call_id,
+                %provider_call_id,
+                partials = summary.partials,
+                finals = summary.finals,
+                errors = summary.errors,
+                "Realtime ASR transcript events emitted"
+            );
+        }
+        Ok(Err(error)) => {
+            RTP_OUTBOX_WRITE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime transcript emitter failed");
+        }
+        Err(error) => {
+            RTP_OUTBOX_WRITE_FAILURES_TOTAL.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(%call_id, %provider_call_id, %error, "Realtime transcript emitter task failed");
+        }
+    }
 }
 
 async fn handle_twilio_control_event(
@@ -4576,6 +4670,43 @@ async fn streaming_health_check(
         "sse": state.event_bus.metrics.snapshot(),
         "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
     })))
+}
+
+fn realtime_asr_backend_from_env() -> (
+    Option<Arc<dyn matric_api::realtime::asr::StreamingASRBackend>>,
+    Option<Arc<matric_api::realtime::asr::deepgram::DeepgramMetrics>>,
+) {
+    match std::env::var("REALTIME_ASR_BACKEND")
+        .unwrap_or_else(|_| "deepgram".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "mock" => (
+            Some(Arc::new(
+                matric_api::realtime::asr::MockAsrBackend::default(),
+            )),
+            None,
+        ),
+        "" | "disabled" | "none" => (None, None),
+        "deepgram" => match matric_api::realtime::asr::deepgram::DeepgramBackend::from_env() {
+            Ok(backend) => {
+                let metrics = backend.metrics();
+                (Some(Arc::new(backend)), Some(metrics))
+            }
+            Err(error) => {
+                tracing::info!(%error, "Realtime Deepgram ASR backend disabled");
+                (None, None)
+            }
+        },
+        other => {
+            tracing::warn!(
+                backend = other,
+                "Unsupported REALTIME_ASR_BACKEND; realtime ASR disabled"
+            );
+            (None, None)
+        }
+    }
 }
 
 fn realtime_asr_deepgram_cost_per_minute() -> f64 {
@@ -19775,6 +19906,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
+            realtime_asr_backend: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -19994,6 +20126,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
+            realtime_asr_backend: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -21185,6 +21318,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
+            realtime_asr_backend: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -21503,6 +21637,7 @@ mod tests {
             vision_backend: None,
             transcription_backend: None,
             realtime_deepgram_metrics: None,
+            realtime_asr_backend: None,
             ner_backend: None,
             diarization_backend: None,
             git_sha: "test".to_string(),
@@ -22579,6 +22714,7 @@ mod tests {
     #[tokio::test]
     async fn twilio_realtime_ws_requires_recent_session_and_marks_drop_on_close() {
         use futures::SinkExt;
+        use sqlx::Row;
 
         if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
             return;
@@ -22604,7 +22740,10 @@ mod tests {
             })
             .await
             .expect("create twilio session");
-        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let mut state = build_call_api_test_state(db.clone(), &database_url).await;
+        state.realtime_asr_backend = Some(Arc::new(
+            matric_api::realtime::asr::MockAsrBackend::default(),
+        ));
         let router = Router::new()
             .route(
                 "/api/v1/realtime/twilio/{provider_call_id}",
@@ -22652,6 +22791,59 @@ mod tests {
         .expect("session should be marked dropped after websocket close");
         assert_eq!(ended.end_reason.as_deref(), Some("dropped"));
 
+        let segment = sqlx::query(
+            r#"
+            SELECT text, speaker_label, start_ts, end_ts, confidence, sequence
+            FROM transcript_segments
+            WHERE call_id = $1
+            ORDER BY sequence ASC
+            "#,
+        )
+        .bind(session.call_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("mock ASR final should create a transcript segment");
+        assert_eq!(segment.get::<String, _>("text"), "mock transcript");
+        assert_eq!(
+            segment.get::<Option<String>, _>("speaker_label").as_deref(),
+            Some("speaker_0")
+        );
+        assert_eq!(segment.get::<Option<f64>, _>("start_ts"), Some(0.0));
+        assert_eq!(segment.get::<Option<f64>, _>("end_ts"), Some(1.0));
+        assert_eq!(segment.get::<Option<f32>, _>("confidence"), Some(1.0));
+        assert_eq!(segment.get::<i32, _>("sequence"), 1);
+
+        let outbox = sqlx::query(
+            r#"
+            SELECT event_type, entity_type, entity_id, payload
+            FROM event_outbox
+            WHERE entity_id = $1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(session.call_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("mock ASR final should create a durable outbox event");
+        assert_eq!(outbox.get::<String, _>("event_type"), "transcript_final");
+        assert_eq!(outbox.get::<String, _>("entity_type"), "call_session");
+        assert_eq!(outbox.get::<Uuid, _>("entity_id"), session.call_id);
+        let payload = outbox.get::<serde_json::Value, _>("payload");
+        assert_eq!(payload["call_id"], serde_json::json!(session.call_id));
+        assert_eq!(payload["text"], "mock transcript");
+        assert_eq!(payload["speaker"], "speaker_0");
+        assert_eq!(payload["sequence"], 1);
+
+        sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup outbox events");
+        sqlx::query("DELETE FROM transcript_segments WHERE call_id = $1")
+            .bind(session.call_id)
+            .execute(db.pool())
+            .await
+            .expect("cleanup transcript segments");
         sqlx::query("DELETE FROM call_sessions WHERE call_id = $1")
             .bind(session.call_id)
             .execute(db.pool())
