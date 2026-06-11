@@ -4,19 +4,31 @@
 //! permits are taken (by other chat requests or concurrent GPU usage), the
 //! endpoint returns 503 immediately rather than queuing.
 
-use std::sync::atomic::Ordering;
+use std::convert::Infallible;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, info, warn};
 
 use crate::AppState;
 use matric_inference::discovery::ModelDiscovery;
 use matric_inference::profiles::ModelRegistry;
 use matric_inference::OllamaBackend;
+
+/// Bounded capacity of the SSE event channel for a streaming chat response.
+/// Large enough that a reasonably-paced client never sees drops, small enough
+/// to bound memory if a client stalls.
+const CHAT_STREAM_CHANNEL_CAPACITY: usize = 256;
 
 // =============================================================================
 // REQUEST / RESPONSE TYPES
@@ -401,6 +413,340 @@ fn build_model_info(model_name: &str, registry: &ModelRegistry) -> ChatModelInfo
             family: None,
         },
     }
+}
+
+// =============================================================================
+// STREAMING CHAT (Issue #812, #814)
+// =============================================================================
+
+/// Counters for the streaming chat endpoint, exposed on `/health/streaming`
+/// (#814). All counters are monotonic and process-lifetime.
+#[derive(Debug, Default)]
+pub struct ChatStreamMetrics {
+    /// Total streaming chat requests that began streaming (permit acquired).
+    pub streams_started: AtomicU64,
+    /// Streams that ran to natural completion (`done` event emitted).
+    pub streams_completed: AtomicU64,
+    /// Streams that ended with a generation/transport error.
+    pub streams_errored: AtomicU64,
+    /// Streams cut short because the client disconnected or stalled.
+    pub client_disconnects: AtomicU64,
+    /// Total content chunks ("tokens") successfully delivered to clients.
+    pub tokens_streamed_total: AtomicU64,
+    /// Total content chunks generated but NOT delivered — dropped because the
+    /// client disconnected or could not drain the buffer within the send
+    /// window. This is the `chat_stream_dropped_tokens_total` metric (#814).
+    pub dropped_tokens_total: AtomicU64,
+}
+
+impl ChatStreamMetrics {
+    /// Snapshot all counters as a JSON object for `/health/streaming`.
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "chat_stream_started_total": {
+                "type": "counter",
+                "value": self.streams_started.load(Ordering::Relaxed)
+            },
+            "chat_stream_completed_total": {
+                "type": "counter",
+                "value": self.streams_completed.load(Ordering::Relaxed)
+            },
+            "chat_stream_errored_total": {
+                "type": "counter",
+                "value": self.streams_errored.load(Ordering::Relaxed)
+            },
+            "chat_stream_client_disconnect_total": {
+                "type": "counter",
+                "value": self.client_disconnects.load(Ordering::Relaxed)
+            },
+            "chat_stream_tokens_total": {
+                "type": "counter",
+                "value": self.tokens_streamed_total.load(Ordering::Relaxed)
+            },
+            "chat_stream_dropped_tokens_total": {
+                "type": "counter",
+                "value": self.dropped_tokens_total.load(Ordering::Relaxed)
+            },
+        })
+    }
+}
+
+/// Per-chunk send window. If a content chunk cannot be handed to the SSE
+/// channel within this window (client not draining), remaining tokens are
+/// shed rather than holding the GPU permit indefinitely. Override with
+/// `CHAT_STREAM_SEND_TIMEOUT_SECS`.
+fn chat_stream_send_timeout() -> Duration {
+    let secs = std::env::var("CHAT_STREAM_SEND_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(30);
+    Duration::from_secs(secs)
+}
+
+fn service_unavailable(msg: &str, retry_after: u64) -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": msg, "retry_after": retry_after })),
+    )
+        .into_response()
+}
+
+/// One Server-Sent Event frame produced by the streaming chat pump.
+///
+/// Kept as a plain struct rather than axum's opaque `Event` so the pump's
+/// framing (`delta`/`done`/`error`) and JSON payloads are assertable in unit
+/// tests (#816). The handler maps each frame to an SSE [`Event`] at the
+/// channel boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatStreamFrame {
+    /// SSE event name: `"delta"`, `"done"`, or `"error"`.
+    pub event: &'static str,
+    /// JSON-encoded event payload.
+    pub data: String,
+}
+
+impl ChatStreamFrame {
+    fn delta(content: &str) -> Self {
+        Self {
+            event: "delta",
+            data: serde_json::json!({ "content": content }).to_string(),
+        }
+    }
+
+    fn done(model_name: &str) -> Self {
+        Self {
+            event: "done",
+            data: serde_json::json!({ "finish_reason": "stop", "model": model_name }).to_string(),
+        }
+    }
+
+    fn error(message: String) -> Self {
+        Self {
+            event: "error",
+            data: serde_json::json!({ "error": message, "code": "GENERATION_FAILED" }).to_string(),
+        }
+    }
+
+    fn into_event(self) -> Event {
+        Event::default().event(self.event).data(self.data)
+    }
+}
+
+/// Pump a backend content stream into the SSE frame channel, emitting one
+/// `delta` frame per content chunk, a terminal `done` frame on completion, or
+/// an `error` frame on failure — while accounting delivered vs dropped tokens
+/// in `metrics`.
+///
+/// Extracted from the handler so the SSE framing, terminator, error path, and
+/// backpressure/dropped-token accounting are unit-testable without a live
+/// model (#816).
+async fn pump_chat_stream<S>(
+    mut chunks: S,
+    tx: mpsc::Sender<ChatStreamFrame>,
+    metrics: Arc<ChatStreamMetrics>,
+    model_name: String,
+    send_timeout: Duration,
+) where
+    S: futures::Stream<Item = matric_core::Result<String>> + Unpin,
+{
+    let mut delivered: u64 = 0;
+    let mut dropped: u64 = 0;
+
+    while let Some(item) = chunks.next().await {
+        match item {
+            Ok(content) => {
+                if content.is_empty() {
+                    continue;
+                }
+                match tokio::time::timeout(send_timeout, tx.send(ChatStreamFrame::delta(&content)))
+                    .await
+                {
+                    Ok(Ok(())) => {
+                        delivered += 1;
+                    }
+                    Ok(Err(_closed)) => {
+                        // Receiver dropped — client disconnected mid-stream.
+                        dropped += 1;
+                        record_disconnect(&metrics, delivered, dropped);
+                        return;
+                    }
+                    Err(_elapsed) => {
+                        // Client is not draining the SSE buffer within the send
+                        // window — shed the remaining token rather than hold the
+                        // GPU permit indefinitely (#814 backpressure).
+                        dropped += 1;
+                        record_disconnect(&metrics, delivered, dropped);
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(ChatStreamFrame::error(e.to_string())).await;
+                metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
+                metrics
+                    .tokens_streamed_total
+                    .fetch_add(delivered, Ordering::Relaxed);
+                return;
+            }
+        }
+    }
+
+    // Stream exhausted normally — emit the terminal `done` frame.
+    let _ = tx.send(ChatStreamFrame::done(&model_name)).await;
+    metrics.streams_completed.fetch_add(1, Ordering::Relaxed);
+    metrics
+        .tokens_streamed_total
+        .fetch_add(delivered, Ordering::Relaxed);
+}
+
+/// Record the metrics for a stream that ended early because the client
+/// disconnected or stalled.
+fn record_disconnect(metrics: &ChatStreamMetrics, delivered: u64, dropped: u64) {
+    metrics.client_disconnects.fetch_add(1, Ordering::Relaxed);
+    metrics
+        .tokens_streamed_total
+        .fetch_add(delivered, Ordering::Relaxed);
+    metrics
+        .dropped_tokens_total
+        .fetch_add(dropped, Ordering::Relaxed);
+}
+
+/// POST /api/v1/chat/stream — streaming LLM chat over Server-Sent Events.
+///
+/// Identical request contract to [`chat_handler`] (input, optional model,
+/// optional context with conversation history), but streams the assistant
+/// response progressively. Acquires an owned GPU semaphore permit held for the
+/// full stream lifetime; returns 503 immediately if no permits are available.
+///
+/// SSE event shape (consistent with `POST /api/v1/inference/stream`):
+/// - `delta` — `{"content": "<chunk>"}` per content chunk
+/// - `done`  — `{"finish_reason": "stop", "model": "<slug>"}` on completion
+/// - `error` — `{"error": "<msg>", "code": "GENERATION_FAILED"}` on failure
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/stream",
+    tag = "Chat",
+    request_body = ChatRequest,
+    responses(
+        (status = 200, description = "SSE stream of assistant tokens (delta/done/error events)"),
+        (status = 400, description = "Invalid request"),
+        (status = 503, description = "Chat unavailable or busy"),
+    )
+)]
+pub async fn chat_stream_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ChatRequest>,
+) -> Response {
+    // 1. Validate input
+    let input = req.input.trim();
+    if input.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "input must not be empty"})),
+        )
+            .into_response();
+    }
+
+    // 2. Backend configured?
+    let backend = match state.generation_backend() {
+        Some(b) => b,
+        None => {
+            return service_unavailable(
+                "Chat not configured — Ollama generation backend is not available",
+                30,
+            )
+        }
+    };
+
+    // 2b. Provider reachable? (#630)
+    if !state.inference_available.load(Ordering::Relaxed) {
+        return service_unavailable(
+            "Chat provider not reachable — retry after inference provider starts",
+            30,
+        );
+    }
+
+    // 3. Acquire an OWNED permit — held for the full stream lifetime.
+    let semaphore = match &state.chat_semaphore {
+        Some(s) => s.clone(),
+        None => return service_unavailable("Chat not configured", 30),
+    };
+    let permit = match semaphore.try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            return service_unavailable(
+                "Chat service is currently at capacity. All GPU inference threads are busy processing requests. Please retry shortly.",
+                5,
+            )
+        }
+    };
+
+    // 4. Resolve model — requested or server default.
+    let requested_model = req.model.as_deref();
+    let chat_backend = if let Some(model_slug) = requested_model {
+        match validate_chat_model(model_slug, &state).await {
+            Ok(()) => {
+                let mut b = OllamaBackend::from_env();
+                b.set_gen_model(model_slug.to_string());
+                Arc::new(b)
+            }
+            Err(err_response) => return err_response,
+        }
+    } else {
+        backend.clone()
+    };
+    let model_name = chat_backend.gen_model_name().to_string();
+
+    // 5. Build conversation messages (same shape as chat_handler).
+    let mut messages: Vec<(String, String)> = Vec::new();
+    messages.push(("system".to_string(), SYSTEM_PROMPT.to_string()));
+    if let Some(ref ctx) = req.context {
+        if let Some(ref history) = ctx.conversation_history {
+            for msg in history {
+                messages.push((msg.role.clone(), msg.content.clone()));
+            }
+        }
+    }
+    messages.push(("user".to_string(), input.to_string()));
+
+    debug!(
+        model = %model_name,
+        message_count = messages.len(),
+        "Starting streaming chat request"
+    );
+
+    // 6. Begin streaming.
+    let metrics = state.chat_stream_metrics.clone();
+    metrics.streams_started.fetch_add(1, Ordering::Relaxed);
+
+    let (tx, rx) = mpsc::channel::<ChatStreamFrame>(CHAT_STREAM_CHANNEL_CAPACITY);
+    let send_timeout = chat_stream_send_timeout();
+
+    tokio::spawn(async move {
+        // The owned permit lives until this task ends, releasing the GPU slot
+        // only when the stream completes, errors, or the client disconnects.
+        let _permit = permit;
+
+        match chat_backend.chat_multi_turn_stream(messages).await {
+            Ok(chunks) => {
+                pump_chat_stream(chunks, tx, metrics, model_name, send_timeout).await;
+            }
+            Err(e) => {
+                warn!(error = %e, model = %model_name, "Streaming chat failed to start");
+                let _ = tx
+                    .send(ChatStreamFrame::error(format!("Generation failed: {}", e)))
+                    .await;
+                metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    });
+
+    let event_stream =
+        ReceiverStream::new(rx).map(|frame| Ok::<Event, Infallible>(frame.into_event()));
+    Sse::new(event_stream)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response()
 }
 
 // =============================================================================
@@ -974,5 +1320,234 @@ mod tests {
         let val: serde_json::Value = serde_json::to_value(&info).unwrap();
         assert_eq!(val["parameter_size"], "8.2B");
         assert_eq!(val["family"], "qwen3");
+    }
+
+    // =========================================================================
+    // Streaming Chat Contract Tests (Issue #812, #814, #816)
+    // =========================================================================
+
+    use matric_core::Error as CoreError;
+
+    /// Collect all frames a stream produces by running the pump to completion
+    /// (the bounded channel must be wide enough to never block), then draining.
+    async fn run_pump_to_completion(
+        chunks: Vec<matric_core::Result<String>>,
+        capacity: usize,
+        metrics: Arc<ChatStreamMetrics>,
+    ) -> Vec<ChatStreamFrame> {
+        let (tx, mut rx) = mpsc::channel::<ChatStreamFrame>(capacity);
+        let source = futures::stream::iter(chunks);
+        pump_chat_stream(
+            source,
+            tx,
+            metrics,
+            "test-model:latest".to_string(),
+            Duration::from_secs(5),
+        )
+        .await;
+        let mut frames = Vec::new();
+        while let Some(f) = rx.recv().await {
+            frames.push(f);
+        }
+        frames
+    }
+
+    /// #814: the metrics snapshot exposes every chat-stream counter, including
+    /// the headline `chat_stream_dropped_tokens_total`.
+    #[test]
+    fn chat_stream_metrics_snapshot_has_all_counters() {
+        let metrics = ChatStreamMetrics::default();
+        let snap = metrics.snapshot();
+        let obj = snap.as_object().unwrap();
+        for key in [
+            "chat_stream_started_total",
+            "chat_stream_completed_total",
+            "chat_stream_errored_total",
+            "chat_stream_client_disconnect_total",
+            "chat_stream_tokens_total",
+            "chat_stream_dropped_tokens_total",
+        ] {
+            assert!(obj.contains_key(key), "snapshot missing {key}");
+            assert_eq!(obj[key]["type"], "counter", "{key} should be a counter");
+            assert_eq!(obj[key]["value"], 0, "{key} should start at 0");
+        }
+    }
+
+    /// #814: counters surface their live values in the snapshot.
+    #[test]
+    fn chat_stream_metrics_snapshot_reflects_increments() {
+        let metrics = ChatStreamMetrics::default();
+        metrics.streams_started.fetch_add(3, Ordering::Relaxed);
+        metrics.dropped_tokens_total.fetch_add(7, Ordering::Relaxed);
+        metrics
+            .tokens_streamed_total
+            .fetch_add(42, Ordering::Relaxed);
+        let snap = metrics.snapshot();
+        assert_eq!(snap["chat_stream_started_total"]["value"], 3);
+        assert_eq!(snap["chat_stream_dropped_tokens_total"]["value"], 7);
+        assert_eq!(snap["chat_stream_tokens_total"]["value"], 42);
+    }
+
+    /// #816: frame constructors produce the documented SSE shapes.
+    #[test]
+    fn chat_stream_frame_shapes() {
+        let delta = ChatStreamFrame::delta("hello");
+        assert_eq!(delta.event, "delta");
+        let v: serde_json::Value = serde_json::from_str(&delta.data).unwrap();
+        assert_eq!(v["content"], "hello");
+
+        let done = ChatStreamFrame::done("qwen3:8b");
+        assert_eq!(done.event, "done");
+        let v: serde_json::Value = serde_json::from_str(&done.data).unwrap();
+        assert_eq!(v["finish_reason"], "stop");
+        assert_eq!(v["model"], "qwen3:8b");
+
+        let err = ChatStreamFrame::error("boom".to_string());
+        assert_eq!(err.event, "error");
+        let v: serde_json::Value = serde_json::from_str(&err.data).unwrap();
+        assert_eq!(v["error"], "boom");
+        assert_eq!(v["code"], "GENERATION_FAILED");
+    }
+
+    /// #816: a clean stream emits one `delta` per non-empty chunk followed by a
+    /// terminal `done`, and accounts every delivered token.
+    #[tokio::test]
+    async fn pump_emits_deltas_then_done() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let frames = run_pump_to_completion(
+            vec![
+                Ok("Hel".to_string()),
+                Ok("lo".to_string()),
+                Ok("!".to_string()),
+            ],
+            16,
+            metrics.clone(),
+        )
+        .await;
+
+        assert_eq!(frames.len(), 4, "3 deltas + 1 done");
+        assert_eq!(frames[0].event, "delta");
+        assert_eq!(frames[1].event, "delta");
+        assert_eq!(frames[2].event, "delta");
+        assert_eq!(frames[3].event, "done", "last frame must be the terminator");
+
+        let reassembled: String = frames
+            .iter()
+            .filter(|f| f.event == "delta")
+            .map(|f| {
+                serde_json::from_str::<serde_json::Value>(&f.data).unwrap()["content"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(reassembled, "Hello!");
+
+        assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.streams_errored.load(Ordering::Relaxed), 0);
+        assert_eq!(metrics.tokens_streamed_total.load(Ordering::Relaxed), 3);
+        assert_eq!(metrics.dropped_tokens_total.load(Ordering::Relaxed), 0);
+    }
+
+    /// #816: empty content chunks (e.g. keep-alive lines) are not emitted.
+    #[tokio::test]
+    async fn pump_skips_empty_chunks() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let frames = run_pump_to_completion(
+            vec![Ok("a".to_string()), Ok(String::new()), Ok("b".to_string())],
+            16,
+            metrics.clone(),
+        )
+        .await;
+
+        let deltas = frames.iter().filter(|f| f.event == "delta").count();
+        assert_eq!(deltas, 2, "empty chunk must be skipped");
+        assert_eq!(metrics.tokens_streamed_total.load(Ordering::Relaxed), 2);
+    }
+
+    /// #816: a mid-stream generation error emits an `error` frame, terminates
+    /// the stream, and increments the error counter.
+    #[tokio::test]
+    async fn pump_emits_error_frame_on_chunk_error() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let frames = run_pump_to_completion(
+            vec![
+                Ok("partial".to_string()),
+                Err(CoreError::Inference("upstream exploded".to_string())),
+                // Anything after the error must never be emitted.
+                Ok("never".to_string()),
+            ],
+            16,
+            metrics.clone(),
+        )
+        .await;
+
+        assert_eq!(frames.len(), 2, "1 delta + 1 error, nothing after");
+        assert_eq!(frames[0].event, "delta");
+        assert_eq!(frames[1].event, "error");
+        let v: serde_json::Value = serde_json::from_str(&frames[1].data).unwrap();
+        assert!(v["error"].as_str().unwrap().contains("upstream exploded"));
+
+        assert_eq!(metrics.streams_errored.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 0);
+        assert_eq!(metrics.tokens_streamed_total.load(Ordering::Relaxed), 1);
+    }
+
+    /// #814/#816: when the client disconnects mid-stream (receiver dropped),
+    /// undelivered tokens are counted as dropped and the disconnect is recorded.
+    #[tokio::test]
+    async fn pump_counts_dropped_tokens_on_client_disconnect() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let (tx, rx) = mpsc::channel::<ChatStreamFrame>(16);
+        drop(rx); // client gone before any token is delivered
+
+        let source = futures::stream::iter(vec![
+            Ok("a".to_string()),
+            Ok("b".to_string()),
+            Ok("c".to_string()),
+        ]);
+        pump_chat_stream(
+            source,
+            tx,
+            metrics.clone(),
+            "test-model:latest".to_string(),
+            Duration::from_secs(5),
+        )
+        .await;
+
+        assert_eq!(metrics.client_disconnects.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.dropped_tokens_total.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.tokens_streamed_total.load(Ordering::Relaxed), 0);
+        assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 0);
+    }
+
+    /// #814/#816: when a client stops draining the SSE buffer, the pump sheds
+    /// the stalled token after the send window rather than blocking forever.
+    #[tokio::test]
+    async fn pump_counts_dropped_tokens_on_backpressure() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        // Capacity 1, never drained: the first token buffers, the second stalls
+        // and is shed after the (tiny) send window elapses.
+        let (tx, _rx) = mpsc::channel::<ChatStreamFrame>(1);
+        let source = futures::stream::iter(vec![
+            Ok("first".to_string()),
+            Ok("second".to_string()),
+            Ok("third".to_string()),
+        ]);
+        pump_chat_stream(
+            source,
+            tx,
+            metrics.clone(),
+            "test-model:latest".to_string(),
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert_eq!(metrics.tokens_streamed_total.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.dropped_tokens_total.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.client_disconnects.load(Ordering::Relaxed), 1);
+        assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 0);
+        // _rx kept alive to scope end so the channel stays "full" rather than closed.
+        drop(_rx);
     }
 }

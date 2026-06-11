@@ -624,7 +624,7 @@ use handlers::{
         list_archives, set_default_archive, update_archive,
     },
     audio::transcribe_audio,
-    chat::{chat_handler, list_chat_models},
+    chat::{chat_handler, chat_stream_handler, list_chat_models, ChatStreamMetrics},
     document_types::{
         create_document_type, delete_document_type, detect_document_type, get_document_type,
         list_document_types, update_document_type,
@@ -735,6 +735,8 @@ struct AppState {
     /// one-shot startup probe, so availability recovers automatically when a
     /// provider (e.g. Ollama) starts after Fortemi.
     inference_available: Arc<AtomicBool>,
+    /// Counters for the streaming chat endpoint, surfaced on `/health/streaming` (#814).
+    chat_stream_metrics: Arc<ChatStreamMetrics>,
 }
 
 impl AppState {
@@ -773,6 +775,7 @@ impl AppState {
         create_webhook, list_webhooks, get_webhook, update_webhook,
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
         get_incoming_webhook_receiver, receive_incoming_webhook,
+        delete_incoming_webhook_receiver,
         validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
@@ -831,6 +834,7 @@ impl AppState {
         handlers::audio::transcribe_audio,
         // handlers::chat
         handlers::chat::chat_handler,
+        handlers::chat::chat_stream_handler,
         handlers::chat::list_chat_models,
         // handlers::pke
         handlers::pke::pke_keygen, handlers::pke::pke_address,
@@ -1984,6 +1988,7 @@ async fn main() -> anyhow::Result<()> {
         pause_state,
         chat_semaphore,
         inference_available: inference_available.clone(),
+        chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
     };
 
     // Spawn periodic inference reachability probe (#630).
@@ -2151,6 +2156,8 @@ async fn main() -> anyhow::Result<()> {
         )
         // Chat (synchronous LLM conversation, Issue #549)
         .route("/api/v1/chat", post(chat_handler))
+        // Streaming chat over SSE (Issue #812)
+        .route("/api/v1/chat/stream", post(chat_stream_handler))
         .route("/api/v1/chat/models", get(list_chat_models))
         // Document Types
         .route(
@@ -2551,7 +2558,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/webhooks/incoming/{slug}",
-            get(get_incoming_webhook_receiver).post(receive_incoming_webhook),
+            get(get_incoming_webhook_receiver)
+                .post(receive_incoming_webhook)
+                .delete(delete_incoming_webhook_receiver),
         )
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
@@ -4074,6 +4083,34 @@ async fn receive_incoming_webhook(
     let side_effect =
         apply_incoming_webhook_side_effect(&state, &receiver.schema_ref, &body).await?;
 
+    // Durably capture every accepted incoming webhook into the shared event
+    // outbox so the event bus can fan it out (#818). This is in addition to any
+    // schema-specific side effect (e.g. Twilio call_event rows) — the generic
+    // capture provides a uniform audit/event-bus record for all providers.
+    let outbox_event = matric_db::CreateOutboxEvent::new(
+        "incoming_webhook.received",
+        "incoming_webhook",
+        receiver.id,
+        serde_json::json!({
+            "slug": receiver.slug,
+            "provider": receiver.provider,
+            "schema_ref": receiver.schema_ref,
+            "payload": payload,
+            "side_effect": side_effect,
+        }),
+        None,
+    );
+    if let Err(e) = state.db.outbox.emit_event(outbox_event).await {
+        // Outbox capture failure must not lose the accepted webhook for the
+        // caller — the side effect already applied. Log and continue; the
+        // caller still receives 200 with the parsed payload.
+        tracing::warn!(
+            slug = %receiver.slug,
+            error = %e,
+            "Failed to capture incoming webhook into event outbox"
+        );
+    }
+
     Ok(Json(serde_json::json!({
         "status": "accepted",
         "slug": receiver.slug,
@@ -4082,6 +4119,26 @@ async fn receive_incoming_webhook(
         "payload": payload,
         "side_effect": side_effect,
     })))
+}
+
+#[utoipa::path(delete, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
+    params(("slug" = String, Path, description = "Incoming receiver slug")),
+    responses(
+        (status = 204, description = "Receiver deleted"),
+        (status = 404, description = "Unknown receiver slug")
+    ))]
+async fn delete_incoming_webhook_receiver(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let removed = state.db.incoming_webhooks.delete_by_slug(&slug).await?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::NotFound(format!(
+            "Incoming webhook receiver {slug} not found"
+        )))
+    }
 }
 
 async fn apply_incoming_webhook_side_effect(
@@ -4965,6 +5022,7 @@ async fn streaming_health_check(
         "status": "healthy",
         "sse": state.event_bus.metrics.snapshot(),
         "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
+        "chat": state.chat_stream_metrics.snapshot(),
     })))
 }
 
@@ -20220,6 +20278,7 @@ mod tests {
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
+            chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
         }
     }
 
@@ -20440,6 +20499,7 @@ mod tests {
             pause_state: None,
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
+            chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
         };
 
         let router = Router::new()
@@ -21632,6 +21692,7 @@ mod tests {
             pause_state: None,
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
+            chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
         };
 
         let router = Router::new()
@@ -21951,6 +22012,7 @@ mod tests {
             pause_state: None,
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
+            chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
         };
 
         let router = Router::new()
@@ -23109,6 +23171,158 @@ mod tests {
             .execute(db.pool())
             .await
             .expect("cleanup session");
+    }
+
+    /// #818: every accepted incoming webhook is durably captured into the
+    /// shared event outbox as a generic `incoming_webhook.received` event, in
+    /// addition to any schema-specific side effect. Uses a `twilio.media-stream`
+    /// receiver (whose side effect is a no-op) to isolate the generic capture.
+    #[tokio::test]
+    async fn receive_incoming_webhook_captures_generic_outbox() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        use sqlx::Row;
+        type HmacSha256 = Hmac<Sha256>;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let slug = format!("ms-capture-{}", Uuid::new_v4().simple());
+        let secret = "incoming-capture-secret-1234567890";
+        let receiver_id = db
+            .incoming_webhooks
+            .create(matric_core::CreateIncomingWebhookReceiverRequest {
+                slug: slug.clone(),
+                provider: "twilio".to_string(),
+                schema_ref: "twilio.media-stream.v1".to_string(),
+                hmac_secret: secret.to_string(),
+                signature_header: "X-Fortemi-Signature".to_string(),
+                is_active: true,
+            })
+            .await
+            .expect("create receiver");
+
+        let body =
+            br#"{"event":"media","sequenceNumber":"7","media":{"payload":"AQIDBA=="}}"#.to_vec();
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(&body);
+        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+
+        let uri: Uri = format!("/api/v1/webhooks/incoming/{slug}").parse().unwrap();
+
+        let response = receive_incoming_webhook(
+            State(state.clone()),
+            OriginalUri(uri),
+            Path(slug.clone()),
+            headers,
+            Bytes::from(body),
+        )
+        .await;
+        assert!(response.is_ok(), "signed valid webhook should be accepted");
+
+        let rows = sqlx::query(
+            "SELECT event_type, payload FROM event_outbox \
+             WHERE entity_type = 'incoming_webhook' AND entity_id = $1",
+        )
+        .bind(receiver_id)
+        .fetch_all(db.pool())
+        .await
+        .expect("load generic capture rows");
+
+        assert_eq!(rows.len(), 1, "exactly one generic capture row");
+        assert_eq!(
+            rows[0].get::<String, _>("event_type"),
+            "incoming_webhook.received"
+        );
+        let payload = rows[0].get::<serde_json::Value, _>("payload");
+        assert_eq!(payload["slug"], slug);
+        assert_eq!(payload["schema_ref"], "twilio.media-stream.v1");
+        assert_eq!(payload["provider"], "twilio");
+
+        sqlx::query("DELETE FROM event_outbox WHERE entity_id = $1")
+            .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+        sqlx::query("DELETE FROM incoming_webhook_receiver WHERE id = $1")
+            .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+    }
+
+    /// #819: the DELETE endpoint removes a receiver (204) and reports 404 for an
+    /// unknown slug; the underlying repo delete is idempotent.
+    #[tokio::test]
+    async fn delete_incoming_webhook_receiver_round_trip() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let slug = format!("del-{}", Uuid::new_v4().simple());
+        db.incoming_webhooks
+            .create(matric_core::CreateIncomingWebhookReceiverRequest {
+                slug: slug.clone(),
+                provider: "twilio".to_string(),
+                schema_ref: "twilio.voice.v1".to_string(),
+                hmac_secret: "delete-secret-1234567890abcd".to_string(),
+                signature_header: "X-Fortemi-Signature".to_string(),
+                is_active: true,
+            })
+            .await
+            .expect("create receiver");
+        assert!(db
+            .incoming_webhooks
+            .get_by_slug(&slug)
+            .await
+            .unwrap()
+            .is_some());
+
+        // DELETE the existing receiver via the handler → 204.
+        let deleted =
+            delete_incoming_webhook_receiver(State(state.clone()), Path(slug.clone())).await;
+        assert!(
+            deleted.is_ok(),
+            "deleting an existing receiver should succeed"
+        );
+        assert!(db
+            .incoming_webhooks
+            .get_by_slug(&slug)
+            .await
+            .unwrap()
+            .is_none());
+
+        // Repo delete is idempotent — a second delete reports no row removed.
+        assert!(!db.incoming_webhooks.delete_by_slug(&slug).await.unwrap());
+
+        // DELETE on an unknown slug → 404 (ApiError::NotFound).
+        let missing = delete_incoming_webhook_receiver(
+            State(state),
+            Path(format!("missing-{}", Uuid::new_v4().simple())),
+        )
+        .await;
+        assert!(missing.is_err(), "deleting an unknown receiver should 404");
     }
 
     #[tokio::test]

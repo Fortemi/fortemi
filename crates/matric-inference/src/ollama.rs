@@ -445,6 +445,60 @@ impl OllamaBackend {
         Ok(result.message.content)
     }
 
+    /// Streaming multi-turn chat: pass the full conversation history to Ollama
+    /// `/api/chat` with `stream: true` and yield assistant content chunks as
+    /// they arrive (#812).
+    ///
+    /// Messages are `(role, content)` pairs where role is "system", "user", or
+    /// "assistant" — identical to [`chat_multi_turn`], but progressive. The
+    /// returned [`matric_core::GenerationStream`] yields each NDJSON chunk's
+    /// `message.content` and terminates when the upstream `"done": true` line
+    /// arrives or the connection closes.
+    pub async fn chat_multi_turn_stream(
+        &self,
+        messages: Vec<(String, String)>,
+    ) -> matric_core::Result<matric_core::GenerationStream> {
+        let chat_messages: Vec<ChatMessage> = messages
+            .into_iter()
+            .map(|(role, content)| ChatMessage { role, content })
+            .collect();
+
+        // Only send num_predict, not num_ctx — see generate_internal() comment.
+        let options = self.gen_model_profile().map(|p| ChatOptions {
+            num_ctx: None,
+            num_predict: Some(p.max_output),
+        });
+
+        let request = ChatRequest {
+            model: self.gen_model.clone(),
+            messages: chat_messages,
+            stream: true,
+            format: None,
+            think: Some(false), // suppress thinking tokens so content chunks flow immediately
+            options,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/chat", self.base_url))
+            .timeout(Duration::from_secs(self.gen_timeout_secs))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| Error::Inference(format!("Streaming chat request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Inference(format!(
+                "Ollama stream returned {}: {}",
+                status, body
+            )));
+        }
+
+        Ok(ollama_chat_ndjson_stream(response))
+    }
+
     /// Streaming chat completion — yields content chunks as they arrive
     /// from `/api/chat` with `stream: true`. The Ollama response format
     /// is NDJSON; one object per line:
@@ -463,8 +517,6 @@ impl OllamaBackend {
         system: &str,
         prompt: &str,
     ) -> Result<matric_core::GenerationStream> {
-        use futures::StreamExt;
-
         let mut messages: Vec<ChatMessage> = Vec::new();
         if !system.is_empty() {
             messages.push(ChatMessage {
@@ -509,59 +561,7 @@ impl OllamaBackend {
             )));
         }
 
-        // Accumulate chunks across reads — NDJSON lines can span multiple
-        // bytes_stream() reads. Keep a string buffer, split on '\n' when
-        // new data arrives, parse each complete line.
-        let mut buf = String::new();
-        let byte_stream = response.bytes_stream();
-
-        // Build the output stream. For each incoming byte chunk we
-        // append to buf, split, parse each complete line, and yield
-        // the message content.
-        let out = byte_stream.flat_map(move |res| {
-            let items: Vec<Result<String>> = match res {
-                Ok(bytes) => {
-                    buf.push_str(&String::from_utf8_lossy(&bytes));
-                    let mut out = Vec::new();
-                    // Drain complete lines from buf
-                    while let Some(nl) = buf.find('\n') {
-                        let line = buf[..nl].trim().to_string();
-                        buf.drain(..=nl);
-                        if line.is_empty() {
-                            continue;
-                        }
-                        // Parse the JSON chunk. Ignore any line that
-                        // doesn't have a string content field (e.g. the
-                        // final {"done": true} line).
-                        match serde_json::from_str::<serde_json::Value>(&line) {
-                            Ok(v) => {
-                                if let Some(content) = v
-                                    .get("message")
-                                    .and_then(|m| m.get("content"))
-                                    .and_then(|c| c.as_str())
-                                {
-                                    if !content.is_empty() {
-                                        out.push(Ok(content.to_string()));
-                                    }
-                                }
-                            }
-                            Err(_) => {
-                                // Malformed line — skip but don't fail
-                                // the whole stream.
-                            }
-                        }
-                    }
-                    out
-                }
-                Err(e) => vec![Err(Error::Inference(format!(
-                    "Streaming chunk read failed: {}",
-                    e
-                )))],
-            };
-            futures::stream::iter(items)
-        });
-
-        Ok(Box::pin(out))
+        Ok(ollama_chat_ndjson_stream(response))
     }
 
     /// Get the current generation model name.
@@ -756,6 +756,63 @@ struct ChatOptions {
 #[derive(Deserialize)]
 struct ChatResponse {
     message: ChatMessage,
+}
+
+/// Convert a streaming Ollama `/api/chat` HTTP response (NDJSON, one JSON
+/// object per line) into a [`matric_core::GenerationStream`] of assistant
+/// content chunks.
+///
+/// NDJSON lines can span multiple `bytes_stream()` reads, so a string buffer
+/// accumulates partial data and complete lines are drained on each chunk.
+/// Lines without a string `message.content` field (e.g. the terminal
+/// `{"done": true}` line) are skipped. Malformed lines are skipped rather than
+/// failing the whole stream. Shared by [`OllamaBackend::chat_multi_turn_stream`]
+/// and [`OllamaBackend::stream_generate_internal`].
+fn ollama_chat_ndjson_stream(response: reqwest::Response) -> matric_core::GenerationStream {
+    use futures::StreamExt;
+
+    let mut buf = String::new();
+    let byte_stream = response.bytes_stream();
+
+    let out = byte_stream.flat_map(move |res| {
+        let items: Vec<Result<String>> = match res {
+            Ok(bytes) => {
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+                let mut out = Vec::new();
+                while let Some(nl) = buf.find('\n') {
+                    let line = buf[..nl].trim().to_string();
+                    buf.drain(..=nl);
+                    if line.is_empty() {
+                        continue;
+                    }
+                    match serde_json::from_str::<serde_json::Value>(&line) {
+                        Ok(v) => {
+                            if let Some(content) = v
+                                .get("message")
+                                .and_then(|m| m.get("content"))
+                                .and_then(|c| c.as_str())
+                            {
+                                if !content.is_empty() {
+                                    out.push(Ok(content.to_string()));
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // Malformed line — skip but don't fail the whole stream.
+                        }
+                    }
+                }
+                out
+            }
+            Err(e) => vec![Err(Error::Inference(format!(
+                "Streaming chunk read failed: {}",
+                e
+            )))],
+        };
+        futures::stream::iter(items)
+    });
+
+    Box::pin(out)
 }
 
 #[async_trait]

@@ -82,6 +82,21 @@ impl PgIncomingWebhookReceiverRepository {
         Ok(row.map(|r| r.get("hmac_secret")))
     }
 
+    /// Delete a receiver registration by slug (#819).
+    ///
+    /// Returns `true` if a row was removed, `false` if no receiver matched the
+    /// slug. The delete is idempotent — calling it twice yields `false` on the
+    /// second call rather than erroring.
+    pub async fn delete_by_slug(&self, slug: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM incoming_webhook_receiver WHERE slug = $1")
+            .bind(normalize_token(slug))
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     fn parse_row(r: &sqlx::postgres::PgRow) -> IncomingWebhookReceiver {
         let secret: String = r.get("hmac_secret");
         IncomingWebhookReceiver {
