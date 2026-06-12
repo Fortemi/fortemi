@@ -7,6 +7,50 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.6.0] - 2026-06-12
+
+Streaming chat milestone. This release adds token-by-token streaming chat over Server-Sent Events, the observability counters to operate it, and completes the incoming-webhook receiver surface (generic outbox capture + receiver deletion). It is the server contract the HotM client streams against; pair it with the `db547a1` git history when validating the integration.
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| `POST /api/v1/chat/stream` | Assistant responses arrive token-by-token over SSE instead of one blocking JSON body — the basis for a live-typing chat UI. |
+| `chat_stream_*` metrics on `/health/streaming` | Operators see stream throughput, completions, errors, client disconnects, and dropped tokens, including the headline `chat_stream_dropped_tokens_total`. |
+| Generic incoming-webhook outbox capture | Every accepted incoming webhook is durably recorded as an `incoming_webhook.received` event for fan-out, not just Twilio calls. |
+| `DELETE /api/v1/webhooks/incoming/{slug}` | Incoming receiver registrations can now be removed, completing CRUD on the receiver surface. |
+
+### Added
+
+- **Streaming chat endpoint — `POST /api/v1/chat/stream` (#812).** Same request contract as `POST /api/v1/chat` (`input`, optional `model`, optional `context.conversation_history`), but the response is an SSE stream rather than a single JSON body. Events:
+  - `delta` — `{"content": "<chunk>"}`, one per generated content chunk.
+  - `done` — `{"finish_reason": "stop", "model": "<slug>"}`, terminal success event.
+  - `error` — `{"error": "<message>", "code": "GENERATION_FAILED"}`, terminal failure event.
+
+  The endpoint acquires an **owned** GPU semaphore permit held for the full stream lifetime (released on completion, error, or client disconnect) and returns **503** immediately when no permit is available — streaming chat never starves background jobs. Multi-turn fidelity is preserved (system prompt + conversation history + current turn). Auth requirements match `/api/v1/chat`.
+- **Streaming-chat observability on `GET /api/v1/health/streaming` (#814).** A new `"chat"` block sits alongside `sse` and `rtp` with process-lifetime counters: `chat_stream_started_total`, `chat_stream_completed_total`, `chat_stream_errored_total`, `chat_stream_client_disconnect_total`, `chat_stream_tokens_total`, and `chat_stream_dropped_tokens_total`.
+- **Multi-turn streaming backend — `OllamaBackend::chat_multi_turn_stream`.** Streams `/api/chat` with `stream: true`, sharing NDJSON line parsing with the existing single-turn streamer via a common `ollama_chat_ndjson_stream` helper.
+- **Generic incoming-webhook outbox capture (#818).** `POST /api/v1/webhooks/incoming/{slug}` now writes a durable `incoming_webhook.received` row to the shared `event_outbox` for **every** accepted receiver, regardless of provider (`entity_type = "incoming_webhook"`, `entity_id = <receiver id>`, payload carries `slug`, `provider`, `schema_ref`, parsed `payload`, and `side_effect`). This is in addition to any schema-specific side effect such as Twilio call-session events. An outbox-write failure is logged and does not fail the accepted webhook for the caller.
+- **Incoming-webhook receiver deletion — `DELETE /api/v1/webhooks/incoming/{slug}` (#819).** Returns **204** on success, **404** for an unknown slug; backed by an idempotent `delete_by_slug` repository method.
+
+### Behavior Notes
+
+- **Backpressure / dropped tokens.** Each `delta` send has a window controlled by `CHAT_STREAM_SEND_TIMEOUT_SECS` (default `30`). If a client stops draining the bounded SSE buffer (capacity 256 events), the stalled token is **shed** and counted in `chat_stream_dropped_tokens_total` rather than holding the GPU permit indefinitely. A mid-stream client disconnect is likewise counted as dropped and recorded in `chat_stream_client_disconnect_total`. Under normal client pacing, no tokens are dropped.
+- **Event shape consistency.** `/api/v1/chat/stream` uses the same `delta`/`done`/`error` SSE event vocabulary as the existing `POST /api/v1/inference/stream`, so a client can share one SSE parser across both.
+- **POST-based SSE.** Because the stream is initiated with `POST` (to carry the request body), browser `EventSource` cannot be used directly; consume it with a `fetch()` + `ReadableStream` reader or a POST-capable SSE client. See the release announcement for an integration example.
+
+### Not Yet Included
+
+- `Last-Event-ID` resumption for `/api/v1/chat/stream` is tracked separately (#815).
+- The HotM client-side consumer of `/api/v1/chat/stream` is tracked in the desktop-app repository (#813).
+
+### Verification
+
+- `cargo fmt --all --check`
+- `cargo clippy -p matric-inference -p matric-db -p matric-api --all-targets -- -D warnings`
+- `cargo test -p matric-api` (streaming-chat contract tests: SSE framing, terminator, error path, client-disconnect, and backpressure dropped-token accounting — 8 tests)
+- CI integration suite (real Postgres): generic-outbox capture and receiver-deletion round-trip
+
 ## [2026.5.13] - 2026-05-25
 
 Security maintenance release for the dependency advisory sweep after 2026.5.12. This release updates vulnerable Rust and npm transitive artifacts, removes obsolete advisory allowlists, and includes the post-2026.5.12 documentation/issue-tracking cleanup commits.
