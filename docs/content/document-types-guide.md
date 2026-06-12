@@ -381,7 +381,7 @@ mcp.call("Fortémi", "document-type-detect", {
 
 ## See Also
 
-- [ADR-025: Document Type Registry](../../.aiwg/architecture/ADR-025-document-type-registry.md) - Architecture decision record
-- [Embedding Model Selection](embedding-model-selection.md) - Choosing embedding models by content type
-- [API Documentation](api.md) - Full REST API reference
-- [MCP Server Guide](mcp.md) - Claude integration
+- ADR-025: Document Type Registry - Architecture decision record
+- [Embedding Model Selection](#/core-systems-embedding-selection) - Choosing embedding models by content type
+- [API Documentation](#/developers-api) - Full REST API reference
+- [MCP Server Guide](#/developers-mcp) - Claude integration

@@ -576,7 +576,7 @@ curl -X DELETE http://localhost:3000/api/v1/attachments/660e8400-e29b-41d4-a716-
 
 Memory search enables temporal-spatial queries on file attachments based on when and where they were captured. Uses a single unified endpoint with parameter-based mode selection.
 
-For comprehensive documentation, see [Memory Search Guide](memory-search.md).
+For comprehensive documentation, see [Memory Search Guide](#/core-systems-memory-search).
 
 ### Search Memories
 
@@ -3297,7 +3297,7 @@ PKE keysets bundle key pairs for management and export.
 
 ## Real-Time Events
 
-Fortémi provides real-time event streaming through three channels. For comprehensive documentation, see [Real-Time Events](./real-time-events.md).
+Fortémi provides real-time event streaming through three channels. For comprehensive documentation, see [Real-Time Events](#/developers-events).
 
 ### SSE (Server-Sent Events)
 
@@ -3342,7 +3342,7 @@ Content-Type: application/json
 }
 ```
 
-**Event Types:** 46 event types are supported, including `NoteCreated`, `NoteUpdated`, `NoteDeleted`, `JobQueued`, `JobStarted`, `JobCompleted`, `JobFailed`, and more. See [Real-Time Events](real-time-events.md) for the full list.
+**Event Types:** 46 event types are supported, including `NoteCreated`, `NoteUpdated`, `NoteDeleted`, `JobQueued`, `JobStarted`, `JobCompleted`, `JobFailed`, and more. See [Real-Time Events](#/developers-events) for the full list.
 
 Webhook deliveries include `X-Fortemi-Event` header and optional `X-Fortemi-Signature` (HMAC-SHA256) when a secret is configured.
 
@@ -3470,8 +3470,8 @@ The API is versioned via URL path (`/api/v1/`). Breaking changes will increment 
 
 ## See Also
 
-- [MCP Server Documentation](./mcp.md) - Claude integration
-- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
-- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
-- [Authentication Guide](./authentication.md) - OAuth2 flows
-- [Integration Guide](./integration.md) - Client examples
+- [MCP Server Documentation](#/developers-mcp) - Claude integration
+- [Multi-Memory Guide](#/core-systems-multi-memory) - Parallel memory archives and federated search
+- [Real-Time Events](#/developers-events) - SSE, WebSocket, and webhook event streaming
+- [Authentication Guide](#/security-authentication) - OAuth2 flows
+- [Integration Guide](#/getting-started-integration) - Client examples

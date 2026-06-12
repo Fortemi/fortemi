@@ -164,6 +164,6 @@ Questions? [Open an issue on GitHub](https://github.com/fortemi/fortemi/issues).
 
 ## See Also
 
-- [Release Process](releasing.md) - How we version and release
-- [Architecture](architecture.md) - Technical overview
-- [Contributing](../../CONTRIBUTING.md) - How to contribute code
+- [Release Process](#/operations-releasing) - How we version and release
+- [Architecture](#/getting-started-architecture) - Technical overview
+- [Contributing](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/CONTRIBUTING.md) - How to contribute code

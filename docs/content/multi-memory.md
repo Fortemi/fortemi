@@ -425,7 +425,7 @@ MAX_MEMORIES=200  # Tier 3: 32GB RAM, 500GB disk
 MAX_MEMORIES=500  # Tier 4: 64GB+ RAM, 1TB+ disk
 ```
 
-See [Configuration Reference](./configuration.md#memory-architecture) for the capacity formula and detailed sizing by hardware tier.
+See [Configuration Reference](#/operations-configuration) for the capacity formula and detailed sizing by hardware tier.
 
 **Swapping memories in and out:**
 ```bash
@@ -629,7 +629,7 @@ curl http://localhost:3000/api/v1/backup/database \
   -o full-backup.sql
 ```
 
-See [Backup Guide](./backup.md) for comprehensive backup strategies.
+See [Backup Guide](#/operations-backup) for comprehensive backup strategies.
 
 ## Best Practices
 
@@ -727,9 +727,9 @@ curl http://localhost:3000/api/v1/notes \
 
 ## Related Documentation
 
-- [Backup Guide](./backup.md) - Per-memory backup strategies
-- [Search Guide](./search-guide.md) - Search modes and federated search
-- [MCP Server](./mcp.md) - Memory management via MCP tools
-- [Configuration Reference](./configuration.md) - MAX_MEMORIES and other settings
-- [API Reference](./api.md) - Complete API endpoint documentation
-- [Architecture](./architecture.md) - Multi-memory system architecture
+- [Backup Guide](#/operations-backup) - Per-memory backup strategies
+- [Search Guide](#/core-systems-search) - Search modes and federated search
+- [MCP Server](#/developers-mcp) - Memory management via MCP tools
+- [Configuration Reference](#/operations-configuration) - MAX_MEMORIES and other settings
+- [API Reference](#/developers-api) - Complete API endpoint documentation
+- [Architecture](#/getting-started-architecture) - Multi-memory system architecture

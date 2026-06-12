@@ -170,7 +170,7 @@ When the container restarts (crash, deployment, OOM-kill), in-flight jobs are ki
 - Jobs that have exhausted their retry limit are marked as `failed`
 - The reap count is logged at `warn` level: `"Reaped stale running jobs from previous worker count=N"`
 
-This is fully automatic — no manual intervention needed. See [ADR-084](../architecture/adr/ADR-084-stale-job-reaping.md) for details.
+This is fully automatic — no manual intervention needed. See [ADR-084](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/architecture/adr/ADR-084-stale-job-reaping.md) for details.
 
 To manually check for stuck jobs:
 
@@ -665,7 +665,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 # Should show: "resource": "http://localhost:3000/mcp"
 ```
 
-For advanced credential management and security considerations, see the [MCP Deployment Guide](./mcp-deployment.md).
+For advanced credential management and security considerations, see the [MCP Deployment Guide](#/developers-mcp-deployment).
 
 ### Claude Code Integration
 
@@ -680,7 +680,7 @@ Project `.mcp.json`:
 }
 ```
 
-See [MCP documentation](./mcp.md) for details.
+See [MCP documentation](#/developers-mcp) for details.
 
 ## File Attachments
 
@@ -734,7 +734,7 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
   "SELECT id, filename, status, error_message FROM attachment WHERE status = 'quarantined';"
 ```
 
-See [File Attachments documentation](./file-attachments.md) for details.
+See [File Attachments documentation](#/core-systems-attachments) for details.
 
 ## Memory Search (PostGIS)
 
@@ -761,4 +761,4 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
    ORDER BY distance_m LIMIT 10;"
 ```
 
-See [Memory Search documentation](./memory-search.md) for details.
+See [Memory Search documentation](#/core-systems-memory-search) for details.

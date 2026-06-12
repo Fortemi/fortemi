@@ -37,6 +37,9 @@ coverage/
 lcov.info
 node_modules/
 
+# Docsite build output (pagenary)
+/dist/
+
 # CI/CD runner credentials
 .runner
 

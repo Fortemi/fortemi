@@ -3,8 +3,11 @@
 # Builds and deploys the Fortemi documentation site on new release tags.
 # Runs independently from the sidecar publish and release workflows.
 #
+# Uses the public @pagenary/publisher npm package (formerly dbbuilder).
+# Tenant config lives at the repo root (tenants.json); build tooling deps
+# are declared in the root package.json (fortemi-docsite).
+#
 # Required secrets:
-#   BUILD_REPO_TOKEN — Gitea token for cloning the private dbbuilder repo
 #   DEPLOY_SSH_KEY   — private key for the deploy user
 #   DEPLOY_HOST      — docs server hostname
 #   DEPLOY_PORT      — docs server SSH port
@@ -32,43 +35,18 @@ jobs:
       - name: Checkout Fortemi
         uses: actions/checkout@v4
 
-      - name: Clone dbbuilder
-        run: |
-          git clone https://token:${{ secrets.BUILD_REPO_TOKEN }}@git.integrolabs.net/roctinam/dbbuilder.git /tmp/dbbuilder
-
-      - name: Install dbbuilder dependencies
-        working-directory: /tmp/dbbuilder/apps/publisher
+      - name: Install docsite tooling
         run: npm ci
 
-      - name: Configure tenant
-        run: |
-          cat > /tmp/dbbuilder/apps/publisher/tenants.json <<'TENANTS'
-          {
-            "$schema": "./tenants.schema.json",
-            "tenants": [
-              {
-                "id": "fortemi-docs",
-                "source": {
-                  "type": "local",
-                  "path": "${{ gitea.workspace }}/docs"
-                },
-                "domains": ["docs.fortemi.io"],
-                "strictLinks": false
-              }
-            ]
-          }
-          TENANTS
-
       - name: Build doc site
-        working-directory: /tmp/dbbuilder/apps/publisher
-        run: node scripts/build-tenants.js fortemi-docs
+        run: npx pagenary build:tenants fortemi-docs
 
       - name: Verify build output
         run: |
-          test -d /tmp/dbbuilder/apps/publisher/dist/fortemi-docs || { echo "Missing build output directory"; exit 1; }
-          test -f /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/index.html || { echo "Missing index.html"; exit 1; }
+          test -d dist/fortemi-docs || { echo "Missing build output directory"; exit 1; }
+          test -f dist/fortemi-docs/index.html || { echo "Missing index.html"; exit 1; }
           echo "Build verification passed"
-          ls -lah /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/
+          ls -lah dist/fortemi-docs/
 
       - name: Install SSH tools
         run: apt-get update && apt-get install -y --no-install-recommends openssh-client rsync
@@ -83,7 +61,7 @@ jobs:
         run: |
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
-            /tmp/dbbuilder/apps/publisher/dist/fortemi-docs/ \
+            dist/fortemi-docs/ \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}
 
       - name: Verify deployment

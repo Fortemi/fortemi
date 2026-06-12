@@ -423,7 +423,7 @@ The concept vocabulary grows automatically as the AI tags notes. This tool manag
 
 ### Full Mode Tools
 
-With `MCP_TOOL_MODE=full`, granular tools are available for advanced vocabulary management including concept CRUD, hierarchy manipulation (broader/narrower/related), collection management, and scheme administration. See [MCP Reference](./mcp.md) for details.
+With `MCP_TOOL_MODE=full`, granular tools are available for advanced vocabulary management including concept CRUD, hierarchy manipulation (broader/narrower/related), collection management, and scheme administration. See [MCP Reference](#/developers-mcp) for details.
 
 ## Automatic Tagging Pipeline
 
@@ -750,10 +750,10 @@ search_notes({
 
 ### See Also
 
-- [Strict Tag Filtering Design](./strict-tag-filtering-design.md) - Implementation details
+- [Strict Tag Filtering Design](#/core-systems-filtering) - Implementation details
 
 ## Related Documentation
 
-- [API Reference](./api.md)
-- [MCP Tools](./mcp.md)
+- [API Reference](#/developers-api)
+- [MCP Tools](#/developers-mcp)
 - [Database Schema](../../migrations/20260118000000_skos_tags.sql)

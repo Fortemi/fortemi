@@ -73,8 +73,8 @@ curl http://localhost:3000/health
 ### Related Documentation
 
 - [Getting Started](getting-started.md)
-- [Hardware Planning](hardware-planning.md)
-- [MCP Integration](mcp-server.md)
+- [Hardware Planning](#/operations-hardware)
+- [MCP Integration](#/developers-mcp)
 
 ---
 
@@ -199,10 +199,10 @@ curl -X POST https://docs.example.com/api/v1/concepts \
 
 ### Related Documentation
 
-- [Authentication Guide](authentication.md)
-- [Tags and SKOS](tags.md)
-- [Strict Tag Filtering Design](strict-tag-filtering-design.md)
-- [Embedding Sets](embedding-sets.md)
+- [Authentication Guide](#/security-authentication)
+- [Tags and SKOS](#/core-systems-tags)
+- [Strict Tag Filtering Design](#/core-systems-filtering)
+- [Embedding Sets](#/core-systems-embeddings)
 
 ---
 
@@ -346,10 +346,10 @@ curl -X POST https://api.example.com/api/v1/embedding-sets \
 
 ### Related Documentation
 
-- [Embedding Model Selection](embedding-model-selection.md)
-- [Search Guide](search-guide.md)
-- [Embedding Sets](embedding-sets.md)
-- [Document Type Registry](document-types.md)
+- [Embedding Model Selection](#/core-systems-embedding-selection)
+- [Search Guide](#/core-systems-search)
+- [Embedding Sets](#/core-systems-embeddings)
+- [Document Type Registry](#/developers-document-types)
 
 ---
 
@@ -563,11 +563,11 @@ curl -X POST https://memory.enterprise.com/api/v1/shards/import \
 
 ### Related Documentation
 
-- [Encryption Guide](encryption.md)
-- [Authentication Guide](authentication.md)
-- [Operators Guide](operators-guide.md)
-- [Strict Tag Filtering Design](strict-tag-filtering-design.md)
-- [Knowledge Shards](knowledge-shards.md)
+- [Encryption Guide](#/security-encryption)
+- [Authentication Guide](#/security-authentication)
+- [Operators Guide](#/operations-guide)
+- [Strict Tag Filtering Design](#/core-systems-filtering)
+- [Knowledge Shards](#/core-systems-shards)
 
 ---
 
@@ -766,10 +766,10 @@ server {
 
 ### Related Documentation
 
-- [Inference Backends](inference-backends.md)
-- [Operators Guide](operators-guide.md)
-- [Configuration Reference](configuration.md)
-- [Hardware Planning](hardware-planning.md)
+- [Inference Backends](#/core-systems-inference)
+- [Operators Guide](#/operations-guide)
+- [Configuration Reference](#/operations-configuration)
+- [Hardware Planning](#/operations-hardware)
 
 ---
 
@@ -830,9 +830,9 @@ server {
 ## Next Steps
 
 1. **Identify your scenario:** Match your requirements to one of the use cases above
-2. **Review hardware requirements:** Consult [hardware-planning.md](hardware-planning.md) for detailed specifications
+2. **Review hardware requirements:** Consult [hardware-planning.md](#/operations-hardware) for detailed specifications
 3. **Follow deployment guide:** See [getting-started.md](getting-started.md) for step-by-step instructions
 4. **Configure features:** Enable relevant features based on your scenario
 5. **Test at scale:** Validate performance with realistic data volumes
 
-For questions or custom deployment scenarios, refer to the [Operators Guide](operators-guide.md) or consult the documentation index.
+For questions or custom deployment scenarios, refer to the [Operators Guide](#/operations-guide) or consult the documentation index.

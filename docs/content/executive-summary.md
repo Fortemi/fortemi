@@ -102,11 +102,11 @@ The system is implemented in Rust (API server) and Node.js (MCP server), with co
 
 | Scale | Description | Configuration | Details |
 |-------|-------------|---------------|---------|
-| **Personal Knowledge Base** (1-10K notes) | Individual note-taking with semantic search and automatic linking. Ideal for researchers, writers, and knowledge workers building a second brain. | Local Ollama with nomic-embed-text (137M params), PostgreSQL on same machine. No GPU required for entry tier, but recommended for faster embedding generation. | [Use Cases Guide](./use-cases.md#personal-knowledge-base) |
-| **Team Documentation Hub** (10K-100K notes) | Collaborative knowledge base for engineering teams, product documentation, or project wikis. OAuth authentication, SKOS taxonomy for controlled vocabularies, strict tag filtering for project isolation. | Mid-range GPU (RTX 4060 or better) for team-shared Ollama instance. API keys for service accounts, OAuth for human users. Multi-tenant with tag-based isolation. | [Use Cases Guide](./use-cases.md#team-documentation) |
-| **AI Research Assistant / RAG** (50K-500K notes) | Retrieval-Augmented Generation for AI agents and chatbots. Hybrid search with adaptive RRF provides high-quality context for LLM prompts. Embedding sets enable context isolation across multiple projects. | High-end GPU (RTX 4090) or cloud inference (OpenAI-compatible). Filter embedding sets for shared model instances, full embedding sets for isolated contexts. MCP integration for Claude/AI agent connectivity. | [Use Cases Guide](./use-cases.md#ai-assistant) |
-| **Enterprise Document Management** (500K+) | Large-scale knowledge management with compliance requirements. Multi-tenancy with scheme isolation (roadmap), PKE encryption for cross-boundary sharing, audit logs for regulatory adherence. | Multi-GPU or cloud-hosted embedding services. PostgreSQL with read replicas for search scaling. Separate inference tier for generation vs. embedding workloads. Consider Matryoshka embeddings for storage efficiency. | [Use Cases Guide](./use-cases.md#enterprise-scale) |
-| **Hybrid Cloud/Edge** | Privacy-sensitive embeddings on-premises, generation in the cloud. Local Ollama for semantic search (data never leaves network), cloud LLMs for AI revision (only selected context sent). | Split deployment: Local PostgreSQL + Ollama for embeddings, cloud API for generation. Configure inference endpoints per operation type. Use PKE for secure exports to cloud processing. | [Use Cases Guide](./use-cases.md#hybrid-deployment) |
+| **Personal Knowledge Base** (1-10K notes) | Individual note-taking with semantic search and automatic linking. Ideal for researchers, writers, and knowledge workers building a second brain. | Local Ollama with nomic-embed-text (137M params), PostgreSQL on same machine. No GPU required for entry tier, but recommended for faster embedding generation. | [Use Cases Guide](#/getting-started-use-cases) |
+| **Team Documentation Hub** (10K-100K notes) | Collaborative knowledge base for engineering teams, product documentation, or project wikis. OAuth authentication, SKOS taxonomy for controlled vocabularies, strict tag filtering for project isolation. | Mid-range GPU (RTX 4060 or better) for team-shared Ollama instance. API keys for service accounts, OAuth for human users. Multi-tenant with tag-based isolation. | [Use Cases Guide](#/getting-started-use-cases) |
+| **AI Research Assistant / RAG** (50K-500K notes) | Retrieval-Augmented Generation for AI agents and chatbots. Hybrid search with adaptive RRF provides high-quality context for LLM prompts. Embedding sets enable context isolation across multiple projects. | High-end GPU (RTX 4090) or cloud inference (OpenAI-compatible). Filter embedding sets for shared model instances, full embedding sets for isolated contexts. MCP integration for Claude/AI agent connectivity. | [Use Cases Guide](#/getting-started-use-cases) |
+| **Enterprise Document Management** (500K+) | Large-scale knowledge management with compliance requirements. Multi-tenancy with scheme isolation (roadmap), PKE encryption for cross-boundary sharing, audit logs for regulatory adherence. | Multi-GPU or cloud-hosted embedding services. PostgreSQL with read replicas for search scaling. Separate inference tier for generation vs. embedding workloads. Consider Matryoshka embeddings for storage efficiency. | [Use Cases Guide](#/getting-started-use-cases) |
+| **Hybrid Cloud/Edge** | Privacy-sensitive embeddings on-premises, generation in the cloud. Local Ollama for semantic search (data never leaves network), cloud LLMs for AI revision (only selected context sent). | Split deployment: Local PostgreSQL + Ollama for embeddings, cloud API for generation. Configure inference endpoints per operation type. Use PKE for secure exports to cloud processing. | [Use Cases Guide](#/getting-started-use-cases) |
 
 ## Total Cost of Ownership
 
@@ -120,7 +120,7 @@ Infrastructure requirements scale with note count and usage patterns. Four repre
 
 **Hybrid**: On-premises Tier 3 for embeddings, cloud inference for generation. Balance cost (local GPU amortized over time) with capability (cloud models for advanced generation). Privacy-sensitive data stays local, only curated context sent to cloud.
 
-See [Hardware Planning Guide](./hardware-planning.md) for detailed capacity planning, GPU comparisons, and cost optimization strategies.
+See [Hardware Planning Guide](#/operations-hardware) for detailed capacity planning, GPU comparisons, and cost optimization strategies.
 
 ## Deployment Options
 
@@ -140,7 +140,7 @@ docker compose -f docker-compose.bundle.yml up -d
 
 The bundle automatically initializes the database, runs migrations, and starts all services. Configure OAuth and inference endpoints via `.env` file.
 
-See [Operator's Guide](./operators-guide.md) for production deployment, monitoring, and backup procedures.
+See [Operator's Guide](#/operations-guide) for production deployment, monitoring, and backup procedures.
 
 ### Manual Installation
 
@@ -181,7 +181,7 @@ Configure Claude Code or other MCP clients to connect:
 
 The MCP server authenticates via OAuth client credentials, providing secure API access without exposing personal tokens. It supports all core operations: search, CRUD, graph traversal, and AI revision.
 
-See [MCP Documentation](./mcp.md) for available tools, authentication setup, and integration examples.
+See [MCP Documentation](#/developers-mcp) for available tools, authentication setup, and integration examples.
 
 ## Production Readiness
 
@@ -189,7 +189,7 @@ See [MCP Documentation](./mcp.md) for available tools, authentication setup, and
 
 **Monitoring**: Health endpoints for API server, database connection pool metrics, job queue status. Structured logging (JSON) for centralized log aggregation. Prometheus-compatible metrics (roadmap).
 
-**Backup and Recovery**: PostgreSQL dump/restore for data backups, migration rollback support, documented disaster recovery procedures in [Operator's Guide](./operators-guide.md).
+**Backup and Recovery**: PostgreSQL dump/restore for data backups, migration rollback support, documented disaster recovery procedures in [Operator's Guide](#/operations-guide).
 
 **Security**: OAuth 2.0 authentication, API key management, rate limiting (roadmap), PKE encryption for note sharing, strict tag-based isolation for multi-tenancy.
 
@@ -207,14 +207,14 @@ See the [Getting Started Guide](./getting-started.md) for step-by-step instructi
 ## Learn More
 
 - **[Getting Started](./getting-started.md)** - Installation, configuration, first steps
-- **[Architecture](./architecture.md)** - System design, component interactions, data flows
-- **[Use Cases](./use-cases.md)** - Detailed scenarios with configuration examples
-- **[Hardware Planning](./hardware-planning.md)** - Capacity planning, GPU selection, cost analysis
-- **[Best Practices](./best-practices.md)** - Search strategies, tagging conventions, performance tuning
-- **[Configuration Reference](./configuration.md)** - Environment variables, feature flags, tuning parameters
-- **[Operator's Guide](./operators-guide.md)** - Deployment, monitoring, backup, troubleshooting
-- **[Research Background](./research-background.md)** - Academic foundations, algorithm details
+- **[Architecture](#/getting-started-architecture)** - System design, component interactions, data flows
+- **[Use Cases](#/getting-started-use-cases)** - Detailed scenarios with configuration examples
+- **[Hardware Planning](#/operations-hardware)** - Capacity planning, GPU selection, cost analysis
+- **[Best Practices](#/resources-best-practices)** - Search strategies, tagging conventions, performance tuning
+- **[Configuration Reference](#/operations-configuration)** - Environment variables, feature flags, tuning parameters
+- **[Operator's Guide](#/operations-guide)** - Deployment, monitoring, backup, troubleshooting
+- **[Research Background](#/resources-research)** - Academic foundations, algorithm details
 
 ---
 
-*Fortémi is licensed under the Business Source License 1.1. See [licensing details](./licensing.md). Contributions welcome at [github.com/fortemi/fortemi](https://github.com/fortemi/fortemi).*
+*Fortémi is licensed under the Business Source License 1.1. See [licensing details](#/resources-licensing). Contributions welcome at [github.com/fortemi/fortemi](https://github.com/fortemi/fortemi).*

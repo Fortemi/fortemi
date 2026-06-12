@@ -22,7 +22,7 @@ All backup methods support optional PKE encryption:
 |------------|--------|----------|
 | **PKE** | .mmpke (MMPKE01) | Multi-recipient wallet-style encryption |
 
-See [Encryption Guide](./encryption.md) for cryptographic details and [Shard Exchange Primer](./shard-exchange.md) for practical sharing workflows.
+See [Encryption Guide](#/security-encryption) for cryptographic details and [Shard Exchange Primer](#/core-systems-shards) for practical sharing workflows.
 
 ### Choosing a Backup Method
 
@@ -62,7 +62,7 @@ Shard: 1.0.0, Current: 2.0.0
 ⚠ Migration warnings logged
 ```
 
-For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](./shard-migration.md).
+For detailed information about versioning, compatibility, and troubleshooting, see the [Shard Migration Guide](#/core-systems-shard-migration).
 
 - **Database Snapshot** (`/api/v1/backup/database/snapshot`): Full pg_dump backup. Best for disaster recovery.
 
@@ -277,7 +277,7 @@ Memory-scoped backups are useful for:
 - Migrating specific memories between instances
 - Isolating backup/restore operations by project or team
 
-See the [Multi-Memory Guide](./multi-memory.md) for comprehensive memory management documentation.
+See the [Multi-Memory Guide](#/core-systems-multi-memory) for comprehensive memory management documentation.
 
 ## MCP Backup Tools
 

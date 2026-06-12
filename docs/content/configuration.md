@@ -204,7 +204,7 @@ FILE_STORAGE_PATH=/mnt/data/matric/files
 
 ### Tus Resumable Uploads
 
-Settings for the tus v1.0.0 resumable upload protocol. See [File Attachments Guide](./file-attachments.md#resumable-uploads-tus-protocol) for protocol details.
+Settings for the tus v1.0.0 resumable upload protocol. See [File Attachments Guide](#/core-systems-attachments) for protocol details.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -275,7 +275,7 @@ MAX_MEMORIES = max_total_notes / target_notes_per_memory
 | `X-Fortemi-Memory` | Memory name | Routes request to specified memory (default: "default") |
 | `Authorization` | Bearer token | API authentication (when `REQUIRE_AUTH=true`) |
 
-The `X-Fortemi-Memory` header routes all API requests to a specific memory archive. Without this header, requests operate on the `default` memory. See the [Multi-Memory Guide](./multi-memory.md) for details.
+The `X-Fortemi-Memory` header routes all API requests to a specific memory archive. Without this header, requests operate on the `default` memory. See the [Multi-Memory Guide](#/core-systems-multi-memory) for details.
 
 ### Ollama Inference
 
@@ -1158,12 +1158,12 @@ Configuration changes take effect immediately on startup.
 
 ## Related Documentation
 
-- [Inference Backends](./inference-backends.md) - Detailed backend documentation and model selection
+- [Inference Backends](#/core-systems-inference) - Detailed backend documentation and model selection
 - [Operations Guide](./operations.md) - Deployment, monitoring, and troubleshooting
 - [Getting Started](./getting-started.md) - Quick start guide for new users
-- [MCP Server](./mcp.md) - Claude integration and MCP protocol details
-- [Multilingual FTS](./multilingual-fts.md) - Search feature flags and language support
-- [Authentication](./authentication.md) - OAuth setup and user management
-- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
-- [Search Guide](./search-guide.md) - Search modes and query syntax
-- [Hardware Planning](./hardware-planning.md) - Capacity planning and performance optimization
+- [MCP Server](#/developers-mcp) - Claude integration and MCP protocol details
+- [Multilingual FTS](#/core-systems-multilingual-fts) - Search feature flags and language support
+- [Authentication](#/security-authentication) - OAuth setup and user management
+- [Multi-Memory Guide](#/core-systems-multi-memory) - Parallel memory archives and federated search
+- [Search Guide](#/core-systems-search) - Search modes and query syntax
+- [Hardware Planning](#/operations-hardware) - Capacity planning and performance optimization

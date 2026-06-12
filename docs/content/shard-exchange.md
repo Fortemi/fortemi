@@ -495,6 +495,6 @@ curl -X POST http://localhost:3000/api/v1/backup/knowledge-shard/upload?on_confl
 
 ## Related Documentation
 
-- [Encryption Guide](./encryption.md) - Cryptographic details and formats
-- [Backup Guide](./backup.md) - Database backups and restore procedures
+- [Encryption Guide](#/security-encryption) - Cryptographic details and formats
+- [Backup Guide](#/operations-backup) - Database backups and restore procedures
 - [Operations](./operations.md) - Deployment and maintenance

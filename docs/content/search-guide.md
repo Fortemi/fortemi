@@ -217,7 +217,7 @@ For complete search API documentation including all parameters, request/response
 
 - **Interactive docs**: [Swagger UI](/docs)
 - **OpenAPI spec**: [openapi.yaml](/openapi.yaml)
-- **Configuration**: [Configuration Reference](./configuration.md)
+- **Configuration**: [Configuration Reference](#/operations-configuration)
 
 ## Multilingual Search
 
@@ -564,7 +564,7 @@ curl -X POST http://localhost:3000/api/v1/search/federated \
 - **Multi-client search**: Search across client memories for patterns
 - **Comprehensive research**: Discover connections across research and work notes
 
-See the [Multi-Memory Guide](./multi-memory.md) for comprehensive documentation.
+See the [Multi-Memory Guide](#/core-systems-multi-memory) for comprehensive documentation.
 
 ## Troubleshooting Poor Results
 
@@ -595,8 +595,8 @@ See the [Multi-Memory Guide](./multi-memory.md) for comprehensive documentation.
 | High ef_search | Query accuracy too high for your needs | Lower `hnsw.ef_search` (default: 64) |
 | Large corpus without MRL | Full-dimension search on 100K+ docs | Use MRL truncation (256-dim) |
 
-See [Troubleshooting Guide](./troubleshooting.md) for comprehensive diagnostics.
+See [Troubleshooting Guide](#/operations-troubleshooting) for comprehensive diagnostics.
 
 ---
 
-*See also: [Architecture](./architecture.md) | [Best Practices](./best-practices.md) | [Configuration](./configuration.md) | [Multi-Memory Guide](./multi-memory.md) | [Glossary](./glossary.md)*
+*See also: [Architecture](#/getting-started-architecture) | [Best Practices](#/resources-best-practices) | [Configuration](#/operations-configuration) | [Multi-Memory Guide](#/core-systems-multi-memory) | [Glossary](#/resources-glossary)*

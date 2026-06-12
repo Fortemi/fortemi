@@ -152,7 +152,7 @@ Memories are automatically migrated when accessed:
 
 The standard hybrid search endpoint (`GET /api/v1/search`) currently rejects non-public archives, returning a 400 error. This is a temporary limitation because the `HybridSearchEngine` operates directly on the connection pool without `SchemaContext` support. Federated search (`POST /api/v1/search/federated`) works across all memories using dynamically-built schema-qualified queries.
 
-See [Multi-Memory Design](../architecture/multi-memory-design.md) for the comprehensive design document and [Multi-Memory Guide](./multi-memory.md) for usage documentation.
+See [Multi-Memory Design](#/core-systems-multi-memory) for the comprehensive design document and [Multi-Memory Guide](#/core-systems-multi-memory) for usage documentation.
 
 ## Crate Details
 
@@ -292,7 +292,7 @@ Public-key encryption (PKE) for secure multi-recipient data sharing.
 Background job processing for asynchronous NLP operations and document processing.
 
 **Key Components:**
-- `JobWorker` - Background worker process. Event-driven (wakes instantly on job enqueue via `Notify`); safety-net poll interval (default 60s) handles crash recovery and race conditions. On startup, reaps orphaned `running` jobs left by previous crashes (see [ADR-084](../architecture/adr/ADR-084-stale-job-reaping.md))
+- `JobWorker` - Background worker process. Event-driven (wakes instantly on job enqueue via `Notify`); safety-net poll interval (default 60s) handles crash recovery and race conditions. On startup, reaps orphaned `running` jobs left by previous crashes (see [ADR-084](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/architecture/adr/ADR-084-stale-job-reaping.md))
 - `JobHandler` trait - Job type handlers
 - `ExtractionRegistry` - Adapter registry for file processing strategies
 - `ExtractionAdapter` trait - Pluggable extraction strategy interface

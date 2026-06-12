@@ -312,7 +312,7 @@ curl http://localhost:3001/health
 
 ### Real-Time Event Monitoring
 
-Fortémi provides real-time event streaming for live job and note monitoring. See [Real-Time Events](./real-time-events.md) for full documentation.
+Fortémi provides real-time event streaming for live job and note monitoring. See [Real-Time Events](#/developers-events) for full documentation.
 
 **SSE for live job monitoring:**
 
@@ -834,6 +834,6 @@ docker exec -i Fortémi-matric-1 psql -U matric -d matric < latest_backup.sql
 ## Resources
 
 - **Repository:** https://github.com/fortemi/fortemi
-- **Operators Guide:** [operators-guide.md](./operators-guide.md)
-- **MCP Documentation:** [mcp-server/README.md](../../mcp-server/README.md)
-- **Real-Time Events:** [real-time-events.md](./real-time-events.md)
+- **Operators Guide:** [operators-guide.md](#/operations-guide)
+- **MCP Documentation:** [mcp-server/README.md](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/mcp-server/README.md)
+- **Real-Time Events:** [real-time-events.md](#/developers-events)

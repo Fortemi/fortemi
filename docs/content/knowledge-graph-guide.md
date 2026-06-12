@@ -428,4 +428,4 @@ Notes on completely different topics won't link semantically, even if you want t
 
 ---
 
-*See also: [Search Guide](./search-guide.md) | [Tags Guide](./tags.md) | [Research Background](./research-background.md)*
+*See also: [Search Guide](#/core-systems-search) | [Tags Guide](#/core-systems-tags) | [Research Background](#/resources-research)*

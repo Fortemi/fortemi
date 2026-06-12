@@ -448,10 +448,10 @@ For detailed architecture decisions, see:
 
 ## Related Documentation
 
-- [Backup Guide](./backup.md) - Creating and restoring knowledge shards
-- [Shard Exchange Primer](./shard-exchange.md) - Sharing encrypted shards
-- [API Documentation](./api.md) - Shard import/export endpoints
-- [MCP Tools](./mcp.md) - MCP shard operations
+- [Backup Guide](#/operations-backup) - Creating and restoring knowledge shards
+- [Shard Exchange Primer](#/core-systems-shards) - Sharing encrypted shards
+- [API Documentation](#/developers-api) - Shard import/export endpoints
+- [MCP Tools](#/developers-mcp) - MCP shard operations
 
 ## Version History
 

@@ -13,7 +13,7 @@ Fortémi uses Public Key Encryption (PKE) for all encryption operations. This pr
 | **Encryption** | AES-256-GCM |
 | **Address Format** | `mm:` prefix + Base58Check |
 
-For detailed PKE documentation, see the [PKE Encryption Guide](./pke-encryption.md).
+For detailed PKE documentation, see the [PKE Encryption Guide](#/security-pke).
 
 ## Security Properties
 
@@ -267,7 +267,7 @@ It does NOT protect against:
 
 ## Related Documentation
 
-- [PKE Encryption Guide](./pke-encryption.md) - Detailed PKE documentation
-- [Shard Exchange Primer](./shard-exchange.md) - Practical workflows for sharing and recovering knowledge
-- [Backup Guide](./backup.md) - Backup and restore procedures
-- [Architecture](./architecture.md) - System design overview
+- [PKE Encryption Guide](#/security-pke) - Detailed PKE documentation
+- [Shard Exchange Primer](#/core-systems-shards) - Practical workflows for sharing and recovering knowledge
+- [Backup Guide](#/operations-backup) - Backup and restore procedures
+- [Architecture](#/getting-started-architecture) - System design overview

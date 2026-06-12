@@ -64,7 +64,7 @@ Fortemi provides three integration paths:
 | Path | Best For | Documentation |
 |------|----------|---------------|
 | **REST API** | Direct HTTP integration | [Interactive API docs](/docs) · [OpenAPI spec](/openapi.yaml) |
-| **MCP Server** | AI agent integration (Claude, etc.) | [MCP Guide](./mcp.md) |
+| **MCP Server** | AI agent integration (Claude, etc.) | [MCP Guide](#/developers-mcp) |
 | **Rust Crate** (future) | Embedded Rust integration | Coming soon |
 
 ### Authentication
@@ -74,7 +74,7 @@ The API supports two authentication methods:
 - **API Keys**: Simple token-based auth for server-to-server integration
 - **OAuth 2.0 with PKCE**: For user-facing applications and MCP clients
 
-See [Authentication Guide](./authentication.md) for setup instructions.
+See [Authentication Guide](#/security-authentication) for setup instructions.
 
 ### Quick Example
 
@@ -113,7 +113,7 @@ curl -X POST "http://localhost:3000/api/v1/search" \
 - `required_schemes`: Notes ONLY from these SKOS vocabulary schemes
 - `excluded_schemes`: Notes NOT from these schemes
 
-See [Strict Tag Filtering](./tags.md#strict-tag-filtering) for details.
+See [Strict Tag Filtering](#/core-systems-tags) for details.
 
 ## HotM Migration
 
@@ -193,19 +193,19 @@ The MCP server provides tools for:
 - **Tag Management**: List, filter, and update note tags
 - **Job Queue**: Queue and monitor background jobs
 
-See [MCP Tools Reference](./mcp.md) for the complete list of available tools including note management, backup, encryption, and search capabilities.
+See [MCP Tools Reference](#/developers-mcp) for the complete list of available tools including note management, backup, encryption, and search capabilities.
 
-For encryption details, see the [Encryption Guide](./encryption.md).
+For encryption details, see the [Encryption Guide](#/security-encryption).
 
 ## See Also
 
 - [Getting Started](./getting-started.md) - First-time setup walkthrough
-- [Configuration Reference](./configuration.md) - All environment variables and settings
-- [Authentication Guide](./authentication.md) - API keys and OAuth setup
-- [Troubleshooting](./troubleshooting.md) - Common issues and fixes
-- [Best Practices](./best-practices.md) - Performance tuning and optimization
-- [MCP Guide](./mcp.md) - Model Context Protocol server integration
-- [Tags Guide](./tags.md) - Tag management and strict filtering
+- [Configuration Reference](#/operations-configuration) - All environment variables and settings
+- [Authentication Guide](#/security-authentication) - API keys and OAuth setup
+- [Troubleshooting](#/operations-troubleshooting) - Common issues and fixes
+- [Best Practices](#/resources-best-practices) - Performance tuning and optimization
+- [MCP Guide](#/developers-mcp) - Model Context Protocol server integration
+- [Tags Guide](#/core-systems-tags) - Tag management and strict filtering
 
 ## Support
 

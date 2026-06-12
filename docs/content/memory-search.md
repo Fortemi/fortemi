@@ -679,10 +679,10 @@ See `crates/matric-db/src/memory_search.rs` for full API details.
 
 ## Related Documentation
 
-- [API Reference](./api.md) - Full REST API documentation
-- [Search Guide](./search-guide.md) - Semantic and full-text search
-- [Architecture](./architecture.md) - System architecture overview
-- [Backup Guide](./backup.md) - Data backup and migration
+- [API Reference](#/developers-api) - Full REST API documentation
+- [Search Guide](#/core-systems-search) - Semantic and full-text search
+- [Architecture](#/getting-started-architecture) - System architecture overview
+- [Backup Guide](#/operations-backup) - Data backup and migration
 
 ---
 

@@ -544,10 +544,10 @@ Results include:
 
 ## Related Documentation
 
-- [Search Guide](./search-guide.md) - Hybrid search overview
-- [API Reference](./api.md) - REST API endpoints
-- [Glossary](./glossary.md) - Technical terminology
-- [Architecture](./architecture.md) - System design
+- [Search Guide](#/core-systems-search) - Hybrid search overview
+- [API Reference](#/developers-api) - REST API endpoints
+- [Glossary](#/resources-glossary) - Technical terminology
+- [Architecture](#/getting-started-architecture) - System design
 
 ---
 

@@ -595,9 +595,9 @@ location /api/v1/ws {
 
 ## See Also
 
-- [Job Monitoring](job-monitoring.md) - Practical guide for monitoring job pipelines via SSE, REST, and MCP
-- [API Reference](api.md) - Complete REST API documentation
-- [Multi-Memory Architecture](multi-memory.md) - Memory scoping and isolation
-- [Authentication](authentication.md) - OAuth2 and API key setup
-- [Architecture](architecture.md) - System design and component overview
+- [Job Monitoring](#/operations-job-monitoring) - Practical guide for monitoring job pipelines via SSE, REST, and MCP
+- [API Reference](#/developers-api) - Complete REST API documentation
+- [Multi-Memory Architecture](#/core-systems-multi-memory) - Memory scoping and isolation
+- [Authentication](#/security-authentication) - OAuth2 and API key setup
+- [Architecture](#/getting-started-architecture) - System design and component overview
 - [Operations](operations.md) - Deployment and monitoring

@@ -8,7 +8,7 @@ Before diving into these patterns, ensure you have:
 
 - A running Fortémi instance ([Getting Started](./getting-started.md))
 - Basic familiarity with notes, tags, and search ([Getting Started](./getting-started.md#step-2-create-your-first-notes))
-- MCP server connected if using Claude/AI tools ([MCP Guide](./mcp.md))
+- MCP server connected if using Claude/AI tools ([MCP Guide](#/developers-mcp))
 
 These patterns progress from simple to advanced. Start with Pattern 0 if you're new to Fortémi.
 
@@ -725,9 +725,9 @@ Always snapshot before:
 ## Related Documentation
 
 - [Getting Started](./getting-started.md) - First-time setup and basics
-- [MCP Tools Reference](./mcp.md) - Complete tool documentation
-- [SKOS Tagging](./tags.md) - Hierarchical tagging system
-- [Search Guide](./search-guide.md) - Search modes and query optimization
-- [Best Practices](./best-practices.md) - Research-backed usage guidance
-- [Chunking Strategies](./chunking.md) - How content is split for embeddings
-- [Backup Guide](./backup.md) - Backup and restore procedures
+- [MCP Tools Reference](#/developers-mcp) - Complete tool documentation
+- [SKOS Tagging](#/core-systems-tags) - Hierarchical tagging system
+- [Search Guide](#/core-systems-search) - Search modes and query optimization
+- [Best Practices](#/resources-best-practices) - Research-backed usage guidance
+- [Chunking Strategies](#/core-systems-chunking) - How content is split for embeddings
+- [Backup Guide](#/operations-backup) - Backup and restore procedures

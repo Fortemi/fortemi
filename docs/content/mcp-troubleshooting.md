@@ -71,7 +71,7 @@ If auto-registration itself is failing, check that the API is starting correctly
 docker compose -f docker-compose.bundle.yml logs matric | grep -E "ERROR|API is healthy"
 ```
 
-For manual credential management, see the [MCP Deployment Guide](./mcp-deployment.md).
+For manual credential management, see the [MCP Deployment Guide](#/developers-mcp-deployment).
 
 ### 3. "Authentication successful but reconnection failed"
 
@@ -206,7 +206,7 @@ curl -X POST http://localhost:3001/ \
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed by default) |
 | `MCP_BASE_URL` | No | Defaults to `${ISSUER_URL}/mcp` |
 
-For the full environment variable reference and credential lifecycle details, see the [MCP Deployment Guide](./mcp-deployment.md).
+For the full environment variable reference and credential lifecycle details, see the [MCP Deployment Guide](#/developers-mcp-deployment).
 
 ## Claude Code Credential Location
 

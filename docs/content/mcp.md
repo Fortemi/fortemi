@@ -55,7 +55,7 @@ The MCP server uses OAuth2 for secure access:
 
 **Credentials are managed automatically.** The Docker bundle registers its own OAuth client on startup and persists the credentials. You never need to manually configure `MCP_CLIENT_ID` or `MCP_CLIENT_SECRET` unless you want explicit control.
 
-For advanced credential management, security considerations, and manual configuration, see the [MCP Deployment Guide](./mcp-deployment.md).
+For advanced credential management, security considerations, and manual configuration, see the [MCP Deployment Guide](#/developers-mcp-deployment).
 
 ## Overview
 
@@ -1704,17 +1704,17 @@ The following features are available via REST API but not exposed in the core MC
 - Memory archives — via `manage_archives` (list, create, stats, clone)
 - File attachments — via `manage_attachments` (list, upload, get, download, delete)
 
-**Full API reference:** See [API Documentation](./api.md) and [OpenAPI Spec](https://github.com/fortemi/fortemi/blob/main/crates/matric-api/src/openapi.yaml)
+**Full API reference:** See [API Documentation](#/developers-api) and [OpenAPI Spec](https://github.com/fortemi/fortemi/blob/main/crates/matric-api/src/openapi.yaml)
 
 ## Related Documentation
 
-- [API Reference](./api.md) - REST API documentation
-- [Multi-Memory Guide](./multi-memory.md) - Parallel memory archives and federated search
-- [Multi-Memory Agent Guide](./multi-memory-agent-guide.md) - Segmentation strategies for agents
-- [SKOS Tags](./tags.md) - Hierarchical tagging system
-- [Architecture](./architecture.md) - System design
-- [Backup Guide](./backup.md) - Backup strategies
-- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
-- [Document Types Guide](./document-types-guide.md) - Content type detection and chunking
-- [Embedding Model Selection](./embedding-model-selection.md) - Model selection guidance
-- [MCP Deployment Guide](./mcp-deployment.md) - Deployment and security considerations
+- [API Reference](#/developers-api) - REST API documentation
+- [Multi-Memory Guide](#/core-systems-multi-memory) - Parallel memory archives and federated search
+- [Multi-Memory Agent Guide](#/developers-multi-memory-agent) - Segmentation strategies for agents
+- [SKOS Tags](#/core-systems-tags) - Hierarchical tagging system
+- [Architecture](#/getting-started-architecture) - System design
+- [Backup Guide](#/operations-backup) - Backup strategies
+- [Real-Time Events](#/developers-events) - SSE, WebSocket, and webhook event streaming
+- [Document Types Guide](#/developers-document-types) - Content type detection and chunking
+- [Embedding Model Selection](#/core-systems-embedding-selection) - Model selection guidance
+- [MCP Deployment Guide](#/developers-mcp-deployment) - Deployment and security considerations

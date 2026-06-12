@@ -294,5 +294,5 @@ if can_decrypt_pke(&encrypted, &my_private_key) {
 
 ## Related Documentation
 
-- [Encryption Overview](./encryption.md) - PKE encryption guide
-- [Architecture](./architecture.md) - System design
+- [Encryption Overview](#/security-encryption) - PKE encryption guide
+- [Architecture](#/getting-started-architecture) - System design

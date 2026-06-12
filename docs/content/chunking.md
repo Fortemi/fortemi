@@ -277,6 +277,6 @@ cargo test --package matric-db chunking
 
 ## Related Documentation
 
-- [Architecture](./architecture.md) - System overview
-- [Embedding Sets](./embedding-sets.md) - Focused search contexts
-- [MCP Tools](./mcp.md) - Agent integration
+- [Architecture](#/getting-started-architecture) - System overview
+- [Embedding Sets](#/core-systems-embeddings) - Focused search contexts
+- [MCP Tools](#/developers-mcp) - Agent integration

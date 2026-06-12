@@ -14,7 +14,8 @@
       "sections": [
         { "id": "getting-started-architecture", "title": "Architecture", "summary": "System architecture and crate layout.", "file": "architecture.md" },
         { "id": "getting-started-integration", "title": "Integration Guide", "summary": "Connecting to the API and configuring clients.", "file": "integration.md" },
-        { "id": "getting-started-workflows", "title": "Workflows", "summary": "Common usage patterns and workflows.", "file": "workflows.md" }
+        { "id": "getting-started-workflows", "title": "Workflows", "summary": "Common usage patterns and workflows.", "file": "workflows.md" },
+        { "id": "getting-started-use-cases", "title": "Use Cases", "summary": "Representative use cases: personal KB, team knowledge, agent memory.", "file": "use-cases.md" }
       ]
     },
     {
@@ -23,6 +24,7 @@
       "summary": "Reference documentation for foundational subsystems.",
       "sections": [
         { "id": "core-systems-search", "title": "Hybrid Search", "summary": "FTS + semantic + RRF fusion search engine.", "file": "search-guide.md" },
+        { "id": "core-systems-multilingual-fts", "title": "Multilingual FTS", "summary": "Language-specific stemming, CJK bigram, and emoji trigram search.", "file": "multilingual-fts.md" },
         { "id": "core-systems-tags", "title": "SKOS Tagging", "summary": "W3C SKOS concepts, schemes, and collections.", "file": "tags.md" },
         { "id": "core-systems-filtering", "title": "Strict Tag Filtering", "summary": "Pre-search isolation for multi-tenancy.", "file": "strict-tag-filtering-design.md" },
         { "id": "core-systems-chunking", "title": "Document Chunking", "summary": "Automatic document splitting for embedding.", "file": "chunking.md" },
@@ -31,7 +33,10 @@
         { "id": "core-systems-shards", "title": "Knowledge Shards", "summary": "Shard exchange format for data portability.", "file": "shard-exchange.md" },
         { "id": "core-systems-graph", "title": "Knowledge Graph", "summary": "Semantic link exploration and graph queries.", "file": "knowledge-graph-guide.md" },
         { "id": "core-systems-attachments", "title": "File Attachments", "summary": "Upload, process, and search file attachments with EXIF extraction.", "file": "file-attachments.md" },
-        { "id": "core-systems-memory-search", "title": "Memory Search", "summary": "Temporal-spatial queries on file provenance using PostGIS.", "file": "memory-search.md" }
+        { "id": "core-systems-memory-search", "title": "Memory Search", "summary": "Temporal-spatial queries on file provenance using PostGIS.", "file": "memory-search.md" },
+        { "id": "core-systems-multi-memory", "title": "Multi-Memory Architecture", "summary": "Parallel memory archives for data isolation via PostgreSQL schemas.", "file": "multi-memory.md" },
+        { "id": "core-systems-embedding-selection", "title": "Embedding Model Selection", "summary": "Choosing embedding models: dimensions, MRL, and storage trade-offs.", "file": "embedding-model-selection.md" },
+        { "id": "core-systems-shard-migration", "title": "Shard Migration", "summary": "Migrating knowledge shards between embedding sets and versions.", "file": "shard-migration.md" }
       ]
     },
     {
@@ -43,7 +48,10 @@
         { "id": "developers-mcp", "title": "MCP Server", "summary": "Model Context Protocol server for AI agent integration.", "file": "mcp.md" },
         { "id": "developers-mcp-deployment", "title": "MCP Deployment", "summary": "Advanced MCP credential management, security, and deployment configuration.", "file": "mcp-deployment.md" },
         { "id": "developers-mcp-troubleshooting", "title": "MCP Troubleshooting", "summary": "Diagnostic commands and common MCP connection issues.", "file": "mcp-troubleshooting.md" },
-        { "id": "developers-document-types", "title": "Document Types", "summary": "Content type detection, chunking strategies, and custom types.", "file": "document-types-guide.md" }
+        { "id": "developers-document-types", "title": "Document Types", "summary": "Content type detection, chunking strategies, and custom types.", "file": "document-types-guide.md" },
+        { "id": "developers-events", "title": "Real-Time Events", "summary": "Real-time event streaming via SSE, WebSocket, and outbound webhooks.", "file": "real-time-events.md" },
+        { "id": "developers-multi-memory-agent", "title": "Multi-Memory Agent Guide", "summary": "Memory segmentation strategies and the X-Fortemi-Memory header for agents.", "file": "multi-memory-agent-guide.md" },
+        { "id": "developers-mcp-permissions", "title": "MCP Permissions", "summary": "MCP tool permission modes and per-client access scoping.", "file": "mcp-permissions.md" }
       ]
     },
     {
@@ -72,10 +80,13 @@
         { "id": "operations-guide", "title": "Operators Guide", "summary": "Comprehensive operational reference for administrators.", "file": "operators-guide.md" },
         { "id": "operations-general", "title": "Operations Overview", "summary": "Day-to-day operational procedures.", "file": "operations.md" },
         { "id": "operations-backup", "title": "Backup & Recovery", "summary": "Database backup, restore, and disaster recovery.", "file": "backup.md" },
+        { "id": "operations-job-monitoring", "title": "Job Monitoring", "summary": "Background job worker, queue health, and stale-job reaping.", "file": "job-monitoring.md" },
         { "id": "operations-hardware", "title": "Hardware Planning", "summary": "GPU, memory, and storage sizing guidelines.", "file": "hardware-planning.md" },
         { "id": "operations-ollama", "title": "Ollama Optimization", "summary": "Model loading, GPU allocation, and inference tuning.", "file": "ollama-optimization.md" },
         { "id": "operations-ci-cd", "title": "CI/CD Pipeline", "summary": "Gitea Actions workflow and deployment automation.", "file": "ci-cd.md" },
-        { "id": "operations-releasing", "title": "Release Process", "summary": "CalVer versioning, tagging, and release workflow.", "file": "releasing.md" }
+        { "id": "operations-releasing", "title": "Release Process", "summary": "CalVer versioning, tagging, and release workflow.", "file": "releasing.md" },
+        { "id": "operations-configuration", "title": "Configuration Reference", "summary": "Environment variables and runtime configuration reference.", "file": "configuration.md" },
+        { "id": "operations-troubleshooting", "title": "Troubleshooting", "summary": "Diagnosing common operational issues and failure modes.", "file": "troubleshooting.md" }
       ]
     },
     {
@@ -84,7 +95,9 @@
       "summary": "Glossary, background references, and supporting material.",
       "sections": [
         { "id": "resources-glossary", "title": "Glossary", "summary": "Definitions of key terms and acronyms.", "file": "glossary.md" },
-        { "id": "resources-research", "title": "Research Background", "summary": "Academic foundations and cited papers.", "file": "research-background.md" }
+        { "id": "resources-research", "title": "Research Background", "summary": "Academic foundations and cited papers.", "file": "research-background.md" },
+        { "id": "resources-best-practices", "title": "Best Practices", "summary": "Recommended patterns for tagging, search, and content organization.", "file": "best-practices.md" },
+        { "id": "resources-licensing", "title": "Licensing", "summary": "BUSL-1.1 licensing terms and usage scope.", "file": "licensing.md" }
       ]
     }
   ]

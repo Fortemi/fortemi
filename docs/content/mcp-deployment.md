@@ -435,7 +435,7 @@ ISSUER_URL=http://localhost:3000
 
 ## Troubleshooting
 
-For common deployment issues and diagnostic commands, see [MCP Troubleshooting Guide](./mcp-troubleshooting.md).
+For common deployment issues and diagnostic commands, see [MCP Troubleshooting Guide](#/developers-mcp-troubleshooting).
 
 **Quick diagnostic:**
 
@@ -465,7 +465,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 ## Related Documentation
 
-- [MCP Server Overview](./mcp.md) - Tool reference and usage guide
-- [MCP Troubleshooting](./mcp-troubleshooting.md) - Common issues and fixes
-- [MCP Permissions](./mcp-permissions.md) - OAuth scope and permission model
-- [API Authentication](../CLAUDE.md#authentication) - OAuth2 configuration
+- [MCP Server Overview](#/developers-mcp) - Tool reference and usage guide
+- [MCP Troubleshooting](#/developers-mcp-troubleshooting) - Common issues and fixes
+- [MCP Permissions](#/developers-mcp-permissions) - OAuth scope and permission model
+- [API Authentication](#/security-authentication) - OAuth2 configuration

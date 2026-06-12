@@ -1317,7 +1317,7 @@ SELECT cleanup_orphaned_blobs(24);  -- 24 hour grace period
 
 ## Further Reading
 
-- [Document Type Guide](document-types-guide.md) - Learn about document types and extraction strategies
-- [Search Guide](search-guide.md) - Advanced search techniques for attachment content
-- [API Reference](api.md) - Complete API documentation
+- [Document Type Guide](#/developers-document-types) - Learn about document types and extraction strategies
+- [Search Guide](#/core-systems-search) - Advanced search techniques for attachment content
+- [API Reference](#/developers-api) - Complete API documentation
 - [Security Best Practices](operations.md) - Operational security guidelines

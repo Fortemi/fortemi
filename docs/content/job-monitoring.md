@@ -873,6 +873,6 @@ The following table shows which job lifecycle events each handler actually emits
 
 ## See Also
 
-- [Real-Time Events](real-time-events.md) — Full SSE/WebSocket/Webhook documentation
-- [Extraction Pipeline Design](extraction-pipeline-design.md) — Architecture of the extraction system
+- [Real-Time Events](#/developers-events) — Full SSE/WebSocket/Webhook documentation
+- [Extraction Pipeline Design](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/content/extraction-pipeline-design.md) — Architecture of the extraction system
 - [Operations](operations.md) — Deployment and monitoring

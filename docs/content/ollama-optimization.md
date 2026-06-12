@@ -454,8 +454,8 @@ With optimizations enabled:
 
 ## Related Documentation
 
-- [Architecture Overview](./architecture.md) - Fortémi system architecture
-- [Inference Backends](./encryption.md#inference-backends) - Ollama vs OpenAI configuration
+- [Architecture Overview](#/getting-started-architecture) - Fortémi system architecture
+- [Inference Backends](#/security-encryption) - Ollama vs OpenAI configuration
 - [Model Research](../research/all_models_test_1.log) - Performance testing results
 
 ## Changelog

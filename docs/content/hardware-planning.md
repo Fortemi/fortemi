@@ -509,14 +509,14 @@ MAX_MEMORIES=200  # Tier 3 (32GB RAM, 500GB disk)
 MAX_MEMORIES=500  # Tier 4 (64GB+ RAM, 1TB+ disk)
 ```
 
-See [Configuration Reference](./configuration.md) for all memory-related settings and [Multi-Memory Guide](./multi-memory.md) for architecture details.
+See [Configuration Reference](#/operations-configuration) for all memory-related settings and [Multi-Memory Guide](#/core-systems-multi-memory) for architecture details.
 
 ---
 
 ## Related Documentation
 
-- [Inference Backends](./inference-backends.md) - Backend configuration details
-- [Architecture](./architecture.md) - System design overview
+- [Inference Backends](#/core-systems-inference) - Backend configuration details
+- [Architecture](#/getting-started-architecture) - System design overview
 - [Operations](./operations.md) - Deployment and monitoring
 
 ---

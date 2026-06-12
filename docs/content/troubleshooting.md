@@ -851,7 +851,7 @@ docker compose -f docker-compose.bundle.yml up -d
 
 **Cause:** Old PDFs (Acrobat 3.0/4.0 era) embed null bytes (`\u0000`) in metadata fields like `Creator`. PostgreSQL rejects null bytes in text/JSON columns.
 
-**Fix:** Upgrade to v2026.2.10 or later. The `PdfTextAdapter` now strips null bytes from both metadata and extracted text before database storage. See [ADR-085](../architecture/adr/ADR-085-null-byte-sanitization.md).
+**Fix:** Upgrade to v2026.2.10 or later. The `PdfTextAdapter` now strips null bytes from both metadata and extracted text before database storage. See [ADR-085](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/architecture/adr/ADR-085-null-byte-sanitization.md).
 
 If you're on an older version, reset the failed jobs after upgrading:
 ```bash
@@ -1613,11 +1613,11 @@ docker compose -f docker-compose.bundle.yml logs -f
 - Include: error message, relevant logs, Docker/system info, steps to reproduce
 
 **Additional documentation:**
-- [Operators Guide](./operators-guide.md) - Deployment and maintenance procedures
-- [Configuration Reference](./configuration.md) - All environment variables and settings
-- [Embedding Model Selection](./embedding-model-selection.md) - Choosing embedding models
-- [Real-Time Events](./real-time-events.md) - SSE, WebSocket, and webhook event streaming
+- [Operators Guide](#/operations-guide) - Deployment and maintenance procedures
+- [Configuration Reference](#/operations-configuration) - All environment variables and settings
+- [Embedding Model Selection](#/core-systems-embedding-selection) - Choosing embedding models
+- [Real-Time Events](#/developers-events) - SSE, WebSocket, and webhook event streaming
 
 ---
 
-*For routine maintenance and monitoring, see the [Operators Guide](./operators-guide.md). For advanced configuration, see the [Configuration Reference](./configuration.md).*
+*For routine maintenance and monitoring, see the [Operators Guide](#/operations-guide). For advanced configuration, see the [Configuration Reference](#/operations-configuration).*
