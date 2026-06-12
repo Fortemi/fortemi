@@ -180,4 +180,4 @@ No configuration changes are required. Optional tuning:
 
 ## Full Changelog
 
-See [CHANGELOG.md](../../CHANGELOG.md#202660---2026-06-12). Implementing commit: `db547a1`.
+See [CHANGELOG.md](../../CHANGELOG.md) for the complete list of changes. The v2026.6.0 entry covers this release; the implementing commit is `db547a1`.
