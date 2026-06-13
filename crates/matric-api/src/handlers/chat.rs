@@ -1807,4 +1807,98 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&empty[0].data).unwrap();
         assert_eq!(v["code"], "STREAM_INTERRUPTED");
     }
+
+    // =========================================================================
+    // Async resource discipline: leak / dangling-reference guards
+    //
+    // The streaming path holds an owned GPU permit, an `Arc<ChatStreamMetrics>`,
+    // and an `mpsc` sender across a spawned task. A clone the pump forgets to
+    // drop is a metrics/permit leak; a sender the pump forgets to drop holds the
+    // SSE channel open forever (the client hangs, the connection fd leaks). These
+    // tests pin the release discipline at the pump boundary.
+    // =========================================================================
+
+    /// The pump must consume the `Arc<ChatStreamMetrics>` it is handed and drop
+    /// it on return — it must not stash a clone in a lingering task or closure.
+    /// `strong_count` returning to its pre-call value proves no leaked reference.
+    #[tokio::test]
+    async fn pump_does_not_leak_metrics_arc() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let before = Arc::strong_count(&metrics);
+        // The clone is moved into the pump; a correct pump drops it on return.
+        let _frames = run_pump_to_completion(
+            vec![Ok("a".to_string()), Ok("b".to_string())],
+            16,
+            metrics.clone(),
+        )
+        .await;
+        assert_eq!(
+            Arc::strong_count(&metrics),
+            before,
+            "pump leaked a metrics Arc clone — async resource not released"
+        );
+    }
+
+    /// On completion the pump must drop its `mpsc::Sender` so the SSE channel
+    /// closes and the client's stream ends. A dangling sender would keep the
+    /// channel open and hang the receiver; the bounded `timeout` converts any
+    /// such regression into a fast failure instead of a hung test.
+    #[tokio::test]
+    async fn pump_closes_channel_on_completion_no_dangling_sender() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let (tx, mut rx) = mpsc::channel::<ChatStreamFrame>(16);
+        let source = futures::stream::iter(vec![Ok("x".to_string())]);
+        // `tx` is moved into the pump; on return it must be dropped.
+        pump_chat_stream(
+            source,
+            tx,
+            metrics,
+            "test-model:latest".to_string(),
+            Duration::from_secs(5),
+            "test-session".to_string(),
+            ChatStreamStore::disabled(),
+        )
+        .await;
+
+        let drain = async {
+            let mut saw_done = false;
+            while let Some(frame) = rx.recv().await {
+                if frame.event == "done" {
+                    saw_done = true;
+                }
+            }
+            (saw_done, rx)
+        };
+        let (saw_done, mut rx) = tokio::time::timeout(Duration::from_secs(2), drain)
+            .await
+            .expect("draining hung — the pump left a dangling sender (resource leak)");
+
+        assert!(saw_done, "stream should have emitted a terminal done frame");
+        assert!(
+            rx.recv().await.is_none(),
+            "channel must be closed once the pump returns"
+        );
+    }
+
+    /// Stream DTOs own their data (`String` / `&'static str`) with no `Rc`/`Arc`,
+    /// so reference cycles are impossible by construction. A `to_stored` →
+    /// `from_stored` round-trip preserves the wire content and yields a frame
+    /// whose data is independent of the sources: dropping the originals leaves
+    /// the restored frame fully valid (no shared or dangling ownership).
+    #[test]
+    fn stored_frame_roundtrip_is_value_independent() {
+        let original = ChatStreamFrame::delta("payload");
+        let stored = original.to_stored(7);
+        let restored = ChatStreamFrame::from_stored(&stored, "sess");
+
+        assert_eq!(restored.event, "delta");
+        assert_eq!(restored.data, original.data);
+        assert_eq!(restored.id.as_deref(), Some("sess-7"));
+
+        // Drop both sources; the restored frame must remain wholly intact.
+        drop(original);
+        drop(stored);
+        assert_eq!(restored.data, r#"{"content":"payload"}"#);
+        assert_eq!(restored.event, "delta");
+    }
 }
