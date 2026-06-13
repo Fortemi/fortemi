@@ -26,12 +26,12 @@ jobs:
   build-docs:
     name: Build Documentation Site
     runs-on: ubuntu-latest
-    container: node:20
+    container: node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5  # 20
     timeout-minutes: 15
 
     steps:
       - name: Checkout Fortemi
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Install docsite tooling
         run: npm ci

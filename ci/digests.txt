@@ -1,0 +1,13 @@
+# CI pin manifest — source of truth for SHA-pinned actions and container images.
+#
+# Every pinned reference in .gitea/workflows/ has a row here. A SHA change in a
+# workflow without a corresponding update to this file is a red flag in review.
+# Per .claude/rules/ci-action-pinning.md.
+#
+# kind       name              pin                                                                       resolved-version  date-pinned  rationale
+container    node:20           sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5    20                2026-06-13   initial pin (docsite-build, docsite-deploy)
+action       actions/checkout  34e114876b0b11c390a56381ad16ebd13914f8d5                                  v4                2026-06-13   initial pin (docsite-build, docsite-deploy); commit the v4 tag resolved to
+#
+# Not yet pinned (separate hardening pass — release-critical pipelines, higher blast radius):
+#   ci-builder.yaml      actions/upload-artifact@v3
+#   publish-sidecar.yml  actions/upload-artifact@v3, actions/download-artifact@v3

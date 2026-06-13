@@ -376,4 +376,4 @@ Nested embeddings that can be truncated for efficiency (Kusupati et al., 2022):
 
 ---
 
-*See also: [Architecture](./architecture.md) | [Glossary](./glossary.md)*
+*See also: [Architecture](#/getting-started-architecture) | [Glossary](#/resources-glossary)*
