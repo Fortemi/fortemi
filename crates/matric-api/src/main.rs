@@ -679,6 +679,8 @@ struct AppState {
     tag_resolver: TagResolver,
     /// Redis search cache (reduces latency for repeated queries).
     search_cache: matric_api::services::SearchCache,
+    /// Redis-backed buffer for SSE chat-stream resumption (#815).
+    chat_stream_store: matric_api::services::ChatStreamStore,
     /// Event bus for real-time notifications (WebSocket, SSE, webhooks, telemetry).
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
@@ -1943,6 +1945,7 @@ async fn main() -> anyhow::Result<()> {
     // Create app state
     let tag_resolver = TagResolver::new(db.clone());
     let search_cache = matric_api::services::SearchCache::from_env().await;
+    let chat_stream_store = matric_api::services::ChatStreamStore::from_env().await;
     let state = AppState {
         db,
         search,
@@ -1950,6 +1953,7 @@ async fn main() -> anyhow::Result<()> {
         rate_limiter,
         tag_resolver,
         search_cache,
+        chat_stream_store,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
         default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
@@ -20279,6 +20283,7 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
         }
     }
 
@@ -20500,6 +20505,7 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
         };
 
         let router = Router::new()
@@ -21693,6 +21699,7 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
         };
 
         let router = Router::new()
@@ -22013,6 +22020,7 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
         };
 
         let router = Router::new()

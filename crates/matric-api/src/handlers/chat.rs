@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -20,10 +20,14 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, info, warn};
 
+use matric_api::services::chat_stream_store::{ResumeCursor, StoredFrame};
+use matric_api::services::ChatStreamStore;
+
 use crate::AppState;
 use matric_inference::discovery::ModelDiscovery;
 use matric_inference::profiles::ModelRegistry;
 use matric_inference::OllamaBackend;
+use uuid::Uuid;
 
 /// Bounded capacity of the SSE event channel for a streaming chat response.
 /// Large enough that a reasonably-paced client never sees drops, small enough
@@ -504,6 +508,11 @@ pub struct ChatStreamFrame {
     pub event: &'static str,
     /// JSON-encoded event payload.
     pub data: String,
+    /// SSE event id of the form `{session}-{seq}`, set by the pump (or the
+    /// resumption replay path). Carried as the SSE `id:` field so a reconnecting
+    /// `EventSource` echoes it back via `Last-Event-ID` (#815). `None` on a bare
+    /// frame before the pump assigns a sequence.
+    pub id: Option<String>,
 }
 
 impl ChatStreamFrame {
@@ -511,6 +520,7 @@ impl ChatStreamFrame {
         Self {
             event: "delta",
             data: serde_json::json!({ "content": content }).to_string(),
+            id: None,
         }
     }
 
@@ -518,6 +528,7 @@ impl ChatStreamFrame {
         Self {
             event: "done",
             data: serde_json::json!({ "finish_reason": "stop", "model": model_name }).to_string(),
+            id: None,
         }
     }
 
@@ -525,12 +536,108 @@ impl ChatStreamFrame {
         Self {
             event: "error",
             data: serde_json::json!({ "error": message, "code": "GENERATION_FAILED" }).to_string(),
+            id: None,
         }
     }
 
-    fn into_event(self) -> Event {
-        Event::default().event(self.event).data(self.data)
+    /// An `error` frame signalling that a resumed stream's buffer ended before a
+    /// terminal frame — the original generation was interrupted (e.g. the client
+    /// disconnected mid-generation) and cannot be continued. The client should
+    /// resend the request to regenerate (#815).
+    fn interrupted() -> Self {
+        Self {
+            event: "error",
+            data: serde_json::json!({
+                "error": "stream interrupted before completion; resend the request to regenerate",
+                "code": "STREAM_INTERRUPTED"
+            })
+            .to_string(),
+            id: None,
+        }
     }
+
+    /// Attach the SSE event id (`{session}-{seq}`).
+    fn with_id(mut self, id: String) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    fn into_event(self) -> Event {
+        let mut ev = Event::default().event(self.event).data(self.data);
+        if let Some(id) = self.id {
+            ev = ev.id(id);
+        }
+        ev
+    }
+
+    /// Project to a [`StoredFrame`] for Redis buffering (#815).
+    fn to_stored(&self, seq: u64) -> StoredFrame {
+        StoredFrame {
+            seq,
+            event: self.event.to_string(),
+            data: self.data.clone(),
+        }
+    }
+
+    /// Reconstruct an emittable frame from a buffered [`StoredFrame`] during
+    /// resumption replay, re-attaching the `{session}-{seq}` id (#815).
+    fn from_stored(sf: &StoredFrame, session: &str) -> Self {
+        let event: &'static str = match sf.event.as_str() {
+            "done" => "done",
+            "error" => "error",
+            _ => "delta",
+        };
+        Self {
+            event,
+            data: sf.data.clone(),
+            id: Some(format!("{}-{}", session, sf.seq)),
+        }
+    }
+}
+
+/// Resume an interrupted chat stream by replaying buffered frames after the
+/// client's `Last-Event-ID` cursor — no GPU permit and no new generation (#815).
+///
+/// Replays every buffered frame with `seq > cursor.after_seq`, preserving event
+/// ids so the client can resume again if needed. If the buffer has no terminal
+/// frame (the original generation was interrupted, or the session has expired /
+/// is unknown), emits a terminal `STREAM_INTERRUPTED` error so the client knows
+/// to resend the request rather than wait forever.
+async fn resume_chat_stream(store: ChatStreamStore, cursor: ResumeCursor) -> Response {
+    let frames = store.read_after(&cursor.session, cursor.after_seq).await;
+    let replay = build_resume_frames(&frames, &cursor.session);
+
+    let (tx, rx) = mpsc::channel::<ChatStreamFrame>(CHAT_STREAM_CHANNEL_CAPACITY);
+    tokio::spawn(async move {
+        for frame in replay {
+            if tx.send(frame).await.is_err() {
+                return; // client disconnected again
+            }
+        }
+    });
+
+    let event_stream =
+        ReceiverStream::new(rx).map(|frame| Ok::<Event, Infallible>(frame.into_event()));
+    Sse::new(event_stream)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response()
+}
+
+/// Build the replay frame sequence for a resumed stream: every buffered frame
+/// after the cursor (with its `{session}-{seq}` id re-attached), plus a terminal
+/// `STREAM_INTERRUPTED` error when the buffer did not already end with a terminal
+/// frame — so a client resuming an interrupted generation gets a clear signal
+/// rather than an open stream that never closes (#815).
+fn build_resume_frames(frames: &[StoredFrame], session: &str) -> Vec<ChatStreamFrame> {
+    let mut out: Vec<ChatStreamFrame> = frames
+        .iter()
+        .map(|sf| ChatStreamFrame::from_stored(sf, session))
+        .collect();
+    let had_terminal = frames.last().map(StoredFrame::is_terminal).unwrap_or(false);
+    if !had_terminal {
+        out.push(ChatStreamFrame::interrupted());
+    }
+    out
 }
 
 /// Pump a backend content stream into the SSE frame channel, emitting one
@@ -541,17 +648,23 @@ impl ChatStreamFrame {
 /// Extracted from the handler so the SSE framing, terminator, error path, and
 /// backpressure/dropped-token accounting are unit-testable without a live
 /// model (#816).
+#[allow(clippy::too_many_arguments)]
 async fn pump_chat_stream<S>(
     mut chunks: S,
     tx: mpsc::Sender<ChatStreamFrame>,
     metrics: Arc<ChatStreamMetrics>,
     model_name: String,
     send_timeout: Duration,
+    session: String,
+    store: ChatStreamStore,
 ) where
     S: futures::Stream<Item = matric_core::Result<String>> + Unpin,
 {
     let mut delivered: u64 = 0;
     let mut dropped: u64 = 0;
+    // Monotonic per-session sequence; every persisted/emitted frame gets one so
+    // the SSE event id is `{session}-{seq}` and replay can be cursor-based (#815).
+    let mut seq: u64 = 0;
 
     while let Some(item) = chunks.next().await {
         match item {
@@ -559,14 +672,21 @@ async fn pump_chat_stream<S>(
                 if content.is_empty() {
                     continue;
                 }
-                match tokio::time::timeout(send_timeout, tx.send(ChatStreamFrame::delta(&content)))
-                    .await
-                {
+                seq += 1;
+                let frame = ChatStreamFrame::delta(&content);
+                // Persist BEFORE the send attempt so a frame shed by backpressure
+                // is still replayable on reconnect within the TTL window (#815).
+                store.append(&session, &frame.to_stored(seq)).await;
+                let frame = frame.with_id(format!("{session}-{seq}"));
+                match tokio::time::timeout(send_timeout, tx.send(frame)).await {
                     Ok(Ok(())) => {
                         delivered += 1;
                     }
                     Ok(Err(_closed)) => {
-                        // Receiver dropped — client disconnected mid-stream.
+                        // Receiver dropped — client disconnected mid-stream. The
+                        // frame is buffered; a reconnect within the TTL window
+                        // replays from here. Generation stops (GPU released) per
+                        // the #814 backpressure decision.
                         dropped += 1;
                         record_disconnect(&metrics, delivered, dropped);
                         return;
@@ -582,7 +702,10 @@ async fn pump_chat_stream<S>(
                 }
             }
             Err(e) => {
-                let _ = tx.send(ChatStreamFrame::error(e.to_string())).await;
+                seq += 1;
+                let frame = ChatStreamFrame::error(e.to_string());
+                store.append(&session, &frame.to_stored(seq)).await;
+                let _ = tx.send(frame.with_id(format!("{session}-{seq}"))).await;
                 metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
                 metrics
                     .tokens_streamed_total
@@ -593,7 +716,10 @@ async fn pump_chat_stream<S>(
     }
 
     // Stream exhausted normally — emit the terminal `done` frame.
-    let _ = tx.send(ChatStreamFrame::done(&model_name)).await;
+    seq += 1;
+    let frame = ChatStreamFrame::done(&model_name);
+    store.append(&session, &frame.to_stored(seq)).await;
+    let _ = tx.send(frame.with_id(format!("{session}-{seq}"))).await;
     metrics.streams_completed.fetch_add(1, Ordering::Relaxed);
     metrics
         .tokens_streamed_total
@@ -636,8 +762,21 @@ fn record_disconnect(metrics: &ChatStreamMetrics, delivered: u64, dropped: u64) 
 )]
 pub async fn chat_stream_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<ChatRequest>,
 ) -> Response {
+    // 0. Resumption: a `Last-Event-ID` header means the client is reconnecting to
+    //    an existing stream. Replay the buffered tail after the cursor instead of
+    //    starting a fresh generation — no GPU permit required (#815). The request
+    //    body is re-sent by the client but ignored on this path.
+    if let Some(cursor) = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(ResumeCursor::parse)
+    {
+        return resume_chat_stream(state.chat_stream_store.clone(), cursor).await;
+    }
+
     // 1. Validate input
     let input = req.input.trim();
     if input.is_empty() {
@@ -716,10 +855,14 @@ pub async fn chat_stream_handler(
         "Starting streaming chat request"
     );
 
-    // 6. Begin streaming.
+    // 6. Begin streaming. Each stream gets a session id; emitted frames carry an
+    //    `id` of `{session}-{seq}` and are buffered in Redis for 60s so a
+    //    reconnecting client can resume after its `Last-Event-ID` (#815).
     let metrics = state.chat_stream_metrics.clone();
     metrics.streams_started.fetch_add(1, Ordering::Relaxed);
 
+    let session = Uuid::new_v4().to_string();
+    let store = state.chat_stream_store.clone();
     let (tx, rx) = mpsc::channel::<ChatStreamFrame>(CHAT_STREAM_CHANNEL_CAPACITY);
     let send_timeout = chat_stream_send_timeout();
 
@@ -730,13 +873,22 @@ pub async fn chat_stream_handler(
 
         match chat_backend.chat_multi_turn_stream(messages).await {
             Ok(chunks) => {
-                pump_chat_stream(chunks, tx, metrics, model_name, send_timeout).await;
+                pump_chat_stream(
+                    chunks,
+                    tx,
+                    metrics,
+                    model_name,
+                    send_timeout,
+                    session,
+                    store,
+                )
+                .await;
             }
             Err(e) => {
                 warn!(error = %e, model = %model_name, "Streaming chat failed to start");
-                let _ = tx
-                    .send(ChatStreamFrame::error(format!("Generation failed: {}", e)))
-                    .await;
+                let frame = ChatStreamFrame::error(format!("Generation failed: {}", e));
+                store.append(&session, &frame.to_stored(1)).await;
+                let _ = tx.send(frame.with_id(format!("{session}-1"))).await;
                 metrics.streams_errored.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -1343,6 +1495,8 @@ mod tests {
             metrics,
             "test-model:latest".to_string(),
             Duration::from_secs(5),
+            "test-session".to_string(),
+            ChatStreamStore::disabled(),
         )
         .await;
         let mut frames = Vec::new();
@@ -1512,6 +1666,8 @@ mod tests {
             metrics.clone(),
             "test-model:latest".to_string(),
             Duration::from_secs(5),
+            "test-session".to_string(),
+            ChatStreamStore::disabled(),
         )
         .await;
 
@@ -1540,6 +1696,8 @@ mod tests {
             metrics.clone(),
             "test-model:latest".to_string(),
             Duration::from_millis(50),
+            "test-session".to_string(),
+            ChatStreamStore::disabled(),
         )
         .await;
 
@@ -1549,5 +1707,104 @@ mod tests {
         assert_eq!(metrics.streams_completed.load(Ordering::Relaxed), 0);
         // _rx kept alive to scope end so the channel stays "full" rather than closed.
         drop(_rx);
+    }
+
+    /// #815: every emitted frame carries a sequential `{session}-{seq}` SSE id so
+    /// a reconnecting client's `Last-Event-ID` resolves to a cursor.
+    #[tokio::test]
+    async fn pump_assigns_sequential_event_ids() {
+        let metrics = Arc::new(ChatStreamMetrics::default());
+        let frames =
+            run_pump_to_completion(vec![Ok("a".to_string()), Ok("b".to_string())], 16, metrics)
+                .await;
+        // 2 deltas + done, ids 1..=3 under the helper's "test-session".
+        let ids: Vec<Option<String>> = frames.iter().map(|f| f.id.clone()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                Some("test-session-1".to_string()),
+                Some("test-session-2".to_string()),
+                Some("test-session-3".to_string()),
+            ]
+        );
+    }
+
+    /// #815: a buffered frame replays with its original event/data and a re-built
+    /// `{session}-{seq}` id.
+    #[test]
+    fn from_stored_reattaches_event_id() {
+        let sf = StoredFrame {
+            seq: 5,
+            event: "delta".to_string(),
+            data: r#"{"content":"hi"}"#.to_string(),
+        };
+        let frame = ChatStreamFrame::from_stored(&sf, "sess-uuid");
+        assert_eq!(frame.event, "delta");
+        assert_eq!(frame.data, r#"{"content":"hi"}"#);
+        assert_eq!(frame.id.as_deref(), Some("sess-uuid-5"));
+
+        // Unknown stored event names degrade to "delta" rather than panicking.
+        let weird = StoredFrame {
+            seq: 1,
+            event: "bogus".to_string(),
+            data: "{}".to_string(),
+        };
+        assert_eq!(ChatStreamFrame::from_stored(&weird, "s").event, "delta");
+    }
+
+    /// #815: replaying a buffer that ends with a terminal frame yields exactly the
+    /// post-cursor frames — no synthetic interruption appended.
+    #[test]
+    fn build_resume_frames_completed_buffer_replays_verbatim() {
+        let frames = vec![
+            StoredFrame {
+                seq: 3,
+                event: "delta".into(),
+                data: r#"{"content":"lo"}"#.into(),
+            },
+            StoredFrame {
+                seq: 4,
+                event: "done".into(),
+                data: r#"{"finish_reason":"stop","model":"m"}"#.into(),
+            },
+        ];
+        let out = build_resume_frames(&frames, "S");
+        assert_eq!(
+            out.len(),
+            2,
+            "no interruption appended for a complete buffer"
+        );
+        assert_eq!(out[0].id.as_deref(), Some("S-3"));
+        assert_eq!(out[1].event, "done");
+        assert_eq!(out[1].id.as_deref(), Some("S-4"));
+    }
+
+    /// #815: replaying a buffer with no terminal frame (generation was interrupted
+    /// or the session expired) appends a terminal STREAM_INTERRUPTED error so the
+    /// client stops waiting and resends.
+    #[test]
+    fn build_resume_frames_interrupted_buffer_appends_terminator() {
+        let frames = vec![StoredFrame {
+            seq: 2,
+            event: "delta".into(),
+            data: r#"{"content":"par"}"#.into(),
+        }];
+        let out = build_resume_frames(&frames, "S");
+        assert_eq!(out.len(), 2, "delta replay + synthetic interruption");
+        assert_eq!(out[0].event, "delta");
+        assert_eq!(out[1].event, "error");
+        let v: serde_json::Value = serde_json::from_str(&out[1].data).unwrap();
+        assert_eq!(v["code"], "STREAM_INTERRUPTED");
+        assert!(
+            out[1].id.is_none(),
+            "synthetic terminator has no buffered id"
+        );
+
+        // An empty buffer (unknown / expired session) is purely the terminator.
+        let empty = build_resume_frames(&[], "S");
+        assert_eq!(empty.len(), 1);
+        assert_eq!(empty[0].event, "error");
+        let v: serde_json::Value = serde_json::from_str(&empty[0].data).unwrap();
+        assert_eq!(v["code"], "STREAM_INTERRUPTED");
     }
 }
