@@ -402,3 +402,37 @@ async fn test_ingest_stream_410_on_unknown_cursor() {
         "an unknown/expired ingest cursor must return 410 Gone"
     );
 }
+
+/// `/health/streaming` exposes the ingest backpressure gauge (#827). Asserts the
+/// metric is wired end-to-end through the live server: the `ingest` block carries
+/// `ingest_stream_buffer_pressure` typed as a gauge. The escalating warning/429
+/// behavior fires only under a slow consumer (deterministically unit-tested in
+/// `handlers/ingest_stream.rs`); this pins the observable metric surface.
+#[tokio::test]
+async fn test_health_streaming_exposes_ingest_buffer_pressure_gauge() {
+    require_api!();
+    let client = reqwest::Client::new();
+    let mut req = client
+        .get(format!("{}/api/v1/health/streaming", api_base_url()))
+        .timeout(Duration::from_secs(10));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.expect("request send failed");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "streaming health must answer 200"
+    );
+    let body: serde_json::Value = resp.json().await.expect("health body must be JSON");
+
+    let gauge = &body["ingest"]["ingest_stream_buffer_pressure"];
+    assert_eq!(
+        gauge["type"], "gauge",
+        "ingest_stream_buffer_pressure must be exposed as a gauge: {body}"
+    );
+    assert!(
+        gauge["value"].is_u64(),
+        "buffer-pressure gauge must carry a numeric value: {body}"
+    );
+}

@@ -30,19 +30,38 @@
 //! - `error` — `{"error":"...","code":"INGEST_FATAL"}` only for a pre-stream
 //!   fatal (e.g. an invalid archive schema)
 //!
-//! ## Scope (#825 foundation + #826 validation/progress + #828 resumption — store-only)
+//! ## Scope (#825 foundation + #826 validation/progress + #828 resumption + #827 backpressure — store-only)
 //!
 //! Per line: parse → cheap DB-free schema validation ([`validate_note_data`]) →
 //! `insert_tx` → `ack`, with periodic `progress` frames, per-ack cursor
-//! persistence for resumption, and a single post-stream search-cache
-//! invalidation so stored notes are FTS-findable. Deliberately deferred:
+//! persistence for resumption, escalating buffer-pressure backpressure, and a
+//! single post-stream search-cache invalidation so stored notes are
+//! FTS-findable. Deliberately deferred:
 //! - **NLP enrichment** (embeddings, AI title, linking) — streamed notes are
 //!   stored and FTS-findable but NOT embedded/titled until a later reprocess.
 //! - **`event_outbox`** durability/replay — wired in #830 (blocked on #592);
 //!   the strong zero-duplicate-via-idempotency-key dedup rides on it.
-//! - **Per-line auth + rate limit** (#829), **request-level backpressure 429**
-//!   (#827). The bounded per-line buffer and bounded channel here are
-//!   correctness floors, not #827's request-level backpressure.
+//! - **Per-line bearer auth + rate limit** (#829). The endpoint authenticates
+//!   the request once (handler-level `Auth`); per-stream token scoping and
+//!   rate limiting are #829's scope.
+//!
+//! ## Backpressure (#827)
+//!
+//! The pump→client SSE channel is a single bounded `mpsc` of capacity
+//! `FORTEMI_INGEST_STREAM_BUFFER` (default 64). Three escalating tiers, sampled
+//! before each `ack`:
+//! - **≥80% full** → one `warning {message:'buffer high', advisory_rate}` frame
+//!   (advisory; once per high episode, re-armed when pressure drops below 80%).
+//! - **≥95% full** → one `error {status:429, retry_after_ms, code:'INGEST_BACKPRESSURE'}`
+//!   frame — emitted while a slot still exists (a 429 cannot be pushed through a
+//!   100%-full channel), so the client gets an explicit back-off signal.
+//! - **100% full** → the blocking `ack` send stalls the pump, which stops
+//!   reading the body → TCP backpressure on the upload (Tokio's default).
+//!
+//! Warning/429 frames are best-effort (`try_send`, never blocking) — they are
+//! advisory; the load-bearing protection is the blocking `ack` send. Live
+//! occupancy is published as the `ingest_stream_buffer_pressure` gauge on
+//! `/health/streaming` ([`IngestStreamMetrics`]).
 //!
 //! ## Resumption (#828)
 //!
@@ -67,12 +86,16 @@
 //!    line and yields an `error` ack while the stream continues.
 //! 3. **No-leak pump** — [`pump_ingest_stream`] owns its `mpsc::Sender` and
 //!    drops it on return, closing the SSE channel; nothing is stashed in a
-//!    lingering task. A bounded channel applies backpressure.
+//!    lingering task. The bounded channel applies backpressure: a full channel
+//!    blocks the `ack` send → the pump stops reading the body (TCP backpressure),
+//!    with escalating `warning`/`429` advisories below the ceiling ([`Backpressure`]).
 //! 4. **Low complexity** — the byte state machine ([`LineSplitter`]) is pure
 //!    and unit-tested in isolation from the async I/O and the DB.
 
 use std::convert::Infallible;
 use std::ops::ControlFlow;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -99,9 +122,25 @@ use crate::{AppState, ArchiveContext, Auth};
 /// Default per-line byte ceiling when `FORTEMI_INGEST_MAX_LINE_BYTES` is unset.
 const DEFAULT_INGEST_MAX_LINE_BYTES: usize = 1024 * 1024;
 
-/// Bounded SSE frame channel capacity — applies backpressure between the pump
-/// and the client (a slow consumer cannot make the pump buffer without bound).
-const INGEST_STREAM_CHANNEL_CAPACITY: usize = 64;
+/// Default bounded SSE frame channel capacity when `FORTEMI_INGEST_STREAM_BUFFER`
+/// is unset (#827). Applies backpressure between the pump and the client (a slow
+/// consumer cannot make the pump buffer without bound).
+const DEFAULT_INGEST_STREAM_BUFFER: usize = 64;
+
+/// Buffer-pressure escalation thresholds (#827), as a percent of channel
+/// capacity. At/above `WARN` emit one `warning`; at/above `THROTTLE` emit one
+/// `429` (still below 100%, so the frame is deliverable); at 100% the blocking
+/// `ack` send is the real (TCP) backpressure.
+const WARN_PRESSURE_PCT: u64 = 80;
+const THROTTLE_PRESSURE_PCT: u64 = 95;
+
+/// Default advisory send rate (lines/sec) suggested in a `warning` frame when
+/// `FORTEMI_INGEST_ADVISORY_RATE` is unset (#827).
+const DEFAULT_INGEST_ADVISORY_RATE: u64 = 1000;
+
+/// Default `retry_after_ms` hint in a `429` frame when
+/// `FORTEMI_INGEST_RETRY_AFTER_MS` is unset (#827).
+const DEFAULT_INGEST_RETRY_AFTER_MS: u64 = 500;
 
 /// SSE keep-alive interval (matches `/chat/stream`).
 const INGEST_KEEPALIVE_SECS: u64 = 15;
@@ -131,6 +170,90 @@ fn ingest_progress_interval() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(DEFAULT_INGEST_PROGRESS_INTERVAL)
+}
+
+/// Resolve the SSE channel capacity from `FORTEMI_INGEST_STREAM_BUFFER` (#827),
+/// falling back to [`DEFAULT_INGEST_STREAM_BUFFER`]. Zero/non-numeric falls back
+/// (a zero-capacity channel would deadlock the pump).
+fn ingest_stream_buffer() -> usize {
+    std::env::var("FORTEMI_INGEST_STREAM_BUFFER")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_INGEST_STREAM_BUFFER)
+}
+
+/// Resolve the advisory send rate (lines/sec) for `warning` frames from
+/// `FORTEMI_INGEST_ADVISORY_RATE` (#827), defaulting to
+/// [`DEFAULT_INGEST_ADVISORY_RATE`].
+fn ingest_advisory_rate() -> u64 {
+    std::env::var("FORTEMI_INGEST_ADVISORY_RATE")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_INGEST_ADVISORY_RATE)
+}
+
+/// Resolve the `retry_after_ms` back-off hint for `429` frames from
+/// `FORTEMI_INGEST_RETRY_AFTER_MS` (#827), defaulting to
+/// [`DEFAULT_INGEST_RETRY_AFTER_MS`].
+fn ingest_retry_after_ms() -> u64 {
+    std::env::var("FORTEMI_INGEST_RETRY_AFTER_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_INGEST_RETRY_AFTER_MS)
+}
+
+// =============================================================================
+// METRICS (#827 — surfaced on /health/streaming, mirrors ChatStreamMetrics)
+// =============================================================================
+
+/// Backpressure observability for the ingest stream (#827). The gauges track
+/// buffer occupancy; the counters track escalation events. Process-lifetime,
+/// shared across all in-flight streams via `Arc`, snapshotted on
+/// `/health/streaming`.
+#[derive(Debug, Default)]
+pub struct IngestStreamMetrics {
+    /// Last-sampled SSE channel occupancy, 0–100 (%). This is the
+    /// `ingest_stream_buffer_pressure` gauge.
+    pub buffer_pressure: AtomicU64,
+    /// High-water occupancy seen this process lifetime, 0–100 (%).
+    pub peak_buffer_pressure: AtomicU64,
+    /// Total `warning {buffer high}` frames emitted (one per ≥80% episode).
+    pub backpressure_warnings_total: AtomicU64,
+    /// Total `429` backpressure frames emitted (one per ≥95% episode).
+    pub throttled_total: AtomicU64,
+}
+
+impl IngestStreamMetrics {
+    /// Snapshot as a JSON object for `/health/streaming`.
+    pub fn snapshot(&self) -> serde_json::Value {
+        json!({
+            "ingest_stream_buffer_pressure": {
+                "type": "gauge",
+                "value": self.buffer_pressure.load(Ordering::Relaxed)
+            },
+            "ingest_stream_buffer_pressure_peak": {
+                "type": "gauge",
+                "value": self.peak_buffer_pressure.load(Ordering::Relaxed)
+            },
+            "ingest_stream_backpressure_warnings_total": {
+                "type": "counter",
+                "value": self.backpressure_warnings_total.load(Ordering::Relaxed)
+            },
+            "ingest_stream_throttled_total": {
+                "type": "counter",
+                "value": self.throttled_total.load(Ordering::Relaxed)
+            },
+        })
+    }
+
+    /// Record a fresh occupancy sample, advancing the peak gauge.
+    fn record_pressure(&self, pct: u64) {
+        self.buffer_pressure.store(pct, Ordering::Relaxed);
+        self.peak_buffer_pressure.fetch_max(pct, Ordering::Relaxed);
+    }
 }
 
 // =============================================================================
@@ -210,6 +333,33 @@ impl IngestFrame {
         Self {
             event: "error",
             data: json!({ "error": error, "code": "INGEST_FATAL" }).to_string(),
+        }
+    }
+
+    /// Buffer-pressure `warning` (#827), emitted once per ≥80% episode.
+    /// Advisory: the client should slow its upload toward `advisory_rate`
+    /// lines/sec. The stream continues normally.
+    fn warning(advisory_rate: u64) -> Self {
+        Self {
+            event: "warning",
+            data: json!({ "message": "buffer high", "advisory_rate": advisory_rate }).to_string(),
+        }
+    }
+
+    /// Buffer-pressure `429` (#827), emitted once per ≥95% episode while a slot
+    /// still exists (it cannot ride a 100%-full channel). The client is expected
+    /// to back off for `retry_after_ms`; the stream is not aborted (a 100% buffer
+    /// then applies real TCP backpressure via the blocking `ack` send).
+    fn throttle(retry_after_ms: u64) -> Self {
+        Self {
+            event: "error",
+            data: json!({
+                "error": "ingest buffer full; back off",
+                "status": 429,
+                "retry_after_ms": retry_after_ms,
+                "code": "INGEST_BACKPRESSURE",
+            })
+            .to_string(),
         }
     }
 
@@ -505,6 +655,81 @@ impl NoteSink for DbNoteSink {
 }
 
 // =============================================================================
+// BACKPRESSURE (#827 — escalating warning → 429 → TCP, single bounded channel)
+// =============================================================================
+
+/// Current SSE channel occupancy as a percent (0–100) of `buffer`. `buffer` is
+/// the channel's configured capacity (there is no `Sender` API for the maximum,
+/// so it is passed in); `tx.capacity()` is the live count of *free* permits.
+fn sample_pressure(tx: &mpsc::Sender<IngestFrame>, buffer: usize) -> u64 {
+    let buffer = (buffer.max(1)) as u64;
+    let available = tx.capacity() as u64;
+    let used = buffer.saturating_sub(available);
+    (used * 100) / buffer
+}
+
+/// Escalating backpressure state across one stream (#827). Sampled before each
+/// `ack`; emits at most one advisory frame per high episode and re-arms when
+/// pressure falls back below the warning threshold.
+struct Backpressure {
+    /// Channel capacity (== `FORTEMI_INGEST_STREAM_BUFFER`), the pressure divisor.
+    buffer: usize,
+    advisory_rate: u64,
+    retry_after_ms: u64,
+    metrics: Arc<IngestStreamMetrics>,
+    /// A `warning` has been emitted for the current ≥80% episode.
+    warned: bool,
+    /// A `429` has been emitted for the current ≥95% episode.
+    throttled: bool,
+}
+
+impl Backpressure {
+    fn new(
+        buffer: usize,
+        advisory_rate: u64,
+        retry_after_ms: u64,
+        metrics: Arc<IngestStreamMetrics>,
+    ) -> Self {
+        Self {
+            buffer,
+            advisory_rate,
+            retry_after_ms,
+            metrics,
+            warned: false,
+            throttled: false,
+        }
+    }
+
+    /// Sample occupancy, update the gauge, and emit one escalating advisory
+    /// (`warning` at ≥80%, `429` at ≥95%) per high episode. Control frames are
+    /// best-effort (`try_send`, never blocking): they are advisory and a momentary
+    /// full channel simply drops them. The real backpressure is the caller's
+    /// blocking `ack` send when the channel is 100% full. The flat `else if`
+    /// chain keeps a single decision level (no nested branches): a 429 also sets
+    /// `warned` so the warning tier does not re-fire under it, and the reset arm
+    /// only runs strictly below the warning threshold.
+    fn observe(&mut self, tx: &mpsc::Sender<IngestFrame>) {
+        let pct = sample_pressure(tx, self.buffer);
+        self.metrics.record_pressure(pct);
+        if pct < WARN_PRESSURE_PCT {
+            self.warned = false;
+            self.throttled = false;
+        } else if pct >= THROTTLE_PRESSURE_PCT && !self.throttled {
+            self.throttled = true;
+            self.warned = true;
+            self.metrics.throttled_total.fetch_add(1, Ordering::Relaxed);
+            let _ = tx.try_send(IngestFrame::throttle(self.retry_after_ms));
+        } else if !self.warned {
+            self.warned = true;
+            self.metrics
+                .backpressure_warnings_total
+                .fetch_add(1, Ordering::Relaxed);
+            let _ = tx.try_send(IngestFrame::warning(self.advisory_rate));
+        }
+    }
+}
+
+// =============================================================================
 // PUMP (pillar 3 — no-leak; pillar 4 — low complexity via decomposition)
 // =============================================================================
 
@@ -533,6 +758,7 @@ async fn pump_ingest_stream<B, N>(
     search_cache: SearchCache,
     cursor_store: IngestCursorStore,
     cfg: PumpConfig,
+    mut bp: Backpressure,
 ) where
     B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     N: NoteSink,
@@ -545,7 +771,7 @@ async fn pump_ingest_stream<B, N>(
         // already-acked lines stand.
         let Ok(bytes) = chunk else { break };
         for ev in splitter.push(&bytes) {
-            if step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg)
+            if step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg, &mut bp)
                 .await
                 .is_break()
             {
@@ -555,7 +781,7 @@ async fn pump_ingest_stream<B, N>(
     }
 
     if let Some(ev) = splitter.finish() {
-        let _ = step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg).await;
+        let _ = step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg, &mut bp).await;
     }
 
     // Single post-stream invalidation so stored notes appear in FTS results
@@ -578,12 +804,17 @@ async fn step<N: NoteSink>(
     stats: &mut IngestStats,
     cursor_store: &IngestCursorStore,
     cfg: &PumpConfig,
+    bp: &mut Backpressure,
 ) -> ControlFlow<()> {
     let before = stats.total();
     // Blank lines and already-processed (skipped) lines yield no frame.
     let Some(frame) = handle_event(ev, sink, stats, cfg).await else {
         return ControlFlow::Continue(());
     };
+    // Sample buffer pressure and emit any escalating advisory (#827) *before*
+    // the blocking ack send — so a `warning`/`429` is delivered while a slot
+    // still exists; a 100%-full channel then blocks here (TCP backpressure).
+    bp.observe(tx);
     if tx.send(frame).await.is_err() {
         return ControlFlow::Break(());
     }
@@ -720,10 +951,17 @@ pub async fn ingest_stream_handler(
         Err(resp) => return resp,
     };
 
-    let (tx, rx) = mpsc::channel::<IngestFrame>(INGEST_STREAM_CHANNEL_CAPACITY);
+    let buffer = ingest_stream_buffer();
+    let (tx, rx) = mpsc::channel::<IngestFrame>(buffer);
     let pool = state.db.pool.clone();
     let schema = archive_ctx.schema.clone();
     let search_cache = state.search_cache.clone();
+    let bp = Backpressure::new(
+        buffer,
+        ingest_advisory_rate(),
+        ingest_retry_after_ms(),
+        state.ingest_stream_metrics.clone(),
+    );
     let cfg = PumpConfig {
         stream_id,
         max_line_bytes: ingest_max_line_bytes(),
@@ -741,6 +979,7 @@ pub async fn ingest_stream_handler(
                     search_cache,
                     cursor_store,
                     cfg,
+                    bp,
                 )
                 .await;
             }
@@ -1043,6 +1282,10 @@ mod tests {
             skip_boundary,
             progress_interval: progress_interval as u64,
         };
+        // buffer == the harness channel capacity so pressure math is accurate;
+        // every existing test drives far fewer than 80% of 64 frames, so no
+        // backpressure advisory fires (#827 escalation has dedicated tests).
+        let bp = Backpressure::new(64, 1000, 500, Arc::new(IngestStreamMetrics::default()));
         pump_ingest_stream(
             stream,
             tx,
@@ -1050,6 +1293,7 @@ mod tests {
             SearchCache::disabled(),
             IngestCursorStore::disabled(),
             cfg,
+            bp,
         )
         .await;
         let drain = async {
@@ -1399,5 +1643,154 @@ mod tests {
             .await
             .expect_err("unknown/expired cursor must short-circuit");
         assert_eq!(resp.status(), StatusCode::GONE);
+    }
+
+    // ---- backpressure (#827) ------------------------------------------------
+
+    #[test]
+    fn stream_buffer_defaults_when_unset() {
+        assert_eq!(DEFAULT_INGEST_STREAM_BUFFER, 64);
+        assert_eq!(WARN_PRESSURE_PCT, 80);
+        assert_eq!(THROTTLE_PRESSURE_PCT, 95);
+    }
+
+    #[test]
+    fn frame_warning_shape() {
+        let f = IngestFrame::warning(750);
+        assert_eq!(f.event, "warning");
+        let j = frame_json(&f);
+        assert_eq!(j["message"], "buffer high");
+        assert_eq!(j["advisory_rate"], 750);
+    }
+
+    #[test]
+    fn frame_throttle_shape() {
+        let f = IngestFrame::throttle(250);
+        assert_eq!(f.event, "error");
+        let j = frame_json(&f);
+        assert_eq!(j["status"], 429);
+        assert_eq!(j["retry_after_ms"], 250);
+        assert_eq!(j["code"], "INGEST_BACKPRESSURE");
+    }
+
+    /// `sample_pressure` reports occupancy as a percent of the configured buffer,
+    /// derived from the live free-permit count (`tx.capacity()`).
+    #[test]
+    fn sample_pressure_reports_occupancy_percent() {
+        let (tx, _rx) = mpsc::channel::<IngestFrame>(10);
+        assert_eq!(sample_pressure(&tx, 10), 0, "empty channel = 0%");
+        for _ in 0..8 {
+            tx.try_send(IngestFrame::progress(0)).unwrap();
+        }
+        assert_eq!(sample_pressure(&tx, 10), 80, "8/10 occupied = 80%");
+        tx.try_send(IngestFrame::progress(0)).unwrap();
+        assert_eq!(sample_pressure(&tx, 10), 90, "9/10 occupied = 90%");
+    }
+
+    /// Helper: occupy `n` of the channel's slots with filler frames so
+    /// `sample_pressure` reads a known occupancy, returning the live sender.
+    fn fill(tx: &mpsc::Sender<IngestFrame>, n: usize) {
+        for _ in 0..n {
+            tx.try_send(IngestFrame::progress(0))
+                .expect("slot available");
+        }
+    }
+
+    #[test]
+    fn backpressure_warns_once_at_80_percent() {
+        let metrics = Arc::new(IngestStreamMetrics::default());
+        let (tx, mut rx) = mpsc::channel::<IngestFrame>(10);
+        let mut bp = Backpressure::new(10, 1000, 500, metrics.clone());
+
+        fill(&tx, 8); // 80%
+        bp.observe(&tx);
+        bp.observe(&tx); // second sample in the same episode must not re-warn
+
+        assert_eq!(
+            metrics.backpressure_warnings_total.load(Ordering::Relaxed),
+            1,
+            "exactly one warning per high episode"
+        );
+        assert_eq!(metrics.buffer_pressure.load(Ordering::Relaxed), 90); // 9/10 after the warning frame
+        assert_eq!(metrics.throttled_total.load(Ordering::Relaxed), 0);
+
+        // Drain the 8 fillers; the 9th frame must be the warning.
+        for _ in 0..8 {
+            let f = rx.try_recv().expect("filler");
+            assert_eq!(f.event, "progress");
+        }
+        let w = rx.try_recv().expect("warning frame");
+        assert_eq!(w.event, "warning");
+    }
+
+    #[test]
+    fn backpressure_throttles_with_429_at_95_percent() {
+        let metrics = Arc::new(IngestStreamMetrics::default());
+        let (tx, mut rx) = mpsc::channel::<IngestFrame>(20);
+        let mut bp = Backpressure::new(20, 1000, 500, metrics.clone());
+
+        fill(&tx, 19); // 95%
+        bp.observe(&tx);
+
+        assert_eq!(metrics.throttled_total.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            metrics.backpressure_warnings_total.load(Ordering::Relaxed),
+            0,
+            "a 429 subsumes the warning tier — no separate warning"
+        );
+        assert!(bp.throttled && bp.warned, "429 arms both flags");
+
+        for _ in 0..19 {
+            rx.try_recv().expect("filler");
+        }
+        let f = rx.try_recv().expect("throttle frame");
+        let j: serde_json::Value = serde_json::from_str(&f.data).unwrap();
+        assert_eq!(j["status"], 429);
+    }
+
+    #[tokio::test]
+    async fn backpressure_rearms_after_pressure_recovers() {
+        let metrics = Arc::new(IngestStreamMetrics::default());
+        let (tx, mut rx) = mpsc::channel::<IngestFrame>(10);
+        let mut bp = Backpressure::new(10, 1000, 500, metrics.clone());
+
+        fill(&tx, 8); // 80%
+        bp.observe(&tx); // warning #1 (now 9 used)
+        assert_eq!(
+            metrics.backpressure_warnings_total.load(Ordering::Relaxed),
+            1
+        );
+
+        // Drain below the warning threshold so the episode ends.
+        for _ in 0..4 {
+            rx.recv().await.expect("frame");
+        }
+        bp.observe(&tx); // pressure < 80% -> re-arm, no frame
+        assert!(!bp.warned, "warned flag re-armed below threshold");
+
+        // Back up to 80% -> a fresh warning fires.
+        fill(&tx, 3);
+        bp.observe(&tx);
+        assert_eq!(
+            metrics.backpressure_warnings_total.load(Ordering::Relaxed),
+            2,
+            "a new high episode emits a new warning"
+        );
+    }
+
+    #[test]
+    fn ingest_stream_metrics_snapshot_shape() {
+        let m = IngestStreamMetrics::default();
+        m.record_pressure(42);
+        m.record_pressure(17); // peak must hold the high-water mark
+        m.backpressure_warnings_total
+            .fetch_add(3, Ordering::Relaxed);
+        m.throttled_total.fetch_add(1, Ordering::Relaxed);
+        let j = m.snapshot();
+        assert_eq!(j["ingest_stream_buffer_pressure"]["value"], 17);
+        assert_eq!(j["ingest_stream_buffer_pressure"]["type"], "gauge");
+        assert_eq!(j["ingest_stream_buffer_pressure_peak"]["value"], 42);
+        assert_eq!(j["ingest_stream_backpressure_warnings_total"]["value"], 3);
+        assert_eq!(j["ingest_stream_throttled_total"]["value"], 1);
     }
 }

@@ -43,7 +43,7 @@ cross-repo HotM coordination — does not gate the cut.
 
 - [x] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation landed: bounded line-by-line parse + per-line `insert_tx` + SSE `ack`/`done`, store-only; outbox → #830, validation hardening → #826)*
 - [x] #826 per-line validation + SSE-streamed per-line response codes *(landed: DB-free schema validation — tag depth/length + metadata-object; `progress {processed:N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL`=100; unified `ack` contract retained)*
-- [ ] #827 backpressure — bounded buffer + 429 early-warning
+- [x] #827 backpressure — bounded buffer + 429 early-warning *(landed: configurable `FORTEMI_INGEST_STREAM_BUFFER` channel + escalating thresholds — `warning` @80%, `429 {retry_after_ms, INGEST_BACKPRESSURE}` @95% via best-effort `try_send` while a slot exists, blocking-send TCP backpressure @100%; `ingest_stream_buffer_pressure` gauge + peak/warning/429 counters on `/health/streaming` mirroring `ChatStreamMetrics`. Escalation unit-tested deterministically; live contract test pins the gauge surface)*
 - [x] #828 `X-Ingest-Cursor` resumption (60s TTL) *(landed: skip-ahead dedup — Redis `IngestCursorStore` per-ack cursor `{stream_id}-{line}`, 60s TTL, server-authoritative skip on reconnect, 410 Gone beyond TTL; outbox-idempotency dedup deferred to #830)*
 - [ ] #829 per-stream bearer token auth + rate limit
 - [ ] #830 wire `/ingest/stream` into `event_outbox` — **verify dep #592 status first**

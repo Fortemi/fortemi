@@ -741,6 +741,8 @@ struct AppState {
     inference_available: Arc<AtomicBool>,
     /// Counters for the streaming chat endpoint, surfaced on `/health/streaming` (#814).
     chat_stream_metrics: Arc<ChatStreamMetrics>,
+    /// Backpressure gauges/counters for `/ingest/stream`, surfaced on `/health/streaming` (#827).
+    ingest_stream_metrics: Arc<crate::handlers::ingest_stream::IngestStreamMetrics>,
 }
 
 impl AppState {
@@ -1999,6 +2001,9 @@ async fn main() -> anyhow::Result<()> {
         chat_semaphore,
         inference_available: inference_available.clone(),
         chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+        ingest_stream_metrics: Arc::new(
+            crate::handlers::ingest_stream::IngestStreamMetrics::default(),
+        ),
     };
 
     // Spawn periodic inference reachability probe (#630).
@@ -5037,6 +5042,7 @@ async fn streaming_health_check(
         "sse": state.event_bus.metrics.snapshot(),
         "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
         "chat": state.chat_stream_metrics.snapshot(),
+        "ingest": state.ingest_stream_metrics.snapshot(),
     })))
 }
 
@@ -20293,6 +20299,9 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            ingest_stream_metrics: Arc::new(
+                crate::handlers::ingest_stream::IngestStreamMetrics::default(),
+            ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         }
@@ -20516,6 +20525,9 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            ingest_stream_metrics: Arc::new(
+                crate::handlers::ingest_stream::IngestStreamMetrics::default(),
+            ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
@@ -21711,6 +21723,9 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            ingest_stream_metrics: Arc::new(
+                crate::handlers::ingest_stream::IngestStreamMetrics::default(),
+            ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
@@ -22033,6 +22048,9 @@ mod tests {
             chat_semaphore: None,
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
+            ingest_stream_metrics: Arc::new(
+                crate::handlers::ingest_stream::IngestStreamMetrics::default(),
+            ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
