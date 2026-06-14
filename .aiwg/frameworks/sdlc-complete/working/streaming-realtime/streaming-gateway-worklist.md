@@ -44,7 +44,7 @@ cross-repo HotM coordination — does not gate the cut.
 - [x] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation landed: bounded line-by-line parse + per-line `insert_tx` + SSE `ack`/`done`, store-only; outbox → #830, validation hardening → #826)*
 - [x] #826 per-line validation + SSE-streamed per-line response codes *(landed: DB-free schema validation — tag depth/length + metadata-object; `progress {processed:N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL`=100; unified `ack` contract retained)*
 - [ ] #827 backpressure — bounded buffer + 429 early-warning
-- [ ] #828 `X-Ingest-Cursor` resumption (60s TTL) — **reuse chat-stream resumption pattern**
+- [x] #828 `X-Ingest-Cursor` resumption (60s TTL) *(landed: skip-ahead dedup — Redis `IngestCursorStore` per-ack cursor `{stream_id}-{line}`, 60s TTL, server-authoritative skip on reconnect, 410 Gone beyond TTL; outbox-idempotency dedup deferred to #830)*
 - [ ] #829 per-stream bearer token auth + rate limit
 - [ ] #830 wire `/ingest/stream` into `event_outbox` — **verify dep #592 status first**
 - [ ] #831 finish TUS resumable upload (closes #544 stub)

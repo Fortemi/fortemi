@@ -30,19 +30,31 @@
 //! - `error` — `{"error":"...","code":"INGEST_FATAL"}` only for a pre-stream
 //!   fatal (e.g. an invalid archive schema)
 //!
-//! ## Scope (#825 foundation + #826 validation/progress — store-only)
+//! ## Scope (#825 foundation + #826 validation/progress + #828 resumption — store-only)
 //!
 //! Per line: parse → cheap DB-free schema validation ([`validate_note_data`]) →
-//! `insert_tx` → `ack`, with periodic `progress` frames and a single
-//! post-stream search-cache invalidation so stored notes are FTS-findable.
-//! Deliberately deferred:
+//! `insert_tx` → `ack`, with periodic `progress` frames, per-ack cursor
+//! persistence for resumption, and a single post-stream search-cache
+//! invalidation so stored notes are FTS-findable. Deliberately deferred:
 //! - **NLP enrichment** (embeddings, AI title, linking) — streamed notes are
 //!   stored and FTS-findable but NOT embedded/titled until a later reprocess.
-//! - **`event_outbox`** durability/replay — wired in #830 (blocked on #592).
+//! - **`event_outbox`** durability/replay — wired in #830 (blocked on #592);
+//!   the strong zero-duplicate-via-idempotency-key dedup rides on it.
 //! - **Per-line auth + rate limit** (#829), **request-level backpressure 429**
-//!   (#827), **`X-Ingest-Cursor` resumption** (#828). The bounded per-line
-//!   buffer and bounded channel here are correctness floors, not #827's
-//!   request-level backpressure.
+//!   (#827). The bounded per-line buffer and bounded channel here are
+//!   correctness floors, not #827's request-level backpressure.
+//!
+//! ## Resumption (#828)
+//!
+//! Each stream has a `stream_id`; every `ack` carries cursor `{stream_id}-{line}`
+//! and the last acked line is persisted to Redis ([`IngestCursorStore`]) with a
+//! rolling 60s TTL. A client that drops can reconnect with
+//! `X-Ingest-Cursor: {stream_id}-{N}`, re-send the body, and the server skips the
+//! already-stored prefix by absolute line number (skip-ahead dedup), resuming
+//! after the server's stored line; beyond the TTL → `410 Gone`. The server's
+//! stored line — not the client's echoed value — is authoritative, so already
+//! stored lines are never re-inserted (at-most-once). Strong zero-duplicate via
+//! outbox idempotency-key rides on #830.
 //!
 //! ## Resource discipline
 //!
@@ -66,9 +78,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::body::{Body, Bytes};
 use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::Extension;
+use axum::{Extension, Json};
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -77,7 +90,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
-use matric_api::services::SearchCache;
+use matric_api::services::{IngestCursorStore, SearchCache};
 use matric_core::CreateNoteRequest;
 use matric_db::{PgNoteRepository, SchemaContext};
 
@@ -132,21 +145,39 @@ struct IngestFrame {
     data: String,
 }
 
+/// Format a resumption cursor (`{stream_id}-{line}`) for an `ack` frame (#828).
+fn cursor(stream_id: &str, line: u64) -> String {
+    format!("{stream_id}-{line}")
+}
+
 impl IngestFrame {
-    /// `ack` frame for a successfully stored line.
-    fn ack_ok(line: u64, note_id: Uuid) -> Self {
+    /// `ack` frame for a successfully stored line. Carries the resumption
+    /// `cursor` (#828) the client echoes back via `X-Ingest-Cursor`.
+    fn ack_ok(line: u64, note_id: Uuid, stream_id: &str) -> Self {
         Self {
             event: "ack",
-            data: json!({ "line": line, "status": "ok", "note_id": note_id }).to_string(),
+            data: json!({
+                "line": line,
+                "status": "ok",
+                "note_id": note_id,
+                "cursor": cursor(stream_id, line),
+            })
+            .to_string(),
         }
     }
 
-    /// `ack` frame for a line that failed (parse error, empty content, or a DB
-    /// write failure). The stream continues.
-    fn ack_error(line: u64, error: &str) -> Self {
+    /// `ack` frame for a line that failed (parse error, empty/invalid content, or
+    /// a DB write failure). The stream continues.
+    fn ack_error(line: u64, error: &str, stream_id: &str) -> Self {
         Self {
             event: "ack",
-            data: json!({ "line": line, "status": "error", "error": error }).to_string(),
+            data: json!({
+                "line": line,
+                "status": "error",
+                "error": error,
+                "cursor": cursor(stream_id, line),
+            })
+            .to_string(),
         }
     }
 
@@ -302,6 +333,20 @@ fn validate_note_data(n: &IngestNoteData) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Parse an `X-Ingest-Cursor` of the form `{stream_id}-{line}` (#828). The
+/// `stream_id` is a UUID (which itself contains hyphens), so the split is on the
+/// last hyphen. Returns `None` for any value that does not match this shape.
+fn parse_ingest_cursor(value: &str) -> Option<(String, u64)> {
+    let idx = value.rfind('-')?;
+    let stream_id = &value[..idx];
+    let line_str = &value[idx + 1..];
+    if stream_id.is_empty() || line_str.is_empty() {
+        return None;
+    }
+    let line = line_str.parse::<u64>().ok()?;
+    Some((stream_id.to_string(), line))
 }
 
 // =============================================================================
@@ -467,51 +512,50 @@ impl NoteSink for DbNoteSink {
 /// data line and a terminal `done`. Owns `tx`; dropping it on return closes the
 /// SSE channel. Stops early (without the cache invalidation or `done`) if the
 /// client disconnects — a dropped receiver makes `tx.send` fail.
+/// Per-stream pump configuration. Bundled so the per-line step keeps a small,
+/// readable signature.
+struct PumpConfig {
+    /// Resumption stream id; each `ack` carries cursor `{stream_id}-{line}`.
+    stream_id: String,
+    /// Per-line byte cap (pillar 1).
+    max_line_bytes: usize,
+    /// Skip non-blank data lines whose absolute number is ≤ this (already
+    /// processed on a prior connection; 0 for a fresh stream) (#828).
+    skip_boundary: u64,
+    /// `progress` cadence in data lines (0 disables) (#826).
+    progress_interval: u64,
+}
+
 async fn pump_ingest_stream<B, N>(
     mut body: B,
     tx: mpsc::Sender<IngestFrame>,
     sink: N,
     search_cache: SearchCache,
-    max_line_bytes: usize,
-    progress_interval: usize,
+    cursor_store: IngestCursorStore,
+    cfg: PumpConfig,
 ) where
     B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     N: NoteSink,
 {
-    let mut splitter = LineSplitter::new(max_line_bytes);
+    let mut splitter = LineSplitter::new(cfg.max_line_bytes);
     let mut stats = IngestStats::default();
-    let interval = progress_interval as u64;
 
     while let Some(chunk) = body.next().await {
         // A transport error (client disconnect, truncated body) ends ingestion;
         // already-acked lines stand.
         let Ok(bytes) = chunk else { break };
         for ev in splitter.push(&bytes) {
-            let before = stats.total();
-            if dispatch(ev, &sink, &tx, &mut stats, max_line_bytes)
+            if step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg)
                 .await
                 .is_break()
             {
                 return; // client gone — abandon without cache work or `done`
             }
-            if maybe_progress(&tx, before, &stats, interval)
-                .await
-                .is_break()
-            {
-                return;
-            }
         }
     }
 
     if let Some(ev) = splitter.finish() {
-        let before = stats.total();
-        if dispatch(ev, &sink, &tx, &mut stats, max_line_bytes)
-            .await
-            .is_break()
-        {
-            return;
-        }
-        let _ = maybe_progress(&tx, before, &stats, interval).await;
+        let _ = step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg).await;
     }
 
     // Single post-stream invalidation so stored notes appear in FTS results
@@ -524,9 +568,67 @@ async fn pump_ingest_stream<B, N>(
     // `tx` drops here — the SSE channel closes and the client's stream ends.
 }
 
+/// Process one line-event end to end: build its frame (or skip), send it,
+/// persist the resumption cursor, and emit a periodic `progress`. Returns
+/// `Break` only when the receiver is gone (client disconnected).
+async fn step<N: NoteSink>(
+    ev: LineEvent,
+    sink: &N,
+    tx: &mpsc::Sender<IngestFrame>,
+    stats: &mut IngestStats,
+    cursor_store: &IngestCursorStore,
+    cfg: &PumpConfig,
+) -> ControlFlow<()> {
+    let before = stats.total();
+    // Blank lines and already-processed (skipped) lines yield no frame.
+    let Some(frame) = handle_event(ev, sink, stats, cfg).await else {
+        return ControlFlow::Continue(());
+    };
+    if tx.send(frame).await.is_err() {
+        return ControlFlow::Break(());
+    }
+    // Persist the cursor (last acked absolute line) + refresh the TTL so a
+    // reconnect within the window resumes after it (#828).
+    cursor_store.record(&cfg.stream_id, stats.line_no).await;
+    maybe_progress(tx, before, stats, cfg.progress_interval).await
+}
+
+/// Build the `ack` frame for one line-event, advancing the counters — or `None`
+/// when the line is blank or already-processed (≤ `skip_boundary`, skipped on a
+/// resumed connection, #828). Blank lines never advance the line number.
+async fn handle_event<N: NoteSink>(
+    ev: LineEvent,
+    sink: &N,
+    stats: &mut IngestStats,
+    cfg: &PumpConfig,
+) -> Option<IngestFrame> {
+    match ev {
+        LineEvent::Line(bytes) if is_blank(&bytes) => None,
+        LineEvent::Line(bytes) => {
+            stats.line_no += 1;
+            if stats.line_no <= cfg.skip_boundary {
+                return None; // already processed on a prior connection
+            }
+            Some(process_line(&bytes, sink, stats, &cfg.stream_id).await)
+        }
+        LineEvent::Overflow => {
+            stats.line_no += 1;
+            if stats.line_no <= cfg.skip_boundary {
+                return None;
+            }
+            stats.errors += 1;
+            Some(IngestFrame::ack_error(
+                stats.line_no,
+                &format!("line exceeds {} byte limit", cfg.max_line_bytes),
+                &cfg.stream_id,
+            ))
+        }
+    }
+}
+
 /// Emit a `progress` frame iff this line advanced the counter onto a positive
-/// multiple of `interval` — so blank lines (which don't change the total) never
-/// re-fire a progress frame. `Break` if the receiver is gone (#826).
+/// multiple of `interval` — so blank/skipped lines (which don't change the
+/// total) never re-fire a progress frame. `Break` if the receiver is gone (#826).
 async fn maybe_progress(
     tx: &mpsc::Sender<IngestFrame>,
     before: u64,
@@ -546,60 +648,31 @@ async fn maybe_progress(
     ControlFlow::Continue(())
 }
 
-/// Handle one line-event: build its frame and send it. Returns `Break` only when
-/// the receiver is gone (client disconnected), so the pump can stop promptly.
-async fn dispatch<N: NoteSink>(
-    ev: LineEvent,
+/// Parse + validate + store one non-blank, non-skipped line at `stats.line_no`,
+/// advancing success/error counters and producing its `ack` frame.
+async fn process_line<N: NoteSink>(
+    raw: &[u8],
     sink: &N,
-    tx: &mpsc::Sender<IngestFrame>,
     stats: &mut IngestStats,
-    max_line_bytes: usize,
-) -> ControlFlow<()> {
-    let frame = match ev {
-        LineEvent::Overflow => overflow_frame(stats, max_line_bytes),
-        LineEvent::Line(bytes) => {
-            if is_blank(&bytes) {
-                return ControlFlow::Continue(());
-            }
-            process_line(&bytes, sink, stats).await
-        }
-    };
-    match tx.send(frame).await {
-        Ok(()) => ControlFlow::Continue(()),
-        Err(_) => ControlFlow::Break(()),
-    }
-}
-
-/// Parse + store one non-blank line, advancing the counters and producing its
-/// `ack` frame.
-async fn process_line<N: NoteSink>(raw: &[u8], sink: &N, stats: &mut IngestStats) -> IngestFrame {
-    stats.line_no += 1;
+    stream_id: &str,
+) -> IngestFrame {
     let line = stats.line_no;
     match parse_ingest_line(raw) {
         Ok(req) => match sink.store(req).await {
             Ok(note_id) => {
                 stats.success += 1;
-                IngestFrame::ack_ok(line, note_id)
+                IngestFrame::ack_ok(line, note_id, stream_id)
             }
             Err(e) => {
                 stats.errors += 1;
-                IngestFrame::ack_error(line, &e)
+                IngestFrame::ack_error(line, &e, stream_id)
             }
         },
         Err(e) => {
             stats.errors += 1;
-            IngestFrame::ack_error(line, &e)
+            IngestFrame::ack_error(line, &e, stream_id)
         }
     }
-}
-
-fn overflow_frame(stats: &mut IngestStats, max_line_bytes: usize) -> IngestFrame {
-    stats.line_no += 1;
-    stats.errors += 1;
-    IngestFrame::ack_error(
-        stats.line_no,
-        &format!("line exceeds {max_line_bytes} byte limit"),
-    )
 }
 
 // =============================================================================
@@ -622,22 +695,41 @@ fn overflow_frame(stats: &mut IngestStats, max_line_bytes: usize) -> IngestFrame
         content_type = "application/x-ndjson",
     ),
     responses(
-        (status = 200, description = "SSE stream: one `ack` per line, periodic `progress`, terminal `done` summary"),
+        (status = 200, description = "SSE stream: one `ack` (with `cursor`) per line, periodic `progress`, terminal `done` summary"),
         (status = 401, description = "Missing or invalid bearer token"),
+        (status = 410, description = "X-Ingest-Cursor expired/unknown — start a fresh stream"),
+    ),
+    params(
+        ("X-Ingest-Cursor" = Option<String>, Header, description = "Resume cursor `{stream_id}-{line}` from a prior ack (60s TTL)"),
     )
 )]
 pub async fn ingest_stream_handler(
     _auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    headers: HeaderMap,
     body: Body,
 ) -> Response {
+    let cursor_store = state.ingest_cursor_store.clone();
+
+    // Resolve resumption (#828): a fresh stream gets a new id and skip=0; a valid
+    // `X-Ingest-Cursor` within the TTL resumes after the server's stored line; an
+    // unknown/expired/malformed cursor short-circuits to 410 Gone.
+    let (stream_id, skip_boundary) = match resolve_resumption(&headers, &cursor_store).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
     let (tx, rx) = mpsc::channel::<IngestFrame>(INGEST_STREAM_CHANNEL_CAPACITY);
     let pool = state.db.pool.clone();
     let schema = archive_ctx.schema.clone();
     let search_cache = state.search_cache.clone();
-    let max_line_bytes = ingest_max_line_bytes();
-    let progress_interval = ingest_progress_interval();
+    let cfg = PumpConfig {
+        stream_id,
+        max_line_bytes: ingest_max_line_bytes(),
+        skip_boundary,
+        progress_interval: ingest_progress_interval() as u64,
+    };
 
     tokio::spawn(async move {
         match DbNoteSink::new(pool, schema) {
@@ -647,8 +739,8 @@ pub async fn ingest_stream_handler(
                     tx,
                     sink,
                     search_cache,
-                    max_line_bytes,
-                    progress_interval,
+                    cursor_store,
+                    cfg,
                 )
                 .await;
             }
@@ -662,6 +754,39 @@ pub async fn ingest_stream_handler(
     let event_stream = ReceiverStream::new(rx).map(|f| Ok::<Event, Infallible>(f.into_event()));
     Sse::new(event_stream)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(INGEST_KEEPALIVE_SECS)))
+        .into_response()
+}
+
+/// Resolve the resumption state from `X-Ingest-Cursor` (#828). `Ok((stream_id,
+/// skip_boundary))` to proceed; `Err(410)` when the cursor is malformed,
+/// unknown, or expired. A fresh request (no header) gets a new stream id and a
+/// zero skip boundary. The skip boundary is the server's *stored* last line —
+/// authoritative over the client's echoed value — so already-stored lines are
+/// never re-inserted.
+async fn resolve_resumption(
+    headers: &HeaderMap,
+    cursor_store: &IngestCursorStore,
+) -> Result<(String, u64), Response> {
+    let Some(raw) = headers.get("x-ingest-cursor").and_then(|v| v.to_str().ok()) else {
+        return Ok((Uuid::new_v4().to_string(), 0));
+    };
+    let Some((stream_id, _client_line)) = parse_ingest_cursor(raw) else {
+        return Err(gone("malformed X-Ingest-Cursor; start a fresh stream"));
+    };
+    match cursor_store.get(&stream_id).await {
+        Some(last_line) => Ok((stream_id, last_line)),
+        None => Err(gone(
+            "ingest cursor expired or unknown; start a fresh stream",
+        )),
+    }
+}
+
+/// Build a `410 Gone` JSON response for an unusable resume cursor.
+fn gone(message: &str) -> Response {
+    (
+        StatusCode::GONE,
+        Json(json!({ "error": message, "code": "INGEST_CURSOR_EXPIRED" })),
+    )
         .into_response()
 }
 
@@ -826,22 +951,24 @@ mod tests {
     #[test]
     fn frame_ack_ok_shape() {
         let id = Uuid::nil();
-        let f = IngestFrame::ack_ok(3, id);
+        let f = IngestFrame::ack_ok(3, id, "strm");
         assert_eq!(f.event, "ack");
         let j = frame_json(&f);
         assert_eq!(j["line"], 3);
         assert_eq!(j["status"], "ok");
         assert_eq!(j["note_id"], id.to_string());
+        assert_eq!(j["cursor"], "strm-3", "ack carries the resumption cursor");
     }
 
     #[test]
     fn frame_ack_error_shape() {
-        let f = IngestFrame::ack_error(5, "boom");
+        let f = IngestFrame::ack_error(5, "boom", "strm");
         assert_eq!(f.event, "ack");
         let j = frame_json(&f);
         assert_eq!(j["line"], 5);
         assert_eq!(j["status"], "error");
         assert_eq!(j["error"], "boom");
+        assert_eq!(j["cursor"], "strm-5");
     }
 
     #[test]
@@ -865,7 +992,7 @@ mod tests {
     #[test]
     fn frame_data_is_value_independent() {
         let error_owned = String::from("transient failure");
-        let f = IngestFrame::ack_error(9, &error_owned);
+        let f = IngestFrame::ack_error(9, &error_owned, "strm");
         drop(error_owned);
         let j = frame_json(&f);
         assert_eq!(j["error"], "transient failure");
@@ -904,18 +1031,25 @@ mod tests {
         stream: B,
         max: usize,
         progress_interval: usize,
+        skip_boundary: u64,
     ) -> Vec<(&'static str, serde_json::Value)>
     where
         B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     {
         let (tx, mut rx) = mpsc::channel::<IngestFrame>(64);
+        let cfg = PumpConfig {
+            stream_id: "test-stream".to_string(),
+            max_line_bytes: max,
+            skip_boundary,
+            progress_interval: progress_interval as u64,
+        };
         pump_ingest_stream(
             stream,
             tx,
             MockSink,
             SearchCache::disabled(),
-            max,
-            progress_interval,
+            IngestCursorStore::disabled(),
+            cfg,
         )
         .await;
         let drain = async {
@@ -942,7 +1076,7 @@ mod tests {
     ) -> Vec<(&'static str, serde_json::Value)> {
         // usize::MAX interval => no progress frames (the existing pump tests
         // assert ack/done shape; progress has dedicated tests below).
-        drive(body_of(chunks), max, usize::MAX).await
+        drive(body_of(chunks), max, usize::MAX, 0).await
     }
 
     #[tokio::test]
@@ -1031,7 +1165,7 @@ mod tests {
         let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
             body.into_bytes(),
         ))]);
-        let frames = drive(stream, 50, usize::MAX).await;
+        let frames = drive(stream, 50, usize::MAX, 0).await;
         let statuses: Vec<&str> = frames
             .iter()
             .filter(|(e, _)| *e == "ack")
@@ -1133,7 +1267,7 @@ mod tests {
         let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
             body.into_bytes(),
         ))]);
-        let frames = drive(stream, 1024, 2).await;
+        let frames = drive(stream, 1024, 2, 0).await;
 
         let progress: Vec<u64> = frames
             .iter()
@@ -1161,7 +1295,7 @@ mod tests {
         let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
             body.into_bytes(),
         ))]);
-        let frames = drive(stream, 1024, 2).await;
+        let frames = drive(stream, 1024, 2, 0).await;
 
         let progress: Vec<u64> = frames
             .iter()
@@ -1174,5 +1308,96 @@ mod tests {
             "only the 2 data lines count toward progress"
         );
         assert_eq!(frames.last().unwrap().1["total"], 2);
+    }
+
+    // ---- resumption (#828) --------------------------------------------------
+
+    #[test]
+    fn cursor_parses_uuid_stream_and_line() {
+        let (stream, line) =
+            parse_ingest_cursor("550e8400-e29b-41d4-a716-446655440000-42").unwrap();
+        assert_eq!(stream, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(line, 42);
+    }
+
+    #[test]
+    fn cursor_parses_simple_stream() {
+        let (stream, line) = parse_ingest_cursor("abc-7").unwrap();
+        assert_eq!(stream, "abc");
+        assert_eq!(line, 7);
+    }
+
+    #[test]
+    fn cursor_rejects_malformed() {
+        assert!(parse_ingest_cursor("").is_none());
+        assert!(parse_ingest_cursor("noseq").is_none());
+        assert!(parse_ingest_cursor("-5").is_none()); // empty stream id
+        assert!(parse_ingest_cursor("abc-").is_none()); // empty line
+        assert!(parse_ingest_cursor("abc-notanumber").is_none());
+    }
+
+    /// On resume, lines whose absolute number is ≤ skip_boundary are skipped
+    /// (no ack, not re-inserted); processing resumes after, with absolute line
+    /// numbers and a continuing cursor (#828).
+    #[tokio::test]
+    async fn pump_skips_already_processed_lines() {
+        let body = [
+            r#"{"type":"note","data":{"content":"one"}}"#,
+            r#"{"type":"note","data":{"content":"two"}}"#,
+            r#"{"type":"note","data":{"content":"three"}}"#,
+            r#"{"type":"note","data":{"content":"four"}}"#,
+        ]
+        .join("\n");
+        let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
+            body.into_bytes(),
+        ))]);
+        // skip_boundary = 2 => lines 1,2 already processed on a prior connection.
+        let frames = drive(stream, 1024, usize::MAX, 2).await;
+
+        let acks: Vec<&serde_json::Value> = frames
+            .iter()
+            .filter(|(e, _)| *e == "ack")
+            .map(|(_, j)| j)
+            .collect();
+        assert_eq!(acks.len(), 2, "only the unprocessed tail is acked");
+        assert_eq!(acks[0]["line"], 3);
+        assert_eq!(acks[0]["cursor"], "test-stream-3");
+        assert_eq!(acks[1]["line"], 4);
+        assert_eq!(acks[1]["cursor"], "test-stream-4");
+
+        let done = &frames.last().unwrap().1;
+        assert_eq!(done["total"], 2, "done counts only newly-processed lines");
+        assert_eq!(done["success"], 2);
+    }
+
+    #[tokio::test]
+    async fn resolve_resumption_fresh_when_no_header() {
+        let (stream_id, skip) =
+            resolve_resumption(&HeaderMap::new(), &IngestCursorStore::disabled())
+                .await
+                .expect("a missing cursor header starts a fresh stream");
+        assert!(!stream_id.is_empty());
+        assert_eq!(skip, 0);
+    }
+
+    #[tokio::test]
+    async fn resolve_resumption_410_on_malformed_cursor() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ingest-cursor", "noseq".parse().unwrap());
+        let resp = resolve_resumption(&headers, &IngestCursorStore::disabled())
+            .await
+            .expect_err("malformed cursor must short-circuit");
+        assert_eq!(resp.status(), StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn resolve_resumption_410_on_unknown_stream() {
+        // disabled store => get() returns None => cursor unknown/expired => 410.
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ingest-cursor", "some-stream-9".parse().unwrap());
+        let resp = resolve_resumption(&headers, &IngestCursorStore::disabled())
+            .await
+            .expect_err("unknown/expired cursor must short-circuit");
+        assert_eq!(resp.status(), StatusCode::GONE);
     }
 }

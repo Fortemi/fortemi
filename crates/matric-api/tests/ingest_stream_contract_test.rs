@@ -353,3 +353,52 @@ async fn test_ingest_stream_emits_progress_frames() {
         "progress within (0, total]: {progress:?}"
     );
 }
+
+/// Every `ack` carries a resumption `cursor` of the form `{stream_id}-{line}`
+/// across the real transport (#828).
+#[tokio::test]
+async fn test_ingest_stream_ack_carries_cursor() {
+    require_api!();
+    let client = reqwest::Client::new();
+    let (status, _ct, events) =
+        post_ndjson(&client, format!("{}\n", note_line("cursor-probe"))).await;
+    assert_eq!(status, 200);
+
+    let ack_frames = acks(&events);
+    assert_eq!(ack_frames.len(), 1);
+    let cursor = ack_frames[0].json()["cursor"]
+        .as_str()
+        .expect("ack carries a cursor")
+        .to_string();
+    let (stream_id, line) = cursor
+        .rsplit_once('-')
+        .expect("cursor has {stream_id}-{line} shape");
+    assert!(!stream_id.is_empty(), "cursor has a stream id: {cursor}");
+    assert_eq!(
+        line, "1",
+        "first data line cursor is {{stream_id}}-1: {cursor}"
+    );
+}
+
+/// A well-formed but never-seen `X-Ingest-Cursor` → `410 Gone` (#828). Holds
+/// whether or not Redis is up: an unknown stream resolves to no live cursor.
+#[tokio::test]
+async fn test_ingest_stream_410_on_unknown_cursor() {
+    require_api!();
+    let client = reqwest::Client::new();
+    let mut req = client
+        .post(format!("{}/api/v1/ingest/stream", api_base_url()))
+        .header("content-type", "application/x-ndjson")
+        .header("x-ingest-cursor", "00000000-0000-0000-0000-000000000000-5")
+        .body(format!("{}\n", note_line("must-not-process")))
+        .timeout(STREAM_TIMEOUT);
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.expect("request send failed");
+    assert_eq!(
+        resp.status().as_u16(),
+        410,
+        "an unknown/expired ingest cursor must return 410 Gone"
+    );
+}

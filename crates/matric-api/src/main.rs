@@ -681,6 +681,8 @@ struct AppState {
     search_cache: matric_api::services::SearchCache,
     /// Redis-backed buffer for SSE chat-stream resumption (#815).
     chat_stream_store: matric_api::services::ChatStreamStore,
+    /// Redis-backed cursor store for `/ingest/stream` resumption (#828).
+    ingest_cursor_store: matric_api::services::IngestCursorStore,
     /// Event bus for real-time notifications (WebSocket, SSE, webhooks, telemetry).
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
@@ -1948,6 +1950,7 @@ async fn main() -> anyhow::Result<()> {
     let tag_resolver = TagResolver::new(db.clone());
     let search_cache = matric_api::services::SearchCache::from_env().await;
     let chat_stream_store = matric_api::services::ChatStreamStore::from_env().await;
+    let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
     let state = AppState {
         db,
         search,
@@ -1956,6 +1959,7 @@ async fn main() -> anyhow::Result<()> {
         tag_resolver,
         search_cache,
         chat_stream_store,
+        ingest_cursor_store,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
         default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
@@ -20290,6 +20294,7 @@ mod tests {
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
+            ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         }
     }
 
@@ -20512,6 +20517,7 @@ mod tests {
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
+            ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
 
         let router = Router::new()
@@ -21706,6 +21712,7 @@ mod tests {
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
+            ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
 
         let router = Router::new()
@@ -22027,6 +22034,7 @@ mod tests {
             inference_available: Arc::new(AtomicBool::new(false)),
             chat_stream_metrics: Arc::new(ChatStreamMetrics::default()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
+            ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
         };
 
         let router = Router::new()
