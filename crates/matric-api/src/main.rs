@@ -838,6 +838,8 @@ impl AppState {
         handlers::chat::chat_handler,
         handlers::chat::chat_stream_handler,
         handlers::chat::list_chat_models,
+        // handlers::ingest_stream
+        handlers::ingest_stream::ingest_stream_handler,
         // handlers::pke
         handlers::pke::pke_keygen, handlers::pke::pke_address,
         handlers::pke::pke_encrypt, handlers::pke::pke_decrypt,
@@ -2162,6 +2164,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/chat", post(chat_handler))
         // Streaming chat over SSE (Issue #812)
         .route("/api/v1/chat/stream", post(chat_stream_handler))
+        .route(
+            "/api/v1/ingest/stream",
+            post(handlers::ingest_stream::ingest_stream_handler),
+        )
         .route("/api/v1/chat/models", get(list_chat_models))
         // Document Types
         .route(

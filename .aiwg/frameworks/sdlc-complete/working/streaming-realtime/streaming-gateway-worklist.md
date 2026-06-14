@@ -41,7 +41,7 @@ cross-repo HotM coordination — does not gate the cut.
 
 ### Phase C — Streaming bulk ingest + TUS finish · EPIC #824 · `P2`
 
-- [~] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation)* — **ACTIVE next**
+- [x] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation landed: bounded line-by-line parse + per-line `insert_tx` + SSE `ack`/`done`, store-only; outbox → #830, validation hardening → #826)*
 - [ ] #826 per-line validation + SSE-streamed per-line response codes
 - [ ] #827 backpressure — bounded buffer + 429 early-warning
 - [ ] #828 `X-Ingest-Cursor` resumption (60s TTL) — **reuse chat-stream resumption pattern**

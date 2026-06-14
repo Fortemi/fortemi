@@ -8,6 +8,7 @@ pub mod chat;
 pub mod document_types;
 pub mod inference_complete;
 pub mod inference_config;
+pub mod ingest_stream;
 pub mod jobs;
 pub mod models;
 pub mod pke;
