@@ -17,29 +17,32 @@
 //!
 //! `data` mirrors `CreateNoteRequest`; `content` is required, everything else is
 //! optional (`format` defaults to `markdown`, `source` to `ingest-stream`).
-//! Blank lines are ignored. Unknown `type` values, malformed JSON, and empty
-//! content produce a per-line `error` ack — they never abort the stream.
+//! Blank lines are ignored. Unknown `type` values, malformed JSON, empty
+//! content, and schema-invalid fields (tag too long/deep, non-object metadata)
+//! produce a per-line `error` ack — they never abort the stream.
 //!
 //! Response: `text/event-stream`:
 //! - `ack` — `{"line":N,"status":"ok","note_id":"..."}` or
 //!   `{"line":N,"status":"error","error":"..."}` per data line
+//! - `progress` — `{"processed":N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL`
+//!   data lines (default 100)
 //! - `done` — `{"total":N,"success":M,"errors":K}` terminal summary
 //! - `error` — `{"error":"...","code":"INGEST_FATAL"}` only for a pre-stream
 //!   fatal (e.g. an invalid archive schema)
 //!
-//! ## Scope (#825 foundation — store-only)
+//! ## Scope (#825 foundation + #826 validation/progress — store-only)
 //!
-//! This is the foundation: parse → `insert_tx` → ack, plus a single post-stream
-//! search-cache invalidation so stored notes are FTS-findable. Deliberately
-//! deferred:
+//! Per line: parse → cheap DB-free schema validation ([`validate_note_data`]) →
+//! `insert_tx` → `ack`, with periodic `progress` frames and a single
+//! post-stream search-cache invalidation so stored notes are FTS-findable.
+//! Deliberately deferred:
 //! - **NLP enrichment** (embeddings, AI title, linking) — streamed notes are
-//!   stored but NOT embedded/titled until a later reprocess. Hardening lands
-//!   with per-line validation in #826.
+//!   stored and FTS-findable but NOT embedded/titled until a later reprocess.
 //! - **`event_outbox`** durability/replay — wired in #830 (blocked on #592).
-//! - **Per-line auth + rate limit** (#829), **backpressure 429** (#827),
-//!   **`X-Ingest-Cursor` resumption** (#828). The bounded per-line buffer and
-//!   bounded channel here are correctness floors, not the request-level
-//!   backpressure of #827.
+//! - **Per-line auth + rate limit** (#829), **request-level backpressure 429**
+//!   (#827), **`X-Ingest-Cursor` resumption** (#828). The bounded per-line
+//!   buffer and bounded channel here are correctness floors, not #827's
+//!   request-level backpressure.
 //!
 //! ## Resource discipline
 //!
@@ -90,6 +93,11 @@ const INGEST_STREAM_CHANNEL_CAPACITY: usize = 64;
 /// SSE keep-alive interval (matches `/chat/stream`).
 const INGEST_KEEPALIVE_SECS: u64 = 15;
 
+/// Default `progress {processed:N}` cadence (#826) when
+/// `FORTEMI_INGEST_PROGRESS_INTERVAL` is unset — emit one progress frame every
+/// this many non-blank data lines.
+const DEFAULT_INGEST_PROGRESS_INTERVAL: usize = 100;
+
 /// Resolve the per-line byte cap from `FORTEMI_INGEST_MAX_LINE_BYTES`, falling
 /// back to [`DEFAULT_INGEST_MAX_LINE_BYTES`]. A non-numeric or zero value falls
 /// back rather than disabling the bound (the bound is a safety floor).
@@ -99,6 +107,17 @@ fn ingest_max_line_bytes() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(DEFAULT_INGEST_MAX_LINE_BYTES)
+}
+
+/// Resolve the progress cadence from `FORTEMI_INGEST_PROGRESS_INTERVAL`, falling
+/// back to [`DEFAULT_INGEST_PROGRESS_INTERVAL`]. Zero/non-numeric falls back
+/// (a zero interval would mean "never", which the default avoids).
+fn ingest_progress_interval() -> usize {
+    std::env::var("FORTEMI_INGEST_PROGRESS_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_INGEST_PROGRESS_INTERVAL)
 }
 
 // =============================================================================
@@ -141,6 +160,16 @@ impl IngestFrame {
                 "errors": stats.errors,
             })
             .to_string(),
+        }
+    }
+
+    /// Periodic `progress {processed:N}` counter frame (#826), emitted every
+    /// `FORTEMI_INGEST_PROGRESS_INTERVAL` non-blank data lines. `processed`
+    /// counts all acked data lines so far (success + error).
+    fn progress(processed: u64) -> Self {
+        Self {
+            event: "progress",
+            data: json!({ "processed": processed }).to_string(),
         }
     }
 
@@ -227,6 +256,7 @@ fn build_note_request(n: IngestNoteData) -> Result<CreateNoteRequest, String> {
     if n.content.trim().is_empty() {
         return Err("note content must not be empty".to_string());
     }
+    validate_note_data(&n)?;
     Ok(CreateNoteRequest {
         content: n.content,
         format: n.format.unwrap_or_else(|| "markdown".to_string()),
@@ -237,6 +267,41 @@ fn build_note_request(n: IngestNoteData) -> Result<CreateNoteRequest, String> {
         document_type_id: n.document_type_id,
         title: n.title,
     })
+}
+
+/// Cheap, DB-free per-line schema validation (#826): the same tag depth/length
+/// limits `POST /api/v1/notes` enforces, plus a structural check that `metadata`
+/// (when present) is a JSON object. No referential lookups (document_type slug,
+/// collection existence) — those stay deferred; `document_type_id` is accepted
+/// as a UUID only. Pure, so the validation contract is unit-testable.
+fn validate_note_data(n: &IngestNoteData) -> Result<(), String> {
+    if let Some(tags) = &n.tags {
+        for tag in tags {
+            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
+                return Err(format!(
+                    "tag exceeds {} character limit",
+                    matric_core::defaults::TAG_NAME_MAX_LENGTH
+                ));
+            }
+            let depth = tag
+                .split('/')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .count();
+            if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
+                return Err(format!(
+                    "tag exceeds maximum depth of {} levels",
+                    matric_core::tags::MAX_TAG_PATH_DEPTH
+                ));
+            }
+        }
+    }
+    if let Some(metadata) = &n.metadata {
+        if !metadata.is_object() && !metadata.is_null() {
+            return Err("metadata must be a JSON object".to_string());
+        }
+    }
+    Ok(())
 }
 
 // =============================================================================
@@ -408,29 +473,45 @@ async fn pump_ingest_stream<B, N>(
     sink: N,
     search_cache: SearchCache,
     max_line_bytes: usize,
+    progress_interval: usize,
 ) where
     B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     N: NoteSink,
 {
     let mut splitter = LineSplitter::new(max_line_bytes);
     let mut stats = IngestStats::default();
+    let interval = progress_interval as u64;
 
     while let Some(chunk) = body.next().await {
         // A transport error (client disconnect, truncated body) ends ingestion;
         // already-acked lines stand.
         let Ok(bytes) = chunk else { break };
         for ev in splitter.push(&bytes) {
+            let before = stats.total();
             if dispatch(ev, &sink, &tx, &mut stats, max_line_bytes)
                 .await
                 .is_break()
             {
                 return; // client gone — abandon without cache work or `done`
             }
+            if maybe_progress(&tx, before, &stats, interval)
+                .await
+                .is_break()
+            {
+                return;
+            }
         }
     }
 
     if let Some(ev) = splitter.finish() {
-        let _ = dispatch(ev, &sink, &tx, &mut stats, max_line_bytes).await;
+        let before = stats.total();
+        if dispatch(ev, &sink, &tx, &mut stats, max_line_bytes)
+            .await
+            .is_break()
+        {
+            return;
+        }
+        let _ = maybe_progress(&tx, before, &stats, interval).await;
     }
 
     // Single post-stream invalidation so stored notes appear in FTS results
@@ -441,6 +522,28 @@ async fn pump_ingest_stream<B, N>(
 
     let _ = tx.send(IngestFrame::done(&stats)).await;
     // `tx` drops here — the SSE channel closes and the client's stream ends.
+}
+
+/// Emit a `progress` frame iff this line advanced the counter onto a positive
+/// multiple of `interval` — so blank lines (which don't change the total) never
+/// re-fire a progress frame. `Break` if the receiver is gone (#826).
+async fn maybe_progress(
+    tx: &mpsc::Sender<IngestFrame>,
+    before: u64,
+    stats: &IngestStats,
+    interval: u64,
+) -> ControlFlow<()> {
+    let total = stats.total();
+    // The `send` short-circuits: it runs only at a progress point, and a failed
+    // send (receiver gone) breaks the pump.
+    if interval > 0
+        && total != before
+        && total.is_multiple_of(interval)
+        && tx.send(IngestFrame::progress(total)).await.is_err()
+    {
+        return ControlFlow::Break(());
+    }
+    ControlFlow::Continue(())
 }
 
 /// Handle one line-event: build its frame and send it. Returns `Break` only when
@@ -519,7 +622,7 @@ fn overflow_frame(stats: &mut IngestStats, max_line_bytes: usize) -> IngestFrame
         content_type = "application/x-ndjson",
     ),
     responses(
-        (status = 200, description = "SSE stream: one `ack` per line, terminal `done` summary"),
+        (status = 200, description = "SSE stream: one `ack` per line, periodic `progress`, terminal `done` summary"),
         (status = 401, description = "Missing or invalid bearer token"),
     )
 )]
@@ -534,6 +637,7 @@ pub async fn ingest_stream_handler(
     let schema = archive_ctx.schema.clone();
     let search_cache = state.search_cache.clone();
     let max_line_bytes = ingest_max_line_bytes();
+    let progress_interval = ingest_progress_interval();
 
     tokio::spawn(async move {
         match DbNoteSink::new(pool, schema) {
@@ -544,6 +648,7 @@ pub async fn ingest_stream_handler(
                     sink,
                     search_cache,
                     max_line_bytes,
+                    progress_interval,
                 )
                 .await;
             }
@@ -795,12 +900,24 @@ mod tests {
     /// completion, returning every frame's `(event, json)`. Bounded by a timeout
     /// so a dangling sender (resource leak) fails fast rather than hanging, and
     /// asserts the channel is closed once the pump returns.
-    async fn drive<B>(stream: B, max: usize) -> Vec<(&'static str, serde_json::Value)>
+    async fn drive<B>(
+        stream: B,
+        max: usize,
+        progress_interval: usize,
+    ) -> Vec<(&'static str, serde_json::Value)>
     where
         B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     {
         let (tx, mut rx) = mpsc::channel::<IngestFrame>(64);
-        pump_ingest_stream(stream, tx, MockSink, SearchCache::disabled(), max).await;
+        pump_ingest_stream(
+            stream,
+            tx,
+            MockSink,
+            SearchCache::disabled(),
+            max,
+            progress_interval,
+        )
+        .await;
         let drain = async {
             let mut out = Vec::new();
             while let Some(f) = rx.recv().await {
@@ -823,7 +940,9 @@ mod tests {
         chunks: &[&'static [u8]],
         max: usize,
     ) -> Vec<(&'static str, serde_json::Value)> {
-        drive(body_of(chunks), max).await
+        // usize::MAX interval => no progress frames (the existing pump tests
+        // assert ack/done shape; progress has dedicated tests below).
+        drive(body_of(chunks), max, usize::MAX).await
     }
 
     #[tokio::test]
@@ -912,7 +1031,7 @@ mod tests {
         let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
             body.into_bytes(),
         ))]);
-        let frames = drive(stream, 50).await;
+        let frames = drive(stream, 50, usize::MAX).await;
         let statuses: Vec<&str> = frames
             .iter()
             .filter(|(e, _)| *e == "ack")
@@ -945,5 +1064,115 @@ mod tests {
         assert_eq!(done["total"], 0);
         assert_eq!(done["success"], 0);
         assert_eq!(done["errors"], 0);
+    }
+
+    // ---- per-line validation (#826) ----------------------------------------
+
+    #[test]
+    fn progress_interval_defaults_when_unset() {
+        assert_eq!(DEFAULT_INGEST_PROGRESS_INTERVAL, 100);
+    }
+
+    #[test]
+    fn validate_rejects_overlong_tag() {
+        let long_tag = "a".repeat(matric_core::defaults::TAG_NAME_MAX_LENGTH + 1);
+        let line = format!(r#"{{"type":"note","data":{{"content":"c","tags":["{long_tag}"]}}}}"#);
+        let err = parse_ingest_line(line.as_bytes()).expect_err("overlong tag rejected");
+        assert!(err.contains("character limit"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_overdeep_tag() {
+        // 6 segments > MAX_TAG_PATH_DEPTH (5).
+        let err =
+            parse_ingest_line(br#"{"type":"note","data":{"content":"c","tags":["a/b/c/d/e/f"]}}"#)
+                .expect_err("overdeep tag rejected");
+        assert!(err.contains("maximum depth"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_non_object_metadata() {
+        let err = parse_ingest_line(br#"{"type":"note","data":{"content":"c","metadata":[1,2]}}"#)
+            .expect_err("array metadata rejected");
+        assert!(err.contains("metadata must be a JSON object"), "got: {err}");
+        let err = parse_ingest_line(br#"{"type":"note","data":{"content":"c","metadata":"x"}}"#)
+            .expect_err("scalar metadata rejected");
+        assert!(err.contains("metadata must be a JSON object"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_object_metadata_and_valid_tags() {
+        let req = parse_ingest_line(
+            br#"{"type":"note","data":{"content":"c","metadata":{"k":"v"},"tags":["a/b/c","x"]}}"#,
+        )
+        .expect("object metadata + valid tags accepted");
+        assert!(req.metadata.is_some());
+        assert_eq!(req.tags.as_deref().map(<[_]>::len), Some(2));
+    }
+
+    // ---- progress events (#826) --------------------------------------------
+
+    #[test]
+    fn frame_progress_shape() {
+        let f = IngestFrame::progress(42);
+        assert_eq!(f.event, "progress");
+        assert_eq!(frame_json(&f)["processed"], 42);
+    }
+
+    #[tokio::test]
+    async fn pump_emits_progress_every_interval_counting_errors() {
+        // interval = 2 over [ok, boom(store-err), ok, ok]: processed advances
+        // 1,2,3,4 -> progress at 2 and 4; errors count toward `processed`.
+        let body = [
+            r#"{"type":"note","data":{"content":"ok"}}"#,
+            r#"{"type":"note","data":{"content":"boom"}}"#,
+            r#"{"type":"note","data":{"content":"ok"}}"#,
+            r#"{"type":"note","data":{"content":"ok"}}"#,
+        ]
+        .join("\n");
+        let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
+            body.into_bytes(),
+        ))]);
+        let frames = drive(stream, 1024, 2).await;
+
+        let progress: Vec<u64> = frames
+            .iter()
+            .filter(|(e, _)| *e == "progress")
+            .map(|(_, j)| j["processed"].as_u64().unwrap())
+            .collect();
+        assert_eq!(progress, vec![2, 4], "progress fires every 2 data lines");
+
+        let done = &frames.last().unwrap().1;
+        assert_eq!(done["total"], 4);
+        assert_eq!(done["success"], 3);
+        assert_eq!(done["errors"], 1);
+    }
+
+    #[tokio::test]
+    async fn pump_progress_skips_blank_lines() {
+        // Blank lines must not advance `processed` or re-fire progress.
+        let body = [
+            r#"{"type":"note","data":{"content":"a"}}"#,
+            "",
+            "   ",
+            r#"{"type":"note","data":{"content":"b"}}"#,
+        ]
+        .join("\n");
+        let stream = futures::stream::iter(vec![Ok::<Bytes, axum::Error>(Bytes::from(
+            body.into_bytes(),
+        ))]);
+        let frames = drive(stream, 1024, 2).await;
+
+        let progress: Vec<u64> = frames
+            .iter()
+            .filter(|(e, _)| *e == "progress")
+            .map(|(_, j)| j["processed"].as_u64().unwrap())
+            .collect();
+        assert_eq!(
+            progress,
+            vec![2],
+            "only the 2 data lines count toward progress"
+        );
+        assert_eq!(frames.last().unwrap().1["total"], 2);
     }
 }

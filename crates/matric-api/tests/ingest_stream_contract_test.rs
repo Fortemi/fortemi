@@ -310,3 +310,46 @@ async fn test_ingest_stream_trailing_line_without_newline() {
     assert_eq!(acks(&events).len(), 1);
     assert_eq!(done(&events)["total"], 1);
 }
+
+/// Periodic `progress {processed:N}` frames traverse the real SSE transport
+/// (#826). Assumes the server's default `FORTEMI_INGEST_PROGRESS_INTERVAL` (100):
+/// 100 data lines yield at least one progress frame. Exact cadence is unit-tested.
+#[tokio::test]
+async fn test_ingest_stream_emits_progress_frames() {
+    require_api!();
+    let client = reqwest::Client::new();
+    let mut body = String::new();
+    for i in 0..100 {
+        body.push_str(&note_line(&format!("progress-probe-{i}")));
+        body.push('\n');
+    }
+    let (status, _ct, events) = post_ndjson(&client, body).await;
+    assert_eq!(status, 200);
+
+    let total = done(&events)["total"].as_u64().unwrap();
+    assert_eq!(total, 100);
+
+    let progress: Vec<u64> = events
+        .iter()
+        .filter(|e| e.event.as_deref() == Some("progress"))
+        .map(|e| {
+            e.json()["processed"]
+                .as_u64()
+                .expect("processed is a number")
+        })
+        .collect();
+    assert!(
+        !progress.is_empty(),
+        "expected >=1 progress frame for 100 lines (default interval 100)"
+    );
+    for w in progress.windows(2) {
+        assert!(
+            w[0] < w[1],
+            "progress must be strictly increasing: {progress:?}"
+        );
+    }
+    assert!(
+        progress.iter().all(|&p| p > 0 && p <= total),
+        "progress within (0, total]: {progress:?}"
+    );
+}
