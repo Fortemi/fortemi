@@ -16,16 +16,19 @@ Roadmap: `.aiwg/frameworks/sdlc-complete/working/streaming-realtime/incoming-str
 v2026.6.0 is **staged but held** until Phase A–D epics (#811/#817/#824/#832) are
 all closed.
 
-### Phase A — Streaming chat · EPIC #811 · `P1` — ~90% done
+### Phase A — Streaming chat · EPIC #811 · `P1` — ✅ DONE (closed 2026-06-13)
 
 - [x] **A1** `POST /api/v1/chat/stream` SSE endpoint (drop-oldest backpressure)
 - [x] **A3** backpressure metric `chat_stream_dropped_tokens_total` + GPU release (#814)
-- [x] **A4** `Last-Event-ID` resumption, 60s Redis cursor TTL (#815) — landed, CI green
-- [ ] **A5** contract tests for `/chat/stream` parallel to `/chat` (#549) — **in-repo, next**
+- [x] **A4** `Last-Event-ID` resumption, 60s Redis cursor TTL (#815)
+- [x] **A5** contract tests for `/chat/stream` parallel to `/chat` (#549) — `54113e8`
+  (HTTP/SSE boundary suite + async resource-discipline unit tests: Arc leak guard,
+  no-dangling-sender, value-independent frame round-trip; clippy cognitive_complexity
+  0 findings in `handlers/chat.rs`)
 - [ ] **A2** HotM consumer contract (#813) — `(ext)` HotM repo; not a Fortemi blocker
 
-**Actions:** update #811 checkboxes to reflect A1/A3/A4 done → implement A5 →
-close #811. Leave #813 open as cross-repo coordination (does not gate the cut).
+**Done:** #811 closed; A1/A3/A4/A5 landed + pushed to main. #813 (A2) left open as
+cross-repo HotM coordination — does not gate the cut.
 
 ### Phase B — Webhook receivers · EPIC #817 · `P2`
 
@@ -38,7 +41,7 @@ close #811. Leave #813 open as cross-repo coordination (does not gate the cut).
 
 ### Phase C — Streaming bulk ingest + TUS finish · EPIC #824 · `P2`
 
-- [ ] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation)*
+- [~] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation)* — **ACTIVE next**
 - [ ] #826 per-line validation + SSE-streamed per-line response codes
 - [ ] #827 backpressure — bounded buffer + 429 early-warning
 - [ ] #828 `X-Ingest-Cursor` resumption (60s TTL) — **reuse chat-stream resumption pattern**
@@ -121,7 +124,17 @@ cache hit serves at $0; bridge off by default.
 3. Close #811/#817/#824/#832 → **cut v2026.6.0**.
 4. Gateway Wave 1 (#873/#864/#877) → Wave 2–4 → **cut v2026.7.0**.
 
+## Deferred (post-backlog)
+
+- **#881** — EPIC: Project standards audit (async / sanitization / leak / complexity
+  compliance across the Rust codebase). `blocked` until Track 1 (#817/#824/#832) and
+  Track 2 (#863) are closed. New issues already meet the bar; #881 retrofits the
+  pre-existing surface (incl. ~54 `cognitive_complexity` findings + `main.rs`
+  decomposition). Standard: `memory/rust-implementation-standard.md`.
+
 ## Open dependencies to verify
 
-- #830 depends on **#592** (event_outbox) — confirm #592 is merged before starting.
+- #830 depends on **#592** (event_outbox) — **VERIFIED STILL OPEN (2026-06-13)**: outbox
+  helpers not yet implemented. #830 stays blocked until #592 lands. The #825 foundation
+  (note-create + SSE acks) proceeds without it; outbox wiring is #830's scope.
 - #813 (A2 HotM) lands in the HotM repo, not here — keep open as coordination only.
