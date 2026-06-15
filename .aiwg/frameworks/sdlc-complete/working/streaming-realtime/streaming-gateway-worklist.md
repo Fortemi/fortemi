@@ -46,7 +46,13 @@ cross-repo HotM coordination — does not gate the cut.
 - [x] #827 backpressure — bounded buffer + 429 early-warning *(landed: configurable `FORTEMI_INGEST_STREAM_BUFFER` channel + escalating thresholds — `warning` @80%, `429 {retry_after_ms, INGEST_BACKPRESSURE}` @95% via best-effort `try_send` while a slot exists, blocking-send TCP backpressure @100%; `ingest_stream_buffer_pressure` gauge + peak/warning/429 counters on `/health/streaming` mirroring `ChatStreamMetrics`. Escalation unit-tested deterministically; live contract test pins the gauge surface)*
 - [x] #828 `X-Ingest-Cursor` resumption (60s TTL) *(landed: skip-ahead dedup — Redis `IngestCursorStore` per-ack cursor `{stream_id}-{line}`, 60s TTL, server-authoritative skip on reconnect, 410 Gone beyond TTL; outbox-idempotency dedup deferred to #830)*
 - [x] #829 per-stream bearer token auth + rate limit *(landed: Redis-backed `IngestTokenStore` (1h TTL, archive-bound, token_id reverse index for revoke); `POST /api/v1/ingest/tokens` mint + `DELETE /api/v1/ingest/tokens/{token_id}` revoke behind normal auth; `/ingest/stream` joins the SSE inline-auth exempt class and validates the bearer stream token when `INGEST_REQUIRE_TOKEN=true` (default, fail-closed 401), binding the write to the token's mint-time schema; per-token lines/sec in-pump token-bucket pacing → `error{status:429, INGEST_RATE_LIMITED}` once per episode; `ingest_stream_rate_limited_total` counter on `/health/streaming`. Token store `connect` mirrors the sibling Redis stores' pattern (#881 retrofit scope))*
-- [ ] #830 wire `/ingest/stream` into `event_outbox` — **verify dep #592 status first**
+- [x] #830 wire `/ingest/stream` into `event_outbox` *(landed: per-line `DbNoteSink.store`
+  emits a `note.created` outbox row via `emit_event_tx` in the SAME `SchemaContext::execute`
+  transaction as `insert_tx` — atomic; outbox `memory` = `ArchiveContext.name`. DB-gated
+  integration test verifies count invariant (N notes → N note.created rows) + atomic
+  rollback (failed emit → 0 note rows), passing against real Postgres. Strong
+  idempotency-key dedup deferred — outbox helper has no idempotency-key column yet (#592
+  follow-on); at-most-once already holds via #828 cursor skip-ahead.)*
 - [ ] #831 finish TUS resumable upload (closes #544 stub)
 
 **Sequence:** #825 → {#826, #827, #828, #829 parallel} → #830. #831 independent
@@ -134,7 +140,14 @@ cache hit serves at $0; bridge off by default.
 
 ## Open dependencies to verify
 
-- #830 depends on **#592** (event_outbox) — **VERIFIED STILL OPEN (2026-06-13)**: outbox
-  helpers not yet implemented. #830 stays blocked until #592 lands. The #825 foundation
-  (note-create + SSE acks) proceeds without it; outbox wiring is #830's scope.
+- #830 depends on **#592** (event_outbox) — **HELPER LANDED (re-verified 2026-06-14)**:
+  the `event_outbox` table (`migrations/20260524010000_event_outbox.sql`) and
+  `PgEventOutboxRepository::emit_event_tx` (`crates/matric-db/src/outbox.rs`) shipped in
+  `c4b5acb` (2026-05-24) and are already consumed by realtime transcripts (#844), Twilio
+  call events, and incoming-webhook capture (#818). #592 remains open ONLY to instrument
+  the core note/tag/collection/attachment/job write paths. #830 needs the helper, which
+  exists → **#830 is unblocked**. (My 2026-06-13 "still open / helpers not implemented"
+  note was stale.) Caveat: strong zero-duplicate via an outbox *idempotency-key* needs a
+  helper/schema extension not yet present; #830 ships note.created emission + at-most-once
+  (via #828 cursor) and defers idempotency-key dedup.
 - #813 (A2 HotM) lands in the HotM repo, not here — keep open as coordination only.

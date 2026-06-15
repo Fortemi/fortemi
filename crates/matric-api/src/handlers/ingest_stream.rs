@@ -30,20 +30,21 @@
 //! - `error` — `{"error":"...","code":"INGEST_FATAL"}` only for a pre-stream
 //!   fatal (e.g. an invalid archive schema)
 //!
-//! ## Scope (#825 foundation + #826 validation/progress + #828 resumption + #827 backpressure — store-only)
+//! ## Scope (#825 foundation + #826 validation/progress + #828 resumption + #827 backpressure + #829 token auth + #830 outbox)
 //!
 //! Per line: parse → cheap DB-free schema validation ([`validate_note_data`]) →
-//! `insert_tx` → `ack`, with periodic `progress` frames, per-ack cursor
-//! persistence for resumption, escalating buffer-pressure backpressure, and a
+//! `insert_tx` + `note.created` outbox row (same transaction, #830) → `ack`, with
+//! periodic `progress` frames, per-ack cursor persistence for resumption,
+//! escalating buffer-pressure backpressure, per-token rate limiting, and a
 //! single post-stream search-cache invalidation so stored notes are
 //! FTS-findable. Deliberately deferred:
 //! - **NLP enrichment** (embeddings, AI title, linking) — streamed notes are
 //!   stored and FTS-findable but NOT embedded/titled until a later reprocess.
-//! - **`event_outbox`** durability/replay — wired in #830 (blocked on #592);
-//!   the strong zero-duplicate-via-idempotency-key dedup rides on it.
-//! - **Per-line bearer auth + rate limit** (#829). The endpoint authenticates
-//!   the request once (handler-level `Auth`); per-stream token scoping and
-//!   rate limiting are #829's scope.
+//! - **Outbox idempotency-key dedup** — the per-line `note.created` row lands in
+//!   `event_outbox` atomically with the note (#830), but the *strong*
+//!   zero-duplicate-via-idempotency-key guarantee needs an outbox idempotency-key
+//!   column not yet present (#592 follow-on). At-most-once already holds via the
+//!   #828 cursor skip-ahead.
 //!
 //! ## Backpressure (#827)
 //!
@@ -675,17 +676,20 @@ trait NoteSink: Send + Sync {
 }
 
 /// Production sink: each `store` is its own archive-scoped transaction
-/// (`SET LOCAL search_path` + `INSERT` + `COMMIT`), so a single failed line
-/// rolls back only itself.
+/// (`SET LOCAL search_path` + `INSERT` + outbox `INSERT` + `COMMIT`), so a single
+/// failed line rolls back only itself — note row and outbox row together (#830).
 struct DbNoteSink {
     ctx: SchemaContext,
     pool: PgPool,
+    /// Memory name recorded on the outbox row for event scoping (#452); `None`
+    /// for the fallback public schema.
+    memory: Option<String>,
 }
 
 impl DbNoteSink {
-    fn new(pool: PgPool, schema: String) -> Result<Self, String> {
+    fn new(pool: PgPool, schema: String, memory: Option<String>) -> Result<Self, String> {
         let ctx = SchemaContext::new(pool.clone(), schema).map_err(|e| e.to_string())?;
-        Ok(Self { ctx, pool })
+        Ok(Self { ctx, pool, memory })
     }
 }
 
@@ -693,8 +697,28 @@ impl DbNoteSink {
 impl NoteSink for DbNoteSink {
     async fn store(&self, req: CreateNoteRequest) -> Result<Uuid, String> {
         let notes = PgNoteRepository::new(self.pool.clone());
+        let memory = self.memory.clone();
         self.ctx
-            .execute(move |tx| Box::pin(async move { notes.insert_tx(tx, req).await }))
+            .execute(move |tx| {
+                Box::pin(async move {
+                    // Insert the note, then append a `note.created` outbox row in
+                    // the SAME transaction (#830). `execute` commits once at the
+                    // end, so any error here rolls back both — no partial state.
+                    let note_id = notes.insert_tx(tx, req).await?;
+                    matric_db::PgEventOutboxRepository::emit_event_tx(
+                        tx,
+                        matric_db::CreateOutboxEvent::new(
+                            "note.created",
+                            "note",
+                            note_id,
+                            json!({ "note_id": note_id, "source": "ingest-stream" }),
+                            memory,
+                        ),
+                    )
+                    .await?;
+                    Ok(note_id)
+                })
+            })
             .await
             .map_err(|e| e.to_string())
     }
@@ -1119,6 +1143,9 @@ pub async fn ingest_stream_handler(
     let buffer = ingest_stream_buffer();
     let (tx, rx) = mpsc::channel::<IngestFrame>(buffer);
     let pool = state.db.pool.clone();
+    // Memory name for the outbox `note.created` rows (#830/#452); the write
+    // schema is the token's bound schema (#829), independent of this label.
+    let memory = archive_ctx.name.clone();
     let search_cache = state.search_cache.clone();
     let controls = StreamControls {
         bp: Backpressure::new(
@@ -1137,7 +1164,7 @@ pub async fn ingest_stream_handler(
     };
 
     tokio::spawn(async move {
-        match DbNoteSink::new(pool, schema) {
+        match DbNoteSink::new(pool, schema, memory) {
             Ok(sink) => {
                 pump_ingest_stream(
                     body.into_data_stream(),
@@ -2137,6 +2164,104 @@ mod tests {
             got,
             ("archive_x".to_string(), 250),
             "binds token schema+rate"
+        );
+    }
+
+    // ---- outbox wiring (#830) — DB-gated integration ------------------------
+
+    /// Build a `CreateNoteRequest` for a unique note via the real parse path.
+    fn db_note_req(marker: &str) -> CreateNoteRequest {
+        parse_ingest_line(
+            format!(r#"{{"type":"note","data":{{"content":"{marker}"}}}}"#).as_bytes(),
+        )
+        .expect("valid note line")
+    }
+
+    /// #830: each stored note writes exactly one `note.created` outbox row in the
+    /// same transaction as the note insert (count invariant), and a forced
+    /// mid-transaction failure rolls both back (atomicity). DB-gated: skips when
+    /// `DATABASE_URL` is unset (runs in the integration job, which has the
+    /// migrated `note` + `event_outbox` tables in `public`).
+    #[tokio::test]
+    async fn outbox_row_per_ingested_note_and_atomic_rollback() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            eprintln!("Skipping #830 outbox test: DATABASE_URL not set");
+            return;
+        };
+        let pool = matric_db::create_pool(&database_url)
+            .await
+            .expect("connect integration database");
+        let run = Uuid::new_v4().simple().to_string();
+
+        // Count invariant: 3 stored notes -> 3 `note.created` outbox rows.
+        let sink = DbNoteSink::new(
+            pool.clone(),
+            "public".to_string(),
+            Some("default".to_string()),
+        )
+        .expect("build sink");
+        let mut ids = Vec::new();
+        for i in 0..3 {
+            let id = sink
+                .store(db_note_req(&format!("ingest-830-{run}-{i}")))
+                .await
+                .expect("store note");
+            ids.push(id);
+        }
+        let outbox_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM event_outbox \
+             WHERE event_type = 'note.created' AND entity_id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_one(&pool)
+        .await
+        .expect("count outbox rows");
+        assert_eq!(
+            outbox_count,
+            ids.len() as i64,
+            "exactly one note.created outbox row per ingested note"
+        );
+
+        // Atomicity: an outbox emit failure (empty event_type) inside the shared
+        // transaction must roll back the note insert too — no partial state.
+        let ctx = SchemaContext::new(pool.clone(), "public".to_string()).expect("ctx");
+        let notes = PgNoteRepository::new(pool.clone());
+        let marker_source = format!("ingest-830-rollback-{run}");
+        let req = CreateNoteRequest {
+            content: "rollback probe".to_string(),
+            format: "markdown".to_string(),
+            source: marker_source.clone(),
+            collection_id: None,
+            tags: None,
+            metadata: None,
+            document_type_id: None,
+            title: None,
+        };
+        let result: std::result::Result<Uuid, _> = ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    let note_id = notes.insert_tx(tx, req).await?;
+                    matric_db::PgEventOutboxRepository::emit_event_tx(
+                        tx,
+                        matric_db::CreateOutboxEvent::new("", "note", note_id, json!({}), None),
+                    )
+                    .await?;
+                    Ok(note_id)
+                })
+            })
+            .await;
+        assert!(
+            result.is_err(),
+            "an invalid outbox emit must fail the transaction"
+        );
+        let note_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM note WHERE source = $1")
+            .bind(&marker_source)
+            .fetch_one(&pool)
+            .await
+            .expect("count note rows");
+        assert_eq!(
+            note_rows, 0,
+            "the note insert rolled back together with the failed outbox emit"
         );
     }
 }
