@@ -1,0 +1,131 @@
+//! The `InboundEventSource` connector contract + supporting types (#833).
+//!
+//! A connector pulls events from an upstream technical source (external Redis
+//! Stream, SSE, Kafka), hands them to the supervisor one at a time, and commits
+//! the upstream offset once the supervisor has durably written the event to the
+//! shared `event_outbox`. Connectors use interior mutability (the trait takes
+//! `&self`) so a single registered instance can hold its own connection/cursor.
+
+use async_trait::async_trait;
+use serde_json::Value;
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
+/// Opaque upstream cursor (e.g. a Redis Stream id, Kafka offset, SSE
+/// `Last-Event-ID`). Stored as text; interpreted by the owning connector.
+pub type Offset = String;
+
+/// A normalized event pulled from an upstream source, ready for the outbox.
+#[derive(Debug, Clone)]
+pub struct InboundEvent {
+    /// Outbox `event_type` (e.g. `external.metric.v1`).
+    pub event_type: String,
+    /// Event payload (written verbatim into the outbox payload envelope).
+    pub payload: Value,
+    /// Upstream cursor to commit once the event is durably stored.
+    pub offset: Offset,
+}
+
+impl InboundEvent {
+    pub fn new(event_type: impl Into<String>, payload: Value, offset: impl Into<Offset>) -> Self {
+        Self {
+            event_type: event_type.into(),
+            payload,
+            offset: offset.into(),
+        }
+    }
+}
+
+/// Connector-facing error. `Closed` ends the per-connector loop cleanly;
+/// `Transient` triggers a backoff+retry of `next_event`.
+#[derive(Debug, thiserror::Error)]
+pub enum InboundError {
+    /// The source is exhausted/closed; the supervisor stops the connector.
+    #[error("inbound source closed")]
+    Closed,
+    /// A transient fetch error; the supervisor backs off and retries.
+    #[error("transient inbound source error: {0}")]
+    Transient(String),
+}
+
+pub type InboundResult<T> = std::result::Result<T, InboundError>;
+
+/// A pluggable inbound event source. Concrete connectors (#834 Redis Stream,
+/// #835 SSE, #836 Kafka) implement this; the supervisor drives it.
+#[async_trait]
+pub trait InboundEventSource: Send + Sync {
+    /// Block until the next upstream event is available (or the source closes).
+    async fn next_event(&self) -> InboundResult<InboundEvent>;
+    /// Commit the upstream offset after the event is durably stored.
+    async fn commit(&self, offset: Offset) -> InboundResult<()>;
+    /// Stable connector name (matches the `inbound_source.name` registration).
+    fn name(&self) -> &str;
+}
+
+/// An in-memory source used to exercise the supervisor end to end without a
+/// live upstream. Yields a fixed queue of events, then reports `Closed`;
+/// records committed offsets for assertions.
+pub struct InMemorySource {
+    name: String,
+    queue: Mutex<VecDeque<InboundEvent>>,
+    committed: Mutex<Vec<Offset>>,
+}
+
+impl InMemorySource {
+    pub fn new(name: impl Into<String>, events: Vec<InboundEvent>) -> Self {
+        Self {
+            name: name.into(),
+            queue: Mutex::new(events.into()),
+            committed: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Offsets committed so far (test assertion helper).
+    pub fn committed(&self) -> Vec<Offset> {
+        self.committed.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl InboundEventSource for InMemorySource {
+    async fn next_event(&self) -> InboundResult<InboundEvent> {
+        match self.queue.lock().unwrap().pop_front() {
+            Some(ev) => Ok(ev),
+            None => Err(InboundError::Closed),
+        }
+    }
+
+    async fn commit(&self, offset: Offset) -> InboundResult<()> {
+        self.committed.lock().unwrap().push(offset);
+        Ok(())
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn in_memory_source_drains_then_closes() {
+        let src = InMemorySource::new(
+            "mem",
+            vec![
+                InboundEvent::new("e.v1", json!({"n": 1}), "1-0"),
+                InboundEvent::new("e.v1", json!({"n": 2}), "1-1"),
+            ],
+        );
+        assert_eq!(src.name(), "mem");
+        let a = src.next_event().await.unwrap();
+        assert_eq!(a.offset, "1-0");
+        src.commit(a.offset).await.unwrap();
+        let b = src.next_event().await.unwrap();
+        src.commit(b.offset).await.unwrap();
+        assert!(matches!(src.next_event().await, Err(InboundError::Closed)));
+        assert_eq!(src.committed(), vec!["1-0".to_string(), "1-1".to_string()]);
+    }
+}

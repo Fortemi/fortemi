@@ -5337,3 +5337,37 @@ fn default_incoming_webhook_signature_header() -> String {
 fn default_incoming_webhook_active() -> bool {
     true
 }
+
+/// A registered inbound external event source connector (#833, Phase D).
+///
+/// `kind` selects a connector implementation (e.g. `redis-stream`, `sse`,
+/// `kafka`); `config` is an opaque JSON document interpreted by that connector.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundSource {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: String,
+    pub config: JsonValue,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Request to register an inbound event source connector (#833).
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct CreateInboundSourceRequest {
+    pub name: String,
+    pub kind: String,
+    #[serde(default = "default_inbound_source_config")]
+    pub config: JsonValue,
+    #[serde(default = "default_inbound_source_enabled")]
+    pub enabled: bool,
+}
+
+fn default_inbound_source_config() -> JsonValue {
+    JsonValue::Object(serde_json::Map::new())
+}
+
+fn default_inbound_source_enabled() -> bool {
+    true
+}

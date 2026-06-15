@@ -747,6 +747,8 @@ struct AppState {
     chat_stream_metrics: Arc<ChatStreamMetrics>,
     /// Backpressure gauges/counters for `/ingest/stream`, surfaced on `/health/streaming` (#827).
     ingest_stream_metrics: Arc<crate::handlers::ingest_stream::IngestStreamMetrics>,
+    /// Per-connector counters for inbound event sources, surfaced on `/health/streaming` (#833).
+    inbound_metrics: Arc<matric_jobs::inbound::InboundMetrics>,
 }
 
 impl AppState {
@@ -786,6 +788,7 @@ impl AppState {
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
         get_incoming_webhook_receiver, receive_incoming_webhook,
         update_incoming_webhook_receiver, delete_incoming_webhook_receiver,
+        create_inbound_source, list_inbound_sources, delete_inbound_source,
         validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
@@ -2015,7 +2018,26 @@ async fn main() -> anyhow::Result<()> {
         ingest_stream_metrics: Arc::new(
             crate::handlers::ingest_stream::IngestStreamMetrics::default(),
         ),
+        inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
     };
+
+    // Spawn the inbound external event source supervisor (#833, Phase D).
+    // Opt-in via INBOUND_EXTERNAL_SOURCES_ENABLED (default false / standby cost
+    // gate). The connector registry is empty until concrete connectors register
+    // their kind (#834 redis-stream, #835 sse, #836 kafka); enabled sources of
+    // unregistered kinds are skipped with a warning.
+    if std::env::var("INBOUND_EXTERNAL_SOURCES_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false)
+    {
+        let supervisor = std::sync::Arc::new(matric_jobs::inbound::InboundSupervisor::new(
+            state.db.clone(),
+            state.inbound_metrics.clone(),
+        ));
+        let registry = matric_jobs::inbound::SourceRegistry::new();
+        info!("Starting inbound event source supervisor (Phase D)...");
+        let _handles = supervisor.start_from_registry(&registry).await;
+    }
 
     // Spawn periodic inference reachability probe (#630).
     // Re-probes the generation backend at a fixed interval so `capabilities.chat.available`
@@ -2601,6 +2623,15 @@ async fn main() -> anyhow::Result<()> {
                 .post(receive_incoming_webhook)
                 .patch(update_incoming_webhook_receiver)
                 .delete(delete_incoming_webhook_receiver),
+        )
+        // Inbound external event source connectors (#833, Phase D).
+        .route(
+            "/api/v1/inbound-sources",
+            post(create_inbound_source).get(list_inbound_sources),
+        )
+        .route(
+            "/api/v1/inbound-sources/{name}",
+            delete(delete_inbound_source),
         )
         // Rate limiting status endpoint
         .route("/api/v1/rate-limit/status", get(rate_limit_status))
@@ -4261,6 +4292,49 @@ async fn update_incoming_webhook_receiver(
     Ok(Json(receiver))
 }
 
+#[utoipa::path(post, path = "/api/v1/inbound-sources", tag = "Inbound Sources",
+    request_body = matric_core::CreateInboundSourceRequest,
+    responses(
+        (status = 201, description = "Connector registered"),
+        (status = 400, description = "Invalid name/kind")
+    ))]
+async fn create_inbound_source(
+    State(state): State<AppState>,
+    Json(body): Json<matric_core::CreateInboundSourceRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id = state.db.inbound_sources.create(body).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+}
+
+#[utoipa::path(get, path = "/api/v1/inbound-sources", tag = "Inbound Sources",
+    responses((status = 200, description = "Registered inbound source connectors")))]
+async fn list_inbound_sources(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let sources = state.db.inbound_sources.list().await?;
+    Ok(Json(sources))
+}
+
+#[utoipa::path(delete, path = "/api/v1/inbound-sources/{name}", tag = "Inbound Sources",
+    params(("name" = String, Path, description = "Inbound source name")),
+    responses(
+        (status = 204, description = "Connector deregistered"),
+        (status = 404, description = "Unknown source name")
+    ))]
+async fn delete_inbound_source(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let removed = state.db.inbound_sources.delete_by_name(&name).await?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::NotFound(format!(
+            "Inbound source {name} not found"
+        )))
+    }
+}
+
 async fn apply_incoming_webhook_side_effect(
     state: &AppState,
     schema_ref: &str,
@@ -5149,6 +5223,7 @@ async fn streaming_health_check(
         "rtp": build_rtp_metrics(call_metrics, deepgram_rate, deepgram_metrics),
         "chat": state.chat_stream_metrics.snapshot(),
         "ingest": state.ingest_stream_metrics.snapshot(),
+        "inbound": state.inbound_metrics.snapshot(),
     })))
 }
 
@@ -20408,6 +20483,7 @@ mod tests {
             ingest_stream_metrics: Arc::new(
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
+            inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -20636,6 +20712,7 @@ mod tests {
             ingest_stream_metrics: Arc::new(
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
+            inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -21836,6 +21913,7 @@ mod tests {
             ingest_stream_metrics: Arc::new(
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
+            inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -22163,6 +22241,7 @@ mod tests {
             ingest_stream_metrics: Arc::new(
                 crate::handlers::ingest_stream::IngestStreamMetrics::default(),
             ),
+            inbound_metrics: Arc::new(matric_jobs::inbound::InboundMetrics::new()),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
@@ -23650,6 +23729,80 @@ mod tests {
 
         sqlx::query("DELETE FROM incoming_webhook_receiver WHERE id = $1")
             .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+    }
+
+    /// #833: the inbound supervisor writes healthy events to the outbox, commits
+    /// their offsets, and dead-letters a malformed event.
+    #[tokio::test]
+    async fn inbound_supervisor_processes_and_dead_letters() {
+        use matric_jobs::inbound::{
+            InMemorySource, InboundEvent, InboundMetrics, InboundSupervisor,
+        };
+        use std::sync::Arc;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+
+        let source_name = format!("inbtest-{}", Uuid::new_v4().simple());
+        let metrics = Arc::new(InboundMetrics::new());
+        // max_attempts=1 so the malformed event dead-letters immediately (no backoff).
+        let supervisor =
+            Arc::new(InboundSupervisor::new(db.clone(), metrics.clone()).with_max_attempts(1));
+
+        let source = Box::new(InMemorySource::new(
+            source_name.clone(),
+            vec![
+                InboundEvent::new("external.metric.v1", serde_json::json!({"v": 1}), "1-0"),
+                // Malformed: empty event_type -> dead-lettered.
+                InboundEvent::new("", serde_json::json!({"v": 2}), "1-1"),
+                InboundEvent::new("external.metric.v1", serde_json::json!({"v": 3}), "1-2"),
+            ],
+        ));
+        // Runs to completion: InMemorySource reports Closed when drained.
+        supervisor.run_source(source).await;
+
+        let outbox_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM event_outbox \
+             WHERE entity_type = 'inbound_event' AND payload->>'source' = $1",
+        )
+        .bind(&source_name)
+        .fetch_one(db.pool())
+        .await
+        .expect("count outbox");
+        assert_eq!(
+            outbox_count, 2,
+            "two healthy events should reach the outbox"
+        );
+
+        let dlq = db
+            .inbound_sources
+            .dlq_count(&source_name)
+            .await
+            .expect("dlq count");
+        assert_eq!(dlq, 1, "the malformed event should be dead-lettered");
+
+        let snap = metrics.snapshot();
+        assert_eq!(snap[&source_name]["events_total"], 2);
+        assert_eq!(snap[&source_name]["errors_total"], 1);
+
+        sqlx::query("DELETE FROM event_outbox WHERE payload->>'source' = $1")
+            .bind(&source_name)
+            .execute(db.pool())
+            .await
+            .ok();
+        sqlx::query("DELETE FROM inbound_dlq WHERE source_name = $1")
+            .bind(&source_name)
             .execute(db.pool())
             .await
             .ok();

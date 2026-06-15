@@ -44,6 +44,7 @@ pub mod diarization_handler;
 pub mod extraction;
 pub mod extraction_handler;
 pub mod handler;
+pub mod inbound;
 pub mod keyframe_assembly_handler;
 pub mod keyframe_character_vision_handler;
 pub mod keyframe_setting_vision_handler;

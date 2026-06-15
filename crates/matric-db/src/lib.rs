@@ -41,6 +41,7 @@ pub mod embedding_sets;
 pub mod embeddings;
 pub mod file_storage;
 pub mod hashtag_extraction;
+pub mod inbound_sources;
 pub mod incoming_webhooks;
 pub mod jobs;
 pub mod links;
@@ -96,6 +97,7 @@ pub use syntactic_chunker::{CodeChunk, CodeUnitKind, SyntacticChunker};
 
 // Re-export hashtag extraction
 pub use hashtag_extraction::extract_inline_hashtags;
+pub use inbound_sources::PgInboundSourceRepository;
 pub use incoming_webhooks::{
     validate_incoming_webhook_payload, PgIncomingWebhookReceiverRepository,
 };
@@ -198,6 +200,8 @@ pub struct Database {
     pub webhooks: PgWebhookRepository,
     /// Incoming webhook receiver registrations for provider callbacks.
     pub incoming_webhooks: PgIncomingWebhookReceiverRepository,
+    /// Inbound external event source connectors + DLQ (#833, Phase D).
+    pub inbound_sources: PgInboundSourceRepository,
     /// Shared durable event outbox for write-path event publication.
     pub outbox: PgEventOutboxRepository,
     /// PKE public key registry (Issue #113).
@@ -239,6 +243,7 @@ impl Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(pool.clone()),
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(pool.clone()),
+            inbound_sources: PgInboundSourceRepository::new(pool.clone()),
             outbox: PgEventOutboxRepository::new(pool.clone()),
             pke_keys: PgPkeKeyRepository::new(pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
@@ -427,6 +432,7 @@ impl Clone for Database {
             skos_tags: skos,
             webhooks: PgWebhookRepository::new(self.pool.clone()),
             incoming_webhooks: PgIncomingWebhookReceiverRepository::new(self.pool.clone()),
+            inbound_sources: PgInboundSourceRepository::new(self.pool.clone()),
             outbox: PgEventOutboxRepository::new(self.pool.clone()),
             pke_keys: PgPkeKeyRepository::new(self.pool.clone()),
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
