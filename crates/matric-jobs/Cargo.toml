@@ -55,6 +55,16 @@ flate2.workspace = true
 # Image processing
 image.workspace = true
 
+# Kafka — inbound Kafka connector (#836). Optional / off by default: bundles
+# librdkafka (C, built via cmake) — opt in with `--features kafka` on high-end
+# tiers per the Phase D cost-gate. Default + edge builds never compile it.
+rdkafka = { version = "0.36", optional = true, default-features = false, features = ["cmake-build", "tokio", "ssl"] }
+
+[features]
+# Compile-time gate for the Kafka connector (#836). Runtime is additionally
+# gated by INBOUND_KAFKA_ENABLED (default false).
+kafka = ["dep:rdkafka"]
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }

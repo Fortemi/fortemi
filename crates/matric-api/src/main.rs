@@ -2051,6 +2051,25 @@ async fn main() -> anyhow::Result<()> {
                     .map(|s| Box::new(s) as Box<dyn matric_jobs::inbound::InboundEventSource>)
             }),
         );
+        // Kafka (#836): compiled only with the `kafka` feature AND runtime-gated
+        // by INBOUND_KAFKA_ENABLED (default false) per the Phase D cost-gate.
+        #[cfg(feature = "kafka")]
+        {
+            if std::env::var("INBOUND_KAFKA_ENABLED")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false)
+            {
+                registry.register(
+                    "kafka",
+                    Box::new(|name, config| {
+                        matric_jobs::inbound::KafkaSource::from_config(name, config).map(|s| {
+                            Box::new(s) as Box<dyn matric_jobs::inbound::InboundEventSource>
+                        })
+                    }),
+                );
+                info!("inbound: kafka connector kind enabled (INBOUND_KAFKA_ENABLED)");
+            }
+        }
         info!("Starting inbound event source supervisor (Phase D)...");
         let _handles = supervisor.start_from_registry(&registry).await;
     }

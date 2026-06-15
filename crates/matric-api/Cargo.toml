@@ -103,3 +103,6 @@ matric-db = { path = "../matric-db" }
 
 [features]
 mock-rtp = []
+# Inbound Kafka connector (#836) — off by default; opt-in on high-end tiers.
+# Forwards to matric-jobs/kafka (bundles librdkafka via cmake).
+kafka = ["matric-jobs/kafka"]
