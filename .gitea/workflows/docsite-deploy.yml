@@ -7,12 +7,16 @@
 # Tenant config lives at the repo root (tenants.json); build tooling deps
 # are declared in the root package.json (fortemi-docsite).
 #
+# docs.fortemi.com layout: a landing portal at / links to the server docs
+# (this site, published to /server) and the fortemi-react docs (/react).
+#
 # Required secrets:
-#   DEPLOY_SSH_KEY   — private key for the deploy user
-#   DEPLOY_HOST      — docs server hostname
-#   DEPLOY_PORT      — docs server SSH port
-#   DEPLOY_USER      — deploy user on the docs server
-#   DEPLOY_PATH      — absolute path on the docs server (with trailing slash)
+#   DEPLOY_SSH_KEY     — private key for the deploy user
+#   DEPLOY_HOST        — docs server hostname
+#   DEPLOY_PORT        — docs server SSH port
+#   DEPLOY_USER        — deploy user on the docs server
+#   DEPLOY_PATH        — absolute path for the server docs (.../docs-fortemi-com/server/)
+#   DEPLOY_PATH_PORTAL — absolute path for the landing portal (.../docs-fortemi-com/)
 
 name: Docsite Deploy
 
@@ -70,6 +74,16 @@ jobs:
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
             'test -f ${{ secrets.DEPLOY_PATH }}index.html && echo "Deploy verified: index.html present" || { echo "Deploy failed: index.html missing"; exit 1; }'
 
+      - name: Deploy landing portal to docs root
+        run: |
+          # Portal is the index at docs.fortemi.com/ linking to /server and /react.
+          # No --delete here: the docs root also contains the server/ and react/
+          # sub-path docbases, which must never be removed by this deploy.
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=accept-new" \
+            docs-portal/ \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH_PORTAL }}
+
       - name: Cleanup SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key
@@ -77,6 +91,6 @@ jobs:
       - name: Log deployment result
         if: success()
         run: |
-          echo "Deployed docs.fortemi.com"
+          echo "Deployed docs.fortemi.com/server (+ landing portal at /)"
           echo "Tag: ${{ gitea.ref }}"
           echo "Commit: ${{ gitea.sha }}"

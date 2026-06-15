@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fortémi Documentation</title>
+  <meta name="description" content="Documentation for the Fortémi knowledge platform: the self-hosted Rust server and the fortemi-react browser packages." />
+  <link rel="canonical" href="https://docs.fortemi.com/" />
+  <link rel="icon" type="image/png" href="/server/favicon.png" />
+  <style>
+    :root {
+      --accent: #2563EB;
+      --bg: #0b1220;
+      --surface: #111a2e;
+      --surface-2: #16223c;
+      --text: #e8edf6;
+      --muted: #9fb0c9;
+      --border: #233150;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7faff; --surface: #ffffff; --surface-2: #f0f5ff;
+        --text: #0e1726; --muted: #51607a; --border: #dbe4f3;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text); background: var(--bg);
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    .wrap { width: 100%; max-width: 880px; margin: 0 auto; padding: 4rem 1.5rem; flex: 1; }
+    header { margin-bottom: 2.5rem; }
+    .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .8rem; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); margin: .35rem 0 .5rem; letter-spacing: -.02em; }
+    .lead { color: var(--muted); font-size: 1.1rem; max-width: 60ch; }
+    .grid { display: grid; gap: 1.25rem; grid-template-columns: 1fr; margin-top: 2rem; }
+    @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+    a.card {
+      display: block; text-decoration: none; color: inherit;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 1.5rem; transition: border-color .15s ease, transform .15s ease, background .15s ease;
+    }
+    a.card:hover { border-color: var(--accent); transform: translateY(-2px); background: var(--surface-2); }
+    a.card h2 { margin: 0 0 .4rem; font-size: 1.25rem; }
+    a.card .pkg { color: var(--accent); font-weight: 600; }
+    a.card p { margin: 0; color: var(--muted); font-size: .98rem; }
+    a.card .go { margin-top: 1rem; color: var(--accent); font-weight: 600; font-size: .92rem; }
+    footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 2rem 1.5rem; border-top: 1px solid var(--border); }
+    footer a { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div class="eyebrow">Fortémi</div>
+      <h1>Documentation</h1>
+      <p class="lead">AI-enhanced knowledge management with hybrid semantic search, SKOS tagging, and a knowledge graph — on the server and in the browser.</p>
+    </header>
+
+    <nav class="grid" aria-label="Documentation sites">
+      <a class="card" href="/server/">
+        <h2>Server</h2>
+        <p>The self-hosted Fortémi server (Rust + PostgreSQL): hybrid search, MCP server, multi-provider LLM inference, multimodal ingestion, and the knowledge graph.</p>
+        <div class="go">Open server docs →</div>
+      </a>
+      <a class="card" href="/react/">
+        <h2>React</h2>
+        <p>Browser-only knowledge management for React — <span class="pkg">@fortemi/core</span>, <span class="pkg">@fortemi/graph</span>, and <span class="pkg">@fortemi/react</span>: PGlite data layer, hybrid search, and graph tooling.</p>
+        <div class="go">Open React docs →</div>
+      </a>
+    </nav>
+  </main>
+
+  <footer>
+    Fortémi · <a href="/server/">Server</a> · <a href="/react/">React</a>
+  </footer>
+</body>
+</html>
