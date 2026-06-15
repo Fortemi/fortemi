@@ -23419,6 +23419,242 @@ mod tests {
             .ok();
     }
 
+    /// #820/#823: a wrong or missing HMAC signature is rejected with 401 before
+    /// any processing (no outbox row, no side effect).
+    #[tokio::test]
+    async fn incoming_webhook_rejects_bad_and_missing_signature() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let slug = format!("sig-{}", Uuid::new_v4().simple());
+        let secret = "sig-test-secret-1234567890abcd";
+        let receiver_id = db
+            .incoming_webhooks
+            .create(matric_core::CreateIncomingWebhookReceiverRequest {
+                slug: slug.clone(),
+                provider: "contract".to_string(),
+                schema_ref: "contract.any.v1".to_string(),
+                hmac_secret: secret.to_string(),
+                signature_header: "X-Fortemi-Signature".to_string(),
+                is_active: true,
+                schema_doc: Some(serde_json::json!({"type": "object"})),
+            })
+            .await
+            .expect("create receiver");
+
+        let body = br#"{"hello":"world"}"#.to_vec();
+        let uri: Uri = format!("/api/v1/webhooks/incoming/{slug}").parse().unwrap();
+
+        // Wrong signature → 401.
+        let mut mac = HmacSha256::new_from_slice(b"the-wrong-secret").unwrap();
+        mac.update(&body);
+        let wrong = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Fortemi-Signature", wrong.parse().unwrap());
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = receive_incoming_webhook(
+            State(state.clone()),
+            OriginalUri(uri.clone()),
+            Path(slug.clone()),
+            headers,
+            Bytes::from(body.clone()),
+        )
+        .await;
+        assert!(
+            matches!(res, Err(ApiError::Unauthorized(_))),
+            "wrong signature must be 401"
+        );
+
+        // Missing signature header → 401.
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let res = receive_incoming_webhook(
+            State(state.clone()),
+            OriginalUri(uri),
+            Path(slug.clone()),
+            headers,
+            Bytes::from(body),
+        )
+        .await;
+        assert!(
+            matches!(res, Err(ApiError::Unauthorized(_))),
+            "missing signature must be 401"
+        );
+
+        // No outbox row should have been written for the rejected requests.
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM event_outbox WHERE entity_type = 'incoming_webhook' AND entity_id = $1",
+        )
+        .bind(receiver_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count outbox");
+        assert_eq!(count, 0, "rejected signatures must not capture outbox rows");
+
+        sqlx::query("DELETE FROM incoming_webhook_receiver WHERE id = $1")
+            .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+    }
+
+    /// #821/#823: a custom JSON Schema (`schema_doc`) rejects a body missing a
+    /// required field with 400 and names the field.
+    #[tokio::test]
+    async fn incoming_webhook_custom_schema_rejects_missing_field() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let slug = format!("schema-{}", Uuid::new_v4().simple());
+        let secret = "schema-test-secret-1234567890ab";
+        let receiver_id = db
+            .incoming_webhooks
+            .create(matric_core::CreateIncomingWebhookReceiverRequest {
+                slug: slug.clone(),
+                provider: "contract".to_string(),
+                schema_ref: "contract.payment.v1".to_string(),
+                hmac_secret: secret.to_string(),
+                signature_header: "X-Fortemi-Signature".to_string(),
+                is_active: true,
+                schema_doc: Some(serde_json::json!({
+                    "type": "object",
+                    "required": ["amount", "currency"],
+                    "properties": {
+                        "amount": {"type": "number"},
+                        "currency": {"type": "string"}
+                    }
+                })),
+            })
+            .await
+            .expect("create receiver");
+
+        let body = br#"{"currency":"USD"}"#.to_vec(); // missing "amount"
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(&body);
+        let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Fortemi-Signature", signature.parse().unwrap());
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let uri: Uri = format!("/api/v1/webhooks/incoming/{slug}").parse().unwrap();
+
+        let res = receive_incoming_webhook(
+            State(state.clone()),
+            OriginalUri(uri),
+            Path(slug.clone()),
+            headers,
+            Bytes::from(body),
+        )
+        .await;
+        match res {
+            Err(ApiError::BadRequest(msg)) => {
+                assert!(msg.contains("amount"), "error should name field: {msg}")
+            }
+            Err(other) => panic!("expected 400 BadRequest naming the field, got {other:?}"),
+            Ok(_) => panic!("expected 400 BadRequest, got Ok"),
+        }
+
+        sqlx::query("DELETE FROM incoming_webhook_receiver WHERE id = $1")
+            .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+    }
+
+    /// #821/#823: PATCH replaces a receiver's schema in place (slug + secret
+    /// preserved); the new schema then governs validation.
+    #[tokio::test]
+    async fn incoming_webhook_patch_updates_schema() {
+        if std::env::var("INTEGRATION_TEST_DB").ok().as_deref() != Some("1") {
+            return;
+        }
+        let database_url = match std::env::var("DATABASE_URL") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let slug = format!("patch-{}", Uuid::new_v4().simple());
+        let receiver_id = db
+            .incoming_webhooks
+            .create(matric_core::CreateIncomingWebhookReceiverRequest {
+                slug: slug.clone(),
+                provider: "contract".to_string(),
+                schema_ref: "twilio.voice.v1".to_string(),
+                hmac_secret: "patch-test-secret-1234567890ab".to_string(),
+                signature_header: "X-Fortemi-Signature".to_string(),
+                is_active: true,
+                schema_doc: None,
+            })
+            .await
+            .expect("create receiver");
+
+        let new_schema = serde_json::json!({
+            "type": "object",
+            "required": ["order_id"],
+            "properties": {"order_id": {"type": "string"}}
+        });
+        let res = update_incoming_webhook_receiver(
+            State(state.clone()),
+            Path(slug.clone()),
+            Json(matric_core::UpdateIncomingWebhookReceiverRequest {
+                schema_doc: Some(new_schema.clone()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert!(res.is_ok(), "PATCH should succeed");
+
+        let updated = db
+            .incoming_webhooks
+            .get_by_slug(&slug)
+            .await
+            .expect("load")
+            .expect("receiver exists");
+        assert_eq!(
+            updated.schema_doc.as_ref(),
+            Some(&new_schema),
+            "schema_doc should be replaced"
+        );
+        // Slug + provider preserved (receiver not recreated).
+        assert_eq!(updated.slug, slug);
+        assert_eq!(updated.provider, "contract");
+
+        sqlx::query("DELETE FROM incoming_webhook_receiver WHERE id = $1")
+            .bind(receiver_id)
+            .execute(db.pool())
+            .await
+            .ok();
+    }
+
     /// #819: the DELETE endpoint removes a receiver (204) and reports 404 for an
     /// unknown slug; the underlying repo delete is idempotent.
     #[tokio::test]
