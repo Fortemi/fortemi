@@ -58,7 +58,7 @@ image.workspace = true
 # Kafka — inbound Kafka connector (#836). Optional / off by default: bundles
 # librdkafka (C, built via cmake) — opt in with `--features kafka` on high-end
 # tiers per the Phase D cost-gate. Default + edge builds never compile it.
-rdkafka = { version = "0.36", optional = true, default-features = false, features = ["cmake-build", "tokio", "ssl"] }
+rdkafka = { version = "0.36", optional = true, default-features = false, features = ["tokio", "ssl-vendored"] }
 
 [features]
 # Compile-time gate for the Kafka connector (#836). Runtime is additionally
