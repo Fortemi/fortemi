@@ -5,6 +5,8 @@
   "tagline": "AI-enhanced knowledge base with semantic search and NLP pipelines.",
   "description": "Documentation for Fortémi: hybrid search, SKOS tagging, encryption, and AI revision.",
   "accentColor": "#2563EB",
+  "domain": "docs.fortemi.com",
+  "seo": { "siteUrl": "https://docs.fortemi.com" },
   "welcome": {
     "eyebrow": "Fortémi v2026.1",
     "headline": "AI-Enhanced Knowledge Management",
