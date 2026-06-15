@@ -516,6 +516,7 @@ jobs:
 
       - name: Build and push dev images
         run: |
+          set -euo pipefail
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -535,7 +536,7 @@ jobs:
               attempt=$((attempt + 1))
             done
             echo "Failed to push ${image} after ${max_attempts} attempts"
-            return 1
+            exit 1
           }
 
           # Build API-only image (for Kubernetes/external DB deployments)
@@ -594,6 +595,7 @@ jobs:
 
       - name: Build and push release images
         run: |
+          set -euo pipefail
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
           VERSION="${GITHUB_REF_NAME#v}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -613,7 +615,7 @@ jobs:
               attempt=$((attempt + 1))
             done
             echo "Failed to push ${image} after ${max_attempts} attempts"
-            return 1
+            exit 1
           }
 
           echo "Building release images for version: ${VERSION}"
@@ -761,6 +763,7 @@ jobs:
 
       - name: Build and push dev images to ghcr.io
         run: |
+          set -euo pipefail
           IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -780,7 +783,7 @@ jobs:
               attempt=$((attempt + 1))
             done
             echo "Failed to push ${image} after ${max_attempts} attempts"
-            return 1
+            exit 1
           }
 
           # API-only image (for Kubernetes / external DB / compose)
@@ -831,6 +834,7 @@ jobs:
 
       - name: Build and push to ghcr.io
         run: |
+          set -euo pipefail
           IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
           VERSION="${GITHUB_REF_NAME#v}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -851,7 +855,7 @@ jobs:
               attempt=$((attempt + 1))
             done
             echo "Failed to push ${image} after ${max_attempts} attempts"
-            return 1
+            exit 1
           }
 
           echo "Building release images for GitHub: ${VERSION}"
