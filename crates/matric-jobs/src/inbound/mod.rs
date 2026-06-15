@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod redis_stream;
 pub mod registry;
 pub mod source;
+pub mod sse;
 pub mod supervisor;
 
 pub use metrics::InboundMetrics;
@@ -18,4 +19,5 @@ pub use registry::{SourceBuilder, SourceRegistry};
 pub use source::{
     InMemorySource, InboundError, InboundEvent, InboundEventSource, InboundResult, Offset,
 };
+pub use sse::{SseConfig, SseSource};
 pub use supervisor::InboundSupervisor;

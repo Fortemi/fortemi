@@ -2035,12 +2035,19 @@ async fn main() -> anyhow::Result<()> {
             state.inbound_metrics.clone(),
         ));
         let mut registry = matric_jobs::inbound::SourceRegistry::new();
-        // Register concrete connector kinds. redis-stream (#834) is live; sse
-        // (#835) and kafka (#836) register here as they land.
+        // Register concrete connector kinds. redis-stream (#834) and sse (#835)
+        // are live; kafka (#836) registers here as it lands.
         registry.register(
             "redis-stream",
             Box::new(|name, config| {
                 matric_jobs::inbound::RedisStreamSource::from_config(name, config)
+                    .map(|s| Box::new(s) as Box<dyn matric_jobs::inbound::InboundEventSource>)
+            }),
+        );
+        registry.register(
+            "sse",
+            Box::new(|name, config| {
+                matric_jobs::inbound::SseSource::from_config(name, config)
                     .map(|s| Box::new(s) as Box<dyn matric_jobs::inbound::InboundEventSource>)
             }),
         );

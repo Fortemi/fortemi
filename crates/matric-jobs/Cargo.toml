@@ -37,8 +37,8 @@ futures.workspace = true
 # Logging
 tracing.workspace = true
 
-# HTTP client
-reqwest = { workspace = true, features = ["multipart"] }
+# HTTP client (stream: SSE inbound connector chunked reads, #835)
+reqwest = { workspace = true, features = ["multipart", "stream"] }
 
 # Redis — inbound Redis Stream connector (#834)
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
