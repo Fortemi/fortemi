@@ -34,6 +34,11 @@ base64.workspace = true
 regex.workspace = true
 blake3.workspace = true
 
+# JSON Schema validation for incoming webhook payloads (#821).
+# default-features off: we don't resolve remote/file $refs, so skip the
+# reqwest + TLS stack. Core validation (incl. `pattern`) needs no features.
+jsonschema = { version = "0.46", default-features = false }
+
 # OpenAPI schema generation
 utoipa = { version = "5", features = ["chrono", "uuid"] }
 

@@ -1,12 +1,21 @@
 //! Incoming webhook receiver registration and schema-shape validation.
+//!
+//! Validation is driven by JSON Schema (#821). A receiver either carries its
+//! own `schema_doc` (an arbitrary JSON Schema document) or names a built-in
+//! schema via `schema_ref` (e.g. `twilio.voice.v1`). All payloads — built-in
+//! or custom — are validated through the `jsonschema` crate, so there is a
+//! single validation path. Built-in schemas are embedded JSON Schema documents
+//! (converted from the previous hand-coded validators), pre-registered in
+//! [`built_in_schema`].
 
 use chrono::Utc;
+use serde_json::{json, Value};
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use matric_core::{
     CreateIncomingWebhookReceiverRequest, Error, IncomingWebhookReceiver,
-    IncomingWebhookValidationResponse, Result,
+    IncomingWebhookValidationResponse, Result, UpdateIncomingWebhookReceiverRequest,
 };
 
 /// PostgreSQL repository for incoming webhook receiver registrations.
@@ -21,19 +30,24 @@ impl PgIncomingWebhookReceiverRepository {
 
     pub async fn create(&self, req: CreateIncomingWebhookReceiverRequest) -> Result<Uuid> {
         validate_receiver_request(&req)?;
-        validate_schema_ref(&req.schema_ref)?;
+        let schema_ref = normalize_schema_ref(&req.schema_ref);
+        validate_schema_ref_shape(&schema_ref)?;
+        // A receiver must be validatable at registration: either it carries a
+        // compilable custom schema, or its schema_ref names a built-in.
+        ensure_validatable(&schema_ref, req.schema_doc.as_ref())?;
 
         let id = matric_core::new_v7();
         let now = Utc::now();
         sqlx::query(
             "INSERT INTO incoming_webhook_receiver
-                (id, slug, provider, schema_ref, hmac_secret, signature_header, is_active, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                (id, slug, provider, schema_ref, schema_doc, hmac_secret, signature_header, is_active, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(id)
         .bind(normalize_token(&req.slug))
         .bind(normalize_token(&req.provider))
-        .bind(normalize_schema_ref(&req.schema_ref))
+        .bind(&schema_ref)
+        .bind(req.schema_doc.as_ref())
         .bind(req.hmac_secret.trim())
         .bind(req.signature_header.trim())
         .bind(req.is_active)
@@ -45,9 +59,64 @@ impl PgIncomingWebhookReceiverRepository {
         Ok(id)
     }
 
+    /// Update a receiver in place (#821 PATCH). Only the provided fields change;
+    /// slug, provider, and HMAC secret are preserved. Returns `true` if a row
+    /// was updated, `false` if no receiver matched the slug.
+    pub async fn update_by_slug(
+        &self,
+        slug: &str,
+        req: UpdateIncomingWebhookReceiverRequest,
+    ) -> Result<bool> {
+        let Some(current) = self.get_by_slug(slug).await? else {
+            return Ok(false);
+        };
+
+        let schema_ref = match req.schema_ref {
+            Some(ref s) => normalize_schema_ref(s),
+            None => current.schema_ref,
+        };
+        validate_schema_ref_shape(&schema_ref)?;
+
+        // Present overrides the stored schema; absent keeps it.
+        let schema_doc = match req.schema_doc {
+            Some(doc) => Some(doc),
+            None => current.schema_doc,
+        };
+        ensure_validatable(&schema_ref, schema_doc.as_ref())?;
+
+        let signature_header = match req.signature_header {
+            Some(ref h) if h.trim().is_empty() => {
+                return Err(Error::InvalidInput(
+                    "incoming webhook signature_header cannot be empty".to_string(),
+                ));
+            }
+            Some(h) => h.trim().to_string(),
+            None => current.signature_header,
+        };
+        let is_active = req.is_active.unwrap_or(current.is_active);
+
+        let result = sqlx::query(
+            "UPDATE incoming_webhook_receiver
+                SET schema_ref = $2, schema_doc = $3, signature_header = $4,
+                    is_active = $5, updated_at = $6
+             WHERE slug = $1",
+        )
+        .bind(normalize_token(slug))
+        .bind(&schema_ref)
+        .bind(schema_doc.as_ref())
+        .bind(&signature_header)
+        .bind(is_active)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn list(&self) -> Result<Vec<IncomingWebhookReceiver>> {
         let rows = sqlx::query(
-            "SELECT id, slug, provider, schema_ref, signature_header, hmac_secret, is_active, created_at, updated_at
+            "SELECT id, slug, provider, schema_ref, schema_doc, signature_header, hmac_secret, is_active, created_at, updated_at
              FROM incoming_webhook_receiver ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -59,7 +128,7 @@ impl PgIncomingWebhookReceiverRepository {
 
     pub async fn get_by_slug(&self, slug: &str) -> Result<Option<IncomingWebhookReceiver>> {
         let row = sqlx::query(
-            "SELECT id, slug, provider, schema_ref, signature_header, hmac_secret, is_active, created_at, updated_at
+            "SELECT id, slug, provider, schema_ref, schema_doc, signature_header, hmac_secret, is_active, created_at, updated_at
              FROM incoming_webhook_receiver WHERE slug = $1",
         )
         .bind(normalize_token(slug))
@@ -107,28 +176,158 @@ impl PgIncomingWebhookReceiverRepository {
             signature_header: r.get("signature_header"),
             secret_set: !secret.is_empty(),
             is_active: r.get("is_active"),
+            schema_doc: r.get("schema_doc"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
         }
     }
 }
 
+/// Validate a payload against a receiver's schema.
+///
+/// Resolution order: a custom `schema_doc` (if present) wins; otherwise the
+/// built-in schema named by `schema_ref` is used. Returns field-level error
+/// messages (`<json-pointer>: <message>`) on failure.
 pub fn validate_incoming_webhook_payload(
     schema_ref: &str,
-    payload: &serde_json::Value,
+    schema_doc: Option<&Value>,
+    payload: &Value,
 ) -> Result<IncomingWebhookValidationResponse> {
     let schema_ref = normalize_schema_ref(schema_ref);
-    validate_schema_ref(&schema_ref)?;
-    let errors = match schema_ref.as_str() {
-        "twilio.voice.v1" => validate_twilio_voice_payload(payload),
-        "twilio.media-stream.v1" => validate_twilio_media_stream_payload(payload),
-        other => vec![format!("unsupported incoming webhook schema_ref: {other}")],
-    };
+    let schema = resolve_schema(&schema_ref, schema_doc)?;
+
+    let validator = jsonschema::validator_for(&schema)
+        .map_err(|e| Error::InvalidInput(format!("invalid JSON schema for {schema_ref}: {e}")))?;
+
+    let errors: Vec<String> = validator
+        .iter_errors(payload)
+        .map(|err| format_validation_error(&err))
+        .collect();
 
     Ok(IncomingWebhookValidationResponse {
         valid: errors.is_empty(),
         schema_ref,
         errors,
+    })
+}
+
+/// Render a single `jsonschema` error as a field-scoped message. The instance
+/// path (a JSON pointer such as `/media/payload`) prefixes the message so the
+/// offending field is always identifiable; root-level errors (e.g. a missing
+/// required property) carry the field name in the message itself.
+fn format_validation_error(err: &jsonschema::ValidationError<'_>) -> String {
+    let path = err.instance_path().to_string();
+    if path.is_empty() {
+        err.to_string()
+    } else {
+        format!("{path}: {err}")
+    }
+}
+
+/// Resolve the effective schema document for a receiver: custom doc if present,
+/// else the built-in named by `schema_ref`.
+fn resolve_schema(schema_ref: &str, schema_doc: Option<&Value>) -> Result<Value> {
+    if let Some(doc) = schema_doc {
+        return Ok(doc.clone());
+    }
+    built_in_schema(schema_ref).ok_or_else(|| {
+        Error::InvalidInput(format!(
+            "unsupported incoming webhook schema_ref: {schema_ref} (no custom schema_doc registered)"
+        ))
+    })
+}
+
+/// Ensure a (schema_ref, schema_doc) pair is usable: a custom doc must compile
+/// as a JSON Schema; otherwise schema_ref must name a built-in.
+fn ensure_validatable(schema_ref: &str, schema_doc: Option<&Value>) -> Result<()> {
+    match schema_doc {
+        Some(doc) => {
+            jsonschema::validator_for(doc).map_err(|e| {
+                Error::InvalidInput(format!("schema_doc is not a valid JSON Schema: {e}"))
+            })?;
+            Ok(())
+        }
+        None if built_in_schema(schema_ref).is_some() => Ok(()),
+        None => Err(Error::InvalidInput(format!(
+            "unsupported incoming webhook schema_ref: {schema_ref} (provide a schema_doc or use a built-in)"
+        ))),
+    }
+}
+
+/// Built-in JSON Schema documents, keyed by `schema_ref`. These replace the
+/// previous hand-coded Twilio validators with equivalent JSON Schema (#821).
+fn built_in_schema(schema_ref: &str) -> Option<Value> {
+    match schema_ref {
+        "twilio.voice.v1" => Some(twilio_voice_schema()),
+        "twilio.media-stream.v1" => Some(twilio_media_stream_schema()),
+        _ => None,
+    }
+}
+
+/// `twilio.voice.v1`: requires a non-empty `CallSid`, and either a non-empty
+/// `CallStatus` or `RecordingStatus == "completed"` (case-insensitive). When
+/// the recording is completed, `RecordingUrl` is required.
+fn twilio_voice_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["CallSid"],
+        "properties": {
+            "CallSid": { "type": "string", "minLength": 1 },
+            "CallStatus": { "type": "string" },
+            "RecordingStatus": { "type": "string" },
+            "RecordingUrl": { "type": "string", "minLength": 1 }
+        },
+        "anyOf": [
+            {
+                "required": ["CallStatus"],
+                "properties": { "CallStatus": { "type": "string", "minLength": 1 } }
+            },
+            {
+                "required": ["RecordingStatus"],
+                "properties": { "RecordingStatus": { "type": "string", "pattern": "(?i)^completed$" } }
+            }
+        ],
+        "if": {
+            "required": ["RecordingStatus"],
+            "properties": { "RecordingStatus": { "type": "string", "pattern": "(?i)^completed$" } }
+        },
+        "then": { "required": ["RecordingUrl"] }
+    })
+}
+
+/// `twilio.media-stream.v1`: requires non-empty `event` (one of the known
+/// events) and `sequenceNumber`. `start` events require a `start` object;
+/// `media` events require a `media` object carrying a non-empty `payload`.
+fn twilio_media_stream_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["event", "sequenceNumber"],
+        "properties": {
+            "event": {
+                "type": "string",
+                "minLength": 1,
+                "enum": ["start", "media", "stop", "mark", "dtmf"]
+            },
+            "sequenceNumber": { "type": "string", "minLength": 1 },
+            "start": { "type": "object" },
+            "media": {
+                "type": "object",
+                "required": ["payload"],
+                "properties": { "payload": { "type": "string", "minLength": 1 } }
+            }
+        },
+        "allOf": [
+            {
+                "if": { "required": ["event"], "properties": { "event": { "const": "start" } } },
+                "then": { "required": ["start"] }
+            },
+            {
+                "if": { "required": ["event"], "properties": { "event": { "const": "media" } } },
+                "then": { "required": ["media"] }
+            }
+        ]
     })
 }
 
@@ -184,13 +383,24 @@ fn validate_provider(provider: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_schema_ref(schema_ref: &str) -> Result<()> {
-    match normalize_schema_ref(schema_ref).as_str() {
-        "twilio.voice.v1" | "twilio.media-stream.v1" => Ok(()),
-        other => Err(Error::InvalidInput(format!(
-            "unsupported incoming webhook schema_ref: {other}"
-        ))),
+/// Shape check for `schema_ref` (the label/version tag). Matches the DB CHECK
+/// `incoming_webhook_receiver_schema_ref_shape`.
+fn validate_schema_ref_shape(schema_ref: &str) -> Result<()> {
+    let s = schema_ref.trim();
+    if s.is_empty() || s.len() > 128 {
+        return Err(Error::InvalidInput(
+            "incoming webhook schema_ref must be 1-128 characters".to_string(),
+        ));
     }
+    if !s.bytes().all(|b| {
+        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'_'
+    }) {
+        return Err(Error::InvalidInput(
+            "incoming webhook schema_ref must use lowercase letters, numbers, '.', '-' or '_'"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn normalize_token(input: &str) -> String {
@@ -201,129 +411,162 @@ fn normalize_schema_ref(input: &str) -> String {
     input.trim().to_ascii_lowercase()
 }
 
-fn validate_twilio_voice_payload(payload: &serde_json::Value) -> Vec<String> {
-    let Some(obj) = payload.as_object() else {
-        return vec!["payload must be a JSON object".to_string()];
-    };
-    let mut errors = Vec::new();
-    require_string(obj, "CallSid", &mut errors);
-
-    let has_call_status = obj
-        .get("CallStatus")
-        .and_then(|v| v.as_str())
-        .is_some_and(|v| !v.trim().is_empty());
-    let recording_completed = obj
-        .get("RecordingStatus")
-        .and_then(|v| v.as_str())
-        .is_some_and(|v| v.eq_ignore_ascii_case("completed"));
-
-    if !has_call_status && !recording_completed {
-        errors.push("payload must include CallStatus or RecordingStatus=completed".to_string());
-    }
-    if recording_completed {
-        require_string(obj, "RecordingUrl", &mut errors);
-    }
-
-    errors
-}
-
-fn validate_twilio_media_stream_payload(payload: &serde_json::Value) -> Vec<String> {
-    let Some(obj) = payload.as_object() else {
-        return vec!["payload must be a JSON object".to_string()];
-    };
-    let mut errors = Vec::new();
-    require_string(obj, "event", &mut errors);
-    require_string(obj, "sequenceNumber", &mut errors);
-
-    match obj.get("event").and_then(|v| v.as_str()) {
-        Some("start") if !obj.get("start").is_some_and(|v| v.is_object()) => {
-            errors.push("start event must include start object".to_string());
-        }
-        Some("start") => {}
-        Some("media") => match obj.get("media") {
-            Some(media) if media.is_object() => {
-                if let Some(media_obj) = media.as_object() {
-                    require_string(media_obj, "payload", &mut errors);
-                }
-            }
-            _ => errors.push("media event must include media object".to_string()),
-        },
-        Some("stop" | "mark" | "dtmf") => {}
-        Some(other) => errors.push(format!("unsupported Twilio Media Streams event: {other}")),
-        None => {}
-    }
-
-    errors
-}
-
-fn require_string(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    field: &str,
-    errors: &mut Vec<String>,
-) {
-    if obj
-        .get(field)
-        .and_then(|v| v.as_str())
-        .is_none_or(|v| v.trim().is_empty())
-    {
-        errors.push(format!("payload must include non-empty {field}"));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn validate(schema_ref: &str, payload: Value) -> IncomingWebhookValidationResponse {
+        validate_incoming_webhook_payload(schema_ref, None, &payload).unwrap()
+    }
+
     #[test]
     fn validates_twilio_voice_recording_completed() {
-        let response = validate_incoming_webhook_payload(
+        let response = validate(
             "twilio.voice.v1",
-            &serde_json::json!({
+            json!({
                 "CallSid": "CA123",
                 "RecordingStatus": "completed",
                 "RecordingUrl": "https://api.twilio.com/recording.wav"
             }),
-        )
-        .unwrap();
-
-        assert!(response.valid);
+        );
+        assert!(response.valid, "errors: {:?}", response.errors);
         assert!(response.errors.is_empty());
     }
 
     #[test]
-    fn rejects_twilio_voice_without_status() {
-        let response = validate_incoming_webhook_payload(
+    fn validates_twilio_voice_with_call_status() {
+        let response = validate(
             "twilio.voice.v1",
-            &serde_json::json!({"CallSid": "CA123"}),
-        )
-        .unwrap();
+            json!({ "CallSid": "CA123", "CallStatus": "ringing" }),
+        );
+        assert!(response.valid, "errors: {:?}", response.errors);
+    }
 
+    #[test]
+    fn rejects_twilio_voice_without_status() {
+        // Only CallSid present: fails the anyOf (neither CallStatus nor a
+        // completed RecordingStatus).
+        let response = validate("twilio.voice.v1", json!({ "CallSid": "CA123" }));
         assert!(!response.valid);
-        assert_eq!(
-            response.errors,
-            vec!["payload must include CallStatus or RecordingStatus=completed"]
+        assert!(!response.errors.is_empty());
+    }
+
+    #[test]
+    fn rejects_twilio_voice_missing_call_sid() {
+        let response = validate("twilio.voice.v1", json!({ "CallStatus": "ringing" }));
+        assert!(!response.valid);
+        assert!(
+            response.errors.iter().any(|e| e.contains("CallSid")),
+            "expected a CallSid error, got: {:?}",
+            response.errors
+        );
+    }
+
+    #[test]
+    fn rejects_twilio_voice_completed_without_url() {
+        let response = validate(
+            "twilio.voice.v1",
+            json!({ "CallSid": "CA123", "RecordingStatus": "completed" }),
+        );
+        assert!(!response.valid);
+        assert!(
+            response.errors.iter().any(|e| e.contains("RecordingUrl")),
+            "expected a RecordingUrl error, got: {:?}",
+            response.errors
         );
     }
 
     #[test]
     fn validates_twilio_media_payload_shape() {
-        let response = validate_incoming_webhook_payload(
+        let response = validate(
             "twilio.media-stream.v1",
-            &serde_json::json!({
+            json!({
                 "event": "media",
                 "sequenceNumber": "7",
-                "media": {"payload": "AQIDBA=="}
+                "media": { "payload": "AQIDBA==" }
             }),
-        )
-        .unwrap();
-
-        assert!(response.valid);
+        );
+        assert!(response.valid, "errors: {:?}", response.errors);
     }
 
     #[test]
-    fn rejects_unsupported_schema_ref() {
-        let err = validate_incoming_webhook_payload("unknown.v1", &serde_json::json!({}))
+    fn rejects_twilio_media_unknown_event() {
+        let response = validate(
+            "twilio.media-stream.v1",
+            json!({ "event": "explode", "sequenceNumber": "1" }),
+        );
+        assert!(!response.valid);
+        assert!(response.errors.iter().any(|e| e.contains("event")));
+    }
+
+    #[test]
+    fn rejects_twilio_media_missing_sequence() {
+        let response = validate("twilio.media-stream.v1", json!({ "event": "stop" }));
+        assert!(!response.valid);
+        assert!(
+            response.errors.iter().any(|e| e.contains("sequenceNumber")),
+            "expected a sequenceNumber error, got: {:?}",
+            response.errors
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_schema_ref_without_doc() {
+        let err = validate_incoming_webhook_payload("unknown.v1", None, &json!({}))
             .expect_err("schema must be rejected");
         assert!(matches!(err, Error::InvalidInput(_)));
+    }
+
+    #[test]
+    fn validates_against_custom_schema_doc() {
+        let schema = json!({
+            "type": "object",
+            "required": ["amount"],
+            "properties": { "amount": { "type": "number" } }
+        });
+        let ok = validate_incoming_webhook_payload(
+            "stripe.charge.v1",
+            Some(&schema),
+            &json!({ "amount": 42 }),
+        )
+        .unwrap();
+        assert!(ok.valid, "errors: {:?}", ok.errors);
+
+        let bad = validate_incoming_webhook_payload(
+            "stripe.charge.v1",
+            Some(&schema),
+            &json!({ "amount": "not-a-number" }),
+        )
+        .unwrap();
+        assert!(!bad.valid);
+        assert!(
+            bad.errors.iter().any(|e| e.contains("amount")),
+            "expected an amount error, got: {:?}",
+            bad.errors
+        );
+    }
+
+    #[test]
+    fn custom_schema_doc_overrides_builtin_ref() {
+        // Even with a built-in-looking schema_ref, a provided schema_doc wins.
+        let schema = json!({ "type": "object", "required": ["x"] });
+        let resp =
+            validate_incoming_webhook_payload("twilio.voice.v1", Some(&schema), &json!({ "x": 1 }))
+                .unwrap();
+        assert!(resp.valid, "errors: {:?}", resp.errors);
+    }
+
+    #[test]
+    fn ensure_validatable_rejects_bad_schema_doc() {
+        // A schema that is not an object/array/bool is not a valid JSON Schema.
+        let bad = json!("definitely not a schema");
+        assert!(ensure_validatable("custom.v1", Some(&bad)).is_err());
+    }
+
+    #[test]
+    fn schema_ref_shape_rejects_uppercase_and_spaces() {
+        assert!(validate_schema_ref_shape("Twilio.Voice").is_err());
+        assert!(validate_schema_ref_shape("has space").is_err());
+        assert!(validate_schema_ref_shape("twilio.voice.v1").is_ok());
     }
 }

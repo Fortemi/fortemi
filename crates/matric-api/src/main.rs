@@ -783,7 +783,7 @@ impl AppState {
         create_webhook, list_webhooks, get_webhook, update_webhook,
         create_incoming_webhook_receiver, list_incoming_webhook_receivers,
         get_incoming_webhook_receiver, receive_incoming_webhook,
-        delete_incoming_webhook_receiver,
+        update_incoming_webhook_receiver, delete_incoming_webhook_receiver,
         validate_incoming_webhook_payload_handler, twilio_realtime_ws,
         get_call,
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
@@ -2595,6 +2595,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/webhooks/incoming/{slug}",
             get(get_incoming_webhook_receiver)
                 .post(receive_incoming_webhook)
+                .patch(update_incoming_webhook_receiver)
                 .delete(delete_incoming_webhook_receiver),
         )
         // Rate limiting status endpoint
@@ -4107,7 +4108,11 @@ async fn receive_incoming_webhook(
         headers.get(header::CONTENT_TYPE),
         &body,
     )?;
-    let validation = matric_db::validate_incoming_webhook_payload(&receiver.schema_ref, &payload)?;
+    let validation = matric_db::validate_incoming_webhook_payload(
+        &receiver.schema_ref,
+        receiver.schema_doc.as_ref(),
+        &payload,
+    )?;
     if !validation.valid {
         return Err(ApiError::BadRequest(format!(
             "incoming webhook schema validation failed: {}",
@@ -4174,6 +4179,38 @@ async fn delete_incoming_webhook_receiver(
             "Incoming webhook receiver {slug} not found"
         )))
     }
+}
+
+#[utoipa::path(patch, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
+    params(("slug" = String, Path, description = "Incoming receiver slug")),
+    request_body = matric_core::UpdateIncomingWebhookReceiverRequest,
+    responses(
+        (status = 200, description = "Receiver updated"),
+        (status = 400, description = "Invalid schema document or fields"),
+        (status = 404, description = "Unknown receiver slug")
+    ))]
+async fn update_incoming_webhook_receiver(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Json(body): Json<matric_core::UpdateIncomingWebhookReceiverRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let updated = state
+        .db
+        .incoming_webhooks
+        .update_by_slug(&slug, body)
+        .await?;
+    if !updated {
+        return Err(ApiError::NotFound(format!(
+            "Incoming webhook receiver {slug} not found"
+        )));
+    }
+    let receiver = state
+        .db
+        .incoming_webhooks
+        .get_by_slug(&slug)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Incoming webhook receiver {slug} not found")))?;
+    Ok(Json(receiver))
 }
 
 async fn apply_incoming_webhook_side_effect(
@@ -4595,7 +4632,8 @@ async fn apply_twilio_voice_webhook(
 async fn validate_incoming_webhook_payload_handler(
     Json(body): Json<matric_core::ValidateIncomingWebhookPayloadRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = matric_db::validate_incoming_webhook_payload(&body.schema_ref, &body.payload)?;
+    let response =
+        matric_db::validate_incoming_webhook_payload(&body.schema_ref, None, &body.payload)?;
     let status = if response.valid {
         StatusCode::OK
     } else {
@@ -23271,6 +23309,7 @@ mod tests {
                 hmac_secret: secret.to_string(),
                 signature_header: "X-Fortemi-Signature".to_string(),
                 is_active: true,
+                schema_doc: None,
             })
             .await
             .expect("create receiver");
@@ -23353,6 +23392,7 @@ mod tests {
                 hmac_secret: "delete-secret-1234567890abcd".to_string(),
                 signature_header: "X-Fortemi-Signature".to_string(),
                 is_active: true,
+                schema_doc: None,
             })
             .await
             .expect("create receiver");

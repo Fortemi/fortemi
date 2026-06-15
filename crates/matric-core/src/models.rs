@@ -5270,6 +5270,11 @@ pub struct IncomingWebhookReceiver {
     pub signature_header: String,
     pub secret_set: bool,
     pub is_active: bool,
+    /// Custom JSON Schema document validated against incoming bodies (#821).
+    /// When absent, validation falls back to the built-in schema named by
+    /// `schema_ref` (e.g. `twilio.voice.v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_doc: Option<JsonValue>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -5285,6 +5290,29 @@ pub struct CreateIncomingWebhookReceiverRequest {
     pub signature_header: String,
     #[serde(default = "default_incoming_webhook_active")]
     pub is_active: bool,
+    /// Optional custom JSON Schema document (#821). When provided, incoming
+    /// bodies are validated against it via the `jsonschema` crate. When
+    /// omitted, `schema_ref` must name a built-in schema.
+    #[serde(default)]
+    pub schema_doc: Option<JsonValue>,
+}
+
+/// Request to update an incoming webhook receiver in place (#821 PATCH).
+///
+/// All fields are optional; only the provided fields change. The receiver's
+/// slug, provider, and HMAC secret are preserved across updates.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::ToSchema)]
+pub struct UpdateIncomingWebhookReceiverRequest {
+    #[serde(default)]
+    pub schema_ref: Option<String>,
+    /// Replace the custom JSON Schema document. Omitting it (or sending
+    /// `null`) leaves the existing schema unchanged.
+    #[serde(default)]
+    pub schema_doc: Option<JsonValue>,
+    #[serde(default)]
+    pub signature_header: Option<String>,
+    #[serde(default)]
+    pub is_active: Option<bool>,
 }
 
 /// Request to validate a payload against a registered incoming webhook schema.
