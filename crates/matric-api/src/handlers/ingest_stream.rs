@@ -110,6 +110,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Instant};
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
@@ -205,6 +206,27 @@ fn ingest_retry_after_ms() -> u64 {
         .unwrap_or(DEFAULT_INGEST_RETRY_AFTER_MS)
 }
 
+/// Whether `/ingest/stream` requires a valid stream bearer token (#829). Default
+/// `true` (secure for shared deployments). Set `INGEST_REQUIRE_TOKEN=false` for a
+/// single-user desktop sidecar / dev, where the endpoint then behaves as before
+/// (no per-stream token, no per-token rate limit).
+fn ingest_require_token() -> bool {
+    std::env::var("INGEST_REQUIRE_TOKEN")
+        .map(|v| v != "false" && v != "0")
+        .unwrap_or(true)
+}
+
+/// Extract a `Bearer <token>` value from the `Authorization` header, if present
+/// and well-formed (#829).
+fn extract_bearer(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get("authorization")?.to_str().ok()?;
+    let token = raw
+        .strip_prefix("Bearer ")
+        .or_else(|| raw.strip_prefix("bearer "))?
+        .trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 // =============================================================================
 // METRICS (#827 — surfaced on /health/streaming, mirrors ChatStreamMetrics)
 // =============================================================================
@@ -224,6 +246,9 @@ pub struct IngestStreamMetrics {
     pub backpressure_warnings_total: AtomicU64,
     /// Total `429` backpressure frames emitted (one per ≥95% episode).
     pub throttled_total: AtomicU64,
+    /// Total per-token rate-limit `429` frames emitted (one per throttle
+    /// episode, #829).
+    pub rate_limited_total: AtomicU64,
 }
 
 impl IngestStreamMetrics {
@@ -245,6 +270,10 @@ impl IngestStreamMetrics {
             "ingest_stream_throttled_total": {
                 "type": "counter",
                 "value": self.throttled_total.load(Ordering::Relaxed)
+            },
+            "ingest_stream_rate_limited_total": {
+                "type": "counter",
+                "value": self.rate_limited_total.load(Ordering::Relaxed)
             },
         })
     }
@@ -358,6 +387,23 @@ impl IngestFrame {
                 "status": 429,
                 "retry_after_ms": retry_after_ms,
                 "code": "INGEST_BACKPRESSURE",
+            })
+            .to_string(),
+        }
+    }
+
+    /// Per-token rate-limit `429` (#829), emitted once per throttle episode when
+    /// the stream's lines/sec ceiling is hit. Distinct from the buffer-pressure
+    /// `429` (`INGEST_BACKPRESSURE`): here the pump *paces* (sleeps) to the token's
+    /// rate rather than the client being too slow.
+    fn rate_limited(retry_after_ms: u64) -> Self {
+        Self {
+            event: "error",
+            data: json!({
+                "error": "per-token rate limit exceeded; pacing to allowed rate",
+                "status": 429,
+                "retry_after_ms": retry_after_ms,
+                "code": "INGEST_RATE_LIMITED",
             })
             .to_string(),
         }
@@ -730,6 +776,88 @@ impl Backpressure {
 }
 
 // =============================================================================
+// PER-TOKEN RATE LIMIT (#829 — lines/sec pacing inside the pump)
+// =============================================================================
+
+/// Per-stream lines/sec limiter (token bucket); `lps == 0` means unlimited. One
+/// instance per pump, seeded from the validated stream token's rate limit. It
+/// paces data-line inserts to the allowed rate by *sleeping* rather than
+/// dropping — no data is lost, only throttled.
+struct RateLimiter {
+    /// Allowed lines per second (0.0 = unlimited).
+    lps: f64,
+    /// Currently available whole-line permits (token-bucket allowance).
+    allowance: f64,
+    /// Last refill instant.
+    last: Instant,
+    /// `retry_after_ms` advisory carried in the rate-limit `429`.
+    retry_after_ms: u64,
+    /// A rate-limit `429` has been emitted for the current throttle episode.
+    throttled: bool,
+}
+
+impl RateLimiter {
+    /// `rate_limit` is lines/sec (0 = unlimited). The bucket starts full, so a
+    /// short burst up to `rate_limit` lines is allowed before pacing begins.
+    fn new(rate_limit: u64, retry_after_ms: u64) -> Self {
+        let lps = rate_limit as f64;
+        Self {
+            lps,
+            allowance: lps,
+            last: Instant::now(),
+            retry_after_ms,
+            throttled: false,
+        }
+    }
+
+    fn unlimited(&self) -> bool {
+        self.lps <= 0.0
+    }
+
+    /// Acquire one line-permit, sleeping until the rate allows it. Returns `true`
+    /// exactly when this acquisition *starts* a new throttle episode (so the
+    /// caller emits one `INGEST_RATE_LIMITED` advisory per episode); `false`
+    /// otherwise, including the unlimited case.
+    async fn acquire(&mut self) -> bool {
+        if self.unlimited() {
+            return false;
+        }
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last).as_secs_f64();
+        self.last = now;
+        self.allowance = (self.allowance + elapsed * self.lps).min(self.lps);
+        if self.allowance >= 1.0 {
+            self.allowance -= 1.0;
+            self.throttled = false; // back within rate
+            return false;
+        }
+        // Under budget: sleep for the next whole permit to accrue.
+        let wait = (1.0 - self.allowance) / self.lps;
+        let episode_start = !self.throttled;
+        self.throttled = true;
+        sleep(Duration::from_secs_f64(wait)).await;
+        self.allowance = 0.0;
+        episode_start
+    }
+}
+
+/// Whether this line-event performs a data-line insert and therefore consumes a
+/// rate-limit permit (#829): a non-blank line not below the resume skip boundary.
+/// Overflow and blank/skipped lines are cheap and not rate-limited. The line's
+/// absolute number is `stats.line_no + 1` (it has not been incremented yet).
+fn consumes_permit(ev: &LineEvent, stats: &IngestStats, skip_boundary: u64) -> bool {
+    matches!(ev, LineEvent::Line(b) if !is_blank(b)) && stats.line_no + 1 > skip_boundary
+}
+
+/// Mutable per-stream controllers threaded through the pump: buffer backpressure
+/// (#827) and per-token rate limiting (#829). Bundled so `step` keeps a small
+/// argument list (≤7).
+struct StreamControls {
+    bp: Backpressure,
+    rate: RateLimiter,
+}
+
+// =============================================================================
 // PUMP (pillar 3 — no-leak; pillar 4 — low complexity via decomposition)
 // =============================================================================
 
@@ -758,7 +886,7 @@ async fn pump_ingest_stream<B, N>(
     search_cache: SearchCache,
     cursor_store: IngestCursorStore,
     cfg: PumpConfig,
-    mut bp: Backpressure,
+    mut controls: StreamControls,
 ) where
     B: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     N: NoteSink,
@@ -771,9 +899,17 @@ async fn pump_ingest_stream<B, N>(
         // already-acked lines stand.
         let Ok(bytes) = chunk else { break };
         for ev in splitter.push(&bytes) {
-            if step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg, &mut bp)
-                .await
-                .is_break()
+            if step(
+                ev,
+                &sink,
+                &tx,
+                &mut stats,
+                &cursor_store,
+                &cfg,
+                &mut controls,
+            )
+            .await
+            .is_break()
             {
                 return; // client gone — abandon without cache work or `done`
             }
@@ -781,7 +917,16 @@ async fn pump_ingest_stream<B, N>(
     }
 
     if let Some(ev) = splitter.finish() {
-        let _ = step(ev, &sink, &tx, &mut stats, &cursor_store, &cfg, &mut bp).await;
+        let _ = step(
+            ev,
+            &sink,
+            &tx,
+            &mut stats,
+            &cursor_store,
+            &cfg,
+            &mut controls,
+        )
+        .await;
     }
 
     // Single post-stream invalidation so stored notes appear in FTS results
@@ -804,9 +949,19 @@ async fn step<N: NoteSink>(
     stats: &mut IngestStats,
     cursor_store: &IngestCursorStore,
     cfg: &PumpConfig,
-    bp: &mut Backpressure,
+    controls: &mut StreamControls,
 ) -> ControlFlow<()> {
     let before = stats.total();
+    // Per-token rate limit (#829): pace data-line inserts to the token's
+    // lines/sec by sleeping; emit one rate-limit `429` per throttle episode.
+    if consumes_permit(&ev, stats, cfg.skip_boundary) && controls.rate.acquire().await {
+        controls
+            .bp
+            .metrics
+            .rate_limited_total
+            .fetch_add(1, Ordering::Relaxed);
+        let _ = tx.try_send(IngestFrame::rate_limited(controls.rate.retry_after_ms));
+    }
     // Blank lines and already-processed (skipped) lines yield no frame.
     let Some(frame) = handle_event(ev, sink, stats, cfg).await else {
         return ControlFlow::Continue(());
@@ -814,7 +969,7 @@ async fn step<N: NoteSink>(
     // Sample buffer pressure and emit any escalating advisory (#827) *before*
     // the blocking ack send — so a `warning`/`429` is delivered while a slot
     // still exists; a 100%-full channel then blocks here (TCP backpressure).
-    bp.observe(tx);
+    controls.bp.observe(tx);
     if tx.send(frame).await.is_err() {
         return ControlFlow::Break(());
     }
@@ -942,6 +1097,16 @@ pub async fn ingest_stream_handler(
     body: Body,
 ) -> Response {
     let cursor_store = state.ingest_cursor_store.clone();
+    let retry_after_ms = ingest_retry_after_ms();
+
+    // Per-stream bearer token (#829): this route does its own inline auth (like
+    // the SSE event stream). A valid stream token binds the write to *its* mint-
+    // time archive schema and its lines/sec rate limit; with no/invalid token we
+    // fail closed (401) unless `INGEST_REQUIRE_TOKEN=false`.
+    let (schema, rate_limit) = match resolve_stream_token(&headers, &state, &archive_ctx).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
 
     // Resolve resumption (#828): a fresh stream gets a new id and skip=0; a valid
     // `X-Ingest-Cursor` within the TTL resumes after the server's stored line; an
@@ -954,14 +1119,16 @@ pub async fn ingest_stream_handler(
     let buffer = ingest_stream_buffer();
     let (tx, rx) = mpsc::channel::<IngestFrame>(buffer);
     let pool = state.db.pool.clone();
-    let schema = archive_ctx.schema.clone();
     let search_cache = state.search_cache.clone();
-    let bp = Backpressure::new(
-        buffer,
-        ingest_advisory_rate(),
-        ingest_retry_after_ms(),
-        state.ingest_stream_metrics.clone(),
-    );
+    let controls = StreamControls {
+        bp: Backpressure::new(
+            buffer,
+            ingest_advisory_rate(),
+            retry_after_ms,
+            state.ingest_stream_metrics.clone(),
+        ),
+        rate: RateLimiter::new(rate_limit, retry_after_ms),
+    };
     let cfg = PumpConfig {
         stream_id,
         max_line_bytes: ingest_max_line_bytes(),
@@ -979,7 +1146,7 @@ pub async fn ingest_stream_handler(
                     search_cache,
                     cursor_store,
                     cfg,
-                    bp,
+                    controls,
                 )
                 .await;
             }
@@ -1025,6 +1192,40 @@ fn gone(message: &str) -> Response {
     (
         StatusCode::GONE,
         Json(json!({ "error": message, "code": "INGEST_CURSOR_EXPIRED" })),
+    )
+        .into_response()
+}
+
+/// Resolve the per-stream bearer token (#829) into the effective
+/// `(schema, rate_limit)`. A valid token binds the stream to its mint-time
+/// archive schema and lines/sec rate limit (so a token cannot write outside the
+/// archive it was minted for). With no/invalid token: `Err(401)` when
+/// `INGEST_REQUIRE_TOKEN=true` (the default), else `Ok((request archive schema,
+/// 0 = unlimited))` for the open single-user/dev mode.
+async fn resolve_stream_token(
+    headers: &HeaderMap,
+    state: &AppState,
+    archive_ctx: &ArchiveContext,
+) -> Result<(String, u64), Response> {
+    if let Some(token) = extract_bearer(headers) {
+        if let Some(data) = state.ingest_token_store.validate(&token).await {
+            return Ok((data.schema, data.rate_limit));
+        }
+    }
+    if ingest_require_token() {
+        Err(unauthorized(
+            "a valid ingest stream token is required; mint one at POST /api/v1/ingest/tokens",
+        ))
+    } else {
+        Ok((archive_ctx.schema.clone(), 0))
+    }
+}
+
+/// Build a `401 Unauthorized` JSON response for a missing/invalid stream token.
+fn unauthorized(message: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": message, "code": "INGEST_TOKEN_REQUIRED" })),
     )
         .into_response()
 }
@@ -1285,7 +1486,12 @@ mod tests {
         // buffer == the harness channel capacity so pressure math is accurate;
         // every existing test drives far fewer than 80% of 64 frames, so no
         // backpressure advisory fires (#827 escalation has dedicated tests).
-        let bp = Backpressure::new(64, 1000, 500, Arc::new(IngestStreamMetrics::default()));
+        // rate_limit 0 => unlimited, so the rate limiter never paces here
+        // (#829 rate limiting has dedicated tests).
+        let controls = StreamControls {
+            bp: Backpressure::new(64, 1000, 500, Arc::new(IngestStreamMetrics::default())),
+            rate: RateLimiter::new(0, 500),
+        };
         pump_ingest_stream(
             stream,
             tx,
@@ -1293,7 +1499,7 @@ mod tests {
             SearchCache::disabled(),
             IngestCursorStore::disabled(),
             cfg,
-            bp,
+            controls,
         )
         .await;
         let drain = async {
@@ -1792,5 +1998,145 @@ mod tests {
         assert_eq!(j["ingest_stream_buffer_pressure_peak"]["value"], 42);
         assert_eq!(j["ingest_stream_backpressure_warnings_total"]["value"], 3);
         assert_eq!(j["ingest_stream_throttled_total"]["value"], 1);
+        assert_eq!(j["ingest_stream_rate_limited_total"]["value"], 0);
+    }
+
+    // ---- per-stream token + rate limit (#829) -------------------------------
+
+    #[test]
+    fn require_token_defaults_true() {
+        // The knob reads process-global env; assert the secure default behavior
+        // only when the var is unset to stay isolated from ambient config.
+        if std::env::var("INGEST_REQUIRE_TOKEN").is_err() {
+            assert!(ingest_require_token(), "token gate is on by default");
+        }
+    }
+
+    #[test]
+    fn frame_rate_limited_shape() {
+        let f = IngestFrame::rate_limited(125);
+        assert_eq!(f.event, "error");
+        let j = frame_json(&f);
+        assert_eq!(j["status"], 429);
+        assert_eq!(j["retry_after_ms"], 125);
+        assert_eq!(j["code"], "INGEST_RATE_LIMITED");
+    }
+
+    #[test]
+    fn extract_bearer_parses_authorization() {
+        let mut h = HeaderMap::new();
+        assert_eq!(extract_bearer(&h), None, "no header -> None");
+        h.insert("authorization", "Bearer mm_ist_abc".parse().unwrap());
+        assert_eq!(extract_bearer(&h).as_deref(), Some("mm_ist_abc"));
+        h.insert("authorization", "bearer lower".parse().unwrap());
+        assert_eq!(extract_bearer(&h).as_deref(), Some("lower"));
+        h.insert("authorization", "Basic xyz".parse().unwrap());
+        assert_eq!(extract_bearer(&h), None, "non-bearer scheme -> None");
+        h.insert("authorization", "Bearer    ".parse().unwrap());
+        assert_eq!(extract_bearer(&h), None, "empty token -> None");
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_unlimited_is_noop() {
+        let mut rl = RateLimiter::new(0, 500);
+        assert!(rl.unlimited());
+        assert!(!rl.acquire().await, "unlimited never throttles");
+        assert!(!rl.acquire().await);
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_paces_and_signals_one_episode() {
+        // 50 lines/sec: the bucket starts full (50 permits), so 50 acquisitions
+        // pass instantly; the next must wait (~20ms) and reports the episode start.
+        let mut rl = RateLimiter::new(50, 500);
+        for _ in 0..50 {
+            assert!(!rl.acquire().await, "burst within rate does not throttle");
+        }
+        assert!(
+            rl.acquire().await,
+            "first over-rate acquire starts a throttle episode"
+        );
+        assert!(
+            !rl.acquire().await,
+            "subsequent over-rate acquires stay in the same episode"
+        );
+    }
+
+    #[test]
+    fn consumes_permit_only_for_processable_data_lines() {
+        let fresh = IngestStats::default(); // line_no = 0
+        assert!(
+            consumes_permit(&LineEvent::Line(b"x".to_vec()), &fresh, 0),
+            "a fresh non-blank data line consumes a permit"
+        );
+        assert!(
+            !consumes_permit(&LineEvent::Line(b"  ".to_vec()), &fresh, 0),
+            "blank lines are not rate-limited"
+        );
+        assert!(
+            !consumes_permit(&LineEvent::Overflow, &fresh, 0),
+            "overflow lines are not rate-limited"
+        );
+        let mid = IngestStats {
+            line_no: 2,
+            ..Default::default()
+        };
+        assert!(
+            !consumes_permit(&LineEvent::Line(b"x".to_vec()), &mid, 3),
+            "lines within the resume skip boundary are not rate-limited"
+        );
+        let at = IngestStats {
+            line_no: 3,
+            ..Default::default()
+        };
+        assert!(
+            consumes_permit(&LineEvent::Line(b"x".to_vec()), &at, 3),
+            "the first line past the skip boundary consumes a permit"
+        );
+    }
+
+    #[test]
+    fn resolve_stream_token_401_when_required_and_absent() {
+        // INGEST_REQUIRE_TOKEN defaults true; with no validated token the route
+        // must fail closed. Only assert when the gate is on, to stay isolated
+        // from an ambient INGEST_REQUIRE_TOKEN=false.
+        if !ingest_require_token() {
+            return;
+        }
+        let status = resolve_stream_token_inner(None, None);
+        assert_eq!(
+            status.expect_err("must reject"),
+            StatusCode::UNAUTHORIZED,
+            "fail-closed when token required and absent"
+        );
+    }
+
+    /// Pure mirror of [`resolve_stream_token`]'s decision (DB/Redis-free, error
+    /// reduced to a `StatusCode`) so the fail-closed vs open-fallback branch is
+    /// unit-testable: given an optional validated token's `(schema, rate_limit)`
+    /// and the request archive schema, reproduce the resolution.
+    fn resolve_stream_token_inner(
+        validated: Option<(String, u64)>,
+        archive_schema: Option<&str>,
+    ) -> Result<(String, u64), StatusCode> {
+        if let Some(v) = validated {
+            return Ok(v);
+        }
+        if ingest_require_token() {
+            Err(StatusCode::UNAUTHORIZED)
+        } else {
+            Ok((archive_schema.unwrap_or("public").to_string(), 0))
+        }
+    }
+
+    #[test]
+    fn resolve_stream_token_inner_binds_validated_token() {
+        let got = resolve_stream_token_inner(Some(("archive_x".to_string(), 250)), Some("ignored"))
+            .expect("a valid token resolves");
+        assert_eq!(
+            got,
+            ("archive_x".to_string(), 250),
+            "binds token schema+rate"
+        );
     }
 }

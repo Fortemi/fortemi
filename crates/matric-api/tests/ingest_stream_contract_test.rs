@@ -17,8 +17,12 @@
 //! Ingested notes are tagged `__ingest_contract_test__` with
 //! `source: "ingest-contract-test"` so they are identifiable and cleanable.
 //!
-//! Auth: if the target server enforces `REQUIRE_AUTH`, set `API_TOKEN` to a
-//! valid bearer token; it is attached when present (CI runs anonymous).
+//! Auth: `/ingest/stream` requires a per-stream bearer token when
+//! `INGEST_REQUIRE_TOKEN=true` (the default, #829); the suite mints one per
+//! stream request (`mint_stream_token`). If the server also enforces
+//! `REQUIRE_AUTH` on the mint endpoint, set `API_TOKEN` to a valid bearer token;
+//! it authenticates minting and falls back as the stream bearer on open/dev
+//! servers (CI runs anonymous and skips when no live server is present).
 
 use std::time::Duration;
 
@@ -133,8 +137,39 @@ fn note_line(content: &str) -> String {
     .to_string()
 }
 
+/// Mint a fresh per-stream bearer token (#829), or `None` if the server has no
+/// Redis / requires auth the suite lacks. `API_TOKEN` (if set) authenticates the
+/// mint call.
+async fn mint_stream_token(client: &reqwest::Client) -> Option<String> {
+    let mut req = client
+        .post(format!("{}/api/v1/ingest/tokens", api_base_url()))
+        .timeout(Duration::from_secs(10));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body.get("token")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// The bearer to attach to `/ingest/stream`: a freshly minted stream token when
+/// the server supports it (#829), else the configured `API_TOKEN` for an
+/// open/dev server (`INGEST_REQUIRE_TOKEN=false`).
+async fn stream_bearer(client: &reqwest::Client) -> Option<String> {
+    if let Some(tok) = mint_stream_token(client).await {
+        return Some(tok);
+    }
+    std::env::var("API_TOKEN").ok()
+}
+
 /// POST an NDJSON body to `/api/v1/ingest/stream`, read the SSE body to
-/// completion. Returns `(status, content_type, events)`.
+/// completion. Returns `(status, content_type, events)`. Attaches a per-stream
+/// token (#829) when the server supports minting one.
 async fn post_ndjson(
     client: &reqwest::Client,
     ndjson: String,
@@ -144,8 +179,8 @@ async fn post_ndjson(
         .header("content-type", "application/x-ndjson")
         .body(ndjson)
         .timeout(STREAM_TIMEOUT);
-    if let Ok(token) = std::env::var("API_TOKEN") {
-        req = req.bearer_auth(token);
+    if let Some(bearer) = stream_bearer(client).await {
+        req = req.bearer_auth(bearer);
     }
     let resp = req.send().await.expect("request send failed");
     let status = resp.status();
@@ -392,14 +427,67 @@ async fn test_ingest_stream_410_on_unknown_cursor() {
         .header("x-ingest-cursor", "00000000-0000-0000-0000-000000000000-5")
         .body(format!("{}\n", note_line("must-not-process")))
         .timeout(STREAM_TIMEOUT);
-    if let Ok(token) = std::env::var("API_TOKEN") {
-        req = req.bearer_auth(token);
+    // A valid stream token (when required) so the request clears the token gate
+    // and the assertion isolates the cursor 410 (token auth precedes resumption).
+    if let Some(bearer) = stream_bearer(&client).await {
+        req = req.bearer_auth(bearer);
     }
     let resp = req.send().await.expect("request send failed");
     assert_eq!(
         resp.status().as_u16(),
         410,
         "an unknown/expired ingest cursor must return 410 Gone"
+    );
+}
+
+/// Mint → revoke round-trip for stream tokens (#829). Skips when the server has
+/// no Redis (503) or requires auth the suite lacks (401), so it is safe on both
+/// open and secured deployments.
+#[tokio::test]
+async fn test_ingest_token_mint_and_revoke() {
+    require_api!();
+    let client = reqwest::Client::new();
+    let mut req = client
+        .post(format!(
+            "{}/api/v1/ingest/tokens?rate_limit=100",
+            api_base_url()
+        ))
+        .timeout(Duration::from_secs(10));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await.expect("request send failed");
+    let status = resp.status().as_u16();
+    if status == 401 || status == 503 {
+        eprintln!("Skipping mint/revoke: server returned {status} (needs auth + Redis)");
+        return;
+    }
+    assert_eq!(status, 201, "mint returns 201");
+    let body: serde_json::Value = resp.json().await.expect("mint body must be JSON");
+    let token = body["token"].as_str().expect("mint returns a token");
+    let token_id = body["token_id"].as_str().expect("mint returns a token_id");
+    assert!(
+        token.starts_with("mm_ist_"),
+        "stream token has the expected prefix: {token}"
+    );
+    assert_eq!(body["rate_limit"], 100, "rate_limit echoes the query param");
+
+    let revoke = |id: &str| {
+        let mut d = client
+            .delete(format!("{}/api/v1/ingest/tokens/{}", api_base_url(), id))
+            .timeout(Duration::from_secs(10));
+        if let Ok(t) = std::env::var("API_TOKEN") {
+            d = d.bearer_auth(t);
+        }
+        d.send()
+    };
+    let first = revoke(token_id).await.expect("revoke send failed");
+    assert_eq!(first.status().as_u16(), 204, "revoke returns 204");
+    let second = revoke(token_id).await.expect("re-revoke send failed");
+    assert_eq!(
+        second.status().as_u16(),
+        404,
+        "re-revoking an already-revoked token is 404"
     );
 }
 

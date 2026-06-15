@@ -683,6 +683,8 @@ struct AppState {
     chat_stream_store: matric_api::services::ChatStreamStore,
     /// Redis-backed cursor store for `/ingest/stream` resumption (#828).
     ingest_cursor_store: matric_api::services::IngestCursorStore,
+    /// Redis-backed stream-scoped bearer tokens for `/ingest/stream` (#829).
+    ingest_token_store: matric_api::services::IngestTokenStore,
     /// Event bus for real-time notifications (WebSocket, SSE, webhooks, telemetry).
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
@@ -844,6 +846,9 @@ impl AppState {
         handlers::chat::list_chat_models,
         // handlers::ingest_stream
         handlers::ingest_stream::ingest_stream_handler,
+        // handlers::ingest_tokens (#829)
+        handlers::ingest_tokens::mint_ingest_token,
+        handlers::ingest_tokens::revoke_ingest_token,
         // handlers::pke
         handlers::pke::pke_keygen, handlers::pke::pke_address,
         handlers::pke::pke_encrypt, handlers::pke::pke_decrypt,
@@ -1953,6 +1958,7 @@ async fn main() -> anyhow::Result<()> {
     let search_cache = matric_api::services::SearchCache::from_env().await;
     let chat_stream_store = matric_api::services::ChatStreamStore::from_env().await;
     let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
+    let ingest_token_store = matric_api::services::IngestTokenStore::from_env().await;
     let state = AppState {
         db,
         search,
@@ -1962,6 +1968,7 @@ async fn main() -> anyhow::Result<()> {
         search_cache,
         chat_stream_store,
         ingest_cursor_store,
+        ingest_token_store,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
         default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
@@ -2176,6 +2183,15 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/ingest/stream",
             post(handlers::ingest_stream::ingest_stream_handler),
+        )
+        // Per-stream bearer token mint/revoke (Issue #829)
+        .route(
+            "/api/v1/ingest/tokens",
+            post(handlers::ingest_tokens::mint_ingest_token),
+        )
+        .route(
+            "/api/v1/ingest/tokens/{token_id}",
+            delete(handlers::ingest_tokens::revoke_ingest_token),
         )
         .route("/api/v1/chat/models", get(list_chat_models))
         // Document Types
@@ -4913,8 +4929,12 @@ fn is_public_route(path: &str) -> bool {
         return true;
     }
     // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452).
+    // `/ingest/stream` joins this class: it validates a per-stream bearer token in
+    // the handler when `INGEST_REQUIRE_TOKEN=true` (#829). The token mint/revoke
+    // endpoints are NOT exempt — they require normal authentication.
     if path == "/api/v1/events"
         || path == "/api/v1/ws"
+        || path == "/api/v1/ingest/stream"
         || path.starts_with("/api/v1/realtime/twilio/")
     {
         return true;
@@ -20304,6 +20324,7 @@ mod tests {
             ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
+            ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
         }
     }
 
@@ -20530,6 +20551,7 @@ mod tests {
             ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
+            ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
         };
 
         let router = Router::new()
@@ -21728,6 +21750,7 @@ mod tests {
             ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
+            ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
         };
 
         let router = Router::new()
@@ -22053,6 +22076,7 @@ mod tests {
             ),
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
+            ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
         };
 
         let router = Router::new()
