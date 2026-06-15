@@ -7,20 +7,22 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.6.0] - 2026-06-12
+## [2026.6.0] - 2026-06-15
 
-Streaming chat milestone. This release adds token-by-token streaming chat over Server-Sent Events, the observability counters to operate it, and completes the incoming-webhook receiver surface (generic outbox capture + receiver deletion). It is the server contract the HotM client streams against; pair it with the `db547a1` git history when validating the integration.
+Incoming streams milestone. This release builds out Fortémi's incoming/streaming surface end to end across four phases: token-by-token streaming chat over Server-Sent Events (Phase A); the incoming-webhook receiver surface with HMAC verification, per-receiver JSON-Schema validation, and idempotent delivery (Phase B); NDJSON streaming bulk ingest with backpressure, cursor resumption, per-stream auth, and finished TUS resumable uploads (Phase C); and a pluggable inbound external-event-source framework with Redis Stream, SSE, and (feature-gated) Kafka connectors (Phase D). Every accepted inbound event lands in the shared `event_outbox` and flows through the existing fan-out pipeline. A CI publish-pipeline defect that had silently stopped GHCR image publishing since ~February is also fixed.
 
 ### Highlights
 
 | What Changed | Why You Care |
 |--------------|--------------|
-| `POST /api/v1/chat/stream` | Assistant responses arrive token-by-token over SSE instead of one blocking JSON body — the basis for a live-typing chat UI. |
-| `chat_stream_*` metrics on `/health/streaming` | Operators see stream throughput, completions, errors, client disconnects, and dropped tokens, including the headline `chat_stream_dropped_tokens_total`. |
-| Generic incoming-webhook outbox capture | Every accepted incoming webhook is durably recorded as an `incoming_webhook.received` event for fan-out, not just Twilio calls. |
-| `DELETE /api/v1/webhooks/incoming/{slug}` | Incoming receiver registrations can now be removed, completing CRUD on the receiver surface. |
+| `POST /api/v1/chat/stream` (SSE) | Assistant responses arrive token-by-token over SSE instead of one blocking JSON body — the basis for a live-typing chat UI. |
+| Incoming webhook receivers | Register HMAC-verified receivers, validate payloads against per-receiver JSON Schema, and dedupe with `Idempotency-Key` — every accepted webhook captured to the outbox. |
+| `POST /api/v1/ingest/stream` (NDJSON) | Long-running agents push notes/events as a resumable stream with per-line acks, backpressure (429), and `X-Ingest-Cursor` resumption. |
+| Finished TUS resumable uploads | Multi-GB media uploads resume after interruption (TUS 1.0.0). |
+| Inbound event-source connectors | Pull from external Redis Streams, upstream SSE, and (opt-in) Kafka into the shared outbox — at-least-once, with restart resumption and a DLQ. |
+| Truthful GHCR publishing | The Docker image publishes to ghcr.io again; publish jobs now fail loudly instead of masking failed pushes. |
 
-### Added
+### Added — Streaming chat (Phase A · #811)
 
 - **Streaming chat endpoint — `POST /api/v1/chat/stream` (#812).** Same request contract as `POST /api/v1/chat` (`input`, optional `model`, optional `context.conversation_history`), but the response is an SSE stream rather than a single JSON body. Events:
   - `delta` — `{"content": "<chunk>"}`, one per generated content chunk.
@@ -30,26 +32,56 @@ Streaming chat milestone. This release adds token-by-token streaming chat over S
   The endpoint acquires an **owned** GPU semaphore permit held for the full stream lifetime (released on completion, error, or client disconnect) and returns **503** immediately when no permit is available — streaming chat never starves background jobs. Multi-turn fidelity is preserved (system prompt + conversation history + current turn). Auth requirements match `/api/v1/chat`.
 - **Streaming-chat observability on `GET /api/v1/health/streaming` (#814).** A new `"chat"` block sits alongside `sse` and `rtp` with process-lifetime counters: `chat_stream_started_total`, `chat_stream_completed_total`, `chat_stream_errored_total`, `chat_stream_client_disconnect_total`, `chat_stream_tokens_total`, and `chat_stream_dropped_tokens_total`.
 - **Multi-turn streaming backend — `OllamaBackend::chat_multi_turn_stream`.** Streams `/api/chat` with `stream: true`, sharing NDJSON line parsing with the existing single-turn streamer via a common `ollama_chat_ndjson_stream` helper.
-- **Generic incoming-webhook outbox capture (#818).** `POST /api/v1/webhooks/incoming/{slug}` now writes a durable `incoming_webhook.received` row to the shared `event_outbox` for **every** accepted receiver, regardless of provider (`entity_type = "incoming_webhook"`, `entity_id = <receiver id>`, payload carries `slug`, `provider`, `schema_ref`, parsed `payload`, and `side_effect`). This is in addition to any schema-specific side effect such as Twilio call-session events. An outbox-write failure is logged and does not fail the accepted webhook for the caller.
-- **Incoming-webhook receiver deletion — `DELETE /api/v1/webhooks/incoming/{slug}` (#819).** Returns **204** on success, **404** for an unknown slug; backed by an idempotent `delete_by_slug` repository method.
+- **`Last-Event-ID` resumption for `/api/v1/chat/stream` (#815).** Redis-backed per-stream cursor (60s TTL) lets a reconnecting client resume from the last delivered event id.
+
+### Added — Incoming webhook receivers (Phase B · #817)
+
+- **Receiver registration + receive + delete.** `POST /api/v1/webhooks/incoming` registers a receiver (HMAC secret + schema ref); `POST /api/v1/webhooks/incoming/{slug}` receives; `DELETE /api/v1/webhooks/incoming/{slug}` removes one (**204** / **404**, idempotent `delete_by_slug`).
+- **HMAC signature verification (#820).** Incoming requests are verified against `sha256=<hex>` over the raw body; bad or missing signatures return **401**.
+- **Schema-shape registry + server-side validation (#821).** A JSONB `schema_doc` column stores per-receiver JSON Schema; the built-in Twilio schemas were converted to embedded JSON Schema so every payload validates through one `jsonschema`-backed path, with field-level JSON-pointer **400s**. `PATCH /api/v1/webhooks/incoming/{slug}` updates a receiver's schema in place (slug/secret preserved).
+- **`Idempotency-Key` dedupe via Redis, 24h TTL (#822).** An opt-in `Idempotency-Key` header maps to `idem:{slug}:{key}` storing `{body_hash, status, body}`: repeat key + matching body → cached **200** (no duplicate outbox row); repeat key + different body → **409**; no header → normal processing. Checked after HMAC verification; degrades to a no-op without Redis.
+- **Generic incoming-webhook outbox capture (#818).** Every accepted receiver writes a durable `incoming_webhook.received` row to the shared `event_outbox` (`entity_type = "incoming_webhook"`, `entity_id = <receiver id>`, payload carries `slug`, `provider`, `schema_ref`, parsed `payload`, and `side_effect`) — in addition to any provider-specific side effect such as Twilio call-session events. An outbox-write failure is logged and does not fail the accepted webhook for the caller.
+
+### Added — Streaming bulk ingest + TUS (Phase C · #824)
+
+- **NDJSON bulk ingest — `POST /api/v1/ingest/stream` (#825).** `application/x-ndjson` request body parsed line-by-line with a per-line `insert_tx`; SSE `ack`/`done` response contract.
+- **Per-line validation + progress frames (#826).** DB-free schema validation per line; `progress {processed:N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL` (default 100); a malformed line errors only that line.
+- **Backpressure — bounded buffer + 429 (#827).** Configurable `FORTEMI_INGEST_STREAM_BUFFER` channel with escalating thresholds: `warning` @80%, `429 {retry_after_ms, INGEST_BACKPRESSURE}` @95%, TCP block-sender backpressure @100%; `ingest_stream_buffer_pressure` gauge + peak/warning/429 counters on `/health/streaming`.
+- **Resumption — `X-Ingest-Cursor`, 60s TTL (#828).** Redis-backed per-ack cursor with server-authoritative skip-ahead on reconnect; `410 Gone` beyond TTL.
+- **Per-stream bearer token auth + rate limit (#829).** `POST /api/v1/ingest/tokens` mint + `DELETE /api/v1/ingest/tokens/{token_id}` revoke (1h TTL, archive-bound); per-token lines/sec token-bucket pacing → `error {status:429, INGEST_RATE_LIMITED}`; fail-closed **401** when `INGEST_REQUIRE_TOKEN=true` (default). `ingest_stream_rate_limited_total` on `/health/streaming`.
+- **Outbox integration (#830).** Each ingested note appends a `note.created` outbox row in the **same transaction** as the insert — outbox-count == ingested-count invariant, atomic per-line rollback.
+- **Finished TUS 1.0.0 resumable uploads (#831, closes #544).** Note-scoped attachment uploads with Creation/Termination/Checksum extensions, on-disk staging for resume, the `tus_upload` table (offset + `expires_at`), and TTL cleanup — multi-GB uploads resume after interruption.
+
+### Added — Inbound external event sources (Phase D · #832)
+
+- **Pluggable `InboundEventSource` framework (#833).** Connector trait + registry; a lifecycle supervisor that validates each event, writes it to the shared `event_outbox`, then commits the upstream offset (at-least-once), with exponential-backoff retry and a dead-letter table (`inbound_dlq`); per-connector metrics (`events`/`errors`/`lag`) on `/health/streaming`; and `POST/GET/DELETE /api/v1/inbound-sources`. All connectors are opt-in via `INBOUND_EXTERNAL_SOURCES_ENABLED=false` (default — standby cost gate).
+- **Redis Stream connector (#834).** Consumer-group `XREADGROUP` with `XACK` only after the durable outbox write; on restart it drains the pending-entries list then switches to new entries — no event loss.
+- **SSE connector (#835).** Long-lived `text/event-stream` consumer with `Last-Event-ID` resumption seeded from the last committed id, supervisor-driven exponential-backoff reconnect, and an optional event-type filter.
+- **Kafka connector (#836).** Consumer-group consume with manual offset commit (resume from last committed offset on restart), optional dead-letter topic, and SASL/SSL config. **Double-gated** per the cost-gate: a compile-time `kafka` Cargo feature (off by default, so default/edge builds never compile librdkafka — built self-contained via vendored OpenSSL) plus runtime `INBOUND_KAFKA_ENABLED=false`.
+
+### Fixed
+
+- **CI: GHCR/registry publish jobs no longer mask failed pushes (#882).** `push_with_retry` now `exit 1` on final failure (was an ignored `return 1`) and all four publish blocks (`publish-dev`, `publish-release`, `publish-github-dev`, `publish-github`) run under `set -euo pipefail`, so a failed `docker login`/`build`/`push` fails the job instead of reporting a false green. This restored GHCR publishing (`ghcr.io/fortemi/fortemi:main` verified republished). `workflow_dispatch` was also added to the CI workflow for manual re-runs.
 
 ### Behavior Notes
 
-- **Backpressure / dropped tokens.** Each `delta` send has a window controlled by `CHAT_STREAM_SEND_TIMEOUT_SECS` (default `30`). If a client stops draining the bounded SSE buffer (capacity 256 events), the stalled token is **shed** and counted in `chat_stream_dropped_tokens_total` rather than holding the GPU permit indefinitely. A mid-stream client disconnect is likewise counted as dropped and recorded in `chat_stream_client_disconnect_total`. Under normal client pacing, no tokens are dropped.
+- **Backpressure / dropped tokens.** Each chat `delta` send has a window controlled by `CHAT_STREAM_SEND_TIMEOUT_SECS` (default `30`). If a client stops draining the bounded SSE buffer (capacity 256 events), the stalled token is **shed** and counted in `chat_stream_dropped_tokens_total` rather than holding the GPU permit indefinitely. A mid-stream client disconnect is likewise counted as dropped and recorded in `chat_stream_client_disconnect_total`. Under normal client pacing, no tokens are dropped.
 - **Event shape consistency.** `/api/v1/chat/stream` uses the same `delta`/`done`/`error` SSE event vocabulary as the existing `POST /api/v1/inference/stream`, so a client can share one SSE parser across both.
-- **POST-based SSE.** Because the stream is initiated with `POST` (to carry the request body), browser `EventSource` cannot be used directly; consume it with a `fetch()` + `ReadableStream` reader or a POST-capable SSE client. See the release announcement for an integration example.
+- **POST-based SSE.** Because the streaming chat and ingest endpoints are initiated with `POST` (to carry the request body), browser `EventSource` cannot be used directly; consume them with a `fetch()` + `ReadableStream` reader or a POST-capable SSE client.
 
 ### Not Yet Included
 
-- `Last-Event-ID` resumption for `/api/v1/chat/stream` is tracked separately (#815).
 - The HotM client-side consumer of `/api/v1/chat/stream` is tracked in the desktop-app repository (#813).
+- Real-time provider integrations (Twilio Programmable Voice, WebRTC/SIP, recording providers, live video) are a separate epic — out of scope for the incoming-streams work in this release.
 
 ### Verification
 
-- `cargo fmt --all --check`
-- `cargo clippy -p matric-inference -p matric-db -p matric-api --all-targets -- -D warnings`
-- `cargo test -p matric-api` (streaming-chat contract tests: SSE framing, terminator, error path, client-disconnect, and backpressure dropped-token accounting — 8 tests)
-- CI integration suite (real Postgres): generic-outbox capture and receiver-deletion round-trip
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test -p matric-api -p matric-jobs` (streaming-chat, ingest, webhook, and inbound-connector contract + unit suites)
+- `cargo test -p matric-jobs --features kafka` (Kafka connector unit tests)
+- CI integration suite (real Postgres): generic-outbox capture, ingest count invariant + atomic rollback, webhook signature/schema/idempotency round-trips
+- `docker manifest inspect ghcr.io/fortemi/fortemi:main` (GHCR publish restored)
 
 ## [2026.5.13] - 2026-05-25
 
