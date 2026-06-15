@@ -40,6 +40,9 @@ tracing.workspace = true
 # HTTP client
 reqwest = { workspace = true, features = ["multipart"] }
 
+# Redis — inbound Redis Stream connector (#834)
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
 # File handling
 tempfile = "3"
 kamadak-exif = "0.6"

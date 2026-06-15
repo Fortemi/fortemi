@@ -7,11 +7,13 @@
 //! supervisor, DLQ wiring, and per-connector metrics.
 
 pub mod metrics;
+pub mod redis_stream;
 pub mod registry;
 pub mod source;
 pub mod supervisor;
 
 pub use metrics::InboundMetrics;
+pub use redis_stream::{RedisStreamConfig, RedisStreamSource};
 pub use registry::{SourceBuilder, SourceRegistry};
 pub use source::{
     InMemorySource, InboundError, InboundEvent, InboundEventSource, InboundResult, Offset,
