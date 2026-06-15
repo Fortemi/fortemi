@@ -685,6 +685,8 @@ struct AppState {
     ingest_cursor_store: matric_api::services::IngestCursorStore,
     /// Redis-backed stream-scoped bearer tokens for `/ingest/stream` (#829).
     ingest_token_store: matric_api::services::IngestTokenStore,
+    /// Redis-backed `Idempotency-Key` dedupe for incoming webhooks (#822).
+    idempotency_store: matric_api::services::IdempotencyStore,
     /// Event bus for real-time notifications (WebSocket, SSE, webhooks, telemetry).
     event_bus: Arc<EventBus>,
     /// Active WebSocket connection count (Issue #42).
@@ -1959,6 +1961,7 @@ async fn main() -> anyhow::Result<()> {
     let chat_stream_store = matric_api::services::ChatStreamStore::from_env().await;
     let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
     let ingest_token_store = matric_api::services::IngestTokenStore::from_env().await;
+    let idempotency_store = matric_api::services::IdempotencyStore::from_env().await;
     let state = AppState {
         db,
         search,
@@ -1969,6 +1972,7 @@ async fn main() -> anyhow::Result<()> {
         chat_stream_store,
         ingest_cursor_store,
         ingest_token_store,
+        idempotency_store,
         event_bus,
         ws_connections: Arc::new(AtomicUsize::new(0)),
         default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(
@@ -4103,6 +4107,32 @@ async fn receive_incoming_webhook(
         Some(&uri),
     )?;
 
+    // Idempotency-Key dedupe (#822): opt-in via header. A repeat of the same
+    // key + body replays the cached accepted response without re-processing
+    // (no duplicate outbox row); the same key with a different body is a 409.
+    // Checked after signature verification so unsigned requests cannot read or
+    // poison the cache.
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let body_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&body))
+    };
+    if let Some(ref key) = idempotency_key {
+        if let Some(cached) = state.idempotency_store.get(&receiver.slug, key).await {
+            if cached.body_hash == body_hash {
+                let status = StatusCode::from_u16(cached.response_status).unwrap_or(StatusCode::OK);
+                return Ok((status, Json(cached.response_body)).into_response());
+            }
+            return Err(ApiError::Conflict(format!(
+                "Idempotency-Key '{key}' was already used for a different request body"
+            )));
+        }
+    }
+
     let payload = incoming_payload_from_body(
         &receiver.schema_ref,
         headers.get(header::CONTENT_TYPE),
@@ -4151,14 +4181,32 @@ async fn receive_incoming_webhook(
         );
     }
 
-    Ok(Json(serde_json::json!({
+    let response = serde_json::json!({
         "status": "accepted",
         "slug": receiver.slug,
         "provider": receiver.provider,
         "schema_ref": receiver.schema_ref,
         "payload": payload,
         "side_effect": side_effect,
-    })))
+    });
+
+    // Cache the accepted outcome for replay within the idempotency window.
+    if let Some(ref key) = idempotency_key {
+        state
+            .idempotency_store
+            .store(
+                &receiver.slug,
+                key,
+                &matric_api::services::IdempotencyRecord {
+                    body_hash,
+                    response_status: StatusCode::OK.as_u16(),
+                    response_body: response.clone(),
+                },
+            )
+            .await;
+    }
+
+    Ok(Json(response).into_response())
 }
 
 #[utoipa::path(delete, path = "/api/v1/webhooks/incoming/{slug}", tag = "Incoming Webhooks",
@@ -20363,6 +20411,7 @@ mod tests {
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
+            idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         }
     }
 
@@ -20590,6 +20639,7 @@ mod tests {
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
+            idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         };
 
         let router = Router::new()
@@ -21789,6 +21839,7 @@ mod tests {
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
+            idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         };
 
         let router = Router::new()
@@ -22115,6 +22166,7 @@ mod tests {
             chat_stream_store: matric_api::services::ChatStreamStore::disabled(),
             ingest_cursor_store: matric_api::services::IngestCursorStore::disabled(),
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
+            idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         };
 
         let router = Router::new()

@@ -2,6 +2,7 @@
 
 pub mod chat_stream_store;
 pub mod chunking_service;
+pub mod idempotency_store;
 pub mod ingest_cursor_store;
 pub mod ingest_token_store;
 pub mod reconstruction_service;
@@ -10,6 +11,7 @@ pub mod tag_resolver;
 
 pub use chat_stream_store::ChatStreamStore;
 pub use chunking_service::ChunkingService;
+pub use idempotency_store::{IdempotencyRecord, IdempotencyStore};
 pub use ingest_cursor_store::IngestCursorStore;
 pub use ingest_token_store::IngestTokenStore;
 pub use reconstruction_service::ReconstructionService;
