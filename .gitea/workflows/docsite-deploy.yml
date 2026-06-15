@@ -77,6 +77,6 @@ jobs:
       - name: Log deployment result
         if: success()
         run: |
-          echo "Deployed docs.fortemi.io"
+          echo "Deployed docs.fortemi.com"
           echo "Tag: ${{ gitea.ref }}"
           echo "Commit: ${{ gitea.sha }}"
