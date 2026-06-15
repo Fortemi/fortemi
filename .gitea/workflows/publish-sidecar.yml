@@ -171,6 +171,13 @@ jobs:
           export RUSTUP_HOME="/Volumes/build/bt6/cargo/rustup"
           . /Volumes/build/bt6/cargo/env 2>/dev/null || true
 
+          # Build temp on the external drive. The internal SSD is space-
+          # constrained; the default TMPDIR (/var/folders/... on /) fills up
+          # and clang fails with "unable to make temporary file: No space
+          # left on device". Pin TMPDIR (and staging, below) to /Volumes/build.
+          export TMPDIR="/Volumes/build/tmp"
+          mkdir -p /Volumes/build/tmp
+
           # Clean + clone — fresh checkout per run so concurrent builds
           # don't interfere
           mkdir -p "${BUILD_DIR}"
@@ -202,24 +209,29 @@ jobs:
             chmod +x "matric-api-\${TARGET}"
           done
 
-          # Stage for scp pickup
-          mkdir -p /tmp/fortemi-sidecar-out
-          cp matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin /tmp/fortemi-sidecar-out/
+          # Stage for scp pickup — also on the external drive (see TMPDIR note)
+          mkdir -p /Volumes/build/tmp/fortemi-sidecar-out
+          cp matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin /Volumes/build/tmp/fortemi-sidecar-out/
 
           echo ""
           echo "=== Built binaries ==="
           for BIN in matric-api-aarch64-apple-darwin matric-api-x86_64-apple-darwin; do
-            file "/tmp/fortemi-sidecar-out/\${BIN}"
-            ls -lh "/tmp/fortemi-sidecar-out/\${BIN}"
-            shasum -a 256 "/tmp/fortemi-sidecar-out/\${BIN}"
+            file "/Volumes/build/tmp/fortemi-sidecar-out/\${BIN}"
+            ls -lh "/Volumes/build/tmp/fortemi-sidecar-out/\${BIN}"
+            shasum -a 256 "/Volumes/build/tmp/fortemi-sidecar-out/\${BIN}"
           done
+
+          # Prune old per-run build dirs so the external drive does not fill.
+          # Keep the 5 most recent sidecar-* trees; remove the rest. Bounded,
+          # glob-scoped to the build scratch path only.
+          ls -dt /Volumes/build/fortemi/builds/sidecar-* 2>/dev/null | tail -n +6 | xargs rm -rf || true
           REMOTE_SCRIPT
 
           # Pull binaries back to the ubuntu runner for upload-artifact
           mkdir -p /tmp/sidecar-macos
           scp -i ~/.ssh/mutsu_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-            "manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin" \
-            "manitcor@10.0.42.41:/tmp/fortemi-sidecar-out/matric-api-x86_64-apple-darwin" \
+            "manitcor@10.0.42.41:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-aarch64-apple-darwin" \
+            "manitcor@10.0.42.41:/Volumes/build/tmp/fortemi-sidecar-out/matric-api-x86_64-apple-darwin" \
             /tmp/sidecar-macos/
           ls -lh /tmp/sidecar-macos/
 
