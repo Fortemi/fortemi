@@ -27,6 +27,7 @@ ignore = []
 confidence-threshold = 0.8
 allow = [
     "MIT",
+    "MIT-0",                  # MIT No Attribution; via jsonschema -> borrow-or-share (#821)
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
