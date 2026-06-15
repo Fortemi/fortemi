@@ -80,14 +80,16 @@ exemption). Neither blocks Phase B on the anonymous/dev posture.
 **Sequence:** #825 → {#826, #827, #828, #829 parallel} → #830. #831 independent
 (parallel any time). Close #824 when all land.
 
-### Phase D — External tech event sources · EPIC #832 · `P3` (Low)
+### Phase D — External tech event sources · EPIC #832 · `P3` (Low) — ✅ COMPLETE
 
-- [ ] #833 `InboundEventSource` connector trait + plug-in scaffold *(foundation)*
-- [ ] #834 Redis Stream consumer connector *(first concrete source)*
-- [ ] #835 SSE consumer connector (long-lived HTTP)
-- [ ] #836 Kafka consumer connector (feature-flagged, high-end tier)
+- [x] #833 `InboundEventSource` connector trait + plug-in scaffold *(foundation)*
+- [x] #834 Redis Stream consumer connector *(first concrete source)*
+- [x] #835 SSE consumer connector (long-lived HTTP)
+- [x] #836 Kafka consumer connector (feature-flagged `kafka`, off by default; ssl-vendored self-contained build)
 
-**Sequence:** #833 → {#834, #835, #836 parallel} → close #832.
+**Sequence:** #833 → {#834, #835, #836 parallel} → close #832. ✅ all closed, CI-green.
+
+Cost-gate honored: `INBOUND_EXTERNAL_SOURCES_ENABLED=false` default (all connectors opt-in standby); Kafka additionally compile-gated (Cargo feature `kafka` off by default) + runtime-gated (`INBOUND_KAFKA_ENABLED=false`).
 
 ### → Cut v2026.6.0
 
