@@ -30,13 +30,28 @@ all closed.
 **Done:** #811 closed; A1/A3/A4/A5 landed + pushed to main. #813 (A2) left open as
 cross-repo HotM coordination — does not gate the cut.
 
-### Phase B — Webhook receivers · EPIC #817 · `P2`
+### Phase B — Webhook receivers · EPIC #817 · `P2` — ✅ DONE (closed 2026-06-14)
 
-- [ ] #821 schema-shape registry + server-side validation *(foundation; has design comments)*
-- [ ] #822 `Idempotency-Key` dedupe via Redis (24h TTL)
-- [ ] #823 contract tests: signature, schema, idempotency
+- [x] #821 schema-shape registry + server-side validation *(landed: JSONB `schema_doc`
+  column + migration; the Twilio built-ins converted to embedded JSON Schema so all
+  payloads flow through one `jsonschema`-backed path; field-level json-pointer 400s;
+  `ensure_validatable` gate at registration; `PATCH /api/v1/webhooks/incoming/{slug}`
+  updates the schema in place, preserving slug/secret. 13 unit tests + in-process
+  integration tests. `64a0e2a`)*
+- [x] #822 `Idempotency-Key` dedupe via Redis (24h TTL) *(landed: opt-in `Idempotency-Key`
+  header → Redis `idem:{slug}:{key}` storing `{body_hash, status, body}`; repeat key +
+  matching body → cached 200 (no duplicate outbox row); repeat key + different body → 409;
+  no header → normal. Checked after HMAC verification; degrades to no-op without Redis.
+  Mirrors the ingest cursor/token store pattern. `64a0e2a`)*
+- [x] #823 contract tests: signature, schema, idempotency *(landed: live-server
+  `incoming_webhook_contract_test.rs` covering signature/schema/idempotency/e2e — skips
+  without `API_BASE_URL` per repo convention — plus CI-running in-process integration tests
+  (signature 401, schema 400-with-field, PATCH) verified against live Postgres. `6d19f16`)*
 
-**Sequence:** #821 → #822 → #823 → close #817.
+**Done:** #817 closed; #818–#823 all landed + CI green. Two follow-ups filed: **#882**
+(GHCR publish jobs mask failed `docker push` — `set -e`/return-check gap) and **#883**
+(receive endpoint unreachable under `REQUIRE_AUTH=true` — needs method-aware auth
+exemption). Neither blocks Phase B on the anonymous/dev posture.
 **Reuse:** Redis `ConnectionManager` pattern from `chat_stream_store.rs` / `search_cache.rs`.
 
 ### Phase C — Streaming bulk ingest + TUS finish · EPIC #824 · `P2`
