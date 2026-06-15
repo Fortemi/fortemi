@@ -54,7 +54,7 @@ cross-repo HotM coordination — does not gate the cut.
 exemption). Neither blocks Phase B on the anonymous/dev posture.
 **Reuse:** Redis `ConnectionManager` pattern from `chat_stream_store.rs` / `search_cache.rs`.
 
-### Phase C — Streaming bulk ingest + TUS finish · EPIC #824 · `P2`
+### Phase C — Streaming bulk ingest + TUS finish · EPIC #824 · `P2` — ✅ COMPLETE
 
 - [x] #825 `POST /api/v1/ingest/stream` — NDJSON streaming bulk ingest *(foundation landed: bounded line-by-line parse + per-line `insert_tx` + SSE `ack`/`done`, store-only; outbox → #830, validation hardening → #826)*
 - [x] #826 per-line validation + SSE-streamed per-line response codes *(landed: DB-free schema validation — tag depth/length + metadata-object; `progress {processed:N}` every `FORTEMI_INGEST_PROGRESS_INTERVAL`=100; unified `ack` contract retained)*
@@ -78,7 +78,7 @@ exemption). Neither blocks Phase B on the anonymous/dev posture.
   Closed as satisfied-by-#528; a standalone uploads resource, if desired, is a separate issue.)*
 
 **Sequence:** #825 → {#826, #827, #828, #829 parallel} → #830. #831 independent
-(parallel any time). Close #824 when all land.
+(parallel any time). Close #824 when all land. ✅ all closed; #824 closed; dep #592 (outbox helpers) closed as satisfied.
 
 ### Phase D — External tech event sources · EPIC #832 · `P3` (Low) — ✅ COMPLETE
 
@@ -91,11 +91,13 @@ exemption). Neither blocks Phase B on the anonymous/dev posture.
 
 Cost-gate honored: `INBOUND_EXTERNAL_SOURCES_ENABLED=false` default (all connectors opt-in standby); Kafka additionally compile-gated (Cargo feature `kafka` off by default) + runtime-gated (`INBOUND_KAFKA_ENABLED=false`).
 
-### → Cut v2026.6.0
+### → Cut v2026.6.0 — ⛳ GATES CLEAR (awaiting authorization)
 
-When #811, #817, #824, #832 are all closed: bump CalVer `2026.6.0`, tag `v2026.6.0`,
-update CHANGELOG, let CI publish (release jobs un-skip on tag). **Full release only**
-(no RC) unless explicitly requested.
+All release-gating epics are closed: #811 ✅ · #817 ✅ · #824 ✅ · #832 ✅.
+Remaining to cut: bump CalVer `2026.6.0` (already the workspace version), tag
+`v2026.6.0`, update CHANGELOG, let CI publish (release jobs un-skip on tag).
+**Full release only** (no RC) unless explicitly requested. Release cut is a
+user-authorized action — not auto-performed.
 
 ---
 
