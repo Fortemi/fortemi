@@ -53,7 +53,14 @@ cross-repo HotM coordination — does not gate the cut.
   rollback (failed emit → 0 note rows), passing against real Postgres. Strong
   idempotency-key dedup deferred — outbox helper has no idempotency-key column yet (#592
   follow-on); at-most-once already holds via #828 cursor skip-ahead.)*
-- [ ] #831 finish TUS resumable upload (closes #544 stub)
+- [x] #831 finish TUS resumable upload *(ALREADY IMPLEMENTED via #528 — premise was stale:
+  #544 was a body-limit **bugfix** (closed 2026-02-26), not a stub. Full TUS 1.0.0 exists in
+  `main.rs`: `tus_options`/`tus_create_upload`/`tus_head_upload`/`tus_patch_upload`/
+  `tus_get_upload`(finalize)/`tus_delete_upload`, the `tus_upload` table (offset + `expires_at`),
+  on-disk staging for resume, attachment finalization, and `cleanup_expired_tus_uploads` TTL.
+  Divergence from acceptance: path is note-scoped `/api/v1/notes/{id}/attachments/tus/{upload_id}`
+  (correct model — attachments belong to notes) rather than a standalone `/api/v1/uploads`.
+  Closed as satisfied-by-#528; a standalone uploads resource, if desired, is a separate issue.)*
 
 **Sequence:** #825 → {#826, #827, #828, #829 parallel} → #830. #831 independent
 (parallel any time). Close #824 when all land.
