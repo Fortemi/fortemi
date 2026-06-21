@@ -11,10 +11,10 @@
 //!
 //! Auth: receiver registration (`POST /api/v1/webhooks/incoming`) requires a
 //! bearer token when the server enforces `REQUIRE_AUTH`. Set `API_TOKEN` to a
-//! valid token; it is attached to every request (registration needs it, and it
-//! lets the receive POST traverse the global auth layer — the receive endpoint
-//! authenticates the *payload* via HMAC regardless). On an anonymous dev server
-//! no token is needed and HMAC alone gates the receive path.
+//! valid token; it is attached to receiver-management requests. Receive POSTs
+//! intentionally do not send a bearer token: external providers authenticate the
+//! payload via HMAC and must traverse the global auth layer under
+//! `REQUIRE_AUTH=true`.
 //!
 //! Idempotency assertions require the server to have Redis configured; without
 //! it the store degrades to a no-op (every request processed) and the
@@ -146,7 +146,7 @@ async fn post_webhook(
     if let Some(k) = idem_key {
         rb = rb.header("Idempotency-Key", k);
     }
-    let resp = with_auth(rb).send().await.expect("post webhook");
+    let resp = rb.send().await.expect("post webhook");
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     (status, text)

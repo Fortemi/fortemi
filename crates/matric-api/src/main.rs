@@ -5097,7 +5097,9 @@ fn check_scope_enforcement(
 
 /// Check if a request is exempt from authentication.
 fn is_auth_exempt(method: &axum::http::Method, path: &str) -> bool {
-    method == axum::http::Method::OPTIONS || is_public_route(path)
+    method == axum::http::Method::OPTIONS
+        || is_public_route(path)
+        || is_public_incoming_webhook_route(method, path)
 }
 
 /// Check if a route is public (accessible without authentication).
@@ -5135,6 +5137,25 @@ fn is_public_route(path: &str) -> bool {
         return true;
     }
     false
+}
+
+/// Incoming webhook receive requests are authenticated by their provider HMAC
+/// signature, not by a Fortemi bearer token. Keep this method-aware because the
+/// same slug path also hosts bearer-protected receiver management methods.
+fn is_public_incoming_webhook_route(method: &axum::http::Method, path: &str) -> bool {
+    if method != axum::http::Method::POST {
+        return false;
+    }
+
+    if path == "/api/v1/webhooks/incoming/validate" {
+        return true;
+    }
+
+    let Some(slug) = path.strip_prefix("/api/v1/webhooks/incoming/") else {
+        return false;
+    };
+
+    !slug.is_empty() && !slug.contains('/')
 }
 
 /// Routes that require admin scope for all methods.
@@ -20653,6 +20674,32 @@ mod tests {
         assert!(is_auth_exempt(&Method::GET, "/oauth/token"));
         assert!(!is_auth_exempt(&Method::GET, "/api/v1/notes"));
         assert!(!is_auth_exempt(&Method::POST, "/api/v1/notes"));
+
+        assert!(is_auth_exempt(
+            &Method::POST,
+            "/api/v1/webhooks/incoming/provider-slug"
+        ));
+        assert!(is_auth_exempt(
+            &Method::POST,
+            "/api/v1/webhooks/incoming/validate"
+        ));
+        assert!(!is_auth_exempt(&Method::POST, "/api/v1/webhooks/incoming"));
+        assert!(!is_auth_exempt(
+            &Method::GET,
+            "/api/v1/webhooks/incoming/provider-slug"
+        ));
+        assert!(!is_auth_exempt(
+            &Method::PATCH,
+            "/api/v1/webhooks/incoming/provider-slug"
+        ));
+        assert!(!is_auth_exempt(
+            &Method::DELETE,
+            "/api/v1/webhooks/incoming/provider-slug"
+        ));
+        assert!(!is_auth_exempt(
+            &Method::POST,
+            "/api/v1/webhooks/incoming/provider-slug/extra"
+        ));
     }
 
     // =========================================================================
