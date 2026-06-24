@@ -1,0 +1,140 @@
+# Fortemi Delivery Roadmap
+
+> **Status:** Active — reference until all planned phases are complete.
+> **Created:** 2026-06-24 · **Last updated:** 2026-06-24
+> **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
+> **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, and the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue).
+
+## How to use this document
+
+- This is the **living plan of record**. Update the checkboxes and status as work lands.
+- Phases are sequenced by **dependency**, not dates. (Velocity here is human+AI non-scalar; do not add time estimates — express scope as issues/sequence.)
+- Each phase lists its **gating dependency** and the **issues** in it. Issue lists are anchors, not exhaustive — the milestone is the full set.
+- The **strategic pivot is #853**: the open BSL desktop build ships *without* the advanced-auth/multi-tenant stack, so **Phase 1 (open-build GA) is NOT blocked by Phase 2 (hosted/licensed)** — they parallelize.
+
+### Status legend
+`[ ]` not started · `[~]` in progress · `[x]` complete · `[!]` blocked (note blocker)
+
+### Tier labels (Gitea)
+- `tier/licensed-server` (#574) — advanced auth + multi-tenant hosting; omitted from the open build (per #853).
+- `tier/open-build` (#575) — single-user desktop; basic MCP; local/API-key auth.
+
+---
+
+## Phase 0 — Foundation contracts (cross-cutting; unblock everything)
+
+**Gating:** none — start here. Most other phases consume these.
+
+- [ ] **#710** AuthorizationPolicy route/action inventory — single source of truth for the auth-exempt set, object policy, docs exposure (#1000), and admin-gating.
+- [ ] **#967** RFC 9457 error contract (`application/problem+json`) — *decided: clean pre-GA break.* Centralized `ProblemType` registry at `ApiError::into_response()`; internal-cause vs public-detail split; `request_id` extension; one `assert_problem()` test helper. Evaluate `problem_details` crate (axum 0.8).
+- [ ] **#910** AuditEvent / TracingSink / bounded AuditBuffer — audit baseline.
+- [ ] **#968 / #974** hosted secret inventory + telemetry redaction taxonomy.
+- [ ] **#926 / #928 / #933** fail-closed startup: require issuer in multi-tenant; reject invalid security booleans; validate rate-limit env before constructing limiter.
+
+## Phase 1 — Open BSL desktop GA  `tier/open-build`
+
+**Gating:** Phase 0 contracts (partial — error shape, config validation). **Parallel to Phase 2.**
+Single-user desktop product; no multi-tenancy or advanced OAuth.
+
+- [ ] **#884** finish ADR-094 sidecar AuthContext + middleware coverage; basic MCP any-client on the user's own data via local/API-key auth.
+- [ ] **#950** webhook receive/validate hardening (per-route body cap, validate-public decision, 401/404 uniformity).
+- [ ] **#994 / #970 / #922** attachment & upload hardening (pre-validation buffering bounds; malware/scan gate + quarantine; TUS finalization).
+- [ ] **#995 / #976 / #979 / #929 / #975 / #885** embeddings & search correctness (effective-embedding fingerprint; all-or-nothing `embed_texts()`; transaction rollback; query-provider resolver; cache lineage; semantic filter parity).
+- [ ] **#971 / #909 / #931** jobs: delayed-retry/backoff + poison quarantine; readiness probe + graceful SIGTERM; fail-closed on unknown job type/status.
+- [ ] **#927 / #980** backup/restore: operator-local restore (break-glass), strict `backup.conf` parser, restore drills, verified-artifact-only.
+- [ ] **#989 / #937 / #992 / #990 / #973 / #982** Docker bundle local-first (127.0.0.1 default, generated DB secret, rendered-config preflight, image pinning, autoheal behind `ops-autoheal` profile, no default socket mount).
+- [ ] **#997 / #1002** observability: hosted-safe logging defaults + LOG_FORMAT contract.
+- [ ] **#1004 → #999 / #1001 / #998 / #1000** docs-contract runner (advisory+baseline → blocking; redacted output; portable, CI-owned) + leakage guard.
+
+## Phase 2 — Licensed-server / hosted multi-tenant GA  `tier/licensed-server`  (milestone #62)
+
+**Gating:** Phase 0. **Parallel to Phase 1.** This is the hosted/enterprise product.
+
+- [ ] **Tenant isolation / RLS** — ADR-090 shared-schema RLS: #726 / #728 / #729 / #733. *(The isolation floor for everything below.)*
+- [ ] **Object-level authorization** #956–#963 — note CRUD/status/versions/sharing, attachments, collections/templates/export, provenance, SKOS governance, memory admin/federated search, document-type use, ad-hoc AI gating.
+- [ ] **Control-plane admin-gating** #945–#964 (incl. #946 inference config, #954 queue control, #955 graph/embedding control, #949 webhook mgmt, #978 backup inventory).
+- [ ] **Advanced OAuth** (decided 2026-06-23): #1003 capabilities/profile source-of-truth → #943 (P0) consent/redirect → #972/#944 CIMD-first + gated DCR → #941 PKCE/S256 + client-auth → #917 resource/audience (API+MCP) → #924 scope cleanup → #1005 same-client introspection/revocation.
+- [ ] **KMS** #897 (P0) AWS launch contract + #910; #911/#912 (Vault/GCP) deferred. **PKE** #947/#948.
+- [ ] **Privacy/DSAR** #900 / #969 / #892 / #961 (retention); **inbound connectors** #988 / #920 / #968; **realtime/Twilio** #952 / #981 / #986 / #951 / #953.
+
+## Phase 3 — Universal Model Gateway / Bridge  (milestones #60 foundation, #61 expansion)
+
+**Gating:** Phase 0; benefits from Phase 2 auth/metering.
+
+- [ ] **#873** canonical protocol-adapter framework → **#864/#865** chat (non-stream/stream) → **#866** `/v1/models` (strict OpenAI shape) → **#867** typed `RoutePlan`/`BridgeResolvedModel`.
+- [ ] Metering/cost #877/#878/#879/#880; per-consumer policy #870/#871; session logging #868.
+- [ ] Provider/cache/privacy #985 (strip external router cache; retention=eligibility; coarse classes) / #969.
+- [ ] Provider expansion (#61, blocked on foundation): #874 Anthropic, #875 Gemini, #876 vLLM/LiteLLM/Azure/Bedrock, #869 embeddings.
+
+## Phase 4 — Referenced (BYO) storage  (milestones #58 follow-up, #59 v2 deferred)
+
+**Gating:** design P0s first. Large workstream (~70 issues).
+
+- [ ] **Design P0s** #890 (root-handle vs canonical-path) / #902 (error contract) / #903 (scanner ignore/secret registry) / #904 (derived layout/symlink-safe cleanup) / #905 (clone/export/import/backup semantics).
+- [ ] **Core impl** backend/source (#748/#749/#751), registry/migration (#752/#753/#754/#755), scan walker + hash + ingest (#757/#758/#760/#761/#762/#763), quarantine (#759/#765/#776), API (#771/#773/#774/#775), MCP (#777/#778/#779).
+- [ ] **Security regression suite** — epic #746, #780/#781/#782/#783, CI gate #797.
+- [ ] **Docs/ops** — epic #747, #784–#789, #798–#802.
+
+## Phase 5 — Streaming realtime (#63) + Native distribution (#64)
+
+**Gating:** can proceed alongside; distribution gates final GA packaging.
+
+- [ ] Streaming: #906 (cost/default mode) / #915 / #939 (outbox backpressure + payload minimization) / #896 (ADR refresh).
+- [ ] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894.
+
+---
+
+## Immediate next actions (decisions + implementation patterns ready)
+
+1. **#1005** — same-client introspection/revocation guard (P1; lands before #917). Plan in comment 71419.
+2. **#988** — legacy enabled-row quarantine (first inbound guard PR). Plan in comment 71424.
+3. **#967** — RFC 9457 migration (centralized `ProblemType` registry). Pattern in comment 71652.
+4. **#710** — stand up the route/action inventory (unblocks Phases 0/1/2).
+
+## Critical-path P0 blockers to schedule
+
+#943 (OAuth consent/redirect) · #897 (AWS KMS contract) · #926 (issuer required) · Referenced-storage design set #890/#902/#903/#904/#905 · #797 (Referenced storage CI gate).
+
+---
+
+## Product decisions captured 2026-06-23 (index → owning issue)
+
+All recorded as "Operator product decision" comments on-issue. Keystones: **#853** (BSL-desktop vs licensed-server boundary), **#967** (RFC 9457).
+
+| Area | Decision | Issue |
+|---|---|---|
+| **Architecture** | Advanced auth + multi-tenant hosting = licensed-server only, separable from BSL desktop build | #853 |
+| Public docs | Minimal curated consumer docs; no public generated schema; OAuth excluded; operator-only schema path | #965 |
+| Docs leakage guard | Re-scoped from "public projection" to "no-leakage + operator-gating"; Swagger operator-only, try-it-out off | #1000 |
+| Error contract | Adopt RFC 9457 (clean pre-GA break) + centralized registry pattern | #967 |
+| Rate limit | No legacy `X-RateLimit-*`; standard `RateLimit`/`Retry-After` only | #898 |
+| OAuth tiering | Any client basic MCP; advanced auth licensed-server-only; PKCE/S256, no `plain` | #941 |
+| OAuth resource | RFC 8707 resource/audience for API+MCP together | #917 |
+| OAuth registration | CIMD-first + gated/deprecated DCR fallback | #972 |
+| OAuth scope | Remove `delete` until #710 defines it; one canonical scope source; subset enforcement | #924 |
+| OAuth introspect/revoke | Same-client only + separate privileged operator path | #1005 |
+| OAuth profiles | Single `OAuthCapabilities` source of truth drives discovery/metadata/fixtures | #1003 |
+| Backup restore | Hosted = operator-local break-glass only; verified Fortemi-produced artifacts only | #927 / #978 |
+| Backup config | Strict key/value parser (no shell `source`); periodic restore drills as gate | #980 |
+| Docker bundle | Local-first default (127.0.0.1, generated secret); rendered-`compose config` preflight | #989 |
+| Docker autoheal | Behind explicit `ops-autoheal` profile; no default socket mount | #937 |
+| Bridge models | Strict OpenAI `/v1/models`; omit unverifiable models for strict tenants; strict slug resolver | #866 |
+| Bridge routing | Typed `RoutePlan`/`BridgeResolvedModel` before any bridge route | #867 |
+| Provider cache | Strip external router cache controls; retention = model eligibility; coarse classes to clients | #985 |
+| Embeddings | One persisted effective-embedding fingerprint across jobs/query/cache/restore | #995 |
+| Embedding validation | Cardinality/order/dimension in `EmbeddingBackend` trait + defensive job-level | #976 |
+| Search degrade | FTS fallback with explicit degraded flag + audit (never silent) | #929 |
+| MCP legacy SSE | Disabled by default; pin to 2025-11-25 Streamable HTTP | #940 |
+| MCP test harness | In-process app/session-manager factory in main `npm test` | #899 |
+| MCP tool output | Structured metadata in hosted (no live-token curl); scanner-safe placeholders local | #987 |
+| Streaming auth | Distinct short-lived `<STREAM_TOKEN>` class; no ordinary tokens in query | #953 |
+| DSAR receipts | Metadata + TTL only; never recoverable cached payload | #900 |
+| Tollbooth | Generic OpenAI-compatible proxy docs; Tollbooth as one example only | #983 |
+| Docs placeholders | Scanner-safe placeholders enforced everywhere incl MCP docs + generated examples | #999 |
+| Default creds | None as guidance; only local-dev/test fixtures allowlisted | #1001 |
+| Docs-contract | Advisory+baseline → blocking; redacted output; portable; CI-owned | #1004 |
+
+## References
+- Memory: `bsl-desktop-vs-licensed-server-boundary`, `fortemi-rfc9457-error-contract`.
+- Milestones: #60 Bridge foundation · #61 Bridge expansion (blocked) · #62 Hosted auth & multi-tenancy launch gate · #63 Streaming realtime phase 1 · #64 Native server distribution · #58 Referenced storage follow-up · #59 Referenced storage v2 (deferred).
+- Audit history: `.aiwg/working/new-agent-handoff-prompt-2026-06-23.md`, `.aiwg/working/issue-audit-agent-handoff-2026-06-23.md`.
