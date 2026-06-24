@@ -19,6 +19,16 @@
 - `tier/licensed-server` (#574) — advanced auth + multi-tenant hosting; omitted from the open build (per #853).
 - `tier/open-build` (#575) — single-user desktop; basic MCP; local/API-key auth.
 
+### Infrastructure prerequisites (`roctinam/devops`)
+
+Phases 2–3 (licensed-server / bridge) require the EE org, repos, and private Cargo registry per **ADR-095** (CE/EE distribution) and **ADR-096** (private registry). Repo-creation requests filed 2026-06-24 in `roctinam/devops`:
+- **devops#33** — stand up `Fortemi-Enterprise` private Gitea org (gates all EE repos).
+- **devops#34** — stand up private Cargo registry (ADR-096; also migrates `fortemi-auth` off the SSH-git dep).
+- **devops#35–#43** — 9 EE private repos: auth-providers, rbac, audit-sinks, billing, search-backends, job-backends, kms, mcp-gate, distribution.
+- **devops#44** — `Fortemi/aiwg-fortemi-skills` public/MIT (CE Tier-1; was "proposed" in ADR-095).
+
+Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devops#42), rbac (devops#36 → #956–963), audit-sinks (devops#37 → #910), billing (devops#38 → #877+), distribution (devops#43). Existing CE repos: `Fortemi/fortemi`, `HotM`, `fortemi-react`, `fortemi-auth` (private), `licensing` (private).
+
 ---
 
 ## Phase 0 — Foundation contracts (cross-cutting; unblock everything)
