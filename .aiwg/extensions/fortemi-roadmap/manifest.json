@@ -1,0 +1,24 @@
+{
+  "id": "fortemi-roadmap",
+  "type": "extension",
+  "name": "fortemi-roadmap",
+  "version": "0.1.0",
+  "description": "Project roadmap advancement: read .aiwg/planning/roadmap.md, advance the next actionable item, document progress",
+  "manifestVersion": "1",
+  "platforms": {
+    "claude": "full"
+  },
+  "keywords": [
+    "extension",
+    "project-local",
+    "roadmap",
+    "planning",
+    "delivery-plan",
+    "progress",
+    "phases",
+    "advance"
+  ],
+  "deployment": {
+    "pathTemplate": ".{platform}/skills/{id}.md"
+  }
+}
