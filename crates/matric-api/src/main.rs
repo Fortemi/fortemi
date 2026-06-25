@@ -3,6 +3,7 @@
 mod handlers;
 mod middleware;
 mod query_types;
+mod route_policy;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -5104,39 +5105,7 @@ fn is_auth_exempt(method: &axum::http::Method, path: &str) -> bool {
 
 /// Check if a route is public (accessible without authentication).
 fn is_public_route(path: &str) -> bool {
-    // Health endpoints.
-    if path.starts_with("/health") || path.starts_with("/api/v1/health") {
-        return true;
-    }
-    // HotM runtime manifest (#732).
-    if path == "/v1/manifest" {
-        return true;
-    }
-    // OAuth endpoints.
-    if path.starts_with("/oauth/") || path.starts_with("/.well-known/") {
-        return true;
-    }
-    // API documentation.
-    if path == "/openapi.yaml"
-        || path == "/asyncapi.yaml"
-        || path.starts_with("/docs")
-        || path.starts_with("/swagger-ui")
-        || path.starts_with("/api-docs")
-    {
-        return true;
-    }
-    // SSE and WebSocket endpoints (inline auth via query param or header, Issue #452).
-    // `/ingest/stream` joins this class: it validates a per-stream bearer token in
-    // the handler when `INGEST_REQUIRE_TOKEN=true` (#829). The token mint/revoke
-    // endpoints are NOT exempt — they require normal authentication.
-    if path == "/api/v1/events"
-        || path == "/api/v1/ws"
-        || path == "/api/v1/ingest/stream"
-        || path.starts_with("/api/v1/realtime/twilio/")
-    {
-        return true;
-    }
-    false
+    route_policy::is_public_without_bearer(path)
 }
 
 /// Incoming webhook receive requests are authenticated by their provider HMAC
@@ -5160,17 +5129,7 @@ fn is_public_incoming_webhook_route(method: &axum::http::Method, path: &str) -> 
 
 /// Routes that require admin scope for all methods.
 fn is_admin_route(path: &str) -> bool {
-    // NOTE: Backup and metadata routes removed from admin enforcement for
-    // pre-tenancy permissive mode. All authenticated users get full access.
-    // Scope infrastructure kept in place for future multi-tenancy.
-    // See: issues #129, #140, commit 49d9f3f
-
-    // API key management (kept as admin — security-sensitive)
-    if path.starts_with("/api/v1/api-keys") && !path.ends_with("/api-keys") {
-        // POST /api/v1/api-keys (create) and DELETE /api/v1/api-keys/{id} (revoke)
-        return true;
-    }
-    false
+    route_policy::is_admin_operator_route(path)
 }
 
 /// Get rate limiting status.

@@ -4,6 +4,12 @@
 
 This file is the stable `.aiwg/AIWG.md` entry point for AIWG skills, rules, and generated provider context.
 
+## Operator Project Direction
+
+The active Fortemi project plan of record is `.aiwg/planning/roadmap.md` (`Fortemi Delivery Roadmap`). Treat it as the main operating roadmap until all planned phases are complete or the operator explicitly replaces it.
+
+For requests like "what is next", "continue the plan", "advance the roadmap", "roadmap progress", or fresh-session delivery work, run `aiwg discover "advance roadmap"` and use `fortemi-roadmap-skill`. The roadmap owns phase order, gating dependencies, product decisions, and the open-build vs licensed-server split. Gitea `Fortemi/fortemi` remains the authoritative tracker.
+
 <!-- aiwg-context-finalization:START -->
 ## Context Finalization
 

@@ -1,13 +1,14 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-06-24
+> **Created:** 2026-06-24 · **Last updated:** 2026-06-25
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, and the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue).
 
 ## How to use this document
 
 - This is the **living plan of record**. Update the checkboxes and status as work lands.
+- Future agents should treat this as the **main operating project plan** until all phases are complete or the operator explicitly replaces it. For "what next" / "continue the plan" / "advance roadmap" requests, run `aiwg discover "advance roadmap"` and use `fortemi-roadmap-skill`.
 - Phases are sequenced by **dependency**, not dates. (Velocity here is human+AI non-scalar; do not add time estimates — express scope as issues/sequence.)
 - Each phase lists its **gating dependency** and the **issues** in it. Issue lists are anchors, not exhaustive — the milestone is the full set.
 - The **strategic pivot is #853**: the open BSL desktop build ships *without* the advanced-auth/multi-tenant stack, so **Phase 1 (open-build GA) is NOT blocked by Phase 2 (hosted/licensed)** — they parallelize.
@@ -35,7 +36,7 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
 
 **Gating:** none — start here. Most other phases consume these.
 
-- [ ] **#710** AuthorizationPolicy route/action inventory — single source of truth for the auth-exempt set, object policy, docs exposure (#1000), and admin-gating.
+- [~] **#710** AuthorizationPolicy route/action inventory — single source of truth for the auth-exempt set, object policy, docs exposure (#1000), and admin-gating. (2026-06-25: executable route policy inventory added with registered-route coverage tests; auth public/admin helpers now delegate to the inventory for the current credential-management gate.)
 - [ ] **#967** RFC 9457 error contract (`application/problem+json`) — *decided: clean pre-GA break.* Centralized `ProblemType` registry at `ApiError::into_response()`; internal-cause vs public-detail split; `request_id` extension; one `assert_problem()` test helper. Evaluate `problem_details` crate (axum 0.8).
 - [ ] **#910** AuditEvent / TracingSink / bounded AuditBuffer — audit baseline.
 - [ ] **#968 / #974** hosted secret inventory + telemetry redaction taxonomy.
@@ -148,3 +149,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - Memory: `bsl-desktop-vs-licensed-server-boundary`, `fortemi-rfc9457-error-contract`.
 - Milestones: #60 Bridge foundation · #61 Bridge expansion (blocked) · #62 Hosted auth & multi-tenancy launch gate · #63 Streaming realtime phase 1 · #64 Native server distribution · #58 Referenced storage follow-up · #59 Referenced storage v2 (deferred).
 - Audit history: `.aiwg/working/new-agent-handoff-prompt-2026-06-23.md`, `.aiwg/working/issue-audit-agent-handoff-2026-06-23.md`.
+
+## Progress log
+
+- 2026-06-25 — Roadmap handoff clarified: `.aiwg/planning/roadmap.md` is the main operating project plan for future agents; `fortemi-roadmap-skill` is the resume/advance procedure.
+- 2026-06-25 — #710 route/action inventory slice landed: `matric-api` now has an executable route policy inventory, coverage tests against registered Axum routes, and auth helper delegation for public routes plus credential-management admin gating.
