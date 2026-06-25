@@ -4826,22 +4826,21 @@ async fn rate_limit_middleware(
     State(state): State<AppState>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
-) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+) -> axum::response::Response {
     // If rate limiting is disabled, pass through
     if let Some(limiter) = &state.rate_limiter {
         // Check rate limit
         if limiter.check().is_err() {
             tracing::warn!("Rate limit exceeded");
-            return Err((
+            return problem_response(
                 StatusCode::TOO_MANY_REQUESTS,
-                Json(serde_json::json!({
-                    "error": "rate_limit_exceeded",
-                    "error_description": "Too many requests. Please wait before retrying."
-                })),
-            ));
+                ProblemType::RateLimit,
+                "Too many requests. Please wait before retrying.".to_string(),
+                None,
+            );
         }
     }
-    Ok(next.run(request).await)
+    next.run(request).await
 }
 
 // =============================================================================
@@ -5122,20 +5121,22 @@ async fn auth_middleware(
         }
         None if has_token => {
             // Token was present but invalid — always reject
-            let body = serde_json::json!({
-                "error": "unauthorized",
-                "error_description": "Invalid or expired bearer token."
-            });
-            (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+            problem_response(
+                StatusCode::UNAUTHORIZED,
+                ProblemType::Unauthorized,
+                "Invalid or expired bearer token.".to_string(),
+                None,
+            )
         }
         None => {
             // No token provided
             if state.require_auth {
-                let body = serde_json::json!({
-                    "error": "unauthorized",
-                    "error_description": "Authentication required. Provide a valid Bearer token."
-                });
-                (StatusCode::UNAUTHORIZED, Json(body)).into_response()
+                problem_response(
+                    StatusCode::UNAUTHORIZED,
+                    ProblemType::Unauthorized,
+                    "Authentication required. Provide a valid Bearer token.".to_string(),
+                    None,
+                )
             } else {
                 // Anonymous access allowed — inject Anonymous principal
                 let mut request = request;
@@ -5191,19 +5192,22 @@ async fn authorize_policy_input(
     {
         Ok(Decision::Allow { .. }) => Ok(()),
         Ok(Decision::Deny { reason, .. } | Decision::Indeterminate { reason, .. }) => {
-            let body = serde_json::json!({
-                "error": "forbidden",
-                "error_description": format!("Authorization denied: {:?}", reason),
-            });
-            Err((StatusCode::FORBIDDEN, Json(body)).into_response())
+            tracing::warn!(reason = ?reason, "authorization denied");
+            Err(problem_response(
+                StatusCode::FORBIDDEN,
+                ProblemType::Forbidden,
+                "Authorization denied.".to_string(),
+                None,
+            ))
         }
         Err(err) => {
             error!(error = %err, "authorization policy error");
-            let body = serde_json::json!({
-                "error": "forbidden",
-                "error_description": "Authorization policy error."
-            });
-            Err((StatusCode::FORBIDDEN, Json(body)).into_response())
+            Err(problem_response(
+                StatusCode::FORBIDDEN,
+                ProblemType::Forbidden,
+                "Authorization policy error.".to_string(),
+                None,
+            ))
         }
     }
 }
@@ -5221,14 +5225,13 @@ fn check_scope_enforcement(
     // delegated to the executable inventory so this helper cannot drift to a
     // separate admin-route source of truth.
     if is_admin_route(path) && !principal.has_scope("admin") {
-        let body = serde_json::json!({
-            "error": "forbidden",
-            "error_description": format!(
-                "Insufficient scope. Required: admin, have: {}",
-                principal.scope_str()
-            )
-        });
-        return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
+        tracing::warn!(scope = %principal.scope_str(), "admin scope required");
+        return Some(problem_response(
+            StatusCode::FORBIDDEN,
+            ProblemType::Forbidden,
+            "Insufficient scope.".to_string(),
+            None,
+        ));
     }
 
     // NOTE: Legacy method-level write checks stay disabled here. The
@@ -17381,6 +17384,7 @@ enum ProblemType {
     Forbidden,
     NotFound,
     Conflict,
+    RateLimit,
     Internal,
     ServiceUnavailable,
     BlobMissing,
@@ -17396,6 +17400,7 @@ impl ProblemType {
             ProblemType::Forbidden => "forbidden",
             ProblemType::NotFound => "not-found",
             ProblemType::Conflict => "conflict",
+            ProblemType::RateLimit => "rate-limit-exceeded",
             ProblemType::Internal => "internal-error",
             ProblemType::ServiceUnavailable => "service-unavailable",
             ProblemType::BlobMissing => "blob-missing",
@@ -17413,6 +17418,7 @@ impl ProblemType {
             ProblemType::Forbidden => "Forbidden",
             ProblemType::NotFound => "Not Found",
             ProblemType::Conflict => "Conflict",
+            ProblemType::RateLimit => "Too Many Requests",
             ProblemType::Internal => "Internal Server Error",
             ProblemType::ServiceUnavailable => "Service Unavailable",
             ProblemType::BlobMissing => "Blob Missing",
@@ -20503,6 +20509,51 @@ mod tests {
         assert!(!problem.to_string().contains("client_secret"));
     }
 
+    #[tokio::test]
+    async fn rate_limit_problem_uses_stable_type() {
+        let response = problem_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            ProblemType::RateLimit,
+            "Too many requests. Please wait before retrying.".to_string(),
+            None,
+        );
+        let status = response.status();
+        let headers = response.headers().clone();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/rate-limit-exceeded"
+        );
+        assert_eq!(problem["title"], "Too Many Requests");
+        assert_eq!(problem["status"], 429);
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[tokio::test]
+    async fn admin_scope_enforcement_returns_problem_without_scope_string() {
+        let principal = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "read write tenant:secret".to_string(),
+        };
+        let response = check_scope_enforcement(&principal, &Method::POST, "/api/v1/api-keys")
+            .expect("missing admin scope should deny");
+        let status = response.status();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/forbidden");
+        assert_eq!(problem["detail"], "Insufficient scope.");
+        assert!(problem.get("error").is_none());
+        assert!(!problem.to_string().contains("tenant:secret"));
+    }
+
     #[test]
     fn test_backup_export_manifest_serialization() {
         let manifest = BackupExportManifest {
@@ -21010,6 +21061,12 @@ mod tests {
             .expect_err("deny policy should produce a forbidden response");
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let problem = read_response_json(response).await;
+        assert_eq!(problem["type"], "https://fortemi.com/problems/forbidden");
+        assert_eq!(problem["detail"], "Authorization denied.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        assert!(!problem.to_string().contains("MissingScope"));
     }
 
     #[tokio::test]
