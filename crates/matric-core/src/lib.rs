@@ -6,6 +6,7 @@
 //! that other matric-memory crates depend on.
 
 pub mod asyncapi;
+pub mod audit;
 pub mod authorization;
 pub mod captions;
 pub mod collection_filter;
@@ -29,6 +30,7 @@ pub mod traits;
 pub mod uuid_utils;
 
 // Re-export commonly used types at crate root
+pub use audit::*;
 pub use authorization::*;
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use embedding_provider::*;

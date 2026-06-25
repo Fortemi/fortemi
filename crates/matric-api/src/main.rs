@@ -43,12 +43,13 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
 use matric_core::{
-    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationPolicy,
-    AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
-    CreateApiKeyRequest, CreateNoteRequest, Decision, DocumentTypeRepository, EventBus,
-    EventContext, EventEnvelope, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType,
-    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, RoleBasedPolicy, ServerEvent,
-    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuditEvent, AuditOutcome, AuditSink,
+    AuditSource, AuthPrincipal, AuthorizationPolicy, AuthorizationServerMetadata,
+    BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
+    Decision, DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
+    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
+    RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
+    TokenRequest, TracingSink, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FileSource, FilesystemBackend};
@@ -1147,6 +1148,24 @@ fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPol
     }
 }
 
+fn process_startup_audit_event(
+    log_format: &str,
+    log_file_enabled: bool,
+    git_sha: &str,
+    build_date: &str,
+) -> AuditEvent {
+    let mut event = AuditEvent::new("process", "startup", AuditOutcome::Success)
+        .with_attr("log_format", log_format.to_string())
+        .with_attr(
+            "log_destination",
+            if log_file_enabled { "file" } else { "stdout" },
+        )
+        .with_attr("git_sha", git_sha.to_string())
+        .with_attr("build_date", build_date.to_string());
+    event.source = AuditSource::Api;
+    event
+}
+
 fn call_recording_disclosure_config() -> serde_json::Value {
     serde_json::json!({
         "text": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_TEXT").ok(),
@@ -1267,6 +1286,19 @@ async fn main() -> anyhow::Result<()> {
         log_file = log_file.as_deref().unwrap_or("(stdout)"),
         "Logging initialized"
     );
+    let git_sha = std::env::var("MATRIC_GIT_SHA").unwrap_or_else(|_| "unknown".to_string());
+    let build_date = std::env::var("MATRIC_BUILD_DATE").unwrap_or_else(|_| "unknown".to_string());
+    if let Err(err) = TracingSink
+        .emit(process_startup_audit_event(
+            &log_format,
+            log_file.is_some(),
+            &git_sha,
+            &build_date,
+        ))
+        .await
+    {
+        warn!(error = %err, "failed to emit process startup audit event");
+    }
 
     // Get configuration from environment
     let database_url =
@@ -21181,6 +21213,21 @@ mod tests {
             authorization_policy_for_mode(true).policy_id(),
             "role_based"
         );
+    }
+
+    #[test]
+    fn process_startup_audit_event_uses_safe_metadata() {
+        let event =
+            process_startup_audit_event("json", true, "abc123", "2026-06-25\nbad|delimiter");
+
+        assert_eq!(event.category, "process");
+        assert_eq!(event.action, "startup");
+        assert_eq!(event.outcome, AuditOutcome::Success);
+        assert_eq!(event.source, AuditSource::Api);
+        assert_eq!(event.attrs["log_format"], "json");
+        assert_eq!(event.attrs["log_destination"], "file");
+        assert_eq!(event.attrs["git_sha"], "abc123");
+        assert_eq!(event.attrs["build_date"], "2026-06-25 bad,delimiter");
     }
 
     #[tokio::test]
