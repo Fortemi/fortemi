@@ -13883,11 +13883,29 @@ impl IntoResponse for OAuthApiError {
                     "server_error" => StatusCode::INTERNAL_SERVER_ERROR,
                     _ => StatusCode::BAD_REQUEST,
                 };
+                if status == StatusCode::INTERNAL_SERVER_ERROR {
+                    error!(
+                        oauth_error = %err.error,
+                        oauth_error_description = ?err.error_description,
+                        "oauth server error mapped to problem response"
+                    );
+                    return problem_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        ProblemType::Internal,
+                        "An internal error occurred.".to_string(),
+                        None,
+                    );
+                }
                 (status, Json(err)).into_response()
             }
             OAuthApiError::Database(err) => {
-                let oauth_err = OAuthError::server_error(&err.to_string());
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(oauth_err)).into_response()
+                error!(error = %err, "oauth database error mapped to problem response");
+                problem_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ProblemType::Internal,
+                    "An internal error occurred.".to_string(),
+                    None,
+                )
             }
         }
     }
@@ -17431,6 +17449,23 @@ impl ProblemDetails {
     }
 }
 
+fn problem_response(
+    status: StatusCode,
+    problem_type: ProblemType,
+    detail: String,
+    attachment_id: Option<Uuid>,
+) -> axum::response::Response {
+    let mut problem = ProblemDetails::new(problem_type, status, detail);
+    problem.attachment_id = attachment_id;
+
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/problem+json")],
+        Json(problem),
+    )
+        .into_response()
+}
+
 impl From<matric_core::Error> for ApiError {
     fn from(err: matric_core::Error) -> Self {
         match &err {
@@ -17539,15 +17574,7 @@ impl IntoResponse for ApiError {
             }
         };
 
-        let mut problem = ProblemDetails::new(problem_type, status, detail);
-        problem.attachment_id = attachment_id;
-
-        (
-            status,
-            [(header::CONTENT_TYPE, "application/problem+json")],
-            Json(problem),
-        )
-            .into_response()
+        problem_response(status, problem_type, detail, attachment_id)
     }
 }
 
@@ -20428,6 +20455,52 @@ mod tests {
         assert!(!problem.to_string().contains("storage_backend"));
         assert!(!problem.to_string().contains("/srv/fortemi"));
         assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn oauth_database_error_returns_generic_problem_without_raw_detail() {
+        let raw_detail = "oauth database failed for postgres://user:secret@db.internal/oauth";
+        let response =
+            OAuthApiError::Database(matric_core::Error::Internal(raw_detail.to_string()))
+                .into_response();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        assert!(!problem.to_string().contains("postgres://"));
+        assert!(!problem.to_string().contains("secret"));
+        assert!(!problem.to_string().contains("db.internal"));
+    }
+
+    #[tokio::test]
+    async fn oauth_server_error_returns_generic_problem_without_raw_detail() {
+        let raw_detail = "provider returned https://oauth.internal/token?client_secret=secret";
+        let response = OAuthApiError::OAuth(OAuthError::server_error(raw_detail)).into_response();
+        let status = response.status();
+        let problem = read_response_json(response).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+        assert!(!problem.to_string().contains("oauth.internal"));
+        assert!(!problem.to_string().contains("client_secret"));
     }
 
     #[test]
