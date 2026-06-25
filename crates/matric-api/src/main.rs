@@ -20864,6 +20864,42 @@ mod tests {
             .expect("admin principal should restore database backups");
     }
 
+    #[tokio::test]
+    async fn role_policy_denies_read_scope_for_realtime_transport() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+                .expect("event stream route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("read scope must not imply realtime transport access");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn role_policy_allows_mcp_scope_for_realtime_transport() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "mcp".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+                .expect("event stream route has policy input");
+
+        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect("mcp scope should allow realtime transport access");
+    }
+
     #[test]
     fn twilio_consent_confirmation_reads_adapter_payload() {
         let payload = serde_json::json!({"consent_confirmed": true});

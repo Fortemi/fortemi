@@ -1535,7 +1535,8 @@ fn scope_family_for_policy(policy: &RoutePolicy) -> ScopeFamily {
 
 fn required_scopes_for_policy(policy: &RoutePolicy, method: &Method) -> Vec<String> {
     match policy.class {
-        Public | PublicWithInlineProof | Docs | OAuth | RealtimeTransport => vec![],
+        Public | PublicWithInlineProof | Docs | OAuth => vec![],
+        RealtimeTransport => vec!["mcp".to_string()],
         AdminOperator => vec!["admin".to_string()],
         SystemHealth | AuthenticatedRead => vec!["read".to_string()],
         AuthenticatedWrite => vec!["write".to_string()],
@@ -1738,6 +1739,17 @@ mod tests {
         assert_eq!(input.action.required_scopes, Vec::<String>::new());
         assert_eq!(input.resource.kind, ResourceKind::Webhook);
         assert_eq!(input.resource.id.as_deref(), Some("customer-created"));
+    }
+
+    #[test]
+    fn realtime_transport_requires_mcp_transport_scope() {
+        let input = authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+            .expect("event stream route should be inventoried");
+
+        assert_eq!(input.policy.class, RealtimeTransport);
+        assert_eq!(input.action.scope_family, ScopeFamily::McpTransport);
+        assert_eq!(input.action.required_scopes, vec!["mcp"]);
+        assert_eq!(input.resource.kind, ResourceKind::McpTool);
     }
 
     fn extract_registered_routes(source: &'static str) -> BTreeSet<&'static str> {
