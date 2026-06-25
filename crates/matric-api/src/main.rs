@@ -47,8 +47,8 @@ use matric_core::{
     AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
     CreateApiKeyRequest, CreateNoteRequest, Decision, DocumentTypeRepository, EventBus,
     EventContext, EventEnvelope, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType,
-    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
-    TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
+    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, RoleBasedPolicy, ServerEvent,
+    StrictTagFilterInput, TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FileSource, FilesystemBackend};
@@ -1139,6 +1139,14 @@ fn env_flag(name: &str, default: bool) -> bool {
     }
 }
 
+fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPolicy> {
+    if multi_tenant {
+        Arc::new(RoleBasedPolicy)
+    } else {
+        Arc::new(AllowAllPolicy)
+    }
+}
+
 fn call_recording_disclosure_config() -> serde_json::Value {
     serde_json::json!({
         "text": std::env::var("FORTEMI_CALL_RECORDING_DISCLOSURE_TEXT").ok(),
@@ -1988,8 +1996,8 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(60),
         ))),
-        require_auth: env_flag("REQUIRE_AUTH", true), // ADR-094: fail-closed default — see startup validation block in main()
-        authorization_policy: Arc::new(AllowAllPolicy),
+        require_auth: require_auth_env, // ADR-094: fail-closed default — see startup validation block in main()
+        authorization_policy: authorization_policy_for_mode(multi_tenant),
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -20725,6 +20733,54 @@ mod tests {
         std::env::set_var("MATRIC_TEST_REQUIRE_AUTH_FLAG", "false");
         assert!(!env_flag("MATRIC_TEST_REQUIRE_AUTH_FLAG", true));
         std::env::remove_var("MATRIC_TEST_REQUIRE_AUTH_FLAG");
+    }
+
+    #[test]
+    fn authorization_policy_selector_uses_role_policy_for_multi_tenant() {
+        assert_eq!(
+            authorization_policy_for_mode(false).policy_id(),
+            "allow_all"
+        );
+        assert_eq!(
+            authorization_policy_for_mode(true).policy_id(),
+            "role_based"
+        );
+    }
+
+    #[tokio::test]
+    async fn role_policy_denies_read_only_rest_mutation() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("read-only principal must not mutate notes");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn role_policy_allows_write_rest_mutation() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+
+        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect("write principal should mutate notes");
     }
 
     #[test]
