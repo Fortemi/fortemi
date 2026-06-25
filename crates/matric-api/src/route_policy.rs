@@ -58,6 +58,11 @@ pub struct RoutePolicyInput {
     pub context: AuthzContext,
 }
 
+struct ResourceIdCandidate {
+    param_name: &'static str,
+    value: String,
+}
+
 use CacheHeaderClass::*;
 use DocsExposureClass::{Authenticated, Hidden, Operator, Public as DocsPublic};
 use PolicyClass::{
@@ -1483,8 +1488,34 @@ pub fn authorization_input_for_request(
     };
 
     let mut resource = Resource::new(resource_kind_for_policy(policy));
-    if let Some(id) = resource_id_for_policy(policy, &params) {
-        resource = resource.with_id(id);
+    if let Some(candidate) = resource_id_for_policy(policy, &params) {
+        let requires_backing_normalization =
+            requires_backing_resource_normalization(policy, candidate.param_name);
+        resource = resource.with_id(candidate.value);
+        resource
+            .attrs
+            .insert("resource_id_source".to_string(), json!("route_param"));
+        resource
+            .attrs
+            .insert("resource_id_param".to_string(), json!(candidate.param_name));
+        resource
+            .attrs
+            .insert("resource_id_normalized".to_string(), json!(false));
+        resource.attrs.insert(
+            "requires_backing_resource_normalization".to_string(),
+            json!(requires_backing_normalization),
+        );
+    } else {
+        resource
+            .attrs
+            .insert("resource_id_source".to_string(), json!("route_template"));
+        resource
+            .attrs
+            .insert("resource_id_normalized".to_string(), json!(true));
+        resource.attrs.insert(
+            "requires_backing_resource_normalization".to_string(),
+            json!(false),
+        );
     }
     if let Some(tenant_id) = tenant_id {
         resource = resource.with_tenant(tenant_id);
@@ -1582,7 +1613,10 @@ fn resource_kind_for_policy(policy: &RoutePolicy) -> ResourceKind {
     }
 }
 
-fn resource_id_for_policy(policy: &RoutePolicy, params: &HashMap<&str, &str>) -> Option<String> {
+fn resource_id_for_policy(
+    policy: &RoutePolicy,
+    params: &HashMap<&'static str, &str>,
+) -> Option<ResourceIdCandidate> {
     let preferred_param = match policy.action_family {
         "attachment" => "attachment_id",
         "collection"
@@ -1603,8 +1637,39 @@ fn resource_id_for_policy(policy: &RoutePolicy, params: &HashMap<&str, &str>) ->
 
     params
         .get(preferred_param)
-        .or_else(|| params.values().next())
-        .map(|value| (*value).to_string())
+        .map(|value| ResourceIdCandidate {
+            param_name: preferred_param,
+            value: (*value).to_string(),
+        })
+        .or_else(|| {
+            params
+                .iter()
+                .next()
+                .map(|(param_name, value)| ResourceIdCandidate {
+                    param_name,
+                    value: (*value).to_string(),
+                })
+        })
+}
+
+fn requires_backing_resource_normalization(policy: &RoutePolicy, param_name: &str) -> bool {
+    matches!(
+        policy.class,
+        TenantObject | AdminOperator | AuthenticatedWrite
+    ) || matches!(
+        policy.action_family,
+        "attachment"
+            | "backup_restore"
+            | "collection"
+            | "credential_management"
+            | "document_type_catalog"
+            | "memory_management"
+            | "note"
+            | "provenance"
+            | "taxonomy"
+            | "template"
+            | "webhook_control"
+    ) || matches!(param_name, "id" | "attachment_id" | "name" | "name_or_id")
 }
 
 fn route_template_matches(template: &str, path: &str) -> bool {
@@ -1705,6 +1770,15 @@ mod tests {
         assert_eq!(input.action.required_scopes, vec!["admin"]);
         assert_eq!(input.resource.kind, ResourceKind::ApiKey);
         assert_eq!(input.context, AuthzContext::personal());
+        assert_eq!(
+            input.resource.attrs["resource_id_source"],
+            json!("route_template")
+        );
+        assert_eq!(input.resource.attrs["resource_id_normalized"], json!(true));
+        assert_eq!(
+            input.resource.attrs["requires_backing_resource_normalization"],
+            json!(false)
+        );
     }
 
     #[test]
@@ -1724,8 +1798,49 @@ mod tests {
             input.resource.id.as_deref(),
             Some("018fd1a0-0000-7000-8000-000000000001")
         );
+        assert_eq!(
+            input.resource.attrs["resource_id_source"],
+            json!("route_param")
+        );
+        assert_eq!(input.resource.attrs["resource_id_param"], json!("id"));
+        assert_eq!(input.resource.attrs["resource_id_normalized"], json!(false));
+        assert_eq!(
+            input.resource.attrs["requires_backing_resource_normalization"],
+            json!(true)
+        );
         assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
         assert_eq!(input.context.tenant_id.as_deref(), Some("tenant-a"));
+    }
+
+    #[test]
+    fn attachment_route_marks_route_param_id_as_unnormalized_candidate() {
+        let input = authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/attachments/018fd1a0-0000-7000-8000-000000000002/download",
+            Some("tenant-a"),
+        )
+        .expect("attachment route should be inventoried");
+
+        assert_eq!(input.policy.action_family, "attachment");
+        assert_eq!(input.action.required_scopes, vec!["read"]);
+        assert_eq!(input.resource.kind, ResourceKind::Attachment);
+        assert_eq!(
+            input.resource.id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000002")
+        );
+        assert_eq!(
+            input.resource.attrs["resource_id_source"],
+            json!("route_param")
+        );
+        assert_eq!(
+            input.resource.attrs["resource_id_param"],
+            json!("attachment_id")
+        );
+        assert_eq!(input.resource.attrs["resource_id_normalized"], json!(false));
+        assert_eq!(
+            input.resource.attrs["requires_backing_resource_normalization"],
+            json!(true)
+        );
     }
 
     #[test]
