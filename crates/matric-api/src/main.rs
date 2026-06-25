@@ -17297,6 +17297,81 @@ enum ApiError {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProblemType {
+    Validation,
+    Unauthorized,
+    Forbidden,
+    NotFound,
+    Conflict,
+    Internal,
+    ServiceUnavailable,
+    BlobMissing,
+}
+
+impl ProblemType {
+    const BASE_URI: &'static str = "https://fortemi.com/problems/";
+
+    fn suffix(self) -> &'static str {
+        match self {
+            ProblemType::Validation => "validation-error",
+            ProblemType::Unauthorized => "unauthorized",
+            ProblemType::Forbidden => "forbidden",
+            ProblemType::NotFound => "not-found",
+            ProblemType::Conflict => "conflict",
+            ProblemType::Internal => "internal-error",
+            ProblemType::ServiceUnavailable => "service-unavailable",
+            ProblemType::BlobMissing => "blob-missing",
+        }
+    }
+
+    fn type_uri(self) -> String {
+        format!("{}{}", Self::BASE_URI, self.suffix())
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            ProblemType::Validation => "Bad Request",
+            ProblemType::Unauthorized => "Unauthorized",
+            ProblemType::Forbidden => "Forbidden",
+            ProblemType::NotFound => "Not Found",
+            ProblemType::Conflict => "Conflict",
+            ProblemType::Internal => "Internal Server Error",
+            ProblemType::ServiceUnavailable => "Service Unavailable",
+            ProblemType::BlobMissing => "Blob Missing",
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ProblemDetails {
+    #[serde(rename = "type")]
+    type_uri: String,
+    title: &'static str,
+    status: u16,
+    detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attachment_id: Option<Uuid>,
+}
+
+impl ProblemDetails {
+    fn new(problem_type: ProblemType, status: StatusCode, detail: String) -> Self {
+        Self {
+            type_uri: problem_type.type_uri(),
+            title: problem_type.title(),
+            status: status.as_u16(),
+            detail,
+            instance: None,
+            request_id: None,
+            attachment_id: None,
+        }
+    }
+}
+
 impl From<matric_core::Error> for ApiError {
     fn from(err: matric_core::Error) -> Self {
         match &err {
@@ -17348,41 +17423,72 @@ impl From<matric_core::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        // BlobMissing returns a structured body distinct from the generic
-        // {"error": <string>} shape so consumers can branch on
-        // `error == "blob_missing"` and surface a recoverable-data UI.
-        if let ApiError::BlobMissing {
-            attachment_id,
-            expected_path,
-            storage_backend,
-        } = &self
-        {
-            let body = Json(serde_json::json!({
-                "error": "blob_missing",
-                "attachment_id": attachment_id,
-                "expected_path": expected_path,
-                "storage_backend": storage_backend,
-            }));
-            return (StatusCode::NOT_FOUND, body).into_response();
-        }
-
-        let (status, message) = match self {
-            ApiError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
-            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ApiError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
-            ApiError::BlobMissing { .. } => unreachable!("handled above"),
+        let (status, problem_type, detail, attachment_id) = match self {
+            ApiError::Database(err) => {
+                error!(error = %err, "database error mapped to problem response");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ProblemType::Internal,
+                    "An internal error occurred.".to_string(),
+                    None,
+                )
+            }
+            ApiError::Unauthorized(msg) => (
+                StatusCode::UNAUTHORIZED,
+                ProblemType::Unauthorized,
+                msg,
+                None,
+            ),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, ProblemType::Forbidden, msg, None),
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, ProblemType::NotFound, msg, None),
+            ApiError::BadRequest(msg) => {
+                (StatusCode::BAD_REQUEST, ProblemType::Validation, msg, None)
+            }
+            ApiError::Conflict(msg) => (StatusCode::CONFLICT, ProblemType::Conflict, msg, None),
+            ApiError::Internal(msg) => {
+                error!(error = %msg, "internal error mapped to problem response");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ProblemType::Internal,
+                    "An internal error occurred.".to_string(),
+                    None,
+                )
+            }
+            ApiError::ServiceUnavailable(msg) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ProblemType::ServiceUnavailable,
+                msg,
+                None,
+            ),
+            ApiError::BlobMissing {
+                attachment_id,
+                expected_path,
+                storage_backend,
+            } => {
+                error!(
+                    attachment_id = %attachment_id,
+                    expected_path = %expected_path,
+                    storage_backend = %storage_backend,
+                    "attachment blob missing"
+                );
+                (
+                    StatusCode::NOT_FOUND,
+                    ProblemType::BlobMissing,
+                    "Attachment content is no longer available.".to_string(),
+                    Some(attachment_id),
+                )
+            }
         };
 
-        let body = Json(serde_json::json!({
-            "error": message,
-        }));
+        let mut problem = ProblemDetails::new(problem_type, status, detail);
+        problem.attachment_id = attachment_id;
 
-        (status, body).into_response()
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/problem+json")],
+            Json(problem),
+        )
+            .into_response()
     }
 }
 
@@ -20127,6 +20233,79 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 mod tests {
     use super::*;
 
+    async fn read_problem_response(error: ApiError) -> (StatusCode, HeaderMap, serde_json::Value) {
+        let response = error.into_response();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem = serde_json::from_slice(&body).unwrap();
+        (status, headers, problem)
+    }
+
+    #[tokio::test]
+    async fn api_error_internal_returns_rfc9457_problem_without_raw_detail() {
+        let raw_detail = "postgres://user:secret@db.internal/app failed at /srv/fortemi/data";
+        let (status, headers, problem) =
+            read_problem_response(ApiError::Internal(raw_detail.to_string())).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/problem+json"
+        );
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["title"], "Internal Server Error");
+        assert_eq!(problem["status"], 500);
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert!(!problem.to_string().contains("postgres://"));
+        assert!(!problem.to_string().contains("secret"));
+        assert!(!problem.to_string().contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn api_error_database_returns_generic_problem() {
+        let raw_detail = "Database error: duplicate key value violates unique constraint";
+        let (status, _headers, problem) = read_problem_response(ApiError::Database(
+            matric_core::Error::Internal(raw_detail.to_string()),
+        ))
+        .await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["detail"], "An internal error occurred.");
+        assert!(!problem.to_string().contains("duplicate key"));
+        assert!(!problem.to_string().contains("unique constraint"));
+    }
+
+    #[tokio::test]
+    async fn api_error_blob_missing_problem_keeps_safe_id_and_redacts_storage_path() {
+        let attachment_id = Uuid::now_v7();
+        let (status, _headers, problem) = read_problem_response(ApiError::BlobMissing {
+            attachment_id,
+            expected_path: "/srv/fortemi/blobs/tenant-a/file.bin".to_string(),
+            storage_backend: "filesystem:/srv/fortemi/blobs".to_string(),
+        })
+        .await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(problem["type"], "https://fortemi.com/problems/blob-missing");
+        assert_eq!(problem["status"], 404);
+        assert_eq!(problem["attachment_id"], attachment_id.to_string());
+        assert!(!problem.to_string().contains("expected_path"));
+        assert!(!problem.to_string().contains("storage_backend"));
+        assert!(!problem.to_string().contains("/srv/fortemi"));
+        assert!(problem.get("error").is_none());
+    }
+
     #[test]
     fn test_backup_export_manifest_serialization() {
         let manifest = BackupExportManifest {
@@ -20918,7 +21097,6 @@ mod tests {
         assert!(is_auth_exempt(&Method::GET, "/health/live"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/streaming"));
         assert!(is_auth_exempt(&Method::GET, "/api/v1/health/knowledge"));
-        assert!(is_auth_exempt(&Method::GET, "/v1/manifest"));
         assert!(is_auth_exempt(&Method::OPTIONS, "/api/v1/notes"));
         assert!(is_auth_exempt(&Method::GET, "/openapi.yaml"));
         assert!(is_auth_exempt(&Method::GET, "/docs"));

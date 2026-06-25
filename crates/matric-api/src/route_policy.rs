@@ -1454,8 +1454,9 @@ pub fn is_public_without_bearer(path: &str) -> bool {
         || route_policy_for_path(path).is_some_and(|policy| {
             matches!(
                 policy.class,
-                Public | Docs | OAuth | RealtimeTransport | PublicWithInlineProof
-            )
+                Public | Docs | OAuth | RealtimeTransport | SystemHealth
+            ) || (policy.class == PublicWithInlineProof
+                && policy.action_family == "realtime_provider_callback")
         })
 }
 
@@ -1684,10 +1685,11 @@ mod tests {
 
     #[test]
     fn public_callback_routes_are_not_admin_operator_routes() {
-        assert!(is_public_without_bearer(
+        assert!(!is_public_without_bearer(
             "/api/v1/webhooks/incoming/example"
         ));
         assert!(is_public_without_bearer("/api/v1/realtime/twilio/CA123"));
+        assert!(is_public_without_bearer("/api/v1/health/streaming"));
         assert!(!is_admin_operator_route(
             "/api/v1/webhooks/incoming/example"
         ));
