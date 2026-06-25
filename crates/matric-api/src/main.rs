@@ -13,7 +13,7 @@ use chrono::Datelike;
 use query_types::FlexibleDateTime;
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, Extension, OriginalUri, Path, Query, State,
@@ -2704,6 +2704,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
+        .layer(axum::middleware::from_fn(problem_request_id_middleware))
         .layer({
             // Issue #462: Secure CORS configuration with origin whitelist
             let allowed_origins = parse_allowed_origins();
@@ -2731,6 +2732,7 @@ async fn main() -> anyhow::Result<()> {
                     header::CONTENT_LENGTH,
                     header::CONTENT_DISPOSITION,
                     header::ETAG,
+                    "x-request-id".parse().unwrap(),
                 ])
                 .allow_credentials(true)
                 .max_age(std::time::Duration::from_secs(
@@ -4862,8 +4864,6 @@ async fn cache_control_middleware(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    use axum::body::Body;
-
     let method = request.method().clone();
     let path = request.uri().path().to_string();
     let if_none_match = request
@@ -4961,6 +4961,65 @@ async fn cache_control_middleware(
     } else {
         response
     }
+}
+
+// =============================================================================
+// PROBLEM DETAILS REQUEST-ID MIDDLEWARE (#967)
+// =============================================================================
+
+async fn problem_request_id_middleware(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    inject_request_id_into_problem_response(next.run(request).await).await
+}
+
+async fn inject_request_id_into_problem_response(
+    response: axum::response::Response,
+) -> axum::response::Response {
+    if !is_problem_details_response(&response) {
+        return response;
+    }
+
+    let Some(request_id) = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+    else {
+        return response;
+    };
+
+    let (mut parts, body) = response.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 1024 * 1024).await else {
+        return axum::response::Response::from_parts(parts, Body::empty());
+    };
+
+    let mut problem = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(problem) => problem,
+        Err(_) => return axum::response::Response::from_parts(parts, Body::from(bytes)),
+    };
+
+    if let Some(object) = problem.as_object_mut() {
+        object
+            .entry("request_id")
+            .or_insert_with(|| serde_json::Value::String(request_id));
+    }
+
+    let Ok(updated) = serde_json::to_vec(&problem) else {
+        return axum::response::Response::from_parts(parts, Body::from(bytes));
+    };
+
+    parts.headers.remove(header::CONTENT_LENGTH);
+    axum::response::Response::from_parts(parts, Body::from(updated))
+}
+
+fn is_problem_details_response(response: &axum::response::Response) -> bool {
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|content_type| content_type.starts_with("application/problem+json"))
 }
 
 // =============================================================================
@@ -20242,6 +20301,71 @@ mod tests {
             .unwrap();
         let problem = serde_json::from_slice(&body).unwrap();
         (status, headers, problem)
+    }
+
+    async fn read_response_json(response: axum::response::Response) -> serde_json::Value {
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn problem_request_id_middleware_adds_x_request_id_extension() {
+        let mut response = ApiError::Internal("db detail".to_string()).into_response();
+        response
+            .headers_mut()
+            .insert("x-request-id", "018fd1a0-test-request".parse().unwrap());
+
+        let response = inject_request_id_into_problem_response(response).await;
+        let problem = read_response_json(response).await;
+
+        assert_eq!(problem["request_id"], "018fd1a0-test-request");
+        assert_eq!(
+            problem["type"],
+            "https://fortemi.com/problems/internal-error"
+        );
+        assert_eq!(problem["detail"], "An internal error occurred.");
+    }
+
+    #[tokio::test]
+    async fn problem_request_id_middleware_preserves_existing_request_id() {
+        let mut response = (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "application/problem+json")],
+            Json(serde_json::json!({
+                "type": "https://fortemi.com/problems/validation-error",
+                "title": "Bad Request",
+                "status": 400,
+                "detail": "Invalid request.",
+                "request_id": "existing-request-id"
+            })),
+        )
+            .into_response();
+        response
+            .headers_mut()
+            .insert("x-request-id", "replacement-request-id".parse().unwrap());
+
+        let response = inject_request_id_into_problem_response(response).await;
+        let problem = read_response_json(response).await;
+
+        assert_eq!(problem["request_id"], "existing-request-id");
+    }
+
+    #[tokio::test]
+    async fn problem_request_id_middleware_ignores_non_problem_json() {
+        let mut response = Json(serde_json::json!({"ok": true})).into_response();
+        response
+            .headers_mut()
+            .insert("x-request-id", "018fd1a0-test-request".parse().unwrap());
+
+        let response = inject_request_id_into_problem_response(response).await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(parsed, serde_json::json!({"ok": true}));
     }
 
     #[tokio::test]
