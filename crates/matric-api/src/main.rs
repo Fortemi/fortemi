@@ -5038,6 +5038,10 @@ async fn auth_middleware(
 
             // Inject auth info into request extensions
             let mut request = request;
+            if let Some(input) = route_policy::authorization_input_for_request(&method, &path, None)
+            {
+                request.extensions_mut().insert(input);
+            }
             request.extensions_mut().insert(Auth { principal: p });
             next.run(request).await
         }
@@ -5060,6 +5064,11 @@ async fn auth_middleware(
             } else {
                 // Anonymous access allowed — inject Anonymous principal
                 let mut request = request;
+                if let Some(input) =
+                    route_policy::authorization_input_for_request(&method, &path, None)
+                {
+                    request.extensions_mut().insert(input);
+                }
                 request.extensions_mut().insert(Auth {
                     principal: AuthPrincipal::Anonymous,
                 });

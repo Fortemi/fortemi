@@ -5,6 +5,12 @@
 //! declarations in `main.rs`. The first slice keeps enforcement coarse while
 //! making every externally registered route carry policy/docs/cache metadata.
 
+use std::collections::HashMap;
+
+use axum::http::Method;
+use matric_core::{Action, AuthzContext, Resource, ResourceKind, ScopeFamily};
+use serde_json::json;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyClass {
     Public,
@@ -42,6 +48,14 @@ pub struct RoutePolicy {
     pub action_family: &'static str,
     pub docs: DocsExposureClass,
     pub cache: CacheHeaderClass,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoutePolicyInput {
+    pub policy: &'static RoutePolicy,
+    pub action: Action,
+    pub resource: Resource,
+    pub context: AuthzContext,
 }
 
 use CacheHeaderClass::*;
@@ -1454,6 +1468,143 @@ pub fn is_admin_operator_route(path: &str) -> bool {
     })
 }
 
+pub fn authorization_input_for_request(
+    method: &Method,
+    path: &str,
+    tenant_id: Option<&str>,
+) -> Option<RoutePolicyInput> {
+    let policy = route_policy_for_path(path)?;
+    let params = route_params(policy.path, path);
+    let action = Action {
+        name: route_action_name(policy, method),
+        scope_family: scope_family_for_policy(policy),
+        required_scopes: required_scopes_for_policy(policy, method),
+    };
+
+    let mut resource = Resource::new(resource_kind_for_policy(policy));
+    if let Some(id) = resource_id_for_policy(policy, &params) {
+        resource = resource.with_id(id);
+    }
+    if let Some(tenant_id) = tenant_id {
+        resource = resource.with_tenant(tenant_id);
+    }
+    resource
+        .attrs
+        .insert("route_template".to_string(), json!(policy.path));
+    resource.attrs.insert(
+        "policy_class".to_string(),
+        json!(format!("{:?}", policy.class)),
+    );
+    resource.attrs.insert(
+        "docs_exposure".to_string(),
+        json!(format!("{:?}", policy.docs)),
+    );
+    resource.attrs.insert(
+        "cache_header".to_string(),
+        json!(format!("{:?}", policy.cache)),
+    );
+
+    let context = match tenant_id {
+        Some(tenant_id) => AuthzContext::hosted(tenant_id),
+        None => AuthzContext::personal(),
+    };
+
+    Some(RoutePolicyInput {
+        policy,
+        action,
+        resource,
+        context,
+    })
+}
+
+fn route_action_name(policy: &RoutePolicy, method: &Method) -> String {
+    format!(
+        "{}:{}",
+        policy.action_family,
+        method.as_str().to_ascii_lowercase()
+    )
+}
+
+fn scope_family_for_policy(policy: &RoutePolicy) -> ScopeFamily {
+    match policy.class {
+        AdminOperator => ScopeFamily::Admin,
+        RealtimeTransport => ScopeFamily::McpTransport,
+        _ => ScopeFamily::Rest,
+    }
+}
+
+fn required_scopes_for_policy(policy: &RoutePolicy, method: &Method) -> Vec<String> {
+    match policy.class {
+        Public | PublicWithInlineProof | Docs | OAuth | RealtimeTransport => vec![],
+        AdminOperator => vec!["admin".to_string()],
+        SystemHealth | AuthenticatedRead => vec!["read".to_string()],
+        AuthenticatedWrite => vec!["write".to_string()],
+        TenantObject => {
+            if is_read_method(method) {
+                vec!["read".to_string()]
+            } else {
+                vec!["write".to_string()]
+            }
+        }
+    }
+}
+
+fn is_read_method(method: &Method) -> bool {
+    matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS)
+}
+
+fn resource_kind_for_policy(policy: &RoutePolicy) -> ResourceKind {
+    match policy.action_family {
+        "attachment" => ResourceKind::Attachment,
+        "backup_restore" => ResourceKind::Backup,
+        "collection" => ResourceKind::Collection,
+        "credential_management" => ResourceKind::ApiKey,
+        "document_type_catalog" => ResourceKind::DocumentType,
+        "health_diagnostics" | "system_diagnostics" => ResourceKind::System,
+        "inbound_connector" | "webhook_control" | "webhook_receiver" => ResourceKind::Webhook,
+        "job_control" => ResourceKind::Job,
+        "memory_management" => ResourceKind::Archive,
+        "model_config" | "model_catalog" => ResourceKind::ModelConfig,
+        "note" | "search" => ResourceKind::Note,
+        "provenance" => ResourceKind::Provenance,
+        "taxonomy" => ResourceKind::Taxonomy,
+        "template" => ResourceKind::Template,
+        "ai_execution" => ResourceKind::Inference,
+        "event_stream" | "ingest_stream" | "realtime_call" | "realtime_provider_callback" => {
+            ResourceKind::McpTool
+        }
+        "oauth_discovery" | "oauth_flow" | "docs_schema" | "health_probe" | "test_fixture" => {
+            ResourceKind::PublicRoute
+        }
+        other => ResourceKind::Other(other.to_string()),
+    }
+}
+
+fn resource_id_for_policy(policy: &RoutePolicy, params: &HashMap<&str, &str>) -> Option<String> {
+    let preferred_param = match policy.action_family {
+        "attachment" => "attachment_id",
+        "collection"
+        | "credential_management"
+        | "note"
+        | "provenance"
+        | "realtime_call"
+        | "taxonomy"
+        | "template"
+        | "webhook_control" => "id",
+        "document_type_catalog" | "inbound_connector" | "memory_management" => "name",
+        "embedding_control" => "slug",
+        "pke_keyset" => "name_or_id",
+        "realtime_provider_callback" => "provider_call_id",
+        "webhook_receiver" => "slug",
+        _ => "",
+    };
+
+    params
+        .get(preferred_param)
+        .or_else(|| params.values().next())
+        .map(|value| (*value).to_string())
+}
+
 fn route_template_matches(template: &str, path: &str) -> bool {
     let mut template_segments = template.split('/');
     let mut path_segments = path.split('/');
@@ -1466,6 +1617,21 @@ fn route_template_matches(template: &str, path: &str) -> bool {
             _ => return false,
         }
     }
+}
+
+fn route_params<'a>(template: &'static str, path: &'a str) -> HashMap<&'static str, &'a str> {
+    let mut params = HashMap::new();
+
+    for (template_segment, path_segment) in template.split('/').zip(path.split('/')) {
+        if is_template_param(template_segment) {
+            params.insert(
+                &template_segment[1..template_segment.len() - 1],
+                path_segment,
+            );
+        }
+    }
+
+    params
 }
 
 fn is_template_param(segment: &str) -> bool {
@@ -1524,6 +1690,54 @@ mod tests {
         assert!(!is_admin_operator_route(
             "/api/v1/webhooks/incoming/example"
         ));
+    }
+
+    #[test]
+    fn api_key_route_builds_admin_policy_input() {
+        let input = authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
+            .expect("api-key route should be inventoried");
+
+        assert_eq!(input.policy.action_family, "credential_management");
+        assert_eq!(input.action.scope_family, ScopeFamily::Admin);
+        assert_eq!(input.action.required_scopes, vec!["admin"]);
+        assert_eq!(input.resource.kind, ResourceKind::ApiKey);
+        assert_eq!(input.context, AuthzContext::personal());
+    }
+
+    #[test]
+    fn tenant_note_mutation_builds_rest_write_policy_input() {
+        let input = authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+            Some("tenant-a"),
+        )
+        .expect("note route should be inventoried");
+
+        assert_eq!(input.action.name, "note:patch");
+        assert_eq!(input.action.scope_family, ScopeFamily::Rest);
+        assert_eq!(input.action.required_scopes, vec!["write"]);
+        assert_eq!(input.resource.kind, ResourceKind::Note);
+        assert_eq!(
+            input.resource.id.as_deref(),
+            Some("018fd1a0-0000-7000-8000-000000000001")
+        );
+        assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(input.context.tenant_id.as_deref(), Some("tenant-a"));
+    }
+
+    #[test]
+    fn public_webhook_receiver_builds_inline_proof_policy_input() {
+        let input = authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/webhooks/incoming/customer-created",
+            None,
+        )
+        .expect("incoming webhook route should be inventoried");
+
+        assert_eq!(input.policy.class, PublicWithInlineProof);
+        assert_eq!(input.action.required_scopes, Vec::<String>::new());
+        assert_eq!(input.resource.kind, ResourceKind::Webhook);
+        assert_eq!(input.resource.id.as_deref(), Some("customer-created"));
     }
 
     fn extract_registered_routes(source: &'static str) -> BTreeSet<&'static str> {
