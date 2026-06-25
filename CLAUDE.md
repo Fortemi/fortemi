@@ -562,3 +562,18 @@ matric-memory uses **CalVer**: `YYYY.M.PATCH` (e.g., `2026.1.0`)
 4. **Create Gitea release** with highlights from CHANGELOG.md
 
 See `docs/content/releasing.md` for full details.
+
+<!-- AIWG:claude-md-hook:start -->
+
+# AIWG
+
+@AIWG.md
+
+<!--
+  This block is managed by `aiwg regenerate` and `aiwg use`.
+  Operator content above and below this block is preserved on regenerate.
+  To change AIWG.md content, edit .aiwg/AIWG.md (the normalized source)
+  then run `aiwg regenerate`.
+-->
+
+<!-- AIWG:claude-md-hook:end -->

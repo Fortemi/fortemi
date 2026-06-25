@@ -66,8 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN useradd --create-home --user-group matric
+# Create non-root user and writable runtime directories
+RUN useradd --create-home --user-group matric && \
+    mkdir -p /var/lib/matric/files && \
+    chown -R matric:matric /var/lib/matric
 
 # Copy binary from builder
 COPY --from=builder /app/matric-api /app/matric-api

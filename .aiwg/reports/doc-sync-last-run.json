@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-22T05:52:43Z",
+  "direction": "code-to-docs",
+  "scope": "full repo",
+  "findings_total": 20,
+  "fixes_applied": 7,
+  "files_modified": [
+    "docs/content/inference-backends.md",
+    "CLAUDE.md"
+  ]
+}

@@ -184,4 +184,4 @@ When adding a new paper analysis:
 - [Citable Claims Index](../citable-claims-index.md) - Claims mapped to REF numbers
 - [Research Gap Analysis](../research-gap-analysis.md) - Acquisition priorities
 - [Findings Review](../findings-review.md) - Synthesis of research applications
-- [Research Papers Repository](https://git.integrolabs.net/roctinam/research-papers) - Full paper documentation
+- [Research Papers Repository](https://git.integrolabs.net/section9/research-papers) - Full paper documentation

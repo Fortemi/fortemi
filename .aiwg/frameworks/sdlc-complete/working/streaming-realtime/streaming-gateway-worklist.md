@@ -25,10 +25,11 @@ all closed.
   (HTTP/SSE boundary suite + async resource-discipline unit tests: Arc leak guard,
   no-dangling-sender, value-independent frame round-trip; clippy cognitive_complexity
   0 findings in `handlers/chat.rs`)
-- [ ] **A2** HotM consumer contract (#813) — `(ext)` HotM repo; not a Fortemi blocker
+- [x] **A2** HotM consumer contract — moved to HotM#242; Fortemi#813 closed as
+  cross-repo coordination
 
-**Done:** #811 closed; A1/A3/A4/A5 landed + pushed to main. #813 (A2) left open as
-cross-repo HotM coordination — does not gate the cut.
+**Done:** #811 closed; A1/A3/A4/A5 landed + pushed to main. #813 (A2) was moved
+to HotM#242 and closed in this repo; it does not gate the cut.
 
 ### Phase B — Webhook receivers · EPIC #817 · `P2` — ✅ DONE (closed 2026-06-14)
 
@@ -111,7 +112,7 @@ Default-off (`FORTEMI_BRIDGE_ENABLED`). 17 children (#864–#880).
 
 - [ ] **B10** #873 protocol-adapter framework + canonical request/response model `P1` `effort/large`
 - [ ] **B1** #864 OpenAI `/v1/chat/completions` (non-streaming) + per-key auth `P1`
-- [ ] **B14** #877 token + cost accounting: usage, pricing tables, persistent ledger `P1`
+- [ ] **B14** #877 token + cost accounting: usage, pricing tables, persistent ledger `P1` — in bridge-foundation milestone; schema/pricing can start before request-path integration
 
 ### Wave 2 — Breadth (protocols + backends)
 
@@ -119,7 +120,7 @@ Default-off (`FORTEMI_BRIDGE_ENABLED`). 17 children (#864–#880).
 - [ ] **B3** #866 `/v1/models` + qualified-slug routing
 - [ ] **B6** #869 `/v1/embeddings` passthrough
 - [ ] **B11** #874 Anthropic Messages API (in + out)
-- [ ] **B12** #875 Google Gemini API (in + out) `P3`
+- [ ] **B12** #875 Google Gemini API (in + out) `P3` — `generateContent` compatibility first; keep adapter extensible for Google's newer Interactions API guidance
 - [ ] **B13** #876 vLLM / LiteLLM / Azure OpenAI / AWS Bedrock outbound `P3`
 
 ### Wave 3 — Control + value
@@ -176,4 +177,5 @@ cache hit serves at $0; bridge off by default.
   note was stale.) Caveat: strong zero-duplicate via an outbox *idempotency-key* needs a
   helper/schema extension not yet present; #830 ships note.created emission + at-most-once
   (via #828 cursor) and defers idempotency-key dedup.
-- #813 (A2 HotM) lands in the HotM repo, not here — keep open as coordination only.
+- #813 (A2 HotM) was moved to HotM#242 and closed in this repo; do not reopen it
+  as a Fortemi release gate.

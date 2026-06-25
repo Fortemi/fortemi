@@ -202,7 +202,7 @@ This document indexes technical claims and implementation decisions in matric-me
 
 ## Cross-References
 
-- **Research Papers Repository**: https://git.integrolabs.net/roctinam/research-papers
+- **Research Papers Repository**: https://git.integrolabs.net/section9/research-papers
 - **Paper Documentation**: `/documentation/references/REF-XXX-*.md`
 - **Research Gap Analysis**: `.aiwg/research/research-gap-analysis.md`
 - **Architecture Decisions**: `docs/architecture/` (ADRs)

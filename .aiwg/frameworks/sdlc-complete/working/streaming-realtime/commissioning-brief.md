@@ -18,7 +18,7 @@ This brief summarizes what's ready to commission, in what order, with what agent
 - **PoCs P-01 + P-02 complete** (2026-05-12). P-02 ✅ PASS. P-01 ⚠️ CONDITIONAL — architecture sound, but the original 10K/s SLA was edge-tier-impossible. Revised SLA is **tiered** (see feature-plan §2.4). High-end titan run (P-01b) pending.
 - **Recommend commissioning Phase 1 Slate B** (#590, #591) once titan P-01b confirms high-end SLA ceiling. Slates C/D/E hold for the revised SLA + new risks (R-09 writer backpressure, R-10 PEL stranding, R-11 cold-start).
 - **Phase 2 and Phase 3** stay backlog-only until Phase 1 has 2-week production soak data.
-- C3 induction filed as `roctinam/research-papers#606` after user re-auth.
+- C3 induction filed as `section9/research-papers#606` after user re-auth.
 
 ## PoC verdict matrix
 
@@ -113,7 +113,7 @@ Each ADR follows the AIWG multi-agent pattern: Primary Author → Parallel Revie
 
 1. **Approve the 2 PoCs**? (P-01 outbox load, P-02 consumer chaos) — recommend yes.
 2. **Approve Slate B/C/D/E** *contingent on PoC pass*? — recommend yes, with re-confirmation after PoC results.
-3. **Re-authorize INDUCT issue C3** (Dudycz push-outbox) in `roctinam/research-papers`? — recommend yes; the issue body was already drafted and would have been #-after-605.
+3. **Re-authorize INDUCT issue C3** (Dudycz push-outbox) in `section9/research-papers`? — recommend yes; the issue body was already drafted and would have been #-after-605.
 4. **Where to commit these `.aiwg/` artifacts**? Currently in `.aiwg/frameworks/{sdlc-complete,research-complete}/working/streaming-realtime/`. The prior orchestration (epic #586) referenced `.aiwg/research/streaming-realtime/` and `.aiwg/architecture/streaming-realtime/` paths that never landed — recommend committing under the current multi-framework layout.
 
 ## Pointer to the rest

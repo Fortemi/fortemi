@@ -1313,6 +1313,14 @@ If operator changes any default, the following issues need re-scoping before fil
 
 ## 7. Phase 5 Operator Decisions (2026-05-21)
 
+> **Audit override (2026-06-22):** this addendum is superseded for Q-1 /
+> WS-5. ADR-FORTEMI-103, `testing/test-plan-construction.md`, and tracker
+> issue #742 are the current authoritative state: live update detection remains
+> deferred to v2 pending a design RFC. The pre-RFC WS-5 children filed from this
+> addendum (#803-#810) were closed as superseded by #742 and should not be
+> reopened as v1 construction work. Retain the Option D details below only as
+> RFC input.
+
 All 8 operator open questions resolved. Final answers below; scope deltas applied to the filing manifest (§8).
 
 | Q | Decision | Delta vs synthesis default |
@@ -1327,6 +1335,9 @@ All 8 operator open questions resolved. Final answers below; scope deltas applie
 | Q-8 | A — lenient mount-failure mode (serve cached search + reject writes/rescans with 503) | No delta |
 
 ### 7.1 New WS-5 sub-issues (Option D)
+
+**Superseded by the 2026-06-22 audit override above.** These designs may be
+reused by the future WS-5 RFC, but they are not active v1 child issues.
 
 These six atomic impl issues replace the WS-5 deferred placeholder:
 

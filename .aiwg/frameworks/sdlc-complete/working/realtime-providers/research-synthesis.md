@@ -15,7 +15,7 @@ authors:
 
 This document is the literature/landscape backbone for [Fortemi/fortemi#837 — Real-time provider integration](https://git.integrolabs.net/Fortemi/fortemi/issues/837). It maps the provider ecosystem (Twilio, WebRTC, SIP, video), identifies the streaming-ASR options available, and frames the architectural constraints that any implementation must navigate. Companion to [`architecture-sketch.md`](architecture-sketch.md) (boundary lines + flow) and the 4 ADRs under `.aiwg/architecture/realtime-providers/`.
 
-This is **green-field research** from Fortemi's perspective: `roctinam/research-papers` contains no prior sources for real-time transcription, WebRTC, SIP/RTP, or media-server architecture (verified by query 2026-05-22). The candidate sources surfaced in §6 are net-new and will be filed as `[INDUCT]` issues.
+This is **green-field research** from Fortemi's perspective: `section9/research-papers` contains no prior sources for real-time transcription, WebRTC, SIP/RTP, or media-server architecture (verified by query 2026-05-22, before the repository org migration). The candidate sources surfaced in §6 are net-new and will be filed as `[INDUCT]` issues.
 
 ## 2. Problem Statement
 
@@ -171,7 +171,7 @@ This separation lets us **reuse Phase B fully for the control plane** and only b
 
 ## 6. Candidate Sources for Induction
 
-The following are gaps in `roctinam/research-papers` to be filled by `[INDUCT]` issues. Each will be filed as a separate INDUCT in the research-papers repo with a brief abstract.
+The following are gaps in `section9/research-papers` to be filled by `[INDUCT]` issues. Each will be filed as a separate INDUCT in the research-papers repo with a brief abstract.
 
 ### Standards / RFCs (high-priority — these are stable foundations)
 
@@ -217,7 +217,7 @@ The following are gaps in `roctinam/research-papers` to be filled by `[INDUCT]` 
 
 22 candidate sources. Pareto: items 1–16 (16 sources) cover 90% of the design decisions. Items 17–22 are background reading for confidence rather than blockers.
 
-**Plan:** file all 22 as `[INDUCT]` issues in `roctinam/research-papers` in a single batch with shared parent label `domain:realtime-providers`. INDUCT issues will be linked from #838's closure comment.
+**Plan:** file all 22 as `[INDUCT]` issues in `section9/research-papers` in a single batch with shared parent label `domain:realtime-providers`. INDUCT issues will be linked from #838's closure comment.
 
 ## 7. Open Questions for the Architecture Sketch
 
@@ -268,7 +268,7 @@ This phasing makes each milestone shippable independently, treats SIP/RTP as a p
 
 ## 10. References (so far)
 
-This synthesis cites no `REF-XXX` sources because the `roctinam/research-papers` corpus is empty on this topic. The candidate sources in §6 will be filed as INDUCT issues; once inducted they will be referenced by REF number in subsequent revisions of this synthesis.
+This synthesis cites no `REF-XXX` sources because the `section9/research-papers` corpus is empty on this topic. The candidate sources in §6 will be filed as INDUCT issues; once inducted they will be referenced by REF number in subsequent revisions of this synthesis.
 
 ## 11. Open issues for the Fortemi-side artifact set
 

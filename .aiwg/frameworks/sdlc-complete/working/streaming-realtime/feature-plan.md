@@ -22,15 +22,19 @@ ADR-001..004 are locked. This plan is execution-level: components, sequencing, g
 ### 2.1 Construction order (dependency graph)
 
 ```
-#590 enable redis streams feature
-  └─> #591 event_outbox migration ─┐
-        └─> #592 outbox helpers ───┤
-              └─> #593 publisher ──┴─> #594 SSE consumer
-                                       #595 WS+webhook consumer
-                                       #596 health metrics
+#590 superseded (raw redis::cmd stream operations compile without typed streams feature)
+       #591 event_outbox migration ─┐
+          └─> #592 outbox helpers ──┤
+                └─> #593 publisher ─┴─> #594 SSE consumer
+                                        #595 WS+webhook consumer
+                                        #596 outbound bus health metrics
 ```
 
-`#590` and `#591` are foundation — no external dependencies. `#592` depends on `#591`. `#593` depends on `#590`+`#592`. `#594`, `#595`, `#596` are parallelizable once `#593` lands.
+`#590` is closed as superseded: the current Redis Stream connector uses raw
+`redis::cmd(...)` operations, and `cargo check -p matric-jobs --examples`
+passes without enabling `redis::streams::*`. `#591` is the durable foundation.
+`#592` depends on `#591`. `#593` depends on `#592`. `#594`, `#595`, and `#596`
+are parallelizable once `#593` lands.
 
 ### 2.2 Component design (engineering team to refine)
 
@@ -124,7 +128,10 @@ Sequenced behind Phase 2. Encompasses #603 (CDC eval), #604 (live semantic searc
 
 Per the AIWG `no-time-estimates` rule, no wall-clock estimates given.
 
-**Phase 1 atomic scope count:** 7 issues (#590..#596). Foundation pair (#590,#591) sequential. Helpers + publisher (#592, #593) sequential. Consumer-side (#594, #595, #596) parallelizable.
+**Phase 1 atomic scope count:** 6 active issues (#591..#596). #590 is closed
+as superseded/obsolete. Foundation (#591), helpers + publisher (#592, #593)
+remain sequential. Consumer-side (#594, #595, #596) is parallelizable after
+#593.
 
 **Agent mix per commissioning:**
 - **Primary Author**: `architecture-designer` or `backend-engineer` for #591/#592/#593 design docs

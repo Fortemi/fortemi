@@ -13,7 +13,7 @@ authors:
 
 ## 1. Purpose
 
-This document is the literature backbone for Fortemi epic #586 (Streaming Data Capture & Realtime Processing). It cites the existing `roctinam/research-papers` corpus (REF-XXX) where applicable and flags genuine gaps. Phase 1 (Redis Streams + outbox) is the immediate construction target; Phases 2–3 (incremental AI pipeline, advanced streaming) are sequenced behind it.
+This document is the literature backbone for Fortemi epic #586 (Streaming Data Capture & Realtime Processing). It cites the existing `section9/research-papers` corpus (REF-XXX) where applicable and flags genuine gaps. Phase 1 (Redis Streams + outbox) is the immediate construction target; Phases 2–3 (incremental AI pipeline, advanced streaming) are sequenced behind it.
 
 Architectural decisions are locked by ADR-001..004 (see #586 comment, 2026-04-09). This synthesis does **not** revisit those decisions — it grounds the *execution* with literature support and surfaces residual risks.
 
@@ -118,7 +118,7 @@ These four are the ADR backlog for the engineering team once commissioned.
 
 ## 7. Provenance & limitations
 
-- Corpus IDs (REF-XXX) drawn from `roctinam/research-papers/INDEX.md` (fetched 2026-05-11).
+- Corpus IDs (REF-XXX) drawn from `section9/research-papers/INDEX.md` (fetched 2026-05-11, before the repository org migration).
 - ADRs cited as locked are from #586 comment by `roctibot` 2026-04-09; **note**: the prior orchestration referenced ADR-001..004 files at `.aiwg/architecture/streaming-realtime/`, but those files were never committed to this working tree. The accepted decisions are recorded only in the issue comment. Recommend re-emitting them as proper ADR files under `.aiwg/frameworks/sdlc-complete/working/streaming-realtime/adrs/` during commissioning.
 - New 2026 sources from the parallel web-research pass will be appended in §8 once the agent returns and INDUCT issues are filed.
 
@@ -152,7 +152,7 @@ Eight candidates surfaced. Gap-3 (content-hash-aware incremental embedding) retu
 
 ### 8.3 Gap area 3 — Content-hash-aware incremental embedding (0 candidates — residual GAP)
 
-**No peer-reviewed 2025 result.** Strongest adjacent work (SemHash, pgai Vectorizer) is library/tooling, not research. **Recommendation**: file a GAP NOTE in `roctinam/research-papers` companion to REF-563 — "no 2025 peer-reviewed work on chunk-level SHA/SimHash embed-skip with Matryoshka-aware partial invalidation; topic remains open." Continue with engineering-only design for #597/#598, no literature dependency.
+**No peer-reviewed 2025 result.** Strongest adjacent work (SemHash, pgai Vectorizer) is library/tooling, not research. **Recommendation**: file a GAP NOTE in `section9/research-papers` companion to REF-563 — "no 2025 peer-reviewed work on chunk-level SHA/SimHash embed-skip with Matryoshka-aware partial invalidation; topic remains open." Continue with engineering-only design for #597/#598, no literature dependency.
 
 ### 8.4 Gap area 4 — LLM inference as stream operator (3 candidates, closes REF-563)
 
@@ -169,5 +169,4 @@ Eight candidates surfaced. Gap-3 (content-hash-aware incremental embedding) retu
 
 ### 8.5 Action: INDUCT issues to file
 
-One **parent cluster issue** in `roctinam/research-papers` + **8 child INDUCT issues** (C1..C8) + **1 residual GAP NOTE** for area 3. Cross-links: REF-563 (the existing GAP NOTE Pie closes), REF-322/329/330 (outbox parents), REF-681 (backpressure parent), REF-318 (Drift-Adapter — pair with C7).
-
+One **parent cluster issue** in `section9/research-papers` + **8 child INDUCT issues** (C1..C8) + **1 residual GAP NOTE** for area 3. Cross-links: REF-563 (the existing GAP NOTE Pie closes), REF-322/329/330 (outbox parents), REF-681 (backpressure parent), REF-318 (Drift-Adapter — pair with C7).

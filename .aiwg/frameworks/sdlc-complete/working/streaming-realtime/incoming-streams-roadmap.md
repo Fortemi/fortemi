@@ -250,9 +250,9 @@ All prior open questions have been answered by the operator. Decisions recorded 
 Operator-introduced scope: Twilio Programmable Voice (live audio), WebRTC/SIP, recording providers, and live video ingest are valuable but are a **different domain** from the technical-source connectors in Phase D. Decision: file as a **separate epic** with its own scoping research as the first child. That epic will:
 
 - Leverage the SDLC framework's research → inception → elaboration discovery process
-- Reference the internal `roctinam/research-papers` corpus
+- Reference the internal `section9/research-papers` corpus
 - Search public sources (Twilio Media Streams docs, WebRTC RFCs, SIP/RTP, LiveKit/Agora docs, vendor benchmarks)
-- File INDUCT issues in `roctinam/research-papers` for any new papers or key references discovered
+- File INDUCT issues in `section9/research-papers` for any new papers or key references discovered
 - Output: scoped epic body, ADR list, child issue plan
 
 Cross-linked from #586 but tracked independently.

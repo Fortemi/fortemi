@@ -176,7 +176,7 @@ No configuration changes are required. Optional tuning:
 ## Not Yet Included
 
 - `Last-Event-ID` resumption for interrupted streams (#815) — planned next Phase A increment.
-- HotM-side stream consumer (#813) — lives in the desktop-app repository; this release is the server side it builds against.
+- HotM-side stream consumer — moved to HotM#242; this release is the server side it builds against.
 
 ## Full Changelog
 

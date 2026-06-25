@@ -16,9 +16,13 @@ services:
       - RUST_LOG=info
       - HOST=0.0.0.0
       - PORT=3000
+      - REDIS_ENABLED=false
+      - FILE_STORAGE_PATH=/var/lib/matric/files
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - files:/var/lib/matric/files
     restart: unless-stopped
 
   db:
@@ -30,8 +34,7 @@ services:
       - POSTGRES_PASSWORD=matric
       - POSTGRES_DB=matric
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql
     ports:
       - "5432:5432"
     healthcheck:
@@ -58,3 +61,4 @@ services:
 
 volumes:
   pgdata:
+  files:
