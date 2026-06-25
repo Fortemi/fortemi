@@ -43,12 +43,12 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
 use matric_core::{
-    ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationServerMetadata,
-    BatchTagNoteRequest, ClientRegistrationRequest, CreateApiKeyRequest, CreateNoteRequest,
-    DocumentTypeRepository, EventBus, EventContext, EventEnvelope, ExtractionAdapter,
-    ExtractionStrategy, JobRepository, JobType, ListNotesRequest, NoteRepository, OAuthError,
-    RevisionMode, ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TokenRequest,
-    UpdateNoteStatusRequest,
+    AllowAllPolicy, ArchiveRepository, AttachmentStatus, AuthPrincipal, AuthorizationPolicy,
+    AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
+    CreateApiKeyRequest, CreateNoteRequest, Decision, DocumentTypeRepository, EventBus,
+    EventContext, EventEnvelope, ExtractionAdapter, ExtractionStrategy, JobRepository, JobType,
+    ListNotesRequest, NoteRepository, OAuthError, RevisionMode, ServerEvent, StrictTagFilterInput,
+    TagInput, TagRepository, TokenRequest, UpdateNoteStatusRequest,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_db::{Database, FileSource, FilesystemBackend};
@@ -696,6 +696,9 @@ struct AppState {
     default_archive_cache: Arc<RwLock<DefaultArchiveCache>>,
     /// Require authentication for protected routes (Issue #114).
     require_auth: bool,
+    /// Authorization policy decision point (#710). Starts with AllowAllPolicy to
+    /// preserve current CE/personal-server behavior while middleware wiring lands.
+    authorization_policy: Arc<dyn AuthorizationPolicy>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -1986,6 +1989,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(60),
         ))),
         require_auth: env_flag("REQUIRE_AUTH", true), // ADR-094: fail-closed default — see startup validation block in main()
+        authorization_policy: Arc::new(AllowAllPolicy),
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -2680,6 +2684,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            authorize_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -5074,6 +5082,61 @@ async fn auth_middleware(
                 });
                 next.run(request).await
             }
+        }
+    }
+}
+
+async fn authorize_middleware(
+    State(state): State<AppState>,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(auth) = request.extensions().get::<Auth>().cloned() else {
+        return next.run(request).await;
+    };
+    let Some(input) = request
+        .extensions()
+        .get::<route_policy::RoutePolicyInput>()
+        .cloned()
+    else {
+        return next.run(request).await;
+    };
+
+    match authorize_policy_input(state.authorization_policy.as_ref(), &auth, &input).await {
+        Ok(()) => next.run(request).await,
+        Err(response) => response,
+    }
+}
+
+async fn authorize_policy_input(
+    policy: &dyn AuthorizationPolicy,
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+) -> Result<(), axum::response::Response> {
+    match policy
+        .authorize(
+            &auth.principal,
+            &input.action,
+            &input.resource,
+            &input.context,
+        )
+        .await
+    {
+        Ok(Decision::Allow { .. }) => Ok(()),
+        Ok(Decision::Deny { reason, .. } | Decision::Indeterminate { reason, .. }) => {
+            let body = serde_json::json!({
+                "error": "forbidden",
+                "error_description": format!("Authorization denied: {:?}", reason),
+            });
+            Err((StatusCode::FORBIDDEN, Json(body)).into_response())
+        }
+        Err(err) => {
+            error!(error = %err, "authorization policy error");
+            let body = serde_json::json!({
+                "error": "forbidden",
+                "error_description": "Authorization policy error."
+            });
+            Err((StatusCode::FORBIDDEN, Json(body)).into_response())
         }
     }
 }
@@ -20474,6 +20537,7 @@ mod tests {
             ws_connections: Arc::new(AtomicUsize::new(0)),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -20513,6 +20577,52 @@ mod tests {
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
             idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         }
+    }
+
+    struct DenyAllPolicy;
+
+    #[async_trait::async_trait]
+    impl AuthorizationPolicy for DenyAllPolicy {
+        async fn authorize(
+            &self,
+            _principal: &AuthPrincipal,
+            _action: &matric_core::Action,
+            _resource: &matric_core::Resource,
+            _ctx: &matric_core::AuthzContext,
+        ) -> Result<Decision, matric_core::AuthzError> {
+            Ok(Decision::Deny {
+                reason: matric_core::DenyReason::MissingScope,
+                policy_id: self.policy_id().to_string(),
+                policy_version: self.policy_version().to_string(),
+            })
+        }
+
+        fn policy_id(&self) -> &'static str {
+            "deny-all-test"
+        }
+
+        fn policy_version(&self) -> &'static str {
+            "test"
+        }
+    }
+
+    #[tokio::test]
+    async fn authorize_policy_input_denies_with_forbidden_response() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+
+        let response = authorize_policy_input(&DenyAllPolicy, &auth, &input)
+            .await
+            .expect_err("deny policy should produce a forbidden response");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -20729,6 +20839,7 @@ mod tests {
             ws_connections: ws_connections.clone(),
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -21930,6 +22041,7 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -22258,6 +22370,7 @@ mod tests {
             ws_connections,
             default_archive_cache: Arc::new(RwLock::new(DefaultArchiveCache::new(60))),
             require_auth: false,
+            authorization_policy: Arc::new(AllowAllPolicy),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
