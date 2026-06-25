@@ -13,6 +13,14 @@ use thiserror::Error;
 
 use crate::AuthPrincipal;
 
+/// Regression budget for the first in-process policy implementation.
+///
+/// `RoleBasedPolicy` is intentionally a hot-path, in-process authorization
+/// gate. In debug/test builds this budget is loose enough to avoid benchmark
+/// flake, but it still prevents accidental network, database, filesystem, or
+/// other high-latency work from entering the policy decision path.
+pub const IN_PROCESS_POLICY_EVAL_TARGET_AVG_MICROS: u128 = 250;
+
 #[async_trait]
 pub trait AuthorizationPolicy: Send + Sync {
     /// Decide whether `principal` may perform `action` on `resource` in `ctx`.
@@ -461,6 +469,34 @@ mod tests {
                 policy_id: "role_based".to_string(),
                 policy_version: "2026-06-25".to_string(),
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn role_policy_stays_within_in_process_eval_budget() {
+        let principal = AuthPrincipal::OAuthClient {
+            client_id: "client".to_string(),
+            scope: "notes:read notes:write mcp:read".to_string(),
+            user_id: Some("user".to_string()),
+        };
+        let action = Action::rest("notes:update", "notes:write");
+        let resource = Resource::new(ResourceKind::Note).with_tenant("tenant-a");
+        let ctx = AuthzContext::hosted("tenant-a");
+
+        let iterations = 2_000u128;
+        let started = std::time::Instant::now();
+        for _ in 0..iterations {
+            let decision = RoleBasedPolicy
+                .authorize(&principal, &action, &resource, &ctx)
+                .await
+                .unwrap();
+            assert!(decision.is_allow());
+        }
+
+        let avg_micros = started.elapsed().as_micros() / iterations;
+        assert!(
+            avg_micros <= IN_PROCESS_POLICY_EVAL_TARGET_AVG_MICROS,
+            "average RoleBasedPolicy evaluation took {avg_micros}us; target is {IN_PROCESS_POLICY_EVAL_TARGET_AVG_MICROS}us"
         );
     }
 }
