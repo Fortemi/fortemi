@@ -5157,7 +5157,10 @@ fn check_scope_enforcement(
     _method: &axum::http::Method,
     path: &str,
 ) -> Option<axum::response::Response> {
-    // Admin routes require admin scope
+    // Transitional defense in depth for credential-management routes while
+    // #710 moves enforcement to AuthorizationPolicy. Route classification is
+    // delegated to the executable inventory so this helper cannot drift to a
+    // separate admin-route source of truth.
     if is_admin_route(path) && !principal.has_scope("admin") {
         let body = serde_json::json!({
             "error": "forbidden",
@@ -5169,9 +5172,9 @@ fn check_scope_enforcement(
         return Some((StatusCode::FORBIDDEN, Json(body)).into_response());
     }
 
-    // NOTE: Write scope enforcement is intentionally disabled for now.
-    // All authenticated users get read+write access. Scope infrastructure
-    // is in place for future multi-tenancy. Only admin routes are gated.
+    // NOTE: Legacy method-level write checks stay disabled here. The
+    // AuthorizationPolicy middleware owns write/admin/tool authorization;
+    // this helper remains only as a transitional guard for credential routes.
 
     None
 }
@@ -20781,6 +20784,84 @@ mod tests {
         authorize_policy_input(&RoleBasedPolicy, &auth, &input)
             .await
             .expect("write principal should mutate notes");
+    }
+
+    #[tokio::test]
+    async fn role_policy_denies_non_admin_credential_management() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
+                .expect("api key route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("non-admin principal must not manage credentials");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn role_policy_allows_admin_credential_management() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "admin".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/api-keys", None)
+                .expect("api key route has policy input");
+
+        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect("admin principal should manage credentials");
+    }
+
+    #[tokio::test]
+    async fn role_policy_denies_non_admin_backup_restore() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/backup/database/restore",
+            None,
+        )
+        .expect("backup restore route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect_err("non-admin principal must not restore database backups");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn role_policy_allows_admin_backup_restore() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "admin".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/backup/database/restore",
+            None,
+        )
+        .expect("backup restore route has policy input");
+
+        authorize_policy_input(&RoleBasedPolicy, &auth, &input)
+            .await
+            .expect("admin principal should restore database backups");
     }
 
     #[test]
