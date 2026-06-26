@@ -16270,7 +16270,7 @@ async fn federated_search(
 // =============================================================================
 
 /// Per-memory statistics in the overview response.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct MemoryBreakdown {
     name: String,
     note_count: i32,
@@ -16279,8 +16279,20 @@ struct MemoryBreakdown {
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
+impl std::fmt::Debug for MemoryBreakdown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryBreakdown")
+            .field("name_len", &telemetry_text_len(&self.name))
+            .field("note_count", &self.note_count)
+            .field("size_bytes", &self.size_bytes)
+            .field("is_default", &self.is_default)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Aggregate overview of all running memories.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct MemoriesOverviewResponse {
     /// Total number of memories (archives) currently active.
     memory_count: i64,
@@ -16300,6 +16312,28 @@ struct MemoriesOverviewResponse {
     database_size_human: String,
     /// Per-memory breakdown sorted by note count descending.
     memories: Vec<MemoryBreakdown>,
+}
+
+impl std::fmt::Debug for MemoriesOverviewResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoriesOverviewResponse")
+            .field("memory_count", &self.memory_count)
+            .field("max_memories", &self.max_memories)
+            .field("remaining_slots", &self.remaining_slots)
+            .field("total_notes", &self.total_notes)
+            .field("total_size_bytes", &self.total_size_bytes)
+            .field(
+                "total_size_human_len",
+                &telemetry_text_len(&self.total_size_human),
+            )
+            .field("database_size_bytes", &self.database_size_bytes)
+            .field(
+                "database_size_human_len",
+                &telemetry_text_len(&self.database_size_human),
+            )
+            .field("memory_count_detail", &self.memories.len())
+            .finish()
+    }
 }
 
 /// GET /api/v1/memories/overview
@@ -37301,6 +37335,51 @@ mod tests {
             !yaml.contains("#/definitions/"),
             "Found leftover #/definitions/ ref in AsyncAPI YAML"
         );
+    }
+
+    #[test]
+    fn memories_overview_debug_redacts_memory_names_and_size_labels() {
+        let response = MemoriesOverviewResponse {
+            memory_count: 1,
+            max_memories: 4,
+            remaining_slots: 3,
+            total_notes: 12,
+            total_size_bytes: 1024,
+            total_size_human: "operator@example.com 1 KiB /srv/fortemi/private".to_string(),
+            database_size_bytes: 2048,
+            database_size_human: "postgres://user:secret@db.internal/fortemi".to_string(),
+            memories: vec![MemoryBreakdown {
+                name: "tenant-secret@example.com sk-live-memory-name /srv/archive".to_string(),
+                note_count: 12,
+                size_bytes: 1024,
+                is_default: true,
+                created_at: chrono::Utc::now(),
+            }],
+        };
+
+        let rendered = format!("{response:?}");
+        let rendered_memory = format!("{:?}", response.memories[0]);
+        let combined = format!("{rendered}\n{rendered_memory}");
+
+        for forbidden in [
+            "operator@example.com",
+            "/srv/fortemi/private",
+            "postgres://user:secret@db.internal/fortemi",
+            "tenant-secret@example.com",
+            "sk-live-memory-name",
+            "/srv/archive",
+        ] {
+            assert!(
+                !combined.contains(forbidden),
+                "memories overview Debug leaked {forbidden}: {combined}"
+            );
+        }
+
+        assert!(rendered.contains("memory_count"));
+        assert!(rendered.contains("total_size_human_len"));
+        assert!(rendered.contains("database_size_human_len"));
+        assert!(rendered_memory.contains("name_len"));
+        assert!(rendered_memory.contains("note_count"));
     }
 
     #[test]
